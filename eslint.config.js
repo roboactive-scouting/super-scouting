@@ -23,4 +23,30 @@ export default tseslint.config(
       'no-console': ['warn', { allow: ['warn', 'error'] }],
     },
   },
+  {
+    files: ['packages/shared/src/**/*.ts'],
+    ignores: ['packages/shared/src/**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: ['fs', 'path', 'crypto', 'os', 'child_process'],
+          patterns: [
+            {
+              group: ['node:*'],
+              message: 'packages/shared must stay browser-safe (SPEC-FINAL 16.1)',
+            },
+            {
+              group: ['@supabase/supabase-js'],
+              message: 'no service-role client in shared code (SPEC-FINAL 16.1)',
+            },
+          ],
+        },
+      ],
+      'no-restricted-globals': [
+        'error',
+        { name: 'process', message: 'packages/shared reads no environment variables' },
+      ],
+    },
+  },
 );

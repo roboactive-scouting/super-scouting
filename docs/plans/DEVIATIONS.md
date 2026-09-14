@@ -99,3 +99,40 @@ Error: Failed to load url ./version (resolved id: ./version) in C:/dev/frc-scout
 **What I did instead:** accepted it — same file, same cause (the module does not exist yet), same red.
 
 **Risk:** None. Noted only because later tasks quote expected error strings too, and they should be read as "this failure, in this file", not as literal text to match.
+
+---
+
+## Task 0.2 — the `Caller` union in `caller.ts` is not Prettier-formatted
+
+**Plan said:**
+
+```ts
+export type Caller =
+  | { kind: 'user'; userId: string; role: Role }
+  | { kind: 'service'; label: string };
+```
+
+**What was wrong:** Prettier collapses that onto one line, because the collapsed form is 84 characters and fits inside `printWidth: 100`. `pnpm format:check` therefore failed on `packages/shared/src/caller.ts`.
+
+**What I did instead:** ran `pnpm format` and kept Prettier's single-line union. The type is identical; only the line breaks moved. Re-ran the shared suite afterwards to confirm the reformat broke nothing — 13 tests, all green.
+
+**Risk:** None. Worth knowing only because the plan quotes source it did not run Prettier over, so the same one-line collapse will keep happening in later tasks.
+
+---
+
+## Task 0.2 — the ESLint guard was proved, not assumed
+
+**Plan said:** Step 4 inserts a `no-restricted-imports` / `no-restricted-globals` block scoped to `files: ['packages/shared/src/**/*.ts']`, and step 5 verifies with `pnpm lint`, which passes whether or not the new block is reachable.
+
+**What was wrong:** nothing was wrong, but the stated verification cannot fail. `packages/shared`'s lint script is `eslint src` run from inside `packages/shared`, while the flat-config pattern is written repo-root-relative. If the base path did not resolve to the repo root, the guard would silently match nothing and `pnpm lint` would still be green — the browser-safety rule would exist and enforce nothing.
+
+**What I did instead:** wrote a throwaway `packages/shared/src/__guard-probe.ts` importing `node:path`, ran `pnpm --filter @frc/shared lint`, and saw it rejected:
+
+```
+1:1  error  'node:path' import is restricted from being used by a pattern.
+            packages/shared must stay browser-safe (SPEC-FINAL 16.1)  no-restricted-imports
+```
+
+then deleted the probe. The guard is reachable from the package-local script. Nothing about the plan's config was changed.
+
+**Risk:** None. Recorded because "the rule is in the file" and "the rule fires" are different claims, and only the second one is worth anything.
