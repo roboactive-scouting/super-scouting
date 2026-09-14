@@ -280,3 +280,79 @@ Worth noting before anyone panics: WCAG 1.4.11 applies to boundaries that are th
 **One line of the skill disagreed with §17 and lost:** "*Leverage motion deliberately. Think about where and if animation can serve the subject: a page-load sequence, a scroll-triggered reveal, hover micro-interactions, ambient atmosphere.*" The global constraints forbid all four on the data-entry path. No animation of any kind was added in this task or the next.
 
 **Risk:** None.
+
+---
+
+## Task 0.5 — `virtual:pwa-register` cannot resolve under Vitest
+
+**Plan said:** `apps/client/src/pwa.ts` contains
+
+```ts
+const { registerSW } = await import('virtual:pwa-register');
+```
+
+and step 5 expects `pnpm --filter @frc/client exec vitest run` green.
+
+**What was wrong:** `virtual:pwa-register` is a *virtual* module invented by the `VitePWA` plugin, and that plugin is configured in `vite.config.ts`. Vitest loads `vitest.config.ts`, a separate config that never mentions VitePWA, so the specifier resolves to nothing:
+
+```
+FAIL  src/pwa.test.ts [ src/pwa.test.ts ]
+Error: Failed to resolve import "virtual:pwa-register" from "src/pwa.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: C:/dev/frc-scouting/apps/client/src/pwa.ts:23:42
+```
+
+The import is inside `browserAdapter()`, which no test calls — but Vite resolves imports at transform time, so the whole module fails to load and takes all three `pwa.test.ts` cases with it. Task 0.5 cannot be green as written.
+
+**What I did instead:** left `src/pwa.ts` exactly as the plan wrote it — it is correct for the real build, which does load the plugin — and confined the fix to test configuration. Added `apps/client/src/test/pwa-register-stub.ts` (a `registerSW` that returns a resolved promise, with a comment explaining why it exists) and aliased the virtual specifier to it in `vitest.config.ts`, next to the existing `@` alias. `src/test/` is already where the client's test harness lives, alongside `setup.ts`.
+
+The alternative — loading VitePWA inside `vitest.config.ts` — was rejected: it would generate a service worker and a precache manifest on every test run, for one dynamic import that no test exercises.
+
+**Risk:** The stub silently satisfies the import, so if `browserAdapter()`'s real contract ever drifts from `registerSW({ immediate, onNeedRefresh })`, the tests will not notice. The registration behaviour that actually matters — no auto-reload, ever — is tested against the injected `PwaAdapter`, not against this stub, so the part SPEC-FINAL 9.1 cares about is still covered.
+
+---
+
+## Task 0.5 — `tsconfig.app.json` type reference restored here
+
+**Plan said:** task 0.5's file list names `vite.config.ts`, `index.html`, `package.json` and `src/styles/index.css` as the files it modifies.
+
+**What was wrong:** incomplete, as a consequence of the task 0.4 entry above. `src/pwa.ts` imports `virtual:pwa-register`, whose types come from `vite-plugin-pwa/client`.
+
+**What I did instead:** added `"vite-plugin-pwa/client"` back to `types` in `apps/client/tsconfig.app.json` in this commit, the same one that installs the package. `pnpm typecheck` is green across all four projects.
+
+**Risk:** None.
+
+---
+
+## Task 0.5 — the build output list differs from the plan's prediction
+
+**Plan said:** Expected: the build prints `PWA v0.21.x` and lists `dist/sw.js` and `dist/manifest.webmanifest` among the emitted files.
+
+**What was wrong:** half right. The build prints
+
+```
+PWA v0.21.2
+mode      generateSW
+precache  26 entries (1574.19 KiB)
+files generated
+  dist/sw.js
+  dist/workbox-2fbc6a65.js
+```
+
+`dist/manifest.webmanifest` is **not** in that list — vite-plugin-pwa 0.21.2 lists only the service worker and its Workbox chunk there.
+
+**What I did instead:** verified the manifest directly rather than trusting the summary line. `dist/manifest.webmanifest` exists, contains the exact SPEC-FINAL 17.8 identity (`"name":"ROBACTIVE Scouting"`, `"short_name":"Scouting"`, `"display":"standalone"`, both colours `#0A0A0B`, `"orientation":"any"`, all three icons with the maskable variant), is referenced from `dist/index.html`, and appears in `dist/sw.js`'s precache list. Both Apple touch icon links are in the built HTML too. All 26 precache entries include the `woff2` faces.
+
+**Risk:** None. Logged because the plan's expected output is the thing a reviewer checks against, and it does not match reality.
+
+---
+
+## Task 0.5 — `frontend-design` again, and what was deliberately not added
+
+**Plan said:** implement `<Logo />` on its `--brand-plate` plate.
+
+**What was wrong:** nothing.
+
+**What I did instead:** kept the plan's component exactly. Recorded here only to confirm the override held for a second task: no hover treatment, no entrance transition and no ambient effect was added to the logo, the shell, or the install surface — the skill's *Leverage motion deliberately* paragraph proposes all three, and the global constraints forbid them on the data-entry path. The component reads `--brand-plate` and `--brand` through the `.brand-plate` class; no hex appears anywhere in `Logo.tsx`. Brand yellow is confined to the near-black plate in both themes, so §17.4's 1.23:1-on-white hazard cannot occur.
+
+**Risk:** None.

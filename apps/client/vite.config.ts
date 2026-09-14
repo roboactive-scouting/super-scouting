@@ -3,6 +3,7 @@ import { fileURLToPath, URL } from 'node:url';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
 
 function gitShortSha(): string {
   try {
@@ -13,7 +14,38 @@ function gitShortSha(): string {
 }
 
 export default defineConfig(() => ({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    VitePWA({
+      registerType: 'prompt', // never auto-reload; activate on the next cold start
+      injectRegister: null,
+      manifest: {
+        name: 'ROBACTIVE Scouting',
+        short_name: 'Scouting',
+        display: 'standalone',
+        orientation: 'any',
+        theme_color: '#0A0A0B',
+        background_color: '#0A0A0B',
+        start_url: '/',
+        icons: [
+          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+          {
+            src: '/icons/icon-512-maskable.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+        ],
+      },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,woff2,webp,png,svg}'],
+        navigateFallback: '/index.html',
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
+      },
+    }),
+  ],
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   // SPEC-FINAL 18.1: Android Chrome from the last ~2 years, iOS Safari 16+.
   build: { target: ['chrome111', 'safari16'] },

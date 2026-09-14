@@ -1,3 +1,6 @@
+@import '@fontsource-variable/inter/index.css';
+@import '@fontsource/noto-sans-hebrew/400.css';
+@import '@fontsource/noto-sans-hebrew/600.css';
 @import 'tailwindcss';
 @import './tokens.css';
 
