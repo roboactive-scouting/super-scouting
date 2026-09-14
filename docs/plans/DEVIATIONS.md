@@ -356,3 +356,40 @@ files generated
 **What I did instead:** kept the plan's component exactly. Recorded here only to confirm the override held for a second task: no hover treatment, no entrance transition and no ambient effect was added to the logo, the shell, or the install surface — the skill's *Leverage motion deliberately* paragraph proposes all three, and the global constraints forbid them on the data-entry path. The component reads `--brand-plate` and `--brand` through the `.brand-plate` class; no hex appears anywhere in `Logo.tsx`. Brand yellow is confined to the near-black plate in both themes, so §17.4's 1.23:1-on-white hazard cannot occur.
 
 **Risk:** None.
+
+---
+
+## Task 0.6 — `--check` was proved to fail, not assumed to
+
+**Plan said:** step 4 expects `pnpm env:example:check` to exit 0 and print nothing.
+
+**What was wrong:** nothing, but as with the ESLint guard in task 0.2, a check that has only ever been seen passing is not yet known to work. This one is the CI gate that stops a real secret reaching the repo (task 0.15 runs it), so it is worth more than an assumption.
+
+**What I did instead:** appended a fake filled-in line to `apps/server/.env.example` and re-ran the check:
+
+```
+drift: C:\dev\frc-scouting\apps\server\.env.example does not match docs/ops/ENVIRONMENT.md
+Run `pnpm env:example` and commit the result.
+exit=1
+```
+
+Then regenerated and confirmed it goes green again. Also confirmed the two things that actually matter about this generator:
+
+- **No worksheet value leaked.** §2's `SUPABASE_URL` row holds both real project URLs in its value columns. Neither appears in the output — `grep -rnE "supabase\.co|eyJ|https://"` over both generated files prints nothing, and step 5's `clean: names and placeholders only` is the real output, not a prediction.
+- **`.gitignore` behaves as intended in both directions.** `git status` tracks both `.env.example` files, and `git check-ignore -v apps/server/.env` reports `.gitignore:7:.env` — a real `.env` cannot be committed by accident.
+
+No plan file was changed.
+
+**Risk:** None.
+
+---
+
+## Task 0.6 — `docs/ops/ENVIRONMENT.md` was read and never written
+
+**Plan said:** the generator reads §1 and §2 of the worksheet.
+
+**What was wrong:** nothing. Recorded because a parallel session owns that file for the duration of this run.
+
+**What I did instead:** read §1 and §2 only. The file was never staged, edited or reverted, and `git status -- docs/ops/ENVIRONMENT.md` is empty at this commit. The §3 table — which has gained a "Value (non-secret only)" column and some filled-in non-secret values — is not parsed: `parseSection` stops at the next `\n## ` heading, so the client section ends at `## 2.` and the server section ends at `## 3.`. Confirmed by the generated output, which contains exactly the seven server and three client variables from §1 and §2 and nothing from §3.
+
+**Risk:** None. If §3 is ever renumbered so that a `## ` heading stops separating the tables, the server section would swallow it; the `--check` drift gate would catch that on the next CI run rather than silently emitting GitHub Actions secret names into a `.env.example`.

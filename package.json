@@ -10,6 +10,8 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "env:example": "node scripts/gen-env-example.mjs",
+    "env:example:check": "node scripts/gen-env-example.mjs --check",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "vitest run",
