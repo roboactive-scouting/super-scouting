@@ -1,0 +1,57 @@
+/* SPEC-FINAL 17.4. Components never hard-code a hex; they read these tokens. */
+:root,
+[data-theme='dark'] {
+  --bg: #0A0A0B;
+  --surface: #18181B;
+  --surface-raised: #27272A;
+  --border: #3F3F46;
+  --text: #FAFAFA;
+  --text-muted: #A1A1AA;
+  --brand: #FFEA07;
+  --brand-plate: #0A0A0B;
+  --on-brand: #0A0A0B;
+  --focus: #FFEA07;
+
+  --status-played: #22C55E;
+  --status-broke-down: #F97316;
+  --status-disabled: #C2410C;
+  --status-no-show: #71717A;
+  --danger: #EF4444;
+  --warning: #F97316;
+  --sync-offline: #EF4444;
+  --sync-syncing: #F97316;
+  --sync-online: #22C55E;
+
+  --shade-worst: #B91C1C;
+  --shade-mid: #8A8060;
+  --shade-best: #15803D;
+
+  --text-scale: 1;
+}
+
+[data-theme='outdoor'] {
+  --bg: #FFFFFF;
+  --surface: #F4F4F5;
+  --surface-raised: #E4E4E7;
+  --border: #52525B;
+  --text: #09090B;
+  --text-muted: #3F3F46;
+  --brand: #FFEA07; /* only ever on --brand-plate */
+  --brand-plate: #0A0A0B;
+  --on-brand: #0A0A0B;
+  --focus: #09090B;
+
+  --status-played: #15803D;
+  --status-broke-down: #C2410C;
+  --status-disabled: #9A3412;
+  --status-no-show: #52525B;
+  --danger: #B91C1C;
+  --warning: #C2410C;
+  --sync-offline: #B91C1C;
+  --sync-syncing: #C2410C;
+  --sync-online: #15803D;
+
+  --shade-worst: #B91C1C;
+  --shade-mid: #7C7455;
+  --shade-best: #15803D;
+}

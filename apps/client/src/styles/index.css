@@ -1,0 +1,54 @@
+@import 'tailwindcss';
+@import './tokens.css';
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-brand: var(--brand);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-hebrew: 'Noto Sans Hebrew', 'Inter', system-ui, sans-serif;
+}
+
+html {
+  font-size: calc(100% * var(--text-scale));
+  color-scheme: dark;
+}
+
+[data-theme='outdoor'] {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-text-size-adjust: 100%;
+}
+
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* SPEC-FINAL 17.7: the accessibility floor, applied to every tappable control. */
+.tap-target {
+  min-inline-size: 48px;
+  min-block-size: 48px;
+}
+
+.tap-row > * + * {
+  margin-inline-start: 8px;
+}
+
+/* SPEC-FINAL 17.4: brand yellow is legible only on a near-black plate. */
+.brand-plate {
+  background: var(--brand-plate);
+  color: var(--brand);
+}

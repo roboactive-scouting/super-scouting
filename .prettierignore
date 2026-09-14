@@ -1,6 +1,8 @@
 docs/
 pnpm-lock.yaml
 packages/db/src/database.types.ts
+# a transcription of the SPEC-FINAL 17.4 table; Prettier would lowercase its hex
+apps/client/src/styles/tokens.css
 packages/shared/src/season/manifest.ts
 **/dist/
 **/.turbo/
