@@ -12,6 +12,7 @@
     "dev": "turbo run dev",
     "env:example": "node scripts/gen-env-example.mjs",
     "env:example:check": "node scripts/gen-env-example.mjs --check",
+    "docs:check": "node scripts/check-docs.mjs",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "vitest run",

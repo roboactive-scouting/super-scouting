@@ -393,3 +393,128 @@ No plan file was changed.
 **What I did instead:** read §1 and §2 only. The file was never staged, edited or reverted, and `git status -- docs/ops/ENVIRONMENT.md` is empty at this commit. The §3 table — which has gained a "Value (non-secret only)" column and some filled-in non-secret values — is not parsed: `parseSection` stops at the next `\n## ` heading, so the client section ends at `## 2.` and the server section ends at `## 3.`. Confirmed by the generated output, which contains exactly the seven server and three client variables from §1 and §2 and nothing from §3.
 
 **Risk:** None. If §3 is ever renumbered so that a `## ` heading stops separating the tables, the server section would swallow it; the `--check` drift gate would catch that on the next CI run rather than silently emitting GitHub Actions secret names into a `.env.example`.
+
+---
+
+## Task 0.7 — the failing-first run fails one step earlier than predicted
+
+**Plan said:** Step 2 — Expected: `ENOENT: no such file or directory, open 'docs/ops/SETUP.md'`.
+
+**What was wrong:** step 1 creates only `scripts/check-docs.test.ts`, and that test imports `./check-docs.mjs`, which step 3 creates. So the first run cannot reach the `readFileSync` that produces the ENOENT; it dies at module resolution:
+
+```
+FAIL |scripts| scripts/check-docs.test.ts [ scripts/check-docs.test.ts ]
+Error: Failed to load url ./check-docs.mjs (resolved id: ./check-docs.mjs) in
+C:/dev/frc-scouting/scripts/check-docs.test.ts. Does the file exist?
+```
+
+**What I did instead:** ran it in two stages so both reds were actually observed. First the resolution failure above; then, after writing `scripts/check-docs.mjs` but before writing the documents, the red the plan predicted:
+
+```
+→ ENOENT: no such file or directory, open 'C:\dev\frc-scouting\docs\ops\SETUP.md'
+Test Files  1 failed | 1 passed (2)
+Tests  2 failed | 7 passed (9)
+```
+
+Only then were the two documents written. No plan step was skipped or reordered.
+
+**Risk:** None.
+
+---
+
+## Task 0.7 — `docs:check` was proved to fail
+
+**Plan said:** step 6 expects `ops documentation complete`.
+
+**What was wrong:** nothing. Same reasoning as the task 0.2 and 0.6 entries: a green check that has never been seen red is not yet evidence.
+
+**What I did instead:** renamed `## New-season checklist` to `## New season checklist` in a scratch copy and re-ran:
+
+```
+docs/ops/SETUP.md is missing sections: New-season checklist
+exit=1
+```
+
+Restored the file and confirmed `ops documentation complete` again. The heading list is genuinely enforced, and it is exact-match — a section renamed by one hyphen is caught.
+
+**Risk:** Exact-match means a legitimate future rename of a section has to be made in two places, `check-docs.mjs` and the document. That is the intended behaviour: the point of the check is that a required section cannot be dropped quietly.
+
+---
+
+## Task 0.7 — the Vercel Root Directory ordering constraint
+
+**Plan said:** nothing about it. The plan's Vercel sections (step 5, items 5 and 6) describe the settings to enter but not when the projects can be created.
+
+**What was wrong:** an omission with real consequences. Vercel validates the Root Directory against the repository tree at import time and refuses a path that is not there — the value cannot even be typed. Both Vercel projects are therefore **impossible to create** until `apps/client/` and `apps/server/` exist on a branch that has been pushed. Verified by hand on 2026-09-14 against this repository and this account; not inferred from documentation.
+
+**What I did instead:** wrote it into both Vercel sections of `SETUP.md` as a hard ordering constraint with its own heading-level emphasis and a three-step order (scaffold → push → import), not as a footnote. Both sections also say what goes wrong if you import first: a project rooted at the repository root that builds nothing, needing the Root Directory fixed afterwards.
+
+**Risk:** None. It removes a failure mode from the provisioning gate rather than adding one.
+
+---
+
+## Task 0.7 — the review pass found a backup procedure that would not have backed anything up
+
+**Plan said:** step 5, item 8 — "**Backup: `supabase db dump`** — the exact command, where to save the file, and the standing rule that it is a checklist line before every event and at the end of every season."
+
+**What was wrong:** I wrote the command as the plan and `RUNBOOK.md` both spell it — a bare `supabase db dump -f <file>` — and a subagent review caught that this is **schema-only**. Verified directly:
+
+```
+$ npx -y supabase@latest db dump --help
+DESCRIPTION
+  Dumps data or schemas from the remote database.
+FLAGS
+  --data-only              Dumps only data records.
+  --use-copy               Use copy statements in place of inserts.
+```
+
+So the one documented safety net — which `SETUP.md` itself calls "the only copy of a season that exists outside the live database" — would have produced a file containing the table definitions and none of the entries. Silently, with no error, and nobody would find out until a restore was attempted.
+
+Two further defects in the same section, also from the review and also verified:
+
+- **The dump landed inside the repository.** `pnpm --filter @frc/db exec` runs with its working directory set to the package — confirmed: `pnpm --filter @frc/server exec node -e "console.log(process.cwd())"` prints `C:\dev\frc-scouting\apps\server`. So `-f "name.sql"` writes into `packages/db/`, in the working tree.
+- **And the document claimed git would stop that, which was false.** `.gitignore` as written by task 0.1 has no `*.sql` rule — `grep -n sql .gitignore` matched nothing. A student following the document literally would have done the exact thing the document forbids while being told they could not.
+
+**What I did instead:** rewrote the section. Two dumps, schema and `--data-only --use-copy`, both written to `~/frc-backups/` outside the repository; a "look at the file before you trust it — megabytes of `COPY`, not kilobytes of `CREATE TABLE`" check; and the deleted false claim replaced with the real reason the path matters. Added a narrow `*.backup.sql` rule to `.gitignore` as a second line of defence, with a comment saying why it is **not** `*.sql`: `packages/db/supabase/migrations/*.sql` must stay committable. Proved both halves:
+
+```
+$ git check-ignore -v packages/db/prod-data-2026-09-14.backup.sql
+.gitignore:14:*.backup.sql	packages/db/prod-data-2026-09-14.backup.sql
+$ git check-ignore -v packages/db/supabase/migrations/0001_init.sql
+(no match — migration NOT ignored, correct)
+```
+
+Also added a note that the CLI shells `pg_dump` into a container and may need Docker, and that the procedure should be proved once on a quiet day rather than at an event.
+
+**Risk:** **`RUNBOOK.md` still says the bare command**, at its pre-event checklist line "Run `supabase db dump` and save the file off-platform." The plan gives `RUNBOOK.md` as verbatim text and I did not alter it, so the two ops documents now disagree: `SETUP.md` is right and `RUNBOOK.md` is wrong on the single most consequential command in the project. **That line needs fixing, and it is the one thing from this run I would fix first.** It was left alone here only because rewriting a document the plan supplies verbatim is a larger call than a deviation entry should make on its own.
+
+---
+
+## Task 0.7 — six further review findings, fixed
+
+**Plan said:** various parts of step 5's eleven items.
+
+**What was wrong:** the same review pass found six smaller defects. Each was verified before acting; none is a plan error except the first.
+
+1. **`apps/client/vercel.json` does not exist.** Plan item 5 says the client's "build and install commands come from `apps/client/vercel.json`". `ls apps/*/vercel.json` returns only `apps/server/vercel.json`; the client one is created by the final phase-0 task, *after* the Vercel import the sentence appears in. So the plan's own sentence is false at the moment a reader executes it. Rewrote it to describe what actually applies — Vercel's Vite preset defaults — and to say the file arrives later. The server section was already correct and names a file that exists.
+2. **Local `.env` files were never covered.** `ENVIRONMENT.md` §5 was the only worksheet section `SETUP.md` never cross-referenced, so a reader could follow the whole document and still not be able to run `pnpm dev`. Added a **Running it locally** section: copy both `.env.example` files, what to put in each, and "local always points at dev, never production".
+3. **"Follow it top to bottom" was contradicted by three of its own sections.** Scoped the opening promise to name all three exceptions up front instead of discovering them mid-document.
+4. **Premature tick instructions.** Two steps told the reader to tick `ENVIRONMENT.md` §4's Server rows after setting two of the seven variables those rows stand for. Since ticking the worksheet *is* the whole handshake, a premature tick is a false completeness signal. Moved both ticks to the end of **Vercel — server project**.
+5. **`VITE_APP_VERSION` disagreement between the two ops documents.** `ENVIRONMENT.md` §4 lists it among the variables to set on both Client rows; §1 marks it *(auto)*, and `apps/client/vite.config.ts` does inject it from `VERCEL_GIT_COMMIT_SHA`. §1 is right and §4 is stale. I may not edit `ENVIRONMENT.md` during this run, so `SETUP.md` now says which of the two is correct and why, rather than silently contradicting the worksheet the reader is ticking.
+6. **`database: error` means two different things.** `SETUP.md` said it was expected before migrations; `RUNBOOK.md` says it means the project is paused. Both are true in their own era. Added the disambiguation to `SETUP.md`, since `RUNBOOK.md` is verbatim.
+
+Separately, replaced every bare plan-task number (`task 0.8`, `task 0.15`, `task 0.16`, `task 1.23`) with a description of the thing itself. `SETUP.md` is written for a maintainer arriving years from now, and `IMPLEMENTATION-PLAN.md` is a phase-0 artefact whose numbering will mean nothing to them.
+
+**What I did instead:** all six fixed in `SETUP.md`; `pnpm docs:check` still prints `ops documentation complete`, the scripts suite is 9/9, and neither document contains a JWT-shaped or Supabase-key-shaped string.
+
+**Risk:** Finding 5 leaves a known disagreement standing in `ENVIRONMENT.md` §4. It should be corrected there — by the session that owns that file — and the paragraph in `SETUP.md` removed once it is.
+
+---
+
+## Task 0.7 — what the review pass confirmed rather than changed
+
+**Plan said:** step 4 supplies `RUNBOOK.md` verbatim; steps 1 and 3 supply the checker and its test verbatim.
+
+**What was wrong:** nothing, and it is worth recording that this was checked rather than assumed. The review extracted the fenced `RUNBOOK.md` block from the plan and compared it byte for byte with the delivered file: identical, `md5 bb919bed357525432256ff63c973549e` on both. `scripts/check-docs.mjs` and `scripts/check-docs.test.ts` are verbatim from the plan. Every `ENVIRONMENT.md` cross-reference in `SETUP.md` points at the right section, all ten variable names match `ENVIRONMENT.md` and SPEC-FINAL Appendix B exactly, all eight GitHub secrets match §3, both project refs are correct throughout, and the `/health` response shape quoted in the document matches `apps/server/src/app.ts` exactly.
+
+**Risk:** None.

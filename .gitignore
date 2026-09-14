@@ -8,3 +8,7 @@ coverage/
 .env.*
 !.env.example
 .DS_Store
+
+# database dumps — they contain every user row and never belong in the repository.
+# Deliberately NOT *.sql: packages/db/supabase/migrations/*.sql must be committed.
+*.backup.sql
