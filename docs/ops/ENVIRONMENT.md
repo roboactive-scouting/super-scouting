@@ -42,7 +42,7 @@ Everything secret lives here. Server-side only. Never in a client bundle, never 
 
 | Variable | What it is | Where you get it | Secret? | Dev / Preview value | Production value | Set? |
 |---|---|---|---|---|---|:---:|
-| `SUPABASE_URL` | Project REST URL | Supabase → Project Settings → API | No | ` ` | ` ` | ☐ |
+| `SUPABASE_URL` | Project REST URL | Supabase → Project Settings → API | No | `https://oqvoqddoizhhwvjwejtm.supabase.co` | `https://ezrgtroyofuxkkktnino.supabase.co` | ☐ |
 | `SUPABASE_SERVICE_ROLE_KEY` | Full database access | Supabase → Project Settings → API | **YES** | *(never written here)* | *(never written here)* | ☐ |
 | `AUTH_JWT_SECRET` | HS256 signing secret for session tokens | Generate: `openssl rand -base64 48`. **A different one per environment.** | **YES** | *(never written here)* | *(never written here)* | ☐ |
 | `AUTH_TOKEN_TTL_DAYS` | Session lifetime. Default `30` | Configuration | No | `30` | `30` | ☐ |
@@ -54,16 +54,16 @@ Everything secret lives here. Server-side only. Never in a client bundle, never 
 
 Needed by CI, by the dev migration step, and by the keep-alive workflow. Set at **Settings → Secrets and variables → Actions**.
 
-| Secret | Used by | Where you get it | Secret? | Set? |
-|---|---|---|---|:---:|
-| `SUPABASE_ACCESS_TOKEN` | `supabase` CLI login in CI | Supabase → Account → Access Tokens | **YES** | ☐ |
-| `SUPABASE_DEV_PROJECT_REF` | `supabase link` to the dev project | Supabase → Project Settings → General | No, but keep it here | ☐ |
-| `SUPABASE_DEV_DB_PASSWORD` | `supabase db push` to dev | Set when you created the dev project | **YES** | ☐ |
-| `SMOKE_API_BASE_URL` | Smoke suite target | The dev or preview server deployment URL | No | ☐ |
-| `SMOKE_SUPABASE_URL` | Smoke suite `CI` season setup/teardown | Dev project | No | ☐ |
-| `SMOKE_SUPABASE_SERVICE_ROLE_KEY` | Same | Dev project | **YES** | ☐ |
-| `HEALTHCHECK_DEV_URL` | Twice-weekly keep-alive | `https://<dev-server>/health` | No | ☐ |
-| `HEALTHCHECK_PROD_URL` | Twice-weekly keep-alive | `https://<prod-server>/health` | No | ☐ |
+| Secret | Used by | Where you get it | Secret? | Value (non-secret only) | Set? |
+|---|---|---|---|---|:---:|
+| `SUPABASE_ACCESS_TOKEN` | `supabase` CLI login in CI | Supabase → Account → Access Tokens | **YES** | *(never written here)* | ☑ |
+| `SUPABASE_DEV_PROJECT_REF` | `supabase link` to the dev project | Supabase → Project Settings → General | No, but keep it here | `oqvoqddoizhhwvjwejtm` | ☐ |
+| `SUPABASE_DEV_DB_PASSWORD` | `supabase db push` to dev | Set when you created the dev project | **YES** | *(never written here)* | ☑ |
+| `SMOKE_API_BASE_URL` | Smoke suite target | The dev or preview server deployment URL | No | ` ` | ☐ |
+| `SMOKE_SUPABASE_URL` | Smoke suite `CI` season setup/teardown | Dev project | No | `https://oqvoqddoizhhwvjwejtm.supabase.co` | ☐ |
+| `SMOKE_SUPABASE_SERVICE_ROLE_KEY` | Same | Dev project | **YES** | *(never written here)* | ☐ |
+| `HEALTHCHECK_DEV_URL` | Twice-weekly keep-alive | `https://<dev-server>/health` | No | ` ` | ☐ |
+| `HEALTHCHECK_PROD_URL` | Twice-weekly keep-alive | `https://<prod-server>/health` | No | ` ` | ☐ |
 
 **Production is deliberately absent from this table.** CI never touches the production Supabase project — production migrations are applied by hand, one deliberate CLI command, from your machine.
 
@@ -95,9 +95,9 @@ Each must be transferable to a team-owned account later, so **nothing may depend
 
 | Account | Purpose | Owner today | Transfer target | Done? |
 |---|---|---|---|:---:|
-| GitHub | The repository, CI, the keep-alive workflow | ` ` | team-owned | ☐ |
-| Supabase — **dev** project | Development, preview, CI | ` ` | team-owned | ☐ |
-| Supabase — **prod** project | Production | ` ` | team-owned | ☐ |
+| GitHub | The repository, CI, the keep-alive workflow | `roboactive-scouting` (GitHub org, public repo `super-scouting`) | already org-owned — hand over by adding org owners | ☑ |
+| Supabase — **dev** project | Development, preview, CI. Project `frc-scouting-dev`, ref `oqvoqddoizhhwvjwejtm`, region `eu-central-1` (Frankfurt) | team Google account | team-owned | ☑ |
+| Supabase — **prod** project | Production. Project `frc-scouting-prod`, ref `ezrgtroyofuxkkktnino`, region `eu-central-1` (Frankfurt) | team Google account | team-owned | ☑ |
 | Vercel — client project | The PWA | ` ` | team-owned | ☐ |
 | Vercel — server project | The API | ` ` | team-owned | ☐ |
 

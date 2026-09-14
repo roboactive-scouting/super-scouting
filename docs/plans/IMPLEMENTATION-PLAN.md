@@ -2483,7 +2483,7 @@ I will never ask you for a secret value, and there is no task below that needs o
   "dependencies": { "@supabase/supabase-js": "^2.46.1" },
   "devDependencies": {
     "dotenv": "^16.4.5",
-    "supabase": "^1.207.9",
+    "supabase": "^2.117.0",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vitest": "^2.1.4"
