@@ -136,3 +136,61 @@ export type Caller =
 then deleted the probe. The guard is reachable from the package-local script. Nothing about the plan's config was changed.
 
 **Risk:** None. Recorded because "the rule is in the file" and "the rule fires" are different claims, and only the second one is worth anything.
+
+---
+
+## Task 0.3 — the `eslint-disable` in `dev-server.ts` is itself a lint warning
+
+**Plan said:**
+
+```ts
+serve({ fetch: buildApp().fetch, port: 3000 }, (info) => {
+  // eslint-disable-next-line no-console
+  console.warn(`server listening on http://localhost:${info.port}`);
+});
+```
+
+**What was wrong:** task 0.1's own `no-console` rule is `['warn', { allow: ['warn', 'error'] }]`, so `console.warn` was never a violation. ESLint 9 reports unused suppressions by default, and `pnpm lint` printed:
+
+```
+C:\dev\frc-scouting\apps\server\src\dev-server.ts
+  5:3  warning  Unused eslint-disable directive (no problems were reported from 'no-console')
+```
+
+**What I did instead:** deleted the comment. `console.warn` stays. `pnpm lint` is then silent.
+
+**Risk:** None. If a later task tightens `no-console` to disallow `warn`, this line becomes a real warning and will need the directive back.
+
+---
+
+## Task 0.3 — two long test lines pre-wrapped to the print width
+
+**Plan said:** in `apps/server/src/app.test.ts`,
+
+```ts
+    const res = await app().request('/health', { headers: { Origin: 'https://client.example.com' } });
+```
+
+**What was wrong:** 102 characters, over `printWidth: 100`. Same class of problem as the `vitest.workspace.ts` entry above.
+
+**What I did instead:** wrote it wrapped the way Prettier wants, so `pnpm format:check` was green the first time rather than needing a follow-up `pnpm format`. Assertions unchanged.
+
+**Risk:** None.
+
+---
+
+## Task 0.3 — Turborepo warns that `@frc/shared#build` produces no output
+
+**Plan said:** `turbo.json` declares `"build": { "dependsOn": ["^build"], "outputs": ["dist/**", ".vercel/output/**"] }`, and `packages/shared`'s `build` script is `tsc --noEmit`.
+
+**What was wrong:** nothing breaks, but `pnpm typecheck` (which depends on `^build`) prints on every run:
+
+```
+WARNING  no output files found for task @frc/shared#build. Please check your `outputs` key in `turbo.json`
+```
+
+`--noEmit` writes nothing, so the declared `outputs` can never be satisfied.
+
+**What I did instead:** left both files exactly as the plan wrote them. The warning is cosmetic and the alternative — special-casing `outputs` per package, or making shared emit `dist/` — is a design change this task has no mandate for.
+
+**Risk:** Recurring noise in every build log from here on, which is the kind of warning people learn to scroll past. If a later task needs `packages/shared` to emit real build output, this is the line to revisit.
