@@ -1,0 +1,16 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalEnv": [
+    "NODE_ENV",
+    "VITE_API_BASE_URL",
+    "VITE_DEVICE_WIPE_CODE",
+    "VITE_APP_VERSION",
+    "VERCEL_GIT_COMMIT_SHA"
+  ],
+  "tasks": {
+    "build": { "dependsOn": ["^build"], "outputs": ["dist/**", ".vercel/output/**"] },
+    "typecheck": { "dependsOn": ["^build"] },
+    "lint": {},
+    "dev": { "cache": false, "persistent": true }
+  }
+}

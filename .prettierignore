@@ -1,0 +1,6 @@
+docs/
+pnpm-lock.yaml
+packages/db/src/database.types.ts
+packages/shared/src/season/manifest.ts
+**/dist/
+**/.turbo/
