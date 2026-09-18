@@ -32,7 +32,7 @@ The client holds **no Supabase credentials at all**, not even the anon key. All 
 
 | Variable | What it is | Where you get it | Secret? | Dev / Preview value | Production value | Set? |
 |---|---|---|---|---|---|:---:|
-| `VITE_API_BASE_URL` | Base URL of the server API | The server's Vercel project URL | No | ` ` | ` ` | ☐ |
+| `VITE_API_BASE_URL` | Base URL of the server API | The server's Vercel project URL | No | `https://frc-scouting-server-git-develop-roboactive.vercel.app` | `https://frc-scouting-server.vercel.app` | ☐ |
 | `VITE_DEVICE_WIPE_CODE` | The code a lead types to wipe a device's offline data | You choose it | **No** — it ships in the JS bundle and is visible to anyone. It is an accident guard, not a security control. | `WIPE2096` | `WIPE2096` | ☐ |
 | `VITE_APP_VERSION` | The version string shown on the context page | Injected at build time from the git short SHA — not typed by hand | No | *(auto)* | *(auto)* | ☐ |
 
@@ -47,7 +47,7 @@ Everything secret lives here. Server-side only. Never in a client bundle, never 
 | `AUTH_JWT_SECRET` | HS256 signing secret for session tokens | Generate: `openssl rand -base64 48`. **A different one per environment.** | **YES** | *(never written here)* | *(never written here)* | ☐ |
 | `AUTH_TOKEN_TTL_DAYS` | Session lifetime. Default `30` | Configuration | No | `30` | `30` | ☐ |
 | `AUTH_TOKEN_REFRESH_AFTER_DAYS` | Re-issue a token older than this. Default `7` | Configuration | No | `7` | `7` | ☐ |
-| `ALLOWED_ORIGIN` | The client origin permitted by CORS | The client's Vercel project URL | No | ` ` | ` ` | ☐ |
+| `ALLOWED_ORIGIN` | The client origin permitted by CORS | The client's Vercel project URL | No | `https://frc-scouting-client-git-develop-roboactive.vercel.app` | `https://frc-scouting-client.vercel.app` | ☐ |
 | `NODE_ENV` | `development` / `production` | Set by the platform | No | *(auto)* | *(auto)* | ☐ |
 
 ## 3. GitHub Actions secrets
@@ -59,11 +59,11 @@ Needed by CI, by the dev migration step, and by the keep-alive workflow. Set at 
 | `SUPABASE_ACCESS_TOKEN` | `supabase` CLI login in CI | Supabase → Account → Access Tokens | **YES** | *(never written here)* | ☑ |
 | `SUPABASE_DEV_PROJECT_REF` | `supabase link` to the dev project | Supabase → Project Settings → General | No, but keep it here | `oqvoqddoizhhwvjwejtm` | ☐ |
 | `SUPABASE_DEV_DB_PASSWORD` | `supabase db push` to dev | Set when you created the dev project | **YES** | *(never written here)* | ☑ |
-| `SMOKE_API_BASE_URL` | Smoke suite target | The dev or preview server deployment URL | No | ` ` | ☐ |
+| `SMOKE_API_BASE_URL` | Smoke suite target | The dev or preview server deployment URL | No | `https://frc-scouting-server-git-develop-roboactive.vercel.app` | ☐ |
 | `SMOKE_SUPABASE_URL` | Smoke suite `CI` season setup/teardown | Dev project | No | `https://oqvoqddoizhhwvjwejtm.supabase.co` | ☐ |
 | `SMOKE_SUPABASE_SERVICE_ROLE_KEY` | Same | Dev project | **YES** | *(never written here)* | ☐ |
-| `HEALTHCHECK_DEV_URL` | Twice-weekly keep-alive | `https://<dev-server>/health` | No | ` ` | ☐ |
-| `HEALTHCHECK_PROD_URL` | Twice-weekly keep-alive | `https://<prod-server>/health` | No | ` ` | ☐ |
+| `HEALTHCHECK_DEV_URL` | Twice-weekly keep-alive | `https://<dev-server>/health` | No | `https://frc-scouting-server-git-develop-roboactive.vercel.app/health` | ☐ |
+| `HEALTHCHECK_PROD_URL` | Twice-weekly keep-alive | `https://<prod-server>/health` | No | `https://frc-scouting-server.vercel.app/health` | ☐ |
 
 **Production is deliberately absent from this table.** CI never touches the production Supabase project — production migrations are applied by hand, one deliberate CLI command, from your machine.
 
@@ -100,7 +100,7 @@ Each must be transferable to a team-owned account later, so **nothing may depend
 | GitHub | The repository, CI, the keep-alive workflow | `roboactive-scouting` (GitHub org, public repo `super-scouting`) | already org-owned — hand over by adding org owners | ☑ |
 | Supabase — **dev** project | Development, preview, CI. Project `frc-scouting-dev`, ref `oqvoqddoizhhwvjwejtm`, region `eu-central-1` (Frankfurt) | team Google account | team-owned | ☑ |
 | Supabase — **prod** project | Production. Project `frc-scouting-prod`, ref `ezrgtroyofuxkkktnino`, region `eu-central-1` (Frankfurt) | team Google account | team-owned | ☑ |
-| Vercel — client project | The PWA | ` ` | team-owned | ☐ |
-| Vercel — server project | The API | ` ` | team-owned | ☐ |
+| Vercel — client project | The PWA | Vercel scope `roboactive`, project `frc-scouting-client` | team-owned | ☑ |
+| Vercel — server project | The API | Vercel scope `roboactive`, project `frc-scouting-server` | team-owned | ☑ |
 
 The transfer checklist — what to move, in what order, and what breaks if it isn't — lives in `SETUP.md`.
