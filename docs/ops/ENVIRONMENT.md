@@ -86,6 +86,18 @@ way — re-enabling it 401s the CI smoke suite, the keep-alive workflow and ever
 preview client→server call. See `SETUP.md`, *Vercel — turn off Preview Deployment
 Protection*.
 
+**`ALLOWED_ORIGIN` holds exactly one origin, so only the `develop` preview works.**
+The Preview server accepts the client's `develop` branch alias and nothing else. A
+preview client built from any other branch is refused by CORS, and the browser
+reports it as a failed request rather than as a CORS problem — it reads like a dead
+API unless devtools are open.
+
+This is latent rather than active today: the Ignored Build Step restricts
+deployments to `main` and `develop`, so no other preview client exists to be
+refused. It becomes real the moment someone widens that condition to deploy a topic
+branch. If you do that, widen the CORS allowance in the same change, or accept that
+the topic preview cannot call the API at all.
+
 ## 5. Local only — not in any dashboard
 
 | Item | Purpose | Where it lives | Set? |
