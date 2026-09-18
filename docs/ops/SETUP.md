@@ -436,7 +436,8 @@ to remember.
 
 - [ ] One `GET /health` against both the production and the dev server. Both should
       answer `{"status":"ok","database":"ok",...}`.
-- [ ] One `supabase db dump` of production, saved off-platform.
+- [ ] One **two-file** production backup — schema **and** `--data-only` — saved
+      off-platform. See *Backup: `supabase db dump`* above; the bare command writes no rows.
 - [ ] Open the Supabase free-tier usage page for both projects and look at database
       size and egress. The keep-alive workflow prevents the idle pause; it does not
       prevent running out of quota.
@@ -480,7 +481,8 @@ chosen so that what breaks is easy to see and easy to fix.
   Vercel server project's `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in both
   environments, `SUPABASE_DEV_PROJECT_REF` and `SUPABASE_DEV_DB_PASSWORD` and
   `SMOKE_SUPABASE_*` in GitHub, and the refs written into this document.
-- Take a `supabase db dump` of production **before** starting this step.
+- Take the **two-file** production backup — schema **and** `--data-only` — **before**
+  starting this step. See *Backup: `supabase db dump`* above.
 - After this step: re-run `GET /health` on both environments. A `database: error`
   means the server is still pointed at the old project.
 

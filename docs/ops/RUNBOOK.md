@@ -42,7 +42,10 @@ still holds unacknowledged entries is a loss.
 
 ## Pre-event checklist
 
-- [ ] Run `supabase db dump` and save the file off-platform. **Not optional.**
+- [ ] Run the **two-file production backup** from `SETUP.md` → *Backup: `supabase db dump`*
+      — the schema dump **and** the `--data-only` dump. `supabase db dump` with no flags
+      writes the schema and none of the rows, so one file is not a backup. Save both
+      off-platform. **Not optional.**
 - [ ] 48 hours before: open the app and confirm it loads (this also wakes the database).
 - [ ] Verify the offline path on a real phone with the network actually off.
       (Task 1.63 turns this line into a numbered procedure in `OFFLINE-CHECK.md`.)
