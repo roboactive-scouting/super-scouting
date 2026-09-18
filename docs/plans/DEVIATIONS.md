@@ -518,3 +518,94 @@ Separately, replaced every bare plan-task number (`task 0.8`, `task 0.15`, `task
 **What was wrong:** nothing, and it is worth recording that this was checked rather than assumed. The review extracted the fenced `RUNBOOK.md` block from the plan and compared it byte for byte with the delivered file: identical, `md5 bb919bed357525432256ff63c973549e` on both. `scripts/check-docs.mjs` and `scripts/check-docs.test.ts` are verbatim from the plan. Every `ENVIRONMENT.md` cross-reference in `SETUP.md` points at the right section, all ten variable names match `ENVIRONMENT.md` and SPEC-FINAL Appendix B exactly, all eight GitHub secrets match §3, both project refs are correct throughout, and the `/health` response shape quoted in the document matches `apps/server/src/app.ts` exactly.
 
 **Risk:** None.
+
+---
+
+## Provisioning gate — Vercel rejects `functions.runtime: "nodejs22.x"`
+
+**Plan said:** `apps/server/vercel.json`, delivered in task 0.5, contains
+`"functions": { "api/index.ts": { "runtime": "nodejs22.x" } }`, and `SETUP.md`
+told the reader that this pins the function runtime and that the Vercel project
+setting must agree with it.
+
+**What was wrong:** importing `apps/server` as a Vercel project fails the build
+before it reaches any application code:
+
+```
+Vercel CLI 59.16.0
+> Detected Turbo. Adjusting default settings...
+Error: Function Runtimes must have a valid version, for example `now-php@1.0.0`.
+```
+
+Vercel parses `functions[].runtime` as the npm package name of a **community**
+runtime and requires an explicit version. `nodejs22.x` is not one, so the whole
+deployment is refused. The key was never exercised before now because task 0.5
+could not deploy — the Vercel projects did not exist until the gate.
+
+**What I did instead:** removed the `functions` block. `apps/server/vercel.json`
+now holds only the catch-all rewrite to `/api/index`. The Node version is pinned
+by the project's **Node.js Version** setting plus the `engines` field described in
+the entry below. Corrected the `SETUP.md` paragraph that asserted the removed
+behaviour, and recorded the error text there so the next reader does not restore
+the key.
+
+**Risk:** The function's Node version is now governed only by the Vercel project
+setting and `apps/server/package.json`'s `engines`. Neither is enforced by a test.
+The `/health` check in the final phase-0 task is what proves the function actually
+runs; until it passes, the runtime is unverified.
+
+---
+
+## Provisioning gate — Vercel defaults to Node 24 and ignores the root `engines`
+
+**Plan said:** nothing. Both Vercel sections of `SETUP.md` listed "Node.js
+Version: 22" as an import-dialog step.
+
+**What was wrong:** two separate errors. Node.js Version is a **project setting**,
+not an import-dialog field, so the first build always runs on Vercel's default —
+currently Node 24. And Vercel reads the `package.json` at the project's **Root
+Directory**, so the root `package.json`'s `"node": ">=22.0.0 <23"` was never
+consulted; `apps/client/package.json` and `apps/server/package.json` declared no
+`engines` at all. The client's first deploy therefore ran `pnpm install` on Node
+24, which `engine-strict=true` rejected:
+
+```
+ERR_PNPM_UNSUPPORTED_ENGINE  Unsupported environment (bad pnpm and/or Node.js version)
+Expected version: >=22.0.0 <23
+Got: v24.19.0
+```
+
+**What I did instead:** added `"engines": { "node": ">=22.0.0 <23" }` to both
+`apps/client/package.json` and `apps/server/package.json`, so the constraint lives
+in the repository rather than only in dashboard state that a project transfer
+resets. `pnpm install` and `pnpm typecheck` both still pass and the lockfile is
+unchanged. Rewrote both `SETUP.md` steps to say the setting is post-import and
+must be changed before the first deploy.
+
+**Risk:** None to the code. The `engines` field is additive and the versions match
+the root manifest exactly. If Vercel later changes where it reads `engines` from,
+the dashboard setting is still there as the second line of defence.
+
+---
+
+## Provisioning gate — the scaffold had to reach `main`, not just a pushed branch
+
+**Plan said:** `SETUP.md` states the Vercel projects cannot be imported until
+`apps/client/` and `apps/server/` exist "on a branch that has been pushed to
+GitHub", verified by hand on 2026-09-14.
+
+**What was wrong:** the constraint is narrower than that. Vercel's Root Directory
+browser reads the repository's **default branch**. All nine phase-0 commits were on
+`feat/phase-0`, pushed; `main` and `develop` held only `CLAUDE.md` and `docs/`. The
+`apps` directory was simply absent from the import dialog's directory picker, and
+the path cannot be typed past validation.
+
+**What I did instead:** fast-forwarded `develop` and then `main` to `feat/phase-0`
+at the user's explicit instruction. Both were clean fast-forwards — `feat/phase-0`
+already contained both. The scaffold has to reach `main` regardless, since `main`
+is Vercel's Production Branch and the Production deployments build from it.
+
+**Risk:** `main` now carries unreviewed scaffold. Acceptable here because nothing
+is deployed from it yet and phase 0's purpose is to stand that up, but it means the
+phase-0 branch was never reviewed as a pull request. `SETUP.md`’s wording has been corrected to say
+**default branch** rather than "a pushed branch".

@@ -212,8 +212,9 @@ preference.**
 
 Vercel validates the **Root Directory** against the repository tree at import time.
 A path that does not exist in the branch it is reading cannot even be typed into
-the field — the import is refused. So the Vercel project **cannot be created** until
-`apps/client/` exists on a branch that has been pushed to GitHub.
+the field — the import is refused. The branch it reads is the repository's
+**default branch** (`main` here), **not** whatever topic branch you last pushed. So
+the Vercel project **cannot be created** until `apps/client/` exists on `main`.
 
 (Verified by hand on 2026-09-14, on this repository, with this account. It is not
 an inference from the documentation.)
@@ -222,8 +223,13 @@ The order is therefore:
 
 1. The pre-gate scaffold lands, so `apps/client/` and `apps/server/` exist in the
    tree.
-2. That branch is pushed to GitHub.
+2. That work reaches the **default branch** — merged to `develop` and then to
+   `main`, and pushed. A pushed topic branch is not enough: the import dialog will
+   not show you a directory that is missing from `main`.
 3. **Then** both Vercel projects are imported.
+
+`main` is also Vercel's Production Branch, so the scaffold has to arrive there in
+any case — the Production deployments build from it.
 
 If you import first, you will get a project pointed at the repository root, which
 builds nothing useful, and you will have to fix the Root Directory afterwards.
@@ -233,7 +239,10 @@ Once the scaffold is pushed:
 1. Vercel → **Add New → Project** → import `roboactive-scouting/super-scouting`.
 2. **Root Directory: `apps/client`.** Set it in the import dialog, not afterwards.
 3. **Framework Preset: Vite.**
-4. **Node.js Version: 22.**
+4. **Node.js Version: 22 — set it before the first deploy.** It is a project
+   setting (**Settings → Build and Deployment**), not a field in the import dialog,
+   so the first build runs on Vercel’s default unless you change it first. Vercel
+   reads `apps/client/package.json`’s `engines` field, not the repository root’s.
 5. Leave the build and install commands alone — Vercel's Vite preset runs
    `pnpm install` and `pnpm build` from the root directory, which is what we want.
    (Unlike the server, the client has **no `apps/client/vercel.json`** at this
@@ -269,15 +278,25 @@ assigns, then fill in `VITE_API_BASE_URL` and `ALLOWED_ORIGIN` and redeploy both
 
 ## Vercel — server project
 
-**The same hard ordering constraint applies.** `apps/server/` must exist on a pushed
+**The same hard ordering constraint applies.** `apps/server/` must exist on the
+default branch `main`, not merely on a pushed
 branch before this project can be imported at all; Vercel refuses a Root Directory
 that is not in the tree. Scaffold first, import second.
 
 1. Vercel → **Add New → Project** → import the same repository again.
 2. **Root Directory: `apps/server`.**
 3. **Framework Preset: Other.**
-4. **Node.js Version: 22.** `apps/server/vercel.json` pins the function runtime to
-   `nodejs22.x`; the project setting must agree with it.
+4. **Node.js Version: 22 — set it before the first deploy, not after.** Vercel reads
+   the `package.json` at the **Root Directory**, so `apps/server/package.json`’s
+   `engines` field is what pins Node here; the repository root’s `engines` is not
+   consulted. Set the dashboard value to match anyway. A new project defaults to
+   whatever Vercel’s current default is (Node 24 as of 2026-09), and `engine-strict=true`
+   in `.npmrc` turns that into `ERR_PNPM_UNSUPPORTED_ENGINE` during `pnpm install`.
+
+   `apps/server/vercel.json` deliberately carries **no `functions.runtime` key**. The
+   value `nodejs22.x` there is rejected — Vercel parses `functions[].runtime` as a
+   community runtime package name and demands an explicit version, failing the build
+   with `Function Runtimes must have a valid version`. The file holds only the rewrite.
 5. Environment variables — the whole of `ENVIRONMENT.md` §2, **per environment**:
 
    | Variable | Production | Preview |
