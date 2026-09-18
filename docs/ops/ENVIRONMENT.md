@@ -80,6 +80,12 @@ Set per project, per environment, in the Vercel dashboard.
 
 **Preview and local always point at the dev Supabase project. Never production.**
 
+**Preview Deployment Protection is disabled on both projects** (verified 2026-09-18:
+both Preview URLs answer without a `302` to `vercel.com/sso-api`). It must stay that
+way — re-enabling it 401s the CI smoke suite, the keep-alive workflow and every
+preview client→server call. See `SETUP.md`, *Vercel — turn off Preview Deployment
+Protection*.
+
 ## 5. Local only — not in any dashboard
 
 | Item | Purpose | Where it lives | Set? |

@@ -361,6 +361,37 @@ that is not in the tree. Scaffold first, import second.
    `ENVIRONMENT.md` §4 — all seven §2 variables are set in both environments — and
    the Vercel server row in §6.
 
+## Vercel — turn off Preview Deployment Protection
+
+**Do this on both projects, and do it before wiring anything to a Preview URL.**
+
+Vercel protects **Preview** deployments with a login wall by default. Left on, every
+Preview URL answers `302` to `vercel.com/sso-api` for any caller without a browser
+session. Three things break at once, and all three look like a broken API rather
+than an auth wall:
+
+- the CI smoke suite, which targets `SMOKE_API_BASE_URL` (the preview server);
+- the twice-weekly keep-alive, which GETs `HEALTHCHECK_DEV_URL`;
+- the preview client calling the preview server.
+
+On **each** project: **Settings → Deployment Protection → Vercel Authentication →
+Disabled → Save**. The card has its own save button.
+
+Production is public regardless; this setting only governs Preview.
+
+Verify from outside a browser session rather than by clicking the link — a logged-in
+browser passes the wall and tells you nothing:
+
+```bash
+node -e "fetch(process.argv[1],{redirect:'manual'}).then(r=>console.log(r.status, r.headers.get('location')||''))" https://frc-scouting-server-git-develop-roboactive.vercel.app/health
+```
+
+A `302` to `sso-api` means it is still on. Any other status means it is off.
+
+> On a Windows machine where an antivirus intercepts HTTPS, Git Bash’s `curl` has no
+> CA bundle and fails every TLS handshake. Use the `node -e` form above, or
+> `/c/Windows/System32/curl.exe`.
+
 ## Vercel — limiting which branches deploy
 
 By default Vercel builds **every branch you push**, on **both** projects. This
