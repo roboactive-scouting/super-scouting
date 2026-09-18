@@ -33,7 +33,7 @@ The client holds **no Supabase credentials at all**, not even the anon key. All 
 | Variable | What it is | Where you get it | Secret? | Dev / Preview value | Production value | Set? |
 |---|---|---|---|---|---|:---:|
 | `VITE_API_BASE_URL` | Base URL of the server API | The server's Vercel project URL | No | ` ` | ` ` | ☐ |
-| `VITE_DEVICE_WIPE_CODE` | The code a lead types to wipe a device's offline data | You choose it | **No** — it ships in the JS bundle and is visible to anyone. It is an accident guard, not a security control. | ` ` | ` ` | ☐ |
+| `VITE_DEVICE_WIPE_CODE` | The code a lead types to wipe a device's offline data | You choose it | **No** — it ships in the JS bundle and is visible to anyone. It is an accident guard, not a security control. | `WIPE2096` | `WIPE2096` | ☐ |
 | `VITE_APP_VERSION` | The version string shown on the context page | Injected at build time from the git short SHA — not typed by hand | No | *(auto)* | *(auto)* | ☐ |
 
 ## 2. Server — `apps/server/.env.example`
@@ -86,6 +86,8 @@ Set per project, per environment, in the Vercel dashboard.
 |---|---|---|:---:|
 | Dev Supabase database connection string | Local migrations, and `supabase db dump` for the manual backup | Your own machine's environment or Supabase CLI config. **Never committed.** | ☐ |
 | Production Supabase database connection string | The manual production migration command, and the pre-event `supabase db dump` | Same. **Never committed.** | ☐ |
+| `apps/server/.env` | Local dev run and the integration-test harness: **dev** Supabase URL and service-role key, a local-only `AUTH_JWT_SECRET` (distinct from both Vercel ones), `ALLOWED_ORIGIN=http://localhost:5173` | Your machine only. Matched by `.gitignore`’s `.env` rule; never committed. | ☑ |
+| `apps/client/.env` | Local dev run: `VITE_API_BASE_URL=http://localhost:3000`, `VITE_DEVICE_WIPE_CODE`. `VITE_APP_VERSION` left empty — the build injects it. | Same. | ☑ |
 
 ---
 
