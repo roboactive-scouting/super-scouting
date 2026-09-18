@@ -1830,13 +1830,15 @@ Mobile-first; the width decides, never the user agent.
 | `--bg` | `#0A0A0B` | `#FFFFFF` |
 | `--surface` | `#18181B` | `#F4F4F5` |
 | `--surface-raised` | `#27272A` | `#E4E4E7` |
-| `--border` | `#3F3F46` | `#52525B` |
+| `--border` | `#71717A` | `#52525B` |
 | `--text` | `#FAFAFA` | `#09090B` |
 | `--text-muted` | `#A1A1AA` | `#3F3F46` |
 | `--brand` | `#FFEA07` | `#FFEA07` — **only on a `--brand-plate` background** |
 | `--brand-plate` | `#0A0A0B` | `#0A0A0B` |
 | `--on-brand` | `#0A0A0B` | `#0A0A0B` |
 | `--focus` | `#FFEA07` | `#09090B` |
+
+**`--border` is zinc-500 `#71717A`, not the zinc-700 `#3F3F46` the rest of the ramp would suggest.** Zinc-700 measures 1.89:1 on `--bg`, 1.70:1 on `--surface` and 1.43:1 on `--surface-raised` — all below §17.7's 3:1 floor for UI boundaries, which §17.7 calls a bug rather than a preference. Zinc-600 still fails; zinc-500 is the first step that clears it (4.09 / 3.67 / 3.08). The outdoor theme's `#52525B` already passes at 6.09:1 worst case and is unchanged. **Do not darken this token back.**
 
 **Brand yellow is never text or an icon on a light surface.** `#FFEA07` on white is 1.23:1 — illegible; on near-black it is 16:1. The logo therefore always sits on a near-black plate (`#0A0A0B`), **including in the outdoor theme**.
 

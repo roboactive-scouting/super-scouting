@@ -1544,7 +1544,7 @@ export function clientConfig(): ClientConfig {
   --bg: #0A0A0B;
   --surface: #18181B;
   --surface-raised: #27272A;
-  --border: #3F3F46;
+  --border: #71717A;
   --text: #FAFAFA;
   --text-muted: #A1A1AA;
   --brand: #FFEA07;
