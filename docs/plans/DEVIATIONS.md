@@ -609,3 +609,64 @@ is Vercel's Production Branch and the Production deployments build from it.
 is deployed from it yet and phase 0's purpose is to stand that up, but it means the
 phase-0 branch was never reviewed as a pull request. `SETUP.md`’s wording has been corrected to say
 **default branch** rather than "a pushed branch".
+
+---
+
+## Provisioning gate — the "Other" preset demands a `public/` directory
+
+**Plan said:** nothing. `apps/server/vercel.json` and `Framework Preset: Other`
+were expected to be sufficient for an API-only project.
+
+**What was wrong:** the server build completed and then failed:
+
+```
+WARNING  no output files found for task @frc/server#build. Please check your `outputs` key in `turbo.json`
+WARNING  no output files found for task @frc/shared#build. Please check your `outputs` key in `turbo.json`
+Error: No Output Directory named "public" found after the Build completed.
+```
+
+The **Other** preset looks for a static output directory named `public` once the
+build command finishes. `apps/server` produces no static output whatsoever — its
+`build` is `tsc --noEmit` and the deployable artefact is the `api/index.ts`
+serverless function. The two Turbo warnings are the same fact observed one layer up
+and are not themselves errors.
+
+**What I did instead:** committed `apps/server/public/.gitkeep`, an empty directory
+whose file explains why it must stay. Documented it as a numbered step in
+`SETUP.md`'s server section so nobody deletes it as clutter.
+
+Rejected alternatives: overriding the Build Command to empty (would stop `tsc`
+running on deploy, losing a real check), and setting `outputDirectory` to `.`
+(would publish `apps/server`'s source tree as static assets — unreachable behind
+the catch-all rewrite today, but one rewrite change away from being served).
+
+**Risk:** An empty committed directory is the kind of thing a tidying pass deletes.
+The `.gitkeep` text and the `SETUP.md` step are the only guards. If it is ever
+removed, the symptom is this exact deployment failure.
+
+---
+
+## Provisioning gate — every branch deployed on both Vercel projects
+
+**Plan said:** nothing about which branches deploy.
+
+**What was wrong:** Vercel builds every pushed branch by default, on both projects.
+Pushing one commit to `feat/phase-0`, `develop` and `main` in a single round — done
+here so that Vercel would pick up a fix — produced six deployments. The repository
+also carries roughly twenty historical `spec/*` branches, any of which would produce
+two more if touched. The user asked for this to stop.
+
+**What I did instead:** an **Ignored Build Step** override on each project,
+restricting builds to `main` and `develop`, with a new `SETUP.md` section recording
+the command and the inverted exit-code convention (`exit 1` builds, `exit 0` skips)
+that makes it easy to get exactly backwards.
+
+Also changed how this run pushes: `feat/phase-0` only, with `develop` and `main`
+fast-forwarded when a deployment is actually wanted, rather than all three every
+time.
+
+**Risk:** Two branches are the floor, not a preference — `main` is the Production
+Branch and the `develop` alias is what `SMOKE_API_BASE_URL` and the client's Preview
+`VITE_API_BASE_URL` resolve to. Restricting further would break the smoke suite. If
+a future task needs a preview from a topic branch, the condition must be widened
+rather than the override removed.

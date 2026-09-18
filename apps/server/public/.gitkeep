@@ -1,0 +1,14 @@
+This directory is intentionally empty.
+
+Vercel's "Other" framework preset requires a static output directory named
+`public` after the build completes, and fails the deployment without one:
+
+  Error: No Output Directory named "public" found after the Build completed.
+
+apps/server has no static output — it is a single serverless function at
+api/index.ts, and its `build` script is `tsc --noEmit`, which emits nothing.
+This empty directory satisfies the check.
+
+Nothing is ever served from here. vercel.json rewrites every path to
+/api/index, so no static file in this directory is reachable even if one were
+added. Do not put anything in it.

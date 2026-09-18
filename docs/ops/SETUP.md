@@ -297,7 +297,23 @@ that is not in the tree. Scaffold first, import second.
    value `nodejs22.x` there is rejected — Vercel parses `functions[].runtime` as a
    community runtime package name and demands an explicit version, failing the build
    with `Function Runtimes must have a valid version`. The file holds only the rewrite.
-5. Environment variables — the whole of `ENVIRONMENT.md` §2, **per environment**:
+5. **Leave the build command alone, and do not delete `apps/server/public/`.**
+   The **Other** preset requires a static output directory named `public` after the
+   build and fails the deployment without one:
+
+   ```
+   Error: No Output Directory named "public" found after the Build completed.
+   ```
+
+   `apps/server` has no static output — the deployable is the `api/index.ts`
+   function, and `build` is `tsc --noEmit`, which emits nothing. The directory is
+   committed empty, with a `.gitkeep` explaining why, purely to satisfy that check.
+   Nothing is served from it: `vercel.json` rewrites every path to `/api/index`.
+
+   The two `no output files found for task @frc/server#build` warnings Turbo prints
+   during the build are the same fact stated upstream, and are expected.
+
+6. Environment variables — the whole of `ENVIRONMENT.md` §2, **per environment**:
 
    | Variable | Production | Preview |
    |---|---|---|
@@ -321,7 +337,7 @@ that is not in the tree. Scaffold first, import second.
 
    **Preview and local always point at the dev Supabase project. Never production.**
 
-6. Deploy, then confirm the server is actually alive:
+7. Deploy, then confirm the server is actually alive:
 
    ```bash
    curl -s https://<server-host>/health
@@ -341,9 +357,34 @@ that is not in the tree. Scaffold first, import second.
    > local issuer certificate". Use `/c/Windows/System32/curl.exe` instead, or
    > fetch it from Node. The failure is your shell's, not the server's.
 
-7. Record the server's deployment URLs. **Now** tick the two Server rows in
+8. Record the server's deployment URLs. **Now** tick the two Server rows in
    `ENVIRONMENT.md` §4 — all seven §2 variables are set in both environments — and
    the Vercel server row in §6.
+
+## Vercel — limiting which branches deploy
+
+By default Vercel builds **every branch you push**, on **both** projects. This
+repository carries twenty-odd historical `spec/*` branches, so a single push round
+that touches `feat/phase-0`, `develop` and `main` produces six deployments, and any
+revived old branch produces two more.
+
+Only two branches need to deploy: `main` (the Production Branch) and `develop`
+(whose stable alias is what `SMOKE_API_BASE_URL` and the client’s Preview
+`VITE_API_BASE_URL` point at). Everything else is waste.
+
+On **each** project: **Settings → Git → Ignored Build Step → Override**, and set:
+
+```bash
+if [ "$VERCEL_GIT_COMMIT_REF" = "main" ] || [ "$VERCEL_GIT_COMMIT_REF" = "develop" ]; then exit 1; else exit 0; fi
+```
+
+**The exit codes are inverted and this is not a mistake: `exit 1` means build,
+`exit 0` means skip.** Getting them the wrong way round silently disables the two
+branches that matter and deploys the twenty that do not.
+
+A skipped branch costs no build minutes and produces no deployment. If you later
+need a preview from a topic branch, add it to the condition rather than removing
+the override.
 
 ## GitHub Actions secrets
 
