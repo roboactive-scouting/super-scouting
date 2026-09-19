@@ -899,3 +899,23 @@ format:check` passed on the first attempt with no follow-up `pnpm format` needed
 the only one of the four migration tasks so far where that was true.
 
 **Risk:** None.
+
+---
+
+## Task 0.12 — the failing-first error, fifth occurrence, and one more print-width miss
+
+**Plan said:** Step 2 — Expected: `relation "public.pick_lists" does not exist`.
+
+**What was wrong:** the same `PGRST205` schema-cache-miss pattern as every
+migration task so far, across all 9 assertions. One plan-quoted line (the
+`alliance_slots` empty-slot object literal) also exceeded `printWidth: 100` after
+being copied verbatim, despite the rest of the file having been pre-wrapped.
+
+**What I did instead:** accepted the failing-first read; ran `pnpm format` for the
+one remaining width violation and re-ran `pnpm --filter @frc/db test:integration`
+— 42/42 green across all five migrations. This is the last schema migration
+before the checkpoint: every table in SPEC-FINAL §3 now exists in the dev
+project, migrations 0001–0005 applied in order, nothing hand-edited in the
+Supabase dashboard.
+
+**Risk:** None.
