@@ -883,3 +883,19 @@ brief calls a trivial, repeated deviation worth logging every time rather than
 once.
 
 **Risk:** None.
+
+---
+
+## Task 0.11 — the failing-first error, fourth occurrence
+
+**Plan said:** Step 2 — Expected: `relation "public.metrics" does not exist`.
+
+**What was wrong:** same `PGRST205` schema-cache-miss pattern as tasks 0.8–0.10,
+across all 6 assertions.
+
+**What I did instead:** accepted it, same reasoning as before. This time the test
+file was pre-wrapped to `printWidth: 100` before the first run, so `pnpm
+format:check` passed on the first attempt with no follow-up `pnpm format` needed —
+the only one of the four migration tasks so far where that was true.
+
+**Risk:** None.
