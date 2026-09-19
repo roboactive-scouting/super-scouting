@@ -728,3 +728,111 @@ this failure in a form that looks completely different.
 The durable fix is to bundle the function at build time with esbuild, inlining
 `@frc/shared` and every relative import. Deferred to a post-gate task at the user's
 direction rather than changed mid-provisioning.
+
+---
+
+## Task 0.8 — `pnpm dlx supabase init` replaced by `npx -y supabase@latest`
+
+**Plan said:** `cd packages/db && pnpm dlx supabase init && cd ../..`, then
+`pnpm --filter @frc/db exec supabase login` and
+`pnpm --filter @frc/db exec supabase link --project-ref <dev-project-ref>`.
+
+**What was wrong:** nothing about `pnpm dlx` itself; the constraint is this run's
+own standing machine note — no `supabase` binary exists locally until
+`packages/db/package.json` is written and `pnpm install` resolves its own
+`devDependencies`, so the run's instruction is to invoke the CLI via
+`npx -y supabase@latest` (pinned 2.117.0) up to that point, never `pnpm dlx`. The
+account is already logged in account-wide, so the `login` step was skipped —
+confirmed rather than assumed: `npx -y supabase@latest projects list` returned both
+projects (`frc-scouting-dev` and `frc-scouting-prod`, both `ACTIVE_HEALTHY`) with no
+prompt of any kind.
+
+**What I did instead:** ran `npx -y supabase@latest init --workdir packages/db`.
+Once `packages/db/package.json` existed and `pnpm install` had resolved the local
+`supabase` devDependency, every later invocation went through the package's own
+scripts — `pnpm --filter @frc/db db:push`, `pnpm --filter @frc/db test:integration`
+— exactly as the plan's `package.json` specifies, with no further `npx` calls.
+
+**Risk:** None.
+
+---
+
+## Task 0.8 — the failing-first error is a schema-cache miss, not `42P01`
+
+**Plan said:** Step 3 — Expected: every test fails with
+`relation "public.seasons" does not exist` (PostgREST code `42P01`).
+
+**What was wrong:** nothing of substance, same class of drift as the task 0.1
+entry above. This project's PostgREST layer reports a missing table before the
+migration as a schema-cache miss instead:
+
+```
+{
+  "code": "PGRST205",
+  "details": null,
+  "hint": null,
+  "message": "Could not find the table 'public.match_teams' in the schema cache",
+}
+```
+
+**What I did instead:** accepted it — same tables, same cause (no migration applied
+yet), same red across all 7 assertions.
+
+**Risk:** None.
+
+---
+
+## Task 0.8 — neither `supabase link` nor `supabase db push` asked for a database password
+
+**Plan said:** nothing directly in the task itself, but `SETUP.md`'s dev-project
+section states "`link` will ask for the dev database password. Take it from the
+password manager," and `ENVIRONMENT.md` §5 lists the dev connection string as
+unset until this task fills it in.
+
+**What was wrong:** on Supabase CLI 2.117.0, neither
+`supabase link --project-ref oqvoqddoizhhwvjwejtm` nor `supabase db push` prompted
+for a password at any point, run non-interactively with `< /dev/null`. Both printed
+`Initialising login role...` / `Connecting to remote database...` and completed
+using the account-wide access token alone — the CLI now appears to provision a
+scoped role through the Management API rather than requiring the project's static
+database password for a project this account already owns. This matters beyond
+convenience: Claude is never permitted to type, receive, or handle a database
+password, so if this version *had* prompted, task 0.8 would have stopped here for
+the password to be entered by hand in a real terminal, not by this run.
+
+**What I did instead:** ran both commands unmodified. Verified the result rather
+than assumed it, the same standard as the task 0.6/0.7 entries:
+`packages/db/supabase/.temp/project-ref` (git-ignored, not read aloud) holds
+`oqvoqddoizhhwvjwejtm`; `supabase db push --dry-run` before the real push reported
+`"upToDate":true` against the then-empty schema; the real push then reported
+`"migrations":["20260903090000_skeleton.sql"]` and
+`"message":"Finished supabase db push."`; and the integration suite went from 7
+failing to 7 passing immediately after. No password was seen, typed, or requested
+at any point. Ticked the "Dev Supabase database connection string" row in
+`ENVIRONMENT.md` §5, since linking is what that row was waiting on; left the
+production row unticked — production is never linked from this run.
+
+**Risk:** `SETUP.md`'s dev-project section still tells the next reader to expect a
+password prompt that, on this CLI version, never appears. Worth a documentation
+fix, but not one to make unilaterally mid-run, on the same reasoning as the task
+0.7 `RUNBOOK.md` finding: flagged here rather than silently rewritten.
+
+---
+
+## Task 0.8 — `supabase init`'s generated `.temp/` fails `format:check`
+
+**Plan said:** nothing about `.prettierignore`; `packages/db/supabase/config.toml`
+is the only generated file the task names.
+
+**What was wrong:** `supabase init` also writes `packages/db/supabase/.temp/`
+(linked-project metadata, cached CLI/service versions), not itself named by the
+plan and made of Prettier-checkable JSON. `pnpm format:check` flagged
+`packages/db/supabase/.temp/linked-project.json`, even though
+`packages/db/supabase/.gitignore` — also generated by `supabase init` — already
+excludes the whole `.temp/` directory from git.
+
+**What I did instead:** added `**/supabase/.temp/**` to the root `.prettierignore`,
+next to the existing `**/dist/` and `**/.turbo/` generated-output entries. Same
+class of fix: content this repository doesn't author and has no reason to format.
+
+**Risk:** None.

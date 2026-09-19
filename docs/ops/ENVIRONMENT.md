@@ -102,7 +102,7 @@ the topic preview cannot call the API at all.
 
 | Item | Purpose | Where it lives | Set? |
 |---|---|---|:---:|
-| Dev Supabase database connection string | Local migrations, and `supabase db dump` for the manual backup | Your own machine's environment or Supabase CLI config. **Never committed.** | ☐ |
+| Dev Supabase database connection string | Local migrations, and `supabase db dump` for the manual backup | Your own machine's environment or Supabase CLI config. **Never committed.** | ☑ |
 | Production Supabase database connection string | The manual production migration command, and the pre-event `supabase db dump` | Same. **Never committed.** | ☐ |
 | `apps/server/.env` | Local dev run and the integration-test harness: **dev** Supabase URL and service-role key, a local-only `AUTH_JWT_SECRET` (distinct from both Vercel ones), `ALLOWED_ORIGIN=http://localhost:5173` | Your machine only. Matched by `.gitignore`’s `.env` rule; never committed. | ☑ |
 | `apps/client/.env` | Local dev run: `VITE_API_BASE_URL=http://localhost:3000`, `VITE_DEVICE_WIPE_CODE`. `VITE_APP_VERSION` left empty — the build injects it. | Same. | ☑ |

@@ -1,0 +1,29 @@
+{
+  "name": "@frc/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "db:push": "supabase db push",
+    "db:types": "supabase gen types typescript --linked --schema public --output src/database.types.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --no-error-on-unmatched-pattern",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.46.1"
+  },
+  "devDependencies": {
+    "dotenv": "^16.4.5",
+    "supabase": "^2.117.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}

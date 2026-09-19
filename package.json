@@ -10,6 +10,8 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "db:push": "pnpm --filter @frc/db db:push",
+    "db:test": "pnpm --filter @frc/db test:integration",
     "env:example": "node scripts/gen-env-example.mjs",
     "env:example:check": "node scripts/gen-env-example.mjs --check",
     "docs:check": "node scripts/check-docs.mjs",
