@@ -836,3 +836,27 @@ next to the existing `**/dist/` and `**/.turbo/` generated-output entries. Same
 class of fix: content this repository doesn't author and has no reason to format.
 
 **Risk:** None.
+
+---
+
+## Task 0.9 — the same class of failing-first and print-width drift recurs
+
+**Plan said:** Step 2 — Expected: `relation "public.users" does not exist`; and
+`packages/db/test/forms.itest.ts` transcribed verbatim, including several lines
+over 100 characters (e.g. the `dup`/`other`/`bad` form inserts and the two
+`unit`/`phase`/`direction` assertions inside `constrains the semantic-metadata
+vocabularies`).
+
+**What was wrong:** both already-logged patterns repeated exactly. The failing-first
+read was the same `PGRST205` schema-cache miss as task 0.8's entry, not `42P01`, on
+all 10 assertions this time (`users`/`forms`/`form_versions`/`form_fields`/
+`scoring_rules` all absent together). And several plan-quoted lines exceeded
+`printWidth: 100`, so `pnpm format:check` failed on `forms.itest.ts` after the
+migration was applied and the suite was already green.
+
+**What I did instead:** accepted the failing-first read for the same reason as
+task 0.8. Ran `pnpm format` for the width violations rather than hand-wrapping
+every line up front; re-ran `pnpm --filter @frc/db test:integration` afterward —
+17/17 green, unchanged assertions, only line breaks moved.
+
+**Risk:** None.
