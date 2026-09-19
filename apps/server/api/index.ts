@@ -1,5 +1,5 @@
 import { handle } from 'hono/vercel';
-import { buildApp } from '../src/composition';
+import { buildApp } from '../src/composition.js';
 
 export const config = { runtime: 'nodejs' };
 

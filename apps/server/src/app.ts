@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import type { ServerConfig } from './config';
+import type { ServerConfig } from './config.js';
 
 export type AppDeps = {
   config: ServerConfig;

@@ -1,7 +1,7 @@
 import type { Hono } from 'hono';
-import { createApp } from './app';
-import { serverConfig } from './config';
-import { makePingDatabase } from './db/ping';
+import { createApp } from './app.js';
+import { serverConfig } from './config.js';
+import { makePingDatabase } from './db/ping.js';
 
 /** Builds the production application from the real environment. */
 export function buildApp(): Hono {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadServerConfig } from './config';
+import { loadServerConfig } from './config.js';
 
 const complete = {
   SUPABASE_URL: 'https://example.supabase.co',

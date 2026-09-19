@@ -1,5 +1,5 @@
-import type { ServerConfig } from '../config';
-import { getServiceClient } from './client';
+import type { ServerConfig } from '../config.js';
+import { getServiceClient } from './client.js';
 
 /**
  * One trivial database read (SPEC-FINAL 19.6). This is what counts as activity

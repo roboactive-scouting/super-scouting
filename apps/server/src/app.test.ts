@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
-import { createApp } from './app';
-import { loadServerConfig } from './config';
+import { createApp } from './app.js';
+import { loadServerConfig } from './config.js';
 
 const config = loadServerConfig({
   SUPABASE_URL: 'https://example.supabase.co',
