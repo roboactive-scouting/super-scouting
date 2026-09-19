@@ -42,13 +42,13 @@ Everything secret lives here. Server-side only. Never in a client bundle, never 
 
 | Variable | What it is | Where you get it | Secret? | Dev / Preview value | Production value | Set? |
 |---|---|---|---|---|---|:---:|
-| `SUPABASE_URL` | Project REST URL | Supabase → Project Settings → API | No | `https://oqvoqddoizhhwvjwejtm.supabase.co` | `https://ezrgtroyofuxkkktnino.supabase.co` | ☐ |
-| `SUPABASE_SERVICE_ROLE_KEY` | Full database access | Supabase → Project Settings → API | **YES** | *(never written here)* | *(never written here)* | ☐ |
-| `AUTH_JWT_SECRET` | HS256 signing secret for session tokens | Generate: `openssl rand -base64 48`. **A different one per environment.** | **YES** | *(never written here)* | *(never written here)* | ☐ |
-| `AUTH_TOKEN_TTL_DAYS` | Session lifetime. Default `30` | Configuration | No | `30` | `30` | ☐ |
-| `AUTH_TOKEN_REFRESH_AFTER_DAYS` | Re-issue a token older than this. Default `7` | Configuration | No | `7` | `7` | ☐ |
-| `ALLOWED_ORIGIN` | The client origin permitted by CORS | The client's Vercel project URL | No | `https://frc-scouting-client-git-develop-roboactive.vercel.app` | `https://frc-scouting-client.vercel.app` | ☐ |
-| `NODE_ENV` | `development` / `production` | Set by the platform | No | *(auto)* | *(auto)* | ☐ |
+| `SUPABASE_URL` | Project REST URL | Supabase → Project Settings → API | No | `https://oqvoqddoizhhwvjwejtm.supabase.co` | `https://ezrgtroyofuxkkktnino.supabase.co` | ☑ |
+| `SUPABASE_SERVICE_ROLE_KEY` | Full database access | Supabase → Project Settings → API | **YES** | *(never written here)* | *(never written here)* | ☑ |
+| `AUTH_JWT_SECRET` | HS256 signing secret for session tokens | Generate: `openssl rand -base64 48`. **A different one per environment.** | **YES** | *(never written here)* | *(never written here)* | ☑ |
+| `AUTH_TOKEN_TTL_DAYS` | Session lifetime. Default `30` | Configuration | No | `30` | `30` | ☑ |
+| `AUTH_TOKEN_REFRESH_AFTER_DAYS` | Re-issue a token older than this. Default `7` | Configuration | No | `7` | `7` | ☑ |
+| `ALLOWED_ORIGIN` | The client origin permitted by CORS | The client's Vercel project URL | No | `https://frc-scouting-client-git-develop-roboactive.vercel.app` | `https://frc-scouting-client.vercel.app` | ☑ |
+| `NODE_ENV` | `development` / `production` | Set by the platform | No | *(auto)* | *(auto)* | ☑ |
 
 ## 3. GitHub Actions secrets
 
@@ -75,8 +75,8 @@ Set per project, per environment, in the Vercel dashboard.
 |---|---|---|---|:---:|
 | Client | Production | `VITE_API_BASE_URL`, `VITE_DEVICE_WIPE_CODE`, `VITE_APP_VERSION` | production server | ☐ |
 | Client | Preview | `VITE_API_BASE_URL`, `VITE_DEVICE_WIPE_CODE`, `VITE_APP_VERSION` | dev/preview server | ☐ |
-| Server | Production | the whole of §2 | **prod** Supabase project | ☐ |
-| Server | Preview | the whole of §2 | **dev** Supabase project | ☐ |
+| Server | Production | the whole of §2 | **prod** Supabase project | ☑ |
+| Server | Preview | the whole of §2 | **dev** Supabase project | ☑ |
 
 **Preview and local always point at the dev Supabase project. Never production.**
 

@@ -670,3 +670,61 @@ Branch and the `develop` alias is what `SMOKE_API_BASE_URL` and the client's Pre
 `VITE_API_BASE_URL` resolve to. Restricting further would break the smoke suite. If
 a future task needs a preview from a topic branch, the condition must be widened
 rather than the override removed.
+
+---
+
+## Provisioning gate — ESM resolution fails for every relative import on Vercel
+
+**Plan said:** `apps/server` uses `"type": "module"` with
+`moduleResolution: "Bundler"` inherited from `tsconfig.base.json`, and therefore
+extensionless relative imports throughout — `import { buildApp } from
+'../src/composition'`.
+
+**What was wrong:** correct locally, fatal when deployed. The function crashed at
+module load on every request:
+
+```
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module
+'/var/task/apps/server/src/composition' imported from
+/var/task/apps/server/api/index.js
+```
+
+Because the package is `"type": "module"`, Vercel transpiles `api/index.ts` rather
+than bundling it, so the emitted JavaScript keeps the extensionless specifier and
+hands it to Node's ESM resolver — which, unlike a bundler, requires an explicit
+extension. `moduleResolution: "Bundler"` is an accurate description of the local
+toolchain and a false one of the deployment.
+
+The symptom is indistinguishable from a bad environment variable: both produce
+`500 FUNCTION_INVOCATION_FAILED` as plain text with no JSON body, because
+`api/index.ts` calls `buildApp()` at module scope. Only the runtime log separates
+them. Worth knowing before spending an hour re-checking Vercel's env var UI.
+
+**What I did instead:** added an explicit `.js` extension to all twelve relative
+imports under `apps/server/src` and `apps/server/api`. Under `Bundler` resolution a
+`.js` specifier resolves to the sibling `.ts` file, so typecheck, vitest and `tsx`
+are unaffected — 53 tests, typecheck, lint and format all green before the push.
+
+Confirmed fixed against both deployed environments:
+
+```
+Prod    503 {"status":"error","database":"error","message":"Could not find the table 'public.app_settings' in the schema cache"}
+Preview 503 {"status":"error","database":"error","message":"Could not find the table 'public.app_settings' in the schema cache"}
+```
+
+That 503 is the expected pre-migration state and it proves the environment
+variables are right: the function authenticated against Supabase and got a genuine
+schema error back.
+
+**Risk — this fix does not generalise, and the next case is already scheduled.**
+It covers *relative* imports only. `apps/server/package.json` declares
+`@frc/shared` as a dependency but no source file imports it yet. SPEC-FINAL §16.1
+requires that import — `packages/shared` is the single validation source for both
+sides — and `@frc/shared` resolves to TypeScript source (`main: ./src/index.ts`).
+Node cannot import a `.ts` file from `node_modules`, and no extension fixes it. The
+first phase 1 task that shares a schema between client and server will reproduce
+this failure in a form that looks completely different.
+
+The durable fix is to bundle the function at build time with esbuild, inlining
+`@frc/shared` and every relative import. Deferred to a post-gate task at the user's
+direction rather than changed mid-provisioning.
