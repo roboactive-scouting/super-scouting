@@ -860,3 +860,26 @@ every line up front; re-ran `pnpm --filter @frc/db test:integration` afterward �
 17/17 green, unchanged assertions, only line breaks moved.
 
 **Risk:** None.
+
+---
+
+## Task 0.10 — same failing-first and print-width drift, third occurrence
+
+**Plan said:** Step 2 — Expected: `relation "public.scouting_entries" does not
+exist`; `packages/db/test/entries.itest.ts` transcribed verbatim, including
+several lines over 100 characters (the three vocabulary-restriction assertions in
+particular).
+
+**What was wrong:** identical to the task 0.8 and 0.9 entries — a `PGRST205`
+schema-cache miss across all 10 assertions instead of `42P01` on the first run,
+and `pnpm format:check` failing on `entries.itest.ts` after the migration landed
+and the suite was green.
+
+**What I did instead:** same handling as both prior tasks: accepted the
+failing-first read, ran `pnpm format`, re-ran `pnpm --filter @frc/db
+test:integration` — 27/27 green across all three integration files, unchanged
+assertions. Not treating this as a new finding; recording it because the run
+brief calls a trivial, repeated deviation worth logging every time rather than
+once.
+
+**Risk:** None.
