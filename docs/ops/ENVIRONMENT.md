@@ -32,9 +32,9 @@ The client holds **no Supabase credentials at all**, not even the anon key. All 
 
 | Variable | What it is | Where you get it | Secret? | Dev / Preview value | Production value | Set? |
 |---|---|---|---|---|---|:---:|
-| `VITE_API_BASE_URL` | Base URL of the server API | The server's Vercel project URL | No | `https://frc-scouting-server-git-develop-roboactive.vercel.app` | `https://frc-scouting-server.vercel.app` | ☐ |
-| `VITE_DEVICE_WIPE_CODE` | The code a lead types to wipe a device's offline data | You choose it | **No** — it ships in the JS bundle and is visible to anyone. It is an accident guard, not a security control. | `WIPE2096` | `WIPE2096` | ☐ |
-| `VITE_APP_VERSION` | The version string shown on the context page | Injected at build time from the git short SHA — not typed by hand | No | *(auto)* | *(auto)* | ☐ |
+| `VITE_API_BASE_URL` | Base URL of the server API | The server's Vercel project URL | No | `https://frc-scouting-server-git-develop-roboactive.vercel.app` | `https://frc-scouting-server.vercel.app` | ☑ |
+| `VITE_DEVICE_WIPE_CODE` | The code a lead types to wipe a device's offline data | You choose it | **No** — it ships in the JS bundle and is visible to anyone. It is an accident guard, not a security control. | `WIPE2096` | `WIPE2096` | ☑ |
+| `VITE_APP_VERSION` | The version string shown on the context page | Injected at build time from the git short SHA — not typed by hand | No | *(auto)* | *(auto)* | ☑ |
 
 ## 2. Server — `apps/server/.env.example`
 
@@ -73,8 +73,8 @@ Set per project, per environment, in the Vercel dashboard.
 
 | Project | Environment | Variables | Points at | Done? |
 |---|---|---|---|:---:|
-| Client | Production | `VITE_API_BASE_URL`, `VITE_DEVICE_WIPE_CODE`, `VITE_APP_VERSION` | production server | ☐ |
-| Client | Preview | `VITE_API_BASE_URL`, `VITE_DEVICE_WIPE_CODE`, `VITE_APP_VERSION` | dev/preview server | ☐ |
+| Client | Production | `VITE_API_BASE_URL`, `VITE_DEVICE_WIPE_CODE`, `VITE_APP_VERSION` | production server | ☑ |
+| Client | Preview | `VITE_API_BASE_URL`, `VITE_DEVICE_WIPE_CODE`, `VITE_APP_VERSION` | dev/preview server | ☑ |
 | Server | Production | the whole of §2 | **prod** Supabase project | ☑ |
 | Server | Preview | the whole of §2 | **dev** Supabase project | ☑ |
 
