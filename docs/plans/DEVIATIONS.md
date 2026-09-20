@@ -1778,3 +1778,39 @@ The non-null branch (push's own behavior) is untouched. `apps/server/src/composi
 **What I did instead:** implemented as written. `pnpm --filter @frc/client exec vitest run src/data` is 8/8 green, the full client suite is 28/28 green (6 files), and `pnpm typecheck` is clean across all four packages.
 
 **Risk:** None.
+
+---
+
+## Task 1.6 — `sync.test.ts`'s `emptyEntities` cast fails `tsc -b` even though vitest passes
+
+**Plan said:** `const emptyEntities = Object.fromEntries(PULL_ENTITY_KEYS.map((k) => [k, []])) as PullResponse['entities'];`
+
+**What was wrong:** `pnpm --filter @frc/client exec vitest run src/data/sync.test.ts` reproduced the plan's predicted failing-first error exactly (`Failed to resolve import "./sync"`), and after implementation the full suite passed under vitest (esbuild transpilation only, no structural type-check). `pnpm typecheck` then failed with `tsc -b --force`: TS2352, "Conversion of type '{ [k: string]: never[]; }' to type 'Record<...24 keys..., Record<string, unknown>[]>' may be a mistake because neither type sufficiently overlaps with the other." `Object.fromEntries` on a `[string, never[]][]` array infers an index-signature type with `never[]` values, which TypeScript's single-step `as` refuses to narrow directly to the 24-key literal-union record type.
+
+**What I did instead:** changed the one line to cast through `unknown` first — `as unknown as PullResponse['entities']` — which is the standard, narrowly-scoped escape hatch for exactly this "types don't sufficiently overlap" situation. No other line changed, no runtime behavior changed (this is test-fixture construction only), and all 24 `PULL_ENTITY_KEYS` are still populated with `[]` at runtime same as before.
+
+**Risk:** None. Confirmed `pnpm --filter @frc/client exec vitest run src/data` still 19/19 green and `pnpm typecheck` clean across all four packages after the change.
+
+---
+
+## Task 1.6 — plan-quoted files fail `format:check`, same recurring class as tasks 0.3/0.9/0.10/0.12/1.5
+
+**Plan said:** `api.ts`, `sync.ts` and `sync.test.ts` transcribed verbatim from the plan.
+
+**What was wrong:** `pnpm format:check` flagged all three files (`ApiError`'s multi-parameter constructor, several inline object literals in `sync.ts`'s pull loop, and a number of single-line test bodies/objects in `sync.test.ts` exceeding the project's Prettier config).
+
+**What I did instead:** wrote the files verbatim first, confirmed the failing-first run and passing run both matched the plan's logic exactly, then ran `npx prettier --write` on the three files. Only whitespace/line-wrapping moved (e.g. `ApiError`'s constructor parameters each on their own line, several object literals reflowed across lines); no identifier, assertion, or value changed. Re-ran `pnpm --filter @frc/client exec vitest run src/data` (19/19 green), `pnpm typecheck` (clean), and `pnpm lint` (clean) afterward.
+
+**Risk:** None.
+
+---
+
+## Task 1.6 — everything else matched the plan exactly
+
+**Plan said:** `api.ts`, `sync.ts`, `connection.ts` given as literal, complete code; `sync.test.ts` given as a literal, complete test suite; failing-first error predicted as `Failed to resolve import "./sync"`.
+
+**What was wrong:** nothing else. `connection.ts` needed no adjustment at all (not even formatting). `@frc/shared` already exports `PullResponse`, `PushResponse`, `PullRequest`, `PushRequest`, `MAX_OPERATIONS_PER_PUSH`, `PULL_ENTITY_KEYS` and `PullEntityKey` from `packages/shared/src/sync/protocol.ts` via `index.ts`, so no export line needed adding there. `apps/client/src/config.ts`'s `ClientConfig` type matched what `api.ts` expects with no changes.
+
+**What I did instead:** implemented as written (module-line fixes above aside). `pnpm --filter @frc/client exec vitest run src/data` is 19/19 green (2 files: `outbox.test.ts` 8, `sync.test.ts` 11), and `pnpm typecheck` / `pnpm lint` are clean across all four packages.
+
+**Risk:** None.
