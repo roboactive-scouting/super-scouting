@@ -1754,3 +1754,27 @@ The non-null branch (push's own behavior) is untouched. `apps/server/src/composi
 **What I did instead:** the same pattern already established for `store.ts`'s `putRow` (this file, task 1.3 entry above): a narrow cast at the one dynamic call site, `db.from(spec.table as never)`, with a comment pointing at the precedent. Every literal `.from('matches')`-style call inside `parentIds` (the same file) needed no cast and stayed fully type-checked.
 
 **Risk:** Low, same shape as the already-accepted `putRow` pattern. Runtime correctness rests on `PULL_SCOPES`'s table name strings matching real table names, which was checked directly against `packages/db/src/database.types.ts` (all 24 `PULL_ENTITY_KEYS` present as real tables).
+
+---
+
+## Task 1.5 — `outbox.test.ts`'s plan-quoted lines exceed the print width, same recurring class as tasks 0.3/0.9/0.10/0.12
+
+**Plan said:** `apps/client/src/data/outbox.test.ts` transcribed verbatim, including three lines over 100 characters (the `ackResults` call in "keeps a delete of a row the server already knows about", the `result` object literal in "prunes on every acking status...", and the `ackResults` call in "NEVER prunes on a rejection...").
+
+**What was wrong:** same as every prior occurrence logged in this file: `pnpm format:check` failed on the test file once written verbatim, since `.prettierrc.json`'s `printWidth: 100` disagrees with the plan's own line breaks.
+
+**What I did instead:** wrote the file verbatim first, confirmed the failing-first run and the implementation both matched the plan exactly, then ran `npx prettier --write apps/client/src/data/outbox.test.ts`. Only line breaks moved (the three lines above were wrapped onto multiple lines); no assertion or value changed. Re-ran `pnpm --filter @frc/client exec vitest run src/data` afterward — 8/8 still green — and `pnpm format:check` / `pnpm lint` both clean.
+
+**Risk:** None.
+
+---
+
+## Task 1.5 — everything else matched the plan exactly
+
+**Plan said:** Step 2 (test setup / `vitest.config.ts` `setupFiles`) is already done by task 0.4; the failing-first error is predicted as `Failed to resolve import "./db"`; `db.ts` and `outbox.ts` are given as literal, complete code.
+
+**What was wrong:** nothing. Step 2 was confirmed as a genuine no-op (`apps/client/src/test/setup.ts` and `apps/client/vitest.config.ts` already had the exact content the plan shows). The failing-first run reproduced the plan's predicted error text exactly, unlike most prior tasks' failing-first entries in this file. `db.ts` and `outbox.ts` were transcribed verbatim with no compile or runtime adjustment needed — `@frc/shared` already exports `Operation`, `isAck`, `PushResult` and `PullEntityKey` from `packages/shared/src/index.ts` (tasks 1.1–1.4), so no export line needed adding there. `@testing-library/user-event`, `fake-indexeddb` and `@testing-library/jest-dom` were all already present in `apps/client/package.json` from task 0.4; only `dexie` was missing and was added as specified.
+
+**What I did instead:** implemented as written. `pnpm --filter @frc/client exec vitest run src/data` is 8/8 green, the full client suite is 28/28 green (6 files), and `pnpm typecheck` is clean across all four packages.
+
+**Risk:** None.
