@@ -8,7 +8,10 @@
     "VERCEL_GIT_COMMIT_SHA"
   ],
   "tasks": {
-    "build": { "dependsOn": ["^build"], "outputs": ["dist/**", ".vercel/output/**"] },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".vercel/output/**", "api/*.js", "api/*.js.map"]
+    },
     "typecheck": { "dependsOn": ["^build"] },
     "lint": {},
     "dev": { "cache": false, "persistent": true }

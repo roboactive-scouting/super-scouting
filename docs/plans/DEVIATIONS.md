@@ -1259,3 +1259,96 @@ failing on every real run (scheduled or dispatched) until someone runs the
 by-hand production migration; that failure is correct and expected, not a bug
 to chase, and `fail-fast: false` on the matrix means the dev leg's success is
 never masked by it.
+
+---
+
+## New task, added at the run's own direction — bundle `apps/server`'s function with esbuild before phase 1 needs `@frc/shared`
+
+**Plan said:** nothing — this task does not exist in `IMPLEMENTATION-PLAN.md`.
+It was added because the run's own briefing required it: the provisioning-gate
+deviation "ESM resolution fails for every relative import on Vercel" fixed every
+*relative* import in `apps/server` with an explicit `.js` extension, but flagged
+that the fix does not generalise — `@frc/shared` resolves to TypeScript source
+(`main: ./src/index.ts`), Node cannot import `.ts` from `node_modules`, and no
+extension fixes that. Nothing imports `@frc/shared` yet, so it was latent, not
+broken; SPEC-FINAL §16.1 requires phase 1 to import it as the single validation
+source for both sides, which would reproduce the failure the moment it does.
+
+**What I did:** moved the Vercel function's actual code out of
+`apps/server/api/index.ts` into `apps/server/src/handler.ts` (identical content,
+now a normal `src` file), and added `apps/server/scripts/build-function.mjs`,
+which runs esbuild against it:
+
+```js
+await build({
+  entryPoints: [`${root}/src/handler.ts`],
+  outfile: `${root}/api/index.js`,
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node22',
+  sourcemap: true,
+  external: ['hono', '@supabase/supabase-js', 'zod'],
+});
+```
+
+`external` names only the real npm dependencies — the ones Vercel's own file
+tracing already includes from `node_modules` for the currently-deployed
+function. Everything else (every file under `apps/server/src`, and `@frc/shared`
+the moment phase 1 imports it) gets inlined into one self-contained
+`apps/server/api/index.js`. `apps/server/api/index.ts` is deleted from the
+repository; `apps/server/api/` now holds only this generated file, which is
+git-ignored (`apps/server/api/*.js`, `apps/server/api/*.js.map`) the same way
+`dist/` is — Vercel regenerates it on every build via `apps/server/package.json`
+`"build": "tsc --noEmit && node scripts/build-function.mjs"`, wired into
+`apps/server/vercel.json`'s new `buildCommand` (`pnpm turbo run build
+--filter=@frc/server`, matching the pattern `apps/client/vercel.json` already
+used). `apps/server/tsconfig.json`'s `include` dropped `"api"` — there is no
+more hand-authored TypeScript there — and its `lint` script dropped the now
+non-existent `api` argument, matching `packages/db`'s
+`--no-error-on-unmatched-pattern` precedent. `turbo.json`'s `build` task
+`outputs` gained `api/*.js` and `api/*.js.map`, which also incidentally makes
+the "no output files found" Turbo warning (logged at tasks 0.3 and 0.15) stop
+firing for `@frc/server` specifically, since it now has a real build artifact.
+
+**Verified, not assumed, in three steps:**
+
+1. **The bundle itself.** `pnpm --filter @frc/server build` produced
+   `api/index.js` (3.2kb) and `api/index.js.map` (7.4kb).
+   `grep -nE "from ['\"]\.\.?/|require\(['\"]\.\."` over the output matched
+   nothing — no relative or workspace specifier survived; only `hono`,
+   `hono/vercel`, `hono/cors`, `zod` and `@supabase/supabase-js` remain as
+   `import` statements, and the file ends with `export { GET, OPTIONS, POST,
+   config };`, exactly the four names Vercel's Node function runtime needs.
+2. **The bundle actually runs.** Imported it directly in Node with fake
+   (non-secret, obviously-fake) env vars and called the exported `GET` against a
+   real `Request`:
+   ```
+   exports: [ 'GET', 'OPTIONS', 'POST', 'config' ]
+   status: 503
+   body: {"status":"error","database":"error","message":"TypeError: fetch failed"}
+   ```
+   The 503 is correct and expected — `https://example.supabase.co` isn't a real
+   host — and it is the right kind of failure: a network error from inside the
+   real routing/handler/CORS/config chain, not `ERR_MODULE_NOT_FOUND`, which is
+   the failure this task exists to prevent.
+3. **A real deployment**, against the actual dev-linked Preview server —
+   recorded in the task 0.17 entry below, since that is where the push happens.
+
+**Alternatives rejected:** letting Vercel's own zero-config Node builder keep
+transpiling `api/*.ts` file-by-file (today's behaviour) was rejected because
+it is exactly the mechanism that cannot resolve `@frc/shared`'s TS entry point,
+no matter how its imports are spelled. Using Vercel's Build Output API v3
+directly (hand-writing `.vercel/output/functions/api/index.func/`) was
+considered and rejected as more machinery than this problem needs — esbuild
+bundling to a plain `api/*.js` file works with Vercel's existing zero-config
+detection unmodified, because a `.js` file needs no further transpilation, only
+the same node_modules tracing already proven to work today.
+
+**Risk:** the `external` list in `build-function.mjs` has to be kept in sync
+with `apps/server/package.json`'s real npm dependencies by hand — if a future
+task adds a new npm dependency to `apps/server` and forgets to add it to
+`external`, esbuild will silently inline it instead (larger bundle, not a
+correctness bug, but worth knowing). Conversely, forgetting to add a *new
+workspace package* to `apps/server`'s dependencies would fail loudly at
+bundle time (esbuild can't resolve it), which is the safer failure direction.
