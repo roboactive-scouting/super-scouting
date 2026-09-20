@@ -12,8 +12,9 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
 
 await build({
-  entryPoints: [`${root}/src/handler.ts`],
-  outfile: `${root}/api/index.js`,
+  absWorkingDir: root, // keeps the bundle's embedded source comments CWD-independent
+  entryPoints: ['src/handler.ts'],
+  outfile: 'api/index.js',
   bundle: true,
   platform: 'node',
   format: 'esm',
