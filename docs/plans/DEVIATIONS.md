@@ -1139,3 +1139,53 @@ no functional effect, not a fix this task has a mandate to make.
 
 **Risk:** unchanged from the task 0.3 entry: recurring log noise, revisit only if
 a package genuinely needs `outputs` to be accurate.
+
+---
+
+## Task 0.15 — the first real CI run failed at "Apply migrations to the dev project": `SUPABASE_ACCESS_TOKEN` rejected by the Supabase CLI
+
+**Plan said:** Step 5 — Expected: every step green, `Apply migrations to the dev
+project` prints `Remote database is up to date.`
+
+**What was wrong:** on GitHub Actions run `35493674874` (push to `develop`,
+commit `59e157a`), every step up to and including `Typecheck` passed —
+checkout, pnpm setup, Node setup, `pnpm install --frozen-lockfile`,
+`pnpm env:example:check`, `pnpm docs:check`, `pnpm lint`, `pnpm typecheck`. The
+next step, `Apply migrations to the dev project`, failed immediately:
+
+```
+Invalid access token format. Must be like `sbp_0102...1920`.
+Try rerunning the command with --debug to troubleshoot the error.
+undefined
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: supabase link --project-ref *** --password ***
+##[error]Process completed with exit code 1.
+```
+
+This is the Supabase CLI's own format check on `SUPABASE_ACCESS_TOKEN`, run
+before any network call — it never reached the dev project at all. `Unit tests`,
+`Smoke suite` and `Build both apps` were then skipped as a consequence, not
+because anything in this run's own code is wrong: every one of those was already
+verified locally in this task, against the same real deployment, before pushing
+— `pnpm test` (53/53), the smoke script by hand against
+`https://frc-scouting-server-git-develop-roboactive.vercel.app/health` (`smoke
+ok: ... -> 200 {"status":"ok","database":"ok",...}`), and `pnpm build` with CI's
+exact env vars, all green.
+
+**What I did instead:** nothing to the secret, and nothing to the workflow file.
+The standing rule this run operates under is absolute: never see, request, or
+guess at a secret value. The GitHub secret named `SUPABASE_ACCESS_TOKEN` exists
+(§3 already has it ticked from a prior session), but whatever value is currently
+stored there does not parse as a Supabase personal access token
+(`sbp_`-prefixed). That could be a stale, truncated, or mistyped value, or a
+token that was later revoked and re-issued without updating the secret — none of
+which is distinguishable from outside, and none of which this run is positioned
+to fix. `ci.yml` reads it by name exactly as the plan specifies
+(`${{ secrets.SUPABASE_ACCESS_TOKEN }}`), matching every other secret reference
+in the file.
+
+**Risk:** CI cannot apply migrations to dev, or reach the "Unit tests" step
+onward, until `SUPABASE_ACCESS_TOKEN` is corrected in **Settings → Secrets and
+variables → Actions** with a valid token from **Supabase → Account → Access
+Tokens** (the same source `SETUP.md`'s GitHub Actions secrets section already
+names). This is the checkpoint failure to report and hand back, per the run
+brief.
