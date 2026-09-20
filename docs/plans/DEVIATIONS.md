@@ -1652,3 +1652,63 @@ proves too tight or unnecessarily long once this has run for real on
 **What I did instead:** implemented exactly what Step 1's tests exercise and Step 3's code shows — `validateEntryData` and its supporting types — and did not invent a `buildEntryDataSchema` function to satisfy the Interfaces line. Adding unrequested code on the strength of one summary line, with no test and no implementation to match it against, would be exactly the kind of invented scope this run's standing rules warn against.
 
 **Risk:** if a later task's plan text (task 1.24, which "widens the same union and the same function" per task 1.2's own scope note) assumes `buildEntryDataSchema` already exists as a named export from `@frc/shared`, that reference will fail to compile. Worth checking task 1.24's own text for this name before it starts; right now `packages/shared` has no such symbol, only `validateEntryData`.
+
+---
+
+## Task 1.3 — `packages/shared/src/index.ts`'s export line for `entryShape.ts` was not given literally
+
+**Plan said:** the Files list names `packages/shared/src/index.ts` as modified by this task, and `syncPush.ts`'s own import list needs `validateEntryShape` from `@frc/shared`, but no code block shows the actual export line to add.
+
+**What was wrong:** nothing — an omission, not a contradiction.
+
+**What I did instead:** added `export * from './forms/entryShape';`, placed alphabetically between `./format` and `./forms/types`, matching the file's existing style.
+
+**Risk:** None.
+
+---
+
+## Task 1.3 — `entryShape.test.ts` was specified in prose, not code
+
+**Plan said:** "`packages/shared/src/forms/entryShape.test.ts` covers each branch: a complete match entry passes; each of the three missing match columns fails with its own message; a clean super entry passes; each of the four columns a super entry must not carry fails; `broke_down` without seconds fails; seconds without `broke_down` fails; and `no_show` with null seconds passes" — prose only, no literal test code given, unlike every other test file in tasks 1.1–1.3.
+
+**What was wrong:** nothing to fix; the task just requires writing a test file from a description rather than transcribing one.
+
+**What I did instead:** wrote 12 `it(...)` cases against that description, in this codebase's existing Vitest house style (`describe`/`it`, `expect(...).toBe(...)`, no snapshots — following `packages/shared/src/forms/validate.test.ts`'s precedent). One case needed a judgment call: a super entry with `breakdown_seconds` set but `robot_status` still `null` legitimately trips **two** `validateEntryShape` rules at once (`'a super entry has no breakdown time'` and `'breakdown time is recorded only when the robot broke down'`), so that test asserts both messages are present, not exactly one.
+
+**Risk:** None — this reflects `validateEntryShape`'s actual (and correct) behavior; a future reader of the test file has the reasoning documented here rather than needing to re-derive it.
+
+---
+
+## Task 1.3 — `repos/store.ts`'s `supabaseStore` and `test/fake-context.ts`'s fake `store` need an explicit `as Store` cast the plan's code doesn't show
+
+**Plan said:** both files return an object literal (a handful of real methods plus `...stubsFor([...])`) typed as `: Store` (for `supabaseStore`) or assigned via `Object.assign(fake, { now, store: {...} })` (for the fake), with no type assertion anywhere.
+
+**What was wrong:** neither compiles as literally written. `stubsFor(names: string[])` returns `Record<string, () => Promise<never>>`, which only contributes a string index signature to the spread object literal's *inferred* type — TypeScript does not see that the spread's 59 runtime entries satisfy `Store`'s 59 named members, and reports the object literal as missing all of them. Separately, in the fake, `Object.assign`'s generic inference does not flow `FakeContext`'s `store: Store` field back in as a contextual type for a nested object literal, so every method inside the inline `store: {...}` had implicit-`any` parameters (`TS7006`).
+
+**What I did instead:** in `repos/store.ts`, added `} as Store;` to the returned object literal. In `fake-context.ts`, pulled the `store` object out into its own `const store = {...} as Store` built before the `Object.assign` call, then passed `store` into `Object.assign(fake, { now: () => fake.nowValue, store })`. Verified the narrower cast (`as Store`, not `as unknown as Store`) is sufficient in both places — TypeScript's "comparable" check for a type assertion accepts it once every declared member's arity and shape actually line up.
+
+**Risk:** None functionally — both are compile-time-only fixes; the runtime shape (explicit methods + `stubsFor` spread) is exactly as the plan specifies.
+
+---
+
+## Task 1.3 — `fake-context.ts`'s `getFormFields()` needed a declared parameter to keep the `as Store` cast valid
+
+**Plan said:** `async getFormFields() { return SKELETON_FIELDS; }` — zero parameters, ignoring the argument entirely since the skeleton fixture always returns the same fields.
+
+**What was wrong:** `Store.getFormFields` is declared `getFormFields(formVersionId: string): Promise<FormFieldDefinition[]>`. A zero-arg function is normally an acceptable subtype for plain assignment, but it was enough by itself — verified in isolation with a minimal repro — to flip TypeScript's "sufficient overlap" heuristic for the `as Store` cast to false across the *entire* 65-method object literal, even though every other method (stubbed or real) matched fine.
+
+**What I did instead:** gave it a parameter it still ignores: `async getFormFields(_formVersionId) { return SKELETON_FIELDS; }`, matching the underscore-prefix convention this codebase already uses for intentionally-unused parameters.
+
+**Risk:** None — behavior is identical; the fixture still always returns `SKELETON_FIELDS` regardless of which form version is asked for, exactly as the plan intended for the walking skeleton.
+
+---
+
+## Task 1.3 — `repos/store.ts`'s `putRow` needs a cast at the Supabase call site, the same `Record<string, unknown>`-vs-generated-type gap as task 0.14
+
+**Plan said:** `await db.from(TABLE[entity]).upsert({ ...row, id });` with `row: Record<string, unknown>`, no cast.
+
+**What was wrong:** does not compile. Each table in `TABLE` has its own generated Supabase insert type (`RejectExcessProperties<...>`), and a generic `Record<string, unknown>` cannot satisfy that union structurally — the same class of gap already documented in this file for task 0.14's seed script (`Record<string, unknown>` flowing into a place expecting the generated `Json`/insert shape).
+
+**What I did instead:** followed that entry's own prescribed pattern — a narrow cast at the one Supabase-facing call site: `.upsert({ ...row, id } as never)` — rather than loosening `Store.putRow`'s own signature, which stays `Record<string, unknown>` for every caller.
+
+**Risk:** Low, and isolated to this one line. `putRow` is meant to accept an arbitrary already-validated row for any `SyncEntity`, so a fully-typed per-table union at the `Store` interface level isn't practical here; the cast defers to Postgres/PostgREST to reject a genuinely malformed row at runtime, same as `upsert` already would for any caller passing the wrong shape.
