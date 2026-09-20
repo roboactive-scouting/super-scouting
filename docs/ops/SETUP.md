@@ -243,11 +243,28 @@ Once the scaffold is pushed:
    setting (**Settings → Build and Deployment**), not a field in the import dialog,
    so the first build runs on Vercel’s default unless you change it first. Vercel
    reads `apps/client/package.json`’s `engines` field, not the repository root’s.
-5. Leave the build and install commands alone — Vercel's Vite preset runs
-   `pnpm install` and `pnpm build` from the root directory, which is what we want.
-   (Unlike the server, the client has **no `apps/client/vercel.json`** at this
-   point; one is added later, when both deployments are wired together and proved.
-   Until then the preset defaults are what actually apply.)
+5. **What actually deployed:** `apps/client/vercel.json` (committed once both
+   deployments were wired together and proved, 2026-09-20):
+   ```json
+   {
+     "$schema": "https://openapi.vercel.sh/vercel.json",
+     "framework": "vite",
+     "buildCommand": "cd ../.. && pnpm turbo run build --filter=@frc/client",
+     "outputDirectory": "dist",
+     "installCommand": "cd ../.. && pnpm install --frozen-lockfile",
+     "headers": [
+       {
+         "source": "/sw.js",
+         "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }]
+       }
+     ]
+   }
+   ```
+   The explicit `buildCommand`/`installCommand` (rather than the Vite preset's
+   own defaults) run through Turbo from the repository root, so the client's
+   build always sees the whole workspace, not just `apps/client` in isolation.
+   The `/sw.js` header stops the service worker itself from being cached, so an
+   update actually reaches an installed PWA rather than being served stale.
 6. Environment variables — set all three from `ENVIRONMENT.md` §1, **per
    environment**:
 
@@ -305,13 +322,53 @@ that is not in the tree. Scaffold first, import second.
    Error: No Output Directory named "public" found after the Build completed.
    ```
 
-   `apps/server` has no static output — the deployable is the `api/index.ts`
-   function, and `build` is `tsc --noEmit`, which emits nothing. The directory is
-   committed empty, with a `.gitkeep` explaining why, purely to satisfy that check.
-   Nothing is served from it: `vercel.json` rewrites every path to `/api/index`.
+   `apps/server` has no static output — nothing is served from `public/`;
+   `vercel.json` rewrites every path to `/api/index`. The directory is
+   committed empty, with a `.gitkeep` explaining why, purely to satisfy that
+   check.
 
-   The two `no output files found for task @frc/server#build` warnings Turbo prints
-   during the build are the same fact stated upstream, and are expected.
+   **The deployable function is `apps/server/api/index.js`, and it is committed
+   to the repository, not built by Vercel.** This was not the original design —
+   see below — and matters enough to spell out for whoever next touches this
+   project: **Vercel's zero-config Node function builder compiles whatever it
+   finds checked into `apps/server/api/*.ts` / `*.js` directly, using its own
+   internal build step, completely independent of this project's own `build`
+   npm script or any `buildCommand` override.** A build script that generates
+   `api/index.js` as a git-ignored side effect — the first thing tried here —
+   deploys successfully (Vercel reports `success`) and then 404s every request,
+   because Vercel's function builder ran against the committed tree, found
+   nothing at that path, and deployed zero functions. Confirmed by deploying it
+   both ways, not inferred: the git-ignored version 404'd
+   (`X-Vercel-Error: NOT_FOUND`); the committed version answered `/health`
+   correctly on the very next deploy, code otherwise unchanged.
+
+   The reason a real, hand-authored `api/index.ts` isn't enough on its own:
+   `apps/server` is `"type": "module"`, so Vercel transpiles that file without
+   bundling it, and a relative import needs an explicit `.js` extension to
+   survive Node's ESM resolver at runtime (see the ESM-resolution entry in
+   `docs/plans/DEVIATIONS.md` for the full story) — and a workspace package
+   whose `main` points at TypeScript source, like `@frc/shared`, can never be
+   resolved that way at all, extension or not. So the actual source lives at
+   `apps/server/src/handler.ts` (ordinary, reviewable TypeScript, importable
+   from tests like any other file), and `apps/server/scripts/build-function.mjs`
+   bundles it with esbuild — inlining every relative import and every workspace
+   package, leaving only real npm dependencies (`hono`, `@supabase/supabase-js`,
+   `zod`) external — into `apps/server/api/index.js`, which is what actually
+   gets committed and deployed.
+
+   Regenerate it with `pnpm --filter @frc/server build` after any change to
+   `src/handler.ts` or anything it imports, and commit the result.
+   `apps/server/src/bundle-drift.test.ts` regenerates it fresh on every test run
+   and fails loudly if the committed copy has drifted — the same
+   generate-commit-drift-check pattern `packages/db/src/database.types.ts`
+   already uses in this repository, applied here for the same reason: a
+   generated file that silently goes stale is worse than one that fails a test.
+
+   The two `no output files found for task @frc/db#build` /
+   `@frc/shared#build` warnings Turbo prints during the build are the same fact
+   stated upstream for those two packages (their `build` script is
+   `tsc --noEmit`, which emits nothing) and are expected. `@frc/server#build`
+   no longer prints this warning — it has a real output now.
 
 6. Environment variables — the whole of `ENVIRONMENT.md` §2, **per environment**:
 
