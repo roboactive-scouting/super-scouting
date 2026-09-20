@@ -1640,3 +1640,15 @@ actually happened twice. The 8-minute budget is a first estimate, not
 measured against real deploy timings post-merge — worth revisiting if it
 proves too tight or unnecessarily long once this has run for real on
 `develop`.
+
+---
+
+## Task 1.2 — `buildEntryDataSchema` is named in the plan's Interfaces line but never implemented anywhere in the task's own text
+
+**Plan said:** the task's "Interfaces → Produces" line lists `buildEntryDataSchema(fields)` — described as "the runtime-generated validator of SPEC-FINAL §16.4" — as a produced export, alongside `validateEntryData`.
+
+**What was wrong:** nothing else in the task mentions it. Step 1's failing test never imports or calls a `buildEntryDataSchema`, and Step 3's implementation code defines and exports only `validateEntryData` (plus `isDeadRobot`, `ValidationIssue`, `ValidationResult`, and the supporting types in `types.ts`). There is no code anywhere in the task for a function by that name to be transcribed from.
+
+**What I did instead:** implemented exactly what Step 1's tests exercise and Step 3's code shows — `validateEntryData` and its supporting types — and did not invent a `buildEntryDataSchema` function to satisfy the Interfaces line. Adding unrequested code on the strength of one summary line, with no test and no implementation to match it against, would be exactly the kind of invented scope this run's standing rules warn against.
+
+**Risk:** if a later task's plan text (task 1.24, which "widens the same union and the same function" per task 1.2's own scope note) assumes `buildEntryDataSchema` already exists as a named export from `@frc/shared`, that reference will fail to compile. Worth checking task 1.24's own text for this name before it starts; right now `packages/shared` has no such symbol, only `validateEntryData`.
