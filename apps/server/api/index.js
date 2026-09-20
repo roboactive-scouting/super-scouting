@@ -88,6 +88,105 @@ function makePingDatabase(config2) {
   };
 }
 
+// src/repos/pull.ts
+var PULL_SCOPES = {
+  app_settings: { table: "app_settings", kind: "settings" },
+  seasons: { table: "seasons", kind: "season", column: "id" },
+  events: { table: "events", kind: "event", column: "id" },
+  // SPEC-FINAL 9.2: every team in the SEASON — the global rows for every team that
+  // appears on any of the season's rosters or entries, not the whole registry.
+  teams: { table: "teams", kind: "season-teams" },
+  event_teams: { table: "event_teams", kind: "event", column: "event_id" },
+  matches: { table: "matches", kind: "event", column: "event_id" },
+  match_teams: { table: "match_teams", kind: "event", column: "match_id" },
+  forms: { table: "forms", kind: "season", column: "season_id" },
+  form_versions: { table: "form_versions", kind: "season", column: "form_id" },
+  form_fields: { table: "form_fields", kind: "season", column: "form_version_id" },
+  scoring_rules: { table: "scoring_rules", kind: "season", column: "form_id" },
+  users: { table: "users", kind: "global" },
+  scouting_entries: { table: "scouting_entries", kind: "event", column: "event_id" },
+  sync_conflicts: { table: "sync_conflicts", kind: "event", column: "event_id" },
+  pick_lists: { table: "pick_lists", kind: "event", column: "event_id" },
+  pick_list_entries: { table: "pick_list_entries", kind: "event", column: "pick_list_id" },
+  do_not_pick: { table: "do_not_pick", kind: "event", column: "event_id" },
+  alliances: { table: "alliances", kind: "event", column: "event_id" },
+  alliance_slots: { table: "alliance_slots", kind: "event", column: "alliance_id" },
+  alliance_declines: { table: "alliance_declines", kind: "event", column: "alliance_id" },
+  metrics: { table: "metrics", kind: "season", column: "season_id" },
+  dashboards: { table: "dashboards", kind: "season", column: "season_id" },
+  dashboard_charts: { table: "dashboard_charts", kind: "season", column: "dashboard_id" },
+  weight_presets: { table: "weight_presets", kind: "season", column: "season_id" }
+};
+async function parentIds(db, key, scope) {
+  switch (key) {
+    case "match_teams": {
+      const { data } = await db.from("matches").select("id").eq("event_id", scope.eventId);
+      return (data ?? []).map((r) => r.id);
+    }
+    case "form_versions":
+    case "scoring_rules": {
+      const { data } = await db.from("forms").select("id").eq("season_id", scope.seasonId);
+      return (data ?? []).map((r) => r.id);
+    }
+    case "form_fields": {
+      const { data: forms } = await db.from("forms").select("id").eq("season_id", scope.seasonId);
+      const { data } = await db.from("form_versions").select("id").in(
+        "form_id",
+        (forms ?? []).map((r) => r.id)
+      );
+      return (data ?? []).map((r) => r.id);
+    }
+    case "pick_list_entries": {
+      const { data } = await db.from("pick_lists").select("id").eq("event_id", scope.eventId);
+      return (data ?? []).map((r) => r.id);
+    }
+    case "alliance_slots":
+    case "alliance_declines": {
+      const { data } = await db.from("alliances").select("id").eq("event_id", scope.eventId);
+      return (data ?? []).map((r) => r.id);
+    }
+    case "dashboard_charts": {
+      const { data } = await db.from("dashboards").select("id").eq("season_id", scope.seasonId);
+      return (data ?? []).map((r) => r.id);
+    }
+    case "teams": {
+      const { data: events } = await db.from("events").select("id").eq("season_id", scope.seasonId);
+      const eventIds = (events ?? []).map((r) => r.id);
+      const [roster, entries] = await Promise.all([
+        db.from("event_teams").select("team_id").in("event_id", eventIds),
+        db.from("scouting_entries").select("team_id").in("event_id", eventIds)
+      ]);
+      return [
+        .../* @__PURE__ */ new Set([
+          ...(roster.data ?? []).map((r) => r.team_id),
+          ...(entries.data ?? []).map((r) => r.team_id)
+        ])
+      ];
+    }
+    default:
+      return null;
+  }
+}
+function supabasePullEntity(db) {
+  return async (key, scope, since, offset, limit) => {
+    const spec = PULL_SCOPES[key];
+    if (!spec) return [];
+    let query = db.from(spec.table).select("*").order("updated_at", { ascending: true }).range(offset, offset + limit - 1);
+    if (since !== void 0) query = query.gt("updated_at", since);
+    const ids = await parentIds(db, key, scope);
+    if (ids !== null) {
+      query = query.in(spec.kind === "season-teams" ? "id" : spec.column ?? "id", ids);
+    } else if (spec.kind === "event") {
+      query = query.eq(spec.column ?? "event_id", scope.eventId);
+    } else if (spec.kind === "season") {
+      query = query.eq(spec.column ?? "season_id", scope.seasonId);
+    }
+    const { data, error } = await query;
+    if (error) throw new Error(`${key}: ${error.message}`);
+    return data ?? [];
+  };
+}
+
 // src/repos/store.ts
 var TABLE = {
   scouting_entry: "scouting_entries",
@@ -99,6 +198,7 @@ var TABLE = {
   alliance_decline: "alliance_declines"
 };
 function supabaseStore(db) {
+  const pullEntity = supabasePullEntity(db);
   return {
     async getUser(id) {
       const { data } = await db.from("users").select("id, role, disabled_at").eq("id", id).maybeSingle();
@@ -123,6 +223,17 @@ function supabaseStore(db) {
       const { data } = await db.from("form_fields").select("*").eq("form_version_id", formVersionId);
       return data ?? [];
     },
+    async eventExists(eventId) {
+      const { data } = await db.from("events").select("id").eq("id", eventId).maybeSingle();
+      return data !== null;
+    },
+    async resolveScope(eventId) {
+      const { data, error } = await db.from("events").select("id, season_id").eq("id", eventId).maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) throw new Error(`resolveScope: event ${eventId} not found`);
+      return { eventId: data.id, seasonId: data.season_id };
+    },
+    pullEntity,
     // The other 59 methods start as loud stubs, exactly as the fake does. Each later
     // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
     // without these the file does not compile at all.
@@ -133,9 +244,6 @@ function supabaseStore(db) {
       "listConflicts",
       "getConflict",
       "resolveConflictRow",
-      "eventExists",
-      "resolveScope",
-      "pullEntity",
       "getUserByUsername",
       "insertUser",
       "updateUser",
@@ -206,6 +314,18 @@ function stubsFor(names) {
 
 // src/routes/sync.ts
 import { Hono as Hono2 } from "hono";
+
+// ../../packages/shared/src/errors.ts
+var AppError = class extends Error {
+  code;
+  details;
+  constructor(code, message, details) {
+    super(message);
+    this.name = "AppError";
+    this.code = code;
+    this.details = details;
+  }
+};
 
 // ../../packages/shared/src/caller.ts
 function isUser(caller) {
@@ -396,10 +516,37 @@ var operationSchema = z2.object({
 // ../../packages/shared/src/sync/protocol.ts
 import { z as z3 } from "zod";
 var MAX_OPERATIONS_PER_PUSH = 200;
+var WATERMARK_OVERLAP_MS = 5e3;
 var pushRequestSchema = z3.object({
   device_id: z3.string().uuid(),
   operations: z3.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
 });
+var PULL_ENTITY_KEYS = [
+  "app_settings",
+  "seasons",
+  "events",
+  "teams",
+  "event_teams",
+  "matches",
+  "match_teams",
+  "forms",
+  "form_versions",
+  "form_fields",
+  "scoring_rules",
+  "users",
+  "scouting_entries",
+  "sync_conflicts",
+  "pick_lists",
+  "pick_list_entries",
+  "do_not_pick",
+  "alliances",
+  "alliance_slots",
+  "alliance_declines",
+  "metrics",
+  "dashboards",
+  "dashboard_charts",
+  "weight_presets"
+];
 var pullRequestSchema = z3.object({
   event_id: z3.string().uuid(),
   since: z3.string().datetime({ offset: false }).optional(),
@@ -511,6 +658,57 @@ async function applyEntry(op, ctx) {
   return { op_id: op.op_id, status: "applied", row_id: op.row_id, new_version: version };
 }
 
+// src/core/queries/syncPull.ts
+var PULL_PAGE_ROWS = 2e3;
+var encodeCursor = (c) => btoa(JSON.stringify(c));
+var decodeCursor = (raw) => {
+  try {
+    const parsed = JSON.parse(atob(raw));
+    if (typeof parsed.entityIndex !== "number" || typeof parsed.offset !== "number") {
+      throw new Error("bad cursor");
+    }
+    return parsed;
+  } catch {
+    throw new AppError("invalid", "cursor is not readable; start the pull again without one");
+  }
+};
+async function syncPull(caller, input, ctx) {
+  void caller;
+  if (!await ctx.store.eventExists(input.event_id)) {
+    throw new AppError("not-found", "that event no longer exists", { event_id: input.event_id });
+  }
+  const scope = await ctx.store.resolveScope(input.event_id);
+  const start = input.cursor ? decodeCursor(input.cursor) : { entityIndex: 0, offset: 0 };
+  const entities = Object.fromEntries(
+    PULL_ENTITY_KEYS.map((key) => [key, []])
+  );
+  let budget = PULL_PAGE_ROWS;
+  let newest = "";
+  let nextCursor = null;
+  for (let index = start.entityIndex; index < PULL_ENTITY_KEYS.length; index += 1) {
+    const key = PULL_ENTITY_KEYS[index];
+    let offset = index === start.entityIndex ? start.offset : 0;
+    for (; ; ) {
+      if (budget === 0) {
+        nextCursor = encodeCursor({ entityIndex: index, offset });
+        break;
+      }
+      const rows = await ctx.store.pullEntity(key, scope, input.since, offset, budget);
+      entities[key].push(...rows);
+      for (const row of rows) {
+        const updated = String(row.updated_at ?? "");
+        if (updated > newest) newest = updated;
+      }
+      budget -= rows.length;
+      offset += rows.length;
+      if (rows.length < 1 || budget > 0) break;
+    }
+    if (nextCursor !== null) break;
+  }
+  const watermark = newest === "" ? input.since ?? new Date(ctx.now().getTime() - WATERMARK_OVERLAP_MS).toISOString() : new Date(new Date(newest).getTime() - WATERMARK_OVERLAP_MS).toISOString();
+  return { watermark, next_cursor: nextCursor, complete: nextCursor === null, entities };
+}
+
 // src/routes/sync.ts
 function syncRoutes(deps) {
   const app2 = new Hono2();
@@ -526,6 +724,19 @@ function syncRoutes(deps) {
     );
     if (!caller) return c.json({ error: { code: "unauthenticated", message: "no caller" } }, 401);
     return c.json(await syncPush(caller, parsed.data, deps.ctx));
+  });
+  app2.get("/sync/pull", async (c) => {
+    const parsed = pullRequestSchema.safeParse({
+      event_id: c.req.query("event_id"),
+      since: c.req.query("since"),
+      cursor: c.req.query("cursor")
+    });
+    if (!parsed.success) {
+      return c.json({ error: { code: "invalid", message: parsed.error.message } }, 400);
+    }
+    const caller = await deps.callerFor(c.req.raw, null);
+    if (!caller) return c.json({ error: { code: "unauthenticated", message: "no caller" } }, 401);
+    return c.json(await syncPull(caller, parsed.data, deps.ctx));
   });
   return app2;
 }
@@ -546,7 +757,7 @@ function buildApp() {
         ctx,
         // Task 1.12 replaces this one function with the bearer-token version.
         callerFor: async (_request, fallbackUserId) => {
-          if (!fallbackUserId) return null;
+          if (!fallbackUserId) return { kind: "service", label: "sync-pull" };
           const user = await ctx.store.getUser(fallbackUserId);
           return user && user.disabled_at === null ? { kind: "user", userId: user.id, role: user.role } : null;
         }

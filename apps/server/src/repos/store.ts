@@ -1,6 +1,7 @@
 import type { FormFieldDefinition, SyncEntity } from '@frc/shared';
-import type { Store, StoredRow, StoredUser } from '../core/context.js';
+import type { PullScope, Store, StoredRow, StoredUser } from '../core/context.js';
 import type { Db } from '../db/client.js';
+import { supabasePullEntity } from './pull.js';
 
 // `as const` matters: SupabaseClient<Database>.from() takes a literal table-name
 // union, not `string`, so a widened Record<SyncEntity, string> would not typecheck.
@@ -15,6 +16,7 @@ const TABLE = {
 } as const satisfies Record<SyncEntity, string>;
 
 export function supabaseStore(db: Db): Store {
+  const pullEntity = supabasePullEntity(db);
   return {
     async getUser(id: string): Promise<StoredUser | null> {
       const { data } = await db
@@ -53,6 +55,21 @@ export function supabaseStore(db: Db): Store {
         .eq('form_version_id', formVersionId);
       return (data ?? []) as unknown as FormFieldDefinition[];
     },
+    async eventExists(eventId: string): Promise<boolean> {
+      const { data } = await db.from('events').select('id').eq('id', eventId).maybeSingle();
+      return data !== null;
+    },
+    async resolveScope(eventId: string): Promise<PullScope> {
+      const { data, error } = await db
+        .from('events')
+        .select('id, season_id')
+        .eq('id', eventId)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) throw new Error(`resolveScope: event ${eventId} not found`);
+      return { eventId: data.id, seasonId: data.season_id };
+    },
+    pullEntity,
     // The other 59 methods start as loud stubs, exactly as the fake does. Each later
     // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
     // without these the file does not compile at all.
@@ -63,9 +80,6 @@ export function supabaseStore(db: Db): Store {
       'listConflicts',
       'getConflict',
       'resolveConflictRow',
-      'eventExists',
-      'resolveScope',
-      'pullEntity',
       'getUserByUsername',
       'insertUser',
       'updateUser',

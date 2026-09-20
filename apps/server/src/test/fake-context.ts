@@ -85,6 +85,8 @@ export function makeFakeContext(): FakeContext {
   ]);
   const ops = new Set<string>();
   const appliedOrder: string[] = [];
+  const pullRows = new Map<string, Record<string, unknown>[]>();
+  const knownEvents = new Set(['ev-1']);
 
   const fake = {
     // every map from the FakeContext type, constructed empty
@@ -104,8 +106,8 @@ export function makeFakeContext(): FakeContext {
     formFields: new Map(),
     scoringRules: new Map(),
     conflicts: new Map(),
-    pullRows: new Map(),
-    knownEvents: new Set(['ev-1']),
+    pullRows,
+    knownEvents,
     missingParents: new Set<string>(),
     entryCountsByMatch: new Map(),
     entryCountsBySeason: new Map(),
@@ -166,6 +168,19 @@ export function makeFakeContext(): FakeContext {
     async getFormFields(_formVersionId) {
       return SKELETON_FIELDS;
     },
+    async eventExists(eventId) {
+      return knownEvents.has(eventId);
+    },
+    async pullEntity(key, scope, since, offset, limit) {
+      void scope;
+      const all = (pullRows.get(key) ?? [])
+        .filter((r) => since === undefined || String(r.updated_at) > since)
+        .sort((a, b) => String(a.updated_at).localeCompare(String(b.updated_at)));
+      return all.slice(offset, offset + limit);
+    },
+    async resolveScope(eventId) {
+      return { eventId, seasonId: 'se-1' };
+    },
     // Everything else on the Store starts as a loud stub; each later task
     // replaces the two or three entries it needs.
     ...stubsFor([
@@ -175,9 +190,6 @@ export function makeFakeContext(): FakeContext {
       'listConflicts',
       'getConflict',
       'resolveConflictRow',
-      'eventExists',
-      'resolveScope',
-      'pullEntity',
       'getUserByUsername',
       'insertUser',
       'updateUser',

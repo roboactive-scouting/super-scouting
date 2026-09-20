@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
-import { pushRequestSchema, type Caller } from '@frc/shared';
+import { pullRequestSchema, pushRequestSchema, type Caller } from '@frc/shared';
 import { syncPush } from '../core/commands/syncPush.js';
+import { syncPull } from '../core/queries/syncPull.js';
 import type { UseCaseContext } from '../core/context.js';
 
 export type SyncRouteDeps = {
@@ -29,6 +30,20 @@ export function syncRoutes(deps: SyncRouteDeps): Hono {
     if (!caller) return c.json({ error: { code: 'unauthenticated', message: 'no caller' } }, 401);
 
     return c.json(await syncPush(caller, parsed.data, deps.ctx));
+  });
+
+  app.get('/sync/pull', async (c) => {
+    const parsed = pullRequestSchema.safeParse({
+      event_id: c.req.query('event_id'),
+      since: c.req.query('since'),
+      cursor: c.req.query('cursor'),
+    });
+    if (!parsed.success) {
+      return c.json({ error: { code: 'invalid', message: parsed.error.message } }, 400);
+    }
+    const caller = await deps.callerFor(c.req.raw, null);
+    if (!caller) return c.json({ error: { code: 'unauthenticated', message: 'no caller' } }, 401);
+    return c.json(await syncPull(caller, parsed.data, deps.ctx));
   });
 
   return app;
