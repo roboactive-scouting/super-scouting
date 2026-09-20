@@ -1862,3 +1862,67 @@ The non-null branch (push's own behavior) is untouched. `apps/server/src/composi
 **What I did instead:** implemented as written (fixture, cast and formatting fixes above aside). `pnpm --filter @frc/client exec vitest run src/features/entry` is 15/15 green (7 in `submitEntry.test.ts`, 8 in `EntryPage.test.tsx`), the full client suite is 54/54 green across 9 files, and `pnpm typecheck`, `pnpm lint` and `pnpm format:check` are all clean across all four packages.
 
 **Risk:** None.
+
+---
+
+## Task 1.8 — `SelectRobotPage.tsx`'s own prose contradicts its own literal code on what the bare-match payload holds
+
+**Plan said:** two things about the same payload, in the same task, that disagree. The prose immediately above the code block says bare-match creation "creates the minimal row — event, type, number, nothing else" (SPEC-FINAL 6.4), and the prose describing `SelectRobotPage.test.tsx` (also plan text, since that test file is prose-only) says the create "enqueues exactly one `entity: 'match'` create whose payload holds only `event_id`, `match_type` and `number`". But the literal Step 3 code for `ensureMatchLocally` builds `const payload = { id: rowId, event_id: eventId, match_type: matchType, number: parsed };` — four keys, not three — and reuses that same `payload` object as the outbox operation's `payload` field.
+
+**What was wrong:** the literal code and the plan's own repeated, explicit prose about the same code disagree. Checked whether `id` in the payload is load-bearing anywhere downstream: `apps/server/src/core/commands/syncPush.ts`'s `applyBareMatch` destructures only `{ event_id, match_type, number }` from `op.payload` and takes the row's id from `op.row_id`, never `payload.id` — so the extra key is inert on the server, and the local optimistic write (`db.rows.put`) can just as easily get its `id` from `rowId` directly instead of via the payload spread.
+
+**What I did instead:** followed the prose (repeated twice, and matching the server's actual contract) over the literal code's extra key. `payload` is now exactly `{ event_id, match_type, number }`; the local `matches` row and the in-memory `matches` state both get `id: rowId` added explicitly (`const localMatch: MatchRow = { id: rowId, ...payload }`) rather than relying on the payload carrying it. Wrote `SelectRobotPage.test.tsx` (prose-only, see below) to assert the narrower, three-key payload, which is what actually runs.
+
+**Risk:** Low. The change is confined to `ensureMatchLocally`'s payload construction; the operation's `row_id` (which the server actually uses) is unchanged, and the local optimistic write still produces an identical `matches` row. If a later task's plan text assumes `payload.id` exists on a bare-match create op specifically, that assumption doesn't hold anymore — worth checking before relying on it.
+
+---
+
+## Task 1.8 — `routes.tsx`'s literal code doesn't compile as written, and never wires the `/sync` route the task's own Interfaces line promises
+
+**Plan said:** the Interfaces line for this task lists the routes produced as `/`, `/entry/:matchId/:teamId`, `/entries`, and `/sync`. The literal `routes.tsx` code block renders `<SelectRobotPage eventId={eventId} />` with no `authorUserId`, even though `SelectRobotPage`'s own literal signature (same task) requires `authorUserId: string` as a non-optional prop.
+
+**What was wrong:** two separate gaps. (1) `<SelectRobotPage eventId={eventId} />` is a straight compile error — a required prop is missing — and the task's own "Other seed ids you may need" note points directly at the fix (`SEED.scouter`, "useful if you need a hardcoded `authorUserId` fallback ... since there is no login yet in phase 1A"), confirming this was meant to be wired, not omitted. (2) no `/sync` route, and no component for one, appears anywhere in this task's Files list or its literal code — the Interfaces line names a route this task never builds.
+
+**What I did instead:** added a module-level `AUTHOR_USER_ID` constant in `routes.tsx` — the literal seed id `00000000-0000-4000-8000-000000000006` (`SEED.scouter` from `packages/db/src/seed/fixtures.ts`; not imported from `@frc/db`, since the client depends only on `@frc/shared`) — and passed it to both `<SelectRobotPage>` and `<EntryRoute>` (the latter needs it too, to satisfy `EntryPage`'s required `authorUserId` prop; see the next entry). Did not add a `/sync` route or any component for it: nothing in this task's Files list, Step 1 tests, or Step 3 code calls for one, and inventing a route with no backing component or test would be exactly the kind of scope invention task 1.2's precedent (this file, above) already warns against. `/sync` is left for whichever later task actually specifies it.
+
+**Risk:** Low for the `authorUserId` fix — it only supplies a value the code already required and had nowhere else to get in phase 1A. None for declining to build `/sync` — no other file in this task references that path.
+
+---
+
+## Task 1.8 — `SelectRobotPage.test.tsx` and `EntryRoute.tsx` were specified in prose, not code; three judgment calls
+
+**Plan said:** both files are described only in prose (no literal code given), unlike `ConnectionIndicator.tsx`/`.test.tsx`, `EntriesPage.tsx`/`.test.tsx`, `AppShell.tsx`, `SelectRobotPage.tsx` and `routes.tsx`, all given literally. The task's own top-level instructions call out exactly this and ask for the resulting judgment calls to be logged here, same as task 1.3's precedent for `entryShape.test.ts`.
+
+**What was wrong:** nothing to fix — three genuine design decisions needed making, each with no single obviously-correct answer:
+
+1. **Threading `alliance` from `SelectRobotPage` to `EntryRoute`.** Chose a query parameter over router `state`: `navigate(\`/entry/${matchId}/${team.id}?alliance=${alliance}\`)`, read back in `EntryRoute` via `useSearchParams().get('alliance')` (defaulting to `'red'` if absent or malformed). Router `state` is lost on a hard reload or a re-opened tab; venue connectivity is zero per this project's own gotchas, and a scouter's tab surviving a reload mid-match is exactly the case that must not lose which alliance they picked. A query param survives that.
+2. **How `SelectRobotPage.test.tsx` avoids real routing.** Mocked `react-router-dom`'s `useNavigate` (`vi.mock('react-router-dom', () => ({ useNavigate: () => navigate }))`) rather than wrapping the component in a real `MemoryRouter` + a second route to observe navigation. This is the first component in the codebase to use `react-router-dom`, so there's no existing precedent either way; mocking keeps `SelectRobotPage` mounted across the "same unknown number chosen twice" test (which needs two sequential picks without a real route swap unmounting the component in between) and keeps the test's assertions about *what path it would navigate to* direct or exact string equality, rather than inferring it from a second rendered route's own display.
+3. **`EntryRoute`'s active-season lookup.** Resolves the match-kind form via `app_settings`'s `active_season_id` (cached `app_settings` row, first one) rather than the specific event's own `season_id` (also available, via cached `events`), for consistency with `App.tsx`'s own analogous pattern (this same task) of reading `active_event_id` off cached `app_settings`. Added a hardcoded fallback of `00000000-0000-4000-8000-000000000001` (`SEED.season`) for the same reason `App.tsx` falls back to `SEED.event` — nothing has synced into `app_settings` yet on a brand-new device's very first render before hydration completes, even though `AppShell` normally blocks that case with its `blocked`/`loading` states first.
+
+**What I did instead:** wrote `SelectRobotPage.test.tsx` against the description in full — roster-list-once-alliance-chosen (via `toBeDisabled()`/`toBeEnabled()` on the fieldset's own disabled state, since the roster actually renders regardless of alliance but is inert until one is picked), known-number navigates with zero enqueues, unknown-number shows the `role="status"` notice and enqueues exactly one minimal `entity: 'match'` create plus a local `matches` row, the same unknown number chosen twice yields one match not two, slot-narrowing with a whole-roster fallback, and the full flow under `navigator.onLine === false`. Wrote `EntryRoute.tsx` to resolve `matchId`/`teamId` from `useParams`, look up labels from cached `matches`/`teams`, resolve the form version as above, and render `<EntryPage>` (or a "Loading…" placeholder until everything resolves).
+
+**Risk:** Low on all three. (1) is confined to how one value crosses one route boundary in a walking skeleton explicitly documented as not-the-final-routing-design. (2) is test-only; it exercises the same `SelectRobotPage` behavior a `MemoryRouter`-based test would, just without needing a second dummy route component. (3)'s choice of `app_settings.active_season_id` over `events.season_id` is a genuine judgment call — if a later task's design intends the event's own season to govern which form is active (rather than a single global "current season" setting), this lookup would need to change; worth confirming against SPEC-FINAL before phase 1B's multi-event handling, if that's ever a possibility this app needs to support.
+
+---
+
+## Task 1.8 — plan-quoted files fail `format:check`, same recurring class as tasks 0.3/0.9/0.10/0.12/1.5/1.6/1.7
+
+**Plan said:** `ConnectionIndicator.test.tsx` and `AppShell.tsx` transcribed verbatim; `SelectRobotPage.tsx` transcribed verbatim aside from the payload and navigation fixes logged above.
+
+**What was wrong:** `pnpm format:check` flagged all three files — a wrapped `waitFor` callback in `ConnectionIndicator.test.tsx`, a wrapped paragraph in `AppShell.tsx`'s blocked-state copy, and the destructured `SelectRobotPage` prop list plus a wrapped `.filter(...).map(...)` chain and paragraph text in `SelectRobotPage.tsx` — all exceeding `printWidth: 100`.
+
+**What I did instead:** wrote the files first, confirmed the failing-first run and the passing run both matched, then ran `npx prettier --write` on the three files. Only line breaks moved; no assertion, value, or JSX structure changed. Re-ran the full client suite and `pnpm typecheck` / `pnpm lint` / `pnpm format:check` afterward, all clean.
+
+**Risk:** None.
+
+---
+
+## Task 1.8 — everything else matched the plan exactly
+
+**Plan said:** `ConnectionIndicator.tsx`, `EntriesPage.tsx`, `AppShell.tsx` given as literal, complete code (aside from the payload/prop fixes above, which are scoped to `SelectRobotPage.tsx`/`routes.tsx` only); `ConnectionIndicator.test.tsx` and `EntriesPage.test.tsx` given as literal, complete test suites; failing-first errors predicted as `Failed to resolve import "./ConnectionIndicator"` and `"./EntriesPage"` (and, by the same pattern, `"./SelectRobotPage"` for the prose-only test this task also required writing).
+
+**What was wrong:** nothing else. `@frc/shared`'s `formatCount`, `formatDate`, `formatTime` needed no changes. `apps/client/package.json` had neither `react-router-dom` nor `@tanstack/react-query` yet (confirmed by reading the file before starting), so both were added as specified; no other dependency change was needed. `App.tsx`'s replacement (prose-only, per the task) reads `app_settings.active_event_id` from `cachedRows('app_settings')` and falls back to `SEED.event` (`00000000-0000-4000-8000-000000000002`) exactly as described, then renders `<RouterProvider router={buildRouter(eventId)} />`. The three failing-first errors reproduced exactly.
+
+**What I did instead:** implemented as written (fixes and judgment calls above aside). `pnpm install` succeeded with no lockfile conflicts. `pnpm --filter @frc/client exec vitest run` is 67/67 green across 12 files (7 new: `ConnectionIndicator.test.tsx` 3, `EntriesPage.test.tsx` 3, `SelectRobotPage.test.tsx` 7 — the other 4 new source files, `AppShell.tsx`, `EntryRoute.tsx`, `routes.tsx` and `App.tsx`, have no dedicated test file of their own per this task's Files list, and are exercised indirectly through the files that do). `pnpm typecheck`, `pnpm lint` and `pnpm format:check` are all clean across all four packages.
+
+**Risk:** None beyond what's already logged above. One test run showed a benign React `act(...)` warning on `SelectRobotPage.test.tsx`'s "shows a notice…" case (a `setMatches` call landing after that test's own assertions had already run) — it did not fail the test or affect any assertion, and is left as-is rather than restructured, consistent with this file's practice of not touching passing, in-scope test behavior to silence console noise alone.
