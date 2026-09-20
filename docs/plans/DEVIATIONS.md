@@ -1204,3 +1204,58 @@ this — the fix was entirely the secret's value, as diagnosed. Worth noting for
 whoever reads this later: the new project-scoped token type worked fine with
 CLI 2.117.0, so the "legacy token" fallback mentioned when this was first raised
 was never needed.
+
+---
+
+## Task 0.16 — `workflow_dispatch` cannot be tested yet; the workflow isn't on the default branch
+
+**Plan said:** Step 2 — `gh workflow run keepalive.yml && sleep 20 && gh run list
+--workflow=keepalive.yml --limit 1`. Expected: both matrix jobs succeed; each log
+line shows `{"status":"ok","database":"ok","time":"..."}`.
+
+**What was wrong:** GitHub's API refuses to dispatch a `workflow_dispatch`
+workflow unless that workflow file exists on the repository's **default
+branch**, regardless of which `--ref` you ask it to run against. This
+repository's default branch is `main`, which does not have `keepalive.yml` yet
+— it only exists on `feat/phase-0` at this point, matching this run's
+established branching approach (see the task 0.1 and 0.15 entries). Pushing
+`feat/phase-0` to origin and dispatching against it failed immediately:
+
+```
+HTTP 404: workflow keepalive.yml not found on the default branch
+(https://api.github.com/repos/roboactive-scouting/super-scouting/actions/workflows/keepalive.yml)
+```
+
+Pushing to `main` now, purely to unlock dispatch, was rejected as a way to
+verify this task: `main` is Production, task 0.17 is what's supposed to move it
+forward, and doing that early — before the esbuild-bundling task this run has
+already been told to add — would deploy production ahead of that fix existing.
+
+**What I did instead:** verified the workflow's actual logic directly instead of
+through the GitHub Actions dispatch machinery, using `/c/Windows/System32/curl.exe`
+(Git Bash's own `curl` has no CA bundle on this machine — see the Avast note)
+with the exact same flags the workflow uses:
+
+```
+$ curl.exe --fail --silent --show-error --max-time 30 https://frc-scouting-server-git-develop-roboactive.vercel.app/health
+{"status":"ok","database":"ok","time":"2026-09-20T06:38:22.734Z"}   → exit 0
+
+$ curl.exe --fail --silent --show-error --max-time 30 https://frc-scouting-server.vercel.app/health
+curl: (22) The requested URL returned error: 503   → exit 22
+```
+
+The dev leg behaves exactly as the workflow assumes: `--fail` exits 0, the body
+contains `"database":"ok"`, the `grep -q` would pass. The production leg
+correctly fails `--fail` with exit 22, because the production Supabase project
+has never been migrated in this run — deliberately: production migrations are a
+manual, by-hand command outside CI's reach (§19.4), and this run has no mandate
+to run one. So the plan's "both matrix jobs succeed" expectation does not hold
+**yet**, for a reason that has nothing to do with this workflow being wrong.
+
+**Risk:** real `workflow_dispatch` verification of `keepalive.yml` (and its
+availability for the twice-weekly schedule) is deferred until this branch
+reaches `main` — which task 0.17 does regardless. The production leg will keep
+failing on every real run (scheduled or dispatched) until someone runs the
+by-hand production migration; that failure is correct and expected, not a bug
+to chase, and `fail-fast: false` on the matrix means the dev leg's success is
+never masked by it.
