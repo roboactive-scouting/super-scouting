@@ -10,7 +10,7 @@
   },
   "scripts": {
     "db:push": "supabase db push",
-    "db:types": "supabase gen types typescript --linked --schema public --output src/database.types.ts",
+    "db:types": "supabase gen types typescript --linked --schema public > src/database.types.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --no-error-on-unmatched-pattern",

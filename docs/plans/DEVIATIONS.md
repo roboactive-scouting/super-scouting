@@ -919,3 +919,70 @@ project, migrations 0001–0005 applied in order, nothing hand-edited in the
 Supabase dashboard.
 
 **Risk:** None.
+
+---
+
+## Task 0.13 — `supabase gen types typescript` dropped the `--output` flag
+
+**Plan said:** `packages/db/package.json`'s `db:types` script is
+`supabase gen types typescript --linked --schema public --output src/database.types.ts`,
+with an explicit callout: "`db:types` uses `--output`, not `>`. Shell redirection
+writes UTF-16 on Windows, and the drift check in task 0.13 would then never
+match."
+
+**What was wrong:** on Supabase CLI 2.117.0, `gen types` no longer has a
+file-writing `--output` flag at all. `--output`/`-o` is now a global flag meaning
+"output format of status variables" (`env`/`pretty`/`json`/`toml`/`yaml`/`table`/
+`csv`), and passing a file path to it fails outright:
+
+```
+{"_tag":"Error","error":{"code":"InvalidValue","message":"Invalid value for flag --output: \"src/database.types.ts\". Expected: \"env\" | \"pretty\" | \"json\" | \"toml\" | \"yaml\" | \"table\" | \"csv\""}}
+```
+
+Confirmed via `supabase gen types typescript --help`: the current flag set has no
+file-output option, only `--local`/`--linked`/`--db-url`/`--project-id`/`--lang`/
+`--schema`/`--swift-access-control`/`--postgrest-v9-compat`/`--query-timeout`.
+Output only ever goes to stdout now.
+
+**What I did instead:** changed the script to
+`supabase gen types typescript --linked --schema public > src/database.types.ts`,
+then verified the exact hazard the plan warned about does **not** apply here
+before trusting it: dumped the redirected file's leading bytes with `od -An
+-tx1`, and it starts `65 78 70 6f 72 74 20 74 79 70 65 20 4a 73 6f 6e` —
+`export type Json` in plain ASCII/UTF-8, no BOM, no UTF-16 surrogate pairs. This
+run's standing instruction is that every command runs in Git Bash, never
+PowerShell or cmd.exe; the plan's UTF-16 warning is a `cmd.exe`/PowerShell
+`Out-File` behavior (its default encoding is UTF-16LE with a BOM) and does not
+apply to Git Bash's POSIX `>`, which writes bytes as given. task 0.13's own drift
+test (`types-drift.itest.ts`) never used `--output` either — it always shelled
+out to bare `supabase gen types typescript --linked --schema public` and compared
+stdout — so the test file needed no change and passed unmodified.
+
+**Risk:** if this repository is ever built or maintained from a literal
+PowerShell/cmd session instead of Git Bash — against this run's own standing
+instruction — regenerating types the same way could reintroduce a UTF-16 file
+that silently fails the drift test. Worth a one-line callout in `SETUP.md` if a
+maintainer ever asks "why does `pnpm --filter @frc/db db:types` fail on my
+machine," but not changed here since `SETUP.md` already mandates Git Bash for
+every command.
+
+---
+
+## Task 0.13 — `apps/server/src/db/client.ts` given the same `.js`-extension fix as the rest of the server
+
+**Plan said:** `import type { ServerConfig } from '../config';` (no extension).
+
+**What was wrong:** nothing new — this is the same ESM-under-Vercel hazard
+already fixed across the rest of `apps/server` and logged at the provisioning
+gate ("ESM resolution fails for every relative import on Vercel"). Writing this
+file with the plan's literal extensionless import would have reintroduced the
+exact `ERR_MODULE_NOT_FOUND` that fix eliminated.
+
+**What I did instead:** wrote `'../config.js'`, consistent with every other
+relative import in `apps/server`. The new `import type { Database } from
+'@frc/db'` needed no extension and needs no bundler-inlining fix either, unlike
+the `@frc/shared` case flagged at the gate: it is a type-only import
+(`import type`), which `verbatimModuleSyntax` erases completely at compile time,
+so no runtime `import` of `@frc/db` is ever emitted for Node to resolve.
+
+**Risk:** None.

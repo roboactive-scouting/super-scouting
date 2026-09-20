@@ -114,6 +114,9 @@ importers:
 
   apps/server:
     dependencies:
+      '@frc/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@frc/shared':
         specifier: workspace:*
         version: link:../../packages/shared
