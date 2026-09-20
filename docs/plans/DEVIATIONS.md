@@ -1189,3 +1189,18 @@ variables → Actions** with a valid token from **Supabase → Account → Acces
 Tokens** (the same source `SETUP.md`'s GitHub Actions secrets section already
 names). This is the checkpoint failure to report and hand back, per the run
 brief.
+
+**Resolved** the same day. The user generated a new **project-scoped** Supabase
+access token (Resource access: Project → `frc-scouting-dev` only, not the
+organization and not `frc-scouting-prod`; Database: full access; Project: read),
+in the `sbp_...` format the CLI's own error message names, and updated the
+GitHub secret. Re-running the same job (`gh run rerun 35493674874 --failed`,
+job id `106035166137`) went fully green: `Apply migrations to the dev
+project` → `Finished supabase link.` / `Remote database is up to date.`;
+`Unit tests` → 53/53; `Smoke suite` → `smoke ok: GET ***/health -> 200
+{"status":"ok","database":"ok","time":"2026-09-20T06:34:50.779Z"}`; `Build both
+apps` → green. Nothing in `ci.yml` or `scripts/smoke.mjs` was changed to reach
+this — the fix was entirely the secret's value, as diagnosed. Worth noting for
+whoever reads this later: the new project-scoped token type worked fine with
+CLI 2.117.0, so the "legacy token" fallback mentioned when this was first raised
+was never needed.
