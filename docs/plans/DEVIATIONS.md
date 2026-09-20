@@ -1260,6 +1260,46 @@ by-hand production migration; that failure is correct and expected, not a bug
 to chase, and `fail-fast: false` on the matrix means the dev leg's success is
 never masked by it.
 
+**Resolved.** `main` was fast-forwarded to this branch at the user's explicit
+instruction ("push to production") after the user ran the by-hand production
+migration themselves. With `keepalive.yml` now on the default branch,
+`gh workflow run keepalive.yml` dispatched for real
+(run `35502860795`) — **both matrix legs passed**: `ping (dev,
+HEALTHCHECK_DEV_URL)` and `ping (production, HEALTHCHECK_PROD_URL)`, each in
+3s. The plan's original "both matrix jobs succeed" expectation from task 0.16
+Step 2 now holds exactly as written; nothing about the workflow needed to
+change.
+
+---
+
+## Post-checkpoint — production migrated by hand, then `main` fast-forwarded, both by explicit instruction
+
+**Plan said:** task 0.17 step 3's parenthetical — "or push to `main` through a
+reviewed PR once CI is green" — and the standing instruction for this run said
+not to open a PR or touch `main` without being told.
+
+**What happened:** after the 0.8–0.17 report, the user ran the production
+migration themselves, by hand, in their own Git Bash session — not through this
+agent, consistent with the standing rule that Claude never touches production.
+`pnpm --filter @frc/db exec supabase link --project-ref ezrgtroyofuxkkktnino`,
+then `db push` (confirmed the exact 5-migration list before applying), then
+re-linked back to `oqvoqddoizhhwvjwejtm`. Verified after the fact with a
+read-only `GET /health`: `https://frc-scouting-server.vercel.app/health` →
+`200 {"status":"ok","database":"ok",...}`.
+
+The user then said "push to production" explicitly. `git push origin
+feat/phase-0:main` (fast-forward, verified an ancestor relationship first, same
+pattern already used twice for `develop`) — no PR, since none was asked for.
+Both Vercel Production deployments redeployed automatically; confirmed via the
+`/sw.js` `Cache-Control` header (only present since this session's
+`apps/client/vercel.json`) appearing on `https://frc-scouting-client.vercel.app`,
+and `/health` on the production server unchanged and still `200`.
+
+**Risk:** none identified. `main`, `develop`, and `feat/phase-0` are now all at
+the same commit (`473b5c5`). The phase 0 gate's remaining open items are the
+ones only the user can close: the phone/airplane-mode install test, and a
+fresh, independent read-through of `SETUP.md`.
+
 ---
 
 ## New task, added at the run's own direction — bundle `apps/server`'s function with esbuild before phase 1 needs `@frc/shared`
