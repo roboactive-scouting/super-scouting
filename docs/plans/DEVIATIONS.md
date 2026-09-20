@@ -1302,6 +1302,87 @@ fresh, independent read-through of `SETUP.md`.
 
 ---
 
+## Post-checkpoint — the service worker was built and deployed but never actually registered; the phone test surfaced it
+
+**Plan said:** nothing in tasks 0.8–0.17; this is a latent gap in task 0.5's
+deliverable from an earlier session, outside this run's assigned range, found
+only because the user attempted the real phone/airplane-mode test task 0.17
+step 5 asks for.
+
+**What was wrong:** the user installed the production client to an iPhone home
+screen, went into airplane mode, and Safari refused to open it at all
+("Safari cannot open the app because the iPhone is not connected to the
+Internet") — not a degraded shell, no shell at all. Reading `apps/client/src/
+main.tsx` found the cause: `apps/client/src/pwa.ts` fully implements and unit
+tests `registerServiceWorker()` / `browserAdapter()` (three passing tests in
+`pwa.test.ts`, all exercising the "never auto-reload" contract), but **nothing
+in the real application ever called either function.** `main.tsx` rendered
+`<App />` and stopped. `vite.config.ts` sets `injectRegister: null`
+deliberately, so `vite-plugin-pwa` was never going to inject its own
+registration script either — the app was always meant to call it manually, and
+that call was simply missing. Net effect: `dist/sw.js` built and deployed
+correctly (confirmed by the task-0.5 deviation entry's own build-output check),
+but no browser ever told itself to install it, so there was no offline cache at
+all, on any deployment, since task 0.5 landed. `grep -rn
+"registerServiceWorker\|browserAdapter" apps/client/src` before the fix matched
+only the two definitions in `pwa.ts` — zero call sites.
+
+**What I did instead:** added the missing call to `apps/client/src/main.tsx`,
+right after the initial render:
+```tsx
+void registerServiceWorker(() => {
+  console.warn('an update is ready — it will apply on the next cold start');
+}, browserAdapter());
+```
+Deliberately minimal: SPEC-FINAL 9.1's real "discreet hint" UI belongs to a
+future task once the app shell exists to host it — phase 0's shell is a
+placeholder heading and a version string, and inventing a toast/banner
+component now would be scope creep this fix doesn't need. `console.warn` is
+allowed by the existing `no-console` rule and is enough to prove the callback
+fires; a later phase 1/2 task should replace it with real UI without touching
+the registration call itself.
+
+**A second, previously-invisible bug surfaced immediately from actually
+building this path for real:** `pnpm --filter @frc/client build` failed —
+`[vite-plugin-pwa:build] Rollup failed to resolve import "workbox-window" from
+"/@vite-plugin-pwa/virtual:pwa-register"`. `workbox-window` was never wired
+into any real production bundle before, because nothing reachable from the
+real entry point (`main.tsx`) ever imported `pwa.ts` — Rollup had no reason to
+resolve `virtual:pwa-register`'s own dependency graph, so a missing dependency
+was invisible until this exact fix made the import path live. Confirmed the
+cause before fixing it: `vite-plugin-pwa`'s own `package.json` lists
+`workbox-window: ^7.3.0` as a **peer** dependency, which pnpm's strict linking
+does not hoist into a consumer automatically — it was present in the pnpm
+store (pulled in transitively) but not resolvable from `apps/client`'s own
+`node_modules` view. Added `"workbox-window": "^7.3.0"` to
+`apps/client/package.json`'s real `dependencies` (it ships in the production
+bundle, so it belongs there, not in `devDependencies`).
+
+**Verified, not assumed:** `pnpm --filter @frc/client build` now succeeds and
+emits two new chunks that did not exist before —
+`dist/assets/virtual_pwa-register-*.js` and
+`dist/assets/workbox-window.prod.es5-*.js` — and `grep -l "an update is ready"
+apps/client/dist/assets/*.js` matches the main bundle, confirming the
+registration call is genuinely shipped, not merely present in source. Full
+workspace suite re-run clean afterward: 54/54 tests, typecheck, lint,
+`format:check` all green.
+
+**Risk:** this fix has **not yet been proven against a real device** — that
+verification is the user's next step, re-attempting the same install/airplane-
+mode test now that the underlying bug is fixed, and it needs a fresh
+deployment (this fix was committed but not yet pushed to `develop`/`main` as
+of this entry). Also worth flagging forward: this bug existed, undetected, in
+every deployment since task 0.5 — including the one already-passed automated
+verification of that task — because nothing in the test suite exercises
+`main.tsx` itself calling the registration function; `pwa.test.ts` only proves
+`registerServiceWorker` behaves correctly *if* called. A future task should
+consider a lightweight assertion (even just a grep-based check, or an
+integration test against the built `dist/` output) that the entry point
+actually wires up service worker registration, so this class of "unit-tested
+but never invoked" gap can't recur silently.
+
+---
+
 ## New task, added at the run's own direction — bundle `apps/server`'s function with esbuild before phase 1 needs `@frc/shared`
 
 **Plan said:** nothing — this task does not exist in `IMPLEMENTATION-PLAN.md`.
