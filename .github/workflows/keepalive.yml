@@ -1,0 +1,35 @@
+name: Keep-alive
+
+# SPEC-FINAL 19.6: exactly one scheduled job in v1. No Vercel Cron, no background
+# jobs, no database-side scheduling. Twice a week is enough against the ~7-day
+# Supabase free-tier idle pause.
+on:
+  schedule:
+    - cron: '17 5 * * 1' # Mondays 05:17 UTC
+    - cron: '17 5 * * 4' # Thursdays 05:17 UTC
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: dev
+            secret: HEALTHCHECK_DEV_URL
+          - name: production
+            secret: HEALTHCHECK_PROD_URL
+    steps:
+      - name: Ping ${{ matrix.target.name }}
+        env:
+          URL: ${{ secrets[matrix.target.secret] }}
+        run: |
+          if [ -z "$URL" ]; then
+            echo "::error::${{ matrix.target.secret }} is not set (docs/ops/ENVIRONMENT.md §3)"
+            exit 1
+          fi
+          body=$(curl --fail --silent --show-error --max-time 30 "$URL")
+          echo "$body"
+          echo "$body" | grep -q '"database":"ok"'
