@@ -986,3 +986,92 @@ the `@frc/shared` case flagged at the gate: it is a type-only import
 so no runtime `import` of `@frc/db` is ever emitted for Node to resolve.
 
 **Risk:** None.
+
+---
+
+## Task 0.14 — the failing-first error text, same Vite-wording drift as task 0.1
+
+**Plan said:** Step 2 — Expected: `Failed to resolve import "../src/seed/fixtures"`.
+
+**What was wrong:** same class of drift already logged at task 0.1 — Vitest
+2.1.9/Vite 5.4.21 word an unresolvable relative import as `Failed to load url
+../src/seed/seed (resolved id: ../src/seed/seed) ... Does the file exist?`, and it
+resolved `../src/seed/seed` (the second, later import in the test file) before
+ever reaching `../src/seed/fixtures`, since Vite fails the whole module graph at
+the first unresolvable specifier it hits while transforming, not necessarily in
+source order.
+
+**What I did instead:** accepted it — same missing files, same cause.
+
+**Risk:** None.
+
+---
+
+## Task 0.14 — two real type errors in the plan's `seed.ts`, not cosmetic
+
+**Plan said:**
+
+```ts
+for (const [versionIndex, [versionId, fields]] of [
+  [SEED.formVersionOld, SEED_FIELDS],
+  [SEED.formVersion, SEED_FIELDS],
+  [SEED.superFormVersion, SEED_SUPER_FIELDS],
+].entries()) {
+```
+
+and, in `fixtures.ts`, `config: Record<string, unknown>;` on `SeedField`.
+
+**What was wrong:** both are genuine `tsc --noEmit` failures under this repo's
+`strict: true` + `noUncheckedIndexedAccess`, not formatting noise:
+
+1. The inline array literal `[[id, fields], [id, fields], [id, fields]]` infers as
+   `(string | SeedField[])[][]`, not a tuple array — TypeScript does not infer
+   tuple types for array literals without an explicit annotation or `as const`.
+   Destructuring `[versionId, fields]` then types both `versionId` and `fields` as
+   `string | SeedField[]`, and `fields.map(...)` fails:
+   ```
+   src/seed/seed.ts(138,7): error TS18048: 'fields' is possibly 'undefined'.
+   src/seed/seed.ts(138,14): error TS2339: Property 'map' does not exist on type
+     'string | SeedField[]'. Property 'map' does not exist on type 'string'.
+   src/seed/seed.ts(138,19): error TS7006: Parameter 'f' implicitly has an 'any' type.
+   src/seed/seed.ts(138,22): error TS7006: Parameter 'i' implicitly has an 'any' type.
+   ```
+2. `SeedField.config: Record<string, unknown>` is not assignable to the generated
+   `form_fields.config` column type (`Json | undefined`), because `unknown` is not
+   a member of the closed `Json` union and TypeScript will not structurally widen
+   an index signature past it:
+   ```
+   src/seed/seed.ts(139,7): error TS2345: Argument of type '{ ...; config:
+     Record<string, unknown>; ... }[]' is not assignable to parameter of type
+     'RejectExcessProperties<{ ...; config?: Json | undefined; ...}>[]'.
+     Types of property 'config' are incompatible.
+       Type 'Record<string, unknown>' is not assignable to type 'Json | undefined'.
+   ```
+   This one only surfaces now, in task 0.14, because it is the first task where
+   `SeedField.config` values actually flow into a `Database['public']['Tables'][...]
+   ['Insert']`-typed call — the generated types this depends on did not exist
+   before task 0.13.
+
+**What I did instead:** two minimal, behavior-preserving fixes:
+
+1. Hoisted the array literal into a locally declared, explicitly-typed
+   `const versionFieldSets: [string, SeedField[]][] = [...]`, then iterate
+   `versionFieldSets.entries()`. Same three pairs, same order, same runtime
+   values — only the type annotation changed.
+2. Imported `type { Json } from '../database.types'` in `fixtures.ts` and changed
+   `SeedField.config` from `Record<string, unknown>` to `Record<string, Json>`.
+   Every existing `config` literal in `SEED_FIELDS`/`SEED_SUPER_FIELDS` (numbers,
+   booleans, nested string/object arrays) is already plain JSON, so no fixture
+   value changed — only the type became precise enough to describe what was
+   already there.
+
+Verified rather than assumed: `pnpm typecheck` is clean across all five packages
+after both fixes, `pnpm seed` still prints `dev database seeded`, and
+`pnpm --filter @frc/db test:integration test/seed.itest.ts` is 10/10 green with
+the same assertions as the plan's literal test file (which was not touched).
+
+**Risk:** None — the seeded data is byte-identical to what the plan's version
+would have produced if it had compiled. Worth noting for phase 1: any future
+fixture object typed as `Record<string, unknown>` and passed into a `jsonb`
+column will hit the same `Json` mismatch; `Record<string, Json>` (or a cast at
+the call site) is the pattern to reach for.
