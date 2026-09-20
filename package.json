@@ -13,6 +13,7 @@
     "db:push": "pnpm --filter @frc/db db:push",
     "db:test": "pnpm --filter @frc/db test:integration",
     "seed": "pnpm --filter @frc/db seed",
+    "smoke": "node scripts/smoke.mjs",
     "env:example": "node scripts/gen-env-example.mjs",
     "env:example:check": "node scripts/gen-env-example.mjs --check",
     "docs:check": "node scripts/check-docs.mjs",
