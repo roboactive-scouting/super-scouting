@@ -1814,3 +1814,51 @@ The non-null branch (push's own behavior) is untouched. `apps/server/src/composi
 **What I did instead:** implemented as written (module-line fixes above aside). `pnpm --filter @frc/client exec vitest run src/data` is 19/19 green (2 files: `outbox.test.ts` 8, `sync.test.ts` 11), and `pnpm typecheck` / `pnpm lint` are clean across all four packages.
 
 **Risk:** None.
+
+---
+
+## Task 1.7 — `submitEntry.test.ts`'s expected-range fixture collides with its own config range, so the assertion could never pass
+
+**Plan said:** the `fields` fixture in `apps/client/src/features/entry/submitEntry.test.ts` gives the one counter field both `config: { min: 0, max: 10, step: 1 }` and `expected_range: { min: 0, max: 10 }` — identical bounds — and the test "refuses a value outside the expected range (SPEC-FINAL 15.1)" submits `auto_notes: 11` and asserts the rejection `.rejects.toThrow(/expected range/i)`.
+
+**What was wrong:** `validateEntryData` (task 1.2, `packages/shared/src/forms/validate.ts`, out of this task's file list) checks the field's own `config.min`/`config.max` first and `break`s out of the `counter` case on failure, before ever reaching the `expected_range` check below it. With `config.max` and `expected_range.max` both `10`, a value of `11` always fails the config check first, so the thrown message is `"Auto notes must be between 0 and 10"` (`out-of-config-range`) and never contains the text "expected range". Ran it to confirm rather than assuming: `expected [Function] to throw error matching /expected range/i but got 'Auto notes must be between 0 and 10'`. Task 1.2's own `validate.test.ts` documents exactly this hazard in a comment on its fixture — "The config range is the input's own limit; expected_range is the narrower sanity band that blocks a submit (SPEC-FINAL 15.1). They are deliberately different here so each rule is tested on its own" — and keeps `config.max: 99` against `expected_range.max: 10` for that reason. The task 1.7 fixture didn't follow that precedent.
+
+**What I did instead:** widened only this task's own test fixture — `config: { min: 0, max: 10, step: 1 }` → `config: { min: 0, max: 99, step: 1 }`, `expected_range` left at `{ min: 0, max: 10 }` — matching task 1.2's established pattern instead of touching `validate.ts`, which is outside this task's file list and already correctly tested on its own terms. `auto_notes: 11` now passes the config check (≤ 99) and fails only the expected-range check, so the thrown message is `"Auto notes is outside its expected range (0–10)"`, matching `/expected range/i`. No other assertion in the file depends on the old bound (all other submitted values in this file are 0–3, in range under both old and new bounds). `EntryPage.test.tsx`'s analogous fixture was left untouched — its own assertion only checks the alert contains `/Auto notes/`, which the config-range message already satisfied, so it needed no change and stayed a byte-for-byte transcription of the plan.
+
+**Risk:** None. The fix is confined to one line of my own test fixture; `packages/shared/src/forms/validate.ts` and its own test suite are untouched.
+
+---
+
+## Task 1.7 — `EntryPage.test.tsx`'s `field()` helper does not typecheck under strict mode
+
+**Plan said:** `apps/client/src/features/entry/EntryPage.test.tsx`'s `field()` helper is `(over: Record<string, unknown>) => ({ entity: 'form_fields' as const, form_version_id: 'fv-1', required: false, deprecated: false, config: {}, ...over })`, with no return type and no cast, and every call site supplies `id` only through `over`.
+
+**What was wrong:** `db.rows.bulkPut(...)` requires `CachedRow[]`, and `CachedRow` requires a named `id: string`. Spreading a value statically typed `Record<string, unknown>` into an object literal does not give the result a named `id` property as far as the type checker is concerned — only an index signature would, and TypeScript does not treat that as satisfying a required named property on `CachedRow`. `pnpm typecheck` failed on both `bulkPut` call sites: `Property 'id' is missing in type '{ entity: "form_fields"; ...}' but required in type 'CachedRow'`. This never surfaces under `vitest` (esbuild transpilation only), the same class of gap already logged for task 1.6's `emptyEntities` cast.
+
+**What I did instead:** imported `type { CachedRow }` from `@/data/db` and cast the helper's return value through `unknown` first — `(...) as unknown as CachedRow` — the same narrowly-scoped escape hatch used for the task 1.6 finding, for the same reason (a single-step `as CachedRow` still fails with "neither type sufficiently overlaps with the other"). Runtime behavior is unchanged: every call site still supplies a real `id` via `over` at runtime, exactly as the plan intended; only the static type of the helper's return value changed.
+
+**Risk:** None. Confirmed `pnpm --filter @frc/client exec vitest run src/features/entry` is 15/15 green and `pnpm typecheck` is clean across all four packages after the change.
+
+---
+
+## Task 1.7 — plan-quoted files fail `format:check`, same recurring class as tasks 0.3/0.9/0.10/0.12/1.5/1.6
+
+**Plan said:** `EntryPage.tsx` and `submitEntry.test.ts` transcribed verbatim (aside from the two fixes above).
+
+**What was wrong:** `pnpm format:check` flagged both files — several multi-argument calls and JSX attribute lists in `EntryPage.tsx`, and several single-line `submitEntry(...)` calls in `submitEntry.test.ts` exceeding `printWidth: 100`.
+
+**What I did instead:** wrote the files verbatim first, confirmed the failing-first run and the passing run both matched the plan's logic exactly, then ran `npx prettier --write` on the two files. Only line breaks moved; no assertion, value, or JSX structure changed. Re-ran `pnpm --filter @frc/client exec vitest run src/features/entry` (15/15 green) and the full client suite (`pnpm --filter @frc/client exec vitest run`, 54/54 green across 9 files) afterward, plus `pnpm typecheck`, `pnpm lint` and `pnpm format:check`, all clean.
+
+**Risk:** None.
+
+---
+
+## Task 1.7 — everything else matched the plan exactly
+
+**Plan said:** `cache.ts`, `submitEntry.ts`, `useDraft.ts`, `FieldInput.tsx`, `RobotStatusPicker.tsx` given as literal, complete code (aside from the `EntryPage.tsx` formatting above); `submitEntry.test.ts` and `EntryPage.test.tsx` given as literal, complete test suites (aside from the two fixture/typing fixes above); `@testing-library/user-event` to be added to `apps/client` devDependencies; failing-first error predicted as `Failed to resolve import "./submitEntry"` and `"./EntryPage"`.
+
+**What was wrong:** nothing else. `@testing-library/user-event@^14.5.2` was already present in `apps/client/package.json` from task 0.4 (confirmed by reading the file before starting), so no `package.json` change was needed at all this task — `git status` shows only `cache.ts` and the seven `features/entry/*` files as new. `@frc/shared` already exports `validateEntryData`, `validateEntryShape`, `selectOptions`, `FormFieldDefinition`, `RobotStatus` and `PullEntityKey` from tasks 1.1–1.4, so no export line needed adding there. The failing-first run reproduced the plan's predicted error text exactly for both files.
+
+**What I did instead:** implemented as written (fixture, cast and formatting fixes above aside). `pnpm --filter @frc/client exec vitest run src/features/entry` is 15/15 green (7 in `submitEntry.test.ts`, 8 in `EntryPage.test.tsx`), the full client suite is 54/54 green across 9 files, and `pnpm typecheck`, `pnpm lint` and `pnpm format:check` are all clean across all four packages.
+
+**Risk:** None.
