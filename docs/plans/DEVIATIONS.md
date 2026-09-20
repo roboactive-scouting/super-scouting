@@ -1712,3 +1712,45 @@ proves too tight or unnecessarily long once this has run for real on
 **What I did instead:** followed that entry's own prescribed pattern — a narrow cast at the one Supabase-facing call site: `.upsert({ ...row, id } as never)` — rather than loosening `Store.putRow`'s own signature, which stays `Record<string, unknown>` for every caller.
 
 **Risk:** Low, and isolated to this one line. `putRow` is meant to accept an arbitrary already-validated row for any `SyncEntity`, so a fully-typed per-table union at the `Store` interface level isn't practical here; the cast defers to Postgres/PostgREST to reject a genuinely malformed row at runtime, same as `upsert` already would for any caller passing the wrong shape.
+
+---
+
+## Task 1.4 — `GET /sync/pull`, mounted exactly as the plan specifies, would 401 on every request forever
+
+**Plan said:** `apps/server/src/routes/sync.ts`'s new pull route calls `const caller = await deps.callerFor(c.req.raw, null);` — a hardcoded `null` fallback user id, always, since a pull request carries no operations to derive an author from. This is literal plan text, unchanged from what task 1.3's own implementer already flagged (see this task's own entry above, "Notable for task 1.4") without fixing, since it was out of task 1.3's file scope.
+
+**What was wrong:** `apps/server/src/composition.ts`'s `callerFor` (built in task 1.3) is:
+```ts
+callerFor: async (_request, fallbackUserId) => {
+  if (!fallbackUserId) return null;
+  ...
+}
+```
+With `fallbackUserId` always `null` for pull, this returns `null` unconditionally, before ever touching the request or the store. The route then always responds `401 {"error":{"code":"unauthenticated", ...}}`. There is no input that would make it succeed, until task 1.12 replaces this function with real bearer-token auth — which defeats the walking skeleton's whole premise (SPEC-FINAL §20.3: a real end-to-end proof, including a real deployed pull, before auth exists at all).
+
+**What I did instead:** confirmed `syncPull`'s own use-case code never inspects caller identity (`void caller; // every role, and a service caller, may replicate` — it takes `caller` only to match every other use case's signature). Changed the `!fallbackUserId` branch in `composition.ts` to authenticate as a service caller instead of failing outright:
+```diff
+-          if (!fallbackUserId) return null;
++          // `fallbackUserId` is only ever null for GET /sync/pull (a pull carries no
++          // operations to derive an author from). syncPull's own doc comment says
++          // every role, and a service caller, may replicate — it never inspects the
++          // caller's identity — so authenticate it as a service caller here rather
++          // than unconditionally failing every pull until task 1.12 lands real
++          // bearer-token auth and replaces this whole function anyway.
++          if (!fallbackUserId) return { kind: 'service', label: 'sync-pull' };
+```
+The non-null branch (push's own behavior) is untouched. `apps/server/src/composition.ts` is not in task 1.4's own Files list — this is a deliberate, logged exception to that boundary, made because the alternative (an endpoint the plan itself specifies but that can never succeed) is worse than the small scope expansion.
+
+**Risk:** Low. `syncPull` cannot behave differently based on this, since it ignores caller identity entirely; push is unaffected since it always supplies a non-null `fallbackUserId`. The externally visible effect: until task 1.12 lands real auth, `GET /sync/pull` is reachable by anyone who can reach the endpoint at all, with no authentication — true of the whole walking-skeleton phase already (push has the same property for whichever `author_user_id` a caller chooses to claim) and explicitly the point of this phase. Checked for downstream coupling to the exact label `'sync-pull'` or to `caller.kind === 'service'` for the pull path specifically — found none; task 1.12 replacing this whole function deletes this branch along with the rest, exactly as its own comment already anticipates.
+
+---
+
+## Task 1.4 — `repos/pull.ts`: a dynamic table name needs a narrow cast, the same generic-vs-generated-type gap as tasks 0.14 and 1.3
+
+**Plan said:** `let query = db.from(spec.table).select('*')...` where `spec.table` comes from the `PULL_SCOPES` lookup table, typed as a plain `string`.
+
+**What was wrong:** does not compile. `SupabaseClient<Database>.from()` requires a literal `keyof Database['public']['Tables']`, not a widened `string` — `spec.table` spans all 24 generated table row shapes at once, so it cannot be that literal union.
+
+**What I did instead:** the same pattern already established for `store.ts`'s `putRow` (this file, task 1.3 entry above): a narrow cast at the one dynamic call site, `db.from(spec.table as never)`, with a comment pointing at the precedent. Every literal `.from('matches')`-style call inside `parentIds` (the same file) needed no cast and stayed fully type-checked.
+
+**Risk:** Low, same shape as the already-accepted `putRow` pattern. Runtime correctness rests on `PULL_SCOPES`'s table name strings matching real table names, which was checked directly against `packages/db/src/database.types.ts` (all 24 `PULL_ENTITY_KEYS` present as real tables).
