@@ -1593,3 +1593,50 @@ either a step that polls the deployment URL until it changes /
 returns 200 before running `pnpm smoke`, or triggering CI from a Vercel
 deployment webhook instead of `push`. Flagging it here rather than fixing it
 is itself the deviation.
+
+---
+
+## New task, added ahead of task 1.1 at the run's own direction — poll the deployment healthy before the smoke suite runs
+
+**Plan said:** nothing — `IMPLEMENTATION-PLAN.md` does not have a task for
+this. It exists because the phase-0 "CI's smoke suite raced the Vercel
+deployment it depends on and lost, twice" entry above flagged the gap and
+explicitly deferred the fix, and this run's brief requires it closed before
+task 1.1, because task 1.9 (later in this same phase) is itself a smoke test
+that would inherit the same false-negative risk.
+
+**What was wrong:** `.github/workflows/ci.yml`'s `Smoke suite` step called
+`pnpm smoke` unconditionally right after the migrations/unit-tests steps, with
+no wait for the matching Vercel deployment (client + server, both projects)
+to actually finish. CI's own steps finish in well under a minute; the
+deployment can take several minutes. This produced two real false-failures in
+phase 0, both already logged and both resolved only by manually re-running the
+CI job after confirming the deployment was live.
+
+**What I did instead:** added `scripts/wait-for-deploy.mjs`, which polls
+`GET {SMOKE_API_BASE_URL}/health` every 10 seconds for up to 8 minutes and
+succeeds as soon as it sees `200` with `status: 'ok'` and `database: 'ok'`;
+exits 1 with the last response seen if the deadline passes. Wired it in as a
+new `Wait for deployment to be live` step in `ci.yml`, positioned immediately
+before `Smoke suite`, reading the same `SMOKE_API_BASE_URL` secret and with no
+`if:` gate — matching `Smoke suite`, which also runs unconditionally. Added a
+`wait:deploy` script to the root `package.json` alongside the existing `smoke`
+script. Verified locally (not against any real Supabase/Vercel project): with
+`SMOKE_API_BASE_URL` unset, it fails immediately with the same message
+`scripts/smoke.mjs` already uses; pointed at an unreachable host with a
+shortened timeout override, it retries with a progress line each attempt and
+then exits 1 with a clear timeout diagnostic, no hang and no unhandled
+exception. `pnpm test` (54/54), `pnpm typecheck`, `pnpm lint` and
+`pnpm format:check` all green afterward.
+
+**Risk:** this proves the endpoint is *live and healthy*, not that it is
+serving *this exact* commit — Vercel's `/health` response carries no commit
+SHA, so a still-warm previous deployment could in principle let this step
+pass before the new one is actually live, on a rolling update. That is a
+known, accepted limitation rather than something this task attempts to solve;
+it directly fixes the specific failure mode already observed (a deployment
+that hadn't started yet at all, answering 404), which is the case that has
+actually happened twice. The 8-minute budget is a first estimate, not
+measured against real deploy timings post-merge — worth revisiting if it
+proves too tight or unnecessarily long once this has run for real on
+`develop`.
