@@ -1925,4 +1925,30 @@ The non-null branch (push's own behavior) is untouched. `apps/server/src/composi
 
 **What I did instead:** implemented as written (fixes and judgment calls above aside). `pnpm install` succeeded with no lockfile conflicts. `pnpm --filter @frc/client exec vitest run` is 67/67 green across 12 files (7 new: `ConnectionIndicator.test.tsx` 3, `EntriesPage.test.tsx` 3, `SelectRobotPage.test.tsx` 7 — the other 4 new source files, `AppShell.tsx`, `EntryRoute.tsx`, `routes.tsx` and `App.tsx`, have no dedicated test file of their own per this task's Files list, and are exercised indirectly through the files that do). `pnpm typecheck`, `pnpm lint` and `pnpm format:check` are all clean across all four packages.
 
+---
+
+## Task 1.9 — Vercel reported `frc-scouting-client`'s deployment as "Canceled by Ignored Build Step" for a `develop` push that should have built
+
+**Plan said:** nothing about this directly; the build-chat instructions for the deploy-then-verify step expected two fresh Preview deployments (client and server) once `feat/phase-1a-skeleton` was fast-forwarded onto `develop`, since 1.3–1.8 had never been deployed before.
+
+**What was wrong:** `gh api repos/roboactive-scouting/super-scouting/commits/<sha>/status` showed `Vercel – frc-scouting-client` as `success` / `"Canceled by Ignored Build Step"` immediately after the push — i.e. the status GitHub Actions/Vercel reported claimed the client build was **skipped**. `docs/ops/ENVIRONMENT.md` §19's Ignored Build Step script only gates on `VERCEL_GIT_COMMIT_REF` (`main`/`develop` build, everything else skips), so a push whose ref is `develop` should never be skipped, and this push touched `apps/client/**` across all five commits since `origin/develop`'s prior tip. Taking the status literally would have meant the task was blocked (stale client preview, nothing to verify).
+
+**What I did instead:** did not trust the status string. Fetched the deployed client's `index.html`, found its hashed JS bundle (`/assets/index-DQezEDlu.js`), fetched that bundle, and grepped it for the pushed commit's short SHA (`0f8b5a2`) — found at a byte offset inside the bundle, i.e. `VITE_APP_VERSION` (injected from `VERCEL_GIT_COMMIT_SHA` at build time per `apps/client/vite.config.ts`, see `ENVIRONMENT.md` line 283) matched this push exactly. The client **did** rebuild; only the GitHub commit-status label was wrong or stale (most likely a race between an earlier, genuinely-skipped status write and the real build's own completion webhook landing after it). Proceeded with verification once the fingerprint match confirmed the live bundle was current.
+
+**Risk:** Low for this task — the fingerprint check is conclusive and is now the standard way to confirm a client preview is current, cheaper than trusting the commit-status API. Worth a note for whoever debugs a real "build skipped" incident later: the GitHub commit-status context for `frc-scouting-client` is not fully reliable evidence on its own: check the deployed bundle's embedded commit SHA before concluding a preview is stale.
+
+---
+
+## Task 1.9 — executed code only; the airplane-mode rehearsal and its `RUNBOOK.md` result are outstanding by design
+
+**Plan said:** Step 3 ("Run the airplane-mode rehearsal by hand") is part of task 1.9's own five steps, ending with "Record the result — pass or fail, with what broke — in `docs/ops/RUNBOOK.md` under *Pre-event checklist*", before Step 4 (wire into CI) and Step 5 (commit).
+
+**What was wrong:** nothing — this was an explicit instruction for this build chat: the rehearsal (install on a physical phone, airplane mode, cold start, three entries, reconnect, confirm sync, check the laptop's `/entries`) is the maintainer's own hands-on step, not something to attempt, simulate, or mark done from this session.
+
+**What I did instead:** completed Step 1 (`apps/server/smoke/slice.smoke.ts`, `apps/server/vitest.smoke.config.ts`, transcribed from the plan verbatim and reformatted by `prettier --write` to satisfy `format:check`), attempted Step 2 locally and confirmed the suite loads, imports `@frc/shared`'s `PullResponse`/`PushResponse` types cleanly, and fails at its own env-var guard (not a syntax or type error) when `SMOKE_API_BASE_URL`/`SMOKE_SUPABASE_URL`/`SMOKE_SUPABASE_SERVICE_ROLE_KEY` are unset — could not run it against the live preview from this shell because the Supabase service-role key is a GitHub Actions secret, not present locally, and is never to be typed into a chat, a file, or a command line. Completed Step 4 (root `smoke` script now chains `scripts/smoke.mjs` and `vitest run --config vitest.smoke.config.ts`, confirmed by running `pnpm smoke` and observing it fail at the same first-missing-env-var line as before the change, i.e. the chain is wired correctly). Left Step 3 unticked and did not touch `docs/ops/RUNBOOK.md`'s *Pre-event checklist* — there is no rehearsal result yet to record. `pnpm typecheck`, `pnpm lint`, `pnpm test` (155/155) and `pnpm format:check` are all clean with these changes in place.
+
+**Risk:** None for the code delivered. The gap is the rehearsal itself, which is explicitly the maintainer's to run; CI's `Smoke suite` step (now exercising this full suite via the GitHub Actions secrets) is the only proof of Step 2 available from this session, and its result should be checked once the `develop` push's CI run completes.
+
+---
+
 **Risk:** None beyond what's already logged above. One test run showed a benign React `act(...)` warning on `SelectRobotPage.test.tsx`'s "shows a notice…" case (a `setMatches` call landing after that test's own assertions had already run) — it did not fail the test or affect any assertion, and is left as-is rather than restructured, consistent with this file's practice of not touching passing, in-scope test behavior to silence console noise alone.

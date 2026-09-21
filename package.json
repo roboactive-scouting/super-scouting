@@ -13,7 +13,7 @@
     "db:push": "pnpm --filter @frc/db db:push",
     "db:test": "pnpm --filter @frc/db test:integration",
     "seed": "pnpm --filter @frc/db seed",
-    "smoke": "node scripts/smoke.mjs",
+    "smoke": "node scripts/smoke.mjs && pnpm --filter @frc/server exec vitest run --config vitest.smoke.config.ts",
     "wait:deploy": "node scripts/wait-for-deploy.mjs",
     "env:example": "node scripts/gen-env-example.mjs",
     "env:example:check": "node scripts/gen-env-example.mjs --check",

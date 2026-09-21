@@ -1,0 +1,10 @@
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    environment: 'node',
+    include: ['smoke/**/*.smoke.ts'],
+    testTimeout: 60000,
+    fileParallelism: false,
+  },
+});
