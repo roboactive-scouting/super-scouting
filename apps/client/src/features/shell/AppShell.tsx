@@ -50,6 +50,24 @@ export function AppShell({ eventId }: { eventId: string }) {
     };
   }, [eventId]);
 
+  // The first pull has not finished, so IndexedDB is still empty. Child routes read the
+  // cache once on mount and would render an empty match list that never fills itself in,
+  // so hold them back until hydration has settled. Deliberately NOT `<Outlet key={state} />`:
+  // that remounts children on every state change and would throw away a part-filled form.
+  if (state === 'loading') {
+    return (
+      <div className="p-8 text-center">
+        <h1 className="text-lg font-semibold" dir="auto">
+          Loading the competition onto this device
+        </h1>
+        <p className="text-[var(--text-muted)]" dir="auto">
+          This happens once, and takes a few seconds. The matches and robots appear as soon as it is
+          done.
+        </p>
+      </div>
+    );
+  }
+
   if (state === 'blocked') {
     return (
       <div className="p-8 text-center">
