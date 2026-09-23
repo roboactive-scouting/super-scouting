@@ -144,6 +144,80 @@ describe('smoke: the walking skeleton path', () => {
     expect(entry!.data).toEqual({ ci_counter: 4 });
   });
 
+  it('auto-creates a bare match with its entry in one batch and reads both back (SPEC-FINAL 6.4)', async () => {
+    // The client path: an unlisted match number rides the outbox as entity 'match',
+    // then the entry that references it. The earlier tests seed their match directly,
+    // which is how a phantom `version` column on matches passed this suite.
+    const now = new Date().toISOString();
+    const matchId = uid();
+    const entryId = uid();
+    const number = 500 + Math.floor(Math.random() * 400);
+    const push = await fetch(`${base}/sync/push`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        device_id: uid(),
+        operations: [
+          {
+            op_id: uid(),
+            entity: 'match',
+            row_id: matchId,
+            action: 'create',
+            base_version: null,
+            payload: { event_id: ids.event, match_type: 'qualification', number },
+            author_user_id: ids.user,
+            client_created_at: now,
+            client_updated_at: now,
+            seq: 1,
+          },
+          {
+            op_id: uid(),
+            entity: 'scouting_entry',
+            row_id: entryId,
+            action: 'create',
+            base_version: null,
+            payload: {
+              form_version_id: ids.version,
+              form_kind: 'match',
+              event_id: ids.event,
+              match_id: matchId,
+              team_id: ids.team,
+              alliance: 'red',
+              scouter_id: ids.user,
+              robot_status: 'played',
+              data: { ci_counter: 3 },
+            },
+            author_user_id: ids.user,
+            client_created_at: now,
+            client_updated_at: now,
+            seq: 2,
+          },
+        ],
+      }),
+    });
+    expect(push.status).toBe(200);
+    const pushed = (await push.json()) as PushResponse;
+    expect(pushed.results[0]).toMatchObject({ status: 'applied', row_id: matchId, new_version: 1 });
+    expect(pushed.results[1]).toMatchObject({ status: 'applied', row_id: entryId });
+
+    const { data: match } = await db
+      .from('matches')
+      .select('id, event_id, match_type, number')
+      .eq('id', matchId)
+      .maybeSingle();
+    expect(match).toEqual({
+      id: matchId,
+      event_id: ids.event,
+      match_type: 'qualification',
+      number,
+    });
+
+    const pull = await fetch(`${base}/sync/pull?event_id=${ids.event}`);
+    const body = (await pull.json()) as PullResponse;
+    expect(body.entities.matches.some((m) => m.id === matchId)).toBe(true);
+    expect(body.entities.scouting_entries.some((e) => e.id === entryId)).toBe(true);
+  });
+
   it('replaying the same operation is a noop, never a duplicate row', async () => {
     const now = new Date().toISOString();
     const opId = uid();

@@ -35,7 +35,14 @@ export async function syncPush(
   const results: PushResult[] = [];
 
   for (const op of ordered) {
-    results.push(await applyOne(caller, op, ctx));
+    try {
+      results.push(await applyOne(caller, op, ctx));
+    } catch (e) {
+      // 9.3.1: one operation's failure never takes the batch down. The underlying
+      // message travels back as the detail — an opaque 500 hid a schema bug once.
+      const message = e instanceof Error ? e.message : String(e);
+      results.push(rejected(op.op_id, 'invalid', `unexpected server error: ${message}`));
+    }
   }
   return { results };
 }
@@ -48,6 +55,10 @@ async function applyOne(caller: Caller, op: Operation, ctx: UseCaseContext): Pro
   if (author.disabled_at !== null) return rejected(op.op_id, 'forbidden', 'the author is disabled');
 
   if (await ctx.store.wasApplied(op.op_id)) {
+    // Matches are not versioned (SPEC-FINAL 6.4: event, type, number and nothing else).
+    if (op.entity === 'match') {
+      return { op_id: op.op_id, status: 'noop', row_id: op.row_id, new_version: 1 };
+    }
     const existing = await ctx.store.getRow(op.entity, op.row_id);
     return {
       op_id: op.op_id,
@@ -65,11 +76,12 @@ async function applyOne(caller: Caller, op: Operation, ctx: UseCaseContext): Pro
 }
 
 async function applyBareMatch(op: Operation, ctx: UseCaseContext): Promise<PushResult> {
-  // SPEC-FINAL 6.4: the bare auto-creation only — event, type, number. A no-op if it exists.
+  // SPEC-FINAL 6.4: the bare auto-creation only — event, type, number. A no-op if it
+  // exists. `matches` has no version column, so new_version is always 1.
   const existing = await ctx.store.getRow('match', op.row_id);
   if (existing) {
     await ctx.store.markApplied(op.op_id);
-    return { op_id: op.op_id, status: 'noop', row_id: op.row_id, new_version: existing.version };
+    return { op_id: op.op_id, status: 'noop', row_id: op.row_id, new_version: 1 };
   }
   const { event_id, match_type, number } = op.payload as Record<string, unknown>;
   if (
@@ -84,7 +96,6 @@ async function applyBareMatch(op: Operation, ctx: UseCaseContext): Promise<PushR
     event_id,
     match_type,
     number,
-    version: 1,
   });
   await ctx.store.markApplied(op.op_id);
   return { op_id: op.op_id, status: 'applied', row_id: op.row_id, new_version: 1 };

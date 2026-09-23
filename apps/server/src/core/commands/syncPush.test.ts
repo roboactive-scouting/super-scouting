@@ -243,7 +243,6 @@ describe('syncPush', () => {
       event_id: 'ev-1',
       match_type: 'qualification',
       number: 9,
-      version: 1,
     });
     const res = await syncPush(
       scouter,
@@ -259,6 +258,64 @@ describe('syncPush', () => {
       },
       ctx,
     );
-    expect(res.results[0]).toMatchObject({ status: 'noop' });
+    expect(res.results[0]).toMatchObject({ status: 'noop', new_version: 1 });
+  });
+
+  const bareMatch = (over: Partial<Operation> = {}): Operation =>
+    op({
+      entity: 'match',
+      row_id: 'm-1',
+      payload: { event_id: 'ev-1', match_type: 'qualification', number: 21 },
+      ...over,
+    });
+
+  it('writes only the columns matches has — no version (SPEC-FINAL 6.4)', async () => {
+    const res = await syncPush(scouter, { device_id: 'd-1', operations: [bareMatch()] }, ctx);
+    expect(res.results[0]).toMatchObject({ status: 'applied', row_id: 'm-1', new_version: 1 });
+    expect(ctx.rows.matches.get('m-1')).toEqual({
+      id: 'm-1',
+      event_id: 'ev-1',
+      match_type: 'qualification',
+      number: 21,
+    });
+  });
+
+  it('replaying a bare match op_id is a noop with version 1', async () => {
+    const operation = bareMatch();
+    await syncPush(scouter, { device_id: 'd-1', operations: [operation] }, ctx);
+    const again = await syncPush(scouter, { device_id: 'd-1', operations: [operation] }, ctx);
+    expect(again.results[0]).toMatchObject({ status: 'noop', new_version: 1 });
+  });
+
+  it('pushes a bare match and its entry in one batch, the way the client sends them', async () => {
+    const res = await syncPush(
+      scouter,
+      { device_id: 'd-1', operations: [bareMatch({ seq: 1 }), op({ seq: 2 })] },
+      ctx,
+    );
+    expect(res.results.map((r) => r.status)).toEqual(['applied', 'applied']);
+    expect(ctx.appliedOrder).toEqual(['m-1', 'e-1']);
+  });
+
+  it('turns a thrown store error into a per-operation rejection carrying the message (SPEC-FINAL 9.3.1)', async () => {
+    const putRow = ctx.store.putRow.bind(ctx.store);
+    ctx.store.putRow = async (entity, id, row) => {
+      if (id === 'e-boom') throw new Error('duplicate key value violates unique constraint');
+      return putRow(entity, id, row);
+    };
+    const res = await syncPush(
+      scouter,
+      {
+        device_id: 'd-1',
+        operations: [op({ row_id: 'e-boom', seq: 1 }), op({ row_id: 'e-2', seq: 2 })],
+      },
+      ctx,
+    );
+    expect(res.results[0]).toMatchObject({ status: 'rejected', reason: 'invalid' });
+    expect(res.results[0]).toHaveProperty(
+      'detail',
+      'unexpected server error: duplicate key value violates unique constraint',
+    );
+    expect(res.results[1]).toMatchObject({ status: 'applied', row_id: 'e-2' });
   });
 });

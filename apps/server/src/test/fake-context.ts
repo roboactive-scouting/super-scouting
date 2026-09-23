@@ -1,15 +1,42 @@
 import type { FormFieldDefinition } from '@frc/shared';
-import type { Store, StoredFullUser, StoredUser, UseCaseContext } from '../core/context.js';
+import type {
+  Store,
+  StoredFullUser,
+  StoredRow,
+  StoredUser,
+  UseCaseContext,
+} from '../core/context.js';
 import { stubsFor } from '../repos/store.js';
 
 export type FakeRow = Record<string, unknown> & { id: string; version: number };
+/** `matches` is not versioned: SPEC-FINAL 6.4 defines a bare match as event, type, number. */
+export type FakeMatchRow = Record<string, unknown> & { id: string };
+
+/**
+ * The columns of public.matches (migration 20260903090000_skeleton.sql). The fake
+ * rejects anything else the way PostgREST does, so a phantom column fails a unit test
+ * instead of a deployed push — which is how `version` on matches reached the preview.
+ */
+const MATCH_COLUMNS = new Set([
+  'id',
+  'event_id',
+  'match_type',
+  'number',
+  'official_red_score',
+  'official_blue_score',
+  'official_red_rp',
+  'official_blue_rp',
+  'official_winner',
+  'created_at',
+  'updated_at',
+]);
 
 /**
  * Every map the phase-1 tests use, declared once. Later tasks add rows to these maps
  * and implement the Store methods that read them; none of them adds a field.
  */
 export type FakeContext = UseCaseContext & {
-  rows: { scouting_entries: Map<string, FakeRow>; matches: Map<string, FakeRow> };
+  rows: { scouting_entries: Map<string, FakeRow>; matches: Map<string, FakeMatchRow> };
   users: Map<string, StoredUser>;
   usersById: Map<string, StoredFullUser>;
   usersByName: Map<string, StoredFullUser>;
@@ -18,7 +45,7 @@ export type FakeContext = UseCaseContext & {
   teams: Map<string, FakeRow>;
   eventTeams: Map<string, FakeRow>;
   roster: Map<string, string[]>;
-  matches: Map<string, FakeRow>;
+  matches: Map<string, FakeMatchRow>;
   matchTeams: Map<string, FakeRow>;
   forms: Map<string, FakeRow>;
   formVersions: Map<string, FakeRow>;
@@ -77,7 +104,7 @@ const SKELETON_FIELDS: FormFieldDefinition[] = [
 export function makeFakeContext(): FakeContext {
   const rows = {
     scouting_entries: new Map<string, FakeRow>(),
-    matches: new Map<string, FakeRow>(),
+    matches: new Map<string, FakeMatchRow>(),
   };
   const users = new Map([
     ['u-scouter', { id: 'u-scouter', role: 'scouter' as const, disabled_at: null }],
@@ -153,12 +180,21 @@ export function makeFakeContext(): FakeContext {
       ops.add(opId);
     },
     async getRow(entity, id) {
-      const table = entity === 'match' ? rows.matches : rows.scouting_entries;
-      return table.get(id) ?? null;
+      if (entity === 'match') return (rows.matches.get(id) as StoredRow | undefined) ?? null;
+      return rows.scouting_entries.get(id) ?? null;
     },
     async putRow(entity, id, row) {
-      const table = entity === 'match' ? rows.matches : rows.scouting_entries;
-      table.set(id, row as FakeRow);
+      if (entity === 'match') {
+        const unknown = Object.keys(row).find((column) => !MATCH_COLUMNS.has(column));
+        if (unknown !== undefined) {
+          throw new Error(
+            `Could not find the '${unknown}' column of 'matches' in the schema cache`,
+          );
+        }
+        rows.matches.set(id, row as FakeMatchRow);
+      } else {
+        rows.scouting_entries.set(id, row as FakeRow);
+      }
       appliedOrder.push(id);
     },
     // A declared parameter matters here even though the skeleton fixture ignores it:

@@ -559,7 +559,12 @@ async function syncPush(caller, input, ctx) {
   const ordered = [...input.operations].sort((a, b) => a.seq - b.seq);
   const results = [];
   for (const op of ordered) {
-    results.push(await applyOne(caller, op, ctx));
+    try {
+      results.push(await applyOne(caller, op, ctx));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      results.push(rejected(op.op_id, "invalid", `unexpected server error: ${message}`));
+    }
   }
   return { results };
 }
@@ -569,6 +574,9 @@ async function applyOne(caller, op, ctx) {
   if (!author) return rejected(op.op_id, "forbidden", "unknown author");
   if (author.disabled_at !== null) return rejected(op.op_id, "forbidden", "the author is disabled");
   if (await ctx.store.wasApplied(op.op_id)) {
+    if (op.entity === "match") {
+      return { op_id: op.op_id, status: "noop", row_id: op.row_id, new_version: 1 };
+    }
     const existing = await ctx.store.getRow(op.entity, op.row_id);
     return {
       op_id: op.op_id,
@@ -587,7 +595,7 @@ async function applyBareMatch(op, ctx) {
   const existing = await ctx.store.getRow("match", op.row_id);
   if (existing) {
     await ctx.store.markApplied(op.op_id);
-    return { op_id: op.op_id, status: "noop", row_id: op.row_id, new_version: existing.version };
+    return { op_id: op.op_id, status: "noop", row_id: op.row_id, new_version: 1 };
   }
   const { event_id, match_type, number } = op.payload;
   if (typeof event_id !== "string" || typeof match_type !== "string" || typeof number !== "number") {
@@ -597,8 +605,7 @@ async function applyBareMatch(op, ctx) {
     id: op.row_id,
     event_id,
     match_type,
-    number,
-    version: 1
+    number
   });
   await ctx.store.markApplied(op.op_id);
   return { op_id: op.op_id, status: "applied", row_id: op.row_id, new_version: 1 };
