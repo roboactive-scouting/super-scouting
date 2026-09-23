@@ -63,4 +63,4 @@ still holds unacknowledged entries is a loss.
 
 | Date | Event | Who ran the offline check | Result |
 |---|---|---|---|
-| | | | |
+| 2026-09-23 | Phase 1A rehearsal — no competition | eldad | **Pass**, on a physical iPhone against the `develop` preview. Installed the PWA, loaded once online, airplane mode, cold start, entered match data, force-quit and reopened still offline with everything intact, then reconnected and watched it sync. Separately and by accident, the same device held unsynced entries for several hours while `POST /sync/push` was returning 500, and pushed every one of them once the server was fixed — nothing was lost. That is a stronger durability result than the scripted test. |

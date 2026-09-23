@@ -12,6 +12,44 @@ const iso = (dayOffset: number, minute: number): string =>
  * idempotent, and never run against production. It writes rows directly and is not
  * a use-case caller, which is what lets it run before auth and roles exist (§16.5).
  */
+/**
+ * Names that do not repeat the team number. The robot picker renders "number name",
+ * so "Seed Team 8000" made every option read "8000 Seed Team 8000" — the repetition
+ * was the fixture's, not the UI's.
+ */
+const TEAM_NAMES = [
+  'Iron Falcons',
+  'Circuit Breakers',
+  'Gear Grinders',
+  'Quantum Quokkas',
+  'Torque Titans',
+  'Voltage Vipers',
+  'Rusty Rockets',
+  'Binary Bears',
+  'Photon Foxes',
+  'Cobalt Crusaders',
+  'Delta Dragons',
+  'Echo Engineers',
+  'Fusion Ferrets',
+  'Gravity Gators',
+  'Helix Hawks',
+  'Inertia Ibex',
+  'Joule Jaguars',
+  'Kinetic Kestrels',
+  'Lumen Lynx',
+  'Magnet Moose',
+  'Nimbus Narwhals',
+  'Omega Otters',
+  'Pixel Panthers',
+  'Quasar Quail',
+  'Radian Ravens',
+  'Solder Storks',
+  'Tesla Tigers',
+  'Umbra Urchins',
+  'Vector Vultures',
+  'Watt Wolves',
+];
+
 export async function seedDevDatabase(
   db: SupabaseClient<Database>,
   options: SeedOptions = {},
@@ -66,7 +104,7 @@ export async function seedDevDatabase(
   const teams = Array.from({ length: 30 }, (_, i) => ({
     id: SEED.team(i),
     number: 8000 + i,
-    name: `Seed Team ${8000 + i}`,
+    name: TEAM_NAMES[i] ?? `Team ${8000 + i}`,
   }));
   await db.from('teams').upsert(teams);
   await db.from('event_teams').upsert(
