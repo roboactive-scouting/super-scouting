@@ -4,6 +4,7 @@ import { formatCount } from '@frc/shared';
 import { cachedRows } from '@/data/cache';
 import { EntryPage } from './EntryPage';
 import { canSelfEdit, findLocalEntry, type LocalEntry } from './localEntries';
+import type { SavedNotice } from './SelectRobotPage';
 
 type MatchRow = { id: string; match_type: string; number: number };
 type TeamRow = { id: string; number: number; name: string };
@@ -107,6 +108,16 @@ export function EntryRoute({ eventId, authorUserId }: { eventId: string; authorU
       teamLabel={resolved.teamLabel}
       matchLabel={resolved.matchLabel}
       existing={resolved.existing}
+      onSubmitted={() => {
+        // SPEC-FINAL 8.1: submit returns to a fresh manual selection. Replace, so Back
+        // does not reopen a form that has already been saved.
+        const saved: SavedNotice = {
+          matchLabel: resolved.matchLabel,
+          teamLabel: resolved.teamLabel,
+          edited: resolved.existing !== undefined,
+        };
+        navigate('/', { replace: true, state: { saved } });
+      }}
     />
   );
 }

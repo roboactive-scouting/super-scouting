@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormFieldDefinition, RobotStatus } from '@frc/shared';
 import { cachedFormFields } from '@/data/cache';
 import { FieldInput } from './FieldInput';
@@ -38,6 +38,13 @@ export function EntryPage(props: EntryPageProps) {
   const [data, setData] = useState<Record<string, unknown>>({});
   const [reviewing, setReviewing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const errorRef = useRef<HTMLParagraphElement>(null);
+
+  // A failed submit keeps the entry and the sheet; the reason is moved into view and
+  // focused, beside the button the scout just pressed.
+  useEffect(() => {
+    if (error) errorRef.current?.focus();
+  }, [error]);
 
   useEffect(() => {
     void cachedFormFields(props.formVersionId).then(setFields);
@@ -207,26 +214,35 @@ export function EntryPage(props: EntryPageProps) {
                 </div>
               ))}
           </dl>
-          {error && (
-            <p role="alert" className="mt-3 text-[var(--danger)]">
-              {error}
-            </p>
-          )}
-          <div className="tap-row mt-4 flex gap-2">
-            <button
-              type="button"
-              className="tap-target flex-1 rounded-lg border border-[var(--border)]"
-              onClick={() => setReviewing(false)}
-            >
-              Keep editing
-            </button>
-            <button
-              type="button"
-              className="tap-target flex-1 rounded-lg bg-[var(--brand-plate)] font-semibold text-[var(--brand)]"
-              onClick={() => void commit()}
-            >
-              Submit entry
-            </button>
+          <div className="sticky bottom-0 -mx-4 mt-4 border-t border-[var(--border)] bg-[var(--bg)] p-4">
+            {error && (
+              <p
+                ref={errorRef}
+                role="alert"
+                tabIndex={-1}
+                dir="auto"
+                className="mb-3 rounded-lg border-2 border-[var(--danger)] p-3"
+              >
+                <span className="font-semibold">Not saved. </span>
+                {error}
+              </p>
+            )}
+            <div className="tap-row flex">
+              <button
+                type="button"
+                className="tap-target flex-1 rounded-lg border border-[var(--border)]"
+                onClick={() => setReviewing(false)}
+              >
+                Keep editing
+              </button>
+              <button
+                type="button"
+                className="tap-target flex-1 rounded-lg bg-[var(--brand-plate)] font-semibold text-[var(--brand)]"
+                onClick={() => void commit()}
+              >
+                Submit entry
+              </button>
+            </div>
           </div>
         </div>
       )}

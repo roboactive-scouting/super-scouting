@@ -138,6 +138,26 @@ describe('EntryPage', () => {
     expect(await pending(10)).toHaveLength(0);
   });
 
+  it('keeps the sheet and the values on a failed submit, with the reason focused beside Submit', async () => {
+    const user = userEvent.setup();
+    render(<EntryPage {...props} />);
+    await user.click(await screen.findByRole('radio', { name: /played/i }));
+    const plus = await screen.findByRole('button', { name: 'Auto notes plus one' });
+    for (let i = 0; i < 11; i += 1) await user.click(plus);
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    const submit = await screen.findByRole('button', { name: /submit entry/i });
+    await user.click(submit);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/^Not saved\./);
+    await waitFor(() => expect(alert).toHaveFocus());
+    // Same sticky footer as the button, so it is on screen however long the sheet is.
+    expect(alert.parentElement).toBe(submit.closest('.sticky'));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /keep editing/i }));
+    expect(screen.getByLabelText('Auto notes value')).toHaveTextContent('11');
+  });
+
   describe("editing this device's existing entry (SPEC-FINAL 7.6)", () => {
     const existing = (createdMsAgo: number) => ({
       id: 'e-1',

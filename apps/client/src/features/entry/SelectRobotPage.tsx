@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { formatCount } from '@frc/shared';
 import { cachedRows } from '@/data/cache';
 import { db } from '@/data/db';
@@ -11,6 +11,9 @@ type TeamRow = { id: string; number: number; name: string };
 type SlotRow = { match_id: string; alliance: 'red' | 'blue'; team_id: string };
 type RosterRow = { event_id: string; team_id: string; deleted_at: string | null };
 
+/** What EntryRoute hands back through router state after a submit (SPEC-FINAL 8.1). */
+export type SavedNotice = { matchLabel: string; teamLabel: string; edited: boolean };
+
 export function SelectRobotPage({
   eventId,
   authorUserId,
@@ -19,6 +22,7 @@ export function SelectRobotPage({
   authorUserId: string;
 }) {
   const navigate = useNavigate();
+  const saved = (useLocation().state as { saved?: SavedNotice } | null)?.saved;
   const [matches, setMatches] = useState<MatchRow[]>([]);
   const [slots, setSlots] = useState<SlotRow[]>([]);
   const [roster, setRoster] = useState<TeamRow[]>([]);
@@ -30,14 +34,20 @@ export function SelectRobotPage({
 
   useEffect(() => {
     void (async () => {
-      setMatches((await cachedRows<MatchRow>('matches')).filter((m) => m.event_id === eventId));
-      setSlots(await cachedRows<SlotRow>('match_teams'));
-      const teamById = new Map((await cachedRows<TeamRow>('teams')).map((t) => [t.id, t]));
-      const live = (await cachedRows<RosterRow>('event_teams')).filter(
-        (r) => r.event_id === eventId && r.deleted_at == null,
-      );
+      // One read, one state update, so the page is never half-loaded.
+      const [allMatches, allSlots, teams, eventTeams, allEntries] = await Promise.all([
+        cachedRows<MatchRow>('matches'),
+        cachedRows<SlotRow>('match_teams'),
+        cachedRows<TeamRow>('teams'),
+        cachedRows<RosterRow>('event_teams'),
+        localEntries(eventId),
+      ]);
+      const teamById = new Map(teams.map((t) => [t.id, t]));
+      const live = eventTeams.filter((r) => r.event_id === eventId && r.deleted_at == null);
+      setMatches(allMatches.filter((m) => m.event_id === eventId));
+      setSlots(allSlots);
       setRoster(live.map((r) => teamById.get(r.team_id)).filter((t): t is TeamRow => Boolean(t)));
-      setEntries((await localEntries(eventId)).filter((e) => e.form_kind === 'match'));
+      setEntries(allEntries.filter((e) => e.form_kind === 'match'));
     })();
   }, [eventId]);
 
@@ -120,6 +130,25 @@ export function SelectRobotPage({
 
   return (
     <main className="mx-auto max-w-xl p-4">
+      {saved && (
+        // Static on purpose: no entrance animation on the data-entry path (SPEC-FINAL 17).
+        // Submitting only queues the entry; the connection indicator owns sync state.
+        <section
+          role="status"
+          aria-label="Entry saved"
+          className="mb-3 rounded-lg border-2 border-[var(--status-played)] bg-[var(--surface)] p-3"
+        >
+          <p className="font-semibold">
+            {saved.edited ? 'Changes saved on this device' : 'Entry saved on this device'}
+          </p>
+          <p className="mt-1">
+            {saved.matchLabel} · <span dir="auto">{saved.teamLabel}</span>
+          </p>
+          <p className="mt-1 text-sm text-[var(--text-muted)]">
+            It is queued to send and stays safe here with no network.
+          </p>
+        </section>
+      )}
       <label className="block py-2">
         <span className="text-sm font-medium">Match type</span>
         <select

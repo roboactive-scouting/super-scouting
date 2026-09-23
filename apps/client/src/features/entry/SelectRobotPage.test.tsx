@@ -6,7 +6,8 @@ import { pending } from '@/data/outbox';
 import { SelectRobotPage } from './SelectRobotPage';
 
 const navigate = vi.fn();
-vi.mock('react-router-dom', () => ({ useNavigate: () => navigate }));
+const location = { state: null as unknown };
+vi.mock('react-router-dom', () => ({ useNavigate: () => navigate, useLocation: () => location }));
 
 const props = { eventId: 'ev-1', authorUserId: 'u-1' };
 
@@ -21,6 +22,7 @@ async function startWith(user: ReturnType<typeof userEvent.setup>, team: RegExp)
 
 beforeEach(async () => {
   navigate.mockClear();
+  location.state = null;
   await db.delete();
   await db.open();
   await db.rows.bulkPut([
@@ -137,6 +139,22 @@ describe('SelectRobotPage (SPEC-FINAL 8.1, 6.4)', () => {
 
     await waitFor(() => expect(navigate).toHaveBeenCalled());
     expect(await pending(10)).toHaveLength(1);
+  });
+
+  it('confirms what was saved after a submit, and says it is on this device, not synced', async () => {
+    location.state = { saved: { matchLabel: 'Q21', teamLabel: '118 Robonauts', edited: false } };
+    render(<SelectRobotPage {...props} />);
+    const notice = await screen.findByRole('status', { name: /entry saved/i });
+    expect(notice).toHaveTextContent('Entry saved on this device');
+    expect(notice).toHaveTextContent('Q21 · 118 Robonauts');
+    expect(notice).toHaveTextContent(/safe here with no network/);
+    expect(notice).not.toHaveTextContent(/synced/i);
+  });
+
+  it('shows no confirmation on an ordinary visit', async () => {
+    render(<SelectRobotPage {...props} />);
+    await screen.findByLabelText(/match number/i);
+    expect(screen.queryByRole('status', { name: /entry saved/i })).not.toBeInTheDocument();
   });
 
   describe('a robot this device already scouted in the match (SPEC-FINAL 8.1, 7.6)', () => {
