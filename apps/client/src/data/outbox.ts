@@ -51,6 +51,16 @@ export async function pending(limit: number): Promise<Operation[]> {
   return db.outbox.orderBy('seq').limit(limit).toArray();
 }
 
+/**
+ * What the connection indicator counts (SPEC-FINAL 9.10): the records a person made,
+ * not the operations behind them. A bare match (6.4) only exists to carry an entry and
+ * pushes with it, so it is never counted on its own. The wipe guard (9.9) still uses
+ * unackedCount, which counts everything.
+ */
+export async function unsyncedCount(): Promise<number> {
+  return db.outbox.filter((op) => op.entity !== 'match').count();
+}
+
 export async function unackedCount(): Promise<number> {
   return db.syncState.where('sync_state').equals('pending').count();
 }

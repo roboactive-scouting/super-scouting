@@ -39,6 +39,23 @@ describe('ConnectionIndicator (SPEC-FINAL 9.10)', () => {
     );
   });
 
+  it('counts an entry for a brand-new match once, not once for the match and once for the entry', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    await enqueue({ ...op('m-new'), op_id: 'op-m-new', entity: 'match' });
+    await enqueue(op('e-1'));
+    render(<ConnectionIndicator />);
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent('offline · 1 unsynced'),
+    );
+  });
+
+  it('never counts a bare match on its own', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    await enqueue({ ...op('m-new'), op_id: 'op-m-new', entity: 'match' });
+    render(<ConnectionIndicator />);
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/^offline$/));
+  });
+
   it('says nothing about a count when there is nothing unsynced', async () => {
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
     render(<ConnectionIndicator />);

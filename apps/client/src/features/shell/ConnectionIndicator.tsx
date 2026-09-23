@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { connectionState, type ConnectionState } from '@/data/connection';
-import { unackedCount } from '@/data/outbox';
+import { unsyncedCount } from '@/data/outbox';
 
 const TOKEN: Record<ConnectionState, string> = {
   online: 'var(--sync-online)',
@@ -10,7 +10,8 @@ const TOKEN: Record<ConnectionState, string> = {
 
 /**
  * SPEC-FINAL 9.10: a primary UI element, not a footnote. It names the state in words
- * plus the unsynced count — "offline · 4 unsynced".
+ * plus the unsynced count — "offline · 4 unsynced". The count is of records, not of
+ * queued operations: an entry for a brand-new match is one, not two.
  */
 export function ConnectionIndicator() {
   const [state, setState] = useState<ConnectionState>(connectionState());
@@ -19,7 +20,7 @@ export function ConnectionIndicator() {
   useEffect(() => {
     const tick = () => {
       setState(connectionState());
-      void unackedCount().then(setUnsynced);
+      void unsyncedCount().then(setUnsynced);
     };
     tick();
     const timer = setInterval(tick, 2000);

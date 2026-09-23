@@ -1,8 +1,10 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.1 · **Date:** 2026-09-03 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.2 · **Date:** 2026-09-23 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
 
 *v1.1 amends §17.9 only, adding the standing override for the `frontend-design` skill — craft yes, identity no. No requirement changed; see the living spec's §21 for the rationale.*
+
+*v1.2 amends §9.10 only: the unsynced count counts records, not queued operations, and the pending list on the sync page is specified and reachable from the indicator. See the living spec's §21.*
 
 **What this document is.** The complete, self-contained build input for `IMPLEMENTATION-PLAN.md`. Every confirmed requirement, restated in full. Nothing here needs the living spec to be understood.
 
@@ -1163,7 +1165,10 @@ A "clear this device's offline data" action, gated behind a **constant code held
 ### 9.10 Sync status surface
 
 - An **always-visible connection indicator** with three states — **online / syncing / offline** — naming the state in words plus the unsynced count ("offline · 4 unsynced"). This is a primary UI element, not a footnote.
+- **The unsynced count counts records a person made, not queued operations.** An entry for a match number that was new on the device is **one** unsynced, not two: the bare match auto-created for it (§6.4) is never counted on its own, because it exists only to carry the entry and is pushed with it. Every other unacked record counts. The wipe guard (§9.9) is unaffected and still counts every unacked operation.
+- **Tapping the indicator opens the sync page**, from every screen. The count is only useful if the list behind it is one tap away.
 - A **sync page** listing what synced, what is pending, when the last successful sync was, and a manual **"sync now"** button.
+- **The pending list names each unsynced record the way a person recognises it**, with the same number of items as the indicator's count. For a scouting entry: match and team (e.g. "Q21 · 118 Robonauts"), alliance, robot status, when it was saved, and whether it was made on this device or received by QR. A record the server **rejected** (§9.3.1) stays in the list, marked as rejected, with the reason in words. A bare match is not a line of its own; an entry whose match was created on this device says so ("new match — sends with this entry").
 - **Conflicts are an explicit worklist you can finish**, not a passive warning.
 
 ---
