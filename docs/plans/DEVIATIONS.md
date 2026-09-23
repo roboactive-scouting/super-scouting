@@ -2019,3 +2019,37 @@ The brief says no test exercised the bare-match path. That is not quite right: `
 **What I did instead:** `EntryRoute` now navigates to `/` with `replace: true`, so Back can't reopen a form that has already been saved, and passes `{ saved: { matchLabel, teamLabel, edited } }` in router state. `SelectRobotPage` mounts fresh, which is §8.1's fresh selection, and renders a static `role="status"` panel: "Entry saved on this device" ("Changes saved…" after an edit), the match · team, and "It is queued to send and stays safe here with no network." It never mentions sync; the connection indicator owns that. There is no entrance animation (§17). On failure, the sheet's buttons now sit in a `sticky bottom-0` footer, and the alert renders inside it directly above **Submit entry**. It starts with "Not saved.", uses `--text` inside a 2 px `--danger` border (not danger-coloured text) so it clears AA in both themes, has `dir="auto"`, and takes focus. The sheet stays open and the values stay. I also dropped a doubled 16 px button gap (`tap-row` plus `gap-2`) back to §17.7's 8 px. `SelectRobotPage`'s cache read became one `Promise.all` with one state update. Before, it made five sequential reads and a new route-level test's teardown raced them (`DatabaseClosedError: Database has been closed`, unhandled). I added four tests: the notice with its no-"synced" wording, no notice on an ordinary visit, the failed-submit alert focused inside the same sticky footer as Submit with values kept, and an `EntryRoute` → `/` round trip showing the notice over an empty match number with the op queued. 175/175.
 
 **Risk:** Low. The notice lives in history state, so a reload of `/` right after a submit shows it once more; it disappears on the next navigation. `frontend-design` vs §17: the skill pushes a distinctive palette, typography and orchestrated motion. §17.4 (tokens only), §17.9 (craft, not identity) and §17's no-decorative-animation rule on the data-entry path override it. I took only its copy guidance: name the result ("Not saved.", "Entry saved on this device") and don't apologise. I did not check this on a physical phone.
+
+## Task 1.10 — add `record_alliance_bracket` to the capability matrix
+
+**Plan said:** `CAPABILITIES` should encode exactly the capability names listed in the task-1.10 code block (`view_all_data` … `delete_objects`), with no capability for the alliance bracket.
+
+**What was wrong:** SPEC-FINAL §7.2's admin row reads "Build / reorder pick lists; edit or remove do-not-pick entries; record the alliance bracket" — three admin-only actions in one row, but the plan's `CAPABILITIES` object only has a key for the pick-list/do-not-pick pair (`manage_pick_lists`, `edit_do_not_pick`). Recording the alliance bracket had no capability key at all, so a later use case would have nothing to `assertCan` against.
+
+**What I did instead:** per orchestrator instruction, added `record_alliance_bracket: ADMIN` to `CAPABILITIES`, immediately after `edit_do_not_pick`, and added it to the admin-only loop in `permissions.test.ts` (merged into the existing "reserves … to the admin" test rather than a new one, to keep the test count aligned with the matrix). Every other capability name is unchanged from the plan's code block.
+
+**Risk:** Low. Purely additive — no existing capability name, behavior, or export changed. A later task that builds a "record alliance bracket" use case or admin-only UI control should gate on `can(caller, 'record_alliance_bracket')`.
+
+---
+
+## Task 1.10 — doc comment on `CAPABILITIES` warning query use cases off `can()`
+
+**Plan said:** no comment beyond the one-line "SPEC-FINAL 7.2, as data. Checked in the use-case layer and read by the UI."
+
+**What was wrong:** nothing failed, but the plan is silent on a foot-gun: SPEC-FINAL §7.2/§16.5 say a `service` caller is not a user and holds none of these roles, yet is still allowed to call **query** use cases. Because `can()` returns `false` for a service caller on every capability including `view_all_data`, a future query use case that gates itself with `assertCan(caller, 'view_all_data')` (the seemingly obvious choice, since that's the capability that reads as "may view data") would silently lock every service caller out of reads §16.5 explicitly grants it.
+
+**What I did instead:** per orchestrator instruction, expanded the doc comment on `CAPABILITIES` in `packages/shared/src/auth/permissions.ts` to state this explicitly: the matrix governs users only, `can(service, x)` is always false by design, and a query use case must not gate itself on `can(caller, 'view_all_data')` for that reason — it should either skip the capability check or test `isUser`/`isService` directly. `can()`'s behavior itself is unchanged; this is a comment-only addition.
+
+**Risk:** None to current behavior. The value is preventive, for whoever writes the first query use case in a later task.
+
+---
+
+## Task 1.10 — boundary tests for `withinSelfEditWindow`
+
+**Plan said:** the two tests in `permissions.test.ts`'s self-edit-window `describe` block that compare timestamps four/six minutes apart, plus the `canEditEntry` ownership and role tests. No test at the exact 300000 ms boundary, no test for negative elapsed time, no test for an unparsable timestamp.
+
+**What was wrong:** nothing failed — the plan's `withinSelfEditWindow` implementation (`elapsed >= 0 && elapsed <= SELF_EDIT_WINDOW_MS`) already happens to return `false` for `NaN` comparisons (since any comparison with `NaN` is `false`) and already treats the boundary as inclusive. But none of that was under test, so a future refactor (e.g. switching to `Date.parse` with different NaN handling, or changing `<=` to `<`) could silently change the 5-minute-exactly and malformed-input behavior without a red test catching it.
+
+**What I did instead:** per orchestrator instruction, added: (1) a test asserting `withinSelfEditWindow` is `true` at exactly 300000 ms elapsed and `false` at 300001 ms; (2) a test asserting `false` for a negative elapsed time (`client_updated_at` before `client_created_at`) and for an unparsable timestamp string on either argument. Also made the implementation's NaN handling explicit (`Number.isNaN` guard) rather than relying on the incidental `NaN` comparison behavior, and documented both cases in the function's doc comment, so the guarantee is intentional rather than accidental.
+
+**Risk:** None — the implementation's observable behavior for all previously-passing cases is unchanged; the `Number.isNaN` guard is equivalent to the prior implicit behavior for the inputs in scope, just explicit.

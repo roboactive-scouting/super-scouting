@@ -1,3 +1,4 @@
+export * from './auth/permissions';
 export * from './caller';
 export * from './errors';
 export * from './format';
