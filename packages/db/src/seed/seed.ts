@@ -2,6 +2,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '../database.types';
 import { SEED, SEED_FIELDS, SEED_SUPER_FIELDS, type SeedField } from './fixtures';
 
+/** The deterministic seed id space (see fixtures.ts). */
+const SEED_ID_PREFIX = '00000000-0000-4000-8000-';
+
 export type SeedOptions = { requireUrlToContain?: string };
 
 const iso = (dayOffset: number, minute: number): string =>
@@ -204,7 +207,12 @@ export async function seedDevDatabase(
     { onConflict: 'form_id,field_key' },
   );
 
-  // 20 qualification matches x 6 robots = 120 entries; a handful of them are dead robots.
+  // 20 qualification matches x 6 robots. Only the first SCOUTED_MATCHES of them carry
+  // entries, so the last few are left genuinely unscouted: the entry screen refuses to
+  // start a second entry for a robot already scouted on this device (spec 6.2), and a
+  // fully seeded event leaves a rehearsal with nowhere to scout. Every match still gets
+  // its match_teams, so alliance narrowing works across all 20.
+  const SCOUTED_MATCHES = 15;
   const matches = Array.from({ length: 20 }, (_, i) => ({
     id: SEED.match(i + 1),
     event_id: SEED.event,
@@ -228,6 +236,8 @@ export async function seedDevDatabase(
         station,
         team_id: teams[teamIndex]!.id,
       });
+
+      if (m >= SCOUTED_MATCHES) continue;
 
       const index = m * 6 + slot;
       const dead = index % 37 === 0;
@@ -268,6 +278,22 @@ export async function seedDevDatabase(
 
   await db.from('match_teams').upsert(matchTeams);
   await db.from('scouting_entries').upsert(entries);
+
+  // The seed upserts, so lowering SCOUTED_MATCHES would otherwise leave the entries a
+  // previous run created for the now-unscouted matches sitting in the database, and the
+  // matches would look scouted forever. Drop any seeded entry this run did not write.
+  // Scoped to the deterministic id space, so entries a real push created are untouched.
+  const keep = new Set(entries.map((e) => e.id));
+  // Filtered in JS, not with .like(): PostgREST will not pattern-match a uuid column.
+  const { data: seeded, error: seededError } = await db.from('scouting_entries').select('id');
+  if (seededError) throw new Error(`seed cleanup: ${seededError.message}`);
+  const stale = (seeded ?? [])
+    .map((r) => String(r.id))
+    .filter((id) => id.startsWith(SEED_ID_PREFIX) && !keep.has(id));
+  if (stale.length > 0) {
+    const { error } = await db.from('scouting_entries').delete().in('id', stale);
+    if (error) throw new Error(`seed cleanup: ${error.message}`);
+  }
 
   await db
     .from('app_settings')
