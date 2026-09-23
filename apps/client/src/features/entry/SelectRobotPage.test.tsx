@@ -10,6 +10,15 @@ vi.mock('react-router-dom', () => ({ useNavigate: () => navigate }));
 
 const props = { eventId: 'ev-1', authorUserId: 'u-1' };
 
+const robotSelect = () => screen.getByRole('combobox', { name: /robot/i });
+/** The option text for a robot, found by team number. */
+const option = (team: RegExp) => screen.findByRole('option', { name: team });
+
+async function startWith(user: ReturnType<typeof userEvent.setup>, team: RegExp) {
+  await user.selectOptions(robotSelect(), await option(team));
+  await user.click(screen.getByRole('button', { name: /start entry/i }));
+}
+
 beforeEach(async () => {
   navigate.mockClear();
   await db.delete();
@@ -27,15 +36,18 @@ beforeEach(async () => {
 });
 
 describe('SelectRobotPage (SPEC-FINAL 8.1, 6.4)', () => {
-  it('lists the roster once an alliance is chosen', async () => {
+  it('offers the robots as a native select, enabled once an alliance is chosen', async () => {
     const user = userEvent.setup();
     render(<SelectRobotPage {...props} />);
     await user.type(screen.getByLabelText(/match number/i), '5');
-    const beforeAlliance = await screen.findByRole('button', { name: /118/ });
-    expect(beforeAlliance).toBeDisabled();
+    expect(robotSelect().tagName).toBe('SELECT');
+    expect(robotSelect()).toBeDisabled();
+    expect(screen.getByRole('button', { name: /start entry/i })).toBeDisabled();
 
     await user.click(screen.getByRole('radio', { name: 'red' }));
-    expect(screen.getByRole('button', { name: /118/ })).toBeEnabled();
+    expect(robotSelect()).toBeEnabled();
+    await user.selectOptions(robotSelect(), await option(/118/));
+    expect(screen.getByRole('button', { name: /start entry/i })).toBeEnabled();
   });
 
   it('navigates and enqueues nothing for a known match number', async () => {
@@ -44,7 +56,7 @@ describe('SelectRobotPage (SPEC-FINAL 8.1, 6.4)', () => {
     await user.type(screen.getByLabelText(/match number/i), '5');
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     await user.click(screen.getByRole('radio', { name: 'red' }));
-    await user.click(await screen.findByRole('button', { name: /118/ }));
+    await startWith(user, /118/);
 
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/entry/m-known/t-1?alliance=red'));
     expect(await pending(10)).toHaveLength(0);
@@ -57,7 +69,7 @@ describe('SelectRobotPage (SPEC-FINAL 8.1, 6.4)', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(/not on this device yet/i);
 
     await user.click(screen.getByRole('radio', { name: 'blue' }));
-    await user.click(await screen.findByRole('button', { name: /118/ }));
+    await startWith(user, /118/);
 
     await waitFor(async () => expect(await pending(10)).toHaveLength(1));
     const [op] = await pending(10);
@@ -79,12 +91,12 @@ describe('SelectRobotPage (SPEC-FINAL 8.1, 6.4)', () => {
     render(<SelectRobotPage {...props} />);
     await user.type(screen.getByLabelText(/match number/i), '9');
     await user.click(screen.getByRole('radio', { name: 'blue' }));
-    await user.click(await screen.findByRole('button', { name: /118/ }));
+    await startWith(user, /118/);
     // Wait for the component's own render to reflect the match as known — not just for
     // the write to land — since a click fires the closure captured by the LAST render.
     await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
 
-    await user.click(await screen.findByRole('button', { name: /254/ }));
+    await startWith(user, /254/);
     await waitFor(() => expect(navigate).toHaveBeenCalledTimes(2));
 
     expect(await pending(10)).toHaveLength(1);
@@ -100,8 +112,8 @@ describe('SelectRobotPage (SPEC-FINAL 8.1, 6.4)', () => {
     await user.type(screen.getByLabelText(/match number/i), '5');
     await user.click(screen.getByRole('radio', { name: 'red' }));
 
-    expect(await screen.findByRole('button', { name: /118/ })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /254/ })).not.toBeInTheDocument();
+    expect(await option(/118/)).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /254/ })).not.toBeInTheDocument();
   });
 
   it('falls back to the whole roster when the match has no match_teams slots for that alliance', async () => {
@@ -110,9 +122,9 @@ describe('SelectRobotPage (SPEC-FINAL 8.1, 6.4)', () => {
     await user.type(screen.getByLabelText(/match number/i), '5');
     await user.click(screen.getByRole('radio', { name: 'blue' }));
 
-    expect(await screen.findByRole('button', { name: /118/ })).toBeInTheDocument();
-    expect(await screen.findByRole('button', { name: /254/ })).toBeInTheDocument();
-    expect(await screen.findByRole('button', { name: /971/ })).toBeInTheDocument();
+    expect(await option(/118/)).toBeInTheDocument();
+    expect(await option(/254/)).toBeInTheDocument();
+    expect(await option(/971/)).toBeInTheDocument();
   });
 
   it('works the whole bare-match-creation flow with navigator.onLine false', async () => {
@@ -121,7 +133,7 @@ describe('SelectRobotPage (SPEC-FINAL 8.1, 6.4)', () => {
     render(<SelectRobotPage {...props} />);
     await user.type(screen.getByLabelText(/match number/i), '9');
     await user.click(screen.getByRole('radio', { name: 'red' }));
-    await user.click(await screen.findByRole('button', { name: /118/ }));
+    await startWith(user, /118/);
 
     await waitFor(() => expect(navigate).toHaveBeenCalled());
     expect(await pending(10)).toHaveLength(1);

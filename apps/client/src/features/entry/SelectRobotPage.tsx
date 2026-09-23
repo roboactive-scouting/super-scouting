@@ -24,6 +24,7 @@ export function SelectRobotPage({
   const [matchType, setMatchType] = useState('qualification');
   const [number, setNumber] = useState('');
   const [alliance, setAlliance] = useState<'red' | 'blue' | null>(null);
+  const [teamId, setTeamId] = useState('');
 
   useEffect(() => {
     void (async () => {
@@ -45,6 +46,17 @@ export function SelectRobotPage({
         .map((s) => s.team_id)
     : [];
   const choices = listed.length > 0 ? roster.filter((t) => listed.includes(t.id)) : roster;
+  const ready = alliance !== null && parsed > 0;
+  // A robot chosen before the alliance or match changed may no longer be on the list.
+  const chosen = ready ? choices.find((t) => t.id === teamId) : undefined;
+
+  function start() {
+    if (!alliance || !chosen) return;
+    const team = chosen;
+    void ensureMatchLocally().then((matchId) =>
+      navigate(`/entry/${matchId}/${team.id}?alliance=${alliance}`),
+    );
+  }
 
   /**
    * SPEC-FINAL 6.4: a system action, not an admin capability. It creates the minimal row
@@ -129,28 +141,34 @@ export function SelectRobotPage({
         </div>
       </fieldset>
 
-      <fieldset className="py-2" disabled={alliance === null || parsed <= 0}>
-        <legend className="text-sm font-medium">Robot</legend>
-        <div className="mt-1 grid gap-2">
+      <label className="block py-2">
+        <span className="text-sm font-medium">Robot</span>
+        {/* Native, so a phone shows its own picker rather than a 30-row scroll. */}
+        <select
+          className="tap-target mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)]"
+          value={chosen?.id ?? ''}
+          disabled={!ready}
+          onChange={(e) => setTeamId(e.target.value)}
+        >
+          <option value="" disabled>
+            {ready ? 'Choose a robot' : 'Choose a match and alliance first'}
+          </option>
           {choices.map((team) => (
-            <button
-              key={team.id}
-              type="button"
-              className="tap-target rounded-lg border border-[var(--border)] px-3 text-left"
-              onClick={() => {
-                if (!alliance) return;
-                void ensureMatchLocally().then((matchId) =>
-                  navigate(`/entry/${matchId}/${team.id}?alliance=${alliance}`),
-                );
-              }}
-            >
-              <span dir="auto">
-                {formatCount(team.number)} {team.name}
-              </span>
-            </button>
+            <option key={team.id} value={team.id} dir="auto">
+              {formatCount(team.number)} {team.name}
+            </option>
           ))}
-        </div>
-      </fieldset>
+        </select>
+      </label>
+
+      <button
+        type="button"
+        disabled={!chosen}
+        className="tap-target mt-2 w-full rounded-lg bg-[var(--brand-plate)] font-semibold text-[var(--brand)] disabled:opacity-50"
+        onClick={start}
+      >
+        Start entry
+      </button>
     </main>
   );
 }
