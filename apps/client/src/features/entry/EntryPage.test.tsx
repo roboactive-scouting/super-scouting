@@ -137,4 +137,49 @@ describe('EntryPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/Auto notes/);
     expect(await pending(10)).toHaveLength(0);
   });
+
+  describe("editing this device's existing entry (SPEC-FINAL 7.6)", () => {
+    const existing = (createdMsAgo: number) => ({
+      id: 'e-1',
+      event_id: 'ev-1',
+      form_kind: 'match' as const,
+      form_version_id: 'fv-1',
+      match_id: 'm-1',
+      team_id: 't-1',
+      alliance: 'red' as const,
+      scouter_id: 'u-1',
+      robot_status: 'played',
+      breakdown_seconds: null,
+      data: { auto_notes: 3 },
+      client_created_at: new Date(Date.now() - createdMsAgo).toISOString(),
+      deleted_at: null,
+    });
+
+    it('opens with the saved values and submits an update to the same row', async () => {
+      const entry = existing(60 * 1000);
+      await db.rows.put({ ...entry, entity: 'scouting_entries', version: 1 });
+      const user = userEvent.setup();
+      render(<EntryPage {...props} existing={entry} />);
+      expect(await screen.findByLabelText('Auto notes value')).toHaveTextContent('3');
+      await user.click(screen.getByRole('button', { name: 'Auto notes plus one' }));
+      await user.click(screen.getByRole('button', { name: /review entry/i }));
+      await user.click(await screen.findByRole('button', { name: /submit entry/i }));
+
+      await waitFor(async () => expect(await pending(10)).toHaveLength(1));
+      const [op] = await pending(10);
+      expect(op).toMatchObject({ action: 'update', row_id: 'e-1', base_version: 1 });
+      expect(op?.payload.data).toEqual({ auto_notes: 4 });
+    });
+
+    it('refuses to submit once the five-minute window has closed', async () => {
+      const entry = existing(6 * 60 * 1000);
+      const user = userEvent.setup();
+      render(<EntryPage {...props} existing={entry} />);
+      await screen.findByLabelText('Auto notes value');
+      await user.click(screen.getByRole('button', { name: /review entry/i }));
+      await user.click(await screen.findByRole('button', { name: /submit entry/i }));
+      expect(await screen.findByRole('alert')).toHaveTextContent(/locked — ask a lead/);
+      expect(await pending(10)).toHaveLength(0);
+    });
+  });
 });

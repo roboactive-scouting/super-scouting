@@ -138,4 +138,88 @@ describe('SelectRobotPage (SPEC-FINAL 8.1, 6.4)', () => {
     await waitFor(() => expect(navigate).toHaveBeenCalled());
     expect(await pending(10)).toHaveLength(1);
   });
+
+  describe('a robot this device already scouted in the match (SPEC-FINAL 8.1, 7.6)', () => {
+    const entry = (over: Record<string, unknown> = {}) => ({
+      entity: 'scouting_entries' as const,
+      id: 'e-1',
+      event_id: 'ev-1',
+      form_kind: 'match',
+      form_version_id: 'fv-1',
+      match_id: 'm-known',
+      team_id: 't-1',
+      alliance: 'blue',
+      scouter_id: 'u-1',
+      robot_status: 'played',
+      breakdown_seconds: null,
+      data: {},
+      client_created_at: new Date().toISOString(),
+      deleted_at: null,
+      ...over,
+    });
+
+    async function chooseMatch5(user: ReturnType<typeof userEvent.setup>) {
+      await user.type(screen.getByLabelText(/match number/i), '5');
+      await user.click(screen.getByRole('radio', { name: 'red' }));
+    }
+
+    it('opens the existing entry inside the edit window instead of starting a second', async () => {
+      await db.rows.put(entry());
+      const user = userEvent.setup();
+      render(<SelectRobotPage {...props} />);
+      await chooseMatch5(user);
+      const scouted = await option(/118.*already scouted, editable until/);
+      expect(scouted).toBeEnabled();
+
+      await user.selectOptions(robotSelect(), scouted);
+      expect(screen.queryByRole('button', { name: /start entry/i })).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: /edit the existing entry/i }));
+      // The entry's own alliance, not the one on the picker.
+      await waitFor(() =>
+        expect(navigate).toHaveBeenCalledWith('/entry/m-known/t-1?alliance=blue'),
+      );
+      expect(await pending(10)).toHaveLength(0);
+    });
+
+    it('shows it as scouted and locked, and not choosable, once the window has passed', async () => {
+      await db.rows.put(
+        entry({ client_created_at: new Date(Date.now() - 6 * 60 * 1000).toISOString() }),
+      );
+      const user = userEvent.setup();
+      render(<SelectRobotPage {...props} />);
+      await chooseMatch5(user);
+      const locked = await option(/118.*already scouted, locked/);
+      expect(locked).toBeDisabled();
+      expect(screen.getByRole('button', { name: /start entry/i })).toBeDisabled();
+    });
+
+    it("treats another scout's cached entry as locked (no roles on the device in 1A)", async () => {
+      await db.rows.put(entry({ scouter_id: 'u-other' }));
+      const user = userEvent.setup();
+      render(<SelectRobotPage {...props} />);
+      await chooseMatch5(user);
+      expect(await option(/118.*locked/)).toBeDisabled();
+    });
+
+    it('only marks the match that entry belongs to', async () => {
+      await db.rows.bulkPut([
+        { entity: 'matches', id: 'm-6', event_id: 'ev-1', match_type: 'qualification', number: 6 },
+        entry({ match_id: 'm-6' }),
+      ]);
+      const user = userEvent.setup();
+      render(<SelectRobotPage {...props} />);
+      await chooseMatch5(user);
+      const plain = await option(/118/);
+      expect(plain).toBeEnabled();
+      expect(plain).not.toHaveTextContent(/already scouted/);
+    });
+
+    it('ignores a soft-deleted entry', async () => {
+      await db.rows.put(entry({ deleted_at: new Date().toISOString() }));
+      const user = userEvent.setup();
+      render(<SelectRobotPage {...props} />);
+      await chooseMatch5(user);
+      expect(await option(/118/)).not.toHaveTextContent(/already scouted/);
+    });
+  });
 });

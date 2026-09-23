@@ -3,6 +3,7 @@ import type { FormFieldDefinition, RobotStatus } from '@frc/shared';
 import { cachedFormFields } from '@/data/cache';
 import { FieldInput } from './FieldInput';
 import { RobotStatusPicker } from './RobotStatusPicker';
+import { canSelfEdit, type LocalEntry } from './localEntries';
 import { submitEntry } from './submitEntry';
 import { useDraft } from './useDraft';
 
@@ -16,6 +17,8 @@ export type EntryPageProps = {
   teamLabel: string;
   matchLabel: string;
   onSubmitted?: (rowId: string) => void;
+  /** This device's entry for the same match and robot: the page edits it (SPEC-FINAL 7.6). */
+  existing?: LocalEntry;
 };
 
 const PHASE_ORDER = ['auto', 'teleop', 'endgame', 'post_match'] as const;
@@ -41,11 +44,14 @@ export function EntryPage(props: EntryPageProps) {
   }, [props.formVersionId]);
 
   useEffect(() => {
-    if (!loaded || draft === null) return;
-    setStatus((draft.robot_status as RobotStatus | null) ?? null);
-    setData((draft.data as Record<string, unknown>) ?? {});
-    setBreakdownSeconds(Number(draft.breakdown_seconds ?? 0));
-  }, [loaded, draft]);
+    if (!loaded) return;
+    // An unsent draft wins over the saved entry: it is the newer of the two.
+    const source = draft ?? props.existing ?? null;
+    if (source === null) return;
+    setStatus((source.robot_status as RobotStatus | null) ?? null);
+    setData((source.data as Record<string, unknown>) ?? {});
+    setBreakdownSeconds(Number(source.breakdown_seconds ?? 0));
+  }, [loaded, draft, props.existing]);
 
   const dead = status === 'no_show' || status === 'disabled';
 
@@ -74,6 +80,11 @@ export function EntryPage(props: EntryPageProps) {
 
   async function commit() {
     setError(null);
+    if (props.existing && !canSelfEdit(props.existing, props.authorUserId, new Date())) {
+      // SPEC-FINAL 7.6: the window closed while the scout was on this screen.
+      setError('This entry is locked — ask a lead to change it.');
+      return;
+    }
     try {
       const { row_id } = await submitEntry({
         fields,
@@ -88,6 +99,7 @@ export function EntryPage(props: EntryPageProps) {
         breakdownSeconds,
         data,
         draftKey,
+        ...(props.existing ? { rowId: props.existing.id } : {}),
       });
       setReviewing(false);
       props.onSubmitted?.(row_id);

@@ -6,6 +6,7 @@ import {
 } from '@frc/shared';
 import { db } from '@/data/db';
 import { enqueue, nextSeq } from '@/data/outbox';
+import { findLocalEntry } from './localEntries';
 
 export type SubmitEntryInput = {
   fields: FormFieldDefinition[];
@@ -50,14 +51,13 @@ export async function submitEntry(input: SubmitEntryInput): Promise<{ row_id: st
   }
 
   if (!input.rowId) {
-    const existing = (await db.rows.where('entity').equals('scouting_entries').toArray()).find(
-      (row) =>
-        row.event_id === input.eventId &&
-        row.form_kind === input.formKind &&
-        row.team_id === input.teamId &&
-        (row.match_id ?? null) === input.matchId &&
-        row.deleted_at == null,
-    );
+    // The backstop for the picker's own check (SelectRobotPage): the same predicate.
+    const existing = await findLocalEntry({
+      eventId: input.eventId,
+      formKind: input.formKind,
+      matchId: input.matchId,
+      teamId: input.teamId,
+    });
     if (existing) {
       throw new Error('there is already an entry for this team in this match on this device');
     }

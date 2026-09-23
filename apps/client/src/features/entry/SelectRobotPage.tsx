@@ -4,6 +4,7 @@ import { formatCount } from '@frc/shared';
 import { cachedRows } from '@/data/cache';
 import { db } from '@/data/db';
 import { enqueue, nextSeq } from '@/data/outbox';
+import { canSelfEdit, editableUntil, localEntries, type LocalEntry } from './localEntries';
 
 type MatchRow = { id: string; event_id: string; match_type: string; number: number };
 type TeamRow = { id: string; number: number; name: string };
@@ -25,6 +26,7 @@ export function SelectRobotPage({
   const [number, setNumber] = useState('');
   const [alliance, setAlliance] = useState<'red' | 'blue' | null>(null);
   const [teamId, setTeamId] = useState('');
+  const [entries, setEntries] = useState<LocalEntry[]>([]);
 
   useEffect(() => {
     void (async () => {
@@ -35,6 +37,7 @@ export function SelectRobotPage({
         (r) => r.event_id === eventId && r.deleted_at == null,
       );
       setRoster(live.map((r) => teamById.get(r.team_id)).filter((t): t is TeamRow => Boolean(t)));
+      setEntries((await localEntries(eventId)).filter((e) => e.form_kind === 'match'));
     })();
   }, [eventId]);
 
@@ -47,14 +50,43 @@ export function SelectRobotPage({
     : [];
   const choices = listed.length > 0 ? roster.filter((t) => listed.includes(t.id)) : roster;
   const ready = alliance !== null && parsed > 0;
+
+  // A robot this device already holds an entry for, in this match, is never offered for
+  // a second one (SPEC-FINAL 8.1, following the super-entry rule): it opens the existing
+  // entry while the self-edit window (7.6) is open, and is shown locked after it.
+  // Cross-device duplicates are not visible here and stay with the conflict path (9.5).
+  const now = new Date();
+  const scouted = new Map(
+    existing ? entries.filter((e) => e.match_id === existing.id).map((e) => [e.team_id, e]) : [],
+  );
+  const isLocked = (id: string) => {
+    const entry = scouted.get(id);
+    return entry !== undefined && !canSelfEdit(entry, authorUserId, now);
+  };
+
   // A robot chosen before the alliance or match changed may no longer be on the list.
-  const chosen = ready ? choices.find((t) => t.id === teamId) : undefined;
+  const chosen = ready ? choices.find((t) => t.id === teamId && !isLocked(t.id)) : undefined;
+  const chosenEntry = chosen ? scouted.get(chosen.id) : undefined;
+
+  function optionLabel(team: TeamRow): string {
+    const name = `${formatCount(team.number)} ${team.name}`;
+    const entry = scouted.get(team.id);
+    if (!entry) return name;
+    if (isLocked(team.id)) return `${name} — already scouted, locked`;
+    const until = editableUntil(entry).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    return `${name} — already scouted, editable until ${until}`;
+  }
 
   function start() {
     if (!alliance || !chosen) return;
     const team = chosen;
+    // Editing keeps the alliance the entry was recorded with.
+    const side = chosenEntry?.alliance ?? alliance;
     void ensureMatchLocally().then((matchId) =>
-      navigate(`/entry/${matchId}/${team.id}?alliance=${alliance}`),
+      navigate(`/entry/${matchId}/${team.id}?alliance=${side}`),
     );
   }
 
@@ -154,8 +186,8 @@ export function SelectRobotPage({
             {ready ? 'Choose a robot' : 'Choose a match and alliance first'}
           </option>
           {choices.map((team) => (
-            <option key={team.id} value={team.id} dir="auto">
-              {formatCount(team.number)} {team.name}
+            <option key={team.id} value={team.id} dir="auto" disabled={isLocked(team.id)}>
+              {optionLabel(team)}
             </option>
           ))}
         </select>
@@ -167,8 +199,19 @@ export function SelectRobotPage({
         className="tap-target mt-2 w-full rounded-lg bg-[var(--brand-plate)] font-semibold text-[var(--brand)] disabled:opacity-50"
         onClick={start}
       >
-        Start entry
+        {chosenEntry ? 'Edit the existing entry' : 'Start entry'}
       </button>
+      {chosenEntry && (
+        <p className="mt-2 text-sm text-[var(--text-muted)]">
+          This robot is already scouted in this match on this device. You can change that entry
+          until{' '}
+          {editableUntil(chosenEntry).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+          ; a second one cannot be started.
+        </p>
+      )}
     </main>
   );
 }
