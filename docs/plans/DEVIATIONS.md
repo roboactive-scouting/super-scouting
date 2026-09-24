@@ -2053,3 +2053,77 @@ The brief says no test exercised the bare-match path. That is not quite right: `
 **What I did instead:** per orchestrator instruction, added: (1) a test asserting `withinSelfEditWindow` is `true` at exactly 300000 ms elapsed and `false` at 300001 ms; (2) a test asserting `false` for a negative elapsed time (`client_updated_at` before `client_created_at`) and for an unparsable timestamp string on either argument. Also made the implementation's NaN handling explicit (`Number.isNaN` guard) rather than relying on the incidental `NaN` comparison behavior, and documented both cases in the function's doc comment, so the guarantee is intentional rather than accidental.
 
 **Risk:** None — the implementation's observable behavior for all previously-passing cases is unchanged; the `Number.isNaN` guard is equivalent to the prior implicit behavior for the inputs in scope, just explicit.
+
+---
+
+## Task 1.11 — escape LIKE wildcards in `getUserByUsername`, and keep only the exact match
+
+**Plan said:** `getUserByUsername` runs `.ilike('username', usernameLower).maybeSingle()` and returns the row.
+
+**What was wrong:** In Postgres `ILIKE`, `%` and `_` are wildcards and `\` is the escape, so the raw username is a pattern. A read-only probe against the dev project (`frc-scouting-dev`, printing usernames only) showed: `seed_lea_` matched `["seed_lead"]` and `seed%` matched `["seed_scouter","seed_lead","seed_admin"]`. So a login as `seed_lea_` looks up `seed_lead`, and varying the pattern sidesteps the per-username rate limit. The probe also showed that PostgREST rewrites `*` to `%` before Postgres sees it: `seed*lead` matched `["seed_lead"]`, and `seed\*lead` matched `[]`, because `\*` arrives as `\%` (a literal percent sign). There is no way to express a literal `*` in a PostgREST ilike filter. With escaping, `seed\_lea\_` matched `[]` and `SEED\_LEAD` matched `["seed_lead"]`, as intended.
+
+**What I did instead:** Per orchestrator instruction, I added and exported the pure helper `escapeLikePattern` in `apps/server/src/repos/store.ts`. It escapes `\`, `%` and `_`. Going past the instruction, it maps `*` to `_`, a single-character wildcard and the only way to make a `*` in a stored username match. Because of that `*` case, the query uses `.limit(10)` instead of `.maybeSingle()`, and the method keeps only the row where `row.username.toLowerCase() === usernameLower`. That filter is also the defence-in-depth check the orchestrator asked for. `.maybeSingle()` was dropped so two wildcard hits cannot become a PGRST116 "multiple rows" error. Without a `*`, the escaped pattern matches at most one row, because `lower(username)` is unique. `apps/server/src/repos/store.test.ts` is new. It unit-tests the helper and the method against a minimal stand-in for the supabase-js chain: the escaped pattern is sent, a non-exact row returns null, the exact match is picked from several hits, and a DB error throws. Mutation check: returning `rows[0]` instead of the exact match turned the two exact-match tests red.
+
+**Risk:** Low. A username with more than 10 `*`-wildcard neighbours would fail to log in, which is not a realistic case with ~11 users. JS `toLowerCase()` and Postgres case folding can disagree for some non-ASCII letters (e.g. Turkish dotted I). A username like that could fail the exact-match check, and the user would get "wrong password". Rejected alternative: a Postgres function or generated `username_lower` column queried with `.eq`. That needs a migration, which is outside this task.
+
+---
+
+## Task 1.11 — `getUserByUsername` throws on a database error
+
+**Plan said:** `const { data } = await db.from('users')…maybeSingle(); return data ?? null;`, which ignores `error`.
+
+**What was wrong:** When the query fails, `data` is null. A database outage would then look exactly like an unknown user, and `login` would answer 401 "that username and password do not match" instead of 500. That is the same discarded-error trap as the seed's silent `.like()` failure (BUILD-CONTEXT §10).
+
+**What I did instead:** Per orchestrator instruction, `if (error) throw new Error(error.message);` goes before any use of `data`. A test proves it rejects with the PostgREST message. Mutation check: discarding `error` turned that test red.
+
+**Risk:** None. The error message is PostgREST's text, which contains no credentials.
+
+---
+
+## Task 1.11 — `verifyToken` validates claims with Zod instead of casting
+
+**Plan said:** `return payload as unknown as SessionClaims;`, with `SessionClaims` as a hand-written type.
+
+**What was wrong:** A token signed with the right secret but the wrong shape (no `role`, a `role` of `superuser`, no `iat`) passed verification and reached the caller typed as valid. `role` drives every authorization decision, and `shouldRefresh` does arithmetic on `iat`.
+
+**What I did instead:** Per orchestrator instruction, the payload is parsed with a Zod schema: `sub` and `username` are non-empty strings, `role` ∈ scouter|lead|admin, and `iat` and `exp` are integers. `SessionClaims` is now `z.infer` of that schema, and its shape is unchanged. A mismatch throws `Error('session token claims are malformed')`, and the message carries no claim values. Only the five claims are returned, because Zod strips unknown keys. `algorithms: ['HS256']` stays pinned. I added tests that prove the negatives: another secret, an expired token (built with `SignJWT` and a past `exp`), an unsigned `alg: none` token (built with `jose`'s `UnsecuredJWT`, with a check that its signature segment is empty), a signed token missing `role`, a signed token with an unknown role, a signed token with no `iat`, and extra claims being stripped. Mutation check: returning the raw payload on a parse failure turned the three claim-shape tests red.
+
+**Risk:** None to valid tokens. `issueToken` always sets all five claims.
+
+---
+
+## Task 1.11 — unknown usernames pay for a bcrypt comparison against a fixed dummy hash
+
+**Plan said:** `if (!user) throw wrong;` before `verifyPassword`, so an unknown username returns without running bcrypt.
+
+**What was wrong:** The message is the same for both failures, but the timing is not. A wrong password costs a cost-10 bcrypt round, about 50–100 ms here, and an unknown username costs nothing, so the response time reveals which usernames exist.
+
+**What I did instead:** Per orchestrator instruction, `apps/server/src/auth/password.ts` exports `DUMMY_PASSWORD_HASH`, a hard-coded cost-10 bcrypt hash of 32 random bytes that were discarded after hashing. `login` always calls `verifyPassword(input.password, user?.password_hash ?? DUMMY_PASSWORD_HASH)` and throws the same `unauthenticated` error when either the user or the match is missing. I hard-coded the hash instead of generating it at module load because generating needs bcryptjs's random source. Once bundled into ESM, that source is unavailable (see Risk), and a load-time throw would take the whole function down. New `password.test.ts` asserts the dummy is a well-formed `$2a$10$` hash, that `getRounds` is 10, and that it verifies neither `''` nor `seedpass1`. `login.test.ts` spies on `verifyPassword` with a pass-through `vi.mock` and proves it is called once, with the dummy hash, for an unknown user. Mutation check: replacing the dummy with `''` turned that test red.
+
+**Risk:** None from the dummy hash itself, since no password verifies against it. Separately, and not yet live: `bcryptjs` and `jose` are not in `scripts/build-function.mjs`'s `external` list. Nothing in `src/handler.ts`'s import graph reaches `login` yet, so the bundle contains neither today. Once task 1.12 mounts `login`, esbuild inlines bcryptjs into the ESM bundle. bcryptjs's `require("crypto")` then becomes esbuild's `__require` shim, which throws under ESM, and its WebCrypto fallback reads `self.crypto`, which Node does not define. I checked this with a throwaway esbuild bundle that used the same `platform: 'node'`, `format: 'esm'` settings. With bcryptjs inlined, `verifyPassword` worked, but `hashPassword` rejected with `Invalid string / salt: Not a string`. With `external: ['bcryptjs']`, `hashPassword` returned a 60-character hash. Task 1.12 should add `'bcryptjs'` and `'jose'` to `external`.
+
+---
+
+## Task 1.11 — `shouldRefresh` takes an optional clock
+
+**Plan said:** `shouldRefresh(claims, config)`, reading `Date.now()` directly.
+
+**What was wrong:** Nothing failed. But task 1.12's `callerFor` runs with an injected clock, and without this parameter it would have to recompute token age itself or read wall-clock time.
+
+**What I did instead:** Per orchestrator instruction, the signature is `shouldRefresh(claims, config, now: () => number = Date.now)`, with `now` in milliseconds. The brief's two tests pass unchanged, and a new test drives the 7-day boundary with an injected clock.
+
+**Risk:** None. The parameter is optional.
+
+---
+
+## Task 1.11 — `.js` extensions, `const` in the rate-limit test, formatting, and one lint fix
+
+**Plan said:** The code blocks import `'../config'`, `'./token'` and similar with no extension. The first rate-limit test declares `let time = 0` and never reassigns it. The login test is written as in the brief.
+
+**What was wrong:** `apps/server` is `"type": "module"` (BUILD-CONTEXT §6), so every relative import needs `.js`. `let` that is never reassigned breaks `prefer-const`, which typescript-eslint's recommended config turns on. My pass-through `vi.mock` first typed `importOriginal` with an inline type import and got the lint error: ``11:46  error  `import()` type annotations are forbidden  @typescript-eslint/consistent-type-imports``. `prettier --check` also flagged `apps/server/src/core/commands/login.test.ts` and `apps/server/src/repos/store.ts`.
+
+**What I did instead:** I added `.js` to every relative import, used `const time = 0` in that one test, used `import type * as PasswordModule` for the mock's type, and ran prettier on only the files I touched. The brief's assertions are unchanged. On top of them, `rateLimit.test.ts` gained a `reset()` test, `login.test.ts` gained five tests (dummy-hash comparison, disabled account plus wrong password gives `unauthenticated`, a rate-limit bucket shared across case and whitespace variants, a rate-limited attempt skipping both the lookup and bcrypt, and identical messages for wrong password and unknown user), and `token.test.ts` gained the negatives listed above. The fake's `getUserByUsername` scans `usersByName.values()` for a case-insensitive exact match instead of reading the map by key, so it behaves like the Supabase store whatever key a test uses. `@types/bcryptjs` went into `devDependencies`, and `bcryptjs` and `jose` into `dependencies`. The resolved versions are bcryptjs 2.4.3, jose 5.10.0 and @types/bcryptjs 2.4.6.
+
+**Risk:** None.
+
+**Follow-up (task 1.11):** the plan's "rejects the wrong password with the same message as an unknown user" test created `wrong` and `missing` together and awaited them one at a time, so `missing` could reject while unobserved (`AppError: that username and password do not match`, an unhandled rejection that made `pnpm test` exit 1 on a timing-dependent basis once the dummy-hash compare was added); both calls now go through one `Promise.allSettled`, asserting the same `unauthenticated` code and identical messages.

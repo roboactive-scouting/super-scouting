@@ -1,5 +1,5 @@
 import type { FormFieldDefinition, SyncEntity } from '@frc/shared';
-import type { PullScope, Store, StoredRow, StoredUser } from '../core/context.js';
+import type { PullScope, Store, StoredFullUser, StoredRow, StoredUser } from '../core/context.js';
 import type { Db } from '../db/client.js';
 import { supabasePullEntity } from './pull.js';
 
@@ -25,6 +25,23 @@ export function supabaseStore(db: Db): Store {
         .eq('id', id)
         .maybeSingle();
       return (data as StoredUser | null) ?? null;
+    },
+    async getUserByUsername(usernameLower: string): Promise<StoredFullUser | null> {
+      // lower(username) is unique, so an escaped pattern hits at most one row; a `*`
+      // becomes `_` (see escapeLikePattern) and may hit a few, so fetch a handful and
+      // keep only the exact match. That check is also the defence in depth: a wildcard
+      // that slipped through must never log someone in as a different user.
+      const { data, error } = await db
+        .from('users')
+        .select(
+          'id, username, full_name, password_hash, role, must_change_password, disabled_at, created_at',
+        )
+        .ilike('username', escapeLikePattern(usernameLower))
+        .limit(10);
+      // Surfacing this matters: swallowed, a database outage would read as "wrong password".
+      if (error) throw new Error(error.message);
+      const rows = (data ?? []) as StoredFullUser[];
+      return rows.find((row) => row.username.toLowerCase() === usernameLower) ?? null;
     },
     async wasApplied(opId: string): Promise<boolean> {
       const { data } = await db
@@ -80,7 +97,6 @@ export function supabaseStore(db: Db): Store {
       'listConflicts',
       'getConflict',
       'resolveConflictRow',
-      'getUserByUsername',
       'insertUser',
       'updateUser',
       'listUsers',
@@ -136,6 +152,18 @@ export function supabaseStore(db: Db): Store {
     // string[]), so TS can't see that it supplies the other 59 named Store methods;
     // the assertion tells it what `stubsFor` guarantees at runtime instead.
   } as Store;
+}
+
+/**
+ * Makes a string match only itself in a PostgREST `like`/`ilike` filter. Postgres treats
+ * `%` and `_` as wildcards and `\` as the escape, so each is backslash-escaped. PostgREST
+ * additionally rewrites every `*` to `%` before Postgres sees it, which leaves no way to
+ * express a literal `*` (`\*` arrives as `\%`, a literal percent sign). `*` therefore
+ * becomes `_`, which matches it along with any other single character; callers must
+ * keep only the exact match from the rows that come back.
+ */
+export function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`).replace(/\*/g, '_');
 }
 
 /** Shared by both Store implementations. A missing method fails by name, never as undefined. */

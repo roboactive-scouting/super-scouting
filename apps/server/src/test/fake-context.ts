@@ -114,13 +114,14 @@ export function makeFakeContext(): FakeContext {
   const appliedOrder: string[] = [];
   const pullRows = new Map<string, Record<string, unknown>[]>();
   const knownEvents = new Set(['ev-1']);
+  const usersByName = new Map<string, StoredFullUser>();
 
   const fake = {
     // every map from the FakeContext type, constructed empty
     rows,
     users,
     usersById: new Map(),
-    usersByName: new Map(),
+    usersByName,
     seasons: new Map(),
     events: new Map(),
     teams: new Map(),
@@ -172,6 +173,13 @@ export function makeFakeContext(): FakeContext {
   const store = {
     async getUser(id) {
       return users.get(id) ?? null;
+    },
+    // Matches the Supabase store: case-insensitive and exact, whatever key a test used.
+    async getUserByUsername(usernameLower) {
+      for (const user of usersByName.values()) {
+        if (user.username.toLowerCase() === usernameLower) return user;
+      }
+      return null;
     },
     async wasApplied(opId) {
       return ops.has(opId);
@@ -226,7 +234,6 @@ export function makeFakeContext(): FakeContext {
       'listConflicts',
       'getConflict',
       'resolveConflictRow',
-      'getUserByUsername',
       'insertUser',
       'updateUser',
       'listUsers',

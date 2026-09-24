@@ -204,6 +204,14 @@ function supabaseStore(db) {
       const { data } = await db.from("users").select("id, role, disabled_at").eq("id", id).maybeSingle();
       return data ?? null;
     },
+    async getUserByUsername(usernameLower) {
+      const { data, error } = await db.from("users").select(
+        "id, username, full_name, password_hash, role, must_change_password, disabled_at, created_at"
+      ).ilike("username", escapeLikePattern(usernameLower)).limit(10);
+      if (error) throw new Error(error.message);
+      const rows = data ?? [];
+      return rows.find((row) => row.username.toLowerCase() === usernameLower) ?? null;
+    },
     async wasApplied(opId) {
       const { data } = await db.from("applied_operations").select("op_id").eq("op_id", opId).maybeSingle();
       return data !== null;
@@ -244,7 +252,6 @@ function supabaseStore(db) {
       "listConflicts",
       "getConflict",
       "resolveConflictRow",
-      "getUserByUsername",
       "insertUser",
       "updateUser",
       "listUsers",
@@ -300,6 +307,9 @@ function supabaseStore(db) {
     // string[]), so TS can't see that it supplies the other 59 named Store methods;
     // the assertion tells it what `stubsFor` guarantees at runtime instead.
   };
+}
+function escapeLikePattern(value) {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`).replace(/\*/g, "_");
 }
 function stubsFor(names) {
   return Object.fromEntries(
