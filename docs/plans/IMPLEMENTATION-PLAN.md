@@ -96,7 +96,7 @@ Every task's requirements implicitly include this section. Values are copied ver
 | **PROVISIONING GATE** | — | You create the accounts and set the secrets. Everything below is blocked until it passes. |
 | **Phase 0 — post-gate** | 0.8 – 0.17 | Schema migrations, generated types, seed script, CI, keep-alive, both deployments. |
 | **Phase 1 A — walking skeleton** | 1.1 – 1.9 | §20.3's vertical slice: hardcoded form → offline entry → sync → visible on a laptop. |
-| **Phase 1 B — auth and roles** | 1.10 – 1.17 | Login, JWT, the caller contract at the edge, the typed client, permissions, offline login, user administration. |
+| **Phase 1 B — auth and roles** | 1.10 – 1.17, 1.17a, 1.17b | Login, JWT, the caller contract at the edge, the typed client, permissions, offline login, user administration. **1.17a and 1.17b were added 2026-09-24**, after the first production sign-in: the user-administration gaps (spec §5.4 item 3), and the shell's hydration gate (spec §4.3). **Run 1.17b before 1.18.** |
 | **Phase 1 C — seasons, events, teams, matches** | 1.18 – 1.23 | The admin management page, the active context and the game-image pipeline. **Run 1.23 first** — see below. |
 | **Phase 1 D — form builder** | 1.24 – 1.32 | Field catalogue, semantic metadata, scoring editor, versioning, JSON export/import. |
 | **Phase 1 E — data-entry runtime** | 1.33 – 1.38 | All field types, the sticky timer, robot status, super scouting, undo, drafts, practice mode. |
@@ -10754,6 +10754,73 @@ Expected: every suite green, including the new file(s) from this task.
 
 ```bash
 git add -A && git commit -m "feat(client): add user administration, the desktop gate and the shared state components"
+```
+
+---
+
+## Task 1.17a: User administration — re-enable, rename, and must-change at create
+
+*Added 2026-09-24 (spec §5.4 item 3).* Phase 1B shipped create, disable, role and reset, which is what §5.2's matrix requires. It left three gaps that an admin will hit before the first real event: a disabled user cannot be re-enabled, nobody can be renamed, and `createUser` cannot force a password change at first sign-in.
+
+**Files:**
+- Modify: `packages/shared/src/api/users.ts`, `packages/shared/src/api/index.ts` (two new schemas, two new registry rows, and `must_change` on `createUserInput`)
+- Modify: `apps/server/src/core/commands/users.ts`, `apps/server/src/core/commands/users.test.ts`, `apps/server/src/routes/registry.ts`, `apps/server/src/test/fake-context.ts`
+- Modify: `apps/client/src/features/admin/UsersPage.tsx`, `apps/client/src/features/admin/UserDetailPage.tsx`, `apps/client/src/features/admin/UsersPage.test.tsx`
+- Rebuild: `apps/server/api/index.js` (BUILD-CONTEXT §6)
+
+**Interfaces:**
+- Produces: `enableUser({ user_id }) → PublicUser`; `renameUser({ user_id, username?, full_name? }) → PublicUser`; `createUser` accepts `must_change: boolean` (default `false`).
+
+**Rules:**
+- All three are admin-only (`manage_users`), take `caller` first, and go through `writeUser` so a taken username is the same `conflict` error `createUser` gives.
+- `enableUser` clears `disabled_at` and nothing else. Enabling an enabled user is a no-op that returns the user. **It does not reset the password.** An admin who disabled an account over a lost device resets it as a separate, deliberate step.
+- `renameUser` needs at least one of `username` or `full_name`. A username goes through the shared `usernameSchema`, so it is trimmed, lowercased and pattern-checked, and the case-insensitive unique index still applies. **The user id never changes**, so every entry's authorship survives a rename. A device holding the old name in its offline login cache keeps using it until its next pull. Say so on the rename form.
+- `createUser` with `must_change: true` stores `must_change_password: true`. The create form gets the same "must change at next sign-in" checkbox the reset form already has.
+- The disabled-account detail page loses its "Re-enabling an account is not available yet" line and gains an **Enable** button.
+
+- [ ] **Step 1: Write the failing tests.** In `users.test.ts`: a non-admin is refused each new use case. Enable clears `disabled_at` and leaves the hash alone. Enable of an enabled user is a no-op. Rename of the username to a taken name, in any case, is `conflict`. Rename keeps the id. Rename with neither field is `invalid`. `createUser` with `must_change: true` stores it, and without it stores `false`. In `UsersPage.test.tsx`: the Enable button posts `enableUser`, the create checkbox posts `must_change: true`, and the rename form posts `renameUser`.
+- [ ] **Step 2: Run and watch fail.** `pnpm --filter @frc/server exec vitest run src/core/commands/users.test.ts && pnpm --filter @frc/client exec vitest run src/features/admin`
+- [ ] **Step 3: Implement**, then `pnpm --filter @frc/server build` and commit the regenerated bundle in the same diff.
+- [ ] **Step 4: Run and watch pass.** `pnpm test && pnpm typecheck && pnpm lint && pnpm format:check`
+- [ ] **Step 5: Update spec §5.4 item 3** to say the gaps are closed. Then commit:
+
+```bash
+git add -A && git commit -m "feat: add enableUser, renameUser and must-change at create to user administration"
+```
+
+---
+
+## Task 1.17b: Client — the shell's hydration gate: no active event, and cached-first start
+
+*Added 2026-09-24 (spec §4.3).* Found at the first production sign-in. **Run it before 1.18**: phase 1C's setup screens would otherwise sit behind the same gate they exist to clear.
+
+**Four defects, three in `apps/client/src/features/shell/AppShell.tsx` and `apps/client/src/App.tsx`, one in the login fallback:**
+
+1. **No active event reads as "offline, forever".** Production has no season or event, so `App.tsx` falls back to the seed event id. The first pull fails, and the shell shows "This device has not loaded the competition yet — an internet connection is required once" indefinitely, while online.
+2. **The gate blocks routes that need no event.** `/admin/users` sits inside `AppShell`, so on an empty install the admin cannot manage accounts.
+3. **Every start shows the loading screen, even on a hydrated device.** `AppShell` begins in `'loading'` and waits for a network `syncNow` before rendering anything. `/change-password` and `/login` live outside `AppShell`, so leaving either remounts it, and "Loading the competition onto this device" appears again after every password change. The same happens on every cold start on a slow venue connection.
+4. **An unreachable server reads as "no internet" at sign-in.** `signInWithFallback` (`apps/client/src/auth/offlineLogin.ts`) falls back to the cached hashes on any non-definitive failure. A browser that is online but cannot reach the server, or is refused by CORS, then shows "This device has not loaded the team's accounts yet. Connect to the internet once to sign in." Found 2026-09-24 when a per-deployment preview URL was opened: `ALLOWED_ORIGIN` is a single origin (BUILD-CONTEXT §5), so the server refused it.
+
+**Files:**
+- Modify: `apps/client/src/App.tsx`, `apps/client/src/features/shell/AppShell.tsx`, `apps/client/src/features/shell/AppShell.test.tsx`, `apps/client/src/data/sync.ts` (a result that distinguishes "no active event" from "unreachable")
+- Modify: `apps/client/src/routes.tsx` (mark which routes read event data)
+- Modify: `apps/client/src/auth/offlineLogin.ts`, `apps/client/src/auth/offlineLogin.test.ts`
+
+**Rules:**
+- **Cached-first start.** On mount, if `cachedHydration(eventId)` is `'cached'`, render at once in `'cached'` and sync in the background, moving to `'fresh'` when the sync lands. The loading screen is only for a device that has never hydrated this event. A part-filled form must survive the transition, so keep the existing no-remount rule (no `<Outlet key={state} />`).
+- **No active event is its own state.** When the server reports no active event (`app_settings.active_event_id` is null, or names no event), show "No competition is set up yet" with a muted line saying an admin sets one up. For an admin, once 1.18–1.22 exist, add one action linking to event setup. Never show the "internet required" copy while the device is online.
+- **Routes that read no event data render without hydration:** Users, the user detail page, Switch scouter, and, from phase 1C, season and event setup. Scout and Entries stay gated.
+- **Sign-in says "cannot reach the server" when the device is online.** If the online attempt failed without an answer, there are no cached accounts, and `navigator.onLine` is true, show "Cannot reach the server. Check that this is the right address for the app, then try again." The "connect to the internet" line is only for a device that reports itself offline. With cached accounts, the offline fallback is unchanged.
+- **Drop the seed-event fallback from production builds.** `FALLBACK_EVENT_ID` may stay for dev (`import.meta.env.DEV`). In production, the event id comes from the server's active context, and with none, the state above applies.
+
+- [ ] **Step 1: Write the failing tests** in `AppShell.test.tsx`: a device hydrated for the event renders the Scout screen without waiting for the network, with the sync stubbed to hang. Remounting after `/change-password` does not show the loading screen. An online device with no active event shows "No competition is set up yet", never "internet connection is required". `/admin/users` renders for an admin with no active event. Scout stays gated with no active event. In `offlineLogin.test.ts`: online, with the server unreachable and no cached accounts, the error is the "cannot reach the server" line, never "connect to the internet". Offline with no cached accounts keeps the old line.
+- [ ] **Step 2: Run and watch fail.** `pnpm --filter @frc/client exec vitest run src/features/shell`
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run and watch pass.** `pnpm test && pnpm typecheck && pnpm lint && pnpm format:check`. Then prove it from outside against production: sign in as the production admin and confirm the Users screen is reachable and the no-competition message shows.
+- [ ] **Step 5: Update spec §4.3** to say the task is closed. Then commit:
+
+```bash
+git add -A && git commit -m "fix(client): gate only event screens on hydration, start from cache, and name the no-event state"
 ```
 
 ---
