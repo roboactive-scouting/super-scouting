@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { USERNAME_MAX_LENGTH } from './users';
 
 /**
  * The wire schemas of the two unauthenticated use cases (SPEC-FINAL 16.1, 16.5). They
@@ -6,7 +7,10 @@ import { z } from 'zod';
  * objects the server does. Browser-safe: zod only.
  */
 export const loginInput = z.object({
-  username: z.string().min(1),
+  // Capped at the length createUser allows (Phase 1B review): no longer name can exist,
+  // and the login rate limiter keys on this string, so it must not be unbounded. The cap
+  // is on the raw value, so the client should trim before sending.
+  username: z.string().min(1).max(USERNAME_MAX_LENGTH),
   password: z.string().min(1),
 });
 export type LoginInput = z.infer<typeof loginInput>;

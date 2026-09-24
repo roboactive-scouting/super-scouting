@@ -2587,3 +2587,36 @@ The previous deployment was still live and answering `200 ok` on `/health` when 
 - `pnpm --filter @frc/server build` regenerated `apps/server/api/index.js` and its `.map`.
 
 **Risk:** if Vercel ever stops exposing `VERCEL_GIT_COMMIT_SHA`, `/health` reports `commit: null` forever, `EXPECTED_COMMIT_SHA` never matches, and CI waits the full 8 minutes before failing — loudly, naming `commit: null` in the error, rather than silently racing a stale deployment. A loud failure beats a silent race.
+
+## Phase 1B review — fixes to tasks 1.11–1.14 from the fresh-context review
+
+**Plan said:** tasks 1.11–1.14 as written (login, rate limiting, session token, per-operation push authorization and the edit window). A fresh-context security review of the result found four defects the tasks' own tests did not cover, and a fifth, on the pull side, was found while fixing the first.
+
+**What was wrong:**
+
+1. `supabaseStore.getRow` and `wasApplied` (and `markApplied`, `getFormFields`, `eventExists`) discarded the Supabase `error` and returned "no row" / `false` / `[]`. In `syncPush`, a failed `getRow` sent an edit of another scouter's entry down the create path: only `submit_entry` was checked, then `putRow` upserted over the real row with the pusher as `scouter_id`, `version: 1` and a fresh `client_created_at`. A swallowed `wasApplied`/`markApplied` error could double-apply an operation; a swallowed `getFormFields` error validated an entry against no fields.
+2. `syncPush` returned `unexpected server error: ${e.message}` to the client, which can carry Postgres/PostgREST text.
+3. `makeRateLimiter`'s `Map` was never pruned, and `loginInput.username` had no maximum length, so a flood of distinct long usernames grew server memory without bound.
+4. `verifyToken` called `jwtVerify` without `maxTokenAge`, so jose never rejected a future `iat`, and lowering `AUTH_TOKEN_TTL_DAYS` did not shorten tokens already issued. The comment said claims were checked "exactly"; `z.object` strips unknown claims.
+5. `apps/server/src/repos/pull.ts` `parentIds` discarded the Supabase `error` on every parent lookup, which scoped the child query to no ids. A failed lookup returned an empty page for that child table while the device's pull watermark still advanced, so the device never received those rows until a full re-hydration. That is silent data loss on the read side.
+
+**What I did instead:**
+
+1. Those five store methods now `throw dbError(error)`, as `getUser` already did. `syncPush`'s per-op `try/catch` already turned a throw into a rejected result, so no write follows. Failing-first tests (`apps/server/src/repos/store.test.ts`, via the existing hand-rolled fake-`Db` pattern): `getRow throws on a database error…`, `wasApplied throws…`, `markApplied throws when the ledger insert fails…`, `getFormFields throws…`, `eventExists throws…`. Regression guards in `syncPush.test.ts`: `never writes when the row lookup fails: a DB error is not "no such row"` and `never writes when the applied-ledger lookup fails`. These two failed first only on the new fixed detail, not on the write, because the loop's catch already stopped the write. The store test is the one that proves the defect.
+2. The error is logged with `console.error` (op_id, entity, action and message, never the payload), and the client gets the fixed detail `unexpected server error`. Test: `turns a thrown store error into a per-operation rejection with a fixed detail (SPEC-FINAL 9.3.1)`, which replaces the test that asserted the message was echoed. `/health`'s message is unchanged, on purpose.
+3. `loginInput.username` is `.max(USERNAME_MAX_LENGTH)`, a new export in `packages/shared/src/api/users.ts` equal to the 40 in `USERNAME_PATTERN`. `refreshTokenInput` and `changeOwnPasswordInput` carry no username, so they are unchanged. The limiter sweeps keys whose window has fully expired on every `take`, caps live keys at `maxKeys` (default 10 000) by evicting the oldest-inserted, and exposes `size()` for tests. Tests: `cap the login username at the length createUser allows…` (shared), `deletes a key once its whole window has expired…`, `caps the number of keys, evicting the oldest-inserted when full`, `defaults to a cap of 10 000 keys`.
+4. `jwtVerify` gets `maxTokenAge: config.tokenTtlDays * 86400` (seconds), and the comment now says what the code does. That comment edit changes no behaviour. Tests: `rejects a correctly signed token whose iat is in the future`, `rejects a token older than the TTL even when its exp is still in the future`, `shortens already-issued tokens when AUTH_TOKEN_TTL_DAYS is lowered`, and `still accepts, and asks to refresh, a token past the refresh threshold but inside the TTL` (this one passed before and after, as the sliding-refresh guard).
+5. Every parent lookup in `parentIds` now goes through `rowsOf`, which throws `<key>: <message>` on an error, as the child query already did. The throw reaches the app's `onError` as a JSON 500, so the client keeps its old watermark. Failing-first test (`apps/server/src/repos/pull.test.ts`, a new file using the same fake-`Db` pattern as `store.test.ts`): `%s throws when its %s lookup fails`, one case per parent lookup (12 cases). Route guard in `app.test.ts`: `answers a JSON 500, never a 200 page, when a pull lookup fails, so the watermark does not advance`, which passed before and after, because `onError` already mapped any throw to a 500.
+
+Rejected: returning a 500 for the whole push on a store error. SPEC-FINAL 9.3.1 says one operation's failure never takes the batch down. Also rejected: a `clockTolerance` on `jwtVerify`. The server both issues and verifies `iat`, so client clock skew never matters here.
+
+Out of scope and left alone: the cross-author push authorization and the update-undeletes-an-entry behaviour, both recorded accepted risks in `docs/spec/frc-scouting-app-spec.md` §5.4. `pnpm --filter @frc/server build` regenerated `apps/server/api/index.js` and its `.map`.
+
+**Risk:**
+- A transient database error now comes back as `rejected` / `invalid` / `unexpected server error`, and nothing distinguishes it from a permanent `invalid`. A client that treats every `invalid` as terminal will drop an operation that would succeed on retry. The client (task 1.15 onward, and the sync engine) should keep an op with that exact detail in the outbox.
+- If `markApplied` fails after a successful `putRow`, the row is written but the op is reported rejected and is not in the ledger. A retry then meets the version check, not the idempotency check. That is louder and safer than the old silent success, but it is not atomic, and it stays that way until writes run in a transaction.
+- Eviction at 10 000 keys forgets the evicted key's attempts, so an attacker who can fill the map can reset one account's counter. With ~11 real users, a guesser needs 10 000 other names between each pair of guesses. Accepted.
+- `maxTokenAge` with zero clock tolerance refuses a token whose `iat` is ahead of the verifying instance's clock. Across Vercel instances that skew is well under a second, and `iat` is floored to whole seconds.
+- A pull that hits a database blip now fails the whole page with a 500 instead of returning a partial page. The client must treat a non-200 pull as "keep the old watermark and retry", never as "done".
+
+---

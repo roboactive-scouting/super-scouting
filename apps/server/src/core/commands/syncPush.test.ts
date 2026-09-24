@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Caller, Operation } from '@frc/shared';
 import { syncPush } from './syncPush.js';
 import { makeFakeContext, type FakeContext } from '../../test/fake-context.js';
@@ -297,26 +297,76 @@ describe('syncPush', () => {
     expect(ctx.appliedOrder).toEqual(['m-1', 'e-1']);
   });
 
-  it('turns a thrown store error into a per-operation rejection carrying the message (SPEC-FINAL 9.3.1)', async () => {
+  it('turns a thrown store error into a per-operation rejection with a fixed detail (SPEC-FINAL 9.3.1)', async () => {
     const putRow = ctx.store.putRow.bind(ctx.store);
     ctx.store.putRow = async (entity, id, row) => {
       if (id === 'e-boom') throw new Error('duplicate key value violates unique constraint');
       return putRow(entity, id, row);
     };
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const boom = op({ row_id: 'e-boom', seq: 1 });
+    const res = await syncPush(
+      scouter,
+      { device_id: 'd-1', operations: [boom, op({ row_id: 'e-2', seq: 2 })] },
+      ctx,
+    );
+    expect(res.results[0]).toMatchObject({ status: 'rejected', reason: 'invalid' });
+    // The database's own text never reaches the client: it can carry Postgres detail.
+    expect(res.results[0]).toHaveProperty('detail', 'unexpected server error');
+    expect(JSON.stringify(res)).not.toContain('duplicate key');
+    expect(res.results[1]).toMatchObject({ status: 'applied', row_id: 'e-2' });
+    // It is logged server-side instead, keyed by op_id and without the payload.
+    expect(errors).toHaveBeenCalledTimes(1);
+    const logged = errors.mock.calls[0]!.map((a) => (a instanceof Error ? a.message : String(a)));
+    expect(logged.join(' ')).toContain(boom.op_id);
+    expect(logged.join(' ')).toContain('duplicate key');
+    expect(logged.join(' ')).not.toContain('auto_notes');
+    errors.mockRestore();
+  });
+
+  it('never writes when the row lookup fails: a DB error is not "no such row"', async () => {
+    // Before the review fix a failed lookup read as a create, so the pushing scouter's op
+    // upserted over another scouter's entry with itself as author and version 1.
+    ctx.users.set('u-other', { id: 'u-other', role: 'scouter', disabled_at: null });
+    await syncPush(scouter, { device_id: 'd-1', operations: [op()] }, ctx);
+    const before = { ...ctx.rows.scouting_entries.get('e-1') };
+    ctx.store.getRow = async () => {
+      throw new Error('connection refused');
+    };
+    const writes: string[] = [];
+    const putRow = ctx.store.putRow.bind(ctx.store);
+    ctx.store.putRow = async (entity, id, row) => {
+      writes.push(id);
+      return putRow(entity, id, row);
+    };
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     const res = await syncPush(
       scouter,
       {
         device_id: 'd-1',
-        operations: [op({ row_id: 'e-boom', seq: 1 }), op({ row_id: 'e-2', seq: 2 })],
+        operations: [op({ author_user_id: 'u-other', payload: { ...op().payload, data: {} } })],
       },
       ctx,
     );
-    expect(res.results[0]).toMatchObject({ status: 'rejected', reason: 'invalid' });
-    expect(res.results[0]).toHaveProperty(
-      'detail',
-      'unexpected server error: duplicate key value violates unique constraint',
-    );
-    expect(res.results[1]).toMatchObject({ status: 'applied', row_id: 'e-2' });
+    errors.mockRestore();
+    expect(res.results[0]).toMatchObject({ status: 'rejected', detail: 'unexpected server error' });
+    expect(writes).toEqual([]);
+    expect(ctx.rows.scouting_entries.get('e-1')).toEqual(before);
+  });
+
+  it('never writes when the applied-ledger lookup fails', async () => {
+    ctx.store.wasApplied = async () => {
+      throw new Error('connection refused');
+    };
+    const writes: string[] = [];
+    ctx.store.putRow = async (_entity, id) => {
+      writes.push(id);
+    };
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await syncPush(scouter, { device_id: 'd-1', operations: [op()] }, ctx);
+    errors.mockRestore();
+    expect(res.results[0]).toMatchObject({ status: 'rejected', detail: 'unexpected server error' });
+    expect(writes).toEqual([]);
   });
 
   // --- Task 1.14: per-operation authorization and the server-side edit window ---

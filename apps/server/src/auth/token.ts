@@ -30,11 +30,21 @@ export async function issueToken(
 
 /**
  * Rejects a bad signature, any algorithm but HS256 (including `alg: none`), an expired
- * token, and a validly signed token whose claims are not exactly the session shape.
- * Returns only the five session claims. The thrown error never carries the token.
+ * token, an `iat` in the future or older than the TTL, and a validly signed token that is
+ * missing any of the five session claims or carries one of the wrong type. Unknown extra
+ * claims are not an error: they are stripped, and only the five session claims are
+ * returned. The thrown error never carries the token.
+ *
+ * `maxTokenAge` is what makes jose check `iat` at all: without it a future `iat` passes,
+ * and lowering AUTH_TOKEN_TTL_DAYS would not shorten tokens already issued (their `exp`
+ * was fixed at signing). With it, a token is refused once it is older than the CURRENT
+ * TTL, whatever its `exp` says.
  */
 export async function verifyToken(raw: string, config: ServerConfig): Promise<SessionClaims> {
-  const { payload } = await jwtVerify(raw, key(config), { algorithms: ['HS256'] });
+  const { payload } = await jwtVerify(raw, key(config), {
+    algorithms: ['HS256'],
+    maxTokenAge: config.tokenTtlDays * 86400,
+  });
   const parsed = sessionClaims.safeParse(payload);
   if (!parsed.success) throw new Error('session token claims are malformed');
   return parsed.data;

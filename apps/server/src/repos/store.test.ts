@@ -232,3 +232,41 @@ describe('supabaseStore user writes and listUsers', () => {
     expect(calls).toContainEqual(['is', 'disabled_at', null]);
   });
 });
+
+describe('supabaseStore sync reads and the applied ledger (review fix: errors are not "no row")', () => {
+  const failing = { data: null, error: { message: 'connection refused' } };
+
+  it('getRow throws on a database error instead of reading as "no such row"', async () => {
+    // Swallowed, a blip made syncPush treat an existing entry as a create and upsert over
+    // it with the pushing scouter as its author.
+    const store = supabaseStore(fakeDbById(failing, {}));
+    await expect(store.getRow('scouting_entry', 'e-1')).rejects.toThrow('connection refused');
+  });
+
+  it('wasApplied throws on a database error instead of reading as "never applied"', async () => {
+    const store = supabaseStore(fakeDbById(failing, {}));
+    await expect(store.wasApplied('op-1')).rejects.toThrow('connection refused');
+  });
+
+  it('markApplied throws when the ledger insert fails, so a replay is never silently allowed', async () => {
+    const { db } = recordingDb(failing);
+    await expect(supabaseStore(db).markApplied('op-1')).rejects.toThrow('connection refused');
+  });
+
+  it('getFormFields throws instead of validating an entry against no fields', async () => {
+    const { db } = recordingDb(failing);
+    await expect(supabaseStore(db).getFormFields('fv-1')).rejects.toThrow('connection refused');
+  });
+
+  it('eventExists throws instead of reading as "no such event"', async () => {
+    const store = supabaseStore(fakeDbById(failing, {}));
+    await expect(store.eventExists('ev-1')).rejects.toThrow('connection refused');
+  });
+
+  it('still reads a missing row, an unapplied op and a missing event as null / false', async () => {
+    const store = supabaseStore(fakeDbById({ data: null, error: null }, {}));
+    expect(await store.getRow('scouting_entry', 'e-1')).toBeNull();
+    expect(await store.wasApplied('op-1')).toBe(false);
+    expect(await store.eventExists('ev-1')).toBe(false);
+  });
+});

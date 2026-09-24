@@ -126,19 +126,26 @@ export function supabaseStore(db: Db): Store {
       if (error) throw dbError(error);
       return count ?? 0;
     },
+    // The four methods below feed syncPush's idempotency and authorization decisions (and
+    // eventExists, syncPull's 404). Each THROWS on a database error: swallowed, a blip
+    // read as "no row", which turned an edit of someone else's entry into a create that
+    // upserted over it with the pushing author and version 1 (Phase 1B review).
     async wasApplied(opId: string): Promise<boolean> {
-      const { data } = await db
+      const { data, error } = await db
         .from('applied_operations')
         .select('op_id')
         .eq('op_id', opId)
         .maybeSingle();
+      if (error) throw dbError(error);
       return data !== null;
     },
     async markApplied(opId: string): Promise<void> {
-      await db.from('applied_operations').insert({ op_id: opId });
+      const { error } = await db.from('applied_operations').insert({ op_id: opId });
+      if (error) throw dbError(error);
     },
     async getRow(entity: SyncEntity, id: string): Promise<StoredRow | null> {
-      const { data } = await db.from(TABLE[entity]).select('*').eq('id', id).maybeSingle();
+      const { data, error } = await db.from(TABLE[entity]).select('*').eq('id', id).maybeSingle();
+      if (error) throw dbError(error);
       return (data as StoredRow | null) ?? null;
     },
     async putRow(entity: SyncEntity, id: string, row: Record<string, unknown>): Promise<void> {
@@ -149,14 +156,17 @@ export function supabaseStore(db: Db): Store {
       if (error) throw new Error(error.message);
     },
     async getFormFields(formVersionId: string): Promise<FormFieldDefinition[]> {
-      const { data } = await db
+      const { data, error } = await db
         .from('form_fields')
         .select('*')
         .eq('form_version_id', formVersionId);
+      // Swallowed, an entry would be validated against no fields at all.
+      if (error) throw dbError(error);
       return (data ?? []) as unknown as FormFieldDefinition[];
     },
     async eventExists(eventId: string): Promise<boolean> {
-      const { data } = await db.from('events').select('id').eq('id', eventId).maybeSingle();
+      const { data, error } = await db.from('events').select('id').eq('id', eventId).maybeSingle();
+      if (error) throw dbError(error);
       return data !== null;
     },
     async resolveScope(eventId: string): Promise<PullScope> {

@@ -6,74 +6,80 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 
 // ../../packages/shared/src/api/auth.ts
-import { z } from "zod";
-var loginInput = z.object({
-  username: z.string().min(1),
-  password: z.string().min(1)
-});
-var loginOutput = z.object({
-  token: z.string(),
-  user: z.object({
-    id: z.string().uuid(),
-    username: z.string(),
-    full_name: z.string(),
-    role: z.enum(["scouter", "lead", "admin"]),
-    must_change_password: z.boolean()
-  })
-});
-var refreshTokenInput = z.object({ token: z.string().min(1) });
+import { z as z2 } from "zod";
 
 // ../../packages/shared/src/api/users.ts
-import { z as z2 } from "zod";
+import { z } from "zod";
 var MIN_PASSWORD_LENGTH = 8;
 var USERNAME_PATTERN = /^[\p{L}\p{N}._-]{1,40}$/u;
+var USERNAME_MAX_LENGTH = 40;
 var LIST_USERS_DEFAULT_LIMIT = 50;
 var LIST_USERS_MAX_LIMIT = 200;
-var userRoleSchema = z2.enum(["scouter", "lead", "admin"]);
-var usernameSchema = z2.string().transform((value) => value.trim().toLowerCase()).pipe(
-  z2.string().regex(
+var userRoleSchema = z.enum(["scouter", "lead", "admin"]);
+var usernameSchema = z.string().transform((value) => value.trim().toLowerCase()).pipe(
+  z.string().regex(
     USERNAME_PATTERN,
     "use 1 to 40 letters, digits, dots, underscores or hyphens, with no spaces"
   )
 );
-var passwordSchema = z2.string().min(MIN_PASSWORD_LENGTH, `use at least ${MIN_PASSWORD_LENGTH} characters`);
-var userId = z2.string().min(1);
-var publicUser = z2.object({
-  id: z2.string(),
-  username: z2.string(),
-  full_name: z2.string(),
+var passwordSchema = z.string().min(MIN_PASSWORD_LENGTH, `use at least ${MIN_PASSWORD_LENGTH} characters`);
+var userId = z.string().min(1);
+var publicUser = z.object({
+  id: z.string(),
+  username: z.string(),
+  full_name: z.string(),
   role: userRoleSchema,
-  must_change_password: z2.boolean(),
-  disabled_at: z2.string().nullable(),
-  created_at: z2.string()
+  must_change_password: z.boolean(),
+  disabled_at: z.string().nullable(),
+  created_at: z.string()
 });
-var createUserInput = z2.object({
+var createUserInput = z.object({
   username: usernameSchema,
-  full_name: z2.string().trim().min(1).max(80),
+  full_name: z.string().trim().min(1).max(80),
   role: userRoleSchema,
   password: passwordSchema
 });
-var setUserRoleInput = z2.object({ user_id: userId, role: userRoleSchema });
-var resetPasswordInput = z2.object({
+var setUserRoleInput = z.object({ user_id: userId, role: userRoleSchema });
+var resetPasswordInput = z.object({
   user_id: userId,
   password: passwordSchema,
   /** Forces a change at next login (SPEC-FINAL 7.3). */
-  must_change: z2.boolean().default(false)
+  must_change: z.boolean().default(false)
 });
-var disableUserInput = z2.object({ user_id: userId });
-var changeOwnPasswordInput = z2.object({
-  current_password: z2.string().min(1),
+var disableUserInput = z.object({ user_id: userId });
+var changeOwnPasswordInput = z.object({
+  current_password: z.string().min(1),
   new_password: passwordSchema
 }).strict();
-var listUsersInput = z2.object({
-  include_disabled: z2.boolean().default(false),
-  limit: z2.number().int().min(1).optional(),
-  cursor: z2.string().min(1).optional()
+var listUsersInput = z.object({
+  include_disabled: z.boolean().default(false),
+  limit: z.number().int().min(1).optional(),
+  cursor: z.string().min(1).optional()
 });
-var listUsersOutput = z2.object({
-  items: z2.array(publicUser),
-  next_cursor: z2.string().nullable()
+var listUsersOutput = z.object({
+  items: z.array(publicUser),
+  next_cursor: z.string().nullable()
 });
+
+// ../../packages/shared/src/api/auth.ts
+var loginInput = z2.object({
+  // Capped at the length createUser allows (Phase 1B review): no longer name can exist,
+  // and the login rate limiter keys on this string, so it must not be unbounded. The cap
+  // is on the raw value, so the client should trim before sending.
+  username: z2.string().min(1).max(USERNAME_MAX_LENGTH),
+  password: z2.string().min(1)
+});
+var loginOutput = z2.object({
+  token: z2.string(),
+  user: z2.object({
+    id: z2.string().uuid(),
+    username: z2.string(),
+    full_name: z2.string(),
+    role: z2.enum(["scouter", "lead", "admin"]),
+    must_change_password: z2.boolean()
+  })
+});
+var refreshTokenInput = z2.object({ token: z2.string().min(1) });
 
 // ../../packages/shared/src/errors.ts
 var AppError = class extends Error {
@@ -431,7 +437,10 @@ async function issueToken(user, config2) {
   return new SignJWT({ role: user.role, username: user.username }).setProtectedHeader({ alg: "HS256" }).setSubject(user.id).setIssuedAt(iat).setExpirationTime(iat + config2.tokenTtlDays * 86400).sign(key(config2));
 }
 async function verifyToken(raw, config2) {
-  const { payload } = await jwtVerify(raw, key(config2), { algorithms: ["HS256"] });
+  const { payload } = await jwtVerify(raw, key(config2), {
+    algorithms: ["HS256"],
+    maxTokenAge: config2.tokenTtlDays * 86400
+  });
   const parsed = sessionClaims.safeParse(payload);
   if (!parsed.success) throw new Error("session token claims are malformed");
   return parsed.data;
@@ -548,49 +557,53 @@ var PULL_SCOPES = {
   dashboard_charts: { table: "dashboard_charts", kind: "season", column: "dashboard_id" },
   weight_presets: { table: "weight_presets", kind: "season", column: "season_id" }
 };
+function rowsOf(key2, result) {
+  if (result.error) throw new Error(`${key2}: ${result.error.message}`);
+  return result.data ?? [];
+}
 async function parentIds(db, key2, scope) {
   switch (key2) {
     case "match_teams": {
-      const { data } = await db.from("matches").select("id").eq("event_id", scope.eventId);
-      return (data ?? []).map((r) => r.id);
+      const res = await db.from("matches").select("id").eq("event_id", scope.eventId);
+      return rowsOf(key2, res).map((r) => r.id);
     }
     case "form_versions":
     case "scoring_rules": {
-      const { data } = await db.from("forms").select("id").eq("season_id", scope.seasonId);
-      return (data ?? []).map((r) => r.id);
+      const res = await db.from("forms").select("id").eq("season_id", scope.seasonId);
+      return rowsOf(key2, res).map((r) => r.id);
     }
     case "form_fields": {
-      const { data: forms } = await db.from("forms").select("id").eq("season_id", scope.seasonId);
-      const { data } = await db.from("form_versions").select("id").in(
+      const forms = await db.from("forms").select("id").eq("season_id", scope.seasonId);
+      const res = await db.from("form_versions").select("id").in(
         "form_id",
-        (forms ?? []).map((r) => r.id)
+        rowsOf(key2, forms).map((r) => r.id)
       );
-      return (data ?? []).map((r) => r.id);
+      return rowsOf(key2, res).map((r) => r.id);
     }
     case "pick_list_entries": {
-      const { data } = await db.from("pick_lists").select("id").eq("event_id", scope.eventId);
-      return (data ?? []).map((r) => r.id);
+      const res = await db.from("pick_lists").select("id").eq("event_id", scope.eventId);
+      return rowsOf(key2, res).map((r) => r.id);
     }
     case "alliance_slots":
     case "alliance_declines": {
-      const { data } = await db.from("alliances").select("id").eq("event_id", scope.eventId);
-      return (data ?? []).map((r) => r.id);
+      const res = await db.from("alliances").select("id").eq("event_id", scope.eventId);
+      return rowsOf(key2, res).map((r) => r.id);
     }
     case "dashboard_charts": {
-      const { data } = await db.from("dashboards").select("id").eq("season_id", scope.seasonId);
-      return (data ?? []).map((r) => r.id);
+      const res = await db.from("dashboards").select("id").eq("season_id", scope.seasonId);
+      return rowsOf(key2, res).map((r) => r.id);
     }
     case "teams": {
-      const { data: events } = await db.from("events").select("id").eq("season_id", scope.seasonId);
-      const eventIds = (events ?? []).map((r) => r.id);
+      const events = await db.from("events").select("id").eq("season_id", scope.seasonId);
+      const eventIds = rowsOf(key2, events).map((r) => r.id);
       const [roster, entries] = await Promise.all([
         db.from("event_teams").select("team_id").in("event_id", eventIds),
         db.from("scouting_entries").select("team_id").in("event_id", eventIds)
       ]);
       return [
         .../* @__PURE__ */ new Set([
-          ...(roster.data ?? []).map((r) => r.team_id),
-          ...(entries.data ?? []).map((r) => r.team_id)
+          ...rowsOf(key2, roster).map((r) => r.team_id),
+          ...rowsOf(key2, entries).map((r) => r.team_id)
         ])
       ];
     }
@@ -679,15 +692,22 @@ function supabaseStore(db) {
       if (error) throw dbError(error);
       return count ?? 0;
     },
+    // The four methods below feed syncPush's idempotency and authorization decisions (and
+    // eventExists, syncPull's 404). Each THROWS on a database error: swallowed, a blip
+    // read as "no row", which turned an edit of someone else's entry into a create that
+    // upserted over it with the pushing author and version 1 (Phase 1B review).
     async wasApplied(opId) {
-      const { data } = await db.from("applied_operations").select("op_id").eq("op_id", opId).maybeSingle();
+      const { data, error } = await db.from("applied_operations").select("op_id").eq("op_id", opId).maybeSingle();
+      if (error) throw dbError(error);
       return data !== null;
     },
     async markApplied(opId) {
-      await db.from("applied_operations").insert({ op_id: opId });
+      const { error } = await db.from("applied_operations").insert({ op_id: opId });
+      if (error) throw dbError(error);
     },
     async getRow(entity, id) {
-      const { data } = await db.from(TABLE[entity]).select("*").eq("id", id).maybeSingle();
+      const { data, error } = await db.from(TABLE[entity]).select("*").eq("id", id).maybeSingle();
+      if (error) throw dbError(error);
       return data ?? null;
     },
     async putRow(entity, id, row) {
@@ -695,11 +715,13 @@ function supabaseStore(db) {
       if (error) throw new Error(error.message);
     },
     async getFormFields(formVersionId) {
-      const { data } = await db.from("form_fields").select("*").eq("form_version_id", formVersionId);
+      const { data, error } = await db.from("form_fields").select("*").eq("form_version_id", formVersionId);
+      if (error) throw dbError(error);
       return data ?? [];
     },
     async eventExists(eventId) {
-      const { data } = await db.from("events").select("id").eq("id", eventId).maybeSingle();
+      const { data, error } = await db.from("events").select("id").eq("id", eventId).maybeSingle();
+      if (error) throw dbError(error);
       return data !== null;
     },
     async resolveScope(eventId) {
@@ -800,23 +822,38 @@ async function verifyPassword(plain, hash) {
 }
 
 // src/auth/rateLimit.ts
+var DEFAULT_MAX_KEYS = 1e4;
 function makeRateLimiter(options) {
   const now = options.now ?? (() => Date.now());
+  const maxKeys = options.maxKeys ?? DEFAULT_MAX_KEYS;
   const hits = /* @__PURE__ */ new Map();
+  const sweep = (cutoff) => {
+    for (const [key2, times] of hits) {
+      if (times.length === 0 || times[times.length - 1] <= cutoff) hits.delete(key2);
+    }
+  };
   return {
     take(key2) {
       const cutoff = now() - options.windowMs;
+      sweep(cutoff);
       const recent = (hits.get(key2) ?? []).filter((t) => t > cutoff);
       if (recent.length >= options.limit) {
         hits.set(key2, recent);
         return false;
       }
       recent.push(now());
+      if (!hits.has(key2) && hits.size >= maxKeys) {
+        const oldest = hits.keys().next().value;
+        if (oldest !== void 0) hits.delete(oldest);
+      }
       hits.set(key2, recent);
       return true;
     },
     reset() {
       hits.clear();
+    },
+    size() {
+      return hits.size;
     }
   };
 }
@@ -1167,7 +1204,8 @@ async function syncPush(caller, input, ctx) {
       results.push(await applyOne(caller, op, ctx));
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      results.push(rejected(op.op_id, "invalid", `unexpected server error: ${message}`));
+      console.error(`syncPush: op ${op.op_id} (${op.entity} ${op.action}) failed: ${message}`);
+      results.push(rejected(op.op_id, "invalid", "unexpected server error"));
     }
   }
   return { results };

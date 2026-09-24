@@ -127,4 +127,46 @@ describe('session token (SPEC-FINAL 7.5)', () => {
     expect(shouldRefresh(claims, config, at(6.9))).toBe(false);
     expect(shouldRefresh(claims, config, at(7.1))).toBe(true);
   });
+
+  // --- Review fix: maxTokenAge ---
+
+  const signed = (iat: number, exp: number) =>
+    new SignJWT({ role: 'lead', username: 'alice' })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject('u-1')
+      .setIssuedAt(iat)
+      .setExpirationTime(exp)
+      .sign(key);
+
+  it('rejects a correctly signed token whose iat is in the future', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    await expect(verifyToken(await signed(now + 3600, now + 86400), config)).rejects.toThrow();
+  });
+
+  it('rejects a token older than the TTL even when its exp is still in the future', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const ancient = await signed(now - 31 * 86400, now + 86400);
+    await expect(verifyToken(ancient, config)).rejects.toThrow();
+  });
+
+  it('shortens already-issued tokens when AUTH_TOKEN_TTL_DAYS is lowered', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const tenDaysOld = await signed(now - 10 * 86400, now + 20 * 86400);
+    expect((await verifyToken(tenDaysOld, config)).sub).toBe('u-1');
+    const lowered = loadServerConfig({
+      SUPABASE_URL: 'https://example.supabase.co',
+      SUPABASE_SERVICE_ROLE_KEY: 'k',
+      AUTH_JWT_SECRET: 'test-secret-at-least-32-characters-long!!',
+      ALLOWED_ORIGIN: 'https://client.example.com',
+      AUTH_TOKEN_TTL_DAYS: '7',
+      AUTH_TOKEN_REFRESH_AFTER_DAYS: '3',
+    });
+    await expect(verifyToken(tenDaysOld, lowered)).rejects.toThrow();
+  });
+
+  it('still accepts, and asks to refresh, a token past the refresh threshold but inside the TTL', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const claims = await verifyToken(await signed(now - 8 * 86400, now + 22 * 86400), config);
+    expect(shouldRefresh(claims, config)).toBe(true);
+  });
 });

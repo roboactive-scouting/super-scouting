@@ -34,6 +34,20 @@ export const PULL_SCOPES: Record<string, { table: string; kind: ScopeKind; colum
 };
 
 /**
+ * A parent lookup's rows, or a throw. Swallowed, a failed lookup scoped the child query
+ * to no ids: an empty page while the device's pull watermark still advanced, so those
+ * rows never arrived until a full re-hydration (Phase 1B review). The throw reaches the
+ * app's onError as a JSON 500, and the client keeps its old watermark.
+ */
+function rowsOf<T>(
+  key: string,
+  result: { data: T[] | null; error: { message: string } | null },
+): T[] {
+  if (result.error) throw new Error(`${key}: ${result.error.message}`);
+  return result.data ?? [];
+}
+
+/**
  * Child tables are scoped through their parent's id list. The lists are small
  * (one event's matches, one season's forms, eight alliances), so an `in` filter is
  * the boring correct choice and stays inside the free-tier budget.
@@ -41,50 +55,50 @@ export const PULL_SCOPES: Record<string, { table: string; kind: ScopeKind; colum
 async function parentIds(db: Db, key: string, scope: PullScope): Promise<string[] | null> {
   switch (key) {
     case 'match_teams': {
-      const { data } = await db.from('matches').select('id').eq('event_id', scope.eventId);
-      return (data ?? []).map((r) => r.id);
+      const res = await db.from('matches').select('id').eq('event_id', scope.eventId);
+      return rowsOf(key, res).map((r) => r.id);
     }
     case 'form_versions':
     case 'scoring_rules': {
-      const { data } = await db.from('forms').select('id').eq('season_id', scope.seasonId);
-      return (data ?? []).map((r) => r.id);
+      const res = await db.from('forms').select('id').eq('season_id', scope.seasonId);
+      return rowsOf(key, res).map((r) => r.id);
     }
     case 'form_fields': {
-      const { data: forms } = await db.from('forms').select('id').eq('season_id', scope.seasonId);
-      const { data } = await db
+      const forms = await db.from('forms').select('id').eq('season_id', scope.seasonId);
+      const res = await db
         .from('form_versions')
         .select('id')
         .in(
           'form_id',
-          (forms ?? []).map((r) => r.id),
+          rowsOf(key, forms).map((r) => r.id),
         );
-      return (data ?? []).map((r) => r.id);
+      return rowsOf(key, res).map((r) => r.id);
     }
     case 'pick_list_entries': {
-      const { data } = await db.from('pick_lists').select('id').eq('event_id', scope.eventId);
-      return (data ?? []).map((r) => r.id);
+      const res = await db.from('pick_lists').select('id').eq('event_id', scope.eventId);
+      return rowsOf(key, res).map((r) => r.id);
     }
     case 'alliance_slots':
     case 'alliance_declines': {
-      const { data } = await db.from('alliances').select('id').eq('event_id', scope.eventId);
-      return (data ?? []).map((r) => r.id);
+      const res = await db.from('alliances').select('id').eq('event_id', scope.eventId);
+      return rowsOf(key, res).map((r) => r.id);
     }
     case 'dashboard_charts': {
-      const { data } = await db.from('dashboards').select('id').eq('season_id', scope.seasonId);
-      return (data ?? []).map((r) => r.id);
+      const res = await db.from('dashboards').select('id').eq('season_id', scope.seasonId);
+      return rowsOf(key, res).map((r) => r.id);
     }
     case 'teams': {
       // Every team on any of the season's rosters, plus every team with an entry there.
-      const { data: events } = await db.from('events').select('id').eq('season_id', scope.seasonId);
-      const eventIds = (events ?? []).map((r) => r.id);
+      const events = await db.from('events').select('id').eq('season_id', scope.seasonId);
+      const eventIds = rowsOf(key, events).map((r) => r.id);
       const [roster, entries] = await Promise.all([
         db.from('event_teams').select('team_id').in('event_id', eventIds),
         db.from('scouting_entries').select('team_id').in('event_id', eventIds),
       ]);
       return [
         ...new Set([
-          ...(roster.data ?? []).map((r) => r.team_id),
-          ...(entries.data ?? []).map((r) => r.team_id),
+          ...rowsOf(key, roster).map((r) => r.team_id),
+          ...rowsOf(key, entries).map((r) => r.team_id),
         ]),
       ];
     }

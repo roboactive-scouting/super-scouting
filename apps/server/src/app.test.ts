@@ -210,6 +210,20 @@ describe('the sync routes answer every failure as JSON, never plain text', () =>
     expect(printed).not.toContain(token);
     expect(printed).not.toContain(EVENT);
   });
+
+  it('answers a JSON 500, never a 200 page, when a pull lookup fails, so the watermark does not advance', async () => {
+    ctx.store.pullEntity = async () => {
+      throw new Error('match_teams: connection refused');
+    };
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const res = await wired().request(`/sync/pull?event_id=${EVENT}`, {
+      headers: auth(await issueToken(LEAD, config)),
+    });
+    logged.mockRestore();
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: { code: 'invalid', message: 'that did not work' } });
+  });
 });
 
 describe('POST /sync/push authenticates before it parses', () => {

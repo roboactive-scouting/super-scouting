@@ -17,6 +17,9 @@ export const MIN_PASSWORD_LENGTH = 8;
  */
 export const USERNAME_PATTERN = /^[\p{L}\p{N}._-]{1,40}$/u;
 
+/** The 40 in USERNAME_PATTERN, for schemas (login) that must not accept a longer name. */
+export const USERNAME_MAX_LENGTH = 40;
+
 export const LIST_USERS_DEFAULT_LIMIT = 50;
 /** A larger `limit` is clamped to this, not rejected: `next_cursor` says there is more. */
 export const LIST_USERS_MAX_LIMIT = 200;

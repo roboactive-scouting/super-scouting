@@ -71,9 +71,12 @@ export async function syncPush(
       results.push(await applyOne(caller, op, ctx));
     } catch (e) {
       // 9.3.1: one operation's failure never takes the batch down. The underlying
-      // message travels back as the detail — an opaque 500 hid a schema bug once.
+      // message is logged here, keyed by op_id and never with the payload, and NOT sent
+      // back: a Postgres/PostgREST message can carry schema or row detail. (An opaque
+      // 500 hid a schema bug once — the Vercel runtime log is where to look now.)
       const message = e instanceof Error ? e.message : String(e);
-      results.push(rejected(op.op_id, 'invalid', `unexpected server error: ${message}`));
+      console.error(`syncPush: op ${op.op_id} (${op.entity} ${op.action}) failed: ${message}`);
+      results.push(rejected(op.op_id, 'invalid', 'unexpected server error'));
     }
   }
   return { results };
