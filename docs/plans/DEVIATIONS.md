@@ -2657,3 +2657,103 @@ rehearsal leaves a stray row there referencing a stray user, `db:clean` will sta
 throwing on the `users` purge instead of silently succeeding, until someone adds that
 table to the litter list. That is the intended fail-loud behavior, not a bug, but it
 will look like a new failure the first time it happens.
+
+## Task 1.15 — the shared API map's import path, and what it holds
+
+**Plan said:** create `packages/shared/src/api/index.ts` importing `loginInput, loginOutput` from `./schemas/auth`, with rows for `login` and `refreshToken`.
+
+**What was wrong:** there is no `./schemas` directory; the schemas live in `packages/shared/src/api/auth.ts` and `packages/shared/src/api/users.ts`, and the registry already had eight use cases, not two.
+
+**What I did instead:** imported from `./auth` and `./users` and gave `API` one row per existing registry entry (`login`, `refreshToken`, `changeOwnPassword`, `createUser`, `setUserRole`, `resetPassword`, `disableUser`, `listUsers`). Added `ApiName` and `UNAUTHENTICATED_USE_CASES = ['login', 'refreshToken']` (the client uses the latter to decide which routes never carry a bearer and never expire the session). Exported via `export * from './api/index'` in `packages/shared/src/index.ts`; `browser-safe.test.ts` still passes (zod only). The server `REGISTRY` now reads `input: API.<name>.input, output: API.<name>.output` for every entry, a new `rpc.test.ts` case asserts identity (`toBe`) for all eight, and `apps/server/api/index.js` + `.map` were regenerated with `pnpm --filter @frc/server build`.
+
+**Risk:** none beyond the rule the plan already states: every later task that adds a use case must add its `API` row, or the registry-identity test fails.
+
+## Task 1.15 — the session store is larger than the brief's sketch
+
+**Plan said:** `session` = `current()`, `signIn(user, token, offline?)`, `replaceToken(token)`, `signOut()`, `token()`, `subscribe(fn)`; `Session = { user, token, offline }`; each write via `setMeta`.
+
+**What was wrong:** the orchestrator's decisions 1 and 7 need more than that: an expired session must keep its user (so it needs a flag, not `null`), and the role must follow the cached `users` row. The brief's `replaceToken` also had two holes on a shared device: a late `X-Refreshed-Token` for user A's request could overwrite user B's newer token, and a late refresh could revive a session the server had just refused.
+
+**What I did instead:** `Session` gained `expired: boolean`. New methods: `expire(sentWith?)` (drops the token, keeps the user, sets `expired`, never touches drafts/dataset/outbox; a no-op if `sentWith` is no longer the current token), `updateUser(patch)`, `refreshFromCache()` (called by `syncNow` after every pull that did not throw). `replaceToken(token, sentWith?)` ignores a refresh for a token that is no longer current and never revives an expired or token-less session. Every write is a read-modify-write inside one Dexie `rw` transaction on `meta`. `subscribe`'s initial read is dropped if any change was notified while it was in flight (a stale `null` could otherwise overwrite a fresh sign-in and bounce the user to `/login`). Exported helpers: `needsSignIn(session)`, `onSessionExpired(fn)` (the 1.16 seam). In the brief's test I wrote `db.close()` rather than `await db.close()`: Dexie 4's `close()` returns `void`.
+
+**Risk:** the stored shape differs from the brief's; `read()` defaults missing `offline`/`expired` to `false`, so no migration is needed (nothing had shipped a session yet).
+
+## Task 1.15 — the transport: `apiClient`'s second parameter, `RpcError.status`, and client-side input validation
+
+**Plan said:** in `api.ts`, "replace the `TokenSource` default with `session.token`" and call `session.replaceToken(refreshed)`; `RpcError(code, message)`; `call()` does `API[name].input.parse(input)`; `rpc.call` always attaches the token.
+
+**What was wrong:** a 401 has to reach `session.expire`, the refresh needs the bearer it answers (see the previous entry), and the login screen must tell a wrong password (401), a disabled account (403), rate limiting (429), a server failure (5xx) and no network at all apart — `code` alone cannot (the server's 500 body carries `code: 'invalid'`). A throwing `.parse` would surface a raw `ZodError` to the page.
+
+**What I did instead:** `apiClient(config, auth: SessionPort = session)` where `SessionPort = Pick<typeof session, 'token' | 'replaceToken' | 'expire'>`; on a 401 **that carried a bearer** it calls `auth.expire(bearer)` and still throws `ApiError`. `RpcError(code, message, status)` with `status: 0` and `code: 'offline'` when `fetch` itself throws. `rpc.call` sends no bearer to `login`/`refreshToken` and never expires on their 401. `call()` uses `safeParse` and throws `RpcError('invalid', <the schema's first message>, 400)` before any request, and `RpcError('invalid', …, 500)` for an unparseable response. `SyncOutcome` gained `{ status: 'unauthenticated' }`; `sync.ts` gained `cachedHydration(eventId)` so a session without a token settles its first hydration without a request.
+
+**Risk:** in `rpc.ts` the `!open` guard on `expire` is belt-and-braces: open routes already carry no bearer, so a mutation test removing `!open` survives (an equivalent mutant). The login-route tests prove the observable behaviour.
+
+## Task 1.15 — routing: where the login screens sit, and three additions the brief did not list
+
+**Plan said:** "Wire both into `routes.tsx`, and make `AppShell` redirect to `/login` when `session.current()` is null."
+
+**What was wrong:** nothing — but the orchestrator's decisions add the expired-session rules, and three further gaps would hurt: a user who reloads after being sent to `/change-password` would skip it; nobody could see who is signed in on a shared device; and there was no way to sign out.
+
+**What I did instead:** `/login` and `/change-password` are top-level routes **outside** AppShell (they must render with no session, and leaving them remounts the shell, which is what restarts sync after signing back in). `routes.tsx` exports `routeTree(eventId)` (used by `routes.test.tsx`) and `buildRouter`. AppShell: no session → `/login`; expired → `/login` from every route except `entry/:matchId/:teamId` (and from that one too if the device is `blocked`, where it cannot work anyway); a session **with a token** and `must_change_password` → `/change-password` (added; not on the entry route); hydration and every refresh run only while a token exists. The expired line ("Sign in again to sync — this entry is saved on this device") is rendered by AppShell above the `<Outlet>`, in place of the cached-data notice, rather than inside `EntryPage` — so the entry screen itself is untouched and the form is never remounted (tested: same DOM node before and after expiry). The footer now reads "Signed in as <full name> · Change password · Sign out · version …" (added). The author reaches child routes through `<Outlet context>` and `useSignedInUser()` (`features/shell/shellContext.ts`).
+
+**Risk:** the footer additions are small but unrequested; drop them if 1.16's switch-scouter UI supersedes them. The must-change redirect is client-side only — the server does not enforce `must_change_password`.
+
+## Task 1.15 — the entry pages take `author: {id, role}`, not `authorUserId`
+
+**Plan said:** (decisions 3 and 4) kill `AUTHOR_USER_ID`; make `canSelfEdit` role-aware using the shared rule.
+
+**What was wrong:** role-awareness needs the role at every call site, so a bare id prop no longer suffices.
+
+**What I did instead:** `SelectRobotPage`, `EntryRoute` and `EntryPage` take `author: Editor` (`{ id: string; role: Role }` — `SessionUser` satisfies it). `canSelfEdit(entry, editor, now)` delegates to the shared `canEditEntry` with `client_updated_at = now`; `editsAnyTime(editor)` = `can(…, 'manage_entries')`; `editableUntil` uses the shared `SELF_EDIT_WINDOW_MS`, and the client copy is deleted. `SelectRobotPage` labels a scouted robot "already scouted" with no time for a lead/admin. `submitEntry` still takes `authorUserId` (= `author.id`). `grep -rn AUTHOR_USER_ID apps packages` → 0 hits (only the historic DEVIATIONS entry mentions it).
+
+**Risk:** the window boundary moved from the old client's strict `now < created + 5 min` to the shared rule's inclusive `elapsed <= 5 min` — the same as the server, one millisecond more lenient than before.
+
+## Task 1.15 — two attribution fixes the brief did not ask for
+
+**Plan said:** (decision 3) "a new entry's `scouter_id` = the signed-in user's id".
+
+**What was wrong:** now that a lead can edit anyone's entry, two paths re-attributed an entry to the lead. (1) `submitEntry` rewrote `scouter_id` to the editor on every update (the server keeps the row's own `scouter_id` on update, so device and server disagreed). (2) `outbox.enqueue` coalescing replaced a still-pending **create**'s `author_user_id` with the editor's — and the server sets `scouter_id = author_user_id` on a create, so a lead fixing a scouter's unsynced entry became its scouter permanently.
+
+**What I did instead:** `submitEntry` keeps the existing row's `scouter_id` on an update. `enqueue` keeps `existing.author_user_id` when folding into a pending create; coalesced updates still take the latest author. Both are tested.
+
+**Risk:** on a coalesced create the lead's edit is pushed under the scouter's authorship. The server does not window-check a create, so it is accepted; the audit trail shows the scouter as author of the combined write.
+
+## Task 1.15 — the scouter-delete guard
+
+**Plan said:** (decision 5) `outbox.enqueue` throws for a `delete` whose author lacks `manage_entries`; role from cached `users` rows, falling back to the session user; unknown author → refuse.
+
+**What was wrong:** nothing; logged because it is not in the brief's text, and because it changes two existing tests.
+
+**What I did instead:** as specified, throwing `DeleteNotAllowedError` before any write, for every entity. The existing outbox tests "cancels a create that is deleted before it ever reached the server" and "keeps a delete of a row the server already knows about" authored their deletes as an unknown `u-1`; they now seed `u-1` as a cached `lead` first. New tests: scouter refused (nothing written, not even a pending create cancelled), unknown refused, session fallback, cached row beats session, lead and admin accepted.
+
+**Risk:** a delete-after-pending-create by a scouter (which would never have contacted the server) is now refused too — the literal decision. There is no delete UI today.
+
+## Task 1.15 — push rejections recorded and parked, not pruned
+
+**Plan said:** (decision 6, as first given) record the latest rejection per row, clear it on ack, show one line per affected entry; keep retrying every rejected op as phase 1A did. The brief's contract text says a rejection "carries `code` + `detail`".
+
+**What was wrong:** the wire field is `reason`, not `code` (`PushResult` in `packages/shared/src/sync/protocol.ts`). And retrying contradicts SPEC-FINAL §9.3.1: a non-`parent-deleted` rejection "leaves the record local and surfaces it on the sync page for a human to look at; the operation is not retried automatically". Retrying also let a run of permanently refused ops block the outbox: phase 1A's push loop stopped after any batch in which nothing was acked, so 200 refused ops at the head starved everything queued behind them. I raised this; the orchestrator withdrew the "keep retrying" half of decision 6 and ruled that §9.3.1 governs.
+
+**What I did instead:** `SyncStateRecord.rejection?: { code: RejectionReason; message: string; at: string } | null` (not indexed, so no Dexie version bump), written by `ackResults` from `reason`/`detail`. **A recorded rejection parks the operation:** it stays in the outbox (durability rule — never pruned), still counts in `unsyncedCount` and `unackedCount`, survives `expire` and `signOut`, and is excluded from `pending()`, so automatic pushes skip it and it can no longer block ops behind it. Every reason parks, including `parent-deleted`, which the server does not produce yet (task 1.40 gives it the §9.7 path). The one exception is transient: `invalid` with detail exactly `unexpected server error` is not recorded, not parked, and is retried on the next sync. A new local edit of the row coalesces into the parked op and **un-parks** it (new content is a new attempt), keeping the earliest `base_version` and, for a pending create, the original author. `retryRejected(rowId)` (exported from `data/outbox.ts`) un-parks one row for the sync page (task 1.45); there is no UI for it yet. An ack clears the rejection. `syncNow` now sends each op at most once per sync (`pending(limit, skip)` with the op_ids already sent), replacing 1A's "stop when the pending count did not shrink" check, which could stop early once more than one batch was queued. `rejectionMessage()` (`data/rejections.ts`) maps `edit-window-expired` → "This entry is locked — ask a lead", `forbidden` → "Not allowed for this account — ask a lead", else the server's detail (fallback "The server refused this change — ask a lead"). EntriesPage shows "Not synced: <line>" as a full-width row beneath the affected entry. The entry screen shows nothing (it has no per-entry sync line to extend).
+
+**Risk:** a parked op waits for a human, a new edit or `retryRejected` — until task 1.45's sync page exists, only a new edit un-parks it (EntriesPage says why it has not synced). Parked bare `match` ops have no entry row to show on. `pending()` now reads the parked set from `syncState` on every call; with a few hundred rows that is negligible, but it is a full scan of that table.
+
+## Task 1.15 — LoginPage details
+
+**Plan said:** a single centred card; username/password with autocomplete; one full-width 48 px submit; one error line; calls `POST /api/login` through the API client; offline it "says it will use the credentials cached on this device"; the test asserts "the submit button is at least 48 px tall".
+
+**What was wrong:** jsdom has no layout, so a rendered height cannot be measured; and the brief does not say what a 400 or an empty field shows.
+
+**What I did instead:** the test asserts the button carries `tap-target` **and** that `styles/index.css` defines `.tap-target { … min-block-size: 48px }`. Empty fields show "Enter your username and password." without a request; a 400 shows the server's message in sentence case. The login card shows the trefoil mark (`<Logo variant="mark" />`), not the lockup: at the component's fixed 32 px height the wordmark is illegible (SPEC-FINAL 17.8, "unreadable below ~96 px"). `LoginPage` takes an optional `offlineSignIn` prop — the 1.16 seam — and while it is unset a network failure shows the offline line and signs nobody in. ChangePasswordPage refuses a short password with `passwordSchema`'s own message ("use at least 8 characters", sentence-cased) and a mismatched confirmation with "The two new passwords do not match."
+
+**Risk:** until 1.16 lands, the offline line promises something ("will use the credentials cached on this device") that does not happen yet — accepted by the orchestrator.
+
+## Task 1.15 — client bundle size warning
+
+**Plan said:** `pnpm --filter @frc/client build` must succeed.
+
+**What was wrong:** nothing; it succeeds, with Vite's "Some chunks are larger than 500 kB" warning. Checked it is not new: a build of `HEAD` (working tree stashed, then restored and verified identical against a tar backup) gives `index-*.js` 506.05 kB with the same warning; this task gives 541.01 kB (+35 kB: two screens and the user schemas).
+
+**What I did instead:** left it.
+
+**Risk:** none new; code-splitting is a Phase 1E concern.

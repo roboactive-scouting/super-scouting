@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { FormFieldDefinition } from '@frc/shared';
 import { db } from '@/data/db';
-import { pending } from '@/data/outbox';
+import { ackResults, pending } from '@/data/outbox';
 import { submitEntry } from './submitEntry';
 
 const fields: FormFieldDefinition[] = [
@@ -130,5 +130,27 @@ describe('submitEntry', () => {
       draftKey: 'match:m-1:t-1',
     });
     expect(await db.drafts.get('match:m-1:t-1')).toBeUndefined();
+  });
+
+  it("keeps the scouter of an entry a lead edits, and makes the lead the op's author", async () => {
+    const { row_id } = await submitEntry({
+      ...base,
+      robotStatus: 'played',
+      data: { auto_notes: 1 },
+    });
+    // The create has synced, so the lead's change is an update of a row the server holds.
+    const [created] = await pending(10);
+    await ackResults([{ op_id: created!.op_id, status: 'applied', row_id, new_version: 1 }]);
+    await submitEntry({
+      ...base,
+      authorUserId: 'u-lead',
+      rowId: row_id,
+      robotStatus: 'played',
+      data: { auto_notes: 2 },
+    });
+    const [op] = await pending(10);
+    expect(op!.author_user_id).toBe('u-lead');
+    expect(op!.payload).toMatchObject({ scouter_id: 'u-1' });
+    expect(await db.rows.get(['scouting_entries', row_id])).toMatchObject({ scouter_id: 'u-1' });
   });
 });

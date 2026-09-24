@@ -51,7 +51,7 @@ const props = {
   matchId: 'm-1',
   teamId: 't-1',
   alliance: 'red' as const,
-  authorUserId: 'u-1',
+  author: { id: 'u-1', role: 'scouter' as const },
   teamLabel: '2096 ROBACTIVE',
   matchLabel: 'Q12',
 };

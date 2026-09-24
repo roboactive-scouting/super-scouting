@@ -1,4 +1,5 @@
 import { MAX_OPERATIONS_PER_PUSH, PULL_ENTITY_KEYS, type PullEntityKey } from '@frc/shared';
+import { session } from '@/auth/session';
 import { db, getMeta, setMeta } from './db';
 import { ackResults, pending } from './outbox';
 import type { Api } from './api';
@@ -14,6 +15,8 @@ export type SyncDeps = {
 export type SyncOutcome =
   | { status: 'ok'; pushed: number; pulled: number }
   | { status: 'offline'; reason: string }
+  /** The server refused the token (401). The session is already expired; nothing was lost. */
+  | { status: 'unauthenticated' }
   | { status: 'event-gone' };
 
 const WATERMARK = 'sync.watermark';
@@ -23,22 +26,37 @@ function isEventGone(e: unknown): boolean {
   return typeof e === 'object' && e !== null && (e as { code?: string }).code === 'not-found';
 }
 
+function isUnauthenticated(e: unknown): boolean {
+  return typeof e === 'object' && e !== null && (e as { status?: number }).status === 401;
+}
+
+/**
+ * Ops acked by an earlier batch of this same sync stay acked (ackResults commits each
+ * batch); everything unacked stays queued. A 401 simply stops the sync.
+ */
+function failure(e: unknown, fallback: string): SyncOutcome {
+  if (isUnauthenticated(e)) return { status: 'unauthenticated' };
+  return { status: 'offline', reason: e instanceof Error ? e.message : fallback };
+}
+
 /** SPEC-FINAL 9.3, 9.4: push first so nothing local is overwritten by a stale pull. */
 export async function syncNow(deps: SyncDeps): Promise<SyncOutcome> {
   let pushed = 0;
   try {
+    // Each operation is sent at most once per sync: a transient failure waits for the
+    // next sync instead of looping, and parked operations are never in `pending`.
+    const sent = new Set<string>();
     for (;;) {
-      const batch = await pending(MAX_OPERATIONS_PER_PUSH);
+      const batch = await pending(MAX_OPERATIONS_PER_PUSH, sent);
       if (batch.length === 0) break;
+      for (const op of batch) sent.add(op.op_id);
       const response = await deps.api.push({ device_id: deps.deviceId, operations: batch });
       await ackResults(response.results);
       pushed += response.results.length;
-      const stillPending = await pending(MAX_OPERATIONS_PER_PUSH);
-      if (stillPending.length === batch.length) break; // nothing was acked; stop retrying
     }
   } catch (e) {
     if (isEventGone(e)) return wipeEvent(deps.eventId);
-    return { status: 'offline', reason: e instanceof Error ? e.message : 'push failed' };
+    return failure(e, 'push failed');
   }
 
   let pulled = 0;
@@ -74,9 +92,11 @@ export async function syncNow(deps: SyncDeps): Promise<SyncOutcome> {
       await setMeta(HYDRATED, deps.eventId);
       await setMeta('sync.last_success_at', new Date().toISOString());
     }
+    // SPEC-FINAL 7.5: the database is authoritative for role, on the client too.
+    await session.refreshFromCache();
   } catch (e) {
     if (isEventGone(e)) return wipeEvent(deps.eventId);
-    return { status: 'offline', reason: e instanceof Error ? e.message : 'pull failed' };
+    return failure(e, 'pull failed');
   }
 
   return { status: 'ok', pushed, pulled };
@@ -118,6 +138,14 @@ export type HydrationState = 'fresh' | 'cached' | 'blocked';
 export async function hydrate(deps: SyncDeps): Promise<HydrationState> {
   const outcome = await syncNow(deps);
   if (outcome.status === 'ok') return 'fresh';
+  return cachedHydration(deps.eventId);
+}
+
+/**
+ * The hydration state without contacting the server — for a session that holds no token
+ * (expired, or an offline sign-in in task 1.16), where a pull could only answer 401.
+ */
+export async function cachedHydration(eventId: string): Promise<'cached' | 'blocked'> {
   const hydratedEventId = await getMeta<string | null>(HYDRATED, null);
-  return hydratedEventId === deps.eventId ? 'cached' : 'blocked';
+  return hydratedEventId === eventId ? 'cached' : 'blocked';
 }

@@ -3,7 +3,7 @@ import type { FormFieldDefinition, RobotStatus } from '@frc/shared';
 import { cachedFormFields } from '@/data/cache';
 import { FieldInput } from './FieldInput';
 import { RobotStatusPicker } from './RobotStatusPicker';
-import { canSelfEdit, type LocalEntry } from './localEntries';
+import { canSelfEdit, type Editor, type LocalEntry } from './localEntries';
 import { submitEntry } from './submitEntry';
 import { useDraft } from './useDraft';
 
@@ -13,7 +13,8 @@ export type EntryPageProps = {
   matchId: string;
   teamId: string;
   alliance: 'red' | 'blue';
-  authorUserId: string;
+  /** The signed-in user: the author of every op and of a new entry (SPEC-FINAL 7.5). */
+  author: Editor;
   teamLabel: string;
   matchLabel: string;
   onSubmitted?: (rowId: string) => void;
@@ -87,7 +88,7 @@ export function EntryPage(props: EntryPageProps) {
 
   async function commit() {
     setError(null);
-    if (props.existing && !canSelfEdit(props.existing, props.authorUserId, new Date())) {
+    if (props.existing && !canSelfEdit(props.existing, props.author, new Date())) {
       // SPEC-FINAL 7.6: the window closed while the scout was on this screen.
       setError('This entry is locked — ask a lead to change it.');
       return;
@@ -101,7 +102,7 @@ export function EntryPage(props: EntryPageProps) {
         matchId: props.matchId,
         teamId: props.teamId,
         alliance: props.alliance,
-        authorUserId: props.authorUserId,
+        authorUserId: props.author.id,
         robotStatus: status,
         breakdownSeconds,
         data,

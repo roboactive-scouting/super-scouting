@@ -1,5 +1,6 @@
 export * from './api/auth';
 export * from './api/users';
+export * from './api/index';
 export * from './auth/permissions';
 export * from './caller';
 export * from './errors';

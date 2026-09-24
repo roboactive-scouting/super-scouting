@@ -1,33 +1,43 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, type RouteObject } from 'react-router-dom';
+import { ChangePasswordPage } from '@/auth/ChangePasswordPage';
+import { LoginPage } from '@/auth/LoginPage';
 import { AppShell } from '@/features/shell/AppShell';
+import { useSignedInUser } from '@/features/shell/shellContext';
 import { EntriesPage } from '@/features/entries/EntriesPage';
 import { SelectRobotPage } from '@/features/entry/SelectRobotPage';
 import { EntryRoute } from '@/features/entry/EntryRoute';
 
-/**
- * SEED.scouter from packages/db/src/seed/fixtures.ts. Phase 1A has no login yet — the
- * bearer-token auth that would replace this lands in phase 1B (see docs/plans/
- * DEVIATIONS.md, task 1.4's `callerFor` note) — so every locally authored operation
- * and entry in the walking skeleton is attributed to this seeded scouter.
+/*
+ * The author of every local operation and the scouter of every new entry is the
+ * signed-in user (SPEC-FINAL 7.5), handed down by AppShell — never a constant.
  */
-const AUTHOR_USER_ID = '00000000-0000-4000-8000-000000000006';
+function ScoutRoute({ eventId }: { eventId: string }) {
+  return <SelectRobotPage eventId={eventId} author={useSignedInUser()} />;
+}
 
-export function buildRouter(eventId: string) {
-  return createBrowserRouter([
+function SignedInEntryRoute({ eventId }: { eventId: string }) {
+  return <EntryRoute eventId={eventId} author={useSignedInUser()} />;
+}
+
+/** The route tree, separate from the router so tests can mount it in memory. */
+export function routeTree(eventId: string): RouteObject[] {
+  return [
+    // Outside AppShell: they must render with no session, and leaving them remounts the
+    // shell, which is what restarts sync after a sign-in.
+    { path: '/login', element: <LoginPage /> },
+    { path: '/change-password', element: <ChangePasswordPage /> },
     {
       path: '/',
       element: <AppShell eventId={eventId} />,
       children: [
-        {
-          index: true,
-          element: <SelectRobotPage eventId={eventId} authorUserId={AUTHOR_USER_ID} />,
-        },
-        {
-          path: 'entry/:matchId/:teamId',
-          element: <EntryRoute eventId={eventId} authorUserId={AUTHOR_USER_ID} />,
-        },
+        { index: true, element: <ScoutRoute eventId={eventId} /> },
+        { path: 'entry/:matchId/:teamId', element: <SignedInEntryRoute eventId={eventId} /> },
         { path: 'entries', element: <EntriesPage eventId={eventId} /> },
       ],
     },
-  ]);
+  ];
+}
+
+export function buildRouter(eventId: string) {
+  return createBrowserRouter(routeTree(eventId));
 }

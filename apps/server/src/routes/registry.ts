@@ -1,18 +1,5 @@
 import type { z } from 'zod';
-import {
-  changeOwnPasswordInput,
-  createUserInput,
-  disableUserInput,
-  listUsersInput,
-  listUsersOutput,
-  loginInput,
-  loginOutput,
-  publicUser,
-  refreshTokenInput,
-  resetPasswordInput,
-  setUserRoleInput,
-  type Caller,
-} from '@frc/shared';
+import { API, type Caller } from '@frc/shared';
 import type { ServerConfig } from '../config.js';
 import type { UseCaseContext } from '../core/context.js';
 import { login } from '../core/commands/login.js';
@@ -57,13 +44,17 @@ export type UnauthenticatedEntry = EntryMeta & {
 
 export type RegistryEntry = AuthenticatedEntry | UnauthenticatedEntry;
 
+/**
+ * Each entry's `input`/`output` come from the shared API map (SPEC-FINAL 16.1), never a
+ * second declaration: the typed client validates with the identical objects.
+ */
 export const REGISTRY: Record<string, RegistryEntry> = {
   login: {
     kind: 'command',
     description:
       'Exchange a username and password for a 30-day session token. Takes no caller — it produces one. Rate-limited by username.',
-    input: loginInput,
-    output: loginOutput,
+    input: API.login.input,
+    output: API.login.output,
     unauthenticated: true,
     handler: login,
   },
@@ -71,8 +62,8 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     kind: 'command',
     description:
       'Exchange a still-valid session token for a fresh one. Takes no caller — it produces one. Rate-limited by username.',
-    input: refreshTokenInput,
-    output: loginOutput,
+    input: API.refreshToken.input,
+    output: API.refreshToken.output,
     unauthenticated: true,
     handler: refreshToken,
   },
@@ -80,48 +71,48 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     kind: 'command',
     description:
       'Change your own password, given the current one. Acts on the caller only and clears the must-change flag. Rate-limited per user.',
-    input: changeOwnPasswordInput,
-    output: publicUser,
+    input: API.changeOwnPassword.input,
+    output: API.changeOwnPassword.output,
     handler: changeOwnPassword,
   },
   createUser: {
     kind: 'command',
     description:
       'Admin only: create a user with a username, full name, role and initial password. The full name is the only personal datum stored.',
-    input: createUserInput,
-    output: publicUser,
+    input: API.createUser.input,
+    output: API.createUser.output,
     handler: createUser,
   },
   setUserRole: {
     kind: 'command',
     description:
       "Admin only: change a user's role. Refuses to demote the last enabled admin. Takes effect on the user's next request.",
-    input: setUserRoleInput,
-    output: publicUser,
+    input: API.setUserRole.input,
+    output: API.setUserRole.output,
     handler: setUserRole,
   },
   resetPassword: {
     kind: 'command',
     description:
       'Admin only: set a new password for a user, optionally forcing a change at next login. Does not revoke tokens already issued.',
-    input: resetPasswordInput,
-    output: publicUser,
+    input: API.resetPassword.input,
+    output: API.resetPassword.output,
     handler: resetPassword,
   },
   disableUser: {
     kind: 'command',
     description:
       'Admin only: disable a user. The row and their authorship are kept forever; access ends on their next request. Refuses the last enabled admin.',
-    input: disableUserInput,
-    output: publicUser,
+    input: API.disableUser.input,
+    output: API.disableUser.output,
     handler: disableUser,
   },
   listUsers: {
     kind: 'query',
     description:
       'Users for the picker, the admin table and the offline cache, ordered by username and paginated. Excludes disabled users unless asked. Never returns a password hash.',
-    input: listUsersInput,
-    output: listUsersOutput,
+    input: API.listUsers.input,
+    output: API.listUsers.output,
     handler: listUsers,
   },
 };

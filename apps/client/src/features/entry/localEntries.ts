@@ -1,7 +1,8 @@
+import { can, canEditEntry, SELF_EDIT_WINDOW_MS, type Role } from '@frc/shared';
 import { db } from '@/data/db';
 
-/** SPEC-FINAL 7.6: a scouter may edit their own entry for five minutes after creating it. */
-export const SELF_EDIT_WINDOW_MS = 5 * 60 * 1000;
+/** Who is editing: the signed-in user (SessionUser satisfies this). */
+export type Editor = { id: string; role: Role };
 
 export type LocalEntry = {
   id: string;
@@ -57,10 +58,23 @@ export function editableUntil(entry: LocalEntry): Date {
 }
 
 /**
- * Phase 1A has no roles on the device yet, so this applies the scouter rule to
- * everyone: only the author, and only inside the window. Leads edit any time (7.2)
- * once login lands.
+ * SPEC-FINAL 7.6, through the one shared rule the server also applies (`canEditEntry` in
+ * packages/shared): a lead or admin (`manage_entries`) edits any entry at any time; a
+ * scouter only their own, inside the five-minute window measured from
+ * `client_created_at` — here, to `now` on this device's clock.
  */
-export function canSelfEdit(entry: LocalEntry, authorUserId: string, now: Date): boolean {
-  return entry.scouter_id === authorUserId && now < editableUntil(entry);
+export function canSelfEdit(entry: LocalEntry, editor: Editor, now: Date): boolean {
+  return canEditEntry(
+    { kind: 'user', userId: editor.id, role: editor.role },
+    {
+      scouter_id: entry.scouter_id,
+      client_created_at: entry.client_created_at,
+      client_updated_at: now.toISOString(),
+    },
+  );
+}
+
+/** True when the editor's role lifts the window entirely (7.6: leads and admins). */
+export function editsAnyTime(editor: Editor): boolean {
+  return can({ kind: 'user', userId: editor.id, role: editor.role }, 'manage_entries');
 }

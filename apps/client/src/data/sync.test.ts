@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PullResponse, PushResponse } from '@frc/shared';
+import type { PullResponse, PushRequest, PushResponse } from '@frc/shared';
 import { PULL_ENTITY_KEYS } from '@frc/shared';
+import { session } from '@/auth/session';
 import { db, getMeta } from './db';
 import { enqueue, pending } from './outbox';
 import { hydrate, syncNow } from './sync';
@@ -151,6 +152,122 @@ describe('syncNow', () => {
     });
     expect(outcome.status).toBe('event-gone');
     expect(await db.rows.where('event_id').equals('ev-1').count()).toBe(0);
+  });
+});
+
+describe('syncNow and parked rejections (SPEC-FINAL 9.3.1)', () => {
+  const okPull = async (): Promise<PullResponse> => ({
+    watermark: 'w',
+    next_cursor: null,
+    complete: true,
+    entities: emptyEntities,
+  });
+  const run = (api: { push: (r: PushRequest) => Promise<PushResponse> }) =>
+    syncNow({ api: { push: api.push, pull: okPull }, eventId: 'ev-1', deviceId: 'd-1' });
+
+  it.each(['forbidden', 'edit-window-expired'] as const)(
+    'does not re-send a %s rejection on the next sync',
+    async (reason) => {
+      await enqueue(op('row-1'));
+      const push = vi.fn(async (): Promise<PushResponse> => ({
+        results: [{ op_id: 'op-row-1', status: 'rejected', reason }],
+      }));
+      await run({ push });
+      await run({ push });
+      expect(push).toHaveBeenCalledTimes(1);
+      expect(await db.outbox.count()).toBe(1);
+    },
+  );
+
+  it('re-sends a transient server failure on the next sync', async () => {
+    await enqueue(op('row-1'));
+    const push = vi.fn(async (): Promise<PushResponse> => ({
+      results: [
+        {
+          op_id: 'op-row-1',
+          status: 'rejected',
+          reason: 'invalid',
+          detail: 'unexpected server error',
+        },
+      ],
+    }));
+    await run({ push });
+    await run({ push });
+    expect(push).toHaveBeenCalledTimes(2);
+  });
+
+  it('sends each op at most once per sync, so a transient failure cannot loop', async () => {
+    for (let i = 0; i < 3; i += 1) await enqueue({ ...op(`row-${i}`), seq: i + 1 });
+    const push = vi.fn(async (req: PushRequest): Promise<PushResponse> => ({
+      results: req.operations.map((o) => ({
+        op_id: o.op_id,
+        status: 'rejected' as const,
+        reason: 'invalid' as const,
+        detail: 'unexpected server error',
+      })),
+    }));
+    await run({ push });
+    expect(push).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let 200+ parked ops at the front block a fresh op behind them', async () => {
+    for (let i = 0; i < 250; i += 1) await enqueue({ ...op(`dead-${i}`), seq: i + 1 });
+    // The first sync parks every one of them.
+    await run({
+      push: async (req) => ({
+        results: req.operations.map((o) => ({
+          op_id: o.op_id,
+          status: 'rejected' as const,
+          reason: 'forbidden' as const,
+        })),
+      }),
+    });
+    expect(await pending(500)).toHaveLength(0);
+
+    await enqueue({ ...op('fresh'), seq: 1000 });
+    const push = vi.fn(async (req: PushRequest): Promise<PushResponse> => ({
+      results: req.operations.map((o) => ({
+        op_id: o.op_id,
+        status: 'applied' as const,
+        row_id: o.row_id,
+        new_version: 1,
+      })),
+    }));
+    await run({ push });
+
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(push.mock.calls[0]![0].operations.map((o) => o.op_id)).toEqual(['op-fresh']);
+    expect(await db.outbox.count()).toBe(250); // every parked op is still kept
+  });
+});
+
+describe('syncNow and the session user (SPEC-FINAL 7.5: the database is authoritative)', () => {
+  it("refreshes the signed-in user's role and name from the pulled users row", async () => {
+    await session.signIn(
+      { id: 'u-1', username: 'a', full_name: 'A', role: 'lead', must_change_password: false },
+      't',
+    );
+    await syncNow({
+      api: {
+        push: async () => ({ results: [] }),
+        pull: async () => ({
+          watermark: 'w',
+          next_cursor: null,
+          complete: true,
+          entities: {
+            ...emptyEntities,
+            users: [{ id: 'u-1', role: 'scouter', full_name: 'A Cohen' }],
+          },
+        }),
+      },
+      eventId: 'ev-1',
+      deviceId: 'd-1',
+    });
+    expect((await session.current())?.user).toMatchObject({
+      role: 'scouter',
+      full_name: 'A Cohen',
+    });
+    expect(await session.token()).toBe('t');
   });
 });
 

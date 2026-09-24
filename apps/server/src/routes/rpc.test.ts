@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { AppError, type Caller } from '@frc/shared';
+import { API, AppError, type Caller } from '@frc/shared';
 import { loadServerConfig } from '../config.js';
 import { issueToken, verifyToken } from '../auth/token.js';
 import { tokenAt } from '../test/tokens.js';
@@ -61,6 +61,15 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
       'resetPassword',
       'setUserRole',
     ]);
+  });
+
+  it('reads every input and output from the shared API map, so the client cannot drift', () => {
+    expect(Object.keys(REGISTRY).sort()).toEqual(Object.keys(API).sort());
+    for (const [name, entry] of Object.entries(REGISTRY)) {
+      const shared = API[name as keyof typeof API];
+      expect(entry.input, name).toBe(shared.input);
+      expect(entry.output, name).toBe(shared.output);
+    }
   });
 });
 

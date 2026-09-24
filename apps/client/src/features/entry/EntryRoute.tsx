@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { formatCount } from '@frc/shared';
 import { cachedRows } from '@/data/cache';
 import { EntryPage } from './EntryPage';
-import { canSelfEdit, findLocalEntry, type LocalEntry } from './localEntries';
+import { canSelfEdit, findLocalEntry, type Editor, type LocalEntry } from './localEntries';
 import type { SavedNotice } from './SelectRobotPage';
 
 type MatchRow = { id: string; match_type: string; number: number };
@@ -37,7 +37,7 @@ type Resolved = {
   existing: LocalEntry | undefined;
 };
 
-export function EntryRoute({ eventId, authorUserId }: { eventId: string; authorUserId: string }) {
+export function EntryRoute({ eventId, author }: { eventId: string; author: Editor }) {
   const { matchId, teamId } = useParams<{ matchId: string; teamId: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -76,7 +76,7 @@ export function EntryRoute({ eventId, authorUserId }: { eventId: string; authorU
   if (resolved === null) return <p className="p-4 text-[var(--text-muted)]">Loading…</p>;
 
   // The picker never offers this, but a stale screen or a typed URL can still get here.
-  if (resolved.existing && !canSelfEdit(resolved.existing, authorUserId, new Date())) {
+  if (resolved.existing && !canSelfEdit(resolved.existing, author, new Date())) {
     return (
       <main className="mx-auto max-w-xl p-4">
         <h1 className="text-lg font-semibold">
@@ -104,7 +104,7 @@ export function EntryRoute({ eventId, authorUserId }: { eventId: string; authorU
       matchId={matchId}
       teamId={teamId}
       alliance={alliance}
-      authorUserId={authorUserId}
+      author={author}
       teamLabel={resolved.teamLabel}
       matchLabel={resolved.matchLabel}
       existing={resolved.existing}

@@ -9,7 +9,7 @@ const navigate = vi.fn();
 const location = { state: null as unknown };
 vi.mock('react-router-dom', () => ({ useNavigate: () => navigate, useLocation: () => location }));
 
-const props = { eventId: 'ev-1', authorUserId: 'u-1' };
+const props = { eventId: 'ev-1', author: { id: 'u-1', role: 'scouter' as const } };
 
 const robotSelect = () => screen.getByRole('combobox', { name: /robot/i });
 /** The option text for a robot, found by team number. */
@@ -211,12 +211,42 @@ describe('SelectRobotPage (SPEC-FINAL 8.1, 6.4)', () => {
       expect(screen.getByRole('button', { name: /start entry/i })).toBeDisabled();
     });
 
-    it("treats another scout's cached entry as locked (no roles on the device in 1A)", async () => {
+    it("treats another scout's cached entry as locked for a scouter", async () => {
       await db.rows.put(entry({ scouter_id: 'u-other' }));
       const user = userEvent.setup();
       render(<SelectRobotPage {...props} />);
       await chooseMatch5(user);
       expect(await option(/118.*locked/)).toBeDisabled();
+    });
+
+    it("lets a lead open any entry, another scout's and an old one alike (SPEC-FINAL 7.6)", async () => {
+      await db.rows.put(
+        entry({
+          scouter_id: 'u-other',
+          client_created_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        }),
+      );
+      const user = userEvent.setup();
+      render(<SelectRobotPage eventId="ev-1" author={{ id: 'u-lead', role: 'lead' }} />);
+      await chooseMatch5(user);
+      const scouted = await option(/118.*already scouted/);
+      expect(scouted).toBeEnabled();
+      expect(scouted).not.toHaveTextContent(/locked|editable until/);
+      await user.selectOptions(robotSelect(), scouted);
+      await user.click(screen.getByRole('button', { name: /edit the existing entry/i }));
+      await waitFor(() =>
+        expect(navigate).toHaveBeenCalledWith('/entry/m-known/t-1?alliance=blue'),
+      );
+    });
+
+    it('attributes a bare match it creates to the signed-in user', async () => {
+      const user = userEvent.setup();
+      render(<SelectRobotPage eventId="ev-1" author={{ id: 'u-signed-in', role: 'scouter' }} />);
+      await user.type(screen.getByLabelText(/match number/i), '77');
+      await user.click(screen.getByRole('radio', { name: 'red' }));
+      await startWith(user, /118/);
+      await waitFor(async () => expect(await pending(10)).toHaveLength(1));
+      expect((await pending(10))[0]!.author_user_id).toBe('u-signed-in');
     });
 
     it('only marks the match that entry belongs to', async () => {

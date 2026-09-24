@@ -75,7 +75,11 @@ export async function submitEntry(input: SubmitEntryInput): Promise<{ row_id: st
     match_id: input.matchId,
     team_id: input.teamId,
     alliance: input.formKind === 'match' ? input.alliance : null,
-    scouter_id: input.authorUserId,
+    // A new entry is the signed-in scouter's. An edit never reassigns authorship — the
+    // server keeps the row's own scouter_id too (SPEC-FINAL 7.5) — so a lead fixing a
+    // scouter's entry does not become its scouter on this device either.
+    scouter_id:
+      typeof existingRow?.scouter_id === 'string' ? existingRow.scouter_id : input.authorUserId,
     robot_status: input.formKind === 'match' ? input.robotStatus : null,
     breakdown_seconds: input.robotStatus === 'broke_down' ? (input.breakdownSeconds ?? null) : null,
     data,

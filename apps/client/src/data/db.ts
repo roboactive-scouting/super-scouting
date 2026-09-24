@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import type { Operation, PullEntityKey } from '@frc/shared';
+import type { Operation, PullEntityKey, RejectionReason } from '@frc/shared';
 
 /** SPEC-FINAL 9.2. Per-record sync state is the representation behind the durability
  *  rule (9.4), QR-copy disposal (9.8) and the wipe guard (9.9). */
@@ -8,7 +8,15 @@ export type SyncStateRecord = {
   sync_state: 'pending' | 'acked';
   acked_at: string | null;
   origin: 'local' | 'qr';
+  /**
+   * The latest push rejection for this row, if its last push was refused. The operation
+   * stays in the outbox regardless (the durability rule, 9.4); this only lets the UI say
+   * why it has not synced. Cleared on ack. Not indexed, so no schema version bump.
+   */
+  rejection?: PushRejection | null;
 };
+
+export type PushRejection = { code: RejectionReason; message: string; at: string };
 
 export type CachedRow = Record<string, unknown> & { id: string; entity: PullEntityKey };
 

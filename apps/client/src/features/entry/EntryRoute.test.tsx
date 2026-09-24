@@ -42,14 +42,16 @@ beforeEach(async () => {
   ]);
 });
 
+const scouter = { id: 'u-1', role: 'scouter' as const };
+
 function renderAt(path: string) {
   render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
-        <Route path="/" element={<SelectRobotPage eventId="ev-1" authorUserId="u-1" />} />
+        <Route path="/" element={<SelectRobotPage eventId="ev-1" author={scouter} />} />
         <Route
           path="/entry/:matchId/:teamId"
-          element={<EntryRoute eventId="ev-1" authorUserId="u-1" />}
+          element={<EntryRoute eventId="ev-1" author={scouter} />}
         />
       </Routes>
     </MemoryRouter>,

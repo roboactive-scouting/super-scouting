@@ -4,7 +4,14 @@ import { formatCount } from '@frc/shared';
 import { cachedRows } from '@/data/cache';
 import { db } from '@/data/db';
 import { enqueue, nextSeq } from '@/data/outbox';
-import { canSelfEdit, editableUntil, localEntries, type LocalEntry } from './localEntries';
+import {
+  canSelfEdit,
+  editableUntil,
+  editsAnyTime,
+  localEntries,
+  type Editor,
+  type LocalEntry,
+} from './localEntries';
 
 type MatchRow = { id: string; event_id: string; match_type: string; number: number };
 type TeamRow = { id: string; number: number; name: string };
@@ -14,13 +21,7 @@ type RosterRow = { event_id: string; team_id: string; deleted_at: string | null 
 /** What EntryRoute hands back through router state after a submit (SPEC-FINAL 8.1). */
 export type SavedNotice = { matchLabel: string; teamLabel: string; edited: boolean };
 
-export function SelectRobotPage({
-  eventId,
-  authorUserId,
-}: {
-  eventId: string;
-  authorUserId: string;
-}) {
+export function SelectRobotPage({ eventId, author }: { eventId: string; author: Editor }) {
   const navigate = useNavigate();
   const saved = (useLocation().state as { saved?: SavedNotice } | null)?.saved;
   const [matches, setMatches] = useState<MatchRow[]>([]);
@@ -71,7 +72,7 @@ export function SelectRobotPage({
   );
   const isLocked = (id: string) => {
     const entry = scouted.get(id);
-    return entry !== undefined && !canSelfEdit(entry, authorUserId, now);
+    return entry !== undefined && !canSelfEdit(entry, author, now);
   };
 
   // A robot chosen before the alliance or match changed may no longer be on the list.
@@ -83,6 +84,8 @@ export function SelectRobotPage({
     const entry = scouted.get(team.id);
     if (!entry) return name;
     if (isLocked(team.id)) return `${name} — already scouted, locked`;
+    // A lead or admin edits at any time (SPEC-FINAL 7.6): there is no window to name.
+    if (editsAnyTime(author)) return `${name} — already scouted`;
     const until = editableUntil(entry).toLocaleTimeString([], {
       hour: '2-digit',
       minute: '2-digit',
@@ -116,7 +119,7 @@ export function SelectRobotPage({
       action: 'create',
       base_version: null,
       payload,
-      author_user_id: authorUserId,
+      author_user_id: author.id,
       client_created_at: now,
       client_updated_at: now,
       seq: await nextSeq(),
@@ -230,7 +233,13 @@ export function SelectRobotPage({
       >
         {chosenEntry ? 'Edit the existing entry' : 'Start entry'}
       </button>
-      {chosenEntry && (
+      {chosenEntry && editsAnyTime(author) && (
+        <p className="mt-2 text-sm text-[var(--text-muted)]">
+          This robot is already scouted in this match on this device. You can change that entry; a
+          second one cannot be started.
+        </p>
+      )}
+      {chosenEntry && !editsAnyTime(author) && (
         <p className="mt-2 text-sm text-[var(--text-muted)]">
           This robot is already scouted in this match on this device. You can change that entry
           until{' '}

@@ -57,4 +57,41 @@ describe('EntriesPage — the laptop view of the walking skeleton', () => {
     render(<EntriesPage eventId="ev-1" />);
     expect(await screen.findByText(/no entries yet/i)).toBeInTheDocument();
   });
+
+  it.each([
+    [
+      'edit-window-expired',
+      'this entry is locked — ask a lead',
+      'This entry is locked — ask a lead',
+    ],
+    [
+      'forbidden',
+      'a scouter may edit only their own entry',
+      'Not allowed for this account — ask a lead',
+    ],
+    ['invalid', 'stale base version 3', 'stale base version 3'],
+  ] as const)(
+    'shows one line for a %s rejection, never the raw code',
+    async (code, message, line) => {
+      await db.syncState.put({
+        row_id: 'e-1',
+        sync_state: 'pending',
+        acked_at: null,
+        origin: 'local',
+        rejection: { code, message, at: '2026-11-14T09:05:00.000Z' },
+      });
+      render(<EntriesPage eventId="ev-1" />);
+      const notice = await screen.findByText(line, { exact: false });
+      expect(notice).toHaveTextContent(`Not synced: ${line}`);
+      expect(screen.getAllByText(/not synced/i)).toHaveLength(1);
+      if (code !== 'invalid') expect(document.body).not.toHaveTextContent(code);
+    },
+  );
+
+  it('shows no rejection line for an entry that synced', async () => {
+    await db.syncState.put({ row_id: 'e-1', sync_state: 'acked', acked_at: 'x', origin: 'local' });
+    render(<EntriesPage eventId="ev-1" />);
+    await screen.findByRole('row', { name: /2096/ });
+    expect(screen.queryByText(/not synced/i)).not.toBeInTheDocument();
+  });
 });
