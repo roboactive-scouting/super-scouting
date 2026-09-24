@@ -26,7 +26,7 @@ export const SEED = Object.freeze({
   formField: (versionIndex: number, fieldIndex: number): string =>
     id(60000 + versionIndex * 100 + fieldIndex),
   /** bcrypt hash of the password "seedpass1" at cost 10. Dev only. */
-  passwordHash: '$2a$10$Vv3nJXsX0G2xh0m0Y6mCkuJ0iH5wLZ0Q0y2xJ4bqz2s5g3lI1nqhK',
+  passwordHash: '$2a$10$UvMj9dL0at3XgVPimYuyV.QrnBZgKreWpGuZehf2MeXZN1zn0qAk2',
 });
 
 /**

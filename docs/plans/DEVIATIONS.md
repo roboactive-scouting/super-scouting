@@ -2258,3 +2258,23 @@ I ran the suite against a local dev server on the dev database, through a scratc
 - Ran prettier on only the touched files.
 
 **Risk:** None.
+
+---
+
+## Task 1.12 — the seed's password hash was not a hash of seedpass1
+
+**Plan said:** nothing directly — this was reported as a pre-existing bug. `packages/db/src/seed/fixtures.ts` set `SEED.passwordHash` to `'$2a$10$Vv3nJXsX0G2xh0m0Y6mCkuJ0iH5wLZ0Q0y2xJ4bqz2s5g3lI1nqhK'`, commented as the bcrypt hash of `seedpass1` at cost 10 (from commit `e8da097`, written before login existed).
+
+**What was wrong:** it is not a hash of `seedpass1`. `bcrypt.compare('seedpass1', '$2a$10$Vv3nJXsX0G2xh0m0Y6mCkuJ0iH5wLZ0Q0y2xJ4bqz2s5g3lI1nqhK')` resolves `false` — verified directly with `bcryptjs` before touching anything. The hash was hand-typed and nothing caught it because `/api/login` did not exist until this phase. All three seeded users (`seed_scouter`, `seed_lead`, `seed_admin`) were unable to log in with the documented dev password.
+
+**What I did instead:**
+- Generated a real cost-10 `bcryptjs` hash of `seedpass1` from `apps/server` (`node --input-type=module -e "import b from 'bcryptjs'; console.log(await b.hash('seedpass1', 10))"`) and confirmed `bcrypt.compare('seedpass1', <new hash>)` resolves `true` before writing it anywhere.
+- Replaced `SEED.passwordHash` in `packages/db/src/seed/fixtures.ts` with the real hash; the comment above it was already accurate wording, so it was left as-is.
+- Added `packages/db/src/seed/fixtures.test.ts`: asserts `SEED.passwordHash` matches `/^\$2[ab]\$10\$/` and that `bcrypt.compare('seedpass1', SEED.passwordHash)` resolves `true`. Real `bcrypt.compare` output: `true`.
+- Added `bcryptjs@^2.4.3` and `@types/bcryptjs@^2.4.6` as devDependencies of `packages/db` — same versions `apps/server` already carries — and ran `pnpm install` at the repo root. Installed cleanly, no version conflicts. The test lives in `packages/db`, next to the fixture; `apps/server` was not touched.
+- Confirmed `apps/server/.env`'s `SUPABASE_URL` contains the dev project ref (`oqvoqddoizhhwvjwejtm`), not the production one (`ezrgtroyofuxkkktnino`), via an `awk` field check that prints only `true`/`false` — no value was echoed. Then ran `pnpm seed` from the repo root, which upserted the dev database with the corrected hash. Output: `dev database seeded`.
+- Proved it against the running local server (`http://localhost:3000`, not started or stopped by this task): `POST /api/login` for `seed_scouter`, `seed_lead`, `seed_admin` with password `seedpass1` all returned `200` with `user.role` of `scouter`, `lead`, `admin` respectively. No token was printed.
+- `pnpm test && pnpm typecheck && pnpm lint && pnpm format:check` all green: 41 test files / 286 tests passed (including the new fixture test), typecheck clean across all 4 packages, lint clean, format:check clean.
+- Nothing under `apps/server/src` was touched, so no bundle rebuild was needed.
+
+**Risk:** Any environment seeded before this fix (any dev database, or a CI/local run that ran `pnpm seed` against dev prior to this change) has the old, non-matching hash sitting in its `users` rows and those seed logins will still fail until `pnpm seed` is re-run there. This does not apply to production — production is never seeded (SPEC-FINAL 19.4) and was not touched or contacted by this task.
