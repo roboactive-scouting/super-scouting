@@ -4,6 +4,369 @@ import { handle } from "hono/vercel";
 // src/app.ts
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+
+// ../../packages/shared/src/api/auth.ts
+import { z } from "zod";
+var loginInput = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1)
+});
+var loginOutput = z.object({
+  token: z.string(),
+  user: z.object({
+    id: z.string().uuid(),
+    username: z.string(),
+    full_name: z.string(),
+    role: z.enum(["scouter", "lead", "admin"]),
+    must_change_password: z.boolean()
+  })
+});
+var refreshTokenInput = z.object({ token: z.string().min(1) });
+
+// ../../packages/shared/src/api/users.ts
+import { z as z2 } from "zod";
+var MIN_PASSWORD_LENGTH = 8;
+var USERNAME_PATTERN = /^[\p{L}\p{N}._-]{1,40}$/u;
+var LIST_USERS_DEFAULT_LIMIT = 50;
+var LIST_USERS_MAX_LIMIT = 200;
+var userRoleSchema = z2.enum(["scouter", "lead", "admin"]);
+var usernameSchema = z2.string().transform((value) => value.trim().toLowerCase()).pipe(
+  z2.string().regex(
+    USERNAME_PATTERN,
+    "use 1 to 40 letters, digits, dots, underscores or hyphens, with no spaces"
+  )
+);
+var passwordSchema = z2.string().min(MIN_PASSWORD_LENGTH, `use at least ${MIN_PASSWORD_LENGTH} characters`);
+var userId = z2.string().min(1);
+var publicUser = z2.object({
+  id: z2.string(),
+  username: z2.string(),
+  full_name: z2.string(),
+  role: userRoleSchema,
+  must_change_password: z2.boolean(),
+  disabled_at: z2.string().nullable(),
+  created_at: z2.string()
+});
+var createUserInput = z2.object({
+  username: usernameSchema,
+  full_name: z2.string().trim().min(1).max(80),
+  role: userRoleSchema,
+  password: passwordSchema
+});
+var setUserRoleInput = z2.object({ user_id: userId, role: userRoleSchema });
+var resetPasswordInput = z2.object({
+  user_id: userId,
+  password: passwordSchema,
+  /** Forces a change at next login (SPEC-FINAL 7.3). */
+  must_change: z2.boolean().default(false)
+});
+var disableUserInput = z2.object({ user_id: userId });
+var changeOwnPasswordInput = z2.object({
+  current_password: z2.string().min(1),
+  new_password: passwordSchema
+}).strict();
+var listUsersInput = z2.object({
+  include_disabled: z2.boolean().default(false),
+  limit: z2.number().int().min(1).optional(),
+  cursor: z2.string().min(1).optional()
+});
+var listUsersOutput = z2.object({
+  items: z2.array(publicUser),
+  next_cursor: z2.string().nullable()
+});
+
+// ../../packages/shared/src/errors.ts
+var AppError = class extends Error {
+  code;
+  details;
+  constructor(code, message, details) {
+    super(message);
+    this.name = "AppError";
+    this.code = code;
+    this.details = details;
+  }
+};
+
+// ../../packages/shared/src/caller.ts
+function isUser(caller) {
+  return caller.kind === "user";
+}
+
+// ../../packages/shared/src/auth/permissions.ts
+var ALL = ["scouter", "lead", "admin"];
+var LEADS = ["lead", "admin"];
+var ADMIN = ["admin"];
+var CAPABILITIES = {
+  view_all_data: ALL,
+  submit_entry: ALL,
+  edit_own_entry: ALL,
+  ensure_match: ALL,
+  manage_entries: LEADS,
+  resolve_conflict: LEADS,
+  add_do_not_pick: LEADS,
+  draft_dashboard: LEADS,
+  save_dashboard: ADMIN,
+  manage_forms: ADMIN,
+  manage_events: ADMIN,
+  manage_pick_lists: ADMIN,
+  edit_do_not_pick: ADMIN,
+  record_alliance_bracket: ADMIN,
+  manage_users: ADMIN,
+  delete_objects: ADMIN
+};
+function can(caller, capability) {
+  return isUser(caller) && CAPABILITIES[capability].includes(caller.role);
+}
+function assertCan(caller, capability) {
+  if (!can(caller, capability)) {
+    throw new AppError("forbidden", `not permitted: ${capability}`, { capability });
+  }
+}
+var SELF_EDIT_WINDOW_MS = 3e5;
+function withinSelfEditWindow(clientCreatedAt, clientUpdatedAt) {
+  const created = new Date(clientCreatedAt).getTime();
+  const updated = new Date(clientUpdatedAt).getTime();
+  if (Number.isNaN(created) || Number.isNaN(updated)) return false;
+  const elapsed = updated - created;
+  return elapsed >= 0 && elapsed <= SELF_EDIT_WINDOW_MS;
+}
+
+// ../../packages/shared/src/forms/entryShape.ts
+function validateEntryShape(row) {
+  const issues = [];
+  if (row.form_kind === "match") {
+    if (row.match_id === null) issues.push("a match entry needs a match");
+    if (row.alliance === null) issues.push("a match entry needs an alliance");
+    if (row.robot_status === null) issues.push("a match entry needs a robot status");
+  } else {
+    if (row.match_id !== null) issues.push("a super entry has no match");
+    if (row.alliance !== null) issues.push("a super entry has no alliance");
+    if (row.robot_status !== null) issues.push("a super entry has no robot status");
+    if (row.breakdown_seconds !== null) issues.push("a super entry has no breakdown time");
+  }
+  const brokeDown = row.robot_status === "broke_down";
+  if (brokeDown && row.breakdown_seconds === null) {
+    issues.push("a robot that broke down needs its breakdown time in seconds");
+  }
+  if (!brokeDown && row.breakdown_seconds !== null) {
+    issues.push("breakdown time is recorded only when the robot broke down");
+  }
+  return issues;
+}
+
+// ../../packages/shared/src/forms/types.ts
+function selectOptions(field) {
+  const raw = field.config.options;
+  return Array.isArray(raw) ? raw : [];
+}
+
+// ../../packages/shared/src/forms/validate.ts
+function isDeadRobot(status) {
+  return status === "no_show" || status === "disabled";
+}
+function validateEntryData(fields, robotStatus, data) {
+  const issues = [];
+  if (isDeadRobot(robotStatus)) {
+    if (Object.keys(data).length > 0) {
+      issues.push({
+        field_key: "*",
+        code: "dead-robot-has-data",
+        message: "a no-show or disabled robot records no field values, never zeros"
+      });
+    }
+    return issues.length === 0 ? { ok: true } : { ok: false, issues };
+  }
+  const live = fields.filter((f) => !f.deprecated);
+  const known = new Set(live.map((f) => f.key));
+  for (const key2 of Object.keys(data)) {
+    if (!known.has(key2)) {
+      issues.push({ field_key: key2, code: "unknown-field", message: `no field with key '${key2}'` });
+    }
+  }
+  for (const field of live) {
+    const value = data[field.key];
+    const missing = value === void 0 || value === null || value === "";
+    if (missing) {
+      if (field.required) {
+        issues.push({
+          field_key: field.key,
+          code: "required",
+          message: `${field.label} is required`
+        });
+      }
+      continue;
+    }
+    switch (field.type) {
+      case "counter": {
+        if (typeof value !== "number" || !Number.isFinite(value)) {
+          issues.push({
+            field_key: field.key,
+            code: "wrong-type",
+            message: `${field.label} must be a number`
+          });
+          break;
+        }
+        const min = typeof field.config.min === "number" ? field.config.min : void 0;
+        const max = typeof field.config.max === "number" ? field.config.max : void 0;
+        if (min !== void 0 && value < min || max !== void 0 && value > max) {
+          issues.push({
+            field_key: field.key,
+            code: "out-of-config-range",
+            message: `${field.label} must be between ${min ?? "-\u221E"} and ${max ?? "\u221E"}`
+          });
+          break;
+        }
+        if (field.expected_range) {
+          const { min: lo, max: hi } = field.expected_range;
+          if (value < lo || value > hi) {
+            issues.push({
+              field_key: field.key,
+              code: "out-of-expected-range",
+              message: `${field.label} is outside its expected range (${lo}\u2013${hi})`
+            });
+          }
+        }
+        break;
+      }
+      case "toggle": {
+        if (typeof value !== "boolean") {
+          issues.push({
+            field_key: field.key,
+            code: "wrong-type",
+            message: `${field.label} must be true or false`
+          });
+        }
+        break;
+      }
+      case "single_select": {
+        const allowed = selectOptions(field).map((o) => o.value);
+        if (typeof value !== "string" || !allowed.includes(value)) {
+          issues.push({
+            field_key: field.key,
+            code: "not-an-option",
+            message: `${field.label} must be one of: ${allowed.join(", ")}`
+          });
+        }
+        break;
+      }
+      case "long_text": {
+        if (typeof value !== "string") {
+          issues.push({
+            field_key: field.key,
+            code: "wrong-type",
+            message: `${field.label} must be text`
+          });
+        }
+        break;
+      }
+    }
+  }
+  return issues.length === 0 ? { ok: true } : { ok: false, issues };
+}
+
+// ../../packages/shared/src/sync/operation.ts
+import { z as z3 } from "zod";
+var SYNC_ENTITIES = [
+  "scouting_entry",
+  "match",
+  "pick_list",
+  "pick_list_entry",
+  "do_not_pick",
+  "alliance_slot",
+  "alliance_decline"
+];
+var isoDateTime = z3.string().datetime({ offset: false });
+var operationSchema = z3.object({
+  op_id: z3.string().min(1),
+  entity: z3.enum(SYNC_ENTITIES),
+  row_id: z3.string().uuid(),
+  action: z3.enum(["create", "update", "delete"]),
+  base_version: z3.number().int().positive().nullable(),
+  /** Always the whole row, never a patch. Field-level merging does not exist. */
+  payload: z3.record(z3.unknown()),
+  author_user_id: z3.string().uuid(),
+  client_created_at: isoDateTime,
+  client_updated_at: isoDateTime,
+  seq: z3.number().int().nonnegative()
+}).superRefine((op, ctx) => {
+  if (op.action === "create" && op.base_version !== null) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["base_version"],
+      message: "a create has no base version"
+    });
+  }
+  if (op.action !== "create" && op.base_version === null) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["base_version"],
+      message: "an edit must name its base version"
+    });
+  }
+  if (op.action === "delete" && Object.keys(op.payload).length > 0) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["payload"],
+      message: "a delete carries an empty payload"
+    });
+  }
+});
+
+// ../../packages/shared/src/sync/protocol.ts
+import { z as z4 } from "zod";
+var MAX_OPERATIONS_PER_PUSH = 200;
+var WATERMARK_OVERLAP_MS = 5e3;
+var pushRequestSchema = z4.object({
+  device_id: z4.string().uuid(),
+  operations: z4.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
+});
+var PULL_ENTITY_KEYS = [
+  "app_settings",
+  "seasons",
+  "events",
+  "teams",
+  "event_teams",
+  "matches",
+  "match_teams",
+  "forms",
+  "form_versions",
+  "form_fields",
+  "scoring_rules",
+  "users",
+  "scouting_entries",
+  "sync_conflicts",
+  "pick_lists",
+  "pick_list_entries",
+  "do_not_pick",
+  "alliances",
+  "alliance_slots",
+  "alliance_declines",
+  "metrics",
+  "dashboards",
+  "dashboard_charts",
+  "weight_presets"
+];
+var pullRequestSchema = z4.object({
+  event_id: z4.string().uuid(),
+  since: z4.string().datetime({ offset: false }).optional(),
+  cursor: z4.string().optional()
+});
+
+// src/routes/errors.ts
+var STATUS = {
+  invalid: 400,
+  unauthenticated: 401,
+  forbidden: 403,
+  "not-found": 404,
+  conflict: 409,
+  "rate-limited": 429,
+  "parent-deleted": 409,
+  "edit-window-expired": 409,
+  "offline-unavailable": 503
+};
+var INTERNAL_ERROR = { error: { code: "invalid", message: "that did not work" } };
+
+// src/app.ts
 function createApp(deps) {
   const app2 = new Hono();
   app2.use(
@@ -29,18 +392,28 @@ function createApp(deps) {
   });
   for (const route of deps.routes ?? []) app2.route("/", route);
   app2.notFound((c) => c.json({ error: { code: "not-found", message: "no such route" } }, 404));
+  app2.onError((e, c) => {
+    if (e instanceof AppError) {
+      return c.json(
+        { error: { code: e.code, message: e.message, details: e.details } },
+        STATUS[e.code] ?? 500
+      );
+    }
+    console.error(`${c.req.method} ${c.req.path} failed`, e);
+    return c.json(INTERNAL_ERROR, 500);
+  });
   return app2;
 }
 
 // src/auth/token.ts
 import { jwtVerify, SignJWT } from "jose";
-import { z } from "zod";
-var sessionClaims = z.object({
-  sub: z.string().min(1),
-  role: z.enum(["scouter", "lead", "admin"]),
-  username: z.string().min(1),
-  iat: z.number().int(),
-  exp: z.number().int()
+import { z as z5 } from "zod";
+var sessionClaims = z5.object({
+  sub: z5.string().min(1),
+  role: z5.enum(["scouter", "lead", "admin"]),
+  username: z5.string().min(1),
+  iat: z5.number().int(),
+  exp: z5.number().int()
 });
 var key = (config2) => new TextEncoder().encode(config2.authJwtSecret);
 async function issueToken(user, config2) {
@@ -77,15 +450,15 @@ async function callerFor(request, config2, store, options = {}) {
 }
 
 // src/config.ts
-import { z as z2 } from "zod";
-var schema = z2.object({
-  SUPABASE_URL: z2.string().url(),
-  SUPABASE_SERVICE_ROLE_KEY: z2.string().min(1),
-  AUTH_JWT_SECRET: z2.string().min(32, "must be at least 32 characters"),
-  AUTH_TOKEN_TTL_DAYS: z2.coerce.number().int().positive().default(30),
-  AUTH_TOKEN_REFRESH_AFTER_DAYS: z2.coerce.number().int().positive().default(7),
-  ALLOWED_ORIGIN: z2.string().url(),
-  NODE_ENV: z2.enum(["development", "production", "test"]).default("development")
+import { z as z6 } from "zod";
+var schema = z6.object({
+  SUPABASE_URL: z6.string().url(),
+  SUPABASE_SERVICE_ROLE_KEY: z6.string().min(1),
+  AUTH_JWT_SECRET: z6.string().min(32, "must be at least 32 characters"),
+  AUTH_TOKEN_TTL_DAYS: z6.coerce.number().int().positive().default(30),
+  AUTH_TOKEN_REFRESH_AFTER_DAYS: z6.coerce.number().int().positive().default(7),
+  ALLOWED_ORIGIN: z6.string().url(),
+  NODE_ENV: z6.enum(["development", "production", "test"]).default("development")
 });
 function loadServerConfig(env) {
   const parsed = schema.safeParse(env);
@@ -401,345 +774,6 @@ function stubsFor(names) {
 // src/routes/rpc.ts
 import { Hono as Hono2 } from "hono";
 
-// ../../packages/shared/src/api/auth.ts
-import { z as z3 } from "zod";
-var loginInput = z3.object({
-  username: z3.string().min(1),
-  password: z3.string().min(1)
-});
-var loginOutput = z3.object({
-  token: z3.string(),
-  user: z3.object({
-    id: z3.string().uuid(),
-    username: z3.string(),
-    full_name: z3.string(),
-    role: z3.enum(["scouter", "lead", "admin"]),
-    must_change_password: z3.boolean()
-  })
-});
-var refreshTokenInput = z3.object({ token: z3.string().min(1) });
-
-// ../../packages/shared/src/api/users.ts
-import { z as z4 } from "zod";
-var MIN_PASSWORD_LENGTH = 8;
-var USERNAME_PATTERN = /^[\p{L}\p{N}._-]{1,40}$/u;
-var LIST_USERS_DEFAULT_LIMIT = 50;
-var LIST_USERS_MAX_LIMIT = 200;
-var userRoleSchema = z4.enum(["scouter", "lead", "admin"]);
-var usernameSchema = z4.string().transform((value) => value.trim().toLowerCase()).pipe(
-  z4.string().regex(
-    USERNAME_PATTERN,
-    "use 1 to 40 letters, digits, dots, underscores or hyphens, with no spaces"
-  )
-);
-var passwordSchema = z4.string().min(MIN_PASSWORD_LENGTH, `use at least ${MIN_PASSWORD_LENGTH} characters`);
-var userId = z4.string().min(1);
-var publicUser = z4.object({
-  id: z4.string(),
-  username: z4.string(),
-  full_name: z4.string(),
-  role: userRoleSchema,
-  must_change_password: z4.boolean(),
-  disabled_at: z4.string().nullable(),
-  created_at: z4.string()
-});
-var createUserInput = z4.object({
-  username: usernameSchema,
-  full_name: z4.string().trim().min(1).max(80),
-  role: userRoleSchema,
-  password: passwordSchema
-});
-var setUserRoleInput = z4.object({ user_id: userId, role: userRoleSchema });
-var resetPasswordInput = z4.object({
-  user_id: userId,
-  password: passwordSchema,
-  /** Forces a change at next login (SPEC-FINAL 7.3). */
-  must_change: z4.boolean().default(false)
-});
-var disableUserInput = z4.object({ user_id: userId });
-var changeOwnPasswordInput = z4.object({
-  current_password: z4.string().min(1),
-  new_password: passwordSchema
-}).strict();
-var listUsersInput = z4.object({
-  include_disabled: z4.boolean().default(false),
-  limit: z4.number().int().min(1).optional(),
-  cursor: z4.string().min(1).optional()
-});
-var listUsersOutput = z4.object({
-  items: z4.array(publicUser),
-  next_cursor: z4.string().nullable()
-});
-
-// ../../packages/shared/src/errors.ts
-var AppError = class extends Error {
-  code;
-  details;
-  constructor(code, message, details) {
-    super(message);
-    this.name = "AppError";
-    this.code = code;
-    this.details = details;
-  }
-};
-
-// ../../packages/shared/src/caller.ts
-function isUser(caller) {
-  return caller.kind === "user";
-}
-
-// ../../packages/shared/src/auth/permissions.ts
-var ALL = ["scouter", "lead", "admin"];
-var LEADS = ["lead", "admin"];
-var ADMIN = ["admin"];
-var CAPABILITIES = {
-  view_all_data: ALL,
-  submit_entry: ALL,
-  edit_own_entry: ALL,
-  ensure_match: ALL,
-  manage_entries: LEADS,
-  resolve_conflict: LEADS,
-  add_do_not_pick: LEADS,
-  draft_dashboard: LEADS,
-  save_dashboard: ADMIN,
-  manage_forms: ADMIN,
-  manage_events: ADMIN,
-  manage_pick_lists: ADMIN,
-  edit_do_not_pick: ADMIN,
-  record_alliance_bracket: ADMIN,
-  manage_users: ADMIN,
-  delete_objects: ADMIN
-};
-function can(caller, capability) {
-  return isUser(caller) && CAPABILITIES[capability].includes(caller.role);
-}
-function assertCan(caller, capability) {
-  if (!can(caller, capability)) {
-    throw new AppError("forbidden", `not permitted: ${capability}`, { capability });
-  }
-}
-
-// ../../packages/shared/src/forms/entryShape.ts
-function validateEntryShape(row) {
-  const issues = [];
-  if (row.form_kind === "match") {
-    if (row.match_id === null) issues.push("a match entry needs a match");
-    if (row.alliance === null) issues.push("a match entry needs an alliance");
-    if (row.robot_status === null) issues.push("a match entry needs a robot status");
-  } else {
-    if (row.match_id !== null) issues.push("a super entry has no match");
-    if (row.alliance !== null) issues.push("a super entry has no alliance");
-    if (row.robot_status !== null) issues.push("a super entry has no robot status");
-    if (row.breakdown_seconds !== null) issues.push("a super entry has no breakdown time");
-  }
-  const brokeDown = row.robot_status === "broke_down";
-  if (brokeDown && row.breakdown_seconds === null) {
-    issues.push("a robot that broke down needs its breakdown time in seconds");
-  }
-  if (!brokeDown && row.breakdown_seconds !== null) {
-    issues.push("breakdown time is recorded only when the robot broke down");
-  }
-  return issues;
-}
-
-// ../../packages/shared/src/forms/types.ts
-function selectOptions(field) {
-  const raw = field.config.options;
-  return Array.isArray(raw) ? raw : [];
-}
-
-// ../../packages/shared/src/forms/validate.ts
-function isDeadRobot(status) {
-  return status === "no_show" || status === "disabled";
-}
-function validateEntryData(fields, robotStatus, data) {
-  const issues = [];
-  if (isDeadRobot(robotStatus)) {
-    if (Object.keys(data).length > 0) {
-      issues.push({
-        field_key: "*",
-        code: "dead-robot-has-data",
-        message: "a no-show or disabled robot records no field values, never zeros"
-      });
-    }
-    return issues.length === 0 ? { ok: true } : { ok: false, issues };
-  }
-  const live = fields.filter((f) => !f.deprecated);
-  const known = new Set(live.map((f) => f.key));
-  for (const key2 of Object.keys(data)) {
-    if (!known.has(key2)) {
-      issues.push({ field_key: key2, code: "unknown-field", message: `no field with key '${key2}'` });
-    }
-  }
-  for (const field of live) {
-    const value = data[field.key];
-    const missing = value === void 0 || value === null || value === "";
-    if (missing) {
-      if (field.required) {
-        issues.push({
-          field_key: field.key,
-          code: "required",
-          message: `${field.label} is required`
-        });
-      }
-      continue;
-    }
-    switch (field.type) {
-      case "counter": {
-        if (typeof value !== "number" || !Number.isFinite(value)) {
-          issues.push({
-            field_key: field.key,
-            code: "wrong-type",
-            message: `${field.label} must be a number`
-          });
-          break;
-        }
-        const min = typeof field.config.min === "number" ? field.config.min : void 0;
-        const max = typeof field.config.max === "number" ? field.config.max : void 0;
-        if (min !== void 0 && value < min || max !== void 0 && value > max) {
-          issues.push({
-            field_key: field.key,
-            code: "out-of-config-range",
-            message: `${field.label} must be between ${min ?? "-\u221E"} and ${max ?? "\u221E"}`
-          });
-          break;
-        }
-        if (field.expected_range) {
-          const { min: lo, max: hi } = field.expected_range;
-          if (value < lo || value > hi) {
-            issues.push({
-              field_key: field.key,
-              code: "out-of-expected-range",
-              message: `${field.label} is outside its expected range (${lo}\u2013${hi})`
-            });
-          }
-        }
-        break;
-      }
-      case "toggle": {
-        if (typeof value !== "boolean") {
-          issues.push({
-            field_key: field.key,
-            code: "wrong-type",
-            message: `${field.label} must be true or false`
-          });
-        }
-        break;
-      }
-      case "single_select": {
-        const allowed = selectOptions(field).map((o) => o.value);
-        if (typeof value !== "string" || !allowed.includes(value)) {
-          issues.push({
-            field_key: field.key,
-            code: "not-an-option",
-            message: `${field.label} must be one of: ${allowed.join(", ")}`
-          });
-        }
-        break;
-      }
-      case "long_text": {
-        if (typeof value !== "string") {
-          issues.push({
-            field_key: field.key,
-            code: "wrong-type",
-            message: `${field.label} must be text`
-          });
-        }
-        break;
-      }
-    }
-  }
-  return issues.length === 0 ? { ok: true } : { ok: false, issues };
-}
-
-// ../../packages/shared/src/sync/operation.ts
-import { z as z5 } from "zod";
-var SYNC_ENTITIES = [
-  "scouting_entry",
-  "match",
-  "pick_list",
-  "pick_list_entry",
-  "do_not_pick",
-  "alliance_slot",
-  "alliance_decline"
-];
-var isoDateTime = z5.string().datetime({ offset: false });
-var operationSchema = z5.object({
-  op_id: z5.string().min(1),
-  entity: z5.enum(SYNC_ENTITIES),
-  row_id: z5.string().uuid(),
-  action: z5.enum(["create", "update", "delete"]),
-  base_version: z5.number().int().positive().nullable(),
-  /** Always the whole row, never a patch. Field-level merging does not exist. */
-  payload: z5.record(z5.unknown()),
-  author_user_id: z5.string().uuid(),
-  client_created_at: isoDateTime,
-  client_updated_at: isoDateTime,
-  seq: z5.number().int().nonnegative()
-}).superRefine((op, ctx) => {
-  if (op.action === "create" && op.base_version !== null) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["base_version"],
-      message: "a create has no base version"
-    });
-  }
-  if (op.action !== "create" && op.base_version === null) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["base_version"],
-      message: "an edit must name its base version"
-    });
-  }
-  if (op.action === "delete" && Object.keys(op.payload).length > 0) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["payload"],
-      message: "a delete carries an empty payload"
-    });
-  }
-});
-
-// ../../packages/shared/src/sync/protocol.ts
-import { z as z6 } from "zod";
-var MAX_OPERATIONS_PER_PUSH = 200;
-var WATERMARK_OVERLAP_MS = 5e3;
-var pushRequestSchema = z6.object({
-  device_id: z6.string().uuid(),
-  operations: z6.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
-});
-var PULL_ENTITY_KEYS = [
-  "app_settings",
-  "seasons",
-  "events",
-  "teams",
-  "event_teams",
-  "matches",
-  "match_teams",
-  "forms",
-  "form_versions",
-  "form_fields",
-  "scoring_rules",
-  "users",
-  "scouting_entries",
-  "sync_conflicts",
-  "pick_lists",
-  "pick_list_entries",
-  "do_not_pick",
-  "alliances",
-  "alliance_slots",
-  "alliance_declines",
-  "metrics",
-  "dashboards",
-  "dashboard_charts",
-  "weight_presets"
-];
-var pullRequestSchema = z6.object({
-  event_id: z6.string().uuid(),
-  since: z6.string().datetime({ offset: false }).optional(),
-  cursor: z6.string().optional()
-});
-
 // src/auth/password.ts
 import bcrypt from "bcryptjs";
 var BCRYPT_COST = 10;
@@ -1050,17 +1084,6 @@ var REGISTRY = {
 };
 
 // src/routes/rpc.ts
-var STATUS = {
-  invalid: 400,
-  unauthenticated: 401,
-  forbidden: 403,
-  "not-found": 404,
-  conflict: 409,
-  "rate-limited": 429,
-  "parent-deleted": 409,
-  "edit-window-expired": 409,
-  "offline-unavailable": 503
-};
 function rpcRoutes(ctx, config2, registry = REGISTRY) {
   const app2 = new Hono2();
   for (const [name, entry] of Object.entries(registry)) {
@@ -1094,7 +1117,7 @@ function rpcRoutes(ctx, config2, registry = REGISTRY) {
           );
         }
         console.error(`${name} failed`, e);
-        return c.json({ error: { code: "invalid", message: "that did not work" } }, 500);
+        return c.json(INTERNAL_ERROR, 500);
       }
     });
   }
@@ -1106,6 +1129,22 @@ import { Hono as Hono3 } from "hono";
 
 // src/core/commands/syncPush.ts
 var rejected = (opId, reason, detail) => detail === void 0 ? { op_id: opId, status: "rejected", reason } : { op_id: opId, status: "rejected", reason, detail };
+var SERVER_OWNED_KEYS = /* @__PURE__ */ new Set([
+  "id",
+  "scouter_id",
+  "version",
+  "created_at",
+  "updated_at",
+  "deleted_at",
+  "client_created_at",
+  "client_updated_at"
+]);
+var withoutServerOwnedKeys = (payload) => Object.fromEntries(Object.entries(payload).filter(([key2]) => !SERVER_OWNED_KEYS.has(key2)));
+var callerOf = (author) => ({
+  kind: "user",
+  userId: author.id,
+  role: author.role
+});
 async function syncPush(caller, input, ctx) {
   const ordered = [...input.operations].sort((a, b) => a.seq - b.seq);
   const results = [];
@@ -1136,13 +1175,16 @@ async function applyOne(caller, op, ctx) {
       new_version: existing?.version ?? 1
     };
   }
-  if (op.entity === "match") return applyBareMatch(op, ctx);
+  if (op.entity === "match") return applyBareMatch(op, author, ctx);
   if (op.entity !== "scouting_entry") {
     return rejected(op.op_id, "invalid", `entity '${op.entity}' is not accepted yet`);
   }
-  return applyEntry(op, ctx);
+  return applyEntry(op, author, ctx);
 }
-async function applyBareMatch(op, ctx) {
+async function applyBareMatch(op, author, ctx) {
+  if (!can(callerOf(author), "ensure_match")) {
+    return rejected(op.op_id, "forbidden", "the author may not create a match");
+  }
   const existing = await ctx.store.getRow("match", op.row_id);
   if (existing) {
     await ctx.store.markApplied(op.op_id);
@@ -1161,10 +1203,14 @@ async function applyBareMatch(op, ctx) {
   await ctx.store.markApplied(op.op_id);
   return { op_id: op.op_id, status: "applied", row_id: op.row_id, new_version: 1 };
 }
-async function applyEntry(op, ctx) {
+async function applyEntry(op, author, ctx) {
   const payload = op.payload;
+  const authorCaller = callerOf(author);
   const existing = await ctx.store.getRow("scouting_entry", op.row_id);
   if (op.action === "delete") {
+    if (!can(authorCaller, "manage_entries")) {
+      return rejected(op.op_id, "forbidden", "only a lead or admin may delete an entry");
+    }
     if (!existing) return rejected(op.op_id, "invalid", "no such entry");
     await ctx.store.putRow("scouting_entry", op.row_id, {
       ...existing,
@@ -1179,6 +1225,18 @@ async function applyEntry(op, ctx) {
       row_id: op.row_id,
       new_version: existing.version + 1
     };
+  }
+  if (existing) {
+    if (!can(authorCaller, "manage_entries")) {
+      if (existing.scouter_id !== author.id) {
+        return rejected(op.op_id, "forbidden", "a scouter may edit only their own entry");
+      }
+      if (!withinSelfEditWindow(String(existing.client_created_at), op.client_updated_at)) {
+        return rejected(op.op_id, "edit-window-expired", "this entry is locked \u2014 ask a lead");
+      }
+    }
+  } else if (!can(authorCaller, "submit_entry")) {
+    return rejected(op.op_id, "forbidden", "the author may not submit an entry");
   }
   if (existing && op.base_version !== existing.version) {
     return rejected(op.op_id, "invalid", `stale base version ${op.base_version}`);
@@ -1204,11 +1262,13 @@ async function applyEntry(op, ctx) {
   }
   const version = existing ? existing.version + 1 : 1;
   await ctx.store.putRow("scouting_entry", op.row_id, {
-    ...payload,
+    ...withoutServerOwnedKeys(payload),
     id: op.row_id,
-    scouter_id: op.author_user_id,
+    // An update never reassigns authorship, and never restarts the self-edit window: both
+    // stay the row's own (SPEC-FINAL 7.5, 7.6). A create takes them from the operation.
+    scouter_id: existing ? existing.scouter_id : op.author_user_id,
     version,
-    client_created_at: op.client_created_at,
+    client_created_at: existing ? existing.client_created_at : op.client_created_at,
     client_updated_at: op.client_updated_at,
     deleted_at: null
   });

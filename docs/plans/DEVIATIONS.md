@@ -2429,3 +2429,137 @@ I ran the suite against a local dev server on the dev database, through a scratc
 ## Task 1.13 — a wrong current password is 400, not 401
 
 **Plan said:** nothing; the first 1.13 pass, per the orchestrator's earlier instruction, made a wrong `current_password` in `changeOwnPassword` throw `AppError('unauthenticated')`. **What was wrong:** `unauthenticated` maps to HTTP 401, which the client half must be able to read as exactly "your token is dead, sign in again" — a mistyped current password would have ended a good session. **What I did instead:** Per orchestrator decision, a wrong current password now throws `AppError('invalid', 'the current password is not right')` (HTTP 400). The missing-self case stays `unauthenticated`, because that token really is no good. `users.test.ts` now expects `invalid` for the wrong-password and rate-limit-warmup cases, and `app.test.ts` proves `POST /api/changeOwnPassword` with a valid bearer and a wrong current password answers 400 `{"error":{"code":"invalid",…}}`. The earlier 1.13 changeOwnPassword entry's step 5 and Risk line are superseded by this one. **Risk:** None; the rate limit per user still applies to wrong guesses.
+
+---
+
+## Task 1.14 — authorize through the 1.10 matrix, against the author, never the bearer
+
+**Plan said:** in `applyEntry`, re-query `ctx.store.getUser(op.author_user_id)`, default a missing role with `?? 'scouter'`, and branch on `authorRole === 'scouter'`.
+
+**What was wrong:** nothing failed. The orchestrator decided to reuse the committed permission matrix rather than hand-roll a role check. `applyOne` already loads the author and rejects an unknown or disabled one, so the re-query and the default are redundant.
+
+**What I did instead:**
+- `applyOne` passes its `author: StoredUser` into `applyEntry` and `applyBareMatch`.
+- `callerOf(author)` builds `{ kind: 'user', userId: author.id, role: author.role }`. It is the only caller any capability check in the file reads.
+- Checks:
+  - A bare match needs `can(authorCaller, 'ensure_match')`.
+  - A write to a row the server does not hold needs `submit_entry`.
+  - A write to a row it does hold:
+    - `manage_entries` is accepted at any age.
+    - Otherwise `existing.scouter_id !== author.id` is rejected `forbidden` ('a scouter may edit only their own entry').
+    - Otherwise `!withinSelfEditWindow(String(existing.client_created_at), op.client_updated_at)` is rejected `edit-window-expired` ('this entry is locked — ask a lead').
+- These checks run BEFORE the stale-base-version check, so a forbidden or locked edit is reported as that, never as `invalid`.
+- The gate keys on whether the row exists, not on `op.action`. So a `create` op aimed at an existing row id is authorized as an edit.
+- The `?? 'scouter'` default is gone.
+- A service caller is still rejected first, in `applyOne`.
+- New tests:
+  - A **lead bearer** carries a `u-scouter`-authored update to that scouter's own entry, outside the window. It is rejected `edit-window-expired` and the version stays 1.
+  - An **admin bearer** carries a `u-scouter`-authored edit of `u-other`'s entry. It is rejected `forbidden` and the version stays 1.
+
+**Risk:** Low. `ensure_match` and `submit_entry` go to every role today, so those two checks can reject only once the matrix changes.
+
+---
+
+## Task 1.14 — scouters never delete
+
+**Plan said:** nothing about the delete path.
+
+**What was wrong:** the existing `delete` branch let any known, enabled author soft-delete any entry. SPEC-FINAL 7.6 says "Scouters never hard-delete entries. Removal is a lead/admin soft-delete".
+
+**What I did instead:**
+- The delete branch now requires `can(authorCaller, 'manage_entries')`, otherwise it rejects with `forbidden` ('only a lead or admin may delete an entry').
+- The check runs before the "no such entry" check, so a scouter learns nothing about whether the row exists.
+- Tests:
+  - A scouter author deleting their own fresh entry is rejected `forbidden`, and the row is untouched: version 1, `deleted_at` null.
+  - A lead author deleting it is applied: new_version 2, `deleted_at` = server now, and `scouter_id` is still `u-scouter`.
+
+**Risk:** a scouter's pending delete in an outbox is now rejected and never acked, so it sits on the sync page. The client must not offer delete to scouters (SPEC-FINAL 7.4).
+
+---
+
+## Task 1.14 — an update keeps the row's client_created_at
+
+**Plan said:** keep `existing.scouter_id` on an update. The write still set `client_created_at: op.client_created_at` on every write.
+
+**What was wrong:** the brief measures the window from the row's own `client_created_at`, but it then overwrote that stamp with the op's. The attack this allowed:
+1. Edit #1, inside the window, stores a fresher `client_created_at`.
+2. Edit #2 is measured from that fresher stamp, so the window widens without limit.
+
+**What I did instead:**
+- `client_created_at: existing ? existing.client_created_at : op.client_created_at`, matching how `scouter_id` is kept.
+- The attack is tested:
+  1. Create at 09:00.
+  2. Update at 09:04 carrying `client_created_at: 09:04`: applied.
+  3. Update at 09:07 carrying `client_created_at: 09:04`: rejected `edit-window-expired`.
+  4. The stored `client_created_at` is still 09:00.
+
+**Risk:** None. A client-side correction of `client_created_at` is no longer possible through push, and none is specified.
+
+---
+
+## Task 1.14 — strip server-owned keys from the payload
+
+**Plan said:** write `{ ...payload, id, scouter_id, version, client_created_at, client_updated_at, deleted_at: null }`.
+
+**What was wrong:**
+- `...payload` could carry `created_at` or `updated_at`, which were written through.
+- `putRow` is an upsert, and the `set_updated_at` trigger is `before update`, so on the insert path a payload `updated_at` bypasses the `now()` default. A row created with an old `updated_at` sits behind every device's watermark and is never delta-pulled (SPEC-FINAL 9.3).
+- SPEC-FINAL 9.4 says the payload excludes the server-managed columns.
+
+**What I did instead:**
+- `withoutServerOwnedKeys` drops `id`, `scouter_id`, `version`, `created_at`, `updated_at`, `deleted_at`, `client_created_at` and `client_updated_at` from the payload.
+- The write then sets `id`, `scouter_id`, `version`, `client_created_at`, `client_updated_at` and `deleted_at: null` explicitly.
+- Test: a create whose payload carries `updated_at: '2000-01-01T00:00:00.000Z'` and `scouter_id: 'u-lead'` stores neither. `scouter_id` is the author, `u-scouter`.
+
+**Risk:** None. The delete branch still spreads `...existing`, the row the server itself returned, and the update-path trigger rewrites `updated_at`.
+
+---
+
+## Task 1.14 — soft-deleted targets are left as they are
+
+**Plan said:** nothing.
+
+**What was wrong:** nothing to fix here. SPEC-FINAL 9.7 and task 1.40 own parent-deleted and resurrection.
+
+**What I did instead:** no behaviour change. The current behaviour is recorded in the task report, section 5.
+
+**Risk:** see the report. An in-window update by the owner, or a lead update at any age, whose `base_version` equals the post-delete version clears `deleted_at`.
+
+---
+
+## Task 1.14 — one JSON error contract on every route (`app.onError`)
+
+**Plan said:** "Nothing about the transport changes in this task". `routes/sync.ts` was listed as modified, with no change described.
+
+**What was wrong:** an unexpected throw on `/sync/push` or `/sync/pull` fell through to Hono's default plain-text 500. Two examples:
+- a database error propagated by `callerFor`;
+- `syncPull`'s own `AppError('not-found', 'that event no longer exists')`, which answered 500 plain text instead of 404.
+
+**What I did instead:**
+- The status map moved from `routes/rpc.ts` into a new `routes/errors.ts`, which exports `STATUS` and `INTERNAL_ERROR`. `rpc.ts` imports both, and its own try/catch is unchanged.
+- `createApp` adds `app.onError`:
+  - An `AppError` becomes `{ error: { code, message, details } }` with `STATUS[code] ?? 500`.
+  - Anything else is logged as `` console.error(`${method} ${path} failed`, e) `` and answered `500 {"error":{"code":"invalid","message":"that did not work"}}`. `c.req.path` excludes the query string, and neither the body nor the headers are logged.
+- `routes/sync.ts` is unchanged.
+- Tests in `app.test.ts`:
+  - A pull for an unknown `event_id` answers 404 JSON with the AppError body.
+  - With `getUser` throwing, `/sync/pull` answers the JSON 500. What is logged contains `GET /sync/pull failed` and contains neither the bearer token nor the event id.
+
+**Risk:** a thrown Hono `HTTPException`, of which there are none today, would now answer 500 instead of its own status.
+
+---
+
+## Task 1.14 — test fixtures and extra cases
+
+**Plan said:** six tests, with the snippets' imports extensionless.
+
+**What was wrong:** the brief's snippets exceed prettier's 100-column width.
+
+**What I did instead:**
+- The six brief tests are taken verbatim, including the harmless `ctx.users.set('u-lead', …)` that re-seeds a user the 1.13 fake already seeds. Prettier reflowed them without changing an assertion.
+- The existing shared-tablet test (`u-other` authored, `u-scouter` bearer) is unchanged and green.
+- Added one explicit §7.5 case: one `u-scouter` bearer pushes three creates authored by `u-scouter`, `u-s2` and `u-s3`. All three are applied, and each row's `scouter_id` is its own author.
+- New relative imports carry `.js`.
+- `pnpm --filter @frc/server build` regenerated `api/index.js` and its `.map`.
+
+**Risk:** None.

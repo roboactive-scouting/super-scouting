@@ -318,4 +318,282 @@ describe('syncPush', () => {
     );
     expect(res.results[1]).toMatchObject({ status: 'applied', row_id: 'e-2' });
   });
+
+  // --- Task 1.14: per-operation authorization and the server-side edit window ---
+
+  it('accepts a scouter self-edit inside the five-minute window', async () => {
+    await syncPush(scouter, { device_id: 'd-1', operations: [op()] }, ctx);
+    const res = await syncPush(
+      scouter,
+      {
+        device_id: 'd-1',
+        operations: [
+          op({
+            action: 'update',
+            base_version: 1,
+            client_created_at: '2026-11-14T09:00:00.000Z',
+            client_updated_at: '2026-11-14T09:04:00.000Z',
+          }),
+        ],
+      },
+      ctx,
+    );
+    expect(res.results[0]).toMatchObject({ status: 'applied' });
+  });
+
+  it('rejects a scouter self-edit outside the window with edit-window-expired', async () => {
+    await syncPush(scouter, { device_id: 'd-1', operations: [op()] }, ctx);
+    const res = await syncPush(
+      scouter,
+      {
+        device_id: 'd-1',
+        operations: [
+          op({
+            action: 'update',
+            base_version: 1,
+            client_created_at: '2026-11-14T09:00:00.000Z',
+            client_updated_at: '2026-11-14T09:06:00.000Z',
+          }),
+        ],
+      },
+      ctx,
+    );
+    expect(res.results[0]).toMatchObject({ status: 'rejected', reason: 'edit-window-expired' });
+  });
+
+  it('measures elapsed CLIENT time, so an upload six hours later still passes', async () => {
+    ctx.nowValue = new Date('2026-11-14T15:00:00.000Z'); // server clock, six hours on
+    await syncPush(scouter, { device_id: 'd-1', operations: [op()] }, ctx);
+    const res = await syncPush(
+      scouter,
+      {
+        device_id: 'd-1',
+        operations: [
+          op({
+            action: 'update',
+            base_version: 1,
+            client_created_at: '2026-11-14T09:00:00.000Z',
+            client_updated_at: '2026-11-14T09:03:00.000Z',
+          }),
+        ],
+      },
+      ctx,
+    );
+    expect(res.results[0]).toMatchObject({ status: 'applied' });
+  });
+
+  it('lets a lead edit an entry authored by somebody else, at any age', async () => {
+    ctx.users.set('u-lead', { id: 'u-lead', role: 'lead', disabled_at: null });
+    await syncPush(scouter, { device_id: 'd-1', operations: [op()] }, ctx);
+    const res = await syncPush(
+      { kind: 'user', userId: 'u-lead', role: 'lead' },
+      {
+        device_id: 'd-2',
+        operations: [
+          op({
+            action: 'update',
+            base_version: 1,
+            author_user_id: 'u-lead',
+            client_created_at: '2026-11-14T09:00:00.000Z',
+            client_updated_at: '2026-11-20T09:00:00.000Z',
+          }),
+        ],
+      },
+      ctx,
+    );
+    expect(res.results[0]).toMatchObject({ status: 'applied' });
+  });
+
+  it('rejects a scouter editing an entry authored by somebody else', async () => {
+    ctx.users.set('u-other', { id: 'u-other', role: 'scouter', disabled_at: null });
+    await syncPush(scouter, { device_id: 'd-1', operations: [op()] }, ctx);
+    const res = await syncPush(
+      scouter,
+      {
+        device_id: 'd-1',
+        operations: [op({ action: 'update', base_version: 1, author_user_id: 'u-other' })],
+      },
+      ctx,
+    );
+    expect(res.results[0]).toMatchObject({ status: 'rejected', reason: 'forbidden' });
+  });
+
+  it('never reassigns authorship when a lead edits a scouter’s entry', async () => {
+    ctx.users.set('u-lead', { id: 'u-lead', role: 'lead', disabled_at: null });
+    await syncPush(scouter, { device_id: 'd-1', operations: [op()] }, ctx);
+    await syncPush(
+      { kind: 'user', userId: 'u-lead', role: 'lead' },
+      {
+        device_id: 'd-2',
+        operations: [
+          op({
+            action: 'update',
+            base_version: 1,
+            author_user_id: 'u-lead',
+            client_updated_at: '2026-11-20T09:00:00.000Z',
+          }),
+        ],
+      },
+      ctx,
+    );
+    expect(ctx.rows.scouting_entries.get('e-1')!.scouter_id).toBe('u-scouter');
+  });
+
+  const lead: Caller = { kind: 'user', userId: 'u-lead', role: 'lead' };
+  const admin: Caller = { kind: 'user', userId: 'u-admin', role: 'admin' };
+
+  it('never lets the bearer role grant anything: a lead-carried scouter edit outside the window is locked', async () => {
+    await syncPush(scouter, { device_id: 'd-1', operations: [op()] }, ctx);
+    const res = await syncPush(
+      lead,
+      {
+        device_id: 'd-collector',
+        operations: [
+          op({
+            action: 'update',
+            base_version: 1,
+            author_user_id: 'u-scouter',
+            client_updated_at: '2026-11-14T09:06:00.000Z',
+          }),
+        ],
+      },
+      ctx,
+    );
+    expect(res.results[0]).toMatchObject({ status: 'rejected', reason: 'edit-window-expired' });
+    expect(ctx.rows.scouting_entries.get('e-1')?.version).toBe(1);
+  });
+
+  it('never lets the bearer role grant anything: an admin-carried scouter edit of another entry is forbidden', async () => {
+    ctx.users.set('u-other', { id: 'u-other', role: 'scouter', disabled_at: null });
+    await syncPush(
+      scouter,
+      { device_id: 'd-1', operations: [op({ author_user_id: 'u-other' })] },
+      ctx,
+    );
+    const res = await syncPush(
+      admin,
+      {
+        device_id: 'd-collector',
+        operations: [op({ action: 'update', base_version: 1, author_user_id: 'u-scouter' })],
+      },
+      ctx,
+    );
+    expect(res.results[0]).toMatchObject({ status: 'rejected', reason: 'forbidden' });
+    expect(ctx.rows.scouting_entries.get('e-1')?.version).toBe(1);
+  });
+
+  const deleteOp = (over: Partial<Operation> = {}): Operation =>
+    op({
+      action: 'delete',
+      base_version: 1,
+      payload: {},
+      client_updated_at: '2026-11-14T09:01:00.000Z',
+      ...over,
+    });
+
+  it('never lets a scouter delete, not even their own fresh entry (SPEC-FINAL 7.6)', async () => {
+    await syncPush(scouter, { device_id: 'd-1', operations: [op()] }, ctx);
+    const res = await syncPush(scouter, { device_id: 'd-1', operations: [deleteOp()] }, ctx);
+    expect(res.results[0]).toMatchObject({ status: 'rejected', reason: 'forbidden' });
+    expect(ctx.rows.scouting_entries.get('e-1')).toMatchObject({ version: 1, deleted_at: null });
+  });
+
+  it('lets a lead author soft-delete a scouter entry', async () => {
+    await syncPush(scouter, { device_id: 'd-1', operations: [op()] }, ctx);
+    const res = await syncPush(
+      lead,
+      { device_id: 'd-2', operations: [deleteOp({ author_user_id: 'u-lead' })] },
+      ctx,
+    );
+    expect(res.results[0]).toMatchObject({ status: 'applied', new_version: 2 });
+    expect(ctx.rows.scouting_entries.get('e-1')).toMatchObject({
+      version: 2,
+      deleted_at: ctx.nowValue.toISOString(),
+      scouter_id: 'u-scouter',
+    });
+  });
+
+  it('never widens the window: a resent fresher client_created_at is ignored', async () => {
+    await syncPush(scouter, { device_id: 'd-1', operations: [op()] }, ctx);
+    const first = await syncPush(
+      scouter,
+      {
+        device_id: 'd-1',
+        operations: [
+          op({
+            action: 'update',
+            base_version: 1,
+            client_created_at: '2026-11-14T09:04:00.000Z',
+            client_updated_at: '2026-11-14T09:04:00.000Z',
+          }),
+        ],
+      },
+      ctx,
+    );
+    expect(first.results[0]).toMatchObject({ status: 'applied', new_version: 2 });
+    const second = await syncPush(
+      scouter,
+      {
+        device_id: 'd-1',
+        operations: [
+          op({
+            action: 'update',
+            base_version: 2,
+            client_created_at: '2026-11-14T09:04:00.000Z',
+            client_updated_at: '2026-11-14T09:07:00.000Z',
+          }),
+        ],
+      },
+      ctx,
+    );
+    expect(second.results[0]).toMatchObject({ status: 'rejected', reason: 'edit-window-expired' });
+    expect(ctx.rows.scouting_entries.get('e-1')).toMatchObject({
+      version: 2,
+      client_created_at: '2026-11-14T09:00:00.000Z',
+    });
+  });
+
+  it('never stores a payload-supplied updated_at or scouter_id', async () => {
+    const res = await syncPush(
+      scouter,
+      {
+        device_id: 'd-1',
+        operations: [
+          op({
+            payload: {
+              ...op().payload,
+              updated_at: '2000-01-01T00:00:00.000Z',
+              scouter_id: 'u-lead',
+            },
+          }),
+        ],
+      },
+      ctx,
+    );
+    expect(res.results[0]).toMatchObject({ status: 'applied' });
+    const row = ctx.rows.scouting_entries.get('e-1');
+    expect(row?.scouter_id).toBe('u-scouter');
+    expect(row?.updated_at).not.toBe('2000-01-01T00:00:00.000Z');
+  });
+
+  it('applies one bearer push of three creates by three scouters, each as its own author (SPEC-FINAL 7.5)', async () => {
+    ctx.users.set('u-s2', { id: 'u-s2', role: 'scouter', disabled_at: null });
+    ctx.users.set('u-s3', { id: 'u-s3', role: 'scouter', disabled_at: null });
+    const res = await syncPush(
+      scouter,
+      {
+        device_id: 'd-collector',
+        operations: [
+          op({ row_id: 'e-a', seq: 1, author_user_id: 'u-scouter' }),
+          op({ row_id: 'e-b', seq: 2, author_user_id: 'u-s2' }),
+          op({ row_id: 'e-c', seq: 3, author_user_id: 'u-s3' }),
+        ],
+      },
+      ctx,
+    );
+    expect(res.results.map((r) => r.status)).toEqual(['applied', 'applied', 'applied']);
+    expect(ctx.rows.scouting_entries.get('e-a')?.scouter_id).toBe('u-scouter');
+    expect(ctx.rows.scouting_entries.get('e-b')?.scouter_id).toBe('u-s2');
+    expect(ctx.rows.scouting_entries.get('e-c')?.scouter_id).toBe('u-s3');
+  });
 });

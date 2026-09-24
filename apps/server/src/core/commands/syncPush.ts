@@ -1,6 +1,8 @@
 import {
+  can,
   isUser,
   validateEntryData,
+  withinSelfEditWindow,
   validateEntryShape,
   type Caller,
   type Operation,
@@ -10,12 +12,42 @@ import {
   type RejectionReason,
   type RobotStatus,
 } from '@frc/shared';
-import type { UseCaseContext } from '../context.js';
+import type { StoredUser, UseCaseContext } from '../context.js';
 
 const rejected = (opId: string, reason: RejectionReason, detail?: string): PushResult =>
   detail === undefined
     ? { op_id: opId, status: 'rejected', reason }
     : { op_id: opId, status: 'rejected', reason, detail };
+
+/**
+ * Keys the server owns or derives from the operation itself. They are dropped from the
+ * payload before a write, so a client can neither reassign authorship, set its own
+ * version, nor supply an `updated_at` that bypasses the `now()` default and hides the row
+ * from the delta pull's cursor (SPEC-FINAL 9.3, 9.4).
+ */
+const SERVER_OWNED_KEYS = new Set([
+  'id',
+  'scouter_id',
+  'version',
+  'created_at',
+  'updated_at',
+  'deleted_at',
+  'client_created_at',
+  'client_updated_at',
+]);
+
+const withoutServerOwnedKeys = (payload: Record<string, unknown>): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(payload).filter(([key]) => !SERVER_OWNED_KEYS.has(key)));
+
+/**
+ * The caller every capability check in this file reads: the operation's AUTHOR, never the
+ * bearer (SPEC-FINAL 7.5). The bearer's role grants nothing.
+ */
+const callerOf = (author: StoredUser): Caller => ({
+  kind: 'user',
+  userId: author.id,
+  role: author.role,
+});
 
 /**
  * SPEC-FINAL 9.3.1. Operations are applied in seq order, each independently; a
@@ -68,14 +100,21 @@ async function applyOne(caller: Caller, op: Operation, ctx: UseCaseContext): Pro
     };
   }
 
-  if (op.entity === 'match') return applyBareMatch(op, ctx);
+  if (op.entity === 'match') return applyBareMatch(op, author, ctx);
   if (op.entity !== 'scouting_entry') {
     return rejected(op.op_id, 'invalid', `entity '${op.entity}' is not accepted yet`);
   }
-  return applyEntry(op, ctx);
+  return applyEntry(op, author, ctx);
 }
 
-async function applyBareMatch(op: Operation, ctx: UseCaseContext): Promise<PushResult> {
+async function applyBareMatch(
+  op: Operation,
+  author: StoredUser,
+  ctx: UseCaseContext,
+): Promise<PushResult> {
+  if (!can(callerOf(author), 'ensure_match')) {
+    return rejected(op.op_id, 'forbidden', 'the author may not create a match');
+  }
   // SPEC-FINAL 6.4: the bare auto-creation only — event, type, number. A no-op if it
   // exists. `matches` has no version column, so new_version is always 1.
   const existing = await ctx.store.getRow('match', op.row_id);
@@ -101,11 +140,20 @@ async function applyBareMatch(op: Operation, ctx: UseCaseContext): Promise<PushR
   return { op_id: op.op_id, status: 'applied', row_id: op.row_id, new_version: 1 };
 }
 
-async function applyEntry(op: Operation, ctx: UseCaseContext): Promise<PushResult> {
+async function applyEntry(
+  op: Operation,
+  author: StoredUser,
+  ctx: UseCaseContext,
+): Promise<PushResult> {
   const payload = op.payload as Record<string, unknown>;
+  const authorCaller = callerOf(author);
   const existing = await ctx.store.getRow('scouting_entry', op.row_id);
 
   if (op.action === 'delete') {
+    // SPEC-FINAL 7.6: scouters never delete. Removal is a lead/admin soft-delete.
+    if (!can(authorCaller, 'manage_entries')) {
+      return rejected(op.op_id, 'forbidden', 'only a lead or admin may delete an entry');
+    }
     if (!existing) return rejected(op.op_id, 'invalid', 'no such entry');
     await ctx.store.putRow('scouting_entry', op.row_id, {
       ...existing,
@@ -120,6 +168,24 @@ async function applyEntry(op: Operation, ctx: UseCaseContext): Promise<PushResul
       row_id: op.row_id,
       new_version: existing.version + 1,
     };
+  }
+
+  if (existing) {
+    // An edit of a row the server already holds. A lead or admin may manage any entry at
+    // any age; anyone else only their own, inside the self-edit window (SPEC-FINAL 7.6).
+    if (!can(authorCaller, 'manage_entries')) {
+      if (existing.scouter_id !== author.id) {
+        return rejected(op.op_id, 'forbidden', 'a scouter may edit only their own entry');
+      }
+      // The two CLIENT timestamps, compared to each other and never to server time. The
+      // created stamp is the ROW's, not the operation's, so a client cannot widen its own
+      // window by resending a fresher client_created_at.
+      if (!withinSelfEditWindow(String(existing.client_created_at), op.client_updated_at)) {
+        return rejected(op.op_id, 'edit-window-expired', 'this entry is locked — ask a lead');
+      }
+    }
+  } else if (!can(authorCaller, 'submit_entry')) {
+    return rejected(op.op_id, 'forbidden', 'the author may not submit an entry');
   }
 
   if (existing && op.base_version !== existing.version) {
@@ -151,11 +217,13 @@ async function applyEntry(op: Operation, ctx: UseCaseContext): Promise<PushResul
 
   const version = existing ? existing.version + 1 : 1;
   await ctx.store.putRow('scouting_entry', op.row_id, {
-    ...payload,
+    ...withoutServerOwnedKeys(payload),
     id: op.row_id,
-    scouter_id: op.author_user_id,
+    // An update never reassigns authorship, and never restarts the self-edit window: both
+    // stay the row's own (SPEC-FINAL 7.5, 7.6). A create takes them from the operation.
+    scouter_id: existing ? existing.scouter_id : op.author_user_id,
     version,
-    client_created_at: op.client_created_at,
+    client_created_at: existing ? existing.client_created_at : op.client_created_at,
     client_updated_at: op.client_updated_at,
     deleted_at: null,
   });

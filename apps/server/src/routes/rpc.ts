@@ -1,22 +1,10 @@
 import { Hono } from 'hono';
-import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { AppError } from '@frc/shared';
 import type { ServerConfig } from '../config.js';
 import type { UseCaseContext } from '../core/context.js';
 import { callerFor } from '../auth/callerFor.js';
+import { INTERNAL_ERROR, STATUS } from './errors.js';
 import { REGISTRY, type RegistryEntry } from './registry.js';
-
-const STATUS: Record<string, ContentfulStatusCode> = {
-  invalid: 400,
-  unauthenticated: 401,
-  forbidden: 403,
-  'not-found': 404,
-  conflict: 409,
-  'rate-limited': 429,
-  'parent-deleted': 409,
-  'edit-window-expired': 409,
-  'offline-unavailable': 503,
-};
 
 type Invoke = (input: never) => Promise<unknown>;
 
@@ -68,7 +56,7 @@ export function rpcRoutes(
           );
         }
         console.error(`${name} failed`, e);
-        return c.json({ error: { code: 'invalid', message: 'that did not work' } }, 500);
+        return c.json(INTERNAL_ERROR, 500);
       }
     });
   }

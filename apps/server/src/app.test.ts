@@ -160,6 +160,44 @@ describe.each(SYNC_ROUTES)('$name requires a bearer token (SPEC-FINAL 7.5)', ({ 
   });
 });
 
+describe('the sync routes answer every failure as JSON, never plain text', () => {
+  it('answers a pull for an unknown event with the mapped status and the AppError body', async () => {
+    const missing = '00000000-0000-4000-8000-0000000000e9';
+    const res = await wired().request(`/sync/pull?event_id=${missing}`, {
+      headers: auth(await issueToken(LEAD, config)),
+    });
+    expect(res.status).toBe(404);
+    expect(res.headers.get('content-type')).toContain('application/json');
+    expect(await res.json()).toEqual({
+      error: {
+        code: 'not-found',
+        message: 'that event no longer exists',
+        details: { event_id: missing },
+      },
+    });
+  });
+
+  it('answers a JSON 500 when the store throws, logging neither the token nor the body', async () => {
+    ctx.store.getUser = async () => {
+      throw new Error('connection refused');
+    };
+    const token = await issueToken(LEAD, config);
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const res = await wired().request(`/sync/pull?event_id=${EVENT}`, { headers: auth(token) });
+    const printed = logged.mock.calls.flat().map(String).join(' ');
+    logged.mockRestore();
+
+    expect(res.status).toBe(500);
+    expect(res.headers.get('content-type')).toContain('application/json');
+    expect(await res.json()).toEqual({
+      error: { code: 'invalid', message: 'that did not work' },
+    });
+    expect(printed).toContain('GET /sync/pull failed');
+    expect(printed).not.toContain(token);
+    expect(printed).not.toContain(EVENT);
+  });
+});
+
 describe('POST /sync/push authenticates before it parses', () => {
   it('answers 401, not 400, to a malformed body with no token', async () => {
     const res = await wired().request('/sync/push', {
