@@ -11,6 +11,8 @@ Year-agnostic scouting app for an FRC team. Currently in the **specification pha
   `DEVIATIONS.md` format. Every fact in it was learned the expensive way; none is
   guessable from the code. **A build prompt points at this file rather than restating
   it** — a restated rule goes stale the first time the rule moves.
+- `docs/ops/MISSION-PROMPTS.md` — how to write the prompt that starts a build chat.
+  Read it whenever I ask for a mission prompt.
 - `docs/spec/COLLABORATION.md` — process rules. **Sections 2, 3, 10 and 11 are binding.** Read them.
 
 ## Non-negotiables
