@@ -238,3 +238,72 @@ describe('POST /api/login and /api/refreshToken over HTTP (SPEC-FINAL 7.5)', () 
     expect((await post('/api/refreshToken', { token: 'nonsense' })).status).toBe(401);
   });
 });
+
+describe('POST /api/createUser over HTTP (SPEC-FINAL 7.2, 7.3)', () => {
+  const ADMIN = { id: 'u-admin', username: 'admin', role: 'admin' as const };
+  const body = {
+    username: 'Dana',
+    full_name: 'Dana Levi',
+    role: 'scouter',
+    password: 'firstpass1',
+  };
+  const create = (headers: Record<string, string>) =>
+    wired().request('/api/createUser', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+    });
+
+  it('answers 403 forbidden to a lead with a valid bearer, and creates nothing', async () => {
+    const res = await create(auth(await issueToken(LEAD, config)));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: { code: 'forbidden' } });
+    expect(ctx.usersByName.get('dana')).toBeUndefined();
+  });
+
+  it('answers 401 with no bearer', async () => {
+    const res = await create({});
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ error: { code: 'unauthenticated' } });
+    expect(ctx.usersByName.get('dana')).toBeUndefined();
+  });
+
+  it('answers 200 to an admin, with the new user and no password_hash', async () => {
+    const res = await create(auth(await issueToken(ADMIN, config)));
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).not.toContain('password_hash');
+    expect(text).not.toContain('$2');
+    expect(JSON.parse(text)).toMatchObject({ username: 'dana', full_name: 'Dana Levi' });
+    expect(ctx.usersByName.get('dana')).toBeDefined();
+  });
+
+  it('answers 409 conflict to an admin for a name that is taken in another case', async () => {
+    const token = await issueToken(ADMIN, config);
+    expect((await create(auth(token))).status).toBe(200);
+    const res = await wired().request('/api/createUser', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...auth(token) },
+      body: JSON.stringify({ ...body, username: 'DANA' }),
+    });
+    expect(res.status).toBe(409);
+  });
+});
+
+describe('POST /api/changeOwnPassword over HTTP', () => {
+  it('answers 400 invalid, never 401, to a valid bearer with a wrong current password', async () => {
+    const scouter = ctx.usersById.get('u-scouter') as StoredFullUser;
+    ctx.usersById.set('u-scouter', { ...scouter, password_hash: await hashPassword('rightpass1') });
+    const token = await issueToken(
+      { id: 'u-scouter', username: 'scouter', role: 'scouter' },
+      config,
+    );
+    const res = await wired().request('/api/changeOwnPassword', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...auth(token) },
+      body: JSON.stringify({ current_password: 'wrongpass1', new_password: 'evennewer1' }),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: { code: 'invalid' } });
+  });
+});

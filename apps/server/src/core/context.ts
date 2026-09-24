@@ -14,6 +14,9 @@ export type StoredFullUser = StoredUser & {
   created_at: string;
 };
 
+/** A user with no `password_hash`: what `listUsers` selects, by an explicit column list. */
+export type StoredPublicUser = Omit<StoredFullUser, 'password_hash'>;
+
 export type StoredRow = Record<string, unknown> & { id: string; version: number };
 
 export type PullScope = { eventId: string; seasonId: string };
@@ -65,13 +68,21 @@ export type Store = {
   /** By id, never by username: a rename must not move a session to another person (1.12). */
   getFullUser(id: string): Promise<StoredFullUser | null>;
   getUserByUsername(usernameLower: string): Promise<StoredFullUser | null>;
+  /**
+   * Both write methods throw an error whose `code` is Postgres's own. A unique violation
+   * on `lower(username)` is `'23505'`, which the use case turns into a `conflict`.
+   */
   insertUser(row: Record<string, unknown>): Promise<StoredFullUser>;
   updateUser(id: string, patch: Record<string, unknown>): Promise<StoredFullUser>;
+  /**
+   * Ordered by username then id; `after` is the last row of the previous page (keyset).
+   * Never selects `password_hash` (SPEC-FINAL 18.5, Appendix C).
+   */
   listUsers(options: {
     includeDisabled: boolean;
     limit: number;
-    cursor?: string;
-  }): Promise<StoredFullUser[]>;
+    after?: { username: string; id: string };
+  }): Promise<StoredPublicUser[]>;
   countEnabledAdmins(): Promise<number>;
 
   // context, seasons, events (task 1.18)

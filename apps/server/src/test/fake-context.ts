@@ -6,6 +6,7 @@ import type {
   StoredUser,
   UseCaseContext,
 } from '../core/context.js';
+import { DUMMY_PASSWORD_HASH } from '../auth/password.js';
 import { stubsFor } from '../repos/store.js';
 
 export type FakeRow = Record<string, unknown> & { id: string; version: number };
@@ -30,6 +31,162 @@ const MATCH_COLUMNS = new Set([
   'created_at',
   'updated_at',
 ]);
+
+/** The columns of public.users (migration 20260903091000_forms.sql), checked the same way. */
+const USER_COLUMNS = new Set([
+  'id',
+  'username',
+  'full_name',
+  'password_hash',
+  'role',
+  'must_change_password',
+  'disabled_at',
+  'created_at',
+  'updated_at',
+]);
+
+function checkUserColumns(row: Record<string, unknown>): void {
+  const unknown = Object.keys(row).find((column) => !USER_COLUMNS.has(column));
+  if (unknown !== undefined) {
+    throw new Error(`Could not find the '${unknown}' column of 'users' in the schema cache`);
+  }
+}
+
+/** Shaped like the Supabase store's errors: a message and Postgres's own `code`. */
+function pgError(code: string, constraintOrMessage: string): Error & { code: string } {
+  const message =
+    code === '23505'
+      ? `duplicate key value violates unique constraint "${constraintOrMessage}"`
+      : constraintOrMessage;
+  return Object.assign(new Error(message), { code });
+}
+
+function compareKeys(a: string[], b: string[]): number {
+  for (let i = 0; i < a.length; i += 1) {
+    const x = a[i] as string;
+    const y = b[i] as string;
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
+const FIXTURE_CREATED_AT = '2026-11-01T00:00:00.000Z';
+
+/**
+ * `ctx.users`, as a view over `usersById`. `set` merges the id, role and disabled_at into
+ * the full record (creating a placeholder one, whose username is its id, if there is
+ * none); `get` projects the full record back down to a StoredUser.
+ */
+class UserView extends Map<string, StoredUser> {
+  constructor(private readonly byId: Map<string, StoredFullUser>) {
+    super();
+  }
+  private snapshot(): Map<string, StoredUser> {
+    return new Map(
+      [...this.byId].map(([id, u]) => [id, { id: u.id, role: u.role, disabled_at: u.disabled_at }]),
+    );
+  }
+  override get(id: string): StoredUser | undefined {
+    return this.snapshot().get(id);
+  }
+  override set(id: string, user: StoredUser): this {
+    const existing = this.byId.get(id);
+    this.byId.set(
+      id,
+      existing
+        ? { ...existing, role: user.role, disabled_at: user.disabled_at }
+        : {
+            ...user,
+            id,
+            username: id,
+            full_name: id,
+            password_hash: DUMMY_PASSWORD_HASH,
+            must_change_password: false,
+            created_at: FIXTURE_CREATED_AT,
+          },
+    );
+    return this;
+  }
+  override has(id: string): boolean {
+    return this.byId.has(id);
+  }
+  override delete(id: string): boolean {
+    return this.byId.delete(id);
+  }
+  override clear(): void {
+    this.byId.clear();
+  }
+  override get size(): number {
+    return this.byId.size;
+  }
+  override keys() {
+    return this.snapshot().keys();
+  }
+  override values() {
+    return this.snapshot().values();
+  }
+  override entries() {
+    return this.snapshot().entries();
+  }
+  override [Symbol.iterator]() {
+    return this.snapshot()[Symbol.iterator]();
+  }
+  override forEach(
+    callback: (value: StoredUser, key: string, map: Map<string, StoredUser>) => void,
+  ): void {
+    this.snapshot().forEach((value, key) => callback(value, key, this));
+  }
+}
+
+/**
+ * `ctx.usersByName`, as a view over `usersById`, keyed by lowercased username. `set`
+ * stores the user under ITS OWN id, whatever name key the test used.
+ */
+class UsersByNameView extends Map<string, StoredFullUser> {
+  constructor(private readonly byId: Map<string, StoredFullUser>) {
+    super();
+  }
+  private snapshot(): Map<string, StoredFullUser> {
+    return new Map([...this.byId.values()].map((u) => [u.username.toLowerCase(), u]));
+  }
+  override get(name: string): StoredFullUser | undefined {
+    return this.snapshot().get(name.toLowerCase());
+  }
+  override set(_name: string, user: StoredFullUser): this {
+    this.byId.set(user.id, user);
+    return this;
+  }
+  override has(name: string): boolean {
+    return this.snapshot().has(name.toLowerCase());
+  }
+  override delete(name: string): boolean {
+    const user = this.get(name);
+    return user ? this.byId.delete(user.id) : false;
+  }
+  override clear(): void {
+    this.byId.clear();
+  }
+  override get size(): number {
+    return this.snapshot().size;
+  }
+  override keys() {
+    return this.snapshot().keys();
+  }
+  override values() {
+    return this.snapshot().values();
+  }
+  override entries() {
+    return this.snapshot().entries();
+  }
+  override [Symbol.iterator]() {
+    return this.snapshot()[Symbol.iterator]();
+  }
+  override forEach(
+    callback: (value: StoredFullUser, key: string, map: Map<string, StoredFullUser>) => void,
+  ): void {
+    this.snapshot().forEach((value, key) => callback(value, key, this));
+  }
+}
 
 /**
  * Every map the phase-1 tests use, declared once. Later tasks add rows to these maps
@@ -106,16 +263,38 @@ export function makeFakeContext(): FakeContext {
     scouting_entries: new Map<string, FakeRow>(),
     matches: new Map<string, FakeMatchRow>(),
   };
-  const users = new Map([
-    ['u-scouter', { id: 'u-scouter', role: 'scouter' as const, disabled_at: null }],
-    ['u-lead', { id: 'u-lead', role: 'lead' as const, disabled_at: null }],
-  ]);
+  // ONE source of truth for users: `usersById`. `users` and `usersByName` are views over
+  // it, so a write through the store (disableUser, setUserRole) is what getUser — and so
+  // callerFor — reads on the next request, and a test's `ctx.users.set(...)` still works.
+  const usersById = new Map<string, StoredFullUser>(
+    (['scouter', 'lead', 'admin'] as const).map((role) => [
+      `u-${role}`,
+      {
+        id: `u-${role}`,
+        username: role,
+        full_name: `Fixture ${role}`,
+        role,
+        // No password verifies against it; a test that needs one sets it with resetPassword.
+        password_hash: DUMMY_PASSWORD_HASH,
+        must_change_password: false,
+        disabled_at: null,
+        created_at: FIXTURE_CREATED_AT,
+      },
+    ]),
+  );
+  const users = new UserView(usersById);
+  const usersByName = new UsersByNameView(usersById);
+  const assertUsernameFree = (username: string, ownId: string): void => {
+    for (const other of usersById.values()) {
+      if (other.id !== ownId && other.username.toLowerCase() === username.toLowerCase()) {
+        throw pgError('23505', 'users_username_lower_idx');
+      }
+    }
+  };
   const ops = new Set<string>();
   const appliedOrder: string[] = [];
   const pullRows = new Map<string, Record<string, unknown>[]>();
   const knownEvents = new Set(['ev-1']);
-  const usersByName = new Map<string, StoredFullUser>();
-  const usersById = new Map<string, StoredFullUser>();
 
   const fake = {
     // every map from the FakeContext type, constructed empty
@@ -169,7 +348,7 @@ export function makeFakeContext(): FakeContext {
   // generic inference does not flow FakeContext's `store: Store` field back in as a
   // contextual type for a nested object literal, which left every method parameter
   // here implicitly `any`. The `as Store` cast is the same fix as repos/store.ts's —
-  // stubsFor's spread only carries an index signature, not the 59 named methods it
+  // stubsFor's spread only carries an index signature, not the named methods it
   // supplies at runtime.
   const store = {
     async getUser(id) {
@@ -180,10 +359,54 @@ export function makeFakeContext(): FakeContext {
     },
     // Matches the Supabase store: case-insensitive and exact, whatever key a test used.
     async getUserByUsername(usernameLower) {
-      for (const user of usersByName.values()) {
+      for (const user of usersById.values()) {
         if (user.username.toLowerCase() === usernameLower) return user;
       }
       return null;
+    },
+    async insertUser(row) {
+      checkUserColumns(row);
+      const user = {
+        must_change_password: false,
+        disabled_at: null,
+        created_at: fake.nowValue.toISOString(),
+        ...row,
+      } as StoredFullUser;
+      if (usersById.has(user.id)) throw pgError('23505', 'users_pkey');
+      assertUsernameFree(user.username, user.id);
+      usersById.set(user.id, user);
+      return user;
+    },
+    async updateUser(id, patch) {
+      checkUserColumns(patch);
+      const existing = usersById.get(id);
+      // PostgREST's `.single()` on zero rows.
+      if (!existing) throw pgError('PGRST116', 'no user with that id');
+      const next = { ...existing, ...patch } as StoredFullUser;
+      assertUsernameFree(next.username, id);
+      usersById.set(id, next);
+      return next;
+    },
+    async listUsers({ includeDisabled, limit, after }) {
+      const key = (u: { username: string; id: string }) => [u.username.toLowerCase(), u.id];
+      const sorted = [...usersById.values()]
+        .filter((u) => includeDisabled || u.disabled_at === null)
+        .sort((a, b) => compareKeys(key(a), key(b)));
+      const page = after ? sorted.filter((u) => compareKeys(key(u), key(after)) > 0) : sorted;
+      // The explicit column list of the Supabase store, as an explicit projection.
+      return page.slice(0, limit).map((u) => ({
+        id: u.id,
+        username: u.username,
+        full_name: u.full_name,
+        role: u.role,
+        must_change_password: u.must_change_password,
+        disabled_at: u.disabled_at,
+        created_at: u.created_at,
+      }));
+    },
+    async countEnabledAdmins() {
+      return [...usersById.values()].filter((u) => u.role === 'admin' && u.disabled_at === null)
+        .length;
     },
     async wasApplied(opId) {
       return ops.has(opId);
@@ -238,10 +461,6 @@ export function makeFakeContext(): FakeContext {
       'listConflicts',
       'getConflict',
       'resolveConflictRow',
-      'insertUser',
-      'updateUser',
-      'listUsers',
-      'countEnabledAdmins',
       'getActiveContext',
       'setActiveContext',
       'getSeason',

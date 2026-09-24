@@ -141,3 +141,94 @@ describe('supabaseStore.getUser and getFullUser', () => {
     await expect(store.getFullUser('u-1')).rejects.toThrow('connection refused');
   });
 });
+
+type Call = [string, ...unknown[]];
+
+/** Records every supabase-js chain call and resolves to `result` wherever it is awaited. */
+function recordingDb(result: {
+  data?: unknown;
+  error: { message: string; code?: string; details?: string } | null;
+  count?: number | null;
+}): { db: Db; calls: Call[] } {
+  const calls: Call[] = [];
+  const chain: Record<string, unknown> = {};
+  for (const method of [
+    'select',
+    'insert',
+    'update',
+    'eq',
+    'is',
+    'gt',
+    'order',
+    'limit',
+    'single',
+  ]) {
+    chain[method] = (...args: unknown[]) => {
+      calls.push([method, ...args]);
+      return chain;
+    };
+  }
+  chain.then = (resolve: (value: unknown) => unknown) => resolve(result);
+  const db = {
+    from: (table: string) => {
+      calls.push(['from', table]);
+      return chain;
+    },
+  } as unknown as Db;
+  return { db, calls };
+}
+
+describe('supabaseStore user writes and listUsers', () => {
+  it('listUsers selects an explicit column list with no password_hash', async () => {
+    const { db, calls } = recordingDb({ data: [], error: null });
+    await supabaseStore(db).listUsers({ includeDisabled: false, limit: 51 });
+    const select = calls.find(([m]) => m === 'select');
+    expect(select?.[1]).toBe(
+      'id, username, full_name, role, must_change_password, disabled_at, created_at',
+    );
+    expect(String(select?.[1])).not.toContain('password_hash');
+    expect(String(select?.[1])).not.toContain('*');
+  });
+
+  it('listUsers hides disabled users unless asked, orders by username then id, and bounds the page', async () => {
+    const hidden = recordingDb({ data: [], error: null });
+    await supabaseStore(hidden.db).listUsers({ includeDisabled: false, limit: 51 });
+    expect(hidden.calls).toContainEqual(['is', 'disabled_at', null]);
+    expect(hidden.calls).toContainEqual(['order', 'username', { ascending: true }]);
+    expect(hidden.calls).toContainEqual(['order', 'id', { ascending: true }]);
+    expect(hidden.calls).toContainEqual(['limit', 51]);
+
+    const all = recordingDb({ data: [], error: null });
+    await supabaseStore(all.db).listUsers({
+      includeDisabled: true,
+      limit: 10,
+      after: { username: 'dana', id: 'u-1' },
+    });
+    expect(all.calls.find(([m]) => m === 'is')).toBeUndefined();
+    expect(all.calls).toContainEqual(['gt', 'username', 'dana']);
+  });
+
+  it('keeps the Postgres code on a unique violation, and never the details', async () => {
+    const { db } = recordingDb({
+      data: null,
+      error: {
+        message: 'duplicate key value violates unique constraint "users_username_lower_idx"',
+        code: '23505',
+        details: 'Failing row contains (..., $2a$10$abc, ...)',
+      },
+    });
+    const error = await supabaseStore(db)
+      .insertUser({ id: 'u-1', username: 'dana' })
+      .catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: '23505' });
+    expect(JSON.stringify(error)).not.toContain('$2a$');
+    expect(String((error as Error).message)).not.toContain('$2a$');
+  });
+
+  it('countEnabledAdmins counts enabled admins with a head-only count', async () => {
+    const { db, calls } = recordingDb({ data: null, error: null, count: 2 });
+    expect(await supabaseStore(db).countEnabledAdmins()).toBe(2);
+    expect(calls).toContainEqual(['eq', 'role', 'admin']);
+    expect(calls).toContainEqual(['is', 'disabled_at', null]);
+  });
+});

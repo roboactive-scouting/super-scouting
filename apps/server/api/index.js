@@ -241,6 +241,11 @@ var TABLE = {
   alliance_slot: "alliance_slots",
   alliance_decline: "alliance_declines"
 };
+var FULL_USER_COLUMNS = "id, username, full_name, password_hash, role, must_change_password, disabled_at, created_at";
+var PUBLIC_USER_COLUMNS = "id, username, full_name, role, must_change_password, disabled_at, created_at";
+function dbError(error) {
+  return Object.assign(new Error(error.message), { code: error.code });
+}
 function supabaseStore(db) {
   const pullEntity = supabasePullEntity(db);
   return {
@@ -263,6 +268,29 @@ function supabaseStore(db) {
       if (error) throw new Error(error.message);
       const rows = data ?? [];
       return rows.find((row) => row.username.toLowerCase() === usernameLower) ?? null;
+    },
+    async insertUser(row) {
+      const { data, error } = await db.from("users").insert(row).select(FULL_USER_COLUMNS).single();
+      if (error) throw dbError(error);
+      return data;
+    },
+    async updateUser(id, patch) {
+      const { data, error } = await db.from("users").update(patch).eq("id", id).select(FULL_USER_COLUMNS).single();
+      if (error) throw dbError(error);
+      return data;
+    },
+    async listUsers(options) {
+      let query = db.from("users").select(PUBLIC_USER_COLUMNS);
+      if (!options.includeDisabled) query = query.is("disabled_at", null);
+      if (options.after) query = query.gt("username", options.after.username);
+      const { data, error } = await query.order("username", { ascending: true }).order("id", { ascending: true }).limit(options.limit);
+      if (error) throw dbError(error);
+      return data ?? [];
+    },
+    async countEnabledAdmins() {
+      const { count, error } = await db.from("users").select("id", { count: "exact", head: true }).eq("role", "admin").is("disabled_at", null);
+      if (error) throw dbError(error);
+      return count ?? 0;
     },
     async wasApplied(opId) {
       const { data } = await db.from("applied_operations").select("op_id").eq("op_id", opId).maybeSingle();
@@ -294,7 +322,7 @@ function supabaseStore(db) {
       return { eventId: data.id, seasonId: data.season_id };
     },
     pullEntity,
-    // The other 59 methods start as loud stubs, exactly as the fake does. Each later
+    // The remaining methods start as loud stubs, exactly as the fake does. Each later
     // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
     // without these the file does not compile at all.
     ...stubsFor([
@@ -304,10 +332,6 @@ function supabaseStore(db) {
       "listConflicts",
       "getConflict",
       "resolveConflictRow",
-      "insertUser",
-      "updateUser",
-      "listUsers",
-      "countEnabledAdmins",
       "getActiveContext",
       "setActiveContext",
       "getSeason",
@@ -356,7 +380,7 @@ function supabaseStore(db) {
       "countDeleteImpact"
     ])
     // The spread above only carries an index signature (its keys come from a plain
-    // string[]), so TS can't see that it supplies the other 59 named Store methods;
+    // string[]), so TS can't see that it supplies the remaining named Store methods;
     // the assertion tells it what `stubsFor` guarantees at runtime instead.
   };
 }
@@ -395,6 +419,58 @@ var loginOutput = z3.object({
 });
 var refreshTokenInput = z3.object({ token: z3.string().min(1) });
 
+// ../../packages/shared/src/api/users.ts
+import { z as z4 } from "zod";
+var MIN_PASSWORD_LENGTH = 8;
+var USERNAME_PATTERN = /^[\p{L}\p{N}._-]{1,40}$/u;
+var LIST_USERS_DEFAULT_LIMIT = 50;
+var LIST_USERS_MAX_LIMIT = 200;
+var userRoleSchema = z4.enum(["scouter", "lead", "admin"]);
+var usernameSchema = z4.string().transform((value) => value.trim().toLowerCase()).pipe(
+  z4.string().regex(
+    USERNAME_PATTERN,
+    "use 1 to 40 letters, digits, dots, underscores or hyphens, with no spaces"
+  )
+);
+var passwordSchema = z4.string().min(MIN_PASSWORD_LENGTH, `use at least ${MIN_PASSWORD_LENGTH} characters`);
+var userId = z4.string().min(1);
+var publicUser = z4.object({
+  id: z4.string(),
+  username: z4.string(),
+  full_name: z4.string(),
+  role: userRoleSchema,
+  must_change_password: z4.boolean(),
+  disabled_at: z4.string().nullable(),
+  created_at: z4.string()
+});
+var createUserInput = z4.object({
+  username: usernameSchema,
+  full_name: z4.string().trim().min(1).max(80),
+  role: userRoleSchema,
+  password: passwordSchema
+});
+var setUserRoleInput = z4.object({ user_id: userId, role: userRoleSchema });
+var resetPasswordInput = z4.object({
+  user_id: userId,
+  password: passwordSchema,
+  /** Forces a change at next login (SPEC-FINAL 7.3). */
+  must_change: z4.boolean().default(false)
+});
+var disableUserInput = z4.object({ user_id: userId });
+var changeOwnPasswordInput = z4.object({
+  current_password: z4.string().min(1),
+  new_password: passwordSchema
+}).strict();
+var listUsersInput = z4.object({
+  include_disabled: z4.boolean().default(false),
+  limit: z4.number().int().min(1).optional(),
+  cursor: z4.string().min(1).optional()
+});
+var listUsersOutput = z4.object({
+  items: z4.array(publicUser),
+  next_cursor: z4.string().nullable()
+});
+
 // ../../packages/shared/src/errors.ts
 var AppError = class extends Error {
   code;
@@ -410,6 +486,37 @@ var AppError = class extends Error {
 // ../../packages/shared/src/caller.ts
 function isUser(caller) {
   return caller.kind === "user";
+}
+
+// ../../packages/shared/src/auth/permissions.ts
+var ALL = ["scouter", "lead", "admin"];
+var LEADS = ["lead", "admin"];
+var ADMIN = ["admin"];
+var CAPABILITIES = {
+  view_all_data: ALL,
+  submit_entry: ALL,
+  edit_own_entry: ALL,
+  ensure_match: ALL,
+  manage_entries: LEADS,
+  resolve_conflict: LEADS,
+  add_do_not_pick: LEADS,
+  draft_dashboard: LEADS,
+  save_dashboard: ADMIN,
+  manage_forms: ADMIN,
+  manage_events: ADMIN,
+  manage_pick_lists: ADMIN,
+  edit_do_not_pick: ADMIN,
+  record_alliance_bracket: ADMIN,
+  manage_users: ADMIN,
+  delete_objects: ADMIN
+};
+function can(caller, capability) {
+  return isUser(caller) && CAPABILITIES[capability].includes(caller.role);
+}
+function assertCan(caller, capability) {
+  if (!can(caller, capability)) {
+    throw new AppError("forbidden", `not permitted: ${capability}`, { capability });
+  }
 }
 
 // ../../packages/shared/src/forms/entryShape.ts
@@ -546,7 +653,7 @@ function validateEntryData(fields, robotStatus, data) {
 }
 
 // ../../packages/shared/src/sync/operation.ts
-import { z as z4 } from "zod";
+import { z as z5 } from "zod";
 var SYNC_ENTITIES = [
   "scouting_entry",
   "match",
@@ -556,19 +663,19 @@ var SYNC_ENTITIES = [
   "alliance_slot",
   "alliance_decline"
 ];
-var isoDateTime = z4.string().datetime({ offset: false });
-var operationSchema = z4.object({
-  op_id: z4.string().min(1),
-  entity: z4.enum(SYNC_ENTITIES),
-  row_id: z4.string().uuid(),
-  action: z4.enum(["create", "update", "delete"]),
-  base_version: z4.number().int().positive().nullable(),
+var isoDateTime = z5.string().datetime({ offset: false });
+var operationSchema = z5.object({
+  op_id: z5.string().min(1),
+  entity: z5.enum(SYNC_ENTITIES),
+  row_id: z5.string().uuid(),
+  action: z5.enum(["create", "update", "delete"]),
+  base_version: z5.number().int().positive().nullable(),
   /** Always the whole row, never a patch. Field-level merging does not exist. */
-  payload: z4.record(z4.unknown()),
-  author_user_id: z4.string().uuid(),
+  payload: z5.record(z5.unknown()),
+  author_user_id: z5.string().uuid(),
   client_created_at: isoDateTime,
   client_updated_at: isoDateTime,
-  seq: z4.number().int().nonnegative()
+  seq: z5.number().int().nonnegative()
 }).superRefine((op, ctx) => {
   if (op.action === "create" && op.base_version !== null) {
     ctx.addIssue({
@@ -594,12 +701,12 @@ var operationSchema = z4.object({
 });
 
 // ../../packages/shared/src/sync/protocol.ts
-import { z as z5 } from "zod";
+import { z as z6 } from "zod";
 var MAX_OPERATIONS_PER_PUSH = 200;
 var WATERMARK_OVERLAP_MS = 5e3;
-var pushRequestSchema = z5.object({
-  device_id: z5.string().uuid(),
-  operations: z5.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
+var pushRequestSchema = z6.object({
+  device_id: z6.string().uuid(),
+  operations: z6.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
 });
 var PULL_ENTITY_KEYS = [
   "app_settings",
@@ -627,15 +734,19 @@ var PULL_ENTITY_KEYS = [
   "dashboard_charts",
   "weight_presets"
 ];
-var pullRequestSchema = z5.object({
-  event_id: z5.string().uuid(),
-  since: z5.string().datetime({ offset: false }).optional(),
-  cursor: z5.string().optional()
+var pullRequestSchema = z6.object({
+  event_id: z6.string().uuid(),
+  since: z6.string().datetime({ offset: false }).optional(),
+  cursor: z6.string().optional()
 });
 
 // src/auth/password.ts
 import bcrypt from "bcryptjs";
+var BCRYPT_COST = 10;
 var DUMMY_PASSWORD_HASH = "$2a$10$7VlgGGLSP5BKhfpuSwH9tu9Fnsni7TeRAUC5VcJocBS2rWdIZotAm";
+async function hashPassword(plain) {
+  return bcrypt.hash(plain, BCRYPT_COST);
+}
 async function verifyPassword(plain, hash) {
   return bcrypt.compare(plain, hash);
 }
@@ -717,6 +828,165 @@ async function refreshToken(input, ctx, config2) {
   };
 }
 
+// src/core/commands/users.ts
+var changeOwnPasswordLimiter = makeRateLimiter({ limit: 10, windowMs: 5 * 6e4 });
+function toPublicUser(user) {
+  return {
+    id: user.id,
+    username: user.username,
+    full_name: user.full_name,
+    role: user.role,
+    must_change_password: user.must_change_password,
+    disabled_at: user.disabled_at,
+    created_at: user.created_at
+  };
+}
+function parseInput(schema2, input) {
+  const parsed = schema2.safeParse(input);
+  if (!parsed.success) {
+    const message = parsed.error.issues.map((issue) => `${issue.path.join(".") || "input"}: ${issue.message}`).join("; ");
+    throw new AppError("invalid", message);
+  }
+  return parsed.data;
+}
+function isUniqueViolation(e) {
+  return typeof e === "object" && e !== null && e.code === "23505";
+}
+async function writeUser(username, write) {
+  try {
+    return await write();
+  } catch (e) {
+    if (isUniqueViolation(e)) {
+      throw new AppError(
+        "conflict",
+        username ? `the username '${username}' is taken` : "that username is taken"
+      );
+    }
+    throw e;
+  }
+}
+async function targetUser(ctx, id) {
+  const user = await ctx.store.getFullUser(id);
+  if (!user) throw new AppError("not-found", "no such user", { user_id: id });
+  return user;
+}
+async function assertNotLastEnabledAdmin(ctx, target) {
+  if (target.role !== "admin" || target.disabled_at !== null) return;
+  if (await ctx.store.countEnabledAdmins() <= 1) {
+    throw new AppError("invalid", "this is the last enabled admin; make another admin first");
+  }
+}
+async function createUser(caller, input, ctx) {
+  assertCan(caller, "manage_users");
+  const parsed = parseInput(createUserInput, input);
+  if (await ctx.store.getUserByUsername(parsed.username)) {
+    throw new AppError("conflict", `the username '${parsed.username}' is taken`);
+  }
+  const passwordHash = await hashPassword(parsed.password);
+  const stored = await writeUser(
+    parsed.username,
+    () => ctx.store.insertUser({
+      id: crypto.randomUUID(),
+      username: parsed.username,
+      full_name: parsed.full_name,
+      role: parsed.role,
+      password_hash: passwordHash,
+      must_change_password: false
+    })
+  );
+  return toPublicUser(stored);
+}
+async function setUserRole(caller, input, ctx) {
+  assertCan(caller, "manage_users");
+  const parsed = parseInput(setUserRoleInput, input);
+  const target = await targetUser(ctx, parsed.user_id);
+  if (target.role === parsed.role) return toPublicUser(target);
+  await assertNotLastEnabledAdmin(ctx, target);
+  const stored = await writeUser(
+    null,
+    () => ctx.store.updateUser(target.id, { role: parsed.role })
+  );
+  return toPublicUser(stored);
+}
+async function resetPassword(caller, input, ctx) {
+  assertCan(caller, "manage_users");
+  const parsed = parseInput(resetPasswordInput, input);
+  const target = await targetUser(ctx, parsed.user_id);
+  const passwordHash = await hashPassword(parsed.password);
+  const stored = await writeUser(
+    null,
+    () => ctx.store.updateUser(target.id, {
+      password_hash: passwordHash,
+      must_change_password: parsed.must_change
+    })
+  );
+  return toPublicUser(stored);
+}
+async function disableUser(caller, input, ctx) {
+  assertCan(caller, "manage_users");
+  const parsed = parseInput(disableUserInput, input);
+  const target = await targetUser(ctx, parsed.user_id);
+  if (target.disabled_at !== null) return toPublicUser(target);
+  await assertNotLastEnabledAdmin(ctx, target);
+  const stored = await writeUser(
+    null,
+    () => ctx.store.updateUser(target.id, { disabled_at: ctx.now().toISOString() })
+  );
+  return toPublicUser(stored);
+}
+async function changeOwnPassword(caller, input, ctx) {
+  if (!isUser(caller)) {
+    throw new AppError("forbidden", "a service caller has no password to change");
+  }
+  const parsed = parseInput(changeOwnPasswordInput, input);
+  if (!changeOwnPasswordLimiter.take(caller.userId)) {
+    throw new AppError("rate-limited", "too many attempts; wait a few minutes and try again");
+  }
+  const self = await ctx.store.getFullUser(caller.userId);
+  if (!self) throw new AppError("unauthenticated", "that session is no longer valid");
+  if (self.disabled_at !== null) {
+    throw new AppError("forbidden", "this account has been disabled; ask an admin");
+  }
+  if (!await verifyPassword(parsed.current_password, self.password_hash)) {
+    throw new AppError("invalid", "the current password is not right");
+  }
+  const passwordHash = await hashPassword(parsed.new_password);
+  const stored = await writeUser(
+    null,
+    () => ctx.store.updateUser(self.id, { password_hash: passwordHash, must_change_password: false })
+  );
+  return toPublicUser(stored);
+}
+
+// src/core/queries/listUsers.ts
+var encodeCursor = (c) => Buffer.from(JSON.stringify({ u: c.username, i: c.id }), "utf8").toString("base64url");
+var decodeCursor = (raw) => {
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8"));
+    if (typeof parsed.u !== "string" || typeof parsed.i !== "string") throw new Error("shape");
+    return { username: parsed.u, id: parsed.i };
+  } catch {
+    throw new AppError("invalid", "cursor is not readable; list again without one");
+  }
+};
+async function listUsers(caller, input, ctx) {
+  void caller;
+  const parsed = parseInput(listUsersInput, input);
+  const limit = Math.min(parsed.limit ?? LIST_USERS_DEFAULT_LIMIT, LIST_USERS_MAX_LIMIT);
+  const after = parsed.cursor ? decodeCursor(parsed.cursor) : void 0;
+  const rows = await ctx.store.listUsers({
+    includeDisabled: parsed.include_disabled,
+    limit: limit + 1,
+    after
+  });
+  const page = rows.slice(0, limit);
+  const last = page[page.length - 1];
+  return {
+    items: page.map(toPublicUser),
+    next_cursor: rows.length > limit && last ? encodeCursor({ username: last.username, id: last.id }) : null
+  };
+}
+
 // src/routes/registry.ts
 var REGISTRY = {
   login: {
@@ -734,6 +1004,48 @@ var REGISTRY = {
     output: loginOutput,
     unauthenticated: true,
     handler: refreshToken
+  },
+  changeOwnPassword: {
+    kind: "command",
+    description: "Change your own password, given the current one. Acts on the caller only and clears the must-change flag. Rate-limited per user.",
+    input: changeOwnPasswordInput,
+    output: publicUser,
+    handler: changeOwnPassword
+  },
+  createUser: {
+    kind: "command",
+    description: "Admin only: create a user with a username, full name, role and initial password. The full name is the only personal datum stored.",
+    input: createUserInput,
+    output: publicUser,
+    handler: createUser
+  },
+  setUserRole: {
+    kind: "command",
+    description: "Admin only: change a user's role. Refuses to demote the last enabled admin. Takes effect on the user's next request.",
+    input: setUserRoleInput,
+    output: publicUser,
+    handler: setUserRole
+  },
+  resetPassword: {
+    kind: "command",
+    description: "Admin only: set a new password for a user, optionally forcing a change at next login. Does not revoke tokens already issued.",
+    input: resetPasswordInput,
+    output: publicUser,
+    handler: resetPassword
+  },
+  disableUser: {
+    kind: "command",
+    description: "Admin only: disable a user. The row and their authorship are kept forever; access ends on their next request. Refuses the last enabled admin.",
+    input: disableUserInput,
+    output: publicUser,
+    handler: disableUser
+  },
+  listUsers: {
+    kind: "query",
+    description: "Users for the picker, the admin table and the offline cache, ordered by username and paginated. Excludes disabled users unless asked. Never returns a password hash.",
+    input: listUsersInput,
+    output: listUsersOutput,
+    handler: listUsers
   }
 };
 
@@ -906,8 +1218,8 @@ async function applyEntry(op, ctx) {
 
 // src/core/queries/syncPull.ts
 var PULL_PAGE_ROWS = 2e3;
-var encodeCursor = (c) => btoa(JSON.stringify(c));
-var decodeCursor = (raw) => {
+var encodeCursor2 = (c) => btoa(JSON.stringify(c));
+var decodeCursor2 = (raw) => {
   try {
     const parsed = JSON.parse(atob(raw));
     if (typeof parsed.entityIndex !== "number" || typeof parsed.offset !== "number") {
@@ -924,7 +1236,7 @@ async function syncPull(caller, input, ctx) {
     throw new AppError("not-found", "that event no longer exists", { event_id: input.event_id });
   }
   const scope = await ctx.store.resolveScope(input.event_id);
-  const start = input.cursor ? decodeCursor(input.cursor) : { entityIndex: 0, offset: 0 };
+  const start = input.cursor ? decodeCursor2(input.cursor) : { entityIndex: 0, offset: 0 };
   const entities = Object.fromEntries(
     PULL_ENTITY_KEYS.map((key2) => [key2, []])
   );
@@ -936,7 +1248,7 @@ async function syncPull(caller, input, ctx) {
     let offset = index === start.entityIndex ? start.offset : 0;
     for (; ; ) {
       if (budget === 0) {
-        nextCursor = encodeCursor({ entityIndex: index, offset });
+        nextCursor = encodeCursor2({ entityIndex: index, offset });
         break;
       }
       const rows = await ctx.store.pullEntity(key2, scope, input.since, offset, budget);

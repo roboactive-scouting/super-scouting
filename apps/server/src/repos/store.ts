@@ -1,5 +1,12 @@
 import type { FormFieldDefinition, SyncEntity } from '@frc/shared';
-import type { PullScope, Store, StoredFullUser, StoredRow, StoredUser } from '../core/context.js';
+import type {
+  PullScope,
+  Store,
+  StoredFullUser,
+  StoredPublicUser,
+  StoredRow,
+  StoredUser,
+} from '../core/context.js';
 import type { Db } from '../db/client.js';
 import { supabasePullEntity } from './pull.js';
 
@@ -14,6 +21,20 @@ const TABLE = {
   alliance_slot: 'alliance_slots',
   alliance_decline: 'alliance_declines',
 } as const satisfies Record<SyncEntity, string>;
+
+const FULL_USER_COLUMNS =
+  'id, username, full_name, password_hash, role, must_change_password, disabled_at, created_at';
+const PUBLIC_USER_COLUMNS =
+  'id, username, full_name, role, must_change_password, disabled_at, created_at';
+
+/**
+ * Keeps Postgres's error `code` (a unique violation is '23505') so a use case can map it,
+ * and nothing else. NEVER `details`: on a failed write to `users` it can hold the whole
+ * row, password_hash included, and rpc.ts logs any error that is not an AppError.
+ */
+export function dbError(error: { message: string; code?: string }): Error & { code?: string } {
+  return Object.assign(new Error(error.message), { code: error.code });
+}
 
 export function supabaseStore(db: Db): Store {
   const pullEntity = supabasePullEntity(db);
@@ -56,6 +77,54 @@ export function supabaseStore(db: Db): Store {
       if (error) throw new Error(error.message);
       const rows = (data ?? []) as StoredFullUser[];
       return rows.find((row) => row.username.toLowerCase() === usernameLower) ?? null;
+    },
+    async insertUser(row: Record<string, unknown>): Promise<StoredFullUser> {
+      // `row` is a generic Record: the same Record<string, unknown>-vs-generated-type gap
+      // as putRow above.
+      const { data, error } = await db
+        .from('users')
+        .insert(row as never)
+        .select(FULL_USER_COLUMNS)
+        .single();
+      if (error) throw dbError(error);
+      return data as StoredFullUser;
+    },
+    async updateUser(id: string, patch: Record<string, unknown>): Promise<StoredFullUser> {
+      // updated_at is set by the table's set_updated_at trigger.
+      const { data, error } = await db
+        .from('users')
+        .update(patch as never)
+        .eq('id', id)
+        .select(FULL_USER_COLUMNS)
+        .single();
+      if (error) throw dbError(error);
+      return data as StoredFullUser;
+    },
+    async listUsers(options: Parameters<Store['listUsers']>[0]): Promise<StoredPublicUser[]> {
+      // An explicit column list with no password_hash: the hash leaves the server on the
+      // syncPull path and nowhere else (SPEC-FINAL 18.5, Appendix C).
+      let query = db.from('users').select(PUBLIC_USER_COLUMNS);
+      if (!options.includeDisabled) query = query.is('disabled_at', null);
+      // Keyset on username alone is exact: the unique index on lower(username) makes
+      // `username` itself unique, so no two rows share a sort key and the `id` in the
+      // ORDER BY never decides anything. Ordering and `gt` use the same column collation,
+      // so pages have no gaps or repeats whatever that collation is.
+      if (options.after) query = query.gt('username', options.after.username);
+      const { data, error } = await query
+        .order('username', { ascending: true })
+        .order('id', { ascending: true })
+        .limit(options.limit);
+      if (error) throw dbError(error);
+      return (data ?? []) as StoredPublicUser[];
+    },
+    async countEnabledAdmins(): Promise<number> {
+      const { count, error } = await db
+        .from('users')
+        .select('id', { count: 'exact', head: true })
+        .eq('role', 'admin')
+        .is('disabled_at', null);
+      if (error) throw dbError(error);
+      return count ?? 0;
     },
     async wasApplied(opId: string): Promise<boolean> {
       const { data } = await db
@@ -101,7 +170,7 @@ export function supabaseStore(db: Db): Store {
       return { eventId: data.id, seasonId: data.season_id };
     },
     pullEntity,
-    // The other 59 methods start as loud stubs, exactly as the fake does. Each later
+    // The remaining methods start as loud stubs, exactly as the fake does. Each later
     // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
     // without these the file does not compile at all.
     ...stubsFor([
@@ -111,10 +180,6 @@ export function supabaseStore(db: Db): Store {
       'listConflicts',
       'getConflict',
       'resolveConflictRow',
-      'insertUser',
-      'updateUser',
-      'listUsers',
-      'countEnabledAdmins',
       'getActiveContext',
       'setActiveContext',
       'getSeason',
@@ -163,7 +228,7 @@ export function supabaseStore(db: Db): Store {
       'countDeleteImpact',
     ]),
     // The spread above only carries an index signature (its keys come from a plain
-    // string[]), so TS can't see that it supplies the other 59 named Store methods;
+    // string[]), so TS can't see that it supplies the remaining named Store methods;
     // the assertion tells it what `stubsFor` guarantees at runtime instead.
   } as Store;
 }

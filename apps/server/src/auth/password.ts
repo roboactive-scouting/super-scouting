@@ -1,8 +1,11 @@
 import bcrypt from 'bcryptjs';
 
+// One copy of the password rule: the wire schemas in packages/shared validate with it,
+// on the client and here. Re-exported so imports from this module keep working.
+export { MIN_PASSWORD_LENGTH } from '@frc/shared';
+
 /** SPEC-FINAL 7.5 / D1: bcrypt cost 10 via bcryptjs — pure JS, no native build on Vercel. */
 export const BCRYPT_COST = 10;
-export const MIN_PASSWORD_LENGTH = 8;
 
 /**
  * A cost-10 bcrypt hash of a random string that was discarded the moment it was hashed:

@@ -30,6 +30,19 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
     }
   });
 
+  it('has five authenticated commands for that loop to check, so it is not vacuous', () => {
+    const commands = Object.entries(REGISTRY).filter(
+      ([, e]) => e.kind === 'command' && !e.unauthenticated,
+    );
+    expect(commands.map(([n]) => n).sort()).toEqual([
+      'changeOwnPassword',
+      'createUser',
+      'disableUser',
+      'resetPassword',
+      'setUserRole',
+    ]);
+  });
+
   it('marks exactly login and refreshToken as unauthenticated', () => {
     const open = Object.entries(REGISTRY)
       .filter(([, e]) => e.unauthenticated)
@@ -38,7 +51,16 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
   });
 
   it('holds exactly the entries registered so far', () => {
-    expect(Object.keys(REGISTRY).sort()).toEqual(['login', 'refreshToken']);
+    expect(Object.keys(REGISTRY).sort()).toEqual([
+      'changeOwnPassword',
+      'createUser',
+      'disableUser',
+      'listUsers',
+      'login',
+      'refreshToken',
+      'resetPassword',
+      'setUserRole',
+    ]);
   });
 });
 

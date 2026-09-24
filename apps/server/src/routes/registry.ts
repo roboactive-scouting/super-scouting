@@ -1,9 +1,30 @@
 import type { z } from 'zod';
-import { loginInput, loginOutput, refreshTokenInput, type Caller } from '@frc/shared';
+import {
+  changeOwnPasswordInput,
+  createUserInput,
+  disableUserInput,
+  listUsersInput,
+  listUsersOutput,
+  loginInput,
+  loginOutput,
+  publicUser,
+  refreshTokenInput,
+  resetPasswordInput,
+  setUserRoleInput,
+  type Caller,
+} from '@frc/shared';
 import type { ServerConfig } from '../config.js';
 import type { UseCaseContext } from '../core/context.js';
 import { login } from '../core/commands/login.js';
 import { refreshToken } from '../core/commands/refreshToken.js';
+import {
+  changeOwnPassword,
+  createUser,
+  disableUser,
+  resetPassword,
+  setUserRole,
+} from '../core/commands/users.js';
+import { listUsers } from '../core/queries/listUsers.js';
 
 type EntryMeta = {
   kind: 'query' | 'command';
@@ -54,5 +75,53 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     output: loginOutput,
     unauthenticated: true,
     handler: refreshToken,
+  },
+  changeOwnPassword: {
+    kind: 'command',
+    description:
+      'Change your own password, given the current one. Acts on the caller only and clears the must-change flag. Rate-limited per user.',
+    input: changeOwnPasswordInput,
+    output: publicUser,
+    handler: changeOwnPassword,
+  },
+  createUser: {
+    kind: 'command',
+    description:
+      'Admin only: create a user with a username, full name, role and initial password. The full name is the only personal datum stored.',
+    input: createUserInput,
+    output: publicUser,
+    handler: createUser,
+  },
+  setUserRole: {
+    kind: 'command',
+    description:
+      "Admin only: change a user's role. Refuses to demote the last enabled admin. Takes effect on the user's next request.",
+    input: setUserRoleInput,
+    output: publicUser,
+    handler: setUserRole,
+  },
+  resetPassword: {
+    kind: 'command',
+    description:
+      'Admin only: set a new password for a user, optionally forcing a change at next login. Does not revoke tokens already issued.',
+    input: resetPasswordInput,
+    output: publicUser,
+    handler: resetPassword,
+  },
+  disableUser: {
+    kind: 'command',
+    description:
+      'Admin only: disable a user. The row and their authorship are kept forever; access ends on their next request. Refuses the last enabled admin.',
+    input: disableUserInput,
+    output: publicUser,
+    handler: disableUser,
+  },
+  listUsers: {
+    kind: 'query',
+    description:
+      'Users for the picker, the admin table and the offline cache, ordered by username and paginated. Excludes disabled users unless asked. Never returns a password hash.',
+    input: listUsersInput,
+    output: listUsersOutput,
+    handler: listUsers,
   },
 };

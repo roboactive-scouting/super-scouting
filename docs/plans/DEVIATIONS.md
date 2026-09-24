@@ -2278,3 +2278,154 @@ I ran the suite against a local dev server on the dev database, through a scratc
 - Nothing under `apps/server/src` was touched, so no bundle rebuild was needed.
 
 **Risk:** Any environment seeded before this fix (any dev database, or a CI/local run that ran `pnpm seed` against dev prior to this change) has the old, non-matching hash sitting in its `users` rows and those seed logins will still fail until `pnpm seed` is re-run there. This does not apply to production — production is never seeded (SPEC-FINAL 19.4) and was not touched or contacted by this task.
+
+---
+
+## Task 1.13 — the user wire schemas live in packages/shared, with the password rule
+
+**Plan said:** define `createUserInput`, the other inputs and the `PublicUser` type in `apps/server/src/core/commands/users.ts`, with `MIN_PASSWORD_LENGTH` imported from `apps/server/src/auth/password.ts`.
+
+**What was wrong:** Nothing failed. But the client half (1.15–1.17) must validate with the same objects (SPEC-FINAL 16.1), and it cannot import from `apps/server`. A schema in shared cannot import the server's `MIN_PASSWORD_LENGTH` either.
+
+**What I did instead:** Per orchestrator instruction:
+- Every input and output schema is in the new `packages/shared/src/api/users.ts` (zod only, extensionless), exported from `packages/shared/src/index.ts`. That covers `publicUser`, `createUserInput`, `setUserRoleInput`, `resetPasswordInput`, `disableUserInput`, `changeOwnPasswordInput`, `listUsersInput`, `listUsersOutput`, their types, `PublicUser`, `usernameSchema`, `passwordSchema`, `userRoleSchema`, `USERNAME_PATTERN`, `LIST_USERS_DEFAULT_LIMIT` and `LIST_USERS_MAX_LIMIT`.
+- The field schemas are named `usernameSchema`/`passwordSchema`/`userRoleSchema`, not the plan's local `password`, because a bare `password` or `username` exported from the shared index would collide with later exports.
+- `MIN_PASSWORD_LENGTH` moved to shared. `auth/password.ts` re-exports it, so `import { MIN_PASSWORD_LENGTH } from '../auth/password.js'` still works.
+- `users.ts` and `listUsers.ts` import the schemas and re-export them.
+- Input types are `z.input<…>`, not `z.infer`, so `must_change` and `include_disabled` stay optional for callers. `user_id` is `z.string().min(1)`, not `.uuid()`, because the fake's fixture ids (`u-scouter`) are not uuids. `publicUser.id` is `z.string()` for the same reason.
+- New `packages/shared/src/api/users.test.ts`. The browser-safe test covers the new file automatically.
+
+**Risk:** None. `publicUser` is a non-strict `z.object`, so the RPC layer's `entry.output.parse(output)` strips a `password_hash` even if one ever reached it. The shared test proves that.
+
+---
+
+## Task 1.13 — validation throws AppError('invalid'), and the use cases validate their own input
+
+**Plan said:** `const parsed = createUserInput.parse(input);`
+
+**What was wrong:** `.parse` throws a raw `ZodError`. That reaches rpc.ts's catch as a non-AppError, which returns a 500 and `console.error`s it. The brief's own test expects `{ code: 'invalid' }` for a short password.
+
+**What I did instead:** Per orchestrator instruction, a `parseInput(schema, input)` helper, exported from `users.ts` and reused by `listUsers.ts`. It calls `safeParse` and throws `AppError('invalid', '<path>: <message>; …')`. Zod's issue messages name the field and the rule, never the received string, so no password is echoed; a test proves it for `resetPassword`. The use cases re-validate even though the RPC edge already has, because the CLI transport calls them directly. The order is always authorize, then validate: a lead with a malformed body still gets `forbidden`, and a service caller gets `forbidden` before anything touches ctx.
+
+**Risk:** None.
+
+---
+
+## Task 1.13 — changeOwnPassword: strict input, current password, per-user rate limit
+
+**Plan said:** "`changeOwnPassword` … an `isUser` check that operates only on `caller.userId`". There was no rate limit, the input was not strict, and nothing was said about a wrong current password.
+
+**What was wrong:** Nothing failed. But a non-strict schema silently drops a `user_id`, which hides a client bug. Without a limit, a stolen token could brute-force the account's current password through this endpoint.
+
+**What I did instead:** Per orchestrator instruction:
+- `changeOwnPasswordInput` is `.strict()`, so an extra `user_id` is `invalid`.
+- The steps run in this order:
+  1. A service caller is rejected with `forbidden` before anything else.
+  2. The input is parsed.
+  3. `changeOwnPasswordLimiter.take(caller.userId)` runs. It is a new `makeRateLimiter({ limit: 10, windowMs: 5 * 60_000 })`, exported with `reset()`. Over the limit returns `rate-limited`.
+  4. `getFullUser(caller.userId)` runs. A missing user is `unauthenticated`; a disabled one is `forbidden`.
+  5. `verifyPassword(current_password)` runs. A wrong password is `unauthenticated`.
+  6. The new hash is written and `must_change_password` is set to `false`.
+- The limit is spent after parsing, so a malformed request costs no attempt and no bcrypt round.
+- The tests cover: acts on the caller only; a user_id is rejected; a wrong current password changes nothing; the 11th attempt is rate-limited even with the right password; another user's bucket is unaffected; a disabled account is refused.
+
+**Risk:** `unauthenticated` maps to HTTP 401, the same status as a dead token. See the report's section 5: the client must not treat this 401 as "sign in again".
+
+---
+
+## Task 1.13 — username rules, and a unique violation from the store is a conflict
+
+**Plan said:** `username: z.string().min(1).max(40)`, then `.trim().toLowerCase()`, then a `getUserByUsername` pre-check that throws `conflict`.
+
+**What was wrong:** Nothing failed. But the pre-check alone races: two admins creating the same name can both pass it, and the loser's insert then fails on `users_username_lower_idx` as a raw error, which is a 500. The plan's schema also accepted `*` and `%`, and `*` cannot be matched literally by login's `ilike` lookup, because PostgREST rewrites it to `%` (see `escapeLikePattern`). It also accepted whitespace and control characters.
+
+**What I did instead:** Per orchestrator instruction:
+- `usernameSchema` trims and lowercases, then requires `/^[\p{L}\p{N}._-]{1,40}$/u`. That admits any script's letters (Hebrew is tested) plus digits, `.`, `_` and `-`, and rejects `*`, `%`, whitespace and control characters as `invalid`.
+- The pre-check stays, for the friendly message. Every write to `users` also goes through `writeUser()`, which turns an error with `code === '23505'` into `AppError('conflict')` and rethrows anything else untouched.
+- The Supabase store's user methods throw through a new exported `dbError(error)`. It keeps `message` and `code` only, **never `details`**, because a failed write's `details` can contain the whole row, hash included, and rpc.ts logs non-AppErrors.
+- The fake's `insertUser`/`updateUser` throw the same shaped error (`code: '23505'`, the constraint name in the message) when another row holds the lowercased name.
+- Tested by stubbing `getUserByUsername` to return null so the pre-check misses and the fake's index fires. Also tested: another store error passes through, and the Supabase store keeps the code and drops the details.
+- No use case in this task changes a username, so the only 23505 path today is `createUser`. `writeUser` wraps every `updateUser` call anyway, so a later rename gets the mapping for free.
+
+**Risk:** Usernames are not NFC-normalized, to stay byte-consistent with `login`'s trim-and-lowercase. A decomposed accented Latin letter (letter plus combining mark) is therefore rejected, because `\p{M}` is not in the class. Hebrew without niqqud is unaffected.
+
+---
+
+## Task 1.13 — the last-admin guard also covers role changes
+
+**Plan said:** only `disableUser` "refuses to disable the last enabled admin".
+
+**What was wrong:** Demoting the last admin locks the install out just as surely as disabling them.
+
+**What I did instead:** Per orchestrator instruction, `assertNotLastEnabledAdmin` runs in both `setUserRole` (when an enabled admin is given another role) and `disableUser`. It uses `countEnabledAdmins()`, which is now implemented in both stores. A disabled admin does not count. Tests: demoting the last admin is `invalid` and the role is unchanged; demoting is allowed once another enabled admin exists; a disabled extra admin does not satisfy the guard. A same-role `setUserRole` and a repeat `disableUser` are no-ops that return the user, and the latter keeps the original `disabled_at`.
+
+**Risk:** The guard is check-then-write, not a database constraint. Two admins demoting or disabling each other at the same instant could both pass it. With about 11 users and one or two admins, that is accepted. Closing it would need a trigger.
+
+---
+
+## Task 1.13 — the fake has one source of truth for users
+
+**Plan said:** "Modify … `apps/server/src/test/fake-context.ts`". The fake had a `users` map (`StoredUser`, read by `getUser` and so by `callerFor`) and separate `usersById`/`usersByName` maps (`StoredFullUser`), none of them linked.
+
+**What was wrong:** A `disableUser` or `setUserRole` through the fake store would write `usersById`, while `callerFor` read `users`. So the "disabling takes effect on the next request" guarantee could not be tested at all. The brief's tests also read `ctx.usersById.get('u-scouter')` and disable `u-admin`, neither of which existed as a full record.
+
+**What I did instead:** Per orchestrator instruction, with the least invasive shape:
+- `usersById` (a plain `Map`) is the only store of users. It is seeded with full records for `u-scouter`, `u-lead` and the new `u-admin`: usernames `scouter`/`lead`/`admin`, and `password_hash` = `DUMMY_PASSWORD_HASH`, against which nothing verifies.
+- `users` is now a `UserView extends Map<string, StoredUser>` over it. `get` projects the full record down to a StoredUser. `set(id, { id, role, disabled_at })` merges into an existing record, or creates a placeholder whose username is its id. So every existing `ctx.users.set(...)` call, and 1.14's, keeps working unchanged.
+- `usersByName` is a `UsersByNameView` over the same map, keyed by lowercased username. `set(name, user)` stores the user under its own id.
+- The field types on `FakeContext` are unchanged.
+- The fake's `getUserByUsername` iterates `usersById`.
+- New `USER_COLUMNS` check: like `MATCH_COLUMNS`, a phantom column such as `email` fails in the fake the way PostgREST would.
+- Two integration-style tests in `users.test.ts` run `callerFor` over the same fake store: an admin disables a user, and that user's still validly signed token then gets `caller === null`; after a role change, the old token's caller carries the new role.
+
+**Risk:** Low. Every existing suite passes unchanged. A test that expected `u-admin` to be unknown, or `usersById` to start empty, would now fail; none exists.
+
+---
+
+## Task 1.13 — Store.listUsers takes a keyset `after` and returns no hash; ordered by `username`
+
+**Plan said:** `context.ts` declared `listUsers(options: { includeDisabled; limit; cursor?: string }): Promise<StoredFullUser[]>`, and said that interface is fixed. The brief said the query must "select an explicit column list that omits `password_hash`". The orchestrator asked for ordering by `lower(username)` then `id`.
+
+**What was wrong:** A select without `password_hash` cannot honestly return `StoredFullUser[]`. The type would promise a field that is not there. PostgREST can order only by a column, not by the expression `lower(username)`, unless a migration adds a generated column or a view.
+
+**What I did instead:**
+- New `StoredPublicUser = Omit<StoredFullUser, 'password_hash'>` in `context.ts`, which `listUsers` returns. `toPublicUser` takes a `StoredPublicUser`; a `StoredFullUser` is assignable to it.
+- The opaque cursor stays in the use case, as `syncPull`'s does: base64url of UTF-8 JSON (`btoa` throws on a Hebrew username). The store receives the decoded `after?: { username; id }`.
+- The Supabase store selects `id, username, full_name, role, must_change_password, disabled_at, created_at`. It adds `.is('disabled_at', null)` unless asked, and `.gt('username', after.username)`, then `.order('username').order('id').limit(n)`.
+- It orders by the `username` column, not `lower(username)`. Every write path now stores the name lowercased, so the two agree for every row the app creates. Keyset on `username` alone is exact because the unique index on `lower(username)` makes `username` itself unique. Ordering and `gt` use the same collation, so pages have no gaps or repeats. The fake orders by `(lower(username), id)` with a tuple comparison.
+- `limit` defaults to 50. A larger request is **clamped** to 200, not rejected, because `next_cursor` already says there is more. `limit < 1` is `invalid`. The use case asks the store for `limit + 1` rows, so the last page never comes back empty with a stale cursor.
+- Tests: two pages with no duplicate and no gap; an evenly dividing count ends with no empty page; a cursor that ends on a Hebrew name; `include_disabled`; `JSON.stringify(result)` contains no `$2`, and neither do the store's rows; scouter, lead, admin and service can all call it; the default and the clamp.
+- Supabase-store unit tests (recording chain) cover the column list, the filters, the order, the limit, and `countEnabledAdmins`.
+
+**Risk:** A legacy row with an uppercase username, inserted outside the app, would sort by its raw case. Pagination would still be gap-free, and the order would only look slightly off.
+
+---
+
+## Task 1.13 — `.js` extensions, a global `crypto`, formatting, registry, HTTP tests
+
+**Plan said:** the test and implementation snippets import `'../../auth/password'`, `'./users'` and `'../context'` with no extension. The registry test lists eight names. The brief gave no HTTP-level test.
+
+**What was wrong:** `apps/server` is `"type": "module"` (BUILD-CONTEXT §6). The brief's test lines exceed prettier's 100-column width.
+
+**What I did instead:**
+- Every relative import in the new server files carries `.js`.
+- `crypto.randomUUID()` is the Node 22 global; nothing is imported.
+- Prettier was run on only the touched files, which reflowed the brief's test without changing an assertion.
+- All six entries are registered in `REGISTRY` with their shared schemas; each output is `publicUser` or `listUsersOutput`.
+- `rpc.test.ts`:
+  - The brittle test now expects the eight names.
+  - A new case asserts there are exactly five authenticated commands, so the service-rejection loop can no longer pass vacuously.
+- `app.test.ts` tests `POST /api/createUser` through `mountedRoutes` and the fake store:
+  - a lead's valid bearer gets 403 `forbidden` and nothing is created;
+  - no bearer gets 401;
+  - an admin gets 200, and the body contains neither `password_hash` nor `$2`;
+  - a case-variant duplicate gets 409.
+- The two "other 59 methods" comments in `repos/store.ts` and `test/fake-context.ts` now say "remaining", since the count changed.
+
+**Risk:** None.
+
+---
+
+## Task 1.13 — a wrong current password is 400, not 401
+
+**Plan said:** nothing; the first 1.13 pass, per the orchestrator's earlier instruction, made a wrong `current_password` in `changeOwnPassword` throw `AppError('unauthenticated')`. **What was wrong:** `unauthenticated` maps to HTTP 401, which the client half must be able to read as exactly "your token is dead, sign in again" — a mistyped current password would have ended a good session. **What I did instead:** Per orchestrator decision, a wrong current password now throws `AppError('invalid', 'the current password is not right')` (HTTP 400). The missing-self case stays `unauthenticated`, because that token really is no good. `users.test.ts` now expects `invalid` for the wrong-password and rate-limit-warmup cases, and `app.test.ts` proves `POST /api/changeOwnPassword` with a valid bearer and a wrong current password answers 400 `{"error":{"code":"invalid",…}}`. The earlier 1.13 changeOwnPassword entry's step 5 and Risk line are superseded by this one. **Risk:** None; the rate limit per user still applies to wrong guesses.
