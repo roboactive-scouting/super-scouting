@@ -2127,3 +2127,134 @@ The brief says no test exercised the bare-match path. That is not quite right: `
 **Risk:** None.
 
 **Follow-up (task 1.11):** the plan's "rejects the wrong password with the same message as an unknown user" test created `wrong` and `missing` together and awaited them one at a time, so `missing` could reject while unobserved (`AppError: that username and password do not match`, an unhandled rejection that made `pnpm test` exit 1 on a timing-dependent basis once the dummy-hash compare was added); both calls now go through one `Promise.allSettled`, asserting the same `unauthenticated` code and identical messages.
+
+---
+
+## Task 1.12 — `bcryptjs` and `jose` are external to the function bundle
+
+**Plan said:** Nothing. `scripts/build-function.mjs` keeps `external: ['hono', '@supabase/supabase-js', 'zod']`.
+
+**What was wrong:** This task mounts `login`, which puts bcryptjs in `src/handler.ts`'s import graph for the first time. Inlined into the ESM bundle, bcryptjs's `require("crypto")` becomes esbuild's `__require` shim, which throws under ESM, and `hashPassword` rejects with `Invalid string / salt: Not a string` (found in task 1.11, see its entry).
+
+**What I did instead:** Per orchestrator instruction, added `'bcryptjs'` and `'jose'` to `external`, with a comment saying why. After `pnpm --filter @frc/server build`, `api/index.js` carries `import bcrypt from "bcryptjs";` and `import { jwtVerify, SignJWT } from "jose";` rather than their source. A node one-liner that imports `bcryptjs` the same way from `apps/server` hashed and verified a throwaway string.
+
+**Risk:** Both are `dependencies` of `@frc/server`, so Vercel's file tracing ships them from `node_modules` exactly as it already does for `hono`. It is not proven on a deployment until `develop` moves.
+
+---
+
+## Task 1.12 — `refreshToken` looks the user up by `claims.sub`, via a new `Store.getFullUser`
+
+**Plan said:** `ctx.store.getUserByUsername(claims.username.toLowerCase())`, with the limiter keyed by `claims.username`.
+
+**What was wrong:** Keyed by username, a token issued before an admin renamed a user resolves to whoever holds that username now. That is a session moving from one person to another. `Store` had no method returning a `StoredFullUser` by id (`getUser` returns only id, role and disabled_at). The `Store` doc comment says a task wanting a method not on the list has drifted from the plan.
+
+**What I did instead:** Per orchestrator instruction, added `getFullUser(id: string): Promise<StoredFullUser | null>` to `Store`, implemented in `repos/store.ts` (select by `id`, throw on a PostgREST error) and in `test/fake-context.ts` (reads `usersById`, which the fake already declared but no method read). `refreshToken` verifies, then takes the limiter on `claims.username.toLowerCase()`, then calls `getFullUser(claims.sub)`. New `refreshToken.test.ts` refuses a disabled user (`forbidden`), an unknown `sub`, an expired token and a token signed with another secret (all `unauthenticated`). It proves a renamed user whose old name now belongs to someone else refreshes as the original user with the new name, that `getUserByUsername` is never called, that a rate-limited refresh skips the lookup, and that twenty badly signed tokens do not spend the user's bucket. Mutation check: switching back to `getUserByUsername(claims.username.toLowerCase())` turned six of the nine cases red, including the rename case.
+
+**Risk:** `Store` grew by one method outside its "fixed now" list. No later task's list changes.
+
+---
+
+## Task 1.12 — `callerFor`: injected clock straight into `shouldRefresh`, strict Bearer parsing, database errors propagate
+
+**Plan said:** `header.startsWith('Bearer ') ? header.slice(7) : ''`. It computed `stale` from the injected clock *and* called `shouldRefresh(claims, config)` on wall-clock time, OR-ing the two. It re-issued with `claims.username`. `supabaseStore().getUser` ignored the PostgREST `error`.
+
+**What was wrong:** The duplicated staleness computation meant the injected clock could only force a refresh, never suppress one, so a test could not prove the clock is honoured. `startsWith('Bearer ')` rejects `bearer x`, although the scheme is case-insensitive (RFC 9110 §11.1). A swallowed PostgREST error made `getUser` return null during a database blip. That became a 401 "sign in again", and a client could discard a perfectly good token.
+
+**What I did instead:** Per orchestrator instruction:
+- `shouldRefresh(claims, config, options.now)` is the only staleness check.
+- The header must match `/^bearer (\S+)$/i`: any case, exactly one space, one token.
+- `StoredUser` carries no username, so the re-issued token uses **the claims' username**. Nothing authorizes on it.
+- `getUser` throws on `error`, and `callerFor` lets it propagate, so the route answers 500.
+
+The `store` parameter is typed `Pick<Store, 'getUser'>` in place of the brief's local `UserLookup` type. The brief's five tests pass. New tests cover:
+- another secret, an expired token, and an empty `Bearer `
+- scheme case, double space, tab, `Basic`, a bare token and trailing junk
+- a clock set back to issue time suppressing the refresh
+- the re-issued token's `sub`/role/username
+- a throwing `getUser` rejecting
+
+`store.test.ts` proves `getUser` and `getFullUser` throw on a PostgREST error. Mutation checks: dropping the disabled check turned four tests red across callerFor, RPC and both sync routes, and dropping the injected clock turned two red.
+
+**Risk:** A renamed user's sliding token keeps the old `username` claim until the next login. It is informational only, but it keys `refreshToken`'s rate-limit bucket.
+
+---
+
+## Task 1.12 — `RegistryEntry` is a discriminated union; nothing fabricates a `service` caller
+
+**Plan said:** One `RegistryEntry` type with `unauthenticated?: true` and `handler(caller, input, ctx, config)`. `rpc.ts` set `let caller: Caller = { kind: 'service', label: 'unauthenticated' }` to call `login`, and the registry wrapped both handlers as `(_caller, input, ctx, config) => login(input as never, ctx, config)`.
+
+**What was wrong:** SPEC-FINAL §16.5 says of the `service` caller: "Nothing in v1 constructs one". The brief's `rpc.ts` constructed one on every login.
+
+**What I did instead:** Per orchestrator instruction:
+- `RegistryEntry = AuthenticatedEntry | UnauthenticatedEntry`.
+  - `AuthenticatedEntry` keeps the brief's exact `handler(caller, input: never, ctx, config)` and `unauthenticated?: never`, so later rows fit unchanged.
+  - `UnauthenticatedEntry` has `unauthenticated: true` and `handler(input: never, ctx, config)`, so `login` and `refreshToken` are registered as themselves.
+- The registry tests keep all four brief cases. The service-caller loop passes four arguments, `(service, {} as never, {} as never, {} as never)`. The brief passed three, which does not typecheck against a four-parameter handler.
+- `grep -rn "kind: 'service'" apps/server/src --include=*.ts | grep -v test` prints nothing.
+
+**Risk:** The service-caller loop is vacuous until task 1.13 registers the first authenticated command. It iterates nothing today.
+
+---
+
+## Task 1.12 — authenticate before parsing, on RPC and sync routes; `rpcRoutes` takes an optional registry
+
+**Plan said:** `rpc.ts` parsed the body first and returned 400 before looking at the token. `sync.ts` parsed first too, and derived its caller from the first operation's `author_user_id` through the `fallbackUserId` parameter.
+
+**What was wrong:** An anonymous caller could learn the input schema from 400 messages, and a no-token request did not get 401 regardless of its body.
+
+**What I did instead:** Per orchestrator instruction, an authenticated RPC route calls `callerFor` first and returns 401 before reading the body. I applied the same order to `/sync/push` and `/sync/pull`, which was not in the instruction, for consistency.
+- `SyncRouteDeps.callerFor` is `(request: Request) => Promise<CallerResult>`, and `fallbackUserId` is deleted.
+- A non-null `refreshedToken` sets `X-Refreshed-Token` on both sync routes.
+- The sync 401 message changed from `no caller` to `sign in again`, the same as RPC.
+- `rpcRoutes(ctx, config, registry = REGISTRY)` takes an optional registry. This was the smallest honest way to prove the bearer check on an RPC route with only two unauthenticated entries registered. `rpc.test.ts` mounts a test-only `whoami` entry through the real `rpcRoutes` and the real `callerFor`.
+- `composition.ts` exports `mountedRoutes(ctx, config)`, which `buildApp` uses, so `app.test.ts` drives the deployed wiring over the fake store instead of a copy of it.
+- The walking-skeleton `callerFor` and its comment are deleted.
+- Status map, error body and the 500 body `{code:'invalid', message:'that did not work'}` are verbatim from the brief. The brief's `STATUS: Record<string, number>` is typed `Record<string, ContentfulStatusCode>`, because Hono's `c.json` does not accept a bare `number`.
+
+**Risk:** An unexpected exception in a sync route (a database error in `callerFor`, or `syncPull`'s `not-found` AppError, which that route has never mapped) reaches Hono's default handler. That handler answers `500` with a plain-text body, not the JSON error shape.
+
+---
+
+## Task 1.12 — `loginInput`, `loginOutput`, `refreshTokenInput` live in `packages/shared/src/api/auth.ts`
+
+**Plan said:** Each schema is exported from its use case's module in `core/`, with `refreshTokenInput` defined in `refreshToken.ts` with its own `import { z } from 'zod'`.
+
+**What was wrong:** Nothing failed, but the brief's own "Where the schemas live" paragraph and §16.1 make `packages/shared` the single validation source. Schemas defined in `apps/server` cannot be imported by the client.
+
+**What I did instead:** Per orchestrator instruction, all three schemas and `LoginInput`/`LoginOutput`/`RefreshTokenInput` are defined in `packages/shared/src/api/auth.ts` (zod only, extensionless) and exported from `packages/shared/src/index.ts`. `login.ts` and `refreshToken.ts` import them and re-export them, so `import { loginInput } from './login.js'` keeps working. New `packages/shared/src/api/auth.test.ts` checks the input rules and that `loginOutput` strips a `password_hash`. The browser-safe test covers the new file automatically.
+
+**Risk:** None.
+
+---
+
+## Task 1.12 — the smoke suite logs in with a per-run bcrypt password
+
+**Plan said:** "update the smoke suite from task 1.9 to log in first and send a bearer on both sync calls". The CI user was inserted with `password_hash: 'x'`.
+
+**What was wrong:** No password verifies against `'x'`, so the CI user could not log in.
+
+**What I did instead:** Per orchestrator instruction:
+- The suite generates `crypto.randomUUID()` as the password and stores `await bcrypt.hash(pw, 10)`.
+- It throws if that user insert fails, which it previously ignored.
+- It logs in through `POST ${base}/api/login` in `beforeAll`, throwing with the HTTP status only on failure, and sends `Authorization: Bearer <token>` on every sync call.
+- Three new cases: pull with no token → 401, push with no token → 401, login with a wrong password → 401.
+- Neither the password nor the token is printed.
+
+I ran the suite against a local dev server on the dev database, through a scratchpad wrapper that loads `apps/server/.env` with dotenv, refuses unless `SUPABASE_URL` contains `oqvoqddoizhhwvjwejtm`, and passes the key to a spawned vitest only through its environment.
+
+**Risk:** Not yet run against preview. Preview still serves the old code until `develop` moves. The wrong-password case spends one of the CI user's ten rate-limit attempts, which is harmless for a per-run user.
+
+---
+
+## Task 1.12 — `.js` extensions, formatting, a shared test-token helper
+
+**Plan said:** The code blocks import `'../config'`, `'./token'` and similar, with no extension. `callerFor.test.ts` builds its own tokens with `issueToken` only.
+
+**What was wrong:** `apps/server` is `"type": "module"` (BUILD-CONTEXT §6). The expired-token and over-seven-days negatives need a token with a chosen `iat`/`exp`, which `issueToken` cannot mint.
+
+**What I did instead:**
+- Every relative import in `apps/server/src` carries `.js`.
+- Added `apps/server/src/test/tokens.ts`, whose `tokenAt(user, config, { issuedDaysAgo, expiresInDays })` signs a session-shaped HS256 token with explicit times. `callerFor.test.ts`, `refreshToken.test.ts`, `rpc.test.ts` and `app.test.ts` use it.
+- Ran prettier on only the touched files.
+
+**Risk:** None.

@@ -25,5 +25,8 @@ await build({
   // them from node_modules, the same way it already does for the deployed
   // function today. Everything else (apps/server/src/**, @frc/shared, @frc/db's
   // type-only surface) gets inlined.
-  external: ['hono', '@supabase/supabase-js', 'zod'],
+  // bcryptjs must stay external: inlined into this ESM bundle, its require("crypto")
+  // becomes esbuild's __require shim and hashPassword fails with "Invalid string / salt:
+  // Not a string" (DEVIATIONS.md, task 1.11). jose is external for the same reason as hono.
+  external: ['hono', '@supabase/supabase-js', 'zod', 'bcryptjs', 'jose'],
 });

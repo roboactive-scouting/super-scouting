@@ -19,12 +19,26 @@ export function supabaseStore(db: Db): Store {
   const pullEntity = supabasePullEntity(db);
   return {
     async getUser(id: string): Promise<StoredUser | null> {
-      const { data } = await db
+      const { data, error } = await db
         .from('users')
         .select('id, role, disabled_at')
         .eq('id', id)
         .maybeSingle();
+      // Swallowed, a database blip would read as "no such user": a 401 that tells the
+      // client to sign in again, which may make it throw away a perfectly good token.
+      if (error) throw new Error(error.message);
       return (data as StoredUser | null) ?? null;
+    },
+    async getFullUser(id: string): Promise<StoredFullUser | null> {
+      const { data, error } = await db
+        .from('users')
+        .select(
+          'id, username, full_name, password_hash, role, must_change_password, disabled_at, created_at',
+        )
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      return (data as StoredFullUser | null) ?? null;
     },
     async getUserByUsername(usernameLower: string): Promise<StoredFullUser | null> {
       // lower(username) is unique, so an escaped pattern hits at most one row; a `*`

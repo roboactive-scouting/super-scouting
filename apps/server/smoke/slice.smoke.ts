@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createClient } from '@supabase/supabase-js';
+import bcrypt from 'bcryptjs';
 import type { PullResponse, PushResponse } from '@frc/shared';
 
 const base = process.env.SMOKE_API_BASE_URL;
@@ -13,6 +14,11 @@ if (!base || !supabaseUrl || !supabaseKey) {
 
 const db = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
 const uid = () => crypto.randomUUID();
+
+// A per-run password for the CI user, never printed. The token it buys is never printed either.
+const password = crypto.randomUUID();
+let token = '';
+const bearer = () => ({ authorization: `Bearer ${token}` });
 
 const ids = {
   season: uid(),
@@ -46,13 +52,14 @@ beforeAll(async () => {
   await db
     .from('matches')
     .insert({ id: ids.match, event_id: ids.event, match_type: 'qualification', number: 1 });
-  await db.from('users').insert({
+  const { error: userError } = await db.from('users').insert({
     id: ids.user,
     username: `ci_${ids.user.slice(0, 8)}`,
     full_name: 'CI User',
-    password_hash: 'x',
+    password_hash: await bcrypt.hash(password, 10),
     role: 'scouter',
   });
+  if (userError) throw new Error(`could not create the CI user: ${userError.message}`);
   await db
     .from('forms')
     .insert({ id: ids.form, season_id: ids.season, kind: 'match', name: 'CI form' });
@@ -76,6 +83,15 @@ beforeAll(async () => {
     phase: 'auto',
     direction: 'higher_is_better',
   });
+
+  // Both sync routes need a bearer token since task 1.12 (SPEC-FINAL 7.5).
+  const login = await fetch(`${base}/api/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username: `ci_${ids.user.slice(0, 8)}`, password }),
+  });
+  if (login.status !== 200) throw new Error(`CI login failed with HTTP ${login.status}`);
+  token = ((await login.json()) as { token: string }).token;
 });
 
 afterAll(async () => {
@@ -83,6 +99,37 @@ afterAll(async () => {
   await db.from('seasons').delete().eq('id', ids.season);
   await db.from('users').delete().eq('id', ids.user);
   await db.from('teams').delete().eq('id', ids.team);
+});
+
+describe('smoke: authentication at the HTTP edge (SPEC-FINAL 7.5, 16.5)', () => {
+  it('refuses a pull with no token', async () => {
+    const res = await fetch(`${base}/sync/pull?event_id=${ids.event}`);
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ error: { code: 'unauthenticated' } });
+  });
+
+  it('refuses a push with no token', async () => {
+    const res = await fetch(`${base}/sync/push`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ device_id: uid(), operations: [] }),
+    });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ error: { code: 'unauthenticated' } });
+  });
+
+  it('refuses a login with the wrong password', async () => {
+    const res = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: `ci_${ids.user.slice(0, 8)}`,
+        password: 'not-the-password',
+      }),
+    });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ error: { code: 'unauthenticated' } });
+  });
 });
 
 describe('smoke: the walking skeleton path', () => {
@@ -93,7 +140,7 @@ describe('smoke: the walking skeleton path', () => {
   });
 
   it('loads the active competition and its form version', async () => {
-    const res = await fetch(`${base}/sync/pull?event_id=${ids.event}`);
+    const res = await fetch(`${base}/sync/pull?event_id=${ids.event}`, { headers: bearer() });
     expect(res.status).toBe(200);
     const body = (await res.json()) as PullResponse;
     expect(body.complete).toBe(true);
@@ -104,7 +151,7 @@ describe('smoke: the walking skeleton path', () => {
     const now = new Date().toISOString();
     const push = await fetch(`${base}/sync/push`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...bearer() },
       body: JSON.stringify({
         device_id: uid(),
         operations: [
@@ -137,7 +184,7 @@ describe('smoke: the walking skeleton path', () => {
     const pushed = (await push.json()) as PushResponse;
     expect(pushed.results[0]).toMatchObject({ status: 'applied', new_version: 1 });
 
-    const pull = await fetch(`${base}/sync/pull?event_id=${ids.event}`);
+    const pull = await fetch(`${base}/sync/pull?event_id=${ids.event}`, { headers: bearer() });
     const body = (await pull.json()) as PullResponse;
     const entry = body.entities.scouting_entries.find((e) => e.id === ids.entry);
     expect(entry).toBeDefined();
@@ -154,7 +201,7 @@ describe('smoke: the walking skeleton path', () => {
     const number = 500 + Math.floor(Math.random() * 400);
     const push = await fetch(`${base}/sync/push`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...bearer() },
       body: JSON.stringify({
         device_id: uid(),
         operations: [
@@ -212,7 +259,7 @@ describe('smoke: the walking skeleton path', () => {
       number,
     });
 
-    const pull = await fetch(`${base}/sync/pull?event_id=${ids.event}`);
+    const pull = await fetch(`${base}/sync/pull?event_id=${ids.event}`, { headers: bearer() });
     const body = (await pull.json()) as PullResponse;
     expect(body.entities.matches.some((m) => m.id === matchId)).toBe(true);
     expect(body.entities.scouting_entries.some((e) => e.id === entryId)).toBe(true);
@@ -248,7 +295,7 @@ describe('smoke: the walking skeleton path', () => {
         },
       ],
     };
-    const headers = { 'content-type': 'application/json' };
+    const headers = { 'content-type': 'application/json', ...bearer() };
     const first = (await (
       await fetch(`${base}/sync/push`, { method: 'POST', headers, body: JSON.stringify(body) })
     ).json()) as PushResponse;

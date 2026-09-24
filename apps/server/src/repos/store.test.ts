@@ -98,3 +98,46 @@ describe('supabaseStore.getUserByUsername', () => {
     await expect(store.getUserByUsername('seed_lead')).rejects.toThrow('connection refused');
   });
 });
+
+/** Just enough of the supabase-js chain for getUser and getFullUser: select → eq → maybeSingle. */
+function fakeDbById(result: { data: unknown; error: { message: string } | null }, seen: Query): Db {
+  const chain = {
+    select: () => chain,
+    eq: (column: string, value: string) => {
+      seen.column = column;
+      seen.pattern = value;
+      return chain;
+    },
+    maybeSingle: () => Promise.resolve(result),
+  };
+  return {
+    from: (table: string) => {
+      seen.table = table;
+      return chain;
+    },
+  } as unknown as Db;
+}
+
+describe('supabaseStore.getUser and getFullUser', () => {
+  it('look the user up by id', async () => {
+    const seen: Query = {};
+    const store = supabaseStore(fakeDbById({ data: row('seed_lead'), error: null }, seen));
+    expect((await store.getFullUser('u-1'))?.username).toBe('seed_lead');
+    expect(seen).toMatchObject({ table: 'users', column: 'id', pattern: 'u-1' });
+    expect((await store.getUser('u-1'))?.id).toBe('u-1');
+  });
+
+  it('return null for an unknown id', async () => {
+    const store = supabaseStore(fakeDbById({ data: null, error: null }, {}));
+    expect(await store.getUser('u-missing')).toBeNull();
+    expect(await store.getFullUser('u-missing')).toBeNull();
+  });
+
+  it('throw on a database error, so a blip never reads as "sign in again"', async () => {
+    const store = supabaseStore(
+      fakeDbById({ data: null, error: { message: 'connection refused' } }, {}),
+    );
+    await expect(store.getUser('u-1')).rejects.toThrow('connection refused');
+    await expect(store.getFullUser('u-1')).rejects.toThrow('connection refused');
+  });
+});

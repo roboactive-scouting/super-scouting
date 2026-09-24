@@ -32,16 +32,60 @@ function createApp(deps) {
   return app2;
 }
 
-// src/config.ts
+// src/auth/token.ts
+import { jwtVerify, SignJWT } from "jose";
 import { z } from "zod";
-var schema = z.object({
-  SUPABASE_URL: z.string().url(),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
-  AUTH_JWT_SECRET: z.string().min(32, "must be at least 32 characters"),
-  AUTH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
-  AUTH_TOKEN_REFRESH_AFTER_DAYS: z.coerce.number().int().positive().default(7),
-  ALLOWED_ORIGIN: z.string().url(),
-  NODE_ENV: z.enum(["development", "production", "test"]).default("development")
+var sessionClaims = z.object({
+  sub: z.string().min(1),
+  role: z.enum(["scouter", "lead", "admin"]),
+  username: z.string().min(1),
+  iat: z.number().int(),
+  exp: z.number().int()
+});
+var key = (config2) => new TextEncoder().encode(config2.authJwtSecret);
+async function issueToken(user, config2) {
+  const iat = Math.floor(Date.now() / 1e3);
+  return new SignJWT({ role: user.role, username: user.username }).setProtectedHeader({ alg: "HS256" }).setSubject(user.id).setIssuedAt(iat).setExpirationTime(iat + config2.tokenTtlDays * 86400).sign(key(config2));
+}
+async function verifyToken(raw, config2) {
+  const { payload } = await jwtVerify(raw, key(config2), { algorithms: ["HS256"] });
+  const parsed = sessionClaims.safeParse(payload);
+  if (!parsed.success) throw new Error("session token claims are malformed");
+  return parsed.data;
+}
+function shouldRefresh(claims, config2, now = Date.now) {
+  const ageDays = (now() / 1e3 - claims.iat) / 86400;
+  return ageDays > config2.tokenRefreshAfterDays;
+}
+
+// src/auth/callerFor.ts
+var BEARER = /^bearer (\S+)$/i;
+var NONE = { caller: null, refreshedToken: null };
+async function callerFor(request, config2, store, options = {}) {
+  const raw = BEARER.exec(request.headers.get("authorization") ?? "")?.[1];
+  if (!raw) return NONE;
+  let claims;
+  try {
+    claims = await verifyToken(raw, config2);
+  } catch {
+    return NONE;
+  }
+  const user = await store.getUser(claims.sub);
+  if (!user || user.disabled_at !== null) return NONE;
+  const refreshedToken = shouldRefresh(claims, config2, options.now) ? await issueToken({ id: user.id, username: claims.username, role: user.role }, config2) : null;
+  return { caller: { kind: "user", userId: user.id, role: user.role }, refreshedToken };
+}
+
+// src/config.ts
+import { z as z2 } from "zod";
+var schema = z2.object({
+  SUPABASE_URL: z2.string().url(),
+  SUPABASE_SERVICE_ROLE_KEY: z2.string().min(1),
+  AUTH_JWT_SECRET: z2.string().min(32, "must be at least 32 characters"),
+  AUTH_TOKEN_TTL_DAYS: z2.coerce.number().int().positive().default(30),
+  AUTH_TOKEN_REFRESH_AFTER_DAYS: z2.coerce.number().int().positive().default(7),
+  ALLOWED_ORIGIN: z2.string().url(),
+  NODE_ENV: z2.enum(["development", "production", "test"]).default("development")
 });
 function loadServerConfig(env) {
   const parsed = schema.safeParse(env);
@@ -117,8 +161,8 @@ var PULL_SCOPES = {
   dashboard_charts: { table: "dashboard_charts", kind: "season", column: "dashboard_id" },
   weight_presets: { table: "weight_presets", kind: "season", column: "season_id" }
 };
-async function parentIds(db, key, scope) {
-  switch (key) {
+async function parentIds(db, key2, scope) {
+  switch (key2) {
     case "match_teams": {
       const { data } = await db.from("matches").select("id").eq("event_id", scope.eventId);
       return (data ?? []).map((r) => r.id);
@@ -168,12 +212,12 @@ async function parentIds(db, key, scope) {
   }
 }
 function supabasePullEntity(db) {
-  return async (key, scope, since, offset, limit) => {
-    const spec = PULL_SCOPES[key];
+  return async (key2, scope, since, offset, limit) => {
+    const spec = PULL_SCOPES[key2];
     if (!spec) return [];
     let query = db.from(spec.table).select("*").order("updated_at", { ascending: true }).range(offset, offset + limit - 1);
     if (since !== void 0) query = query.gt("updated_at", since);
-    const ids = await parentIds(db, key, scope);
+    const ids = await parentIds(db, key2, scope);
     if (ids !== null) {
       query = query.in(spec.kind === "season-teams" ? "id" : spec.column ?? "id", ids);
     } else if (spec.kind === "event") {
@@ -182,7 +226,7 @@ function supabasePullEntity(db) {
       query = query.eq(spec.column ?? "season_id", scope.seasonId);
     }
     const { data, error } = await query;
-    if (error) throw new Error(`${key}: ${error.message}`);
+    if (error) throw new Error(`${key2}: ${error.message}`);
     return data ?? [];
   };
 }
@@ -201,7 +245,15 @@ function supabaseStore(db) {
   const pullEntity = supabasePullEntity(db);
   return {
     async getUser(id) {
-      const { data } = await db.from("users").select("id, role, disabled_at").eq("id", id).maybeSingle();
+      const { data, error } = await db.from("users").select("id, role, disabled_at").eq("id", id).maybeSingle();
+      if (error) throw new Error(error.message);
+      return data ?? null;
+    },
+    async getFullUser(id) {
+      const { data, error } = await db.from("users").select(
+        "id, username, full_name, password_hash, role, must_change_password, disabled_at, created_at"
+      ).eq("id", id).maybeSingle();
+      if (error) throw new Error(error.message);
       return data ?? null;
     },
     async getUserByUsername(usernameLower) {
@@ -322,8 +374,26 @@ function stubsFor(names) {
   );
 }
 
-// src/routes/sync.ts
+// src/routes/rpc.ts
 import { Hono as Hono2 } from "hono";
+
+// ../../packages/shared/src/api/auth.ts
+import { z as z3 } from "zod";
+var loginInput = z3.object({
+  username: z3.string().min(1),
+  password: z3.string().min(1)
+});
+var loginOutput = z3.object({
+  token: z3.string(),
+  user: z3.object({
+    id: z3.string().uuid(),
+    username: z3.string(),
+    full_name: z3.string(),
+    role: z3.enum(["scouter", "lead", "admin"]),
+    must_change_password: z3.boolean()
+  })
+});
+var refreshTokenInput = z3.object({ token: z3.string().min(1) });
 
 // ../../packages/shared/src/errors.ts
 var AppError = class extends Error {
@@ -389,9 +459,9 @@ function validateEntryData(fields, robotStatus, data) {
   }
   const live = fields.filter((f) => !f.deprecated);
   const known = new Set(live.map((f) => f.key));
-  for (const key of Object.keys(data)) {
-    if (!known.has(key)) {
-      issues.push({ field_key: key, code: "unknown-field", message: `no field with key '${key}'` });
+  for (const key2 of Object.keys(data)) {
+    if (!known.has(key2)) {
+      issues.push({ field_key: key2, code: "unknown-field", message: `no field with key '${key2}'` });
     }
   }
   for (const field of live) {
@@ -476,7 +546,7 @@ function validateEntryData(fields, robotStatus, data) {
 }
 
 // ../../packages/shared/src/sync/operation.ts
-import { z as z2 } from "zod";
+import { z as z4 } from "zod";
 var SYNC_ENTITIES = [
   "scouting_entry",
   "match",
@@ -486,19 +556,19 @@ var SYNC_ENTITIES = [
   "alliance_slot",
   "alliance_decline"
 ];
-var isoDateTime = z2.string().datetime({ offset: false });
-var operationSchema = z2.object({
-  op_id: z2.string().min(1),
-  entity: z2.enum(SYNC_ENTITIES),
-  row_id: z2.string().uuid(),
-  action: z2.enum(["create", "update", "delete"]),
-  base_version: z2.number().int().positive().nullable(),
+var isoDateTime = z4.string().datetime({ offset: false });
+var operationSchema = z4.object({
+  op_id: z4.string().min(1),
+  entity: z4.enum(SYNC_ENTITIES),
+  row_id: z4.string().uuid(),
+  action: z4.enum(["create", "update", "delete"]),
+  base_version: z4.number().int().positive().nullable(),
   /** Always the whole row, never a patch. Field-level merging does not exist. */
-  payload: z2.record(z2.unknown()),
-  author_user_id: z2.string().uuid(),
+  payload: z4.record(z4.unknown()),
+  author_user_id: z4.string().uuid(),
   client_created_at: isoDateTime,
   client_updated_at: isoDateTime,
-  seq: z2.number().int().nonnegative()
+  seq: z4.number().int().nonnegative()
 }).superRefine((op, ctx) => {
   if (op.action === "create" && op.base_version !== null) {
     ctx.addIssue({
@@ -524,12 +594,12 @@ var operationSchema = z2.object({
 });
 
 // ../../packages/shared/src/sync/protocol.ts
-import { z as z3 } from "zod";
+import { z as z5 } from "zod";
 var MAX_OPERATIONS_PER_PUSH = 200;
 var WATERMARK_OVERLAP_MS = 5e3;
-var pushRequestSchema = z3.object({
-  device_id: z3.string().uuid(),
-  operations: z3.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
+var pushRequestSchema = z5.object({
+  device_id: z5.string().uuid(),
+  operations: z5.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
 });
 var PULL_ENTITY_KEYS = [
   "app_settings",
@@ -557,11 +627,170 @@ var PULL_ENTITY_KEYS = [
   "dashboard_charts",
   "weight_presets"
 ];
-var pullRequestSchema = z3.object({
-  event_id: z3.string().uuid(),
-  since: z3.string().datetime({ offset: false }).optional(),
-  cursor: z3.string().optional()
+var pullRequestSchema = z5.object({
+  event_id: z5.string().uuid(),
+  since: z5.string().datetime({ offset: false }).optional(),
+  cursor: z5.string().optional()
 });
+
+// src/auth/password.ts
+import bcrypt from "bcryptjs";
+var DUMMY_PASSWORD_HASH = "$2a$10$7VlgGGLSP5BKhfpuSwH9tu9Fnsni7TeRAUC5VcJocBS2rWdIZotAm";
+async function verifyPassword(plain, hash) {
+  return bcrypt.compare(plain, hash);
+}
+
+// src/auth/rateLimit.ts
+function makeRateLimiter(options) {
+  const now = options.now ?? (() => Date.now());
+  const hits = /* @__PURE__ */ new Map();
+  return {
+    take(key2) {
+      const cutoff = now() - options.windowMs;
+      const recent = (hits.get(key2) ?? []).filter((t) => t > cutoff);
+      if (recent.length >= options.limit) {
+        hits.set(key2, recent);
+        return false;
+      }
+      recent.push(now());
+      hits.set(key2, recent);
+      return true;
+    },
+    reset() {
+      hits.clear();
+    }
+  };
+}
+
+// src/core/commands/login.ts
+var loginLimiter = makeRateLimiter({ limit: 10, windowMs: 5 * 6e4 });
+async function login(input, ctx, config2) {
+  const username = input.username.trim().toLowerCase();
+  if (!loginLimiter.take(username)) {
+    throw new AppError("rate-limited", "too many attempts; wait a few minutes and try again");
+  }
+  const user = await ctx.store.getUserByUsername(username);
+  const matches = await verifyPassword(input.password, user?.password_hash ?? DUMMY_PASSWORD_HASH);
+  if (!user || !matches) {
+    throw new AppError("unauthenticated", "that username and password do not match");
+  }
+  if (user.disabled_at !== null) {
+    throw new AppError("forbidden", "this account has been disabled; ask an admin");
+  }
+  return {
+    token: await issueToken({ id: user.id, username: user.username, role: user.role }, config2),
+    user: {
+      id: user.id,
+      username: user.username,
+      full_name: user.full_name,
+      role: user.role,
+      must_change_password: user.must_change_password
+    }
+  };
+}
+
+// src/core/commands/refreshToken.ts
+async function refreshToken(input, ctx, config2) {
+  let claims;
+  try {
+    claims = await verifyToken(input.token, config2);
+  } catch {
+    throw new AppError("unauthenticated", "that session has expired; sign in again");
+  }
+  if (!loginLimiter.take(claims.username.toLowerCase())) {
+    throw new AppError("rate-limited", "too many attempts; wait a few minutes and try again");
+  }
+  const user = await ctx.store.getFullUser(claims.sub);
+  if (!user) throw new AppError("unauthenticated", "that session is no longer valid");
+  if (user.disabled_at !== null) {
+    throw new AppError("forbidden", "this account has been disabled; ask an admin");
+  }
+  return {
+    token: await issueToken({ id: user.id, username: user.username, role: user.role }, config2),
+    user: {
+      id: user.id,
+      username: user.username,
+      full_name: user.full_name,
+      role: user.role,
+      must_change_password: user.must_change_password
+    }
+  };
+}
+
+// src/routes/registry.ts
+var REGISTRY = {
+  login: {
+    kind: "command",
+    description: "Exchange a username and password for a 30-day session token. Takes no caller \u2014 it produces one. Rate-limited by username.",
+    input: loginInput,
+    output: loginOutput,
+    unauthenticated: true,
+    handler: login
+  },
+  refreshToken: {
+    kind: "command",
+    description: "Exchange a still-valid session token for a fresh one. Takes no caller \u2014 it produces one. Rate-limited by username.",
+    input: refreshTokenInput,
+    output: loginOutput,
+    unauthenticated: true,
+    handler: refreshToken
+  }
+};
+
+// src/routes/rpc.ts
+var STATUS = {
+  invalid: 400,
+  unauthenticated: 401,
+  forbidden: 403,
+  "not-found": 404,
+  conflict: 409,
+  "rate-limited": 429,
+  "parent-deleted": 409,
+  "edit-window-expired": 409,
+  "offline-unavailable": 503
+};
+function rpcRoutes(ctx, config2, registry = REGISTRY) {
+  const app2 = new Hono2();
+  for (const [name, entry] of Object.entries(registry)) {
+    app2.post(`/api/${name}`, async (c) => {
+      try {
+        let invoke;
+        if (entry.unauthenticated) {
+          const handler = entry.handler;
+          invoke = (input) => handler(input, ctx, config2);
+        } else {
+          const handler = entry.handler;
+          const { caller, refreshedToken } = await callerFor(c.req.raw, config2, ctx.store);
+          if (!caller) {
+            return c.json({ error: { code: "unauthenticated", message: "sign in again" } }, 401);
+          }
+          if (refreshedToken) c.header("X-Refreshed-Token", refreshedToken);
+          invoke = (input) => handler(caller, input, ctx, config2);
+        }
+        const body = await c.req.json().catch(() => void 0);
+        const parsedInput = entry.input.safeParse(body);
+        if (!parsedInput.success) {
+          return c.json({ error: { code: "invalid", message: parsedInput.error.message } }, 400);
+        }
+        const output = await invoke(parsedInput.data);
+        return c.json(entry.output.parse(output));
+      } catch (e) {
+        if (e instanceof AppError) {
+          return c.json(
+            { error: { code: e.code, message: e.message, details: e.details } },
+            STATUS[e.code] ?? 500
+          );
+        }
+        console.error(`${name} failed`, e);
+        return c.json({ error: { code: "invalid", message: "that did not work" } }, 500);
+      }
+    });
+  }
+  return app2;
+}
+
+// src/routes/sync.ts
+import { Hono as Hono3 } from "hono";
 
 // src/core/commands/syncPush.ts
 var rejected = (opId, reason, detail) => detail === void 0 ? { op_id: opId, status: "rejected", reason } : { op_id: opId, status: "rejected", reason, detail };
@@ -697,21 +926,21 @@ async function syncPull(caller, input, ctx) {
   const scope = await ctx.store.resolveScope(input.event_id);
   const start = input.cursor ? decodeCursor(input.cursor) : { entityIndex: 0, offset: 0 };
   const entities = Object.fromEntries(
-    PULL_ENTITY_KEYS.map((key) => [key, []])
+    PULL_ENTITY_KEYS.map((key2) => [key2, []])
   );
   let budget = PULL_PAGE_ROWS;
   let newest = "";
   let nextCursor = null;
   for (let index = start.entityIndex; index < PULL_ENTITY_KEYS.length; index += 1) {
-    const key = PULL_ENTITY_KEYS[index];
+    const key2 = PULL_ENTITY_KEYS[index];
     let offset = index === start.entityIndex ? start.offset : 0;
     for (; ; ) {
       if (budget === 0) {
         nextCursor = encodeCursor({ entityIndex: index, offset });
         break;
       }
-      const rows = await ctx.store.pullEntity(key, scope, input.since, offset, budget);
-      entities[key].push(...rows);
+      const rows = await ctx.store.pullEntity(key2, scope, input.since, offset, budget);
+      entities[key2].push(...rows);
       for (const row of rows) {
         const updated = String(row.updated_at ?? "");
         if (updated > newest) newest = updated;
@@ -727,22 +956,24 @@ async function syncPull(caller, input, ctx) {
 }
 
 // src/routes/sync.ts
+var UNAUTHENTICATED = { error: { code: "unauthenticated", message: "sign in again" } };
 function syncRoutes(deps) {
-  const app2 = new Hono2();
+  const app2 = new Hono3();
   app2.post("/sync/push", async (c) => {
+    const { caller, refreshedToken } = await deps.callerFor(c.req.raw);
+    if (!caller) return c.json(UNAUTHENTICATED, 401);
+    if (refreshedToken) c.header("X-Refreshed-Token", refreshedToken);
     const body = await c.req.json().catch(() => null);
     const parsed = pushRequestSchema.safeParse(body);
     if (!parsed.success) {
       return c.json({ error: { code: "invalid", message: parsed.error.message } }, 400);
     }
-    const caller = await deps.callerFor(
-      c.req.raw,
-      parsed.data.operations[0]?.author_user_id ?? null
-    );
-    if (!caller) return c.json({ error: { code: "unauthenticated", message: "no caller" } }, 401);
     return c.json(await syncPush(caller, parsed.data, deps.ctx));
   });
   app2.get("/sync/pull", async (c) => {
+    const { caller, refreshedToken } = await deps.callerFor(c.req.raw);
+    if (!caller) return c.json(UNAUTHENTICATED, 401);
+    if (refreshedToken) c.header("X-Refreshed-Token", refreshedToken);
     const parsed = pullRequestSchema.safeParse({
       event_id: c.req.query("event_id"),
       since: c.req.query("since"),
@@ -751,8 +982,6 @@ function syncRoutes(deps) {
     if (!parsed.success) {
       return c.json({ error: { code: "invalid", message: parsed.error.message } }, 400);
     }
-    const caller = await deps.callerFor(c.req.raw, null);
-    if (!caller) return c.json({ error: { code: "unauthenticated", message: "no caller" } }, 401);
     return c.json(await syncPull(caller, parsed.data, deps.ctx));
   });
   return app2;
@@ -763,23 +992,19 @@ function buildContext() {
   const config2 = serverConfig();
   return { store: supabaseStore(getServiceClient(config2)), now: () => /* @__PURE__ */ new Date() };
 }
+function mountedRoutes(ctx, config2) {
+  return [
+    syncRoutes({ ctx, callerFor: (request) => callerFor(request, config2, ctx.store) }),
+    rpcRoutes(ctx, config2)
+  ];
+}
 function buildApp() {
   const config2 = serverConfig();
   const ctx = buildContext();
   return createApp({
     config: config2,
     pingDatabase: makePingDatabase(config2),
-    routes: [
-      syncRoutes({
-        ctx,
-        // Task 1.12 replaces this one function with the bearer-token version.
-        callerFor: async (_request, fallbackUserId) => {
-          if (!fallbackUserId) return { kind: "service", label: "sync-pull" };
-          const user = await ctx.store.getUser(fallbackUserId);
-          return user && user.disabled_at === null ? { kind: "user", userId: user.id, role: user.role } : null;
-        }
-      })
-    ]
+    routes: mountedRoutes(ctx, config2)
   });
 }
 

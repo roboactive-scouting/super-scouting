@@ -1,9 +1,11 @@
 import type { Hono } from 'hono';
 import { createApp } from './app.js';
-import { serverConfig } from './config.js';
+import { callerFor } from './auth/callerFor.js';
+import { serverConfig, type ServerConfig } from './config.js';
 import { getServiceClient } from './db/client.js';
 import { makePingDatabase } from './db/ping.js';
 import { supabaseStore } from './repos/store.js';
+import { rpcRoutes } from './routes/rpc.js';
 import { syncRoutes } from './routes/sync.js';
 import type { UseCaseContext } from './core/context.js';
 
@@ -12,30 +14,23 @@ export function buildContext(): UseCaseContext {
   return { store: supabaseStore(getServiceClient(config)), now: () => new Date() };
 }
 
+/**
+ * Every route the deployed function serves. Exported so app.test.ts exercises this exact
+ * wiring over an in-memory store, rather than a copy of it.
+ */
+export function mountedRoutes(ctx: UseCaseContext, config: ServerConfig): Hono[] {
+  return [
+    syncRoutes({ ctx, callerFor: (request) => callerFor(request, config, ctx.store) }),
+    rpcRoutes(ctx, config),
+  ];
+}
+
 export function buildApp(): Hono {
   const config = serverConfig();
   const ctx = buildContext();
   return createApp({
     config,
     pingDatabase: makePingDatabase(config),
-    routes: [
-      syncRoutes({
-        ctx,
-        // Task 1.12 replaces this one function with the bearer-token version.
-        callerFor: async (_request, fallbackUserId) => {
-          // `fallbackUserId` is only ever null for GET /sync/pull (a pull carries no
-          // operations to derive an author from). syncPull's own doc comment says
-          // every role, and a service caller, may replicate — it never inspects the
-          // caller's identity — so authenticate it as a service caller here rather
-          // than unconditionally failing every pull until task 1.12 lands real
-          // bearer-token auth and replaces this whole function anyway.
-          if (!fallbackUserId) return { kind: 'service', label: 'sync-pull' };
-          const user = await ctx.store.getUser(fallbackUserId);
-          return user && user.disabled_at === null
-            ? { kind: 'user', userId: user.id, role: user.role }
-            : null;
-        },
-      }),
-    ],
+    routes: mountedRoutes(ctx, config),
   });
 }

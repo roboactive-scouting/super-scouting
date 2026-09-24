@@ -60,8 +60,10 @@ export type Store = {
   resolveScope(eventId: string): Promise<PullScope>;
   pullEntity: PullEntitySource;
 
-  // users (tasks 1.3, 1.11, 1.13)
+  // users (tasks 1.3, 1.11, 1.12, 1.13)
   getUser(id: string): Promise<StoredUser | null>;
+  /** By id, never by username: a rename must not move a session to another person (1.12). */
+  getFullUser(id: string): Promise<StoredFullUser | null>;
   getUserByUsername(usernameLower: string): Promise<StoredFullUser | null>;
   insertUser(row: Record<string, unknown>): Promise<StoredFullUser>;
   updateUser(id: string, patch: Record<string, unknown>): Promise<StoredFullUser>;

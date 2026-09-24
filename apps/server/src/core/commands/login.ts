@@ -1,29 +1,13 @@
-import { AppError } from '@frc/shared';
-import { z } from 'zod';
+import { AppError, type LoginInput, type LoginOutput } from '@frc/shared';
 import type { ServerConfig } from '../../config.js';
 import { DUMMY_PASSWORD_HASH, verifyPassword } from '../../auth/password.js';
 import { makeRateLimiter } from '../../auth/rateLimit.js';
 import { issueToken } from '../../auth/token.js';
 import type { UseCaseContext } from '../context.js';
 
-export const loginInput = z.object({
-  username: z.string().min(1),
-  password: z.string().min(1),
-});
-export type LoginInput = z.infer<typeof loginInput>;
-
-export const loginOutput = z.object({
-  token: z.string(),
-  user: z.object({
-    id: z.string().uuid(),
-    username: z.string(),
-    full_name: z.string(),
-    role: z.enum(['scouter', 'lead', 'admin']),
-    must_change_password: z.boolean(),
-  }),
-});
-
-export type LoginOutput = z.infer<typeof loginOutput>;
+// The wire schemas live in packages/shared so the typed client validates with the same
+// objects (SPEC-FINAL 16.1). Re-exported so existing imports from this module still work.
+export { loginInput, loginOutput, type LoginInput, type LoginOutput } from '@frc/shared';
 
 /**
  * Module-level, so it survives between requests on a warm function instance — and
