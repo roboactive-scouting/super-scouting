@@ -178,6 +178,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@frc/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@supabase/supabase-js':
         specifier: ^2.46.1
         version: 2.116.0

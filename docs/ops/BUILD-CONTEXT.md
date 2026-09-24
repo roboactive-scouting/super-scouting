@@ -33,6 +33,16 @@ moves, and nothing will catch it.
   exists on the user's machine — that has already been wrong once. The Code-tab "Run"
   button on a bash block executes in the **agent's** environment, not the user's, which
   matters for anything that must never run through an agent.
+- **Before typing into a browser pane, confirm which tab is focused.** During phase 1B
+  a subagent typed into the wrong tab and wrote records into the IndexedDB of a
+  `localhost:5173` dev server this project never started, then removed them. Harm was
+  nil — dev data, reverted — but an agent wrote to something outside the project
+  because it assumed the focused tab. Read the tab list, act on an explicit tab id, and
+  never assume focus carried over from an earlier call.
+- **Never type a real credential into a browser pane**, even a non-secret dev one like
+  `seedpass1`. Anything typed there lands in a screenshot, a page-text read and the
+  transcript. Drive authenticated flows through the API with `node -e "fetch(...)"`,
+  or have the page read the credential from storage the app already populated.
 
 ## 2. Identifiers — all non-secret
 
@@ -178,6 +188,10 @@ Only the Vercel runtime log separates them.
   It deliberately leaves `applied_operations` alone: clearing that ledger would let an
   already-applied operation replay as a new write.
 - Both refuse to run against production.
+- **The single exception is `pnpm bootstrap:admin`**, which is meant for production.
+  It refuses if the project has any user, and it makes the operator type the ref back.
+  Never add a production refusal to it, and never run it: the user runs it by hand
+  (SETUP.md, "The first admin").
 - **Matches 16–20 are deliberately left unscouted**, so a rehearsal has somewhere to
   scout. The entry screen refuses a second entry for a robot already scouted on this
   device (§6.2), and a fully seeded event leaves nowhere to work.

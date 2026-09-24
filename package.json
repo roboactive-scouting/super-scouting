@@ -24,7 +24,8 @@
     "test:watch": "vitest",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "db:clean": "pnpm --filter @frc/db clean"
+    "db:clean": "pnpm --filter @frc/db clean",
+    "bootstrap:admin": "pnpm --filter @frc/db bootstrap:admin"
   },
   "devDependencies": {
     "@eslint/js": "~9.14.0",
