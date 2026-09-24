@@ -172,7 +172,9 @@ Only the Vercel runtime log separates them.
 
 - `pnpm seed` is **idempotent** and deletes seeded entries it no longer writes.
 - `pnpm db:clean` removes rows outside the deterministic seed id space
-  (`00000000-0000-4000-8000-…`) — the litter rehearsals and smoke runs leave behind.
+  (`00000000-0000-4000-8000-…`) — the litter rehearsals and smoke runs leave behind —
+  from `scouting_entries` and `matches`, and now also non-seed `users` (e.g. a disabled
+  `probe_*` account from a role probe).
   It deliberately leaves `applied_operations` alone: clearing that ledger would let an
   already-applied operation replay as a new write.
 - Both refuse to run against production.

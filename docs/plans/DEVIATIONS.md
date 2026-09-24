@@ -2620,3 +2620,40 @@ Out of scope and left alone: the cross-author push authorization and the update-
 - A pull that hits a database blip now fails the whole page with a 500 instead of returning a partial page. The client must treat a non-200 pull as "keep the old watermark and retry", never as "done".
 
 ---
+
+## Phase 1B housekeeping — db:clean also removes non-seed users
+
+**Plan said:** N/A — not a plan task. A disabled `probe_*` user from an earlier role
+probe was still sitting in the dev database because `pnpm db:clean` only ever purged
+`scouting_entries` and `matches`.
+
+**What was wrong:** `clean.ts`'s doc comment and `purge()` only covered the two tables
+that rehearsals/smoke runs litter. `users` was never touched, so a probe/rehearsal
+account outlived the probe that created it.
+
+**What I did instead:** Extended `purge()`'s table union to include `'users'` and call
+it after entries and matches (FK order: entries reference both matches and users, so
+both go first). The "which ids are strays" filter was pulled out into a new pure
+function, `strayIds` (`packages/db/src/seed/strays.ts`, with `SEED_PREFIX`), since
+`clean.ts` is a top-level-await script and can't be unit-tested directly; `strays.test.ts`
+covers it (4 cases). `applied_operations` is untouched, as before. `sync_conflicts` and
+`do_not_pick` also carry FKs to `users`, but neither is "litter" this script owns —
+nothing currently writes either table outside the seed (`syncPush.ts` only calls
+`putRow` for `'match'` and `'scouting_entry'`) — so they are deliberately not purged;
+if a stray user were ever referenced from one of those tables, the `users` delete would
+fail loudly with that table's name in the thrown error, the same way `purge()` already
+reports any other FK violation. Updated the doc comment, the final `console.warn`
+summary line, and `docs/ops/BUILD-CONTEXT.md` §8's `db:clean` bullet.
+
+Ran for real against dev: `pnpm db:clean` reported "removed 0 entries, 0 matches, and 1
+users" (the stray `probe_*` account, no FK errors), then `pnpm seed` reported "dev
+database seeded". A verification script (scratchpad, not committed) read
+`apps/server/.env` the same way `clean.ts` does and listed `users`: only
+`seed_scouter`, `seed_lead`, `seed_admin` remain, all with `disabled_at=null`.
+
+**Risk:** If `do_not_pick` or `sync_conflicts` push support lands (both entities are
+already in `store.ts`'s `TABLE` map, just unused by `syncPush.ts` today) and a
+rehearsal leaves a stray row there referencing a stray user, `db:clean` will start
+throwing on the `users` purge instead of silently succeeding, until someone adds that
+table to the litter list. That is the intended fail-loud behavior, not a bug, but it
+will look like a new failure the first time it happens.
