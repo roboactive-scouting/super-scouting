@@ -155,6 +155,65 @@ file under `.github/workflows/`. If you ever find yourself adding a
 Production migrations are applied by hand, from your machine, as one deliberate
 command. See the next section.
 
+### The first admin — once, by hand
+
+A new production has **no users**, there is no self-registration, and only an admin
+can create users. Until this runs, nobody can sign in. It is a one-time script,
+`packages/db/src/bootstrap/run.ts`, run by hand with the same care as a production
+migration.
+
+**It is the only script in this repository that is allowed to write to production.**
+Every other one (`seed`, `db:clean`, the integration tests) refuses to. This one
+refuses instead if the project has **any** user, disabled ones included, so once
+production has its first admin it can never do anything again. Do not "fix" it to
+refuse production like the others.
+
+**When:** once, after the first production `db push` (see **Migrations by CLI**)
+has created the `users` table, and before anyone needs to sign in.
+
+1. In an editor (not a shell `echo`), create **`packages/db/.env.bootstrap`**. It is
+   gitignored. Put in these four lines:
+   ```
+   SUPABASE_URL=
+   SUPABASE_SERVICE_ROLE_KEY=
+   BOOTSTRAP_ADMIN_USERNAME=
+   BOOTSTRAP_ADMIN_FULL_NAME=
+   ```
+   Take the first two from the **production** project: Project Settings → API →
+   **Project URL** and the **`service_role` key**. For the username, pick a role
+   name such as `team_admin`, not a person's name (SPEC-FINAL §19.8). It can have
+   1–40 letters, digits, `.`, `_` or `-`. The full name is what the app shows.
+   The script reads **only** this file. It ignores `apps/server/.env` and anything
+   exported in your shell.
+2. Open **PowerShell** or Windows Terminal at the repository root. Don't use Git
+   Bash's own window: it is not a real terminal to Node, so the script can't hide
+   the password there and refuses to run. If you must use it, put `winpty` in front
+   of the command. Run:
+   ```
+   pnpm bootstrap:admin
+   ```
+3. It prints a banner naming the project ref it is about to write to. Check that
+   it says **`ezrgtroyofuxkkktnino`** and "presumably PRODUCTION". If production
+   already has users, it stops here, lists them and exits with code 1. Nothing is
+   written.
+4. It asks you to **type the project ref**. Type `ezrgtroyofuxkkktnino`. Anything
+   else stops it and writes nothing.
+5. It asks twice for a **temporary password**, at least 8 characters. Nothing
+   appears while you type. This password is thrown away at step 7, so it only has
+   to survive the next five minutes. Don't write it down anywhere.
+6. It prints `Created admin "<username>" in project ezrgtroyofuxkkktnino.`
+7. **Your first action:** open `https://frc-scouting-client.vercel.app` and sign
+   in with the username and the temporary password. The app sends you straight to
+   **Change password**. Choose the real password and save it in the password
+   manager.
+8. **Delete `packages/db/.env.bootstrap`.** It holds the production `service_role`
+   key, and nothing else needs it.
+9. Create a **second admin** from the Users screen, so the install never depends on
+   one account. The app refuses to demote or disable the last enabled admin.
+
+Running it a second time is harmless. It sees the user from step 6, prints who is
+there and exits with code 1 before it asks anything.
+
 ## Migrations by CLI
 
 Migrations are SQL files in `packages/db/supabase/migrations/`, committed to the

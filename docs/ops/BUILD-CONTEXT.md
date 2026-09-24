@@ -188,6 +188,10 @@ Only the Vercel runtime log separates them.
   It deliberately leaves `applied_operations` alone: clearing that ledger would let an
   already-applied operation replay as a new write.
 - Both refuse to run against production.
+- **The single exception is `pnpm bootstrap:admin`**, which is meant for production.
+  It refuses if the project has any user, and it makes the operator type the ref back.
+  Never add a production refusal to it, and never run it: the user runs it by hand
+  (SETUP.md, "The first admin").
 - **Matches 16–20 are deliberately left unscouted**, so a rehearsal has somewhere to
   scout. The entry screen refuses a second entry for a robot already scouted on this
   device (§6.2), and a fully seeded event leaves nowhere to work.
