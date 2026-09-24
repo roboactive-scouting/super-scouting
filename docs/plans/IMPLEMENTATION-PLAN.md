@@ -14780,6 +14780,7 @@ git add -A && git commit -m "feat(client): handle parent-deleted records and kee
 
 **Interfaces:**
 - Produces: `/sync` — what synced, what is pending, when the last successful sync was, a manual **"sync now"** button, the rejected-operation list, a link to the discarded log, and the two guarded actions of tasks 1.48 and 1.49.
+- **Amended by SPEC-FINAL v1.2 (§9.10):** `<ConnectionIndicator />` becomes a link to `/sync`. The pending list names each unsynced record (match · team, alliance, robot status, when saved, local or QR, rejection reason in words) and has exactly as many items as `unsyncedCount()`; a bare match is not its own line, and its entry says "new match — sends with this entry".
 
 **Reference (SPEC-FINAL §17.9, Obsidian Sync):** the indicator names the state in words plus a count; there is a place to look listing what synced and what didn't; **conflicts are an explicit worklist you can finish**, not a passive warning.
 

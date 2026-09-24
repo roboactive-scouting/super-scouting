@@ -4,6 +4,21 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const REQUIRED = {
+  // Binding for every build chat. Guarded here so a section cannot quietly vanish:
+  // each one records something that cost real time to learn.
+  'docs/ops/BUILD-CONTEXT.md': [
+    '1. The machine',
+    '2. Identifiers — all non-secret',
+    '3. Secrets',
+    '4. Environments and the production boundary',
+    '5. Vercel — things that will waste a day if you do not know them',
+    '6. The server function is bundled, not transpiled',
+    '7. Architecture rules that a task can silently break',
+    '8. Dev database',
+    '9. How a build chat runs',
+    '10. Verification standard',
+    '11. `DEVIATIONS.md`',
+  ],
   'docs/ops/SETUP.md': [
     'Accounts to create',
     'Supabase — dev project',

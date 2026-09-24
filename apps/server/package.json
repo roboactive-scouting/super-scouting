@@ -17,10 +17,13 @@
     "@frc/shared": "workspace:*",
     "@hono/node-server": "^1.13.7",
     "@supabase/supabase-js": "^2.46.1",
+    "bcryptjs": "^2.4.3",
     "hono": "^4.6.9",
+    "jose": "^5.9.6",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.9.0",
     "esbuild": "^0.28.2",
     "tsx": "^4.19.2",

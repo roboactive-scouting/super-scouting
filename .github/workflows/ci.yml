@@ -55,6 +55,17 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      # CI and Vercel both react to the same push with no ordering guarantee, and Vercel's
+      # client+server deploy can take several minutes after CI's own steps finish — this
+      # polls /health until it reports THIS commit (EXPECTED_COMMIT_SHA) as deployed, not
+      # just any 200, so the smoke suite below never races a still-live stale deployment
+      # (see docs/plans/DEVIATIONS.md).
+      - name: Wait for deployment to be live
+        env:
+          SMOKE_API_BASE_URL: ${{ secrets.SMOKE_API_BASE_URL }}
+          EXPECTED_COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: pnpm wait:deploy
+
       # SPEC-FINAL 19.3 / D30: this is the /health wiring check until phase 1's use cases
       # exist, then it grows into the full smoke suite of 18.4. The step is present from
       # the first push so it can never be forgotten.

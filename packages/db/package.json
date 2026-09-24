@@ -15,12 +15,17 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --no-error-on-unmatched-pattern",
-    "build": "tsc --noEmit"
+    "build": "tsc --noEmit",
+    "clean": "tsx src/seed/clean.ts",
+    "bootstrap:admin": "tsx src/bootstrap/run.ts"
   },
   "dependencies": {
+    "@frc/shared": "workspace:*",
     "@supabase/supabase-js": "^2.46.1"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "bcryptjs": "^2.4.3",
     "dotenv": "^16.4.5",
     "supabase": "^2.117.0",
     "tsx": "^4.19.2",

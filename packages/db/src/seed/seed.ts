@@ -2,6 +2,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '../database.types';
 import { SEED, SEED_FIELDS, SEED_SUPER_FIELDS, type SeedField } from './fixtures';
 
+/** The deterministic seed id space (see fixtures.ts). */
+const SEED_ID_PREFIX = '00000000-0000-4000-8000-';
+
 export type SeedOptions = { requireUrlToContain?: string };
 
 const iso = (dayOffset: number, minute: number): string =>
@@ -12,6 +15,44 @@ const iso = (dayOffset: number, minute: number): string =>
  * idempotent, and never run against production. It writes rows directly and is not
  * a use-case caller, which is what lets it run before auth and roles exist (§16.5).
  */
+/**
+ * Names that do not repeat the team number. The robot picker renders "number name",
+ * so "Seed Team 8000" made every option read "8000 Seed Team 8000" — the repetition
+ * was the fixture's, not the UI's.
+ */
+const TEAM_NAMES = [
+  'Iron Falcons',
+  'Circuit Breakers',
+  'Gear Grinders',
+  'Quantum Quokkas',
+  'Torque Titans',
+  'Voltage Vipers',
+  'Rusty Rockets',
+  'Binary Bears',
+  'Photon Foxes',
+  'Cobalt Crusaders',
+  'Delta Dragons',
+  'Echo Engineers',
+  'Fusion Ferrets',
+  'Gravity Gators',
+  'Helix Hawks',
+  'Inertia Ibex',
+  'Joule Jaguars',
+  'Kinetic Kestrels',
+  'Lumen Lynx',
+  'Magnet Moose',
+  'Nimbus Narwhals',
+  'Omega Otters',
+  'Pixel Panthers',
+  'Quasar Quail',
+  'Radian Ravens',
+  'Solder Storks',
+  'Tesla Tigers',
+  'Umbra Urchins',
+  'Vector Vultures',
+  'Watt Wolves',
+];
+
 export async function seedDevDatabase(
   db: SupabaseClient<Database>,
   options: SeedOptions = {},
@@ -66,7 +107,7 @@ export async function seedDevDatabase(
   const teams = Array.from({ length: 30 }, (_, i) => ({
     id: SEED.team(i),
     number: 8000 + i,
-    name: `Seed Team ${8000 + i}`,
+    name: TEAM_NAMES[i] ?? `Team ${8000 + i}`,
   }));
   await db.from('teams').upsert(teams);
   await db.from('event_teams').upsert(
@@ -166,7 +207,12 @@ export async function seedDevDatabase(
     { onConflict: 'form_id,field_key' },
   );
 
-  // 20 qualification matches x 6 robots = 120 entries; a handful of them are dead robots.
+  // 20 qualification matches x 6 robots. Only the first SCOUTED_MATCHES of them carry
+  // entries, so the last few are left genuinely unscouted: the entry screen refuses to
+  // start a second entry for a robot already scouted on this device (spec 6.2), and a
+  // fully seeded event leaves a rehearsal with nowhere to scout. Every match still gets
+  // its match_teams, so alliance narrowing works across all 20.
+  const SCOUTED_MATCHES = 15;
   const matches = Array.from({ length: 20 }, (_, i) => ({
     id: SEED.match(i + 1),
     event_id: SEED.event,
@@ -190,6 +236,8 @@ export async function seedDevDatabase(
         station,
         team_id: teams[teamIndex]!.id,
       });
+
+      if (m >= SCOUTED_MATCHES) continue;
 
       const index = m * 6 + slot;
       const dead = index % 37 === 0;
@@ -230,6 +278,22 @@ export async function seedDevDatabase(
 
   await db.from('match_teams').upsert(matchTeams);
   await db.from('scouting_entries').upsert(entries);
+
+  // The seed upserts, so lowering SCOUTED_MATCHES would otherwise leave the entries a
+  // previous run created for the now-unscouted matches sitting in the database, and the
+  // matches would look scouted forever. Drop any seeded entry this run did not write.
+  // Scoped to the deterministic id space, so entries a real push created are untouched.
+  const keep = new Set(entries.map((e) => e.id));
+  // Filtered in JS, not with .like(): PostgREST will not pattern-match a uuid column.
+  const { data: seeded, error: seededError } = await db.from('scouting_entries').select('id');
+  if (seededError) throw new Error(`seed cleanup: ${seededError.message}`);
+  const stale = (seeded ?? [])
+    .map((r) => String(r.id))
+    .filter((id) => id.startsWith(SEED_ID_PREFIX) && !keep.has(id));
+  if (stale.length > 0) {
+    const { error } = await db.from('scouting_entries').delete().in('id', stale);
+    if (error) throw new Error(`seed cleanup: ${error.message}`);
+  }
 
   await db
     .from('app_settings')

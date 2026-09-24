@@ -5,6 +5,12 @@ Year-agnostic scouting app for an FRC team. Currently in the **specification pha
 ## Read these before doing anything
 
 - `docs/spec/frc-scouting-app-spec.md` — the living specification. Single source of truth for all requirements and decisions.
+- `docs/ops/BUILD-CONTEXT.md` — **binding for every build chat.** The machine, the
+  identifiers, the secrets rule, the Vercel and deployment carve-outs, the bundled
+  server function, how a build chat runs, the verification standard and the
+  `DEVIATIONS.md` format. Every fact in it was learned the expensive way; none is
+  guessable from the code. **A build prompt points at this file rather than restating
+  it** — a restated rule goes stale the first time the rule moves.
 - `docs/spec/COLLABORATION.md` — process rules. **Sections 2, 3, 10 and 11 are binding.** Read them.
 
 ## Non-negotiables
