@@ -16,9 +16,11 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --no-error-on-unmatched-pattern",
     "build": "tsc --noEmit",
-    "clean": "tsx src/seed/clean.ts"
+    "clean": "tsx src/seed/clean.ts",
+    "bootstrap:admin": "tsx src/bootstrap/run.ts"
   },
   "dependencies": {
+    "@frc/shared": "workspace:*",
     "@supabase/supabase-js": "^2.46.1"
   },
   "devDependencies": {
