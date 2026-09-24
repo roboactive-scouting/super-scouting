@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, matchPath, Navigate, Outlet, useLocation } from 'react-router-dom';
+import { DISABLED, OFFLINE_SIGNED_IN_LINE } from '@/auth/messages';
+import { PASSWORD_CHANGED_LINE, ReconnectPrompt } from '@/auth/ReconnectPrompt';
+import { exchangePendingCredential, installReconnect, reconnectPrompt } from '@/auth/reconnect';
 import { needsSignIn, session } from '@/auth/session';
 import { useSession } from '@/auth/useSession';
 import { clientConfig } from '@/config';
@@ -26,6 +29,8 @@ async function deviceId(): Promise<string> {
 
 export function AppShell({ eventId }: { eventId: string }) {
   const [state, setState] = useState<HydrationState | 'loading'>('loading');
+  /** The one-field password prompt (task 1.16); `key` remounts it for a new reason. */
+  const [prompt, setPrompt] = useState<{ key: number; error: string | null } | null>(null);
   const current = useSession();
   const location = useLocation();
   const onEntryRoute = matchPath(ENTRY_ROUTE, location.pathname) !== null;
@@ -37,16 +42,34 @@ export function AppShell({ eventId }: { eventId: string }) {
     const api = apiClient(clientConfig());
     let stopped = false;
 
+    /**
+     * An offline sign-in holds no token (SPEC-FINAL 7.5). Each time the shell would sync,
+     * it first tries to exchange the password held in memory for one. With none held (the
+     * app was closed since), it asks for the password once.
+     */
+    async function reconnect() {
+      if (!navigator.onLine) return;
+      const outcome = await exchangePendingCredential();
+      if (stopped) return;
+      const show = (error: string | null) => setPrompt({ key: Date.now(), error });
+      if (outcome === 'no-credential' && reconnectPrompt.claim()) show(null);
+      else if (outcome === 'refused') show(PASSWORD_CHANGED_LINE);
+      else if (outcome === 'disabled') show(DISABLED);
+    }
+
     async function run(first: boolean) {
       // Read fresh each time: the token can expire (or be refreshed) between runs.
-      const token = await session.token();
+      const current = await session.current();
+      const token = current?.token ?? null;
       if (!token) {
-        // Expired (or, in 1.16, an offline sign-in): never contact the server without a
-        // token — settle the first hydration from what the device already holds.
+        // Expired, or an offline sign-in: never contact the sync routes without a token —
+        // settle the first hydration from what the device already holds.
         if (first) {
           const cached = await cachedHydration(eventId);
           if (!stopped) setState(cached);
         }
+        // An expired session signs in again on /login; only an offline one reconnects here.
+        if (current?.offline && !current.expired) await reconnect();
         return;
       }
       beginSync();
@@ -61,17 +84,36 @@ export function AppShell({ eventId }: { eventId: string }) {
       }
     }
 
-    void run(true);
+    // One run at a time: a tick, the `online` event and a fresh token can coincide.
+    let queue: Promise<void> = Promise.resolve();
+    const schedule = (first: boolean) => {
+      queue = queue.then(() => (stopped ? undefined : run(first))).catch(() => {});
+    };
+
+    schedule(true);
     const timer = setInterval(() => {
-      if (!stopped && navigator.onLine) void run(false);
+      if (!stopped && navigator.onLine) schedule(false);
     }, AUTO_REFRESH_MS);
-    const onReconnect = () => void run(false);
+    const onReconnect = () => schedule(false);
     window.addEventListener('online', onReconnect);
+
+    // A token arriving in place (the reconnect exchange, a switch to an online scouter)
+    // syncs at once rather than on the next 45 s tick. `first` re-settles hydration, so
+    // a device that was working from its cache says so no longer.
+    let lastToken: string | null | undefined;
+    const unsubscribe = session.subscribe((next) => {
+      const token = next?.token ?? null;
+      if (lastToken === null && token !== null) schedule(true);
+      lastToken = token;
+    });
+    const uninstall = installReconnect();
 
     return () => {
       stopped = true;
       clearInterval(timer);
       window.removeEventListener('online', onReconnect);
+      unsubscribe();
+      uninstall();
     };
   }, [eventId, hasSession]);
 
@@ -86,6 +128,8 @@ export function AppShell({ eventId }: { eventId: string }) {
     return <Navigate to="/change-password" replace />;
   }
   const context: ShellContext = { user: current.user, expired: current.expired };
+  /** Signed in against the cached hashes, no token yet (task 1.16). */
+  const offlineSession = current.offline && current.token === null && !current.expired;
 
   // The first pull has not finished, so IndexedDB is still empty. Child routes read the
   // cache once on mount and would render an empty match list that never fills itself in,
@@ -119,21 +163,38 @@ export function AppShell({ eventId }: { eventId: string }) {
 
   return (
     <div className="min-h-dvh">
-      <header className="flex items-center justify-between border-b border-[var(--border)] p-2">
-        <nav className="tap-row flex">
+      <header className="flex flex-wrap items-center justify-between gap-y-2 border-b border-[var(--border)] p-2">
+        <nav className="tap-row flex flex-wrap">
           <Link className="tap-target px-3 leading-[48px]" to="/">
             Scout
           </Link>
           <Link className="tap-target px-3 leading-[48px]" to="/entries">
             Entries
           </Link>
+          {!current.expired && (
+            <Link className="tap-target px-3 leading-[48px]" to="/switch-scouter">
+              Switch scouter
+            </Link>
+          )}
         </nav>
         <ConnectionIndicator />
       </header>
+      {offlineSession && prompt && (
+        <ReconnectPrompt
+          key={prompt.key}
+          name={current.user.full_name}
+          error={prompt.error}
+          onClose={() => setPrompt(null)}
+        />
+      )}
       {current.expired ? (
         // Persistent and non-modal: the scout finishes the entry first (task 1.15).
         <p role="status" className="border-b-2 border-[var(--warning)] p-2 text-sm">
           Sign in again to sync — this entry is saved on this device
+        </p>
+      ) : offlineSession ? (
+        <p role="status" dir="auto" className="border-b border-[var(--border)] p-2 text-sm">
+          {OFFLINE_SIGNED_IN_LINE}
         </p>
       ) : (
         state === 'cached' && (
@@ -152,7 +213,7 @@ export function AppShell({ eventId }: { eventId: string }) {
           </span>
         </span>
         <span className="tap-row flex">
-          {!current.expired && (
+          {current.token !== null && (
             <Link className="tap-target inline-flex items-center px-2" to="/change-password">
               Change password
             </Link>

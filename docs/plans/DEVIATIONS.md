@@ -2757,3 +2757,83 @@ will look like a new failure the first time it happens.
 **What I did instead:** left it.
 
 **Risk:** none new; code-splitting is a Phase 1E concern.
+
+## Task 1.16 — when the login falls back to the cached hash
+
+**Plan said:** "In `LoginPage`, catch a network failure from `POST /api/login` and fall back to `offlineLogin`."
+
+**What was wrong:** a network failure is not the only non-answer at a venue. A dying connection hangs rather than fails, and a captive portal answers `200 text/html` (or 302s to its own page), which `call()` turned into `RpcError('invalid', 'the server answered in a shape this app does not know', 500)` — indistinguishable by status from our own server's 500. The orchestrator ruled (decision 1): fall back on anything that is not our server's definitive answer, never on a definitive one.
+
+**What I did instead:** `RpcError` gained a fourth field, `answered: boolean` — true only when the body is our own error shape (`{ error: { code: string } }`), or when the shared schema refused the input before any request. `call()` and `rpc.call()` take an optional third argument `CallOptions = { timeoutMs?: number }`; the deadline aborts the fetch through an `AbortController` **and** races it, so a request (or a body) that ignores the signal still ends; a deadline is `RpcError('timeout', …, 0)`. Only the login path sets it: `LOGIN_TIMEOUT_MS = 8_000` in `auth/offlineLogin.ts`. `isDefinitive(e)` = `e.answered && [400, 401, 403, 429].includes(e.status)`. Everything else (status 0, the deadline, any 5xx, any non-JSON or foreign-shaped response of any status) falls back. One refinement: when our own server answered a 5xx **and** the device has no cached accounts, the server-trouble line is shown rather than "connect to the internet once" (which would be untrue). Rejected: deciding on status alone (a portal's 401/403 HTML page would then be "definitive" and lock a scout out at the venue).
+
+**Risk:** a real server outage now signs people in offline instead of saying "the server is having trouble" — intended. A server bug that returns a non-JSON 4xx would also fall back; the cached hash still has to match, so this opens nothing a correct password would not.
+
+## Task 1.16 — bcryptjs loaded on demand, async compare, disabled checked after the password
+
+**Plan said:** `import bcrypt from 'bcryptjs'` at the top of `offlineLogin.ts`, `bcrypt.compareSync(...)`, and the disabled check before the password check.
+
+**What was wrong:** the static import puts bcryptjs in the 541 kB main chunk that every device loads for every screen; `compareSync` at cost 10 blocks a low-end phone's main thread for up to a second. The brief's order also answers "disabled" to anyone who types a disabled username, unlike the server (`apps/server/src/core/commands/login.ts` checks the password first, then `disabled_at`).
+
+**What I did instead:** `const { default: bcrypt } = await import('bcryptjs')` inside `offlineLogin`, and the async `bcrypt.compare`. The build emits `assets/bcrypt-*.js` (22.43 kB, 10.19 kB gzip) as its own chunk, and it is in the service worker's precache list (`dist/sw.js`), so it is on the device before the first offline sign-in. Checked in a real Chromium against the built bundle with the API refusing connections: the chunk is fetched only after the login request fails, and the sign-in succeeds. The disabled check runs after a matching password, as on the server. `bcryptjs ^2.4.3` and `@types/bcryptjs ^2.4.6` — the server's versions — added to `apps/client/package.json`; the lockfile reuses the existing `bcryptjs@2.4.3` / `@types/bcryptjs@2.4.6` entries (6 lines added, no new package versions). A test spies on `compareSync` and fails if it is ever called.
+
+**Risk:** if the precache were ever dropped, a device that has never used the offline path would need the network to fetch the chunk the first time it needs it. The main chunk still grew (541.19 → 549.74 kB) from the new screens and modules.
+
+## Task 1.16 — the `offlineSignIn` seam changed shape
+
+**Plan said:** (task 1.15's seam) `type OfflineSignIn = (username, password) => Promise<SessionUser | null>`; LoginPage calls `session.signIn(user, null, true)` itself; `routes.tsx` passes the function. The brief's `offlineLogin` signs in itself and throws on refusal.
+
+**What was wrong:** the two did not fit: the seam returned null on a mismatch and left signing in to the page, while `offlineLogin` throws and signs in. A null also cannot say *why* (disabled vs. mismatch vs. nothing cached).
+
+**What I did instead:** `type OfflineSignIn = (username, password) => Promise<SessionUser>` (moved to `auth/offlineLogin.ts`, re-exported from `LoginPage.tsx`); it throws `OfflineLoginError` whose `reason` is `'no-accounts' | 'mismatch' | 'disabled'` and whose message is the one line to show (never the input). The fallback lives in one function, `signInWithFallback(username, password, { timeoutMs?, offline? })`, used by LoginPage and switch scouter. `LoginPage`'s prop defaults to `offlineLogin`, so `routes.tsx` passes nothing and a LoginPage mounted anywhere else cannot silently lose the offline path. An offline success navigates to `/`, never `/change-password`. The 1.15 test "does not crash when the request cannot reach the server" expected the old "credentials cached on this device" line with no session; it now expects `NO_CACHED_ACCOUNTS_LINE` (its fixture has no cached users); the 500 case in "maps HTTP %i to a sentence" still shows the server-trouble line through the refinement above.
+
+**Risk:** none known; the old seam had no caller.
+
+## Task 1.16 — where the offline success line appears, and must_change_password offline
+
+**Plan said:** LoginPage falls back "showing *Signed in from this device's cached accounts. You are offline — your entries are safe here.*"
+
+**What was wrong:** LoginPage navigates away the moment the sign-in succeeds, so a line on it would never be seen.
+
+**What I did instead:** the exact line (`OFFLINE_SIGNED_IN_LINE` in `auth/messages.ts`) is shown by AppShell, under the header, for as long as the session is an offline one (`offline && token === null && !expired`), in place of the "working from data already on this device" line. It disappears when the reconnect exchange mints a token. `offlineLogin` records `must_change_password: false` (as the brief's sketch did; decision 3): the flag takes effect from the reconnect exchange's login response, and the 1.15 redirect applies from then on. The footer's "Change password" link is now hidden for every token-less session (it was hidden only when expired); on an offline session it could only have failed.
+
+**Risk:** an admin-forced password change is postponed until the device reconnects — intended.
+
+## Task 1.16 — the reconnect exchange and the password prompt (files the plan did not list)
+
+**Plan said:** files `offlineLogin.ts`, `pendingCredential.ts`, `SwitchScouter.tsx` (+ tests); "In `AppShell`, on the `online` event: if the session has no token and `pendingCredential.get()` is non-null, exchange it … If it is null, show a one-field prompt asking for the password once."
+
+**What was wrong:** nothing, but the logic is too large to test through AppShell alone, and decision 5 added the `onSessionExpired` trigger, the immediate sync, the 401 path and the prompt rules.
+
+**What I did instead:** added `auth/reconnect.ts` (+ `reconnect.test.ts`) and `auth/ReconnectPrompt.tsx`. `exchangePendingCredential(): Promise<ExchangeOutcome>` is single-flight and returns `'exchanged' | 'not-needed' | 'no-credential' | 'unreachable' | 'refused' | 'disabled'`; it never sends another user's password (the credential's username must equal the session's) and never overwrites a session that changed hands while the request was in flight. 401/400 → credential cleared, `refused`; 403 → cleared, `disabled`; 429 and every non-definitive outcome → kept, `unreachable`. `installReconnect()` registers it on 1.15's `onSessionExpired` seam (AppShell installs it for its lifetime). AppShell runs it from its existing triggers — first mount, the 45 s tick, the `online` event — whenever the session is an offline one and `navigator.onLine` is true (an expired session keeps 1.15's path: /login). Runs are serialized through a promise queue. AppShell subscribes to the session and, on a token going null → value, runs a sync immediately with `first = true`, so hydration re-settles (a `cached` notice clears). The prompt (`ReconnectPrompt`): one password field in the page flow under the header, a region named "Finish signing in to sync", no dialog, no autofocus, "Not now" dismisses it; shown for `no-credential` once per app session (`reconnectPrompt.claim()`), and again — with a reason — for `refused` ("The password for this account has changed. Enter the new one to sync.") or `disabled`. Its submit (`signInAgain(password)`) tries the server with the signed-in username; a definitive answer is shown ("That password does not match." for a 401); with no definitive answer the password is checked against the cached hash and, if it matches, held in memory for the next reconnect (`held`). The outbox is pushed only under whatever token the device then holds (a token-less push is a 401 by construction).
+
+**Risk:** `navigator.onLine` is true on venue Wi-Fi with no internet, so the prompt can appear before the connection is real; it is dismissible, and a password typed there is simply held until it is. A user disabled since the offline sign-in keeps working offline until someone signs out; nothing of theirs can push.
+
+## Task 1.16 — switch scouter is a route, and what it changes
+
+**Plan said:** `<SwitchScouter />` — "the shared-device quick action, backed by the cached user list"; the test asserts the picker lists non-disabled users by full name, asks for that user's password, and switches without touching the outbox.
+
+**What was wrong:** nothing; details the brief left open.
+
+**What I did instead:** a route, `/switch-scouter`, inside AppShell, reached from the header's "Switch scouter" link (`tap-target`, hidden while expired; the header now wraps so it never overflows at 375 px). A native `<select>` labelled "Scouter" (48 px, `dir="auto"` on it and on each option) lists every cached, non-disabled user sorted by full name, the signed-in one marked "· signed in now"; choosing one shows a password field labelled "Password for <name>" (the name in `dir="auto"`). The option text is `Full Name · username`, **not** `Full Name (username)`: checked in Chromium, a Hebrew name makes the option right-to-left and the brackets around the Latin username render mirrored, as `(seed_lead (שירה לוי`. `switchScouter(username, password)` (exported from `SwitchScouter.tsx`) = `signInWithFallback`, then `db.practiceDrafts.clear()`; it never touches the outbox, `rows` or `drafts`. An online switch clears `pendingCredential`; an offline one replaces it. Entry drafts are keyed `formVersionId:matchId:teamId` (no user), and the author is read from the signed-in user at submit time, so a draft begun by one scouter and submitted after a switch is the submitter's (`routes.test.tsx` proves this, and that the previous scouter's queued op is unchanged). `AuthField`'s `label` now takes a `ReactNode`, and it gained an `autoFocus` prop (used only here, never on the entry screen).
+
+**Risk:** an **offline** switch drops the previous scouter's token (the session holds one user), so nothing pushes until the new scouter's password is exchanged on reconnect. A switch while online keeps pushing under the new token at the next sync.
+
+## Task 1.16 — the integration test's accounts and its "port refuses" check
+
+**Plan said:** (decision 7) users whose `password_hash` is `bcrypt.hashSync('seedpass1', 10)`; close the server so the port refuses connections (a real `ECONNREFUSED`).
+
+**What was wrong:** with every account on `seedpass1`, switching to the second user would not prove that *that user's* hash was checked. And the first `fetch` after `server.close()` + `closeAllConnections()` failed with `ECONNRESET`, not `ECONNREFUSED` — `expected 'ECONNRESET' to be 'ECONNREFUSED'` — because undici reused a kept-alive socket the close had just reset.
+
+**What I did instead:** `seed_scouter` keeps `seedpass1`; `seed_lead` uses `leadpass-2096` and a Hebrew full name; a disabled `seed_gone` is added. The refusal is proved with a raw `node:net` connect (`ECONNREFUSED`), then by fetching until undici's pool is empty and `fetch` too reports `ECONNREFUSED` (at most 5 tries), before any offline step runs. The same port is reused on restart. `@/config` is mocked with a hoisted mutable base URL, the way every client test configures it. The reconnect step mounts the real route tree and dispatches a real `online` event (no `navigator.onLine` mock). The file also covers an admin reset (server hash changed, cached hash still matching the old password → definitive 401, no fallback; the held old password is `refused` at reconnect), a captive portal (`200 text/html`) and a hanging server (a 300 ms deadline, with the server observing the aborted request).
+
+**Risk:** none.
+
+## Task 1.16 — the storage test dumps everything
+
+**Plan said:** `JSON.stringify(await db.meta.toArray())` must not contain the password.
+
+**What was wrong:** only one table was checked.
+
+**What I did instead:** every Dexie table (`db.tables`), `localStorage` and `sessionStorage`, with a positive control (the dump contains the user's id) — in the unit test and in the integration test after the full offline → switch → reconnect → push flow. A mutant that writes the password into `meta` turns 18 tests red.
+
+**Risk:** none.

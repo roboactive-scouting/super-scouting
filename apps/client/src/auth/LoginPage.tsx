@@ -1,21 +1,20 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { call, RpcError } from '@/data/rpc';
 import { AuthError, AuthField, AuthFrame, AuthSubmit } from './AuthFrame';
-import { loginErrorLine, OFFLINE_SIGN_IN_LINE } from './messages';
-import { session, type SessionUser } from './session';
+import { OFFLINE_SIGN_IN_LINE } from './messages';
+import {
+  offlineLogin,
+  signInErrorLine,
+  signInWithFallback,
+  type OfflineSignIn,
+} from './offlineLogin';
+import type { SessionUser } from './session';
 import { useSession } from './useSession';
 
 export const EXPIRED_LINE =
   'Your sign-in expired. Everything you entered is saved on this device and will sync after you sign in.';
 
-/**
- * THE TASK 1.16 SEAM for offline sign-in: given the typed credentials, verify them
- * against the cached bcrypt hash and return the user (then `session.signIn(user, null,
- * true)`), or null when they do not match. Unset in 1.15, so a network failure shows
- * the offline line and signs no one in.
- */
-export type OfflineSignIn = (username: string, password: string) => Promise<SessionUser | null>;
+export type { OfflineSignIn };
 
 function useOnline(): boolean {
   const [online, setOnline] = useState(() => navigator.onLine);
@@ -33,7 +32,15 @@ function useOnline(): boolean {
 
 const home = (user: SessionUser) => (user.must_change_password ? '/change-password' : '/');
 
-export function LoginPage({ offlineSignIn }: { offlineSignIn?: OfflineSignIn } = {}) {
+/**
+ * `offlineSignIn` is how the cached-hash path is reached (task 1.16): the server is tried
+ * first, and on any outcome that is not its definitive answer — no connection, the
+ * 8-second deadline, a 5xx, a captive portal — the credentials are checked on the device
+ * (`offlineLogin` by default; tests may inject their own).
+ */
+export function LoginPage({
+  offlineSignIn = offlineLogin,
+}: { offlineSignIn?: OfflineSignIn } = {}) {
   const navigate = useNavigate();
   const current = useSession();
   const online = useOnline();
@@ -64,21 +71,14 @@ export function LoginPage({ offlineSignIn }: { offlineSignIn?: OfflineSignIn } =
     }
     setBusy(true);
     try {
-      const { token, user } = await call('login', { username: name, password });
-      await session.signIn(user, token);
-      navigate(home(user), { replace: true });
+      const { user, offline } = await signInWithFallback(name, password, {
+        offline: offlineSignIn,
+      });
+      // An offline session is never sent to the change-password screen: that needs the
+      // server, and entering match data comes first (the shell says it is offline).
+      navigate(offline ? '/' : home(user), { replace: true });
     } catch (err) {
-      if (err instanceof RpcError && err.status === 0 && offlineSignIn) {
-        const user = await offlineSignIn(name, password);
-        if (user) {
-          await session.signIn(user, null, true);
-          navigate(home(user), { replace: true });
-          return;
-        }
-        setError('That username and password do not match.');
-      } else {
-        setError(loginErrorLine(err));
-      }
+      setError(signInErrorLine(err));
     } finally {
       setBusy(false);
     }

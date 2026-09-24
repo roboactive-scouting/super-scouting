@@ -123,6 +123,49 @@ describe('the RPC client (SPEC-FINAL 16.1, 7.5)', () => {
     });
   });
 
+  it('abandons a request that outlives its deadline as status 0, code timeout', async () => {
+    let signal: AbortSignal | undefined;
+    fetchMock.mockImplementationOnce((_url, init) => {
+      signal = init?.signal ?? undefined;
+      return new Promise<Response>(() => {});
+    });
+    await expect(
+      call('login', { username: 'a', password: 'b' }, { timeoutMs: 20 }),
+    ).rejects.toMatchObject({ status: 0, code: 'timeout', answered: false });
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it('sets no deadline and no signal unless asked to', async () => {
+    fetchMock.mockResolvedValueOnce(json(200, { token: 't', user }));
+    await call('login', { username: 'a', password: 'b' });
+    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBeUndefined();
+  });
+
+  it('marks an error in our own shape as answered, and anything else as not', async () => {
+    fetchMock.mockResolvedValueOnce(
+      json(401, { error: { code: 'unauthenticated', message: 'no match' } }),
+    );
+    await expect(call('login', { username: 'a', password: 'b' })).rejects.toMatchObject({
+      status: 401,
+      answered: true,
+    });
+    fetchMock.mockResolvedValueOnce(new Response('<html>portal</html>', { status: 401 }));
+    await expect(call('login', { username: 'a', password: 'b' })).rejects.toMatchObject({
+      status: 401,
+      answered: false,
+    });
+    fetchMock.mockResolvedValueOnce(
+      new Response('<html>portal</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+    await expect(call('login', { username: 'a', password: 'b' })).rejects.toMatchObject({
+      status: 500,
+      answered: false,
+    });
+  });
+
   it('refuses an input the shared schema rejects, before any request', async () => {
     await expect(
       call('changeOwnPassword', { current_password: 'a', new_password: 'short' }),

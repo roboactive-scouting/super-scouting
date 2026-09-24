@@ -29,12 +29,13 @@ export function AuthFrame({ title, children }: { title: string; children: ReactN
 
 /** A labelled input at the 48 px floor (SPEC-FINAL 17.7). The hint sits outside the label. */
 export function AuthField(props: {
-  label: string;
+  label: ReactNode;
   type: 'text' | 'password';
   value: string;
   autoComplete: string;
   onChange: (value: string) => void;
   hint?: string;
+  autoFocus?: boolean;
 }) {
   const id = useId();
   const hintId = `${id}-hint`;
@@ -48,6 +49,7 @@ export function AuthField(props: {
         type={props.type}
         value={props.value}
         autoComplete={props.autoComplete}
+        autoFocus={props.autoFocus}
         autoCapitalize="none"
         autoCorrect="off"
         spellCheck={false}

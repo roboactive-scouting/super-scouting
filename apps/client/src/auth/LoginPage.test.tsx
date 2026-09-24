@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import bcrypt from 'bcryptjs';
 import { join } from 'node:path';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -6,6 +7,8 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { db } from '@/data/db';
 import { LoginPage } from './LoginPage';
+import { NO_CACHED_ACCOUNTS_LINE } from './offlineLogin';
+import { pendingCredential } from './pendingCredential';
 import { session } from './session';
 
 vi.mock('@/config', () => ({
@@ -159,12 +162,89 @@ describe('LoginPage (SPEC-FINAL 7.3, 7.5)', () => {
     ).toBeInTheDocument();
   });
 
-  it('does not crash when the request cannot reach the server', async () => {
+  it('says the device has no cached accounts when it cannot reach the server and never synced', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    renderLogin();
+    await signInWith('seed_scouter', 'seedpass1');
+    expect(await screen.findByRole('alert')).toHaveTextContent(NO_CACHED_ACCOUNTS_LINE);
+    expect(await session.current()).toBeNull();
+  });
+});
+
+describe('LoginPage offline (SPEC-FINAL 7.5, task 1.16)', () => {
+  beforeEach(async () => {
+    pendingCredential.clear();
+    await db.rows.put({
+      entity: 'users',
+      ...user,
+      // A reset is pending on the server; offline it must not block entering data.
+      must_change_password: true,
+      password_hash: bcrypt.hashSync('seedpass1', 10),
+      disabled_at: null,
+    });
+  });
+
+  it.each([
+    ['no connection', () => Promise.reject(new TypeError('Failed to fetch'))],
+    [
+      'a captive portal page',
+      () =>
+        Promise.resolve(
+          new Response('<html>Accept the terms</html>', {
+            status: 200,
+            headers: { 'content-type': 'text/html' },
+          }),
+        ),
+    ],
+    ['a 502 from a proxy', () => Promise.resolve(new Response('Bad gateway', { status: 502 }))],
+  ])('signs in against the cached hash on %s', async (_name, answer) => {
+    fetchMock.mockImplementationOnce(answer);
+    renderLogin();
+    await signInWith('Seed_Scouter', 'seedpass1');
+    expect(await screen.findByText('the scout page')).toBeInTheDocument();
+    const current = await session.current();
+    expect(current?.user.id).toBe(user.id);
+    expect(current?.token).toBeNull();
+    expect(current?.offline).toBe(true);
+    expect(pendingCredential.get()?.password).toBe('seedpass1');
+  });
+
+  it('refuses a wrong password offline', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    renderLogin();
+    await signInWith('seed_scouter', 'wrong-pass');
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'That username and password do not match.',
+    );
+    expect(await session.current()).toBeNull();
+  });
+
+  it('never falls back to the cached hash on a definitive 401', async () => {
+    fetchMock.mockResolvedValueOnce(
+      json(401, { error: { code: 'unauthenticated', message: 'no match' } }),
+    );
+    renderLogin();
+    // The cached hash matches this password; the server says it is no longer right.
+    await signInWith('seed_scouter', 'seedpass1');
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'That username and password do not match.',
+    );
+    expect(await session.current()).toBeNull();
+    expect(pendingCredential.get()).toBeNull();
+  });
+
+  it('refuses a disabled account offline', async () => {
+    await db.rows.put({
+      entity: 'users',
+      ...user,
+      password_hash: bcrypt.hashSync('seedpass1', 10),
+      disabled_at: '2026-01-01T00:00:00.000Z',
+    });
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
     renderLogin();
     await signInWith('seed_scouter', 'seedpass1');
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      /credentials cached on this device/i,
+      'This account has been disabled. Ask an admin.',
     );
     expect(await session.current()).toBeNull();
   });

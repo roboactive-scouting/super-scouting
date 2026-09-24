@@ -1,6 +1,7 @@
 import { createBrowserRouter, type RouteObject } from 'react-router-dom';
 import { ChangePasswordPage } from '@/auth/ChangePasswordPage';
 import { LoginPage } from '@/auth/LoginPage';
+import { SwitchScouter } from '@/auth/SwitchScouter';
 import { AppShell } from '@/features/shell/AppShell';
 import { useSignedInUser } from '@/features/shell/shellContext';
 import { EntriesPage } from '@/features/entries/EntriesPage';
@@ -33,6 +34,8 @@ export function routeTree(eventId: string): RouteObject[] {
         { index: true, element: <ScoutRoute eventId={eventId} /> },
         { path: 'entry/:matchId/:teamId', element: <SignedInEntryRoute eventId={eventId} /> },
         { path: 'entries', element: <EntriesPage eventId={eventId} /> },
+        // Inside the shell: it needs a signed-in device, and never leaves the outbox.
+        { path: 'switch-scouter', element: <SwitchScouter /> },
       ],
     },
   ];

@@ -11,7 +11,14 @@ export function sentence(text: string): string {
 export const OFFLINE_SIGN_IN_LINE =
   'No connection. Signing in will use the credentials cached on this device.';
 
-const DISABLED = 'This account has been disabled. Ask an admin.';
+export const DISABLED = 'This account has been disabled. Ask an admin.';
+
+/** The same line for an unknown username and a wrong password, online and offline. */
+export const MISMATCH = 'That username and password do not match.';
+
+/** Shown while a session signed in against the cached hashes holds no token (task 1.16). */
+export const OFFLINE_SIGNED_IN_LINE =
+  "Signed in from this device's cached accounts. You are offline — your entries are safe here.";
 const RATE_LIMITED = 'Too many attempts. Wait a few minutes and try again.';
 const SERVER_TROUBLE = 'The server is having trouble. Try again in a minute.';
 
@@ -22,11 +29,11 @@ const SERVER_TROUBLE = 'The server is having trouble. Try again in a minute.';
 export function loginErrorLine(e: unknown): string {
   if (!(e instanceof RpcError)) return SERVER_TROUBLE;
   if (e.status === 0) return OFFLINE_SIGN_IN_LINE;
-  if (e.status === 401) return 'That username and password do not match.';
+  if (e.status === 401) return MISMATCH;
   if (e.status === 403) return DISABLED;
   if (e.status === 429) return RATE_LIMITED;
   if (e.status >= 500) return SERVER_TROUBLE;
-  return sentence(e.message) || 'That username and password do not match.';
+  return sentence(e.message) || MISMATCH;
 }
 
 /** The error line for an authenticated account action (change password). */
