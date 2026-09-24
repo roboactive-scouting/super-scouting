@@ -2837,3 +2837,123 @@ will look like a new failure the first time it happens.
 **What I did instead:** every Dexie table (`db.tables`), `localStorage` and `sessionStorage`, with a positive control (the dump contains the user's id) — in the unit test and in the integration test after the full offline → switch → reconnect → push flow. A mutant that writes the password into `meta` turns 18 tests red.
 
 **Risk:** none.
+
+## Task 1.17 — routes, the Users link, and a seventh state variant `not-permitted`
+
+**Plan said:** modify `routes.tsx`; `StateMessage` is "the one state component, six variants" (`no-data`, `form-not-published`, `offline-needs-server`, `failed`, `no-results`, `conflicts-waiting`); the test asserts "only an admin sees the page (a lead gets the 'not permitted' state)".
+
+**What was wrong:** none of the six variants is "not permitted", and the brief does not say where the page is linked from.
+
+**What I did instead:** added two routes inside AppShell, `/admin/users` and `/admin/users/:id`, each wrapped in `<DesktopOnly what="the user administration page">`. Each page guards itself with `AdminOnly` (`features/admin/AdminOnly.tsx`). The check is `canManageUsers(user)`, which is `can(…, 'manage_users')`, never a role compare. A non-admin gets `StateMessage variant="not-permitted"`: the bold line "Only an admin can manage users", a muted line, and one action, "Back to scouting" → `/`. **No request is made.** `STATE_VARIANTS` therefore has seven entries. AppShell's header shows a "Users" link only when `canManageUsers(current.user)` and the session is not expired. The link also shows on phones, where the route renders the needs-a-computer panel. The server remains the authority (SPEC-FINAL 7.4).
+
+**Risk:** SPEC-FINAL 17.8 says "six variants", and the code now has seven. Either 17.8 gets amended, or `not-permitted` folds into `failed`. I chose a distinct variant because "you may not" is not "something failed", and the glyph and copy differ.
+
+## Task 1.17 — DesktopOnly's sentence
+
+**Plan said:** `<p>{what} is built sitting down, on a screen at least 1024 pixels wide. Phones do the competition job …</p>`.
+
+**What was wrong:** `what` is lowercase mid-sentence text. The brief's own test passes "the form builder" and matches it case-sensitively with `/the form builder/`. So the brief's sentence starts with a lowercase letter, and "the user administration page is built" misreads.
+
+**What I did instead:** "Open {what} on a screen at least 1024 pixels wide. It is pre-competition work, done sitting down. Phones do the competition job — entering, browsing and reading — and this is not one of those." The rest of the component is verbatim, and so is the brief's test file (Prettier re-wrapped the JSX).
+
+**Risk:** none.
+
+## Task 1.17 — Skeleton has no shimmer by default
+
+**Plan said:** the test asserts that the skeleton "respects `prefers-reduced-motion` by dropping the shimmer rather than the layout".
+
+**What was wrong:** SPEC-FINAL 17.9 permits motion only where it carries information. A shimmer carries none, so a shimmer on by default is decorative animation.
+
+**What I did instead:** `<Skeleton rows rowHeight? label? shimmer? />` is still by default. `shimmer` opts in, and then only as `motion-safe:animate-pulse`, so under reduced motion the bars and their heights stay, still. The tests check four things:
+- no `animate-` class by default;
+- with `shimmer`, only the `motion-safe:` variant;
+- no `animate-spin` in the markup;
+- no `animate-spin` in the component's source.
+
+The source is read with `?raw`, because under jsdom `import.meta.url` is not a `file:` URL (`TypeError: The URL must be of scheme file`).
+
+**Risk:** none. Nothing uses `shimmer` today.
+
+## Task 1.17 — ConfirmDialog is not a native `<dialog>`
+
+**Plan said:** "use a native `<dialog>` or an accessible equivalent with focus trap and Escape to cancel".
+
+**What was wrong:** jsdom 25 has `HTMLDialogElement` but no `showModal` (`typeof el.showModal` → `undefined`). A native modal could not be tested the way it ships.
+
+**What I did instead:** a portal to `document.body` holding a backdrop and a panel with `role="dialog" aria-modal="true"`. The title labels the panel and the body describes it.
+- First focus goes to Cancel.
+- Tab and Shift+Tab are trapped inside.
+- Escape cancels, except while `busy`.
+- Focus returns to the opener on close.
+
+Props: `open, title, objectName, body, loss?, confirmLabel, cancelLabel?, typeToConfirm?, busy?, error?, onConfirm, onCancel`. The confirm button is an outline in `--danger`. A new `ConfirmDialog.test.tsx` covers the component.
+
+**Risk:** the page behind the dialog is not `inert`, so a screen reader in browse mode relies on `aria-modal` alone. That is fine for the admin pages. Revisit it if a dialog lands on the phone path.
+
+## Task 1.17 — create then reset, to force the first-sign-in change
+
+**Plan said:** "creating a user posts `createUser` and shows the new row". Spec §5.4 item 3: `createUser` cannot set `must_change_password`.
+
+**What was wrong:** nothing. The brief's decision 4 names the workaround.
+
+**What I did instead:** the create form has a checkbox, "Ask them to change it at first sign-in", ticked by default. When it is ticked, a successful `createUser` is followed by `resetPassword({ user_id, password: <same>, must_change: true })`. If that second call fails:
+- the row still appears;
+- the password is still shown once;
+- an alert says "Account created, but the first-sign-in change could not be set. <line> Reset their password from their page to try again." — not a generic failure.
+
+No server use case was added.
+
+**Risk:** the two calls are not atomic. If the connection drops between them, the account exists without the forced change, and the page says so. The §5.4 gap stays open on the server.
+
+## Task 1.17 — admin error lines, and what counts as "offline" here
+
+**Plan said:** use `accountErrorLine`/`sentence`. When a call can't reach the server (`status === 0` / not `answered`), show `offline-needs-server`.
+
+**What was wrong:** `accountErrorLine` maps 403 to "This account has been disabled". That is wrong for an admin call: a disabled caller gets 401 from `callerFor`, not 403. Its offline line also talks about "changing your password".
+
+**What I did instead:** added `adminErrorLine` in `features/admin/adminMessages.ts`:
+- `!answered` → "Could not reach the server. Managing users needs it…"
+- 403 → "Only an admin can manage users, and the server says this account is not one now."
+- anything else goes to `accountErrorLine`, which turns a 400, 404 or 409 into the server's own sentence, e.g. "The username 'dana' is taken." or "This is the last enabled admin; make another admin first."
+
+Where each case shows:
+- A failed **list** load with `!answered` shows the `offline-needs-server` variant.
+- A failed **mutation** (create, role, reset, disable) shows the same meaning as an inline line and keeps the form. Replacing the page with a state message would throw away what the admin typed.
+
+The create form checks its fields with the shared schemas before calling, and names the field, e.g. "For the password, use at least 8 characters." Zod's default messages for `full_name` do not name the field.
+
+**Risk:** a 5xx that did not come from our server, such as Vercel's plain-text `FUNCTION_INVOCATION_FAILED`, reads as "could not reach the server" rather than "server trouble". That follows the brief's rule as written.
+
+## Task 1.17 — detail page scope choices
+
+**Plan said:** the detail page has a role `<select>`, a password reset that shows the new password once with a "must change" checkbox, and a disable behind `ConfirmDialog` with the given body.
+
+**What was wrong:** there is no `getUser` use case, and the brief does not say what a disabled account's page offers.
+
+**What I did instead:**
+- **Loading.** The detail page loads the whole list (`include_disabled: true`, every page) and finds the id. An unknown id gets `no-results`, "No user at this address", with the action "All users".
+- **Disabled accounts.** The page shows only the account's facts and "This account is disabled since DD/MM/YYYY … Re-enabling an account is not available yet." It has no enable button, no role select and no reset: the server accepts both of those, but they do nothing for a disabled account.
+- **Role.** The select saves on change. On success it shows `Saved. <name> is now a lead. It applies from their next request.` If the server refuses, it goes back to the server's value. When admins change **their own** role, the client calls `session.updateUser({ role })` with the server's answer, so the admin gate applies at once instead of at the next pull.
+- **Disabling yourself.** The confirm body adds "This is your own account. You will be signed out on your next request." That is true: the next request gets a 401, and `rpc` expires the session.
+- **Copy.** The reset section says a reset does not sign them out of devices already signed in (spec §5.4 item 2). The disable section says an offline device keeps them signed in until its next sync.
+- **Generated passwords.** 12 characters from `crypto.getRandomValues`, by rejection sampling over `A–Z a–z 2–9` minus `I O l`. The password is shown in clear in a `type="text"` field with `autoComplete="off"`, and is cleared from the field after a successful reset. It lives only in component state, and the component is keyed by user id.
+
+**Risk:** loading the whole list to show one account is fine for about 11 users. If that stops being true, the fix is a `getUser` query.
+
+## Task 1.17 — extra files
+
+**Plan said:** the file list in the brief.
+
+**What was wrong:** nothing.
+
+**What I did instead:** added `components/buttonStyles.ts` (`PRIMARY_BUTTON`, `SECONDARY_BUTTON`, `DESTRUCTIVE_BUTTON`, `FIELD`), `components/StateMessage.test.tsx`, `components/ConfirmDialog.test.tsx`, and `features/admin/{AdminOnly.tsx, adminMessages.ts, useUsers.ts, fields.tsx, password.ts, password.test.ts}`.
+
+Contrast of the new buttons (existing buttons are unchanged):
+
+| Edge | Dark | Outdoor |
+|---|---|---|
+| Primary: 1 px `--border` on `--surface` | 3.67:1 | 7.03:1 |
+| Primary: 1 px `--border` on `--bg` | 4.09:1 | 7.73:1 |
+| Destructive: `--danger` outline on `--surface` | 4.71:1 | 5.89:1 |
+
+**Risk:** the client's main chunk grew from 549.74 kB to 576.51 kB, because the admin pages and the `lucide-react` icons load eagerly. Vite's >500 kB warning was already there before this task.

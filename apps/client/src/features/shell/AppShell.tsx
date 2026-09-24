@@ -10,6 +10,7 @@ import { apiClient } from '@/data/api';
 import { beginSync, endSync } from '@/data/connection';
 import { getMeta, setMeta } from '@/data/db';
 import { cachedHydration, hydrate, syncNow, type HydrationState } from '@/data/sync';
+import { canManageUsers } from '@/features/admin/AdminOnly';
 import { ConnectionIndicator } from './ConnectionIndicator';
 import type { ShellContext } from './shellContext';
 
@@ -174,6 +175,11 @@ export function AppShell({ eventId }: { eventId: string }) {
           {!current.expired && (
             <Link className="tap-target px-3 leading-[48px]" to="/switch-scouter">
               Switch scouter
+            </Link>
+          )}
+          {!current.expired && canManageUsers(current.user) && (
+            <Link className="tap-target px-3 leading-[48px]" to="/admin/users">
+              Users
             </Link>
           )}
         </nav>
