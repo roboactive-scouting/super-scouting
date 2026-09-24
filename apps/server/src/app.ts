@@ -28,10 +28,20 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/health', async (c) => {
     try {
       await deps.pingDatabase();
-      return c.json({ status: 'ok', database: 'ok', time: new Date().toISOString() });
+      return c.json({
+        status: 'ok',
+        database: 'ok',
+        time: new Date().toISOString(),
+        commit: deps.config.commitSha,
+      });
     } catch (e) {
       return c.json(
-        { status: 'error', database: 'error', message: e instanceof Error ? e.message : 'unknown' },
+        {
+          status: 'error',
+          database: 'error',
+          message: e instanceof Error ? e.message : 'unknown',
+          commit: deps.config.commitSha,
+        },
         503,
       );
     }

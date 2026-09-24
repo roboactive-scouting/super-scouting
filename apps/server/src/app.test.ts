@@ -25,7 +25,7 @@ describe('GET /health', () => {
   it('returns ok when the database read succeeds', async () => {
     const res = await app().request('/health');
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ status: 'ok', database: 'ok' });
+    expect(await res.json()).toMatchObject({ status: 'ok', database: 'ok', commit: null });
   });
 
   it('returns 503 and names the failure when the database read fails', async () => {
@@ -35,7 +35,21 @@ describe('GET /health', () => {
       },
     }).request('/health');
     expect(res.status).toBe(503);
-    expect(await res.json()).toMatchObject({ status: 'error', database: 'error' });
+    expect(await res.json()).toMatchObject({ status: 'error', database: 'error', commit: null });
+  });
+
+  it('reports the deployed commit when VERCEL_GIT_COMMIT_SHA is set, ok and 503 alike', async () => {
+    const withCommit = { ...config, commitSha: 'deadbeef' };
+    const ok = await app({ config: withCommit }).request('/health');
+    expect(await ok.json()).toMatchObject({ commit: 'deadbeef' });
+
+    const failing = await app({
+      config: withCommit,
+      pingDatabase: async () => {
+        throw new Error('down');
+      },
+    }).request('/health');
+    expect(await failing.json()).toMatchObject({ commit: 'deadbeef' });
   });
 });
 

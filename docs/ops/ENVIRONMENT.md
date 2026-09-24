@@ -49,6 +49,7 @@ Everything secret lives here. Server-side only. Never in a client bundle, never 
 | `AUTH_TOKEN_REFRESH_AFTER_DAYS` | Re-issue a token older than this. Default `7` | Configuration | No | `7` | `7` | ☑ |
 | `ALLOWED_ORIGIN` | The client origin permitted by CORS | The client's Vercel project URL | No | `https://frc-scouting-client-git-develop-roboactive.vercel.app` | `https://frc-scouting-client.vercel.app` | ☑ |
 | `NODE_ENV` | `development` / `production` | Set by the platform | No | *(auto)* | *(auto)* | ☑ |
+| `VERCEL_GIT_COMMIT_SHA` | The commit this deployment was built from. Read by `/health` so `wait-for-deploy.mjs` can confirm CI is polling the right deployment, not a stale one still answering 200 | Vercel's own system env var — **never set by hand**, absent locally and in tests | No | *(auto)* | *(auto)* | ☑ |
 
 ## 3. GitHub Actions secrets
 

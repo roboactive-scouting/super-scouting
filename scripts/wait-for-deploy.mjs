@@ -8,10 +8,18 @@
 // test (see docs/plans/DEVIATIONS.md, "CI's smoke suite raced the Vercel
 // deployment it depends on and lost, twice").
 //
-// This only proves the endpoint is *live and healthy* — Vercel's /health
-// response doesn't expose the deployed commit SHA, so this can't confirm the
-// endpoint is serving *this exact* commit. That's a known, accepted
-// limitation; not something this script attempts to solve.
+// A plain "GET /health returns 200" wait is not enough: the *previous*
+// deployment also answers 200, so a healthy-but-stale server passes this wait
+// instantly and the smoke suite then hits stale code (see
+// docs/plans/DEVIATIONS.md, "wait:deploy now waits for the deployed commit").
+// When EXPECTED_COMMIT_SHA is set, "ready" additionally requires the health
+// body's `commit` field to equal it — /health reports VERCEL_GIT_COMMIT_SHA
+// (apps/server/src/config.ts, apps/server/src/app.ts). A healthy response
+// serving a different (or missing) commit is logged and polling continues;
+// it means either the old deployment is still live, or the new one hasn't
+// finished rolling out. If EXPECTED_COMMIT_SHA is not set, this behaves exactly
+// as a plain health check — useful for local runs where there is no deployed
+// commit to compare against.
 //
 // Polling: every 10s, for up to 8 minutes (48 attempts). That comfortably fits
 // inside the workflow's 20-minute job timeout alongside the other steps
@@ -24,6 +32,7 @@ if (!base) {
   process.exit(1);
 }
 
+const expectedCommit = process.env.EXPECTED_COMMIT_SHA || null;
 const intervalMs = Number(process.env.WAIT_FOR_DEPLOY_INTERVAL_MS) || 10_000;
 const timeoutMs = Number(process.env.WAIT_FOR_DEPLOY_TIMEOUT_MS) || 8 * 60_000;
 
@@ -31,19 +40,29 @@ const url = `${base.replace(/\/+$/, '')}/health`;
 const deadline = Date.now() + timeoutMs;
 
 let lastSeen = 'no response yet';
+let lastSeenCommit = null;
 
 while (Date.now() < deadline) {
   try {
     const res = await fetch(url, { headers: { accept: 'application/json' } });
     const body = await res.json().catch(() => ({}));
 
-    if (res.status === 200 && body.status === 'ok' && body.database === 'ok') {
+    const healthy = res.status === 200 && body.status === 'ok' && body.database === 'ok';
+
+    if (healthy && expectedCommit && body.commit !== expectedCommit) {
+      lastSeen = `${res.status} ${JSON.stringify(body)}`;
+      lastSeenCommit = body.commit ?? null;
+      console.warn(
+        `deploy not ready yet: serving ${lastSeenCommit}, waiting for ${expectedCommit}`,
+      );
+    } else if (healthy) {
       console.warn(`deploy ready: GET ${url} -> 200 ${JSON.stringify(body)}`);
       process.exit(0);
+    } else {
+      lastSeen = `${res.status} ${JSON.stringify(body)}`;
+      lastSeenCommit = body.commit ?? null;
+      console.warn(`deploy not ready yet: GET ${url} -> ${lastSeen}`);
     }
-
-    lastSeen = `${res.status} ${JSON.stringify(body)}`;
-    console.warn(`deploy not ready yet: GET ${url} -> ${lastSeen}`);
   } catch (err) {
     lastSeen = err instanceof Error ? err.message : String(err);
     console.warn(`deploy not reachable yet: GET ${url} -> ${lastSeen}`);
@@ -52,8 +71,11 @@ while (Date.now() < deadline) {
   await new Promise((resolve) => setTimeout(resolve, intervalMs));
 }
 
+const commitNote = expectedCommit
+  ? ` Last commit seen: ${lastSeenCommit === null ? 'null (never reported one)' : lastSeenCommit}, waiting for: ${expectedCommit}.`
+  : '';
 console.error(
   `wait-for-deploy timed out after ${timeoutMs}ms waiting for ${url} to become healthy. ` +
-    `Last response seen: ${lastSeen}`,
+    `Last response seen: ${lastSeen}.${commitNote}`,
 );
 process.exit(1);

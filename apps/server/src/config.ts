@@ -12,6 +12,9 @@ const schema = z.object({
   AUTH_TOKEN_REFRESH_AFTER_DAYS: z.coerce.number().int().positive().default(7),
   ALLOWED_ORIGIN: z.string().url(),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  // Vercel's own system env var (https://vercel.com/docs/environment-variables/system-environment-variables),
+  // not something anyone sets by hand. Absent locally and in tests.
+  VERCEL_GIT_COMMIT_SHA: z.string().min(1).optional(),
 });
 
 export type ServerConfig = {
@@ -23,6 +26,8 @@ export type ServerConfig = {
   allowedOrigin: string;
   nodeEnv: 'development' | 'production' | 'test';
   isProduction: boolean;
+  /** The commit Vercel built this deployment from, or null when not deployed on Vercel. */
+  commitSha: string | null;
 };
 
 export function loadServerConfig(env: Record<string, string | undefined>): ServerConfig {
@@ -43,6 +48,7 @@ export function loadServerConfig(env: Record<string, string | undefined>): Serve
     allowedOrigin: v.ALLOWED_ORIGIN,
     nodeEnv: v.NODE_ENV,
     isProduction: v.NODE_ENV === 'production',
+    commitSha: v.VERCEL_GIT_COMMIT_SHA ?? null,
   };
 }
 

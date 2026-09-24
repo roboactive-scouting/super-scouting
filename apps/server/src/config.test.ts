@@ -23,6 +23,15 @@ describe('loadServerConfig', () => {
     expect(config.tokenRefreshAfterDays).toBe(7);
   });
 
+  it('defaults commitSha to null when VERCEL_GIT_COMMIT_SHA is absent (local and test)', () => {
+    expect(loadServerConfig(complete).commitSha).toBeNull();
+  });
+
+  it('reads commitSha from the Vercel system env var when present', () => {
+    const config = loadServerConfig({ ...complete, VERCEL_GIT_COMMIT_SHA: 'abc1234' });
+    expect(config.commitSha).toBe('abc1234');
+  });
+
   it('fails loudly and names every missing variable', () => {
     expect(() => loadServerConfig({ NODE_ENV: 'development' })).toThrowError(
       /SUPABASE_URL[\s\S]*SUPABASE_SERVICE_ROLE_KEY[\s\S]*AUTH_JWT_SECRET[\s\S]*ALLOWED_ORIGIN/,

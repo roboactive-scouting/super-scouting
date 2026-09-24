@@ -382,10 +382,20 @@ function createApp(deps) {
   app2.get("/health", async (c) => {
     try {
       await deps.pingDatabase();
-      return c.json({ status: "ok", database: "ok", time: (/* @__PURE__ */ new Date()).toISOString() });
+      return c.json({
+        status: "ok",
+        database: "ok",
+        time: (/* @__PURE__ */ new Date()).toISOString(),
+        commit: deps.config.commitSha
+      });
     } catch (e) {
       return c.json(
-        { status: "error", database: "error", message: e instanceof Error ? e.message : "unknown" },
+        {
+          status: "error",
+          database: "error",
+          message: e instanceof Error ? e.message : "unknown",
+          commit: deps.config.commitSha
+        },
         503
       );
     }
@@ -458,7 +468,10 @@ var schema = z6.object({
   AUTH_TOKEN_TTL_DAYS: z6.coerce.number().int().positive().default(30),
   AUTH_TOKEN_REFRESH_AFTER_DAYS: z6.coerce.number().int().positive().default(7),
   ALLOWED_ORIGIN: z6.string().url(),
-  NODE_ENV: z6.enum(["development", "production", "test"]).default("development")
+  NODE_ENV: z6.enum(["development", "production", "test"]).default("development"),
+  // Vercel's own system env var (https://vercel.com/docs/environment-variables/system-environment-variables),
+  // not something anyone sets by hand. Absent locally and in tests.
+  VERCEL_GIT_COMMIT_SHA: z6.string().min(1).optional()
 });
 function loadServerConfig(env) {
   const parsed = schema.safeParse(env);
@@ -478,7 +491,8 @@ ${lines.join("\n")}`
     tokenRefreshAfterDays: v.AUTH_TOKEN_REFRESH_AFTER_DAYS,
     allowedOrigin: v.ALLOWED_ORIGIN,
     nodeEnv: v.NODE_ENV,
-    isProduction: v.NODE_ENV === "production"
+    isProduction: v.NODE_ENV === "production",
+    commitSha: v.VERCEL_GIT_COMMIT_SHA ?? null
   };
 }
 var cached = null;

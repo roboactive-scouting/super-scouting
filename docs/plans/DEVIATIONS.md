@@ -2563,3 +2563,27 @@ I ran the suite against a local dev server on the dev database, through a scratc
 - `pnpm --filter @frc/server build` regenerated `api/index.js` and its `.map`.
 
 **Risk:** None.
+
+---
+
+## Phase 1B CI — wait:deploy now waits for the deployed commit
+
+**Plan said:** `scripts/wait-for-deploy.mjs` polls `GET /health` until it answers `200`, then the smoke suite runs. The script's own header comment documented this as an accepted limitation: `/health` didn't expose the deployed commit, so the wait couldn't tell "live" from "live and serving this push."
+
+**What was wrong:** it was no longer just a documented limitation — it started failing every push that adds a route. The push adding `/api/login` failed CI's smoke suite with:
+
+```
+Error: CI login failed with HTTP 404
+```
+
+The previous deployment was still live and answering `200 ok` on `/health` when the wait passed, so the smoke suite ran against stale code that had no `/api/login` yet. A re-run three minutes later passed once Vercel's new deployment had rolled out. Every push that adds a route will race this way until the wait can tell deployments apart.
+
+**What I did instead:**
+- `apps/server/src/config.ts` reads Vercel's system env var `VERCEL_GIT_COMMIT_SHA` (optional; `null` locally and in tests) and exposes it as `ServerConfig.commitSha`.
+- `GET /health` (`apps/server/src/app.ts`) adds `commit: <sha or null>` to both the `200` and `503` bodies.
+- `scripts/wait-for-deploy.mjs` takes a new optional `EXPECTED_COMMIT_SHA` env var. When set, "ready" requires `200` **and** `body.commit === EXPECTED_COMMIT_SHA`; a healthy-but-wrong-commit response (including a `null`/missing `commit`, which means the old pre-fix server is still live) is logged and polling continues. The timeout error names the last commit actually seen so an operator can distinguish "Vercel never exposed the var" from "the deploy is just slow." With no `EXPECTED_COMMIT_SHA`, behaviour is unchanged from before.
+- `.github/workflows/ci.yml`'s "Wait for deployment to be live" step sets `EXPECTED_COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}`.
+- Documented `VERCEL_GIT_COMMIT_SHA` in `docs/ops/ENVIRONMENT.md` §2 as Vercel-provided, never set by hand, and regenerated `apps/server/.env.example` via `pnpm env:example` so `pnpm env:example:check` stays green.
+- `pnpm --filter @frc/server build` regenerated `apps/server/api/index.js` and its `.map`.
+
+**Risk:** if Vercel ever stops exposing `VERCEL_GIT_COMMIT_SHA`, `/health` reports `commit: null` forever, `EXPECTED_COMMIT_SHA` never matches, and CI waits the full 8 minutes before failing — loudly, naming `commit: null` in the error, rather than silently racing a stale deployment. A loud failure beats a silent race.
