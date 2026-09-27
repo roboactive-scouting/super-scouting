@@ -9,6 +9,8 @@ import {
   changeOwnPasswordLimiter,
   createUser,
   disableUser,
+  enableUser,
+  renameUser,
   resetPassword,
   setUserRole,
 } from './users.js';
@@ -92,6 +94,19 @@ describe('user administration (SPEC-FINAL 7.3)', () => {
         ),
       ).rejects.toMatchObject({ code: 'forbidden' });
       await expect(
+        createUser(
+          caller,
+          {
+            username: 'x',
+            full_name: 'X',
+            role: 'scouter',
+            password: 'firstpass1',
+            must_change: true,
+          },
+          ctx,
+        ),
+      ).rejects.toMatchObject({ code: 'forbidden' });
+      await expect(
         setUserRole(caller, { user_id: 'u-scouter', role: 'admin' }, ctx),
       ).rejects.toMatchObject({ code: 'forbidden' });
       await expect(
@@ -100,6 +115,12 @@ describe('user administration (SPEC-FINAL 7.3)', () => {
       await expect(disableUser(caller, { user_id: 'u-scouter' }, ctx)).rejects.toMatchObject({
         code: 'forbidden',
       });
+      await expect(enableUser(caller, { user_id: 'u-scouter' }, ctx)).rejects.toMatchObject({
+        code: 'forbidden',
+      });
+      await expect(
+        renameUser(caller, { user_id: 'u-scouter', full_name: 'New Name' }, ctx),
+      ).rejects.toMatchObject({ code: 'forbidden' });
     }
   });
 
@@ -117,6 +138,44 @@ describe('user administration (SPEC-FINAL 7.3)', () => {
       ctx,
     );
     expect(ctx.usersById.get('u-scouter')!.must_change_password).toBe(true);
+  });
+
+  it('createUser stores must_change_password true when must_change is asked for', async () => {
+    const user = await createUser(
+      admin,
+      {
+        username: 'dana',
+        full_name: 'D',
+        role: 'scouter',
+        password: 'firstpass1',
+        must_change: true,
+      },
+      ctx,
+    );
+    expect(user.must_change_password).toBe(true);
+    expect(ctx.usersByName.get('dana')!.must_change_password).toBe(true);
+  });
+
+  it('createUser stores must_change_password false by default, and when explicitly false', async () => {
+    const user = await createUser(
+      admin,
+      { username: 'dana', full_name: 'D', role: 'scouter', password: 'firstpass1' },
+      ctx,
+    );
+    expect(user.must_change_password).toBe(false);
+
+    const user2 = await createUser(
+      admin,
+      {
+        username: 'dana2',
+        full_name: 'D2',
+        role: 'scouter',
+        password: 'firstpass1',
+        must_change: false,
+      },
+      ctx,
+    );
+    expect(user2.must_change_password).toBe(false);
   });
 
   it('lets a user change their own password and clears the must-change flag', async () => {
@@ -166,6 +225,8 @@ describe('who may call them', () => {
       () => setUserRole(service, { user_id: 'u-scouter', role: 'admin' }, none),
       () => resetPassword(service, { user_id: 'u-scouter', password: 'p' }, none),
       () => disableUser(service, { user_id: 'u-scouter' }, none),
+      () => enableUser(service, { user_id: 'u-scouter' }, none),
+      () => renameUser(service, { user_id: 'u-scouter', full_name: 'X' }, none),
       () => changeOwnPassword(service, { current_password: 'x', new_password: 'y' }, none),
     ];
     for (const call of calls) {
@@ -332,6 +393,107 @@ describe('disableUser', () => {
     await expect(disableUser(admin, { user_id: 'u-nobody' }, ctx)).rejects.toMatchObject({
       code: 'not-found',
     });
+  });
+});
+
+describe('enableUser', () => {
+  it('clears disabled_at and leaves the hash and must_change_password byte-identical', async () => {
+    await resetPassword(
+      admin,
+      { user_id: 'u-scouter', password: 'brandnew1', must_change: true },
+      ctx,
+    );
+    await disableUser(admin, { user_id: 'u-scouter' }, ctx);
+    const before = { ...ctx.usersById.get('u-scouter')! };
+    expect(before.disabled_at).not.toBeNull();
+
+    const user = await enableUser(admin, { user_id: 'u-scouter' }, ctx);
+
+    expect(user.disabled_at).toBeNull();
+    const after = ctx.usersById.get('u-scouter')!;
+    expect(after.password_hash).toBe(before.password_hash);
+    expect(after.must_change_password).toBe(before.must_change_password);
+    expect(after).toEqual({ ...before, disabled_at: null });
+  });
+
+  it('is a no-op on an already-enabled user, returning it unchanged', async () => {
+    const before = { ...ctx.usersById.get('u-scouter')! };
+    const user = await enableUser(admin, { user_id: 'u-scouter' }, ctx);
+    expect(user.disabled_at).toBeNull();
+    expect(ctx.usersById.get('u-scouter')).toEqual(before);
+  });
+
+  it('answers not-found for an unknown user', async () => {
+    await expect(enableUser(admin, { user_id: 'u-nobody' }, ctx)).rejects.toMatchObject({
+      code: 'not-found',
+    });
+  });
+});
+
+describe('renameUser', () => {
+  it('renames the full name only, keeping the username and the id', async () => {
+    const user = await renameUser(admin, { user_id: 'u-scouter', full_name: 'New Name' }, ctx);
+    expect(user).toMatchObject({ id: 'u-scouter', username: 'scouter', full_name: 'New Name' });
+  });
+
+  it('renames the username, trimmed and lowercased, keeping the id', async () => {
+    const user = await renameUser(admin, { user_id: 'u-scouter', username: '  New.Name ' }, ctx);
+    expect(user).toMatchObject({ id: 'u-scouter', username: 'new.name' });
+  });
+
+  it('renames both at once', async () => {
+    const user = await renameUser(
+      admin,
+      { user_id: 'u-scouter', username: 'newname', full_name: 'New Name' },
+      ctx,
+    );
+    expect(user).toMatchObject({ username: 'newname', full_name: 'New Name' });
+  });
+
+  it('refuses with neither field given', async () => {
+    await expect(renameUser(admin, { user_id: 'u-scouter' } as never, ctx)).rejects.toMatchObject({
+      code: 'invalid',
+    });
+  });
+
+  it('answers not-found for an unknown user', async () => {
+    await expect(
+      renameUser(admin, { user_id: 'u-nobody', full_name: 'X' }, ctx),
+    ).rejects.toMatchObject({ code: 'not-found' });
+  });
+
+  it.each(['Dana', 'DANA', ' dana '])(
+    'refuses a rename to a taken username in any case (%s)',
+    async (attempt) => {
+      await createUser(
+        admin,
+        { username: 'dana', full_name: 'Dana', role: 'scouter', password: 'firstpass1' },
+        ctx,
+      );
+      await expect(
+        renameUser(admin, { user_id: 'u-scouter', username: attempt }, ctx),
+      ).rejects.toMatchObject({ code: 'conflict' });
+      expect(ctx.usersById.get('u-scouter')!.username).toBe('scouter');
+    },
+  );
+
+  it('renaming to your own current name (a case or whitespace variant) is not a conflict', async () => {
+    const user = await renameUser(admin, { user_id: 'u-scouter', username: ' SCOUTER ' }, ctx);
+    expect(user.username).toBe('scouter');
+  });
+
+  it('is refused with conflict via the real unique index, even when the pre-check misses it', async () => {
+    await createUser(
+      admin,
+      { username: 'dana', full_name: 'Dana', role: 'scouter', password: 'firstpass1' },
+      ctx,
+    );
+    // The other admin's pre-check ran before the racing rename committed.
+    ctx.store.getUserByUsername = async () => null;
+    await expect(
+      renameUser(admin, { user_id: 'u-scouter', username: 'DANA' }, ctx),
+    ).rejects.toMatchObject({ code: 'conflict' });
+    expect(ctx.usersById.get('u-scouter')!.username).toBe('scouter');
   });
 });
 

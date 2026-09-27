@@ -170,6 +170,18 @@ describe('session.refreshFromCache — the database is authoritative for role (7
   });
 });
 
+describe('session.updateUser', () => {
+  it('merges the username along with the other server-authoritative fields', async () => {
+    await session.signIn(user, 'token-abc');
+    await session.updateUser({ username: 'alice.cohen', full_name: 'Alice Cohen' });
+    expect((await session.current())?.user).toMatchObject({
+      username: 'alice.cohen',
+      full_name: 'Alice Cohen',
+    });
+    expect(await session.token()).toBe('token-abc');
+  });
+});
+
 describe('session.subscribe', () => {
   it('never lets its initial read overwrite a newer change', async () => {
     const seen: (string | null)[] = [];

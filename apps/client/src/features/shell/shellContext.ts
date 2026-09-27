@@ -7,6 +7,13 @@ export type ShellContext = {
   user: SessionUser;
   /** True once the server has refused the token; only the entry route still renders. */
   expired: boolean;
+  /**
+   * The event this shell resolved (task 1.17b): from the cached `app_settings`, or from
+   * `getActiveContext` on a device that holds none. Null until resolved, and while no
+   * competition is set up. A route that reads event data is gated, so it only ever
+   * renders with an id — read it with `useActiveEventId()`.
+   */
+  eventId: string | null;
 };
 
 /**
@@ -15,4 +22,37 @@ export type ShellContext = {
  */
 export function useSignedInUser(): SessionUser {
   return useOutletContext<ShellContext>().user;
+}
+
+/**
+ * The `handle` of a route under AppShell that reads no event data (task 1.17b):
+ * `{ path: 'admin/users', element: …, handle: NO_HYDRATION }`. Such a route renders in
+ * every shell state — no competition set up, never loaded, loading.
+ *
+ * Every other route under the shell is GATED by default: it renders only once this
+ * device holds the event. A forgotten mark on a data screen therefore fails loud (the gate
+ * shows) rather than silent (a list read once on mount that never fills).
+ */
+export const NO_HYDRATION = Object.freeze({ hydration: 'not-needed' as const });
+
+/** True when a route's `handle` is the NO_HYDRATION mark. */
+export function needsNoHydration(handle: unknown): boolean {
+  return (
+    typeof handle === 'object' &&
+    handle !== null &&
+    (handle as { hydration?: unknown }).hydration === NO_HYDRATION.hydration
+  );
+}
+
+/**
+ * The resolved event id, for a gated route under AppShell. The shell renders a gated
+ * route only once the event is resolved and loaded, so a null here means the route was
+ * marked NO_HYDRATION by mistake — which should fail loudly, not pull for `null`.
+ */
+export function useActiveEventId(): string {
+  const { eventId } = useOutletContext<ShellContext>();
+  if (eventId === null) {
+    throw new Error('useActiveEventId: this route reads event data but is marked NO_HYDRATION');
+  }
+  return eventId;
 }

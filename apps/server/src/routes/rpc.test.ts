@@ -30,7 +30,7 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
     }
   });
 
-  it('has five authenticated commands for that loop to check, so it is not vacuous', () => {
+  it('has seven authenticated commands for that loop to check, so it is not vacuous', () => {
     const commands = Object.entries(REGISTRY).filter(
       ([, e]) => e.kind === 'command' && !e.unauthenticated,
     );
@@ -38,6 +38,8 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
       'changeOwnPassword',
       'createUser',
       'disableUser',
+      'enableUser',
+      'renameUser',
       'resetPassword',
       'setUserRole',
     ]);
@@ -55,9 +57,12 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
       'changeOwnPassword',
       'createUser',
       'disableUser',
+      'enableUser',
+      'getActiveContext',
       'listUsers',
       'login',
       'refreshToken',
+      'renameUser',
       'resetPassword',
       'setUserRole',
     ]);

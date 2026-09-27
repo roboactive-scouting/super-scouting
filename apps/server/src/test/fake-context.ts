@@ -295,6 +295,11 @@ export function makeFakeContext(): FakeContext {
   const appliedOrder: string[] = [];
   const pullRows = new Map<string, Record<string, unknown>[]>();
   const knownEvents = new Set(['ev-1']);
+  // The app_settings singleton: both null on an empty install, as the migration leaves it.
+  let activeContext: { active_season_id: string | null; active_event_id: string | null } = {
+    active_season_id: null,
+    active_event_id: null,
+  };
 
   const fake = {
     // every map from the FakeContext type, constructed empty
@@ -330,8 +335,11 @@ export function makeFakeContext(): FakeContext {
     seedRankingFixture: () => {
       throw new Error('seedRankingFixture lands with task 1.57');
     },
-    setActiveContext: () => {
-      throw new Error('setActiveContext lands with task 1.18');
+    // A fixture that writes the singleton directly, as a migration or an admin would. It is
+    // not Store.setActiveContext (task 1.18): it validates nothing, so a test can make the
+    // singleton name an event that does not exist.
+    setActiveContext: (seasonId: string | null, eventId: string | null) => {
+      activeContext = { active_season_id: seasonId, active_event_id: eventId };
     },
     softDelete: () => {
       throw new Error('softDelete lands with task 1.50');
@@ -452,6 +460,9 @@ export function makeFakeContext(): FakeContext {
     async resolveScope(eventId) {
       return { eventId, seasonId: 'se-1' };
     },
+    async getActiveContext() {
+      return { ...activeContext };
+    },
     // Everything else on the Store starts as a loud stub; each later task
     // replaces the two or three entries it needs.
     ...stubsFor([
@@ -461,7 +472,6 @@ export function makeFakeContext(): FakeContext {
       'listConflicts',
       'getConflict',
       'resolveConflictRow',
-      'getActiveContext',
       'setActiveContext',
       'getSeason',
       'getSeasonByYear',

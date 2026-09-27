@@ -1,7 +1,14 @@
 import { ArrowLeft } from 'lucide-react';
 import { useId, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { formatDate, passwordSchema, type PublicUser, type Role } from '@frc/shared';
+import {
+  createUserInput,
+  formatDate,
+  passwordSchema,
+  usernameSchema,
+  type PublicUser,
+  type Role,
+} from '@frc/shared';
 import { sentence } from '@/auth/messages';
 import { session } from '@/auth/session';
 import { DESTRUCTIVE_BUTTON, PRIMARY_BUTTON, SECONDARY_BUTTON } from '@/components/buttonStyles';
@@ -12,7 +19,7 @@ import { call } from '@/data/rpc';
 import { useSignedInUser } from '@/features/shell/shellContext';
 import { AdminOnly } from './AdminOnly';
 import { adminErrorLine } from './adminMessages';
-import { Checkbox, FormError, PasswordField, RoleSelect } from './fields';
+import { Checkbox, FormError, PasswordField, RoleSelect, TextField } from './fields';
 import { useUsers } from './useUsers';
 
 /** The confirm body, word for word (task 1.17). */
@@ -106,18 +113,64 @@ function Account({ user, onChanged }: { user: PublicUser; onChanged: (u: PublicU
       </p>
 
       {user.disabled_at ? (
-        <p className="mt-6 rounded-lg border-2 border-[var(--warning)] p-3">
-          This account is disabled since {formatDate(user.disabled_at)}. Everything they scouted is
-          kept, with their name on it. Re-enabling an account is not available yet.
-        </p>
+        <EnableSection user={user} disabledAt={user.disabled_at} onChanged={onChanged} />
       ) : (
         <>
           <RoleSection user={user} self={self} onChanged={onChanged} />
+          <RenameSection user={user} self={self} onChanged={onChanged} />
           <ResetSection user={user} onChanged={onChanged} />
           <DisableSection user={user} self={self} onChanged={onChanged} />
         </>
       )}
     </main>
+  );
+}
+
+/**
+ * spec §5.4 item 3: the counterpart to DisableSection. `enableUser` clears `disabled_at`
+ * only — it never resets the password, so nothing here even offers one.
+ */
+function EnableSection({
+  user,
+  disabledAt,
+  onChanged,
+}: {
+  user: PublicUser;
+  disabledAt: string;
+  onChanged: (u: PublicUser) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function enable() {
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await call('enableUser', { user_id: user.id });
+      onChanged(updated);
+    } catch (e) {
+      setError(adminErrorLine(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-6 rounded-lg border-2 border-[var(--warning)] p-3">
+      <p>
+        This account is disabled since {formatDate(disabledAt)}. Everything they scouted is kept,
+        with their name on it.
+      </p>
+      <button
+        type="button"
+        disabled={busy}
+        className={`${PRIMARY_BUTTON} mt-3`}
+        onClick={() => void enable()}
+      >
+        {busy ? 'Enabling…' : 'Enable account'}
+      </button>
+      <FormError message={error} />
+    </div>
   );
 }
 
@@ -172,6 +225,116 @@ function RoleSection({
         </p>
       )}
       {line && !line.ok && <FormError message={line.text} />}
+    </section>
+  );
+}
+
+type RenameField = 'username' | 'full_name';
+type RenameProblem = { field: RenameField; line: string };
+
+/** The same rules the server applies (packages/shared), each with its field named. */
+function checkRename(username: string, fullName: string): RenameProblem | null {
+  if (username.trim() === '') return { field: 'username', line: 'Enter a username.' };
+  const name = usernameSchema.safeParse(username);
+  if (!name.success) {
+    return {
+      field: 'username',
+      line: sentence(`for the username, ${name.error.issues[0]?.message ?? 'that is not valid'}`),
+    };
+  }
+  if (fullName.trim() === '') return { field: 'full_name', line: 'Enter their full name.' };
+  if (!createUserInput.shape.full_name.safeParse(fullName).success) {
+    return { field: 'full_name', line: 'That full name is too long. Shorten it.' };
+  }
+  return null;
+}
+
+/**
+ * spec §5.4 item 3: rename a username, a full name, or both. The id never changes, so a
+ * device offline under the old name still keeps every past entry's authorship — it just
+ * keeps signing in with that name until its next sync, which the hint below says plainly.
+ */
+function RenameSection({
+  user,
+  self,
+  onChanged,
+}: {
+  user: PublicUser;
+  self: boolean;
+  onChanged: (u: PublicUser) => void;
+}) {
+  const titleId = useId();
+  const errorId = useId();
+  const [username, setUsername] = useState(user.username);
+  const [fullName, setFullName] = useState(user.full_name);
+  const [problem, setProblem] = useState<RenameProblem | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setSaved(false);
+    const found = checkRename(username, fullName);
+    if (found) {
+      setProblem(found);
+      return;
+    }
+    setProblem(null);
+    setBusy(true);
+    try {
+      const updated = await call('renameUser', {
+        user_id: user.id,
+        username,
+        full_name: fullName,
+      });
+      onChanged(updated);
+      setUsername(updated.username);
+      setFullName(updated.full_name);
+      // The server's answer is the truth; the signed-in admin's own header, footer and
+      // offline sign-in name follow it now rather than at the next pull (task 1.17a).
+      if (self)
+        await session.updateUser({ username: updated.username, full_name: updated.full_name });
+      setSaved(true);
+    } catch (err) {
+      setProblem({ field: 'username', line: adminErrorLine(err) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const invalid = (field: RenameField) => problem?.field === field;
+
+  return (
+    <section className="mt-8 border-t border-[var(--border)] pt-6">
+      <form aria-labelledby={titleId} noValidate onSubmit={(e) => void submit(e)}>
+        <h2 id={titleId} className="text-lg font-semibold">
+          Rename
+        </h2>
+        <TextField
+          label="Username"
+          value={username}
+          onChange={setUsername}
+          hint="What they sign in with. A device that is offline under the old name keeps using it to sign in until its next sync."
+          invalid={invalid('username')}
+          errorId={errorId}
+        />
+        <TextField
+          label="Full name"
+          value={fullName}
+          onChange={setFullName}
+          invalid={invalid('full_name')}
+          errorId={errorId}
+        />
+        <FormError id={errorId} message={problem?.line ?? null} />
+        {saved && (
+          <p role="status" className="mt-2 text-sm">
+            Saved.
+          </p>
+        )}
+        <button type="submit" disabled={busy} className={`${PRIMARY_BUTTON} mt-4`}>
+          {busy ? 'Saving…' : 'Save name'}
+        </button>
+      </form>
     </section>
   );
 }

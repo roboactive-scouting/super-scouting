@@ -6,25 +6,36 @@ import { DesktopOnly } from '@/components/DesktopOnly';
 import { UserDetailPage } from '@/features/admin/UserDetailPage';
 import { UsersPage } from '@/features/admin/UsersPage';
 import { AppShell } from '@/features/shell/AppShell';
-import { useSignedInUser } from '@/features/shell/shellContext';
+import { NO_HYDRATION, useActiveEventId, useSignedInUser } from '@/features/shell/shellContext';
 import { EntriesPage } from '@/features/entries/EntriesPage';
 import { SelectRobotPage } from '@/features/entry/SelectRobotPage';
 import { EntryRoute } from '@/features/entry/EntryRoute';
 
 /*
  * The author of every local operation and the scouter of every new entry is the
- * signed-in user (SPEC-FINAL 7.5), handed down by AppShell — never a constant.
+ * signed-in user (SPEC-FINAL 7.5), handed down by AppShell — never a constant. So is the
+ * event: AppShell resolves it (cache first, then the server's active context) and hands it
+ * down; it is never a route-tree argument (task 1.17b).
  */
-function ScoutRoute({ eventId }: { eventId: string }) {
-  return <SelectRobotPage eventId={eventId} author={useSignedInUser()} />;
+function ScoutRoute() {
+  return <SelectRobotPage eventId={useActiveEventId()} author={useSignedInUser()} />;
 }
 
-function SignedInEntryRoute({ eventId }: { eventId: string }) {
-  return <EntryRoute eventId={eventId} author={useSignedInUser()} />;
+function SignedInEntryRoute() {
+  return <EntryRoute eventId={useActiveEventId()} author={useSignedInUser()} />;
 }
 
-/** The route tree, separate from the router so tests can mount it in memory. */
-export function routeTree(eventId: string): RouteObject[] {
+function EntriesRoute() {
+  return <EntriesPage eventId={useActiveEventId()} />;
+}
+
+/**
+ * The route tree, separate from the router so tests can mount it in memory.
+ *
+ * Every route under AppShell waits for the event to load unless it carries
+ * `handle: NO_HYDRATION` — mark only a route that reads no event data (task 1.17b).
+ */
+export function routeTree(): RouteObject[] {
   return [
     // Outside AppShell: they must render with no session, and leaving them remounts the
     // shell, which is what restarts sync after a sign-in.
@@ -32,17 +43,20 @@ export function routeTree(eventId: string): RouteObject[] {
     { path: '/change-password', element: <ChangePasswordPage /> },
     {
       path: '/',
-      element: <AppShell eventId={eventId} />,
+      element: <AppShell />,
       children: [
-        { index: true, element: <ScoutRoute eventId={eventId} /> },
-        { path: 'entry/:matchId/:teamId', element: <SignedInEntryRoute eventId={eventId} /> },
-        { path: 'entries', element: <EntriesPage eventId={eventId} /> },
-        // Inside the shell: it needs a signed-in device, and never leaves the outbox.
-        { path: 'switch-scouter', element: <SwitchScouter /> },
+        { index: true, element: <ScoutRoute /> },
+        { path: 'entry/:matchId/:teamId', element: <SignedInEntryRoute /> },
+        { path: 'entries', element: <EntriesRoute /> },
+        // Inside the shell: it needs a signed-in device, and never leaves the outbox. It
+        // reads only the cached accounts, so it works before any event is loaded.
+        { path: 'switch-scouter', element: <SwitchScouter />, handle: NO_HYDRATION },
         // SPEC-FINAL 17.2: user administration is computer work. The pages check the role
-        // themselves (7.4: device gating is not a permission), and the server again.
+        // themselves (7.4: device gating is not a permission), and the server again. They
+        // read no event data, so an admin reaches them on an install with no competition.
         {
           path: 'admin/users',
+          handle: NO_HYDRATION,
           element: (
             <DesktopOnly what="the user administration page">
               <UsersPage />
@@ -51,6 +65,7 @@ export function routeTree(eventId: string): RouteObject[] {
         },
         {
           path: 'admin/users/:id',
+          handle: NO_HYDRATION,
           element: (
             <DesktopOnly what="the user administration page">
               <UserDetailPage />
@@ -62,6 +77,6 @@ export function routeTree(eventId: string): RouteObject[] {
   ];
 }
 
-export function buildRouter(eventId: string) {
-  return createBrowserRouter(routeTree(eventId));
+export function buildRouter() {
+  return createBrowserRouter(routeTree());
 }

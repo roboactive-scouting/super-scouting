@@ -8,9 +8,12 @@ import {
   changeOwnPassword,
   createUser,
   disableUser,
+  enableUser,
+  renameUser,
   resetPassword,
   setUserRole,
 } from '../core/commands/users.js';
+import { getActiveContext } from '../core/queries/context.js';
 import { listUsers } from '../core/queries/listUsers.js';
 
 type EntryMeta = {
@@ -107,6 +110,22 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     output: API.disableUser.output,
     handler: disableUser,
   },
+  enableUser: {
+    kind: 'command',
+    description:
+      'Admin only: re-enable a disabled user. Clears disabled_at only — it does not reset the password. A no-op on an already-enabled user.',
+    input: API.enableUser.input,
+    output: API.enableUser.output,
+    handler: enableUser,
+  },
+  renameUser: {
+    kind: 'command',
+    description:
+      "Admin only: change a user's username, full name, or both. The id never changes, so authorship is unaffected. A taken username reads as conflict.",
+    input: API.renameUser.input,
+    output: API.renameUser.output,
+    handler: renameUser,
+  },
   listUsers: {
     kind: 'query',
     description:
@@ -114,5 +133,13 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     input: API.listUsers.input,
     output: API.listUsers.output,
     handler: listUsers,
+  },
+  getActiveContext: {
+    kind: 'query',
+    description:
+      "The admin's default season and event, which every device opens to. Either may be null: nothing is set up yet, or the season has no event yet. An event id that names no event comes back null.",
+    input: API.getActiveContext.input,
+    output: API.getActiveContext.output,
+    handler: getActiveContext,
   },
 };

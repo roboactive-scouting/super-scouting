@@ -2978,3 +2978,118 @@ Contrast of the new buttons (existing buttons are unchanged):
 - **The check-then-insert window is narrowed, not closed.** `users` is read again right before the insert, but there is no transaction across PostgREST calls. Two operators running it at the same second could create two admins, with different usernames because the unique index stops the same name. Closing it fully means an RPC or a migration, which is not worth it for a one-time, one-person act.
 - **The TTY path was not exercised end-to-end by the agent.** The agent's shell has no TTY. `readHidden` is unit tested against a fake raw-mode stream, and the non-TTY refusal is unit tested. The first real interactive run is the user's.
 - The server does not enforce `must_change_password`; the client routes to Change password (logged earlier, task 1.15). An admin signing in through a raw API call could skip the forced change. Since the operator is the admin, that is accepted.
+
+## Task 1.17b — `getActiveContext` pulled forward from task 1.18
+
+**Plan said:** the task's **Files** list is client-only; `sync.ts` gets "a result that distinguishes 'no active event' from 'unreachable'". Task 1.18 creates `apps/server/src/core/queries/context.ts` and `getActiveContext`.
+
+**What was wrong:** the client cannot tell "no active event" apart from anything. `syncPull` with an event id that does not exist throws `AppError('not-found', 'that event no longer exists', { event_id })` before it reads any row, so on production (no season, no event) the pull answers 404 and never delivers `app_settings` either. A device with no cached `app_settings` has no way to learn the active event: the pull that carries it needs an event id.
+
+**What I did instead:** per the orchestrator's decision, `getActiveContext` exactly as 1.18 defines it: `packages/shared/src/api/context.ts` (`getActiveContextInput`, an empty strict object; `activeContext`, `{ active_season_id: uuid|null, active_event_id: uuid|null }`; types `GetActiveContextInput`, `ActiveContext`), one `API` row, `apps/server/src/core/queries/context.ts` (caller first, no role check, every role and a service caller; an `active_event_id` naming no event — `ctx.store.eventExists` — comes back null), a registry row, and `Store.getActiveContext` in `repos/store.ts` (reads the singleton with `.eq('id', true).maybeSingle()`; a missing row is both null; a database error throws) and `test/fake-context.ts`. `Store.setActiveContext` stays a stub. The fake's **fixture** `ctx.setActiveContext(seasonId, eventId)` (declared on `FakeContext`, previously throwing "lands with task 1.18") now writes the fake singleton directly, without validation, so a test can make it name a missing event; it is not `Store.setActiveContext`. One line added under task 1.18's **Files** in the plan. The client side is `activeEvent()` in `data/sync.ts` (next entry). Bundle regenerated.
+
+**Rejected alternative:** making `syncPull` accept a null event id, or answer a "no event" body. That changes the replication protocol for every device to serve one boot case.
+
+**Risk:** 1.18 must extend `queries/context.ts`, not recreate it; the plan line says so.
+
+## Task 1.17b — the event is resolved by the shell, and the dev fallback is gone
+
+**Plan said:** "`FALLBACK_EVENT_ID` may stay for dev (`import.meta.env.DEV`)." The plan does not say where the event id comes from once the server names it.
+
+**What was wrong:** `App.tsx` resolved the id once, before the router existed, and handed it into `routeTree(eventId)`. Nothing below it could re-resolve after a 404 or pick up an event an admin sets later. Keeping the seed fallback in dev would hide exactly this bug in dev.
+
+**What I did instead:** per the orchestrator: `App.tsx` builds the router once with no event id; `FALLBACK_EVENT_ID` is deleted in every build. `AppShell` (no props now) resolves the id: the cached `app_settings.active_event_id` first — if `cachedHydration(id) === 'cached'` it renders at once in `'cached'` and syncs in the background, moving to `'fresh'`; otherwise, with a token and online, `getActiveContext` (null → `'no-event'`; an id → `'loading'` → first pull; no answer → `'blocked'`). A pull answering `event-gone` asks `getActiveContext` again, once per run. In `'no-event'` and `'blocked'` the 45 s tick and the `online` event re-run the resolution. The id reaches routes through the outlet context (`ShellContext.eventId: string | null`) and `useActiveEventId()`; `routeTree()` and `buildRouter()` lost their parameter. A different `active_event_id` arriving in a later pull takes effect at the next shell mount (code comment in `AppShell.tsx`).
+
+Choices the brief left open:
+- **`AppShell` no longer calls `hydrate`.** It calls `syncNow` and reads the outcome itself, because `hydrate` folds `event-gone` into `'blocked'`. `hydrate` stays exported and tested; nothing in the app calls it now.
+- **Before the cache is read** (`'resolving'`), a gated route shows nothing under the header. No copy was invented: "Loading…" would be wrong for a hydrated device and for an empty install alike. On a device with nothing cached this lasts one `getActiveContext` call, so that call has a 10 s deadline (`ACTIVE_CONTEXT_TIMEOUT_MS`), after which it counts as no answer.
+- **Any failed `getActiveContext`** — no connection, a deadline, a portal's page, an error status from our own server — is `'unreachable'`, so `'blocked'`. Only an answer in the output schema is believed.
+- **A failed re-ask never demotes `'no-event'` to `'blocked'`**, and a failed background sync never demotes `'fresh'` to `'cached'`. The old code never changed state after the first run at all; the connection indicator already shows offline.
+- **An expired session on the entry route** is sent to sign-in in `'no-event'` as well as `'blocked'`: the entry cannot work without the event.
+
+**Risk:** the `online` run and a token arriving in place can both sync right after a reconnect exchange (two `syncNow` calls). Harmless, since pushes are idempotent, and it existed before, hidden because the second call went through `hydrate`. Two task 1.16 tests in `AppShell.test.tsx` now assert "at least once" instead of "exactly once" for that reason (one of them failed 1 run in 6 as "expected spy to be called 1 times, but got 2 times").
+
+## Task 1.17b — which routes are gated, and where the gate renders
+
+**Plan said:** "Modify `routes.tsx` (mark which routes read event data)."
+
+**What was wrong:** nothing; the plan left the marking scheme open.
+
+**What I did instead:** the inverse, per the orchestrator: every route under `AppShell` is gated unless its route object carries `handle: NO_HYDRATION` (exported from `features/shell/shellContext.ts`, read with `useMatches()` through `needsNoHydration()`). Marked: `admin/users`, `admin/users/:id`, `switch-scouter`. Scout (index), `entry/:matchId/:teamId` and `entries` stay gated. The gate renders **inside** the shell layout in place of the `<Outlet>`, with the header and footer still showing (the old gate replaced the whole shell, which is what hid the Users link). Ungated routes render the `<Outlet>` in every state; still never an `<Outlet>` keyed by state. `AppShell.test.tsx` now mounts with `createMemoryRouter`, because `useMatches` needs a data router.
+
+**Rejected alternative:** marking the event routes instead. A forgotten mark on a data screen would then fail silent — an empty list read once on mount that never fills — instead of loud (the gate shows).
+
+**Risk:** a new route under the shell that reads no event data must be marked, or it waits for hydration. Phase 1C's season/event setup routes must carry `handle: NO_HYDRATION`.
+
+## Task 1.17b — copy, and the sign-in line
+
+**Plan said:** the "cannot reach the server" line for sign-in when the online attempt "failed without an answer"; never the "internet required" copy while online.
+
+**What was wrong:** the plan does not say what "without an answer" covers, nor what the shell's never-hydrated state says when online.
+
+**What I did instead:**
+- `SERVER_UNREACHABLE_LINE` is defined once in `auth/messages.ts` and used by sign-in and the shell.
+- **Sign-in:** "without an answer" is `!(err instanceof RpcError && err.answered)`: no connection, a deadline, CORS, and also a response not in our server's shape (a portal, a wrong address). With no cached accounts and `navigator.onLine === true` it throws a new `ServerUnreachableError`, whose message `signInErrorLine` shows. Our own 5xx still shows "the server is having trouble"; offline with no cached accounts keeps `NO_CACHED_ACCOUNTS_LINE`; with cached accounts the fallback is unchanged. `LoginPage.test.tsx`'s old test ("no cached accounts when it cannot reach the server", with the device online) encoded the old behaviour; it became two tests, online and offline.
+- **Shell, never hydrated and no answer:** `navigator.onLine` false keeps the "internet connection is required once" copy; true shows "This device has not loaded the competition yet" with `SERVER_UNREACHABLE_LINE`. The shell re-renders on the `online` and `offline` events.
+- **No event:** `features/shell/NoCompetition.tsx`: heading "No competition is set up yet", muted line "An admin sets up the season and competition. This device loads it the next time it is online.", and a commented, empty slot for the admin's "Set up a competition" link.
+
+**Risk:** none known.
+
+## Task 1.17b — `FALLBACK_SEASON_ID` removed
+
+**Plan said:** nothing about `EntryRoute.tsx`.
+
+**What was wrong:** `FALLBACK_SEASON_ID` existed for the same reason as `FALLBACK_EVENT_ID`.
+
+**What I did instead:** removed it outright, with no `import.meta.env.DEV` guard. Entry is gated, so the pull that loaded the event has cached `app_settings`. No test depended on it. `routes.test.tsx`'s fixture now caches `app_settings` in its `beforeEach` (one test did before); the `UsersPage` fake server answers `getActiveContext` with nulls; the offline-login integration test's pull body now carries `app_settings`.
+
+**Risk:** none; an entry opened without a cached season stays on "Loading…" instead of guessing the seed season.
+
+## Task 1.17b — Step 4's production proof not run
+
+**Plan said:** "prove it from outside against production: sign in as the production admin and confirm the Users screen is reachable and the no-competition message shows."
+
+**What was wrong:** nothing touches production in a subagent run (orchestrator's instruction; BUILD-CONTEXT §4).
+
+**What I did instead:** skipped. The orchestrator proves it on the dev project.
+
+**Risk:** unproven against a deployed server until then. The server bundle must be deployed with or before the client: against an older server, `getActiveContext` answers 404, which the client reads as no answer ("blocked", with the "Cannot reach the server" line) on a device with nothing cached.
+
+## Task 1.17b — the outside proof ran on dev, against a local server (orchestrator)
+
+**Plan said:** Step 4: "prove it from outside against production: sign in as the production admin and confirm the Users screen is reachable and the no-competition message shows."
+
+**What was wrong:** The chat's prompt forbids touching production in this run; production is checked by the user after `main` is promoted, after phase 1C. The deployed `develop` preview still runs the old server, which has no `getActiveContext`, so it cannot show the new state either. Separately, `pnpm --filter @frc/server dev` does not load `apps/server/.env` at all: started as-is it died with `Error: Server environment is not usable. Fix these variables (see docs/ops/ENVIRONMENT.md): SUPABASE_URL: Required …`.
+
+**What I did instead:** Ran the server locally with `tsx --env-file=<abs path>/apps/server/.env src/dev-server.ts` (node reads the file itself; nothing is sourced) and the client with `vite`, both against the dev project. Over HTTP with `node -e fetch`: `getActiveContext` returned the seed ids; a pull for an unknown event id returned `404 {"error":{"code":"not-found","message":"that event no longer exists",...}}`. Set dev `app_settings.active_event_id` to null (a dev-ref-guarded scratch script): `getActiveContext` returned `active_event_id: null`, and the signed-in admin's shell showed "No competition is set up yet" on Scout and Entries, never "internet connection is required", while `/admin/users` rendered its table. `pnpm seed` restored the seed event; firing `online` made the open shell go loading → Scout without a reload. `/change-password` → back never showed the loading screen. With the API server stopped, a reload opened straight to Scout with the cached-data line. The admin was signed in from page JavaScript that read the committed dev password from `fixtures.ts` through Vite, so no credential was typed or printed.
+
+**Risk:** The `navigator.onLine === false` variants are proven by unit tests only; the browser pane cannot toggle `navigator.onLine`. Production is unproven until the user checks it after promotion. The server's `dev` script not loading `.env` is left as is (outside this task).
+
+## Task 1.17a — two registry/API "exactly these entries" checklist tests needed updating
+
+**Plan said:** Step 1's test list (`users.test.ts`, `UsersPage.test.tsx`) and step 4 ("run and watch pass"); it did not mention `apps/server/src/routes/rpc.test.ts` or `packages/shared/src/api/index.test.ts`.
+
+**What was wrong:** both files hard-code the full sorted list of registry/API keys ("holds exactly the entries registered so far", "names every registry use case") as a deliberate drift guard. Adding `enableUser`/`renameUser` rows to `REGISTRY` and `API` failed both without any code being wrong — the tests are supposed to be extended whenever a use case is added.
+
+**What I did instead:** added `enableUser` and `renameUser` to both hard-coded lists (and to `rpc.test.ts`'s "N authenticated commands" list, five → seven), and added `API.enableUser`/`API.renameUser` identity assertions to `index.test.ts` alongside the others already there.
+
+**Risk:** none; this is exactly what those tests are for.
+
+## Task 1.17a — removed the create-then-reset `must_change` workaround instead of leaving it alongside the new field
+
+**Plan said:** "The create form gets the same 'must change at next sign-in' checkbox the reset form already has." It did not explicitly say to delete `UsersPage.tsx`'s existing `createUser` + `resetPassword` two-call workaround (the very thing spec §5.4 item 3 names as the gap).
+
+**What was wrong:** nothing wrong in the plan; it's silent on whether the workaround stays as a fallback or is removed now that `createUser` takes `must_change` natively. Keeping both would mean the checkbox fires two calls (create with `must_change`, then a redundant reset with the same password and `must_change: true`) for no behavioural gain, and reintroduces the exact partial-failure case ("account created, but the first-sign-in change could not be set") the task is closing.
+
+**What I did instead:** removed the second `resetPassword` call and the `resetFailed` state/UI entirely; the checkbox now sets `must_change` directly on the single `createUser` call. Rewrote `UsersPage.test.tsx`'s two affected tests (`posts createUser with must_change: true …` / `… false …`) and deleted the now-inapplicable "a failed reset after a successful create …" test. Also changed the create checkbox's label from "Ask them to change it at first sign-in" to "Ask them to change it at next sign-in" to match the reset form's wording verbatim (orchestrator decision 7), and updated the "created" panel's footer copy to match ("at next sign-in").
+
+**Risk:** low. If phase 1C wanted the two-call path kept as a defence against `createUser` accepting `must_change` but some other code path not honouring it, that defence is gone — but the server test suite now proves `createUser`'s `must_change` directly (`users.test.ts`), so it should be redundant.
+
+## Task 1.17a — fake-context.ts's update-path unique check needed no change
+
+**Plan/brief said:** "Make sure the in-memory store in `apps/server/src/test/fake-context.ts` raises the same unique violation on a case-insensitive username collision in its update path as the real index does."
+
+**What was wrong:** nothing — `updateUser`'s `assertUsernameFree(next.username, id)` (already present, used by `setUserRole`/`disableUser`/`resetPassword`) already excludes the row being updated by id and compares lowercased usernames, so it already raises the `23505` `pgError` on a rename collision.
+
+**What I did instead:** left `fake-context.ts` unchanged and added the two server tests the brief asked for (`refuses a rename to a taken username in any case`, parametrised over `Dana`/`DANA`/` dana `; and the pre-check-bypass race test) to prove the existing code already does this rather than assuming it.
+
+**Risk:** none.

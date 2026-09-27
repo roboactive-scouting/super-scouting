@@ -1,7 +1,7 @@
 import type { Role } from '@frc/shared';
 import { cachedRows } from '@/data/cache';
 import { call, RpcError } from '@/data/rpc';
-import { DISABLED, loginErrorLine, MISMATCH } from './messages';
+import { DISABLED, loginErrorLine, MISMATCH, SERVER_UNREACHABLE_LINE } from './messages';
 import { pendingCredential } from './pendingCredential';
 import { session, type SessionUser } from './session';
 
@@ -38,6 +38,18 @@ export class OfflineLoginError extends Error {
           : MISMATCH,
     );
     this.name = 'OfflineLoginError';
+  }
+}
+
+/**
+ * An online device, no answer from the server, and nothing cached to fall back on
+ * (task 1.17b). "Connect to the internet" would send the user hunting for Wi-Fi that will
+ * not help: the device is online, and the address or the server is what is wrong.
+ */
+export class ServerUnreachableError extends Error {
+  constructor() {
+    super(SERVER_UNREACHABLE_LINE);
+    this.name = 'ServerUnreachableError';
   }
 }
 
@@ -136,11 +148,14 @@ export async function signInWithFallback(
       const user = await (options.offline ?? offlineLogin)(username, password);
       return { user, offline: true };
     } catch (offlineErr) {
-      // Our own server answered with a 5xx and there is nothing cached to fall back on:
-      // "the server is having trouble" is the truer line than "connect to the internet".
-      const serverTrouble = err instanceof RpcError && err.answered && err.status >= 500;
-      if (serverTrouble && offlineErr instanceof OfflineLoginError) {
-        if (offlineErr.reason === 'no-accounts') throw err;
+      if (offlineErr instanceof OfflineLoginError && offlineErr.reason === 'no-accounts') {
+        // Our own server answered with a 5xx and there is nothing cached to fall back on:
+        // "the server is having trouble" is the truer line than "connect to the internet".
+        const answered = err instanceof RpcError && err.answered;
+        if (answered && err.status >= 500) throw err;
+        // No answer at all, on a device that says it is online (task 1.17b): the address
+        // or the server is wrong, not the connection. Offline keeps the old line.
+        if (!answered && navigator.onLine) throw new ServerUnreachableError();
       }
       throw offlineErr;
     }
@@ -149,6 +164,6 @@ export async function signInWithFallback(
 
 /** The one line for a failed sign-in, online or offline. Never a code, never the input. */
 export function signInErrorLine(e: unknown): string {
-  if (e instanceof OfflineLoginError) return e.message;
+  if (e instanceof OfflineLoginError || e instanceof ServerUnreachableError) return e.message;
   return loginErrorLine(e);
 }

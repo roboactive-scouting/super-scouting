@@ -270,3 +270,28 @@ describe('supabaseStore sync reads and the applied ledger (review fix: errors ar
     expect(await store.eventExists('ev-1')).toBe(false);
   });
 });
+
+describe('supabaseStore.getActiveContext (task 1.17b)', () => {
+  it('reads the app_settings singleton row', async () => {
+    const seen: Query = {};
+    const ids = { active_season_id: 'se-1', active_event_id: 'ev-1' };
+    const store = supabaseStore(fakeDbById({ data: ids, error: null }, seen));
+    expect(await store.getActiveContext()).toEqual(ids);
+    expect(seen).toMatchObject({ table: 'app_settings', column: 'id', pattern: true });
+  });
+
+  it('reads a missing singleton as both null', async () => {
+    const store = supabaseStore(fakeDbById({ data: null, error: null }, {}));
+    expect(await store.getActiveContext()).toEqual({
+      active_season_id: null,
+      active_event_id: null,
+    });
+  });
+
+  it('throws on a database error instead of reading as "no competition is set up"', async () => {
+    const store = supabaseStore(
+      fakeDbById({ data: null, error: { message: 'connection refused' } }, {}),
+    );
+    await expect(store.getActiveContext()).rejects.toThrow('connection refused');
+  });
+});

@@ -115,6 +115,10 @@ function pullBody() {
     updated_at: at,
   }));
   entities.events = [{ id: EVENT_ID, name: 'District 1', created_at: at, updated_at: at }];
+  // The singleton names the event: the shell reads it back on the next start (task 1.17b).
+  entities.app_settings = [
+    { id: true, active_season_id: null, active_event_id: EVENT_ID, updated_at: at },
+  ];
   entities.teams = [
     { id: TEAM_ID, number: 2096, name: 'ROBACTIVE', updated_at: at },
     { id: TEAM_2_ID, number: 1690, name: 'Orbit', updated_at: at },
@@ -360,7 +364,7 @@ describe('offline login against a real server that goes away (SPEC-FINAL 7.5)', 
     // The shell is up, offline, with the lead signed in from the cache.
     render(
       createElement(RouterProvider, {
-        router: createMemoryRouter(routeTree(EVENT_ID), { initialEntries: ['/'] }),
+        router: createMemoryRouter(routeTree(), { initialEntries: ['/'] }),
       }),
     );
     expect(await screen.findByText(OFFLINE_SIGNED_IN_LINE)).toBeInTheDocument();

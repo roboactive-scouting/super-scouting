@@ -180,6 +180,21 @@ export function supabaseStore(db: Db): Store {
       return { eventId: data.id, seasonId: data.season_id };
     },
     pullEntity,
+    // Task 1.17b, ahead of the rest of 1.18. The singleton row is created by the skeleton
+    // migration on every project; a missing one reads as nothing set up. THROWS on a
+    // database error: swallowed, a blip would tell every device no competition exists.
+    async getActiveContext() {
+      const { data, error } = await db
+        .from('app_settings')
+        .select('active_season_id, active_event_id')
+        .eq('id', true)
+        .maybeSingle();
+      if (error) throw dbError(error);
+      return {
+        active_season_id: data?.active_season_id ?? null,
+        active_event_id: data?.active_event_id ?? null,
+      };
+    },
     // The remaining methods start as loud stubs, exactly as the fake does. Each later
     // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
     // without these the file does not compile at all.
@@ -190,7 +205,6 @@ export function supabaseStore(db: Db): Store {
       'listConflicts',
       'getConflict',
       'resolveConflictRow',
-      'getActiveContext',
       'setActiveContext',
       'getSeason',
       'getSeasonByYear',
