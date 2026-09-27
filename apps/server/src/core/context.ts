@@ -1,4 +1,4 @@
-import type { FormFieldDefinition, SyncEntity } from '@frc/shared';
+import type { FormFieldDefinition, MatchSlot, MatchType, SyncEntity } from '@frc/shared';
 
 export type StoredUser = {
   id: string;
@@ -42,6 +42,34 @@ export type StoredEvent = {
   created_at: string;
   updated_at: string;
 };
+
+/** A `teams` row (skeleton migration). Unversioned; the number is global and permanent. */
+export type StoredTeam = {
+  id: string;
+  number: number;
+  name: string;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * A `matches` row, by an explicit column list: the reserved official-result columns are
+ * never read in v1 (SPEC-FINAL 3.1). Unversioned (SPEC-FINAL 6.4).
+ */
+export type StoredMatch = {
+  id: string;
+  event_id: string;
+  match_type: MatchType;
+  number: number;
+  created_at: string;
+  updated_at: string;
+};
+
+/** One filled `match_teams` slot, as the match use cases read it. */
+export type StoredMatchSlot = MatchSlot & { match_id: string };
+
+/** The listMatches keyset: (event_id, match_type, number) is unique, so this is exact. */
+export type MatchKeyset = { match_type: MatchType; number: number };
 
 export type PullScope = { eventId: string; seasonId: string };
 
@@ -140,25 +168,54 @@ export type Store = {
   ): Promise<StoredEvent[]>;
 
   // teams, roster, matches (task 1.19)
-  getTeam(id: string): Promise<StoredRow | null>;
-  getTeamByNumber(number: number): Promise<StoredRow | null>;
-  insertTeam(row: Record<string, unknown>): Promise<StoredRow>;
-  updateTeam(id: string, patch: Record<string, unknown>): Promise<StoredRow>;
+  /**
+   * The team, roster and match writes throw an error whose `code` is Postgres's own, like
+   * the season writes: '23505' on a duplicate team number or a duplicate (event, type,
+   * number); '23503' when a row names an event, match or team that no longer exists, and
+   * when deleteMatch meets an entry (`scouting_entries.match_id` is `on delete restrict`).
+   */
+  getTeam(id: string): Promise<StoredTeam | null>;
+  getTeamByNumber(number: number): Promise<StoredTeam | null>;
+  insertTeam(row: Record<string, unknown>): Promise<StoredTeam>;
+  updateTeam(id: string, patch: Record<string, unknown>): Promise<StoredTeam>;
+  /**
+   * By number; `after` is the last row of the previous page (keyset). `query` matches a
+   * number prefix or a case-insensitive name substring, every character literal.
+   * `seasonId` is declared for a season-scoped search and unused in v1 (task 1.19).
+   */
   listTeams(options: {
     seasonId?: string;
     query?: string;
     limit: number;
-    cursor?: string;
-  }): Promise<StoredRow[]>;
-  getRoster(eventId: string): Promise<StoredRow[]>;
+    after?: { number: number };
+  }): Promise<StoredTeam[]>;
+  /** The teams on the event's LIVE roster (`deleted_at is null`), by number. */
+  getRoster(eventId: string): Promise<StoredTeam[]>;
+  /**
+   * Makes `teamIds` the event's live roster. A removal is a soft delete (`deleted_at =
+   * at`); a team added back revives its newest tombstone rather than inserting a second
+   * row; a row that does not change is not written.
+   */
   setRoster(eventId: string, teamIds: string[], at: string): Promise<void>;
-  findMatch(eventId: string, matchType: string, number: number): Promise<StoredRow | null>;
-  insertMatch(row: Record<string, unknown>): Promise<StoredRow>;
-  listMatches(eventId: string, limit: number, cursor?: string): Promise<StoredRow[]>;
-  setMatchTeams(matchId: string, slots: Record<string, unknown>[]): Promise<void>;
+  findMatch(eventId: string, matchType: MatchType, number: number): Promise<StoredMatch | null>;
+  getMatch(id: string): Promise<StoredMatch | null>;
+  insertMatch(row: Record<string, unknown>): Promise<StoredMatch>;
+  /** An admin correction of match_type and/or number. Never putRow: that is sync's path. */
+  updateMatch(id: string, patch: Record<string, unknown>): Promise<StoredMatch>;
+  /** Practice, qualification, playoff, then by number; `after` is the keyset. */
+  listMatches(eventId: string, limit: number, after?: MatchKeyset): Promise<StoredMatch[]>;
+  /** The filled slots of the given matches (at most six each), in no particular order. */
+  listMatchSlots(matchIds: string[]): Promise<StoredMatchSlot[]>;
+  /**
+   * Makes `slots` the match's filled slots: an omitted slot is deleted, a slot whose team
+   * changed is updated in place, a new slot is inserted, an unchanged one is not written.
+   */
+  setMatchTeams(matchId: string, slots: MatchSlot[]): Promise<void>;
+  /** Every entry of the match, soft-deleted ones included: the foreign key counts them. */
   countEntriesByMatch(matchId: string): Promise<number>;
   /** Every entry of every event in the season, soft-deleted ones included (task 1.18). */
   countEntriesBySeason(seasonId: string): Promise<number>;
+  /** A hard delete; its match_teams go with it (`on delete cascade`). '23503' on entries. */
   deleteMatch(id: string): Promise<void>;
 
   // forms and scoring (tasks 1.27, 1.28)

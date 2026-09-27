@@ -20,6 +20,29 @@ import {
   updateSeasonInput,
 } from './context';
 import {
+  createMatchInput,
+  createMatchOutput,
+  deleteMatchInput,
+  deleteMatchOutput,
+  ensureMatchInput,
+  ensureMatchOutput,
+  listMatchesInput,
+  listMatchesOutput,
+  matchRow,
+  setMatchTeamsInput,
+  updateMatchInput,
+} from './matches';
+import {
+  createTeamInput,
+  eventRosterOutput,
+  listEventRosterInput,
+  listTeamsInput,
+  listTeamsOutput,
+  setEventRosterInput,
+  teamRow,
+  updateTeamInput,
+} from './teams';
+import {
   changeOwnPasswordInput,
   createUserInput,
   disableUserInput,
@@ -37,13 +60,20 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
     expect(Object.keys(API).sort()).toEqual([
       'changeOwnPassword',
       'createEvent',
+      'createMatch',
       'createSeason',
+      'createTeam',
       'createUser',
+      'deleteMatch',
       'disableUser',
       'enableUser',
+      'ensureMatch',
       'getActiveContext',
+      'listEventRoster',
       'listEvents',
+      'listMatches',
       'listSeasons',
+      'listTeams',
       'listUsers',
       'login',
       'refreshToken',
@@ -52,9 +82,13 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
       'resetPassword',
       'setActiveEvent',
       'setActiveSeason',
+      'setEventRoster',
+      'setMatchTeams',
       'setUserRole',
       'updateEvent',
+      'updateMatch',
       'updateSeason',
+      'updateTeam',
     ]);
   });
 
@@ -83,5 +117,16 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
     expect(API.reorderEvents).toEqual({ input: reorderEventsInput, output: reorderEventsOutput });
     expect(API.setActiveEvent).toEqual({ input: setActiveEventInput, output: activeContext });
     expect(API.listEvents).toEqual({ input: listEventsInput, output: listEventsOutput });
+    expect(API.createTeam).toEqual({ input: createTeamInput, output: teamRow });
+    expect(API.updateTeam).toEqual({ input: updateTeamInput, output: teamRow });
+    expect(API.listTeams).toEqual({ input: listTeamsInput, output: listTeamsOutput });
+    expect(API.setEventRoster).toEqual({ input: setEventRosterInput, output: eventRosterOutput });
+    expect(API.listEventRoster).toEqual({ input: listEventRosterInput, output: eventRosterOutput });
+    expect(API.createMatch).toEqual({ input: createMatchInput, output: createMatchOutput });
+    expect(API.updateMatch).toEqual({ input: updateMatchInput, output: matchRow });
+    expect(API.setMatchTeams).toEqual({ input: setMatchTeamsInput, output: matchRow });
+    expect(API.deleteMatch).toEqual({ input: deleteMatchInput, output: deleteMatchOutput });
+    expect(API.listMatches).toEqual({ input: listMatchesInput, output: listMatchesOutput });
+    expect(API.ensureMatch).toEqual({ input: ensureMatchInput, output: ensureMatchOutput });
   });
 });

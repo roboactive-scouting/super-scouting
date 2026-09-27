@@ -18,6 +18,29 @@ import {
   updateSeasonInput,
 } from './context';
 import {
+  createMatchInput,
+  createMatchOutput,
+  deleteMatchInput,
+  deleteMatchOutput,
+  ensureMatchInput,
+  ensureMatchOutput,
+  listMatchesInput,
+  listMatchesOutput,
+  matchRow,
+  setMatchTeamsInput,
+  updateMatchInput,
+} from './matches';
+import {
+  createTeamInput,
+  eventRosterOutput,
+  listEventRosterInput,
+  listTeamsInput,
+  listTeamsOutput,
+  setEventRosterInput,
+  teamRow,
+  updateTeamInput,
+} from './teams';
+import {
   changeOwnPasswordInput,
   createUserInput,
   disableUserInput,
@@ -60,6 +83,17 @@ export const API = {
   reorderEvents: { input: reorderEventsInput, output: reorderEventsOutput },
   setActiveEvent: { input: setActiveEventInput, output: activeContext },
   listEvents: { input: listEventsInput, output: listEventsOutput },
+  createTeam: { input: createTeamInput, output: teamRow },
+  updateTeam: { input: updateTeamInput, output: teamRow },
+  listTeams: { input: listTeamsInput, output: listTeamsOutput },
+  setEventRoster: { input: setEventRosterInput, output: eventRosterOutput },
+  listEventRoster: { input: listEventRosterInput, output: eventRosterOutput },
+  createMatch: { input: createMatchInput, output: createMatchOutput },
+  updateMatch: { input: updateMatchInput, output: matchRow },
+  setMatchTeams: { input: setMatchTeamsInput, output: matchRow },
+  deleteMatch: { input: deleteMatchInput, output: deleteMatchOutput },
+  listMatches: { input: listMatchesInput, output: listMatchesOutput },
+  ensureMatch: { input: ensureMatchInput, output: ensureMatchOutput },
 } as const;
 
 export type Api = typeof API;

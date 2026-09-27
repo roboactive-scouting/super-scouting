@@ -161,6 +161,130 @@ var listEventsOutput = z3.object({
   next_cursor: z3.string().nullable()
 });
 
+// ../../packages/shared/src/api/matches.ts
+import { z as z4 } from "zod";
+var uuid2 = z4.string().uuid();
+var MATCH_TYPES = ["practice", "qualification", "playoff"];
+var matchType = z4.enum(MATCH_TYPES);
+var ALLIANCES = ["red", "blue"];
+var MATCH_NUMBER_MAX = 999;
+var MATCH_BULK_MAX = 200;
+var LIST_MATCHES_DEFAULT_LIMIT = 50;
+var LIST_MATCHES_MAX_LIMIT = 200;
+var matchNumber = z4.number().int().min(1).max(MATCH_NUMBER_MAX);
+var matchSlot = z4.object({
+  alliance: z4.enum(ALLIANCES),
+  station: z4.number().int().min(1).max(3),
+  team_id: uuid2
+}).strict();
+var matchRow = z4.object({
+  id: uuid2,
+  event_id: uuid2,
+  match_type: matchType,
+  number: z4.number().int(),
+  created_at: z4.string(),
+  updated_at: z4.string(),
+  slots: z4.array(matchSlot)
+});
+var createMatchInput = z4.object({
+  event_id: uuid2,
+  match_type: matchType,
+  number: matchNumber.optional(),
+  count: z4.number().int().min(1).max(MATCH_BULK_MAX).optional()
+}).strict().refine((value) => value.number === void 0 !== (value.count === void 0), {
+  message: "give either a match number or a count of matches, not both"
+});
+var createMatchOutput = z4.object({
+  created: z4.number().int(),
+  items: z4.array(matchRow)
+});
+var updateMatchInput = z4.object({
+  match_id: uuid2,
+  match_type: matchType.optional(),
+  number: matchNumber.optional()
+}).strict().refine((value) => value.match_type !== void 0 || value.number !== void 0, {
+  message: "give a new match type or number"
+});
+var setMatchTeamsInput = z4.object({ match_id: uuid2, slots: z4.array(matchSlot).max(6) }).strict().superRefine((value, ctx) => {
+  const stations = new Set(value.slots.map((s) => `${s.alliance} ${s.station}`));
+  if (stations.size !== value.slots.length) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["slots"],
+      message: "fill each alliance station only once"
+    });
+  }
+  const teams = new Set(value.slots.map((s) => s.team_id));
+  if (teams.size !== value.slots.length) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["slots"],
+      message: "a team can fill only one slot in a match"
+    });
+  }
+});
+var deleteMatchInput = z4.object({ match_id: uuid2 }).strict();
+var deleteMatchOutput = z4.object({ id: uuid2, deleted: z4.literal(true) });
+var listMatchesInput = z4.object({
+  event_id: uuid2,
+  limit: z4.number().int().min(1).optional(),
+  cursor: z4.string().min(1).optional()
+}).strict();
+var listMatchesOutput = z4.object({
+  items: z4.array(matchRow),
+  next_cursor: z4.string().nullable()
+});
+var ensureMatchInput = z4.object({
+  id: uuid2,
+  event_id: uuid2,
+  match_type: matchType,
+  number: matchNumber
+}).strict();
+var ensureMatchOutput = z4.object({ id: uuid2, created: z4.boolean() });
+
+// ../../packages/shared/src/api/teams.ts
+import { z as z5 } from "zod";
+var uuid3 = z5.string().uuid();
+var TEAM_NUMBER_MIN = 1;
+var TEAM_NUMBER_MAX = 99999;
+var TEAM_QUERY_MAX_LENGTH = NAME_MAX_LENGTH;
+var ROSTER_MAX_TEAMS = 200;
+var LIST_TEAMS_DEFAULT_LIMIT = 50;
+var LIST_TEAMS_MAX_LIMIT = 200;
+var teamNumber = z5.number().int().min(TEAM_NUMBER_MIN).max(TEAM_NUMBER_MAX);
+var teamName = z5.string().trim().min(1).max(NAME_MAX_LENGTH);
+var teamRow = z5.object({
+  id: uuid3,
+  number: z5.number().int(),
+  name: z5.string(),
+  created_at: z5.string(),
+  updated_at: z5.string()
+});
+var createTeamInput = z5.object({ number: teamNumber, name: teamName }).strict();
+var updateTeamInput = z5.object({ team_id: uuid3, name: teamName }).strict();
+var listTeamsInput = z5.object({
+  query: z5.string().trim().max(TEAM_QUERY_MAX_LENGTH).optional().transform((value) => value ? value : void 0),
+  limit: z5.number().int().min(1).optional(),
+  cursor: z5.string().min(1).optional()
+}).strict();
+var listTeamsOutput = z5.object({
+  items: z5.array(teamRow),
+  next_cursor: z5.string().nullable()
+});
+var rosterRow = z5.object({
+  team_id: uuid3,
+  number: z5.number().int(),
+  name: z5.string()
+});
+var setEventRosterInput = z5.object({
+  event_id: uuid3,
+  team_ids: z5.array(uuid3).max(ROSTER_MAX_TEAMS).refine((ids) => new Set(ids).size === ids.length, {
+    message: "name each team only once"
+  })
+}).strict();
+var listEventRosterInput = z5.object({ event_id: uuid3 }).strict();
+var eventRosterOutput = z5.object({ items: z5.array(rosterRow) });
+
 // ../../packages/shared/src/api/index.ts
 var API = {
   login: { input: loginInput, output: loginOutput },
@@ -182,7 +306,18 @@ var API = {
   updateEvent: { input: updateEventInput, output: eventRow },
   reorderEvents: { input: reorderEventsInput, output: reorderEventsOutput },
   setActiveEvent: { input: setActiveEventInput, output: activeContext },
-  listEvents: { input: listEventsInput, output: listEventsOutput }
+  listEvents: { input: listEventsInput, output: listEventsOutput },
+  createTeam: { input: createTeamInput, output: teamRow },
+  updateTeam: { input: updateTeamInput, output: teamRow },
+  listTeams: { input: listTeamsInput, output: listTeamsOutput },
+  setEventRoster: { input: setEventRosterInput, output: eventRosterOutput },
+  listEventRoster: { input: listEventRosterInput, output: eventRosterOutput },
+  createMatch: { input: createMatchInput, output: createMatchOutput },
+  updateMatch: { input: updateMatchInput, output: matchRow },
+  setMatchTeams: { input: setMatchTeamsInput, output: matchRow },
+  deleteMatch: { input: deleteMatchInput, output: deleteMatchOutput },
+  listMatches: { input: listMatchesInput, output: listMatchesOutput },
+  ensureMatch: { input: ensureMatchInput, output: ensureMatchOutput }
 };
 
 // ../../packages/shared/src/errors.ts
@@ -380,7 +515,7 @@ function validateEntryData(fields, robotStatus, data) {
 }
 
 // ../../packages/shared/src/sync/operation.ts
-import { z as z4 } from "zod";
+import { z as z6 } from "zod";
 var SYNC_ENTITIES = [
   "scouting_entry",
   "match",
@@ -390,19 +525,19 @@ var SYNC_ENTITIES = [
   "alliance_slot",
   "alliance_decline"
 ];
-var isoDateTime = z4.string().datetime({ offset: false });
-var operationSchema = z4.object({
-  op_id: z4.string().min(1),
-  entity: z4.enum(SYNC_ENTITIES),
-  row_id: z4.string().uuid(),
-  action: z4.enum(["create", "update", "delete"]),
-  base_version: z4.number().int().positive().nullable(),
+var isoDateTime = z6.string().datetime({ offset: false });
+var operationSchema = z6.object({
+  op_id: z6.string().min(1),
+  entity: z6.enum(SYNC_ENTITIES),
+  row_id: z6.string().uuid(),
+  action: z6.enum(["create", "update", "delete"]),
+  base_version: z6.number().int().positive().nullable(),
   /** Always the whole row, never a patch. Field-level merging does not exist. */
-  payload: z4.record(z4.unknown()),
-  author_user_id: z4.string().uuid(),
+  payload: z6.record(z6.unknown()),
+  author_user_id: z6.string().uuid(),
   client_created_at: isoDateTime,
   client_updated_at: isoDateTime,
-  seq: z4.number().int().nonnegative()
+  seq: z6.number().int().nonnegative()
 }).superRefine((op, ctx) => {
   if (op.action === "create" && op.base_version !== null) {
     ctx.addIssue({
@@ -428,12 +563,12 @@ var operationSchema = z4.object({
 });
 
 // ../../packages/shared/src/sync/protocol.ts
-import { z as z5 } from "zod";
+import { z as z7 } from "zod";
 var MAX_OPERATIONS_PER_PUSH = 200;
 var WATERMARK_OVERLAP_MS = 5e3;
-var pushRequestSchema = z5.object({
-  device_id: z5.string().uuid(),
-  operations: z5.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
+var pushRequestSchema = z7.object({
+  device_id: z7.string().uuid(),
+  operations: z7.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
 });
 var PULL_ENTITY_KEYS = [
   "app_settings",
@@ -461,10 +596,10 @@ var PULL_ENTITY_KEYS = [
   "dashboard_charts",
   "weight_presets"
 ];
-var pullRequestSchema = z5.object({
-  event_id: z5.string().uuid(),
-  since: z5.string().datetime({ offset: false }).optional(),
-  cursor: z5.string().optional()
+var pullRequestSchema = z7.object({
+  event_id: z7.string().uuid(),
+  since: z7.string().datetime({ offset: false }).optional(),
+  cursor: z7.string().optional()
 });
 
 // src/routes/errors.ts
@@ -532,13 +667,13 @@ function createApp(deps) {
 
 // src/auth/token.ts
 import { jwtVerify, SignJWT } from "jose";
-import { z as z6 } from "zod";
-var sessionClaims = z6.object({
-  sub: z6.string().min(1),
-  role: z6.enum(["scouter", "lead", "admin"]),
-  username: z6.string().min(1),
-  iat: z6.number().int(),
-  exp: z6.number().int()
+import { z as z8 } from "zod";
+var sessionClaims = z8.object({
+  sub: z8.string().min(1),
+  role: z8.enum(["scouter", "lead", "admin"]),
+  username: z8.string().min(1),
+  iat: z8.number().int(),
+  exp: z8.number().int()
 });
 var key = (config2) => new TextEncoder().encode(config2.authJwtSecret);
 async function issueToken(user, config2) {
@@ -578,18 +713,18 @@ async function callerFor(request, config2, store, options = {}) {
 }
 
 // src/config.ts
-import { z as z7 } from "zod";
-var schema = z7.object({
-  SUPABASE_URL: z7.string().url(),
-  SUPABASE_SERVICE_ROLE_KEY: z7.string().min(1),
-  AUTH_JWT_SECRET: z7.string().min(32, "must be at least 32 characters"),
-  AUTH_TOKEN_TTL_DAYS: z7.coerce.number().int().positive().default(30),
-  AUTH_TOKEN_REFRESH_AFTER_DAYS: z7.coerce.number().int().positive().default(7),
-  ALLOWED_ORIGIN: z7.string().url(),
-  NODE_ENV: z7.enum(["development", "production", "test"]).default("development"),
+import { z as z9 } from "zod";
+var schema = z9.object({
+  SUPABASE_URL: z9.string().url(),
+  SUPABASE_SERVICE_ROLE_KEY: z9.string().min(1),
+  AUTH_JWT_SECRET: z9.string().min(32, "must be at least 32 characters"),
+  AUTH_TOKEN_TTL_DAYS: z9.coerce.number().int().positive().default(30),
+  AUTH_TOKEN_REFRESH_AFTER_DAYS: z9.coerce.number().int().positive().default(7),
+  ALLOWED_ORIGIN: z9.string().url(),
+  NODE_ENV: z9.enum(["development", "production", "test"]).default("development"),
   // Vercel's own system env var (https://vercel.com/docs/environment-variables/system-environment-variables),
   // not something anyone sets by hand. Absent locally and in tests.
-  VERCEL_GIT_COMMIT_SHA: z7.string().min(1).optional()
+  VERCEL_GIT_COMMIT_SHA: z9.string().min(1).optional()
 });
 function loadServerConfig(env) {
   const parsed = schema.safeParse(env);
@@ -754,7 +889,29 @@ var FULL_USER_COLUMNS = "id, username, full_name, password_hash, role, must_chan
 var PUBLIC_USER_COLUMNS = "id, username, full_name, role, must_change_password, disabled_at, created_at";
 var SEASON_COLUMNS = "id, year, game_name, field_image_path, created_at, updated_at";
 var EVENT_COLUMNS = "id, season_id, name, code, sort_order, created_at, updated_at";
+var TEAM_COLUMNS = "id, number, name, created_at, updated_at";
+var MATCH_COLUMNS = "id, event_id, match_type, number, created_at, updated_at";
+var SLOT_COLUMNS = "match_id, alliance, station, team_id";
 var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+var IN_CHUNK = 100;
+var EVENT_TEAMS_READ_LIMIT = 1e3;
+function chunks(items) {
+  const out = [];
+  for (let i = 0; i < items.length; i += IN_CHUNK) out.push(items.slice(i, i + IN_CHUNK));
+  return out;
+}
+function numberPrefixFilter(digits) {
+  const maxDigits = String(TEAM_NUMBER_MAX).length;
+  if (!/^[1-9]\d*$/.test(digits) || digits.length > maxDigits) {
+    throw new Error("numberPrefixFilter: a prefix must be 1 to 5 digits, not starting with 0");
+  }
+  const parts = [`number.eq.${digits}`];
+  for (let extra = 1; digits.length + extra <= maxDigits; extra += 1) {
+    const low = Number(digits) * 10 ** extra;
+    parts.push(`and(number.gte.${low},number.lte.${low + 10 ** extra - 1})`);
+  }
+  return parts.join(",");
+}
 function dbError(error) {
   return Object.assign(new Error(error.message), { code: error.code });
 }
@@ -940,6 +1097,196 @@ function supabaseStore(db) {
       if (countError) throw dbError(countError);
       return count ?? 0;
     },
+    // Task 1.19: teams, the roster, matches and their slots. Every method THROWS on a
+    // database error, keeping Postgres's code (dbError), as the season and event methods
+    // do: a swallowed blip would read as "no such team" or "empty roster".
+    async getTeam(id) {
+      const { data, error } = await db.from("teams").select(TEAM_COLUMNS).eq("id", id).maybeSingle();
+      if (error) throw dbError(error);
+      return data ?? null;
+    },
+    async getTeamByNumber(number) {
+      const { data, error } = await db.from("teams").select(TEAM_COLUMNS).eq("number", number).maybeSingle();
+      if (error) throw dbError(error);
+      return data ?? null;
+    },
+    async insertTeam(row) {
+      const { data, error } = await db.from("teams").insert(row).select(TEAM_COLUMNS).single();
+      if (error) throw dbError(error);
+      return data;
+    },
+    async updateTeam(id, patch) {
+      const { data, error } = await db.from("teams").update(patch).eq("id", id).select(TEAM_COLUMNS).single();
+      if (error) throw dbError(error);
+      return data;
+    },
+    // By number, keyset on number (unique). A query is up to two keyset reads — an
+    // escaped name ilike, and a number-prefix range filter when the query is digits —
+    // merged by number. Each read returns the first `limit` rows of its own set past the
+    // keyset, so the first `limit` of their union are exactly the page. `seasonId` is
+    // unused in v1 (task 1.19). A literal `*` in the query matches any one character
+    // (see escapeLikePattern): harmless in a search box, and it never widens past it.
+    async listTeams(options) {
+      const { query, limit, after } = options;
+      if (after && !Number.isInteger(after.number)) {
+        throw new Error("listTeams: a keyset must be an integer team number");
+      }
+      const base = () => {
+        const q = db.from("teams").select(TEAM_COLUMNS);
+        return after ? q.gt("number", after.number) : q;
+      };
+      const read = async (filter) => {
+        const { data, error } = await filter(base()).order("number", { ascending: true }).limit(limit);
+        if (error) throw dbError(error);
+        return data ?? [];
+      };
+      if (!query) return read((q) => q);
+      const reads = [read((q) => q.ilike("name", `%${escapeLikePattern(query)}%`))];
+      if (/^[1-9]\d{0,4}$/.test(query)) reads.push(read((q) => q.or(numberPrefixFilter(query))));
+      const byId = /* @__PURE__ */ new Map();
+      for (const rows of await Promise.all(reads)) for (const row of rows) byId.set(row.id, row);
+      return [...byId.values()].sort((a, b) => a.number - b.number).slice(0, limit);
+    },
+    // Two reads rather than an embedded join, like countEntriesBySeason: the live rows'
+    // team ids, then those teams by number.
+    async getRoster(eventId) {
+      const { data, error } = await db.from("event_teams").select("team_id").eq("event_id", eventId).is("deleted_at", null).limit(EVENT_TEAMS_READ_LIMIT);
+      if (error) throw dbError(error);
+      const ids = (data ?? []).map((r) => r.team_id);
+      if (ids.length === 0) return [];
+      const teams = [];
+      for (const chunk of chunks(ids)) {
+        const res = await db.from("teams").select(TEAM_COLUMNS).in("id", chunk).order("number", { ascending: true });
+        if (res.error) throw dbError(res.error);
+        teams.push(...res.data ?? []);
+      }
+      return teams.sort((a, b) => a.number - b.number);
+    },
+    // Reads every row of the event, tombstones included, and writes only the difference:
+    // inserts first (the write a foreign key can refuse, so a refusal changes nothing),
+    // then revivals of each re-added team's NEWEST tombstone, then the removals'
+    // tombstones. Not one transaction: a failure midway leaves part of the change, which
+    // re-running the same call completes.
+    async setRoster(eventId, teamIds, at) {
+      const { data, error } = await db.from("event_teams").select("id, team_id, deleted_at, updated_at").eq("event_id", eventId).limit(EVENT_TEAMS_READ_LIMIT);
+      if (error) throw dbError(error);
+      const rows = data ?? [];
+      const live = new Set(rows.filter((r) => r.deleted_at === null).map((r) => r.team_id));
+      const wanted = new Set(teamIds);
+      const revive = [];
+      const insert = [];
+      for (const teamId of wanted) {
+        if (live.has(teamId)) continue;
+        const tombstone = rows.filter((r) => r.team_id === teamId).sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
+        if (tombstone) revive.push(tombstone.id);
+        else insert.push({ id: crypto.randomUUID(), event_id: eventId, team_id: teamId });
+      }
+      const remove = rows.filter((r) => r.deleted_at === null && !wanted.has(r.team_id)).map((r) => r.id);
+      if (insert.length > 0) {
+        const res = await db.from("event_teams").insert(insert);
+        if (res.error) throw dbError(res.error);
+      }
+      for (const [ids, deletedAt] of [
+        [revive, null],
+        [remove, at]
+      ]) {
+        for (const chunk of chunks([...ids])) {
+          const res = await db.from("event_teams").update({ deleted_at: deletedAt }).in("id", chunk);
+          if (res.error) throw dbError(res.error);
+        }
+      }
+    },
+    async findMatch(eventId, matchType2, number) {
+      const { data, error } = await db.from("matches").select(MATCH_COLUMNS).eq("event_id", eventId).eq("match_type", matchType2).eq("number", number).maybeSingle();
+      if (error) throw dbError(error);
+      return data ?? null;
+    },
+    async getMatch(id) {
+      const { data, error } = await db.from("matches").select(MATCH_COLUMNS).eq("id", id).maybeSingle();
+      if (error) throw dbError(error);
+      return data ?? null;
+    },
+    async insertMatch(row) {
+      const { data, error } = await db.from("matches").insert(row).select(MATCH_COLUMNS).single();
+      if (error) throw dbError(error);
+      return data;
+    },
+    async updateMatch(id, patch) {
+      const { data, error } = await db.from("matches").update(patch).eq("id", id).select(MATCH_COLUMNS).single();
+      if (error) throw dbError(error);
+      return data;
+    },
+    // Practice, qualification, playoff, then number. PostgREST cannot order by a CASE,
+    // and the alphabetical order of the types is wrong, so this reads one type at a time
+    // from the keyset's type onward — at most three reads a page, and one when the page
+    // fills from the first type.
+    async listMatches(eventId, limit, after) {
+      const start = after ? MATCH_TYPES.indexOf(after.match_type) : 0;
+      if (after && (start < 0 || !Number.isInteger(after.number))) {
+        throw new Error("listMatches: a keyset must be a match type and an integer number");
+      }
+      const out = [];
+      for (const matchType2 of MATCH_TYPES.slice(start)) {
+        const remaining = limit - out.length;
+        if (remaining <= 0) break;
+        let query = db.from("matches").select(MATCH_COLUMNS).eq("event_id", eventId).eq("match_type", matchType2);
+        if (after && matchType2 === after.match_type) query = query.gt("number", after.number);
+        const { data, error } = await query.order("number", { ascending: true }).limit(remaining);
+        if (error) throw dbError(error);
+        out.push(...data ?? []);
+      }
+      return out;
+    },
+    async listMatchSlots(matchIds) {
+      const slots = [];
+      for (const chunk of chunks(matchIds)) {
+        const { data, error } = await db.from("match_teams").select(SLOT_COLUMNS).in("match_id", chunk);
+        if (error) throw dbError(error);
+        slots.push(...data ?? []);
+      }
+      return slots;
+    },
+    // Writes only the difference, so an unchanged slot keeps its row and its updated_at:
+    // cleared slots deleted, a changed team updated IN PLACE (the delta pull sees an
+    // update; it never sees a delete), new slots inserted. Not one transaction.
+    async setMatchTeams(matchId, slots) {
+      const { data, error } = await db.from("match_teams").select("id, alliance, station, team_id").eq("match_id", matchId);
+      if (error) throw dbError(error);
+      const key2 = (s) => `${s.alliance}:${s.station}`;
+      const current = new Map((data ?? []).map((row) => [key2(row), row]));
+      const wanted = new Map(slots.map((slot) => [key2(slot), slot]));
+      const cleared = [...current].filter(([k]) => !wanted.has(k)).map(([, row]) => row.id);
+      if (cleared.length > 0) {
+        const res = await db.from("match_teams").delete().in("id", cleared);
+        if (res.error) throw dbError(res.error);
+      }
+      const insert = [];
+      for (const [k, slot] of wanted) {
+        const row = current.get(k);
+        if (row && row.team_id === slot.team_id) continue;
+        if (row) {
+          const res = await db.from("match_teams").update({ team_id: slot.team_id }).eq("id", row.id);
+          if (res.error) throw dbError(res.error);
+        } else {
+          insert.push({ id: crypto.randomUUID(), match_id: matchId, ...slot });
+        }
+      }
+      if (insert.length > 0) {
+        const res = await db.from("match_teams").insert(insert);
+        if (res.error) throw dbError(res.error);
+      }
+    },
+    // Soft-deleted entries count: the `on delete restrict` foreign key counts them too.
+    async countEntriesByMatch(matchId) {
+      const { count, error } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).eq("match_id", matchId);
+      if (error) throw dbError(error);
+      return count ?? 0;
+    },
+    // A hard delete. The match's match_teams cascade; an entry refuses it with 23503.
+    async deleteMatch(id) {
+      const { error } = await db.from("matches").delete().eq("id", id);
+      if (error) throw dbError(error);
+    },
     // The remaining methods start as loud stubs, exactly as the fake does. Each later
     // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
     // without these the file does not compile at all.
@@ -950,19 +1297,6 @@ function supabaseStore(db) {
       "listConflicts",
       "getConflict",
       "resolveConflictRow",
-      "getTeam",
-      "getTeamByNumber",
-      "insertTeam",
-      "updateTeam",
-      "listTeams",
-      "getRoster",
-      "setRoster",
-      "findMatch",
-      "insertMatch",
-      "listMatches",
-      "setMatchTeams",
-      "countEntriesByMatch",
-      "deleteMatch",
       "getForm",
       "getFormByKind",
       "insertForm",
@@ -1331,7 +1665,7 @@ function pgCode(e) {
 }
 
 // src/core/queries/listEvents.ts
-import { z as z8 } from "zod";
+import { z as z10 } from "zod";
 
 // src/core/cursor.ts
 function encodeCursor(value) {
@@ -1352,7 +1686,7 @@ function decodeCursor(schema2, raw) {
 }
 
 // src/core/queries/listEvents.ts
-var eventCursor = z8.object({ s: z8.number().int(), i: z8.string().uuid() }).strict();
+var eventCursor = z10.object({ s: z10.number().int(), i: z10.string().uuid() }).strict();
 async function listEvents(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listEventsInput, input);
@@ -1459,8 +1793,8 @@ async function setActiveEvent(caller, input, ctx) {
 }
 
 // src/core/queries/listSeasons.ts
-import { z as z9 } from "zod";
-var seasonCursor = z9.object({ y: z9.number().int() }).strict();
+import { z as z11 } from "zod";
+var seasonCursor = z11.object({ y: z11.number().int() }).strict();
 async function listSeasons(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listSeasonsInput, input);
@@ -1560,6 +1894,380 @@ async function setActiveSeason(caller, input, ctx) {
     eventId = first?.id ?? null;
   }
   return ctx.store.setActiveContext({ active_season_id: season.id, active_event_id: eventId });
+}
+
+// src/core/matchRows.ts
+function describeMatch(match) {
+  return `${match.match_type} match ${match.number}`;
+}
+function noSuchMatch(matchId) {
+  return new AppError("not-found", "that match does not exist; it may have been deleted", {
+    match_id: matchId
+  });
+}
+function matchTaken(match) {
+  return new AppError("conflict", `${describeMatch(match)} already exists at this event`, {
+    match_type: match.match_type,
+    number: match.number
+  });
+}
+async function matchOrNotFound(ctx, id) {
+  const match = await ctx.store.getMatch(id);
+  if (!match) throw noSuchMatch(id);
+  return match;
+}
+var slotRank = (slot) => (slot.alliance === "red" ? 0 : 3) + slot.station;
+function toSlots(slots) {
+  return [...slots].sort((a, b) => slotRank(a) - slotRank(b)).map((s) => ({ alliance: s.alliance, station: s.station, team_id: s.team_id }));
+}
+function toMatchRow(row, slots) {
+  return {
+    id: row.id,
+    event_id: row.event_id,
+    match_type: row.match_type,
+    number: row.number,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    slots: toSlots(slots)
+  };
+}
+async function withSlots(ctx, rows) {
+  if (rows.length === 0) return [];
+  const slots = await ctx.store.listMatchSlots(rows.map((r) => r.id));
+  const byMatch = /* @__PURE__ */ new Map();
+  for (const slot of slots) {
+    const list = byMatch.get(slot.match_id) ?? [];
+    list.push(slot);
+    byMatch.set(slot.match_id, list);
+  }
+  return rows.map((row) => toMatchRow(row, byMatch.get(row.id) ?? []));
+}
+
+// src/core/waves.ts
+var WAVE = 20;
+async function inWaves(items, fn) {
+  const results = [];
+  for (let i = 0; i < items.length; i += WAVE) {
+    results.push(...await Promise.all(items.slice(i, i + WAVE).map(fn)));
+  }
+  return results;
+}
+
+// src/core/queries/listMatches.ts
+import { z as z12 } from "zod";
+var matchCursor = z12.object({ t: matchType, n: z12.number().int() }).strict();
+async function listMatches(caller, input, ctx) {
+  void caller;
+  const parsed = parseInput(listMatchesInput, input);
+  const limit = Math.min(parsed.limit ?? LIST_MATCHES_DEFAULT_LIMIT, LIST_MATCHES_MAX_LIMIT);
+  const cursor = parsed.cursor ? decodeCursor(matchCursor, parsed.cursor) : void 0;
+  const event = await eventOrNotFound(ctx, parsed.event_id);
+  const rows = await ctx.store.listMatches(
+    event.id,
+    limit + 1,
+    cursor ? { match_type: cursor.t, number: cursor.n } : void 0
+  );
+  const page = rows.slice(0, limit);
+  const last = page[page.length - 1];
+  return {
+    items: await withSlots(ctx, page),
+    next_cursor: rows.length > limit && last ? encodeCursor({ t: last.match_type, n: last.number }) : null
+  };
+}
+
+// src/core/commands/matches.ts
+async function writeMatch(key2, write) {
+  try {
+    return await write();
+  } catch (e) {
+    const code = pgCode(e);
+    if (code === "23505") throw matchTaken(key2);
+    if (code === "23503") throw noSuchEvent(key2.event_id);
+    throw e;
+  }
+}
+var MATCHES_PAGE = 200;
+async function numbersOf(ctx, eventId, matchType2) {
+  const numbers = /* @__PURE__ */ new Set();
+  let after = { match_type: matchType2, number: 0 };
+  for (; ; ) {
+    const page = await ctx.store.listMatches(eventId, MATCHES_PAGE, after);
+    for (const row of page) {
+      if (row.match_type !== matchType2) return numbers;
+      numbers.add(row.number);
+    }
+    const last = page[page.length - 1];
+    if (page.length < MATCHES_PAGE || !last) return numbers;
+    after = { match_type: matchType2, number: last.number };
+  }
+}
+async function createMatch(caller, input, ctx) {
+  assertCan(caller, "manage_events");
+  const parsed = parseInput(createMatchInput, input);
+  const event = await eventOrNotFound(ctx, parsed.event_id);
+  const matchType2 = parsed.match_type;
+  const rowFor = (number) => ({
+    id: crypto.randomUUID(),
+    event_id: event.id,
+    match_type: matchType2,
+    number
+  });
+  if (parsed.number !== void 0) {
+    const key2 = { event_id: event.id, match_type: matchType2, number: parsed.number };
+    if (await ctx.store.findMatch(event.id, matchType2, parsed.number)) throw matchTaken(key2);
+    const stored = await writeMatch(key2, () => ctx.store.insertMatch(rowFor(key2.number)));
+    return { created: 1, items: [toMatchRow(stored, [])] };
+  }
+  const existing = await numbersOf(ctx, event.id, matchType2);
+  const wanted = Array.from({ length: parsed.count ?? 0 }, (_, i) => i + 1).filter(
+    (n) => !existing.has(n)
+  );
+  const created = await inWaves(wanted, async (number) => {
+    try {
+      return await ctx.store.insertMatch(rowFor(number));
+    } catch (e) {
+      if (pgCode(e) === "23505") return null;
+      if (pgCode(e) === "23503") throw noSuchEvent(event.id);
+      throw e;
+    }
+  });
+  const items = created.filter((row) => row !== null).sort((a, b) => a.number - b.number).map((row) => toMatchRow(row, []));
+  return { created: items.length, items };
+}
+async function updateMatch(caller, input, ctx) {
+  assertCan(caller, "manage_events");
+  const parsed = parseInput(updateMatchInput, input);
+  const current = await matchOrNotFound(ctx, parsed.match_id);
+  const key2 = {
+    event_id: current.event_id,
+    match_type: parsed.match_type ?? current.match_type,
+    number: parsed.number ?? current.number
+  };
+  const patch = {};
+  if (key2.match_type !== current.match_type) patch.match_type = key2.match_type;
+  if (key2.number !== current.number) patch.number = key2.number;
+  if (Object.keys(patch).length === 0) return (await withSlots(ctx, [current]))[0];
+  const holder = await ctx.store.findMatch(key2.event_id, key2.match_type, key2.number);
+  if (holder && holder.id !== current.id) throw matchTaken(key2);
+  const stored = await writeMatch(key2, () => ctx.store.updateMatch(current.id, patch));
+  return (await withSlots(ctx, [stored]))[0];
+}
+function hasEntries(match, count) {
+  const entries = count === 1 ? "1 entry" : count > 1 ? `${count} entries` : "entries";
+  return new AppError(
+    "conflict",
+    `${describeMatch(match)} has ${entries}, so it cannot be deleted; correct the match number instead`,
+    { match_id: match.id, entries: count }
+  );
+}
+async function deleteMatch(caller, input, ctx) {
+  assertCan(caller, "manage_events");
+  const parsed = parseInput(deleteMatchInput, input);
+  const match = await matchOrNotFound(ctx, parsed.match_id);
+  const entries = await ctx.store.countEntriesByMatch(match.id);
+  if (entries > 0) throw hasEntries(match, entries);
+  try {
+    await ctx.store.deleteMatch(match.id);
+  } catch (e) {
+    if (pgCode(e) === "23503") {
+      throw hasEntries(match, await ctx.store.countEntriesByMatch(match.id));
+    }
+    throw e;
+  }
+  return { id: match.id, deleted: true };
+}
+function notOnRoster(team) {
+  return new AppError(
+    "invalid",
+    `team ${team} is not on this event's roster; add it to the roster first`,
+    { team }
+  );
+}
+async function setMatchTeams(caller, input, ctx) {
+  assertCan(caller, "manage_events");
+  const parsed = parseInput(setMatchTeamsInput, input);
+  const match = await matchOrNotFound(ctx, parsed.match_id);
+  const current = new Map(
+    (await ctx.store.listMatchSlots([match.id])).map((s) => [
+      `${s.alliance}:${s.station}`,
+      s.team_id
+    ])
+  );
+  const changed = parsed.slots.filter(
+    (s) => current.get(`${s.alliance}:${s.station}`) !== s.team_id
+  );
+  if (changed.length > 0) {
+    const roster = new Set((await ctx.store.getRoster(match.event_id)).map((t) => t.id));
+    const stranger = changed.find((s) => !roster.has(s.team_id));
+    if (stranger) {
+      const team = await ctx.store.getTeam(stranger.team_id);
+      throw notOnRoster(team ? String(team.number) : stranger.team_id);
+    }
+  }
+  try {
+    await ctx.store.setMatchTeams(match.id, parsed.slots);
+  } catch (e) {
+    const code = pgCode(e);
+    if (code === "23503") {
+      if (!await ctx.store.getMatch(match.id)) throw noSuchMatch(match.id);
+      throw new AppError(
+        "not-found",
+        "one of those teams no longer exists; reload the roster and try again",
+        { match_id: match.id }
+      );
+    }
+    if (code === "23505") {
+      throw new AppError(
+        "conflict",
+        "this match's teams changed while they were being saved; reload the match and try again",
+        { match_id: match.id }
+      );
+    }
+    throw e;
+  }
+  return toMatchRow(match, await ctx.store.listMatchSlots([match.id]));
+}
+async function ensureMatch(caller, input, ctx) {
+  assertCan(caller, "ensure_match");
+  const parsed = parseInput(ensureMatchInput, input);
+  const find = () => ctx.store.findMatch(parsed.event_id, parsed.match_type, parsed.number);
+  if (!await ctx.store.eventExists(parsed.event_id)) throw noSuchEvent(parsed.event_id);
+  const existing = await find();
+  if (existing) return { id: existing.id, created: false };
+  try {
+    await ctx.store.insertMatch({
+      id: parsed.id,
+      event_id: parsed.event_id,
+      match_type: parsed.match_type,
+      number: parsed.number
+    });
+  } catch (e) {
+    const code = pgCode(e);
+    if (code === "23505") {
+      const winner = await find();
+      if (winner) return { id: winner.id, created: false };
+      const holder = await ctx.store.getMatch(parsed.id);
+      if (holder) {
+        throw new AppError(
+          "conflict",
+          `this match id already belongs to ${describeMatch(holder)}; it cannot name another match`,
+          { id: parsed.id }
+        );
+      }
+    }
+    if (code === "23503") throw noSuchEvent(parsed.event_id);
+    throw e;
+  }
+  return { id: parsed.id, created: true };
+}
+
+// src/core/teamRows.ts
+function toTeam(row) {
+  return {
+    id: row.id,
+    number: row.number,
+    name: row.name,
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  };
+}
+function toRosterRow(row) {
+  return { team_id: row.id, number: row.number, name: row.name };
+}
+function noSuchTeam(teamId) {
+  return new AppError("not-found", "that team does not exist; it may have been deleted", {
+    team_id: teamId
+  });
+}
+async function teamOrNotFound(ctx, id) {
+  const team = await ctx.store.getTeam(id);
+  if (!team) throw noSuchTeam(id);
+  return team;
+}
+
+// src/core/queries/listTeams.ts
+import { z as z13 } from "zod";
+var teamCursor = z13.object({ n: z13.number().int() }).strict();
+async function listTeams(caller, input, ctx) {
+  void caller;
+  const parsed = parseInput(listTeamsInput, input);
+  const limit = Math.min(parsed.limit ?? LIST_TEAMS_DEFAULT_LIMIT, LIST_TEAMS_MAX_LIMIT);
+  const after = parsed.cursor ? { number: decodeCursor(teamCursor, parsed.cursor).n } : void 0;
+  const rows = await ctx.store.listTeams({ query: parsed.query, limit: limit + 1, after });
+  const page = rows.slice(0, limit);
+  const last = page[page.length - 1];
+  return {
+    items: page.map(toTeam),
+    next_cursor: rows.length > limit && last ? encodeCursor({ n: last.number }) : null
+  };
+}
+
+// src/core/queries/roster.ts
+async function listEventRoster(caller, input, ctx) {
+  void caller;
+  const parsed = parseInput(listEventRosterInput, input);
+  const event = await eventOrNotFound(ctx, parsed.event_id);
+  return { items: (await ctx.store.getRoster(event.id)).map(toRosterRow) };
+}
+
+// src/core/commands/teams.ts
+function numberTaken(number) {
+  return new AppError("conflict", `team ${number} already exists`, { number });
+}
+async function createTeam(caller, input, ctx) {
+  assertCan(caller, "manage_events");
+  const parsed = parseInput(createTeamInput, input);
+  if (await ctx.store.getTeamByNumber(parsed.number)) throw numberTaken(parsed.number);
+  try {
+    const stored = await ctx.store.insertTeam({
+      id: crypto.randomUUID(),
+      number: parsed.number,
+      name: parsed.name
+    });
+    return toTeam(stored);
+  } catch (e) {
+    if (pgCode(e) === "23505") throw numberTaken(parsed.number);
+    throw e;
+  }
+}
+async function updateTeam(caller, input, ctx) {
+  assertCan(caller, "manage_events");
+  const parsed = parseInput(updateTeamInput, input);
+  const current = await teamOrNotFound(ctx, parsed.team_id);
+  if (parsed.name === current.name) return toTeam(current);
+  return toTeam(await ctx.store.updateTeam(current.id, { name: parsed.name }));
+}
+async function setEventRoster(caller, input, ctx) {
+  assertCan(caller, "manage_events");
+  const parsed = parseInput(setEventRosterInput, input);
+  const event = await eventOrNotFound(ctx, parsed.event_id);
+  const live = new Set((await ctx.store.getRoster(event.id)).map((t) => t.id));
+  const added = parsed.team_ids.filter((id) => !live.has(id));
+  const found = await inWaves(added, (id) => ctx.store.getTeam(id));
+  const missing = added.find((_, i) => !found[i]);
+  if (missing !== void 0) throw noSuchTeam(missing);
+  try {
+    await ctx.store.setRoster(event.id, parsed.team_ids, ctx.now().toISOString());
+  } catch (e) {
+    const code = pgCode(e);
+    if (code === "23503") {
+      if (!await ctx.store.getEvent(event.id)) throw noSuchEvent(event.id);
+      throw new AppError(
+        "not-found",
+        "one of those teams no longer exists; reload the teams and try again",
+        { event_id: event.id }
+      );
+    }
+    if (code === "23505") {
+      throw new AppError(
+        "conflict",
+        "this event's roster changed while it was being saved; reload it and try again",
+        { event_id: event.id }
+      );
+    }
+    throw e;
+  }
+  return { items: (await ctx.store.getRoster(event.id)).map(toRosterRow) };
 }
 
 // src/core/queries/context.ts
@@ -1747,6 +2455,83 @@ var REGISTRY = {
     input: API.listEvents.input,
     output: API.listEvents.output,
     handler: listEvents
+  },
+  createTeam: {
+    kind: "command",
+    description: "Admin only: add a team to the global registry with its number (1..99999) and name. A team number is global and permanent; a taken one reads as conflict.",
+    input: API.createTeam.input,
+    output: API.createTeam.output,
+    handler: createTeam
+  },
+  updateTeam: {
+    kind: "command",
+    description: "Admin only: rename a team. The number is permanent and cannot be changed; sending one is refused.",
+    input: API.updateTeam.input,
+    output: API.updateTeam.output,
+    handler: updateTeam
+  },
+  listTeams: {
+    kind: "query",
+    description: "The global team registry by number, paginated. An optional query matches a number prefix or a case-insensitive name substring, taken literally.",
+    input: API.listTeams.input,
+    output: API.listTeams.output,
+    handler: listTeams
+  },
+  setEventRoster: {
+    kind: "command",
+    description: "Admin only: make a list of teams an event's roster (at most 200). Removals are soft-deleted so they reach every device; a team added back reuses its old row.",
+    input: API.setEventRoster.input,
+    output: API.setEventRoster.output,
+    handler: setEventRoster
+  },
+  listEventRoster: {
+    kind: "query",
+    description: "An event's live roster by team number: each team's id, number and name.",
+    input: API.listEventRoster.input,
+    output: API.listEventRoster.output,
+    handler: listEventRoster
+  },
+  createMatch: {
+    kind: "command",
+    description: "Admin only: create one match by type and number (an existing one is a conflict), or matches 1..count in bulk, skipping numbers that exist. Returns the matches it created.",
+    input: API.createMatch.input,
+    output: API.createMatch.output,
+    handler: createMatch
+  },
+  updateMatch: {
+    kind: "command",
+    description: "Admin only: correct a match's type and/or number. Never moves it to another event and never touches its slots; the corrected number must be free.",
+    input: API.updateMatch.input,
+    output: API.updateMatch.output,
+    handler: updateMatch
+  },
+  setMatchTeams: {
+    kind: "command",
+    description: "Admin only: set a match's filled alliance slots (red and blue, stations 1..3). Omitted slots are cleared; a newly placed team must be on the event's roster.",
+    input: API.setMatchTeams.input,
+    output: API.setMatchTeams.output,
+    handler: setMatchTeams
+  },
+  deleteMatch: {
+    kind: "command",
+    description: "Admin only: delete a match and its slots. Refused while any entry names it; correct the match number instead.",
+    input: API.deleteMatch.input,
+    output: API.deleteMatch.output,
+    handler: deleteMatch
+  },
+  listMatches: {
+    kind: "query",
+    description: "An event's matches with their filled slots: practice, then qualification, then playoff, each by number, paginated.",
+    input: API.listMatches.input,
+    output: API.listMatches.output,
+    handler: listMatches
+  },
+  ensureMatch: {
+    kind: "command",
+    description: "Any authenticated user: create the bare match row (event, type and number only, no teams) when a scouter enters an unknown match number. A no-op returning the existing id if it exists. Cannot set teams, edit or delete.",
+    input: API.ensureMatch.input,
+    output: API.ensureMatch.output,
+    handler: ensureMatch
   }
 };
 
@@ -1833,7 +2618,12 @@ async function applyOne(caller, op, ctx) {
   if (author.disabled_at !== null) return rejected(op.op_id, "forbidden", "the author is disabled");
   if (await ctx.store.wasApplied(op.op_id)) {
     if (op.entity === "match") {
-      return { op_id: op.op_id, status: "noop", row_id: op.row_id, new_version: 1 };
+      return {
+        op_id: op.op_id,
+        status: "noop",
+        row_id: await canonicalMatchId(op, ctx),
+        new_version: 1
+      };
     }
     const existing = await ctx.store.getRow(op.entity, op.row_id);
     return {
@@ -1849,27 +2639,36 @@ async function applyOne(caller, op, ctx) {
   }
   return applyEntry(op, author, ctx);
 }
-async function applyBareMatch(op, author, ctx) {
-  if (!can(callerOf(author), "ensure_match")) {
-    return rejected(op.op_id, "forbidden", "the author may not create a match");
-  }
-  const existing = await ctx.store.getRow("match", op.row_id);
-  if (existing) {
-    await ctx.store.markApplied(op.op_id);
-    return { op_id: op.op_id, status: "noop", row_id: op.row_id, new_version: 1 };
-  }
+var bareMatchInput = (op) => {
   const { event_id, match_type, number } = op.payload;
-  if (typeof event_id !== "string" || typeof match_type !== "string" || typeof number !== "number") {
-    return rejected(op.op_id, "invalid", "a bare match needs event_id, match_type and number");
+  return { id: op.row_id, event_id, match_type, number };
+};
+async function canonicalMatchId(op, ctx) {
+  const parsed = ensureMatchInput.safeParse(bareMatchInput(op));
+  if (!parsed.success) return op.row_id;
+  const { event_id, match_type, number } = parsed.data;
+  return (await ctx.store.findMatch(event_id, match_type, number))?.id ?? op.row_id;
+}
+var REASON_FOR = {
+  forbidden: "forbidden",
+  "not-found": "parent-deleted",
+  invalid: "invalid"
+};
+async function applyBareMatch(op, author, ctx) {
+  let result;
+  try {
+    result = await ensureMatch(callerOf(author), bareMatchInput(op), ctx);
+  } catch (e) {
+    if (!(e instanceof AppError)) throw e;
+    return rejected(op.op_id, REASON_FOR[e.code] ?? "invalid", e.message);
   }
-  await ctx.store.putRow("match", op.row_id, {
-    id: op.row_id,
-    event_id,
-    match_type,
-    number
-  });
   await ctx.store.markApplied(op.op_id);
-  return { op_id: op.op_id, status: "applied", row_id: op.row_id, new_version: 1 };
+  return {
+    op_id: op.op_id,
+    status: result.created ? "applied" : "noop",
+    row_id: result.id,
+    new_version: 1
+  };
 }
 async function applyEntry(op, author, ctx) {
   const payload = op.payload;

@@ -3289,3 +3289,244 @@ Each made its target test fail. Removing `assertCan` also failed the registry's 
 **What I did instead:** the orchestrator reviewed each diff itself, re-ran the full suite, ran its own mutation check, and proved the use cases against the dev project over HTTP (local dev server, seed users). The skill's "implementer commits" step was likewise set aside for BUILD-CONTEXT §9's "the orchestrator commits".
 
 **Risk:** a fresh reviewer might catch something the orchestrator's read missed. Offered in the final report.
+
+## Task 1.19 — test fixture ids are uuids, and the single-create tests read `items[0]`
+
+**Plan said:** the tests use `'ev-1'`, `'se-1'`, `'t-1'`, `'t-2'`, `'t-99'` and `'m-1'`, import `./matches` / `./teams` / `../queries/roster`, and read `match.id` from `createMatch`'s result.
+
+**What was wrong:** every wire id is `z.string().uuid()`, including the plan's own `ensureMatchInput`, so `'ev-1'` answers `invalid` before any rule under test runs. `createMatch`'s output is `{ created, items }` (orchestrator decision 3), so it has no `id`. The fake now enforces the team foreign key on `match_teams`, so a slot naming `'t-1'` needs a team `'t-1'`.
+
+**What I did instead:** (orchestrator decision 1)
+- uuid constants at the top of each test file (`EV_1`, `T_1`, `M_1`, `NOPE`, …).
+- `match.id` became `result.items[0]!.id`, through a small `one(number, type?)` helper.
+- The matches test seeds three teams in `beforeEach` before `ctx.roster.set(EV_1, [T_1, T_2])`.
+- Imports carry `.js` (BUILD-CONTEXT §6).
+- Every plan assertion is kept with its intent; the plan's tests are present verbatim apart from those substitutions.
+- Added tests beyond the plan: 45 in `matches.test.ts`, 24 in `teams.test.ts`, 20 Supabase-store tests, 3 in `syncPush.test.ts`, and two shared schema files.
+
+**Risk:** none.
+
+## Task 1.19 — the red run was observed; two mutations survive by design
+
+**Plan said:** Step 2: `pnpm --filter @frc/server exec vitest run src/core/commands/matches.test.ts` and watch it fail.
+
+**What was wrong:** nothing. I ran the whole suite instead, so every new and changed test is covered.
+
+**What I did instead:** wrote every test first and ran `pnpm test` before any implementation: `Test Files 8 failed | 69 passed (77)`, `Tests 24 failed | 824 passed (848)`. The two new command test files failed to resolve their imports; the store, registry, API-map and three new `syncPush` tests failed on their assertions (`Store.insertTeam is not implemented yet`, …).
+
+After implementing, I ran 17 mutations against the finished code, each reverted. 15 were caught. The two survivors are deliberate double guards, where the database constraint gives the same answer as the pre-check:
+- Removing `ensureMatch`'s `eventExists` check: the insert's `23503` still maps to `not-found`. The check exists to avoid a wasted insert and to name the event.
+- Removing the bulk `createMatch` pre-read of existing numbers: each duplicate insert's `23505` is still skipped silently. The pre-read exists so a re-run of "create 80 qualification matches" is 1 read, not 80 failed inserts.
+
+**Risk:** none.
+
+## Task 1.19 — the Store's team and match types, and three new Store methods
+
+**Plan said:** the Store's 1.19 methods, as declared: `getTeam(id): Promise<StoredRow | null>`, `listTeams({ seasonId?, query?, limit, cursor?: string })`, `getRoster(eventId): Promise<StoredRow[]>`, `findMatch(eventId, matchType: string, number)`, `listMatches(eventId, limit, cursor?: string)`, `setMatchTeams(matchId, slots: Record<string, unknown>[])`. There is no `getMatch`, `updateMatch`, or any way to read slots.
+
+**What was wrong:**
+- `StoredRow` requires `version`, but none of `teams`, `event_teams`, `matches` or `match_teams` has one.
+- A string cursor in the store means the store parses a client's cursor; 1.18 moved to typed keysets.
+- `updateMatch`, `deleteMatch` and `setMatchTeams` need to read one match by id.
+- `updateMatch` needs to write one.
+- The admin page needs each match's slots.
+
+**What I did instead:**
+- Added `StoredTeam`, `StoredMatch`, `StoredMatchSlot` and `MatchKeyset` to `core/context.ts`. `MatchType` and `MatchSlot` come from `@frc/shared`.
+- `listTeams(options: { seasonId?, query?, limit, after?: { number } })`.
+- `listMatches(eventId, limit, after?: { match_type, number })`.
+- `getRoster(eventId): Promise<StoredTeam[]>` returns the live roster's teams by number. The use cases need the numbers and names, and returning them avoids a second, bulk-team method.
+- Added exactly three methods: `getMatch(id)` and `updateMatch(id, patch)` (orchestrator decision 4), and `listMatchSlots(matchIds)` (decision 6's "one Store method to read slots").
+- `seasonId` on `listTeams` stays declared and unused (it is for `searchTeams`, Appendix C).
+- The use cases own the opaque base64url cursors through `core/cursor.ts`: `{ n }` for teams and `{ t, n }` for matches, both zod-checked. The Supabase store re-checks its keysets before interpolating them.
+- The fake mirrors every method, checks the columns of `teams`, `event_teams` and `match_teams`, and raises `23505` / `23503` / `PGRST116` as Postgres would.
+- `FakeContext.teams` / `eventTeams` / `matchTeams` are now typed (`StoredTeam`, `FakeEventTeam`, `FakeMatchTeam`), and `FakeMatchRow` names its four required columns.
+
+Rejected:
+- Embedding `match_teams(…)` through PostgREST. It would be the codebase's first embedded select, and the generated `Db` types would need to resolve the relationship.
+- `putRow('match', …)` for admin edits. That is sync's upsert path, and it would silently create a match that did not exist.
+- An `insertMatches(rows)` bulk method. It would be a fourth new method, against decision 4's "exactly those two". See the createMatch entry.
+
+**Risk:** none known. `getRoster`, `setRoster` and `listMatchSlots` send `in (…)` lists, chunked at 100 ids (about 3.7 KB of URL).
+
+## Task 1.19 — one source of truth for the roster in the fake; match timestamps kept beside the row
+
+**Plan said:** `FakeContext` declares both `roster: Map<eventId, teamIds[]>` and `eventTeams: Map<id, row>`, constructed as two independent empty maps. The plan test asserts that `Object.keys(ctx.matches.get(id)!)` is exactly `event_id, id, match_type, number`.
+
+**What was wrong:**
+- Two maps holding one fact drift the moment a use case writes one of them.
+- The plan's key assertion leaves no room for the `created_at` / `updated_at` that every `MatchRow` must carry.
+
+**What I did instead:**
+- `eventTeams` is the storage. `roster` is a `RosterView` over it (like `UserView` over `usersById`): `set(eventId, teamIds)` writes live rows exactly as `Store.setRoster` does, but checks no foreign key, and `get` returns the live team ids.
+- The fake's `insertMatch` stores exactly the columns written in `rows.matches`, and keeps the database's timestamps in a private `matchStamps` map. The reads (`getMatch`, `findMatch`, `listMatches`) merge the two.
+- `insertMatch` also records the id in `appliedOrder`, so the existing "bare match then its entry" order test sees the match that `ensureMatch` wrote.
+
+**Risk:** a test that sets `ctx.rows.matches` directly gets `FIXTURE_CREATED_AT` timestamps. That is harmless.
+
+## Task 1.19 — createMatch: uniform output, bounds, bulk inserts in waves
+
+**Plan said:** `createMatch` "supports bulk creation by count". The single-create tests read `match.id`, and the bulk test reads `result.created`.
+
+**What was wrong:** the plan gives no output shape, no bound on `count`, and no way to insert many rows.
+
+**What I did instead:** (orchestrator decision 3)
+- Input: `{ event_id, match_type, number }` or `{ event_id, match_type, count }`, with exactly one of `number` / `count`.
+- `count` is 1..200 (`MATCH_BULK_MAX`). `number` is 1..999 (`MATCH_NUMBER_MAX`), on `createMatch`, `updateMatch` and `ensureMatch` alike. The plan's `ensureMatchInput` had only `.positive()`, which lets an integer above 2^31 reach Postgres as a 500.
+- Output is always `{ created, items }`: the rows this call created, in number order.
+- A single `number` that exists is `conflict`: `qualification match 4 already exists at this event`. `23505` maps to the same answer, and `23503` to `not-found`.
+- Bulk creation reads the type's existing numbers once, through the bounded `listMatches`, and then inserts the missing ones 20 at a time (`core/waves.ts`). A `23505` from a race is skipped.
+- A missing event is `not-found`. Ids are `crypto.randomUUID()`.
+
+Rejected: inserting one row at a time. 130 qualification matches at about 90 ms a round trip (the Vercel function region is not the database's) is about 12 s, which is past a function's comfortable limit.
+
+**Risk:** a bulk create is not one transaction. A failure midway leaves the matches created so far, and re-running the same count completes the rest, because existing numbers are skipped.
+
+## Task 1.19 — ensureMatch: the plan's code, strict, plus not-found and the race
+
+**Plan said:** the `ensureMatch` code block, verbatim.
+
+**What was wrong:** four gaps:
+- A missing event fails the insert on the foreign key as a 500.
+- Two scouters racing for the same new match number: the loser's insert is a `23505` 500.
+- The schema is not strict.
+- `number` is unbounded.
+
+**What I did instead:** (orchestrator decision 9)
+- `assertCan(caller, 'ensure_match')` comes first, so a service caller fails.
+- `ensureMatchInput` is `.strict()`, and `number` is capped at 999.
+- `ctx.store.eventExists(event_id)` returns `not-found` if the event is gone. I used `eventExists` rather than `getEvent` because it is a one-column read and the fake's version honours `knownEvents`.
+- On a `23505`, it re-reads with `findMatch` and returns `{ id: existing.id, created: false }`.
+- If there is no match under that key, then the id itself is taken by a match with a different key, and that is a `conflict`: `this match id already belongs to <type> match <n>; it cannot name another match`.
+- It writes only `id, event_id, match_type, number`.
+- The registry row is `kind: 'command'`.
+
+**Risk:** none known.
+
+## Task 1.19 — syncPush's bare match goes through ensureMatch; the rejection reasons and the canonical id
+
+**Plan said:** "`syncPush`'s `applyBareMatch` now calls `ensureMatch` instead of writing the row itself." Orchestrator decision 10: map an `AppError` "to a `rejected` result with that code".
+
+**What was wrong:**
+- `RejectionReason` is `'parent-deleted' | 'edit-window-expired' | 'forbidden' | 'invalid'` (SPEC-FINAL 9.3.1). `not-found` and `conflict` are not push reasons.
+- The old code decided "already exists" by `getRow(op.row_id)`. By logical key, a second device's match under a different id would have been inserted as a duplicate, or refused by the unique constraint as `unexpected server error`.
+- The existing tests used `'m-9'` / `'m-1'` / `'ev-1'`, which `ensureMatch`'s uuid schema refuses.
+
+**What I did instead:**
+- `applyBareMatch` builds `{ id: op.row_id, event_id, match_type, number }` from the payload and calls `ensureMatch(callerOf(author), …)`. The per-operation authorization is `ensureMatch`'s own `ensure_match` check against the op's author, never the bearer. The old separate `can()` check is gone, and its detail text changed from `the author may not create a match` to `not permitted: ensure_match`.
+- `AppError` mapping: `forbidden` → `forbidden`, `invalid` → `invalid`, `not-found` → `parent-deleted` (the event is the row's parent, SPEC-FINAL 9.5), and anything else → `invalid`. The `AppError` message goes in `detail`. It is a use-case sentence, never Postgres text.
+- A created match is `applied` with `row_id = op.row_id`. An existing match is `noop` with `row_id` set to the canonical id, which may differ from `op.row_id`.
+- The replay path (the op_id was already applied) now answers with the canonical id as well, found with `findMatch` from the payload. Otherwise a device whose first response was lost would never learn the remap.
+- The rejected paths never `markApplied`.
+- Test changes, made deliberately:
+  - The bare-match fixtures became uuids (`EV`, `M_1`, `M_9`), with `ctx.knownEvents.add(EV)`.
+  - "is a noop when the bare match already exists" now also asserts `row_id: M_9`.
+  - `appliedOrder` expects `[M_1, 'e-1']`.
+  - Added: the canonical-id remap plus its replay, parent-deleted for a missing event, and invalid naming the field.
+  - The entry fixtures (`'e-1'`, `'ev-1'`, `'m-1'` inside entry payloads) are unchanged, because `applyEntry` does not validate them.
+
+**Risk:** see "affects a later task". The client outbox must remap, and an entry pushed in the same batch still names the device's own match id.
+
+## Task 1.19 — setMatchTeams: replace semantics, roster check on changed slots only, in-place updates
+
+**Plan said:** "fill each match's six alliance slots from the event roster … Slots may be left empty." The tests cover a station outside 1..3, an alliance outside red and blue, and a team not on the roster (`/roster/i`).
+
+**What was wrong:** the plan does not say whether a call replaces or merges, or what happens to a slot whose team has since left the roster.
+
+**What I did instead:** (orchestrator decision 5)
+- The call replaces all slots: given slots are written and omitted ones cleared. It takes 0..6 slots.
+- The schema refuses (`invalid`) one station twice (`fill each alliance station only once`) and one team twice (`a team can fill only one slot in a match`).
+- A team newly placed in a slot must be on the event's live roster, or the call is `invalid` with `team 1577 is not on this event's roster; add it to the roster first`. The team number is named when the team exists, the id otherwise.
+- A slot whose team did not change is kept even if that team was removed from the roster since. Without that, removing a team from the roster (allowed, decision 8) would make every later edit of that match's other slots fail until the admin also cleared the stale slot.
+- The store writes only the difference: cleared slots deleted, a changed team updated in place (same row id, fresh `updated_at`), new slots inserted, unchanged slots untouched.
+- `23503` maps to `not-found` and `23505` to `conflict`. A missing match is `not-found`.
+- Output: the `MatchRow` with its slots, red 1..3 then blue 1..3.
+
+Rejected:
+- Delete-all-then-insert. Every save would hard-delete every slot, which the delta pull never sees (see the next entry).
+- A roster code of `conflict`. The request is wrong for the current roster rather than a race, so it is `invalid`, a 400.
+
+**Risk:** not one transaction. A failure midway leaves part of the new slots, and re-running the same call completes them.
+
+## Task 1.19 — known gap: a cleared slot and a deleted match are invisible to the delta pull
+
+**Plan said:** nothing.
+
+**What was wrong:** `match_teams` has no `deleted_at` (skeleton migration) and is pulled by delta on `updated_at` (`repos/pull.ts`, `PULL_SCOPES.match_teams`). A slot cleared by `setMatchTeams` is a hard delete, which no device's delta pull ever sees, so a device keeps showing the old team in that slot until it re-hydrates. `deleteMatch` has the same flaw: `matches` has no `deleted_at` either, so a deleted match stays on every device that already pulled it.
+
+**What I did instead:** nothing, by instruction (orchestrator decision 5: "log it, don't fix it"). No migration was added. Changed teams are updated in place, so only clearing a slot (and deleting a match) is affected.
+
+**Risk:** stale schedules on devices after an admin clears a slot or deletes a match. Options for phase 1F: a `deleted_at` column on `match_teams` (and `matches`) plus tombstone writes, or a pull rule that ships a match's whole slot set whenever any of its slots or the match changed, and has the client replace its local slots per match.
+
+## Task 1.19 — setEventRoster details
+
+**Plan said:** "`setEventRoster` soft-deletes removals so the tombstone propagates through sync". The tests cover add, soft-delete, and revive-not-reinsert.
+
+**What was wrong:** the plan leaves unspecified the input bound, the unknown-team behaviour, the write order, and what happens to a removed team that still sits in a slot.
+
+**What I did instead:** (orchestrator decision 8)
+- Input: `{ event_id, team_ids }`, with at most 200 ids (`ROSTER_MAX_TEAMS`). A duplicate id is `invalid` (`name each team only once`).
+- A missing event is `not-found`. An unknown team is `not-found` (`that team does not exist; it may have been deleted`). Only the teams being added are looked up, 20 at a time, because the live ones are known to exist.
+- The store reads every `event_teams` row of the event, tombstones included (bounded at 1000). It then writes, in this order:
+  1. inserts, the write a foreign key can refuse, so a refusal changes nothing;
+  2. revivals of each re-added team's newest tombstone (`deleted_at = null`);
+  3. tombstones for removals (`deleted_at = at`, the server clock).
+
+  Unchanged rows are never written.
+- `23503` maps to `not-found`. `23505`, from two admins adding the same team at once and the live partial unique index refusing one, maps to `conflict`.
+- Output: `{ items: [{ team_id, number, name }] }`, the live roster by number. It has the same shape as `listEventRoster`.
+- Removing a team that still sits in a match slot is allowed and leaves the slot alone.
+- `getRoster` is two reads (live team ids, then those teams) rather than an embedded join, like `countEntriesBySeason`.
+
+**Risk:** not one transaction. Re-running the same call completes a partial one.
+
+## Task 1.19 — listTeams: number prefix as ranges, name as an escaped ilike
+
+**Plan said:** `listTeams` is "bounded, paginated" (Appendix C). The orchestrator said `query` matches a number prefix or a case-insensitive name substring, with wildcards escaped like `escapeLikePattern`.
+
+**What was wrong:** `teams.number` is an integer, so a prefix cannot be a LIKE, and PostgREST cannot cast inside a filter.
+
+**What I did instead:**
+- `query` is trimmed, at most 80 characters, and a blank one means no query.
+- Name: `.ilike('name', '%' + escapeLikePattern(query) + '%')`, passed as a value, never interpolated into a filter string.
+- Number: when the query is 1–5 digits without a leading zero, a second read with `.or(numberPrefixFilter(query))`. For `'20'` that is `number.eq.20` and the ranges 200–209, 2000–2099 and 20000–20999. It stops at five digits because `TEAM_NUMBER_MAX` is 99999. `numberPrefixFilter` throws on anything but such a digit string before a query exists.
+- Both reads are keyset reads (`gt number`, `order number`, `limit`), merged by id and sorted by number. The first `limit` rows of the union are exactly the page.
+- `limit` defaults to 50 and is clamped at 200.
+
+**Risk:** a literal `*` in a name query matches any one character in the Supabase store (`escapeLikePattern` turns `*` into `_`, because PostgREST rewrites `*`). The fake matches it literally. That is harmless for a search box.
+
+## Task 1.19 — deleteMatch and updateMatch details
+
+**Plan said:** "`deleteMatch` is blocked when the match has entries … and the error says so". The test expects `/6 entries/` and `/correct the match number/i`.
+
+**What was wrong:** the plan gives no code, no output and no race handling.
+
+**What I did instead:** (orchestrator decision 4)
+- `deleteMatch` returns `{ id, deleted: true }`.
+- It is refused with `conflict` (409): `qualification match 3 has 6 entries, so it cannot be deleted; correct the match number instead`. It says `1 entry` for one. The orchestrator's example read `match qualification 1 has …`; I used the natural order `qualification match 1`, which all the match messages share.
+- The count includes soft-deleted entries, because the `on delete restrict` foreign key counts them too.
+- A `23503` from an entry arriving between the count and the delete is re-counted and gives the same refusal. The slots cascade.
+- `updateMatch({ match_id, match_type?, number? })` needs at least one of the two. It is strict, so `event_id` or `slots` is refused. A duplicate key is `conflict` (pre-check plus `23505`). A value equal to the current one is not a change and writes nothing.
+
+**Risk:** none known.
+
+## Task 1.19 — files beyond the plan's list
+
+**Plan said:** create `commands/teams.ts`, `commands/matches.ts`, `queries/roster.ts` and their two tests. Modify `registry.ts` and `syncPush.ts`.
+
+**What was wrong:** the house style from 1.18, and the orchestrator's instructions, need more than that.
+
+**What I did instead:**
+- Created:
+  - `packages/shared/src/api/teams.ts`, `packages/shared/src/api/matches.ts` and their tests;
+  - `core/queries/listTeams.ts` and `core/queries/listMatches.ts`, re-exported from the command modules, as 1.18 did;
+  - `core/teamRows.ts` and `core/matchRows.ts`, the shared mapping and lookups, so the queries never import a command module;
+  - `core/waves.ts` (`inWaves`, bounded concurrency).
+- Modified:
+  - `core/context.ts`, `repos/store.ts`, `repos/store.test.ts` and `test/fake-context.ts`;
+  - `syncPush.test.ts`;
+  - the two "exactly these entries" lists (`rpc.test.ts`, which now expects 22 authenticated commands, and `packages/shared/src/api/index.test.ts`);
+  - `packages/shared/src/api/index.ts` (`API` rows) and `packages/shared/src/index.ts`;
+  - the rebuilt `apps/server/api/index.js` and `.map`.
+
+**Risk:** none.
