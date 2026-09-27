@@ -9,6 +9,11 @@ export function canManageUsers(user: { id: string; role: Role }): boolean {
   return can({ kind: 'user', userId: user.id, role: user.role }, 'manage_users');
 }
 
+/** Same rule, `manage_events` (SPEC-FINAL 6.2, 6.3, 6.4): task 1.20's admin management page. */
+export function canManageEvents(user: { id: string; role: Role }): boolean {
+  return can({ kind: 'user', userId: user.id, role: user.role }, 'manage_events');
+}
+
 /**
  * The UI half of SPEC-FINAL 7.4: a non-admin who reaches an admin URL gets a clear state
  * and nothing is requested. Convenience only — the server refuses every admin call anyway.

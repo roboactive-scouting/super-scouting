@@ -16,7 +16,8 @@ import {
   syncNow,
   type HydrationState,
 } from '@/data/sync';
-import { canManageUsers } from '@/features/admin/AdminOnly';
+import { canManageEvents, canManageUsers } from '@/features/admin/AdminOnly';
+import { useOnline } from '@/lib/useOnline';
 import { ConnectionIndicator } from './ConnectionIndicator';
 import { NoCompetition } from './NoCompetition';
 import { needsNoHydration, type ShellContext } from './shellContext';
@@ -43,28 +44,21 @@ async function deviceId(): Promise<string> {
   return fresh;
 }
 
-/** `navigator.onLine`, re-read when the browser says it changed. */
-function useOnline(): boolean {
-  const [online, setOnline] = useState(() => navigator.onLine);
-  useEffect(() => {
-    const update = () => setOnline(navigator.onLine);
-    window.addEventListener('online', update);
-    window.addEventListener('offline', update);
-    return () => {
-      window.removeEventListener('online', update);
-      window.removeEventListener('offline', update);
-    };
-  }, []);
-  return online;
-}
-
 /** What a gated route shows in place of the page until the event is loaded. */
-function HydrationGate({ state, online }: { state: GateState; online: boolean }) {
+function HydrationGate({
+  state,
+  online,
+  canSetUp,
+}: {
+  state: GateState;
+  online: boolean;
+  canSetUp: boolean;
+}) {
   // The cache is being read: a few milliseconds, or one getActiveContext call. Saying
   // "loading" here would be wrong for a hydrated device and for an empty install alike.
   if (state === 'resolving') return null;
 
-  if (state === 'no-event') return <NoCompetition />;
+  if (state === 'no-event') return <NoCompetition canSetUp={canSetUp} />;
 
   if (state === 'loading') {
     return (
@@ -286,6 +280,11 @@ export function AppShell() {
               Users
             </Link>
           )}
+          {!current.expired && canManageEvents(current.user) && (
+            <Link className="tap-target px-3 leading-[48px]" to="/admin/manage">
+              Manage
+            </Link>
+          )}
         </nav>
         <ConnectionIndicator />
       </header>
@@ -319,7 +318,11 @@ export function AppShell() {
       {showPage ? (
         <Outlet context={context} />
       ) : (
-        <HydrationGate state={gate.state} online={online} />
+        <HydrationGate
+          state={gate.state}
+          online={online}
+          canSetUp={canManageEvents(current.user)}
+        />
       )}
       <footer className="flex flex-wrap items-center justify-center gap-x-4 p-2 text-xs text-[var(--text-muted)]">
         <span>

@@ -206,12 +206,17 @@ describe('switch scouter on a shared device (SPEC-FINAL 7.3, task 1.16)', () => 
 });
 
 describe('which routes wait for the event to load (task 1.17b)', () => {
-  it('marks exactly Users, the user detail page and Switch scouter as needing no event', () => {
+  it('marks exactly Users, the user detail page, Manage and Switch scouter as needing no event', () => {
     const shell = routeTree().find((r) => r.path === '/');
     const marked = (shell?.children ?? [])
       .filter((r) => r.handle === NO_HYDRATION)
       .map((r) => r.path);
-    expect(marked.sort()).toEqual(['admin/users', 'admin/users/:id', 'switch-scouter']);
+    expect(marked.sort()).toEqual([
+      'admin/manage',
+      'admin/users',
+      'admin/users/:id',
+      'switch-scouter',
+    ]);
   });
 
   it('leaves Scout, the entry screen and Entries gated', () => {

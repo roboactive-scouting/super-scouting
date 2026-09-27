@@ -3,6 +3,7 @@ import { ChangePasswordPage } from '@/auth/ChangePasswordPage';
 import { LoginPage } from '@/auth/LoginPage';
 import { SwitchScouter } from '@/auth/SwitchScouter';
 import { DesktopOnly } from '@/components/DesktopOnly';
+import { ManagePage } from '@/features/admin/ManagePage';
 import { UserDetailPage } from '@/features/admin/UserDetailPage';
 import { UsersPage } from '@/features/admin/UsersPage';
 import { AppShell } from '@/features/shell/AppShell';
@@ -69,6 +70,18 @@ export function routeTree(): RouteObject[] {
           element: (
             <DesktopOnly what="the user administration page">
               <UserDetailPage />
+            </DesktopOnly>
+          ),
+        },
+        // Task 1.20: season and event management. Reads no event data either, so an
+        // admin reaches it — and can set the very first competition up — with no
+        // competition loaded (it is NoCompetition's "Set up a competition" link's target).
+        {
+          path: 'admin/manage',
+          handle: NO_HYDRATION,
+          element: (
+            <DesktopOnly what="season, event, roster and match management">
+              <ManagePage />
             </DesktopOnly>
           ),
         },

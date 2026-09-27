@@ -72,6 +72,17 @@ export async function call<K extends ApiName>(
   return parsedOutput.data as z.output<Api[K]['output']>;
 }
 
+/**
+ * `call`, widened to the plain `Rpc` shape (task 1.20): the season/event management
+ * panels take an injectable `rpc: Rpc` prop so their tests can hand back a plain
+ * `vi.fn`, and this is what that prop defaults to. The validation and `RpcError`
+ * behaviour underneath are exactly `call`'s own — only the compile-time signature is
+ * widened (an admin panel's own use-case names are checked against `API` at the call
+ * site already, via the shared schemas it imports for its forms).
+ */
+export const typedCall: Rpc['call'] = (name, input, options) =>
+  call(name as ApiName, input as never, options);
+
 class DeadlineExceeded extends Error {}
 
 /**

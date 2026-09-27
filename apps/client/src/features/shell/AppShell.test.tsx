@@ -60,6 +60,7 @@ const OFFLINE: SyncOutcome = { status: 'offline', reason: 'could not reach the s
 const CHILD = 'the robot list';
 const ENTRY_CHILD = 'the entry form';
 const USERS_CHILD = 'the user administration page';
+const MANAGE_CHILD = 'the season and event management page';
 
 /** The Scout stand-in: reads the event id the shell resolved, like the real routes do. */
 function ScoutProbe() {
@@ -89,6 +90,7 @@ function renderShell(path = '/') {
           { path: 'entries', element: <p>the entries list</p> },
           { path: 'entry/:matchId/:teamId', element: <p>{ENTRY_CHILD}</p> },
           { path: 'admin/users', element: <p>{USERS_CHILD}</p>, handle: NO_HYDRATION },
+          { path: 'admin/manage', element: <p>{MANAGE_CHILD}</p>, handle: NO_HYDRATION },
         ],
       },
     ],
@@ -379,6 +381,25 @@ describe('AppShell with no active event (task 1.17b)', () => {
     // The header link still gets the admin back to the page that works.
     await userEvent.setup().click(screen.getByRole('link', { name: 'Users' }));
     expect(await screen.findByText(USERS_CHILD)).toBeInTheDocument();
+  });
+
+  it('does not offer "Set up a competition" or "Manage" to a scouter', async () => {
+    renderShell();
+    await screen.findByRole('heading', { name: NO_COMPETITION });
+    expect(screen.queryByRole('link', { name: /set up a competition/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Manage' })).not.toBeInTheDocument();
+  });
+
+  it('offers "Set up a competition" and a "Manage" nav link to an admin', async () => {
+    await session.signIn({ ...user, role: 'admin' }, 'token-admin');
+    renderShell();
+    await screen.findByRole('heading', { name: NO_COMPETITION });
+    const link = screen.getByRole('link', { name: /set up a competition/i });
+    expect(link).toHaveAttribute('href', '/admin/manage');
+    expect(screen.getByRole('link', { name: 'Manage' })).toHaveAttribute('href', '/admin/manage');
+
+    await userEvent.setup().click(link);
+    expect(await screen.findByText(MANAGE_CHILD)).toBeInTheDocument();
   });
 
   it('picks the event up as soon as an admin sets one, on the next connection event', async () => {
