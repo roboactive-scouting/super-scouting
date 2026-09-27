@@ -55,6 +55,7 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
       'changeOwnPassword',
       'createUser',
       'disableUser',
+      'getActiveContext',
       'listUsers',
       'login',
       'refreshToken',

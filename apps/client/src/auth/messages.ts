@@ -11,6 +11,14 @@ export function sentence(text: string): string {
 export const OFFLINE_SIGN_IN_LINE =
   'No connection. Signing in will use the credentials cached on this device.';
 
+/**
+ * The device is online but the server did not answer: a wrong address (a stale preview URL
+ * CORS refuses), a server that is down, or a portal in between. Sign-in and the shell's
+ * not-loaded-yet state both say this rather than "connect to the internet" (task 1.17b).
+ */
+export const SERVER_UNREACHABLE_LINE =
+  'Cannot reach the server. Check that this is the right address for the app, then try again.';
+
 export const DISABLED = 'This account has been disabled. Ask an admin.';
 
 /** The same line for an unknown username and a wrong password, online and offline. */

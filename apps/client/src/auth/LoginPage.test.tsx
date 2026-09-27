@@ -7,6 +7,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { db } from '@/data/db';
 import { LoginPage } from './LoginPage';
+import { SERVER_UNREACHABLE_LINE } from './messages';
 import { NO_CACHED_ACCOUNTS_LINE } from './offlineLogin';
 import { pendingCredential } from './pendingCredential';
 import { session } from './session';
@@ -162,9 +163,21 @@ describe('LoginPage (SPEC-FINAL 7.3, 7.5)', () => {
     ).toBeInTheDocument();
   });
 
-  it('says the device has no cached accounts when it cannot reach the server and never synced', async () => {
+  it('says the server cannot be reached when the device is online, never synced, and gets no answer (task 1.17b)', async () => {
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
     renderLogin();
+    await signInWith('seed_scouter', 'seedpass1');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(SERVER_UNREACHABLE_LINE);
+    expect(alert).not.toHaveTextContent(/connect to the internet/i);
+    expect(await session.current()).toBeNull();
+  });
+
+  it('says the device has no cached accounts when it is offline and never synced', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    renderLogin();
+    // The device drops off the network after the screen rendered, before the attempt.
+    online = false;
     await signInWith('seed_scouter', 'seedpass1');
     expect(await screen.findByRole('alert')).toHaveTextContent(NO_CACHED_ACCOUNTS_LINE);
     expect(await session.current()).toBeNull();

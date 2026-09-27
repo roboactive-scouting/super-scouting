@@ -60,6 +60,9 @@ const fail = (status: number, code: string, message: string) =>
 function serve(name: string, input: Record<string, unknown>): Response {
   const find = (id: unknown) => users.find((u) => u.id === id);
   switch (name) {
+    // A fresh install: no season, no event (task 1.17b).
+    case 'getActiveContext':
+      return json({ active_season_id: null, active_event_id: null });
     case 'listUsers': {
       const all = users
         .filter((u) => input.include_disabled === true || u.disabled_at === null)
@@ -119,7 +122,7 @@ function setWidth(px: number) {
 }
 
 function renderAt(path: string) {
-  const router = createMemoryRouter(routeTree('ev-1'), { initialEntries: [path] });
+  const router = createMemoryRouter(routeTree(), { initialEntries: [path] });
   render(<RouterProvider router={router} />);
   return router;
 }
@@ -213,6 +216,18 @@ describe('who reaches the user administration page (SPEC-FINAL 7.2, 7.4, 17.2)',
     },
   );
 
+  it('reaches the users table on an install with no competition set up, while Scout says so (task 1.17b)', async () => {
+    await signInAs('admin');
+    const router = renderAt('/admin/users');
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(screen.queryByText(/no competition is set up yet/i)).not.toBeInTheDocument();
+    await act(() => router.navigate('/'));
+    expect(
+      await screen.findByRole('heading', { name: 'No competition is set up yet' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/internet connection is required/i)).not.toBeInTheDocument();
+  });
+
   it('is gated by DesktopOnly: a phone gets the needs-a-computer panel and no call', async () => {
     setWidth(640);
     await signInAs('admin');
@@ -234,7 +249,7 @@ describe('the users table', () => {
     await signInAs('admin');
     const { container } = render(
       <RouterProvider
-        router={createMemoryRouter(routeTree('ev-1'), { initialEntries: ['/admin/users'] })}
+        router={createMemoryRouter(routeTree(), { initialEntries: ['/admin/users'] })}
       />,
     );
     const busy = await screen.findByRole('status', { name: 'Loading the users' });

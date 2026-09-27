@@ -7,6 +7,7 @@ import { session } from '@/auth/session';
 import { db, setMeta } from '@/data/db';
 import type * as SyncModule from '@/data/sync';
 import { pending } from '@/data/outbox';
+import { NO_HYDRATION } from '@/features/shell/shellContext';
 import { routeTree } from './routes';
 
 const hydrate = vi.fn();
@@ -28,7 +29,7 @@ const user = {
 };
 
 function renderAt(path: string) {
-  const router = createMemoryRouter(routeTree('ev-1'), { initialEntries: [path] });
+  const router = createMemoryRouter(routeTree(), { initialEntries: [path] });
   render(<RouterProvider router={router} />);
   return router;
 }
@@ -41,6 +42,8 @@ beforeEach(async () => {
   await db.rows.bulkPut([
     { entity: 'teams', id: 't-1', number: 118, name: 'Robonauts' },
     { entity: 'event_teams', id: 'et-1', event_id: 'ev-1', team_id: 't-1', deleted_at: null },
+    // What a completed pull leaves: the singleton naming the event (task 1.17b).
+    { entity: 'app_settings', id: 'true', active_season_id: 'se-1', active_event_id: 'ev-1' },
   ]);
   await setMeta('sync.hydrated_event_id', 'ev-1');
 });
@@ -166,7 +169,6 @@ describe('switch scouter on a shared device (SPEC-FINAL 7.3, task 1.16)', () => 
     await db.rows.bulkPut([
       { entity: 'matches', id: 'm-1', event_id: 'ev-1', match_type: 'qualification', number: 21 },
       { entity: 'forms', id: 'f-1', kind: 'match', season_id: 'se-1', active_version_id: 'fv-1' },
-      { entity: 'app_settings', id: 'singleton', active_season_id: 'se-1' },
     ]);
     // Dana began this entry on the shared device; drafts are keyed by form, match and
     // team, not by scouter, so the draft survives the hand-over.
@@ -200,5 +202,23 @@ describe('switch scouter on a shared device (SPEC-FINAL 7.3, task 1.16)', () => 
     expect(op!.author_user_id).toBe('u-noa');
     expect(op!.payload.scouter_id).toBe('u-noa');
     expect(await db.drafts.get('fv-1:m-1:t-1')).toBeUndefined();
+  });
+});
+
+describe('which routes wait for the event to load (task 1.17b)', () => {
+  it('marks exactly Users, the user detail page and Switch scouter as needing no event', () => {
+    const shell = routeTree().find((r) => r.path === '/');
+    const marked = (shell?.children ?? [])
+      .filter((r) => r.handle === NO_HYDRATION)
+      .map((r) => r.path);
+    expect(marked.sort()).toEqual(['admin/users', 'admin/users/:id', 'switch-scouter']);
+  });
+
+  it('leaves Scout, the entry screen and Entries gated', () => {
+    const shell = routeTree().find((r) => r.path === '/');
+    const gated = (shell?.children ?? [])
+      .filter((r) => r.handle !== NO_HYDRATION)
+      .map((r) => (r.index ? '(index)' : r.path));
+    expect(gated.sort()).toEqual(['(index)', 'entries', 'entry/:matchId/:teamId']);
   });
 });

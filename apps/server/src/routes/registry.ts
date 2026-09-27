@@ -11,6 +11,7 @@ import {
   resetPassword,
   setUserRole,
 } from '../core/commands/users.js';
+import { getActiveContext } from '../core/queries/context.js';
 import { listUsers } from '../core/queries/listUsers.js';
 
 type EntryMeta = {
@@ -114,5 +115,13 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     input: API.listUsers.input,
     output: API.listUsers.output,
     handler: listUsers,
+  },
+  getActiveContext: {
+    kind: 'query',
+    description:
+      "The admin's default season and event, which every device opens to. Either may be null: nothing is set up yet, or the season has no event yet. An event id that names no event comes back null.",
+    input: API.getActiveContext.input,
+    output: API.getActiveContext.output,
+    handler: getActiveContext,
   },
 };

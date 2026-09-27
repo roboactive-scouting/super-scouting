@@ -10839,6 +10839,7 @@ git add -A && git commit -m "fix(client): gate only event screens on hydration, 
 - Create: `apps/server/src/core/commands/seasons.test.ts`, `apps/server/src/core/commands/events.test.ts`
 - Modify: `packages/shared/src/index.ts` (export the manifest), root `package.json` (the two `season:images` scripts), `.github/workflows/ci.yml` (the drift check)
 - Modify: `apps/server/src/routes/registry.ts`, `apps/server/src/repos/store.ts`, `apps/server/src/test/fake-context.ts` (implement `setActiveContext` and the season/event stubs)
+- Already exists from task 1.17b: `getActiveContext` — the use case in `apps/server/src/core/queries/context.ts` (extend that file, do not recreate it), its schemas in `packages/shared/src/api/context.ts` and its registry row, and `Store.getActiveContext` in both `repos/store.ts` and `test/fake-context.ts` (plus the fake's `ctx.setActiveContext(seasonId, eventId)` fixture); 1.18 only adds `Store.setActiveContext` and the season/event use cases.
 
 **Interfaces:**
 - Produces: `SEASON_IMAGE_MANIFEST` — the generated list of committed game-image paths, imported by both apps; `createSeason`, `updateSeason`, `setActiveSeason`, `createEvent`, `updateEvent`, `reorderEvents`, `setActiveEvent`, `getActiveContext`, `listSeasons`, `listEvents`. (`deleteSeason` / `deleteEvent` are task 1.60.)

@@ -11,13 +11,6 @@ type TeamRow = { id: string; number: number; name: string };
 type FormRow = { id: string; kind: string; season_id: string; active_version_id: string | null };
 type AppSettingsRow = { active_season_id: string | null };
 
-/**
- * SEED.season from packages/db/src/seed/fixtures.ts — the dev seed's deterministic
- * season id. Used only as a fallback for the same reason App.tsx falls back to
- * SEED.event: nothing has synced into `app_settings` yet.
- */
-const FALLBACK_SEASON_ID = '00000000-0000-4000-8000-000000000001';
-
 const MATCH_TYPE_PREFIX: Record<string, string> = {
   qualification: 'Q',
   practice: 'P',
@@ -56,7 +49,9 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
       ]);
       const match = matches.find((m) => m.id === matchId);
       const team = teams.find((t) => t.id === teamId);
-      const seasonId = appSettings[0]?.active_season_id ?? FALLBACK_SEASON_ID;
+      // No seed-season fallback (task 1.17b): this route is gated on hydration, so the
+      // pull that loaded the event has cached `app_settings` too.
+      const seasonId = appSettings[0]?.active_season_id ?? null;
       const form = forms.find((f) => f.kind === 'match' && f.season_id === seasonId);
       if (!match || !team || !form?.active_version_id) return;
       const existing = await findLocalEntry({ eventId, formKind: 'match', matchId, teamId });

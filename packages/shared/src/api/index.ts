@@ -1,4 +1,5 @@
 import { loginInput, loginOutput, refreshTokenInput } from './auth';
+import { activeContext, getActiveContextInput } from './context';
 import {
   changeOwnPasswordInput,
   createUserInput,
@@ -28,6 +29,7 @@ export const API = {
   resetPassword: { input: resetPasswordInput, output: publicUser },
   disableUser: { input: disableUserInput, output: publicUser },
   listUsers: { input: listUsersInput, output: listUsersOutput },
+  getActiveContext: { input: getActiveContextInput, output: activeContext },
 } as const;
 
 export type Api = typeof API;

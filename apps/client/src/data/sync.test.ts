@@ -1,10 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PullResponse, PushRequest, PushResponse } from '@frc/shared';
 import { PULL_ENTITY_KEYS } from '@frc/shared';
 import { session } from '@/auth/session';
 import { db, getMeta } from './db';
 import { enqueue, pending } from './outbox';
-import { hydrate, syncNow } from './sync';
+import { activeEvent, cachedActiveEventId, hydrate, syncNow } from './sync';
+
+vi.mock('@/config', () => ({
+  clientConfig: () => ({ apiBaseUrl: 'https://api.test', deviceWipeCode: 'w', appVersion: 't' }),
+}));
 
 const emptyEntities = Object.fromEntries(
   PULL_ENTITY_KEYS.map((k) => [k, []]),
@@ -339,5 +343,73 @@ describe('hydrate', () => {
       },
     };
     expect(await hydrate({ api: failing, eventId: 'ev-2', deviceId: 'd-1' })).toBe('blocked');
+  });
+});
+
+describe('the active event (task 1.17b)', () => {
+  const EVENT = '00000000-0000-4000-8000-0000000000e1';
+  const SEASON = '00000000-0000-4000-8000-000000000051';
+  const answer = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('reads the cached app_settings row, or null on a device that has none', async () => {
+    expect(await cachedActiveEventId()).toBeNull();
+    await db.rows.put({
+      entity: 'app_settings',
+      id: 'true',
+      active_season_id: SEASON,
+      active_event_id: EVENT,
+    });
+    expect(await cachedActiveEventId()).toBe(EVENT);
+  });
+
+  it('asks the server with getActiveContext, and names the event it answers', async () => {
+    await session.signIn(
+      { id: 'u-1', username: 'a', full_name: 'A', role: 'scouter', must_change_password: false },
+      'tok-1',
+    );
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      answer({ active_season_id: SEASON, active_event_id: EVENT }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await activeEvent()).toEqual({ status: 'event', eventId: EVENT });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe('https://api.test/api/getActiveContext');
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get('authorization')).toBe(
+      'Bearer tok-1',
+    );
+  });
+
+  it('tells "no competition is set up" apart from "no answer"', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () => answer({ active_season_id: null, active_event_id: null })),
+    );
+    expect(await activeEvent()).toEqual({ status: 'no-event' });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () => {
+        throw new TypeError('Failed to fetch');
+      }),
+    );
+    expect(await activeEvent()).toEqual({ status: 'unreachable' });
+  });
+
+  it('never reads an answer in a shape it does not know (a portal page) as "no event"', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(
+        async () =>
+          new Response('<html>venue wifi</html>', {
+            status: 200,
+            headers: { 'content-type': 'text/html' },
+          }),
+      ),
+    );
+    expect(await activeEvent()).toEqual({ status: 'unreachable' });
   });
 });

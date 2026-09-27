@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { API } from './index';
 import { loginInput, loginOutput, refreshTokenInput } from './auth';
+import { activeContext, getActiveContextInput } from './context';
 import {
   changeOwnPasswordInput,
   createUserInput,
@@ -18,6 +19,7 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
       'changeOwnPassword',
       'createUser',
       'disableUser',
+      'getActiveContext',
       'listUsers',
       'login',
       'refreshToken',
@@ -36,5 +38,9 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
     expect(API.resetPassword.input).toBe(resetPasswordInput);
     expect(API.disableUser.input).toBe(disableUserInput);
     expect(API.listUsers).toEqual({ input: listUsersInput, output: listUsersOutput });
+    expect(API.getActiveContext).toEqual({
+      input: getActiveContextInput,
+      output: activeContext,
+    });
   });
 });

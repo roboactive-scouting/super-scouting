@@ -1,7 +1,9 @@
 import { MAX_OPERATIONS_PER_PUSH, PULL_ENTITY_KEYS, type PullEntityKey } from '@frc/shared';
 import { session } from '@/auth/session';
+import { cachedRows } from './cache';
 import { db, getMeta, setMeta } from './db';
 import { ackResults, pending } from './outbox';
+import { call } from './rpc';
 import type { Api } from './api';
 
 export type SyncDeps = {
@@ -148,4 +150,42 @@ export async function hydrate(deps: SyncDeps): Promise<HydrationState> {
 export async function cachedHydration(eventId: string): Promise<'cached' | 'blocked'> {
   const hydratedEventId = await getMeta<string | null>(HYDRATED, null);
   return hydratedEventId === eventId ? 'cached' : 'blocked';
+}
+
+/**
+ * Which event the device should be working on, as the server sees it (task 1.17b).
+ *
+ * `no-event` is the server's own answer: no competition is set up (the `app_settings`
+ * singleton's `active_event_id` is null, or names an event that no longer exists).
+ * `unreachable` is every other outcome — no connection, a deadline, a portal's page, an
+ * error — where the device learned nothing and must not claim there is no competition.
+ */
+export type ActiveEvent =
+  { status: 'event'; eventId: string } | { status: 'no-event' } | { status: 'unreachable' };
+
+/**
+ * A dying venue connection hangs rather than fails. The shell waits on this call before it
+ * can show anything but its header, so it is abandoned (and read as no answer) after this.
+ */
+export const ACTIVE_CONTEXT_TIMEOUT_MS = 10_000;
+
+/**
+ * The chicken-and-egg breaker: the pull that carries `app_settings` needs an event id, so
+ * a device that holds none asks `getActiveContext` first.
+ */
+export async function activeEvent(): Promise<ActiveEvent> {
+  try {
+    const context = await call('getActiveContext', {}, { timeoutMs: ACTIVE_CONTEXT_TIMEOUT_MS });
+    return context.active_event_id
+      ? { status: 'event', eventId: context.active_event_id }
+      : { status: 'no-event' };
+  } catch {
+    return { status: 'unreachable' };
+  }
+}
+
+/** The active event the last completed pull cached, or null on a device that has none. */
+export async function cachedActiveEventId(): Promise<string | null> {
+  const rows = await cachedRows<{ active_event_id?: string | null }>('app_settings');
+  return rows[0]?.active_event_id ?? null;
 }

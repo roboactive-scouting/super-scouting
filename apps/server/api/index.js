@@ -81,6 +81,14 @@ var loginOutput = z2.object({
 });
 var refreshTokenInput = z2.object({ token: z2.string().min(1) });
 
+// ../../packages/shared/src/api/context.ts
+import { z as z3 } from "zod";
+var getActiveContextInput = z3.object({}).strict();
+var activeContext = z3.object({
+  active_season_id: z3.string().uuid().nullable(),
+  active_event_id: z3.string().uuid().nullable()
+});
+
 // ../../packages/shared/src/api/index.ts
 var API = {
   login: { input: loginInput, output: loginOutput },
@@ -90,7 +98,8 @@ var API = {
   setUserRole: { input: setUserRoleInput, output: publicUser },
   resetPassword: { input: resetPasswordInput, output: publicUser },
   disableUser: { input: disableUserInput, output: publicUser },
-  listUsers: { input: listUsersInput, output: listUsersOutput }
+  listUsers: { input: listUsersInput, output: listUsersOutput },
+  getActiveContext: { input: getActiveContextInput, output: activeContext }
 };
 
 // ../../packages/shared/src/errors.ts
@@ -283,7 +292,7 @@ function validateEntryData(fields, robotStatus, data) {
 }
 
 // ../../packages/shared/src/sync/operation.ts
-import { z as z3 } from "zod";
+import { z as z4 } from "zod";
 var SYNC_ENTITIES = [
   "scouting_entry",
   "match",
@@ -293,19 +302,19 @@ var SYNC_ENTITIES = [
   "alliance_slot",
   "alliance_decline"
 ];
-var isoDateTime = z3.string().datetime({ offset: false });
-var operationSchema = z3.object({
-  op_id: z3.string().min(1),
-  entity: z3.enum(SYNC_ENTITIES),
-  row_id: z3.string().uuid(),
-  action: z3.enum(["create", "update", "delete"]),
-  base_version: z3.number().int().positive().nullable(),
+var isoDateTime = z4.string().datetime({ offset: false });
+var operationSchema = z4.object({
+  op_id: z4.string().min(1),
+  entity: z4.enum(SYNC_ENTITIES),
+  row_id: z4.string().uuid(),
+  action: z4.enum(["create", "update", "delete"]),
+  base_version: z4.number().int().positive().nullable(),
   /** Always the whole row, never a patch. Field-level merging does not exist. */
-  payload: z3.record(z3.unknown()),
-  author_user_id: z3.string().uuid(),
+  payload: z4.record(z4.unknown()),
+  author_user_id: z4.string().uuid(),
   client_created_at: isoDateTime,
   client_updated_at: isoDateTime,
-  seq: z3.number().int().nonnegative()
+  seq: z4.number().int().nonnegative()
 }).superRefine((op, ctx) => {
   if (op.action === "create" && op.base_version !== null) {
     ctx.addIssue({
@@ -331,12 +340,12 @@ var operationSchema = z3.object({
 });
 
 // ../../packages/shared/src/sync/protocol.ts
-import { z as z4 } from "zod";
+import { z as z5 } from "zod";
 var MAX_OPERATIONS_PER_PUSH = 200;
 var WATERMARK_OVERLAP_MS = 5e3;
-var pushRequestSchema = z4.object({
-  device_id: z4.string().uuid(),
-  operations: z4.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
+var pushRequestSchema = z5.object({
+  device_id: z5.string().uuid(),
+  operations: z5.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
 });
 var PULL_ENTITY_KEYS = [
   "app_settings",
@@ -364,10 +373,10 @@ var PULL_ENTITY_KEYS = [
   "dashboard_charts",
   "weight_presets"
 ];
-var pullRequestSchema = z4.object({
-  event_id: z4.string().uuid(),
-  since: z4.string().datetime({ offset: false }).optional(),
-  cursor: z4.string().optional()
+var pullRequestSchema = z5.object({
+  event_id: z5.string().uuid(),
+  since: z5.string().datetime({ offset: false }).optional(),
+  cursor: z5.string().optional()
 });
 
 // src/routes/errors.ts
@@ -435,13 +444,13 @@ function createApp(deps) {
 
 // src/auth/token.ts
 import { jwtVerify, SignJWT } from "jose";
-import { z as z5 } from "zod";
-var sessionClaims = z5.object({
-  sub: z5.string().min(1),
-  role: z5.enum(["scouter", "lead", "admin"]),
-  username: z5.string().min(1),
-  iat: z5.number().int(),
-  exp: z5.number().int()
+import { z as z6 } from "zod";
+var sessionClaims = z6.object({
+  sub: z6.string().min(1),
+  role: z6.enum(["scouter", "lead", "admin"]),
+  username: z6.string().min(1),
+  iat: z6.number().int(),
+  exp: z6.number().int()
 });
 var key = (config2) => new TextEncoder().encode(config2.authJwtSecret);
 async function issueToken(user, config2) {
@@ -481,18 +490,18 @@ async function callerFor(request, config2, store, options = {}) {
 }
 
 // src/config.ts
-import { z as z6 } from "zod";
-var schema = z6.object({
-  SUPABASE_URL: z6.string().url(),
-  SUPABASE_SERVICE_ROLE_KEY: z6.string().min(1),
-  AUTH_JWT_SECRET: z6.string().min(32, "must be at least 32 characters"),
-  AUTH_TOKEN_TTL_DAYS: z6.coerce.number().int().positive().default(30),
-  AUTH_TOKEN_REFRESH_AFTER_DAYS: z6.coerce.number().int().positive().default(7),
-  ALLOWED_ORIGIN: z6.string().url(),
-  NODE_ENV: z6.enum(["development", "production", "test"]).default("development"),
+import { z as z7 } from "zod";
+var schema = z7.object({
+  SUPABASE_URL: z7.string().url(),
+  SUPABASE_SERVICE_ROLE_KEY: z7.string().min(1),
+  AUTH_JWT_SECRET: z7.string().min(32, "must be at least 32 characters"),
+  AUTH_TOKEN_TTL_DAYS: z7.coerce.number().int().positive().default(30),
+  AUTH_TOKEN_REFRESH_AFTER_DAYS: z7.coerce.number().int().positive().default(7),
+  ALLOWED_ORIGIN: z7.string().url(),
+  NODE_ENV: z7.enum(["development", "production", "test"]).default("development"),
   // Vercel's own system env var (https://vercel.com/docs/environment-variables/system-environment-variables),
   // not something anyone sets by hand. Absent locally and in tests.
-  VERCEL_GIT_COMMIT_SHA: z6.string().min(1).optional()
+  VERCEL_GIT_COMMIT_SHA: z7.string().min(1).optional()
 });
 function loadServerConfig(env) {
   const parsed = schema.safeParse(env);
@@ -743,6 +752,17 @@ function supabaseStore(db) {
       return { eventId: data.id, seasonId: data.season_id };
     },
     pullEntity,
+    // Task 1.17b, ahead of the rest of 1.18. The singleton row is created by the skeleton
+    // migration on every project; a missing one reads as nothing set up. THROWS on a
+    // database error: swallowed, a blip would tell every device no competition exists.
+    async getActiveContext() {
+      const { data, error } = await db.from("app_settings").select("active_season_id, active_event_id").eq("id", true).maybeSingle();
+      if (error) throw dbError(error);
+      return {
+        active_season_id: data?.active_season_id ?? null,
+        active_event_id: data?.active_event_id ?? null
+      };
+    },
     // The remaining methods start as loud stubs, exactly as the fake does. Each later
     // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
     // without these the file does not compile at all.
@@ -753,7 +773,6 @@ function supabaseStore(db) {
       "listConflicts",
       "getConflict",
       "resolveConflictRow",
-      "getActiveContext",
       "setActiveContext",
       "getSeason",
       "getSeasonByYear",
@@ -1055,6 +1074,19 @@ async function changeOwnPassword(caller, input, ctx) {
   return toPublicUser(stored);
 }
 
+// src/core/queries/context.ts
+async function getActiveContext(caller, input, ctx) {
+  void caller;
+  parseInput(getActiveContextInput, input);
+  const current = await ctx.store.getActiveContext();
+  const eventId = current.active_event_id;
+  const eventLives = eventId !== null && await ctx.store.eventExists(eventId);
+  return {
+    active_season_id: current.active_season_id,
+    active_event_id: eventLives ? eventId : null
+  };
+}
+
 // src/core/queries/listUsers.ts
 var encodeCursor = (c) => Buffer.from(JSON.stringify({ u: c.username, i: c.id }), "utf8").toString("base64url");
 var decodeCursor = (raw) => {
@@ -1143,6 +1175,13 @@ var REGISTRY = {
     input: API.listUsers.input,
     output: API.listUsers.output,
     handler: listUsers
+  },
+  getActiveContext: {
+    kind: "query",
+    description: "The admin's default season and event, which every device opens to. Either may be null: nothing is set up yet, or the season has no event yet. An event id that names no event comes back null.",
+    input: API.getActiveContext.input,
+    output: API.getActiveContext.output,
+    handler: getActiveContext
   }
 };
 
