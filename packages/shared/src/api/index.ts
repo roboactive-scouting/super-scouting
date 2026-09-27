@@ -4,9 +4,11 @@ import {
   changeOwnPasswordInput,
   createUserInput,
   disableUserInput,
+  enableUserInput,
   listUsersInput,
   listUsersOutput,
   publicUser,
+  renameUserInput,
   resetPasswordInput,
   setUserRoleInput,
 } from './users';
@@ -28,6 +30,8 @@ export const API = {
   setUserRole: { input: setUserRoleInput, output: publicUser },
   resetPassword: { input: resetPasswordInput, output: publicUser },
   disableUser: { input: disableUserInput, output: publicUser },
+  enableUser: { input: enableUserInput, output: publicUser },
+  renameUser: { input: renameUserInput, output: publicUser },
   listUsers: { input: listUsersInput, output: listUsersOutput },
   getActiveContext: { input: getActiveContextInput, output: activeContext },
 } as const;

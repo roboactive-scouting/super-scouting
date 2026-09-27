@@ -3063,3 +3063,33 @@ Choices the brief left open:
 **What I did instead:** Ran the server locally with `tsx --env-file=<abs path>/apps/server/.env src/dev-server.ts` (node reads the file itself; nothing is sourced) and the client with `vite`, both against the dev project. Over HTTP with `node -e fetch`: `getActiveContext` returned the seed ids; a pull for an unknown event id returned `404 {"error":{"code":"not-found","message":"that event no longer exists",...}}`. Set dev `app_settings.active_event_id` to null (a dev-ref-guarded scratch script): `getActiveContext` returned `active_event_id: null`, and the signed-in admin's shell showed "No competition is set up yet" on Scout and Entries, never "internet connection is required", while `/admin/users` rendered its table. `pnpm seed` restored the seed event; firing `online` made the open shell go loading → Scout without a reload. `/change-password` → back never showed the loading screen. With the API server stopped, a reload opened straight to Scout with the cached-data line. The admin was signed in from page JavaScript that read the committed dev password from `fixtures.ts` through Vite, so no credential was typed or printed.
 
 **Risk:** The `navigator.onLine === false` variants are proven by unit tests only; the browser pane cannot toggle `navigator.onLine`. Production is unproven until the user checks it after promotion. The server's `dev` script not loading `.env` is left as is (outside this task).
+
+## Task 1.17a — two registry/API "exactly these entries" checklist tests needed updating
+
+**Plan said:** Step 1's test list (`users.test.ts`, `UsersPage.test.tsx`) and step 4 ("run and watch pass"); it did not mention `apps/server/src/routes/rpc.test.ts` or `packages/shared/src/api/index.test.ts`.
+
+**What was wrong:** both files hard-code the full sorted list of registry/API keys ("holds exactly the entries registered so far", "names every registry use case") as a deliberate drift guard. Adding `enableUser`/`renameUser` rows to `REGISTRY` and `API` failed both without any code being wrong — the tests are supposed to be extended whenever a use case is added.
+
+**What I did instead:** added `enableUser` and `renameUser` to both hard-coded lists (and to `rpc.test.ts`'s "N authenticated commands" list, five → seven), and added `API.enableUser`/`API.renameUser` identity assertions to `index.test.ts` alongside the others already there.
+
+**Risk:** none; this is exactly what those tests are for.
+
+## Task 1.17a — removed the create-then-reset `must_change` workaround instead of leaving it alongside the new field
+
+**Plan said:** "The create form gets the same 'must change at next sign-in' checkbox the reset form already has." It did not explicitly say to delete `UsersPage.tsx`'s existing `createUser` + `resetPassword` two-call workaround (the very thing spec §5.4 item 3 names as the gap).
+
+**What was wrong:** nothing wrong in the plan; it's silent on whether the workaround stays as a fallback or is removed now that `createUser` takes `must_change` natively. Keeping both would mean the checkbox fires two calls (create with `must_change`, then a redundant reset with the same password and `must_change: true`) for no behavioural gain, and reintroduces the exact partial-failure case ("account created, but the first-sign-in change could not be set") the task is closing.
+
+**What I did instead:** removed the second `resetPassword` call and the `resetFailed` state/UI entirely; the checkbox now sets `must_change` directly on the single `createUser` call. Rewrote `UsersPage.test.tsx`'s two affected tests (`posts createUser with must_change: true …` / `… false …`) and deleted the now-inapplicable "a failed reset after a successful create …" test. Also changed the create checkbox's label from "Ask them to change it at first sign-in" to "Ask them to change it at next sign-in" to match the reset form's wording verbatim (orchestrator decision 7), and updated the "created" panel's footer copy to match ("at next sign-in").
+
+**Risk:** low. If phase 1C wanted the two-call path kept as a defence against `createUser` accepting `must_change` but some other code path not honouring it, that defence is gone — but the server test suite now proves `createUser`'s `must_change` directly (`users.test.ts`), so it should be redundant.
+
+## Task 1.17a — fake-context.ts's update-path unique check needed no change
+
+**Plan/brief said:** "Make sure the in-memory store in `apps/server/src/test/fake-context.ts` raises the same unique violation on a case-insensitive username collision in its update path as the real index does."
+
+**What was wrong:** nothing — `updateUser`'s `assertUsernameFree(next.username, id)` (already present, used by `setUserRole`/`disableUser`/`resetPassword`) already excludes the row being updated by id and compares lowercased usernames, so it already raises the `23505` `pgError` on a rename collision.
+
+**What I did instead:** left `fake-context.ts` unchanged and added the two server tests the brief asked for (`refuses a rename to a taken username in any case`, parametrised over `Dana`/`DANA`/` dana `; and the pre-check-bypass race test) to prove the existing code already does this rather than assuming it.
+
+**Risk:** none.

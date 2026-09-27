@@ -37,9 +37,19 @@ var createUserInput = z.object({
   username: usernameSchema,
   full_name: z.string().trim().min(1).max(80),
   role: userRoleSchema,
-  password: passwordSchema
+  password: passwordSchema,
+  /** Forces a change at first sign-in (spec §5.4 item 3), same as resetPassword's flag. */
+  must_change: z.boolean().default(false)
 });
 var setUserRoleInput = z.object({ user_id: userId, role: userRoleSchema });
+var enableUserInput = z.object({ user_id: userId });
+var renameUserInput = z.object({
+  user_id: userId,
+  username: usernameSchema.optional(),
+  full_name: z.string().trim().min(1).max(80).optional()
+}).refine((value) => value.username !== void 0 || value.full_name !== void 0, {
+  message: "give a new username, a new full name, or both"
+});
 var resetPasswordInput = z.object({
   user_id: userId,
   password: passwordSchema,
@@ -98,6 +108,8 @@ var API = {
   setUserRole: { input: setUserRoleInput, output: publicUser },
   resetPassword: { input: resetPasswordInput, output: publicUser },
   disableUser: { input: disableUserInput, output: publicUser },
+  enableUser: { input: enableUserInput, output: publicUser },
+  renameUser: { input: renameUserInput, output: publicUser },
   listUsers: { input: listUsersInput, output: listUsersOutput },
   getActiveContext: { input: getActiveContextInput, output: activeContext }
 };
@@ -1007,7 +1019,7 @@ async function createUser(caller, input, ctx) {
       full_name: parsed.full_name,
       role: parsed.role,
       password_hash: passwordHash,
-      must_change_password: false
+      must_change_password: parsed.must_change
     })
   );
   return toPublicUser(stored);
@@ -1047,6 +1059,36 @@ async function disableUser(caller, input, ctx) {
   const stored = await writeUser(
     null,
     () => ctx.store.updateUser(target.id, { disabled_at: ctx.now().toISOString() })
+  );
+  return toPublicUser(stored);
+}
+async function enableUser(caller, input, ctx) {
+  assertCan(caller, "manage_users");
+  const parsed = parseInput(enableUserInput, input);
+  const target = await targetUser(ctx, parsed.user_id);
+  if (target.disabled_at === null) return toPublicUser(target);
+  const stored = await writeUser(
+    null,
+    () => ctx.store.updateUser(target.id, { disabled_at: null })
+  );
+  return toPublicUser(stored);
+}
+async function renameUser(caller, input, ctx) {
+  assertCan(caller, "manage_users");
+  const parsed = parseInput(renameUserInput, input);
+  const target = await targetUser(ctx, parsed.user_id);
+  const patch = {};
+  if (parsed.username !== void 0) {
+    const existing = await ctx.store.getUserByUsername(parsed.username);
+    if (existing && existing.id !== target.id) {
+      throw new AppError("conflict", `the username '${parsed.username}' is taken`);
+    }
+    patch.username = parsed.username;
+  }
+  if (parsed.full_name !== void 0) patch.full_name = parsed.full_name;
+  const stored = await writeUser(
+    parsed.username ?? null,
+    () => ctx.store.updateUser(target.id, patch)
   );
   return toPublicUser(stored);
 }
@@ -1168,6 +1210,20 @@ var REGISTRY = {
     input: API.disableUser.input,
     output: API.disableUser.output,
     handler: disableUser
+  },
+  enableUser: {
+    kind: "command",
+    description: "Admin only: re-enable a disabled user. Clears disabled_at only \u2014 it does not reset the password. A no-op on an already-enabled user.",
+    input: API.enableUser.input,
+    output: API.enableUser.output,
+    handler: enableUser
+  },
+  renameUser: {
+    kind: "command",
+    description: "Admin only: change a user's username, full name, or both. The id never changes, so authorship is unaffected. A taken username reads as conflict.",
+    input: API.renameUser.input,
+    output: API.renameUser.output,
+    handler: renameUser
   },
   listUsers: {
     kind: "query",

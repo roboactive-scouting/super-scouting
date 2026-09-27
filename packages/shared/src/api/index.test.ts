@@ -6,9 +6,11 @@ import {
   changeOwnPasswordInput,
   createUserInput,
   disableUserInput,
+  enableUserInput,
   listUsersInput,
   listUsersOutput,
   publicUser,
+  renameUserInput,
   resetPasswordInput,
   setUserRoleInput,
 } from './users';
@@ -19,10 +21,12 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
       'changeOwnPassword',
       'createUser',
       'disableUser',
+      'enableUser',
       'getActiveContext',
       'listUsers',
       'login',
       'refreshToken',
+      'renameUser',
       'resetPassword',
       'setUserRole',
     ]);
@@ -37,6 +41,8 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
     expect(API.setUserRole.input).toBe(setUserRoleInput);
     expect(API.resetPassword.input).toBe(resetPasswordInput);
     expect(API.disableUser.input).toBe(disableUserInput);
+    expect(API.enableUser.input).toBe(enableUserInput);
+    expect(API.renameUser.input).toBe(renameUserInput);
     expect(API.listUsers).toEqual({ input: listUsersInput, output: listUsersOutput });
     expect(API.getActiveContext).toEqual({
       input: getActiveContextInput,

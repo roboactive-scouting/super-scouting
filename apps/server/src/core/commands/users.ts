@@ -4,14 +4,18 @@ import {
   changeOwnPasswordInput,
   createUserInput,
   disableUserInput,
+  enableUserInput,
   isUser,
+  renameUserInput,
   resetPasswordInput,
   setUserRoleInput,
   type Caller,
   type ChangeOwnPasswordInput,
   type CreateUserInput,
   type DisableUserInput,
+  type EnableUserInput,
   type PublicUser,
+  type RenameUserInput,
   type ResetPasswordInput,
   type SetUserRoleInput,
 } from '@frc/shared';
@@ -26,13 +30,17 @@ export {
   changeOwnPasswordInput,
   createUserInput,
   disableUserInput,
+  enableUserInput,
   publicUser,
+  renameUserInput,
   resetPasswordInput,
   setUserRoleInput,
   type ChangeOwnPasswordInput,
   type CreateUserInput,
   type DisableUserInput,
+  type EnableUserInput,
   type PublicUser,
+  type RenameUserInput,
   type ResetPasswordInput,
   type SetUserRoleInput,
 } from '@frc/shared';
@@ -137,7 +145,7 @@ export async function createUser(
       full_name: parsed.full_name,
       role: parsed.role,
       password_hash: passwordHash,
-      must_change_password: false,
+      must_change_password: parsed.must_change,
     }),
   );
   return toPublicUser(stored);
@@ -201,6 +209,57 @@ export async function disableUser(
   await assertNotLastEnabledAdmin(ctx, target);
   const stored = await writeUser(null, () =>
     ctx.store.updateUser(target.id, { disabled_at: ctx.now().toISOString() }),
+  );
+  return toPublicUser(stored);
+}
+
+/**
+ * spec §5.4 item 3: the counterpart to disableUser. Clears `disabled_at` and nothing
+ * else — it does NOT touch the password, so an admin who disabled an account over a lost
+ * device must reset the password as a separate, deliberate step. Enabling an already
+ * enabled user is a no-op that returns the user unchanged.
+ */
+export async function enableUser(
+  caller: Caller,
+  input: EnableUserInput,
+  ctx: UseCaseContext,
+): Promise<PublicUser> {
+  assertCan(caller, 'manage_users');
+  const parsed = parseInput(enableUserInput, input);
+  const target = await targetUser(ctx, parsed.user_id);
+  if (target.disabled_at === null) return toPublicUser(target);
+  const stored = await writeUser(null, () =>
+    ctx.store.updateUser(target.id, { disabled_at: null }),
+  );
+  return toPublicUser(stored);
+}
+
+/**
+ * spec §5.4 item 3: renames a username, a full name, or both. The id never changes, so
+ * authorship on every past entry survives. A username conflict is the same friendly
+ * `conflict` createUser gives — the pre-check here first, `writeUser`'s catch of the real
+ * unique-index violation as the backstop for a race past it. Excludes the user being
+ * renamed from both checks: renaming to your own current name is never a conflict.
+ */
+export async function renameUser(
+  caller: Caller,
+  input: RenameUserInput,
+  ctx: UseCaseContext,
+): Promise<PublicUser> {
+  assertCan(caller, 'manage_users');
+  const parsed = parseInput(renameUserInput, input);
+  const target = await targetUser(ctx, parsed.user_id);
+  const patch: Record<string, unknown> = {};
+  if (parsed.username !== undefined) {
+    const existing = await ctx.store.getUserByUsername(parsed.username);
+    if (existing && existing.id !== target.id) {
+      throw new AppError('conflict', `the username '${parsed.username}' is taken`);
+    }
+    patch.username = parsed.username;
+  }
+  if (parsed.full_name !== undefined) patch.full_name = parsed.full_name;
+  const stored = await writeUser(parsed.username ?? null, () =>
+    ctx.store.updateUser(target.id, patch),
   );
   return toPublicUser(stored);
 }

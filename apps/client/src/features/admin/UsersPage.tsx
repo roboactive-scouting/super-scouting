@@ -192,13 +192,11 @@ type Created = {
   /** Shown once, here, and dropped with this component. Never written anywhere. */
   password: string;
   mustChange: boolean;
-  resetFailed: string | null;
 };
 
 /**
- * One small form (SPEC-FINAL 17.9). `createUser` cannot set `must_change_password`
- * (spec §5.4 item 3), so when the box is ticked the client resets the password to the same
- * value with `must_change: true` straight after — the workaround §5.4 names.
+ * One small form (SPEC-FINAL 17.9). `createUser` takes `must_change` directly (spec §5.4
+ * item 3), so ticking the box just sets it on the create call — no follow-up reset.
  */
 function CreateUser({ onCreated }: { onCreated: (user: PublicUser) => void }) {
   const titleId = useId();
@@ -225,23 +223,20 @@ function CreateUser({ onCreated }: { onCreated: (user: PublicUser) => void }) {
     setCreated(null);
     let user: PublicUser;
     try {
-      user = await call('createUser', { username, full_name: fullName, role, password });
+      user = await call('createUser', {
+        username,
+        full_name: fullName,
+        role,
+        password,
+        must_change: mustChange,
+      });
     } catch (err) {
       setProblem({ field: null, line: adminErrorLine(err) });
       setBusy(false);
       return;
     }
     onCreated(user);
-    let resetFailed: string | null = null;
-    if (mustChange) {
-      try {
-        user = await call('resetPassword', { user_id: user.id, password, must_change: true });
-        onCreated(user);
-      } catch (err) {
-        resetFailed = adminErrorLine(err);
-      }
-    }
-    setCreated({ user, password, mustChange: mustChange && resetFailed === null, resetFailed });
+    setCreated({ user, password, mustChange });
     setUsername('');
     setFullName('');
     setRole('scouter');
@@ -275,18 +270,8 @@ function CreateUser({ onCreated }: { onCreated: (user: PublicUser) => void }) {
           </p>
           <p className="mt-2 text-sm text-[var(--text-muted)]">
             Hand it over now. It is shown once and kept nowhere
-            {created.mustChange ? '; they choose their own at first sign-in.' : '.'}
+            {created.mustChange ? '; they choose their own at next sign-in.' : '.'}
           </p>
-          {created.resetFailed && (
-            <p
-              role="alert"
-              dir="auto"
-              className="mt-3 rounded-lg border-2 border-[var(--danger)] p-3 text-sm"
-            >
-              Account created, but the first-sign-in change could not be set. {created.resetFailed}{' '}
-              Reset their password from their page to try again.
-            </p>
-          )}
           <button
             type="button"
             className={`${SECONDARY_BUTTON} mt-3`}
@@ -322,7 +307,7 @@ function CreateUser({ onCreated }: { onCreated: (user: PublicUser) => void }) {
           errorId={errorId}
         />
         <Checkbox
-          label="Ask them to change it at first sign-in"
+          label="Ask them to change it at next sign-in"
           checked={mustChange}
           onChange={setMustChange}
         />

@@ -67,11 +67,32 @@ export const createUserInput = z.object({
   full_name: z.string().trim().min(1).max(80),
   role: userRoleSchema,
   password: passwordSchema,
+  /** Forces a change at first sign-in (spec §5.4 item 3), same as resetPassword's flag. */
+  must_change: z.boolean().default(false),
 });
 export type CreateUserInput = z.input<typeof createUserInput>;
 
 export const setUserRoleInput = z.object({ user_id: userId, role: userRoleSchema });
 export type SetUserRoleInput = z.input<typeof setUserRoleInput>;
+
+export const enableUserInput = z.object({ user_id: userId });
+export type EnableUserInput = z.input<typeof enableUserInput>;
+
+/**
+ * At least one of `username` or `full_name` (spec §5.4 item 3). The id never changes, so
+ * a rename does not move authorship. A username still goes through `usernameSchema`, so it
+ * is trimmed, lowercased and pattern-checked before the case-insensitive unique index runs.
+ */
+export const renameUserInput = z
+  .object({
+    user_id: userId,
+    username: usernameSchema.optional(),
+    full_name: z.string().trim().min(1).max(80).optional(),
+  })
+  .refine((value) => value.username !== undefined || value.full_name !== undefined, {
+    message: 'give a new username, a new full name, or both',
+  });
+export type RenameUserInput = z.input<typeof renameUserInput>;
 
 export const resetPasswordInput = z.object({
   user_id: userId,

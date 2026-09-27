@@ -8,6 +8,8 @@ import {
   changeOwnPassword,
   createUser,
   disableUser,
+  enableUser,
+  renameUser,
   resetPassword,
   setUserRole,
 } from '../core/commands/users.js';
@@ -107,6 +109,22 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     input: API.disableUser.input,
     output: API.disableUser.output,
     handler: disableUser,
+  },
+  enableUser: {
+    kind: 'command',
+    description:
+      'Admin only: re-enable a disabled user. Clears disabled_at only — it does not reset the password. A no-op on an already-enabled user.',
+    input: API.enableUser.input,
+    output: API.enableUser.output,
+    handler: enableUser,
+  },
+  renameUser: {
+    kind: 'command',
+    description:
+      "Admin only: change a user's username, full name, or both. The id never changes, so authorship is unaffected. A taken username reads as conflict.",
+    input: API.renameUser.input,
+    output: API.renameUser.output,
+    handler: renameUser,
   },
   listUsers: {
     kind: 'query',
