@@ -40,9 +40,17 @@ async function loadEvents(
 export function EventsPanel({
   seasonId,
   rpc = { call: defaultCall },
+  onChanged,
 }: {
   seasonId: string;
   rpc?: Rpc;
+  /**
+   * Called after a create, rename, reorder or "make the default" succeeds (task 1.21,
+   * following the pattern `SeasonsPanel`'s own `onChanged` set in task 1.20): `ManagePage`
+   * re-reads this season's events on it, so its Teams/Matches tabs' event picker and "create
+   * an event first" gate pick up the change without a reload.
+   */
+  onChanged?: () => void;
 }) {
   const online = useOnline();
   const [load, setLoad] = useState<Load>({ status: 'loading' });
@@ -87,6 +95,7 @@ export function EventsPanel({
     try {
       await rpc.call('reorderEvents', { season_id: seasonId, event_ids: order.map((e) => e.id) });
       reload();
+      onChanged?.();
     } catch (e) {
       setActionError(panelErrorLine(e));
     } finally {
@@ -100,6 +109,7 @@ export function EventsPanel({
     try {
       await rpc.call('setActiveEvent', { event_id: event.id });
       reload();
+      onChanged?.();
     } catch (e) {
       setActionError(panelErrorLine(e));
     } finally {
@@ -233,6 +243,7 @@ export function EventsPanel({
           onDone={() => {
             setForm({ kind: 'none' });
             reload();
+            onChanged?.();
           }}
           onCancel={() => setForm({ kind: 'none' })}
         />

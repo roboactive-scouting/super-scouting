@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { formatCount } from '@frc/shared';
 import { cachedRows } from '@/data/cache';
+import { matchLabel } from '@/lib/matchLabel';
 import { EntryPage } from './EntryPage';
 import { canSelfEdit, findLocalEntry, type Editor, type LocalEntry } from './localEntries';
 import type { SavedNotice } from './SelectRobotPage';
@@ -10,17 +11,6 @@ type MatchRow = { id: string; match_type: string; number: number };
 type TeamRow = { id: string; number: number; name: string };
 type FormRow = { id: string; kind: string; season_id: string; active_version_id: string | null };
 type AppSettingsRow = { active_season_id: string | null };
-
-const MATCH_TYPE_PREFIX: Record<string, string> = {
-  qualification: 'Q',
-  practice: 'P',
-  playoff: 'PO',
-};
-
-function matchLabel(match: MatchRow): string {
-  const prefix = MATCH_TYPE_PREFIX[match.match_type] ?? match.match_type;
-  return `${prefix}${formatCount(match.number)}`;
-}
 
 type Resolved = {
   formVersionId: string;

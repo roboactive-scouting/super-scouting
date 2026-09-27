@@ -3610,3 +3610,103 @@ Rejected:
 **What I did instead:** added an optional `onChanged?: () => void` prop to `SeasonsPanel`, called after a successful create, edit or "make active" (in addition to the panel's own `reload()`). `ManagePage` passes a callback that re-runs the same seasons/context fetch used on mount and re-derives `managedSeasonId` (kept if already chosen, else the active season, else the newest). Also gave the "Make … the default" and "Move … up/down" buttons in `EventsPanel` `dir="auto"` (an event name can be Hebrew) — spotted in the same review pass.
 
 **Risk:** none. Added `ManagePage.test.tsx` case: create a season from zero, switch tabs, confirm the Events tab renders (`listEvents` for the new season id) with no "Create a season first".
+
+## Task 1.21 — the "Add team" form is always visible, not behind a toggle
+
+**Plan said:** (task-1.21-addendum.md item 3) "A small 'Add team' form ... → `createTeam`, then re-list."
+
+**What was wrong:** the plan's own `TeamsPanel.test.tsx` types into "Team number" and "Team name" before ever clicking anything: `await user.type(await screen.findByLabelText(/team number/i), '5987')` is the test's first interaction. `SeasonsPanel`/`EventsPanel`'s own idiom — the create form hidden behind a "New season"/"New event" toggle button — would leave those fields absent until a toggle click the test never makes.
+
+**What I did instead:** `TeamsPanel` renders the number/name/"Add team" form unconditionally (it is the whole registry's only entry point, unlike a season or event, so there is no clutter concern a toggle would address).
+
+**Risk:** none.
+
+## Task 1.21 — the team registry is trusted in wire order, not re-sorted
+
+**Plan said:** (addendum item 3) "the global registry (`listTeams`, following `next_cursor` with a bound, as `listAllUsers` does)".
+
+**What was wrong:** `SeasonsPanel`/`EventsPanel` both re-sort their lists defensively rather than trust the wire. Doing the same for teams — re-sorting by number — breaks the plan's own "sends the whole roster when a team is added" test: its fixture returns `teams` with 2096 before 1577 (not ascending), and asserts `setEventRoster`'s `team_ids` come back as `['t-1', 't-2']` in that same (registry) order, not renumbered-ascending order.
+
+**What I did instead:** `teamsRegistry.ts`'s `loadAllTeams` concatenates pages in the order the server returns them and does not re-sort; `TeamsPanel` builds `setEventRoster`'s `team_ids` by filtering that same array, so the order it sends is the order the registry itself uses.
+
+**Risk:** low — relies on the real server actually returning `listTeams` by number (spec says it does); if it did not, the roster order sent to `setEventRoster` would simply follow whatever order the server chose, which the server treats as an unordered set (`Set` dedupe), so no behaviour depends on it.
+
+## Task 1.21 — `loadAllTeams`/`loadAllMatches` tolerate a page missing `items`/`next_cursor`
+
+**Plan said:** (addendum item 5) "treat missing `slots` as `[]` and a roster row without `number`/`name` as fine; do not crash on them."
+
+**What was wrong:** `MatchesPanel.test.tsx`'s own `rpcFor` mock does not stub `listTeams` at all (it falls through to `return {}`), but `MatchesPanel` needs the team registry to label a slot whose team has left the roster (addendum item 4, "off-roster slots"). Following `next_cursor` against a bare `{}` response (`page.items.push(...)`) throws.
+
+**What I did instead:** both `loadAllTeams` (`teamsRegistry.ts`) and `MatchesPanel`'s own `loadAllMatches` treat a page missing `items`/`next_cursor` as one empty, terminal page instead of crashing — consistent with the addendum's general instruction to tolerate a partial/absent shape from a test double.
+
+**Risk:** none — a real server always returns the full `{items, next_cursor}` shape.
+
+## Task 1.21 — `MatchesPanel` also follows `next_cursor` for `listMatches`
+
+**Plan said:** nothing explicit for `MatchesPanel`'s own list fetch (only common.md's general list-pagination rule: "default 50, max 200 — follow `next_cursor` ... with a bound").
+
+**What was wrong:** nothing failed a test, but a real event can have well over 50 matches (bulk-create alone goes up to 200 per type), and `listMatches`' default page is 50 — an admin editor that only ever requests page one would silently hide most matches.
+
+**What I did instead:** added `loadAllMatches`, following `next_cursor` bounded at `MAX_LISTED_MATCHES = 2000`, mirroring `useUsers.ts`'s `listAllUsers` and the new `loadAllTeams`.
+
+**Risk:** none.
+
+## Task 1.21 — per-field validation for `createMatchInput`/`updateMatchInput`, via `.innerType()`
+
+**Plan said:** (addendum items 3, 4, by analogy with task 1.20's own per-field pattern) validate the user-entered field before calling.
+
+**What was wrong:** two things, discovered in that order. First, validating the *whole* payload (`createMatchInput.safeParse({event_id: eventId, ...})`) refused every call in the plan's own tests, because `event_id`/`match_id` must be a real uuid on the shared schema and the plan's fixtures use short ids (`ev-1`, `m-1`) — the same class of problem task 1.20's `DEVIATIONS.md` entry ("edit/rename validate only the changed field") already covers for seasons/events. Second, once narrowed to validating only the one changed field, `createMatchInput.shape`/`updateMatchInput.shape` are both `undefined` at runtime — unlike `createSeasonInput`/`createEventInput`, these two schemas end in `.strict().refine(...)`, which wraps the `ZodObject` in a `ZodEffects`, and `.shape` only exists on the inner `ZodObject`.
+
+**What I did instead:** validate only the one user-entered field (`createMatchInput.innerType().shape.count`/`.number`, `updateMatchInput.innerType().shape.number`), reaching the wrapped object via zod's own `ZodEffects.innerType()`; `event_id`/`match_id`/`match_type` (the last already constrained to `MATCH_TYPES` by a `<select>`) are passed through unchecked, exactly as `EventsPanel`'s `reorderEvents`/`setActiveEvent` already do for ids.
+
+**Risk:** none for production ids/values; same as task 1.20's equivalent entry.
+
+## Task 1.21 — delete refusal surfaces through `ConfirmDialog`'s own `error`, not the panel's shared alert
+
+**Plan said:** (addendum item 4) "the server's refusal (409 when the match has entries) is shown verbatim in a `role=\"alert\"` via `panelErrorLine`" and, more generally, "Refusals from any action go to the panel's `role=\"alert\"` line".
+
+**What was wrong:** taken literally as "the same DOM alert `FormError` renders for every other action", this would put two `role="alert"` elements on screen at once whenever a delete is refused while the panel's own alert already holds unrelated state — and more concretely, `screen.findByRole('alert')` in the plan's own test ("shows the server message when a match with entries cannot be deleted") requires there to be exactly one.
+
+**What I did instead:** followed `UserDetailPage.tsx`'s `DisableSection` idiom instead — the dialog's own `error` prop (already exactly this: a `role="alert"` line for a destructive action's refusal, formatted with the same kind of error-line helper). `panelErrorLine` still formats the message; it just renders inside `ConfirmDialog`, the one place a delete's own refusal can appear without competing with the panel's general alert.
+
+**Risk:** none — matches an existing, tested pattern in this codebase.
+
+## Task 1.21 — `ConfirmDialog`'s `confirmLabel` is the bare verb "Delete", not "Delete <object>"
+
+**Plan said:** (`ConfirmDialog.tsx`'s own doc comment, unchanged by this task) "The destructive verb and its object: 'Disable Dana Cohen'. Never 'OK'."
+
+**What was wrong:** the plan's own test clicks `getByRole('button', { name: /^delete$/i })` — anchored, so "Delete match 1 (qualification)" would not match.
+
+**What I did instead:** used the bare verb "Delete" as `confirmLabel`; the object (the match, e.g. "Q1") is still named prominently in the dialog's own `objectName` (bold, above the body), which is the part of `ConfirmDialog` the "never a dead end / never ambiguous" concern is really about.
+
+**Risk:** none — the plan's literal test dictates this exact string.
+
+## Task 1.21 — two tests added beyond the plan's three, per the addendum's own instruction
+
+**Plan said:** (addendum item 4) "**Add a test for this**: a match that already has red 1 filled; setting blue 2 sends both slots." and "A slot whose `team_id` is not on the current roster must still show that team ... and be flagged ... **Add a test.**"
+
+**What was wrong:** nothing — the addendum explicitly asked for these two cases to be covered, beyond the plan's own three given tests.
+
+**What I did instead:** added "sends the full slot set when a second station is filled" (asserts `setMatchTeams` carries both the pre-existing red 1 slot and the newly set blue 2 slot) and "shows a slot whose team has since left the roster, flagged" (asserts the off-roster team still appears, selected, and the "<number> is not on this event's roster" line renders) to `MatchesPanel.test.tsx`.
+
+**Risk:** none.
+
+## Task 1.21 — `EventsPanel` gained an `onChanged` prop
+
+**Plan said:** (addendum item 2) "Re-fetch the event list when the Events tab reports a change (follow the `onChanged` pattern task 1.20 used for seasons), so an event created there shows up here without a reload."
+
+**What was wrong:** `EventsPanel` (task 1.20) had no `onChanged` prop — only `SeasonsPanel` did.
+
+**What I did instead:** added an optional `onChanged?: () => void` to `EventsPanel`, called (alongside its own `reload()`) after a successful create/rename (`EventForm`'s `onDone`), reorder (`move`) and "make the default" (`makeDefault`). `ManagePage` passes a callback that re-runs its own events/context fetch for the managed season, so the Roster/Matches tabs' "managed event" and event picker follow an Events-tab change without a reload — the same gap task 1.20's own review fix closed for seasons.
+
+**Risk:** none — optional prop, default `undefined`, existing `EventsPanel.test.tsx` cases pass it nothing.
+
+## Task 1.21 — `MATCH_TYPE_PREFIX`/`matchLabel` moved to `apps/client/src/lib/matchLabel.ts`
+
+**Plan said:** (addendum item 4) "reuse the same prefix convention as `EntryRoute.tsx`'s `MATCH_TYPE_PREFIX`; move it to a small shared helper if you touch it, without changing `EntryRoute` behaviour."
+
+**What was wrong:** nothing — this is the addendum's own instruction, logged per common.md ("Include trivial entries ... with why").
+
+**What I did instead:** created `apps/client/src/lib/matchLabel.ts` exporting `MATCH_TYPE_PREFIX` and `matchLabel()`, alongside the existing `apps/client/src/lib/useOnline.ts`. `EntryRoute.tsx` now imports `matchLabel` from there instead of keeping its own copy; its local `MatchRow`/`TeamRow` types are untouched (common.md: "do not import those" shared types), and its behaviour (the `Q12`/`P3`/`PO1` label text) is unchanged.
+
+**Risk:** none — pure move, `EntryRoute.test.tsx` (3 tests) still passes unchanged.

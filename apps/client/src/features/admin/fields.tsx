@@ -107,17 +107,67 @@ export function Checkbox(props: {
   label: ReactNode;
   checked: boolean;
   onChange: (checked: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
     <label className="tap-target mt-2 flex items-center gap-3">
       <input
         type="checkbox"
         checked={props.checked}
+        disabled={props.disabled}
         className="size-5 shrink-0 accent-[var(--text)]"
         onChange={(e) => props.onChange(e.target.checked)}
       />
       <span>{props.label}</span>
     </label>
+  );
+}
+
+/**
+ * A whole-number field (team numbers, match numbers, bulk counts — task 1.21): the
+ * numeric counterpart to `TextField`, kept free-text (`type="number"`) so an in-progress
+ * value like "" or a leading zero is never silently coerced before the caller validates it
+ * with the shared schema.
+ */
+export function NumberField(props: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  hint?: string;
+  invalid?: boolean;
+  errorId?: string;
+  /** A native `max`, shown to the browser's own spinner; the real ceiling is still the
+   * shared zod schema the caller validates with on submit. */
+  max?: number;
+}) {
+  const id = useId();
+  const hintId = `${id}-hint`;
+  const describedBy = [props.hint ? hintId : null, props.invalid ? props.errorId : null]
+    .filter(Boolean)
+    .join(' ');
+  return (
+    <div className="mt-4">
+      <label htmlFor={id} className="block text-sm font-medium">
+        {props.label}
+      </label>
+      <input
+        id={id}
+        type="number"
+        inputMode="numeric"
+        min={1}
+        max={props.max}
+        value={props.value}
+        aria-invalid={props.invalid || undefined}
+        aria-describedby={describedBy || undefined}
+        className={`${FIELD} mt-1`}
+        onChange={(e) => props.onChange(e.target.value)}
+      />
+      {props.hint && (
+        <p id={hintId} className="mt-1 text-sm text-[var(--text-muted)]">
+          {props.hint}
+        </p>
+      )}
+    </div>
   );
 }
 
