@@ -21,6 +21,7 @@ import {
   activeEvent,
   cachedDefaultEventId,
   cachedHydration,
+  lastHydratedEventId,
   syncNow,
   type HydrationState,
 } from '@/data/sync';
@@ -152,6 +153,8 @@ export function AppShell() {
   const scheduleRef = useRef<(() => void) | null>(null);
   /** A changed default held back because an entry was open when it arrived. */
   const pendingRef = useRef<{ eventId: string | null } | null>(null);
+  /** Applies a held move at once, outside the sync queue (branch review, finding 1). */
+  const applyHeldRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!hasSession) return;
@@ -187,10 +190,13 @@ export function AppShell() {
     /** Push, then pull, for the resolved event. `afterGone` allows one re-resolve only. */
     async function sync(eventId: string, afterGone: boolean): Promise<void> {
       const device = await deviceId();
-      // An unmounted shell (a sign-out, a route outside it) starts no new sync.
-      if (stopped) return;
+      // An unmounted shell (a sign-out, a route outside it) starts no new sync, and a
+      // shell that has moved on to another event starts none for this one.
+      if (stopped || active !== eventId) return;
       const outcome = await syncNow({ api, eventId, deviceId: device });
-      if (stopped) return;
+      // A stale answer (branch review, finding 1): a sync that hung while the shell moved
+      // to a new default must not settle the old event back, nor act on its default.
+      if (stopped || active !== eventId) return;
       if (outcome?.status === 'ok') {
         settle(eventId, 'fresh');
         return followDefault(eventId);
@@ -236,17 +242,36 @@ export function AppShell() {
      * server's own answer, so that is "no competition", and the next run re-asks.
      */
     async function moveTo(next: string | null, withToken: boolean): Promise<void> {
-      pendingRef.current = null;
-      setDeferred(false);
       // An override of the very event that is now the default is no override at all.
       if (next !== null && sessionOverride.get() === next) sessionOverride.clear();
-      if (next === null) return settle(null, 'no-event');
+      // The held flag is dropped only in the same tick as the new event settles: until
+      // then the gated routes show "moving", never the old event's pages.
+      if (next === null) {
+        pendingRef.current = null;
+        settle(null, 'no-event');
+        setDeferred(false);
+        return;
+      }
       const loaded = (await cachedHydration(next)) === 'cached';
       if (stopped) return;
+      pendingRef.current = null;
       setSwitchedTo(next);
       settle(next, loaded ? 'cached' : navigator.onLine ? 'loading' : 'blocked');
+      setDeferred(false);
       if (withToken) await sync(next, false);
     }
+
+    /**
+     * The entry route was left with a move held (branch review, finding 1): the new event
+     * settles NOW, outside the queue, where a sync hung on a dying venue connection
+     * cannot hold it back; its own sync is queued behind whatever is in flight.
+     */
+    applyHeldRef.current = () => {
+      if (pendingRef.current === null || onEntryRouteRef.current) return;
+      void moveTo(pendingRef.current.eventId, false).then(() => {
+        if (!stopped) schedule();
+      });
+    };
 
     /** Asks the server which event is active: the pull cannot say without an event id. */
     async function resolve(afterGone: boolean): Promise<void> {
@@ -285,8 +310,19 @@ export function AppShell() {
         cacheRead = true;
         known = await cachedDefaultEventId();
         const cachedId = known ?? null;
-        if (cachedId !== null && (await cachedHydration(cachedId)) === 'cached') {
+        const hydratedId = await lastHydratedEventId();
+        if (cachedId !== null && hydratedId === cachedId) {
           settle(cachedId, 'cached');
+        } else if (known !== undefined && hydratedId !== null) {
+          // Branch review, finding 2: the default moved since this device last loaded an
+          // event, and the app restarted before the move was made (the held move lived in
+          // memory). Start on the event that IS loaded, with the move to the new default
+          // held — the deferred state exactly. An open entry finishes against its event
+          // from the cache, online, offline or with an expired session; anywhere else the
+          // move is applied at once, below.
+          settle(hydratedId, 'cached');
+          pendingRef.current = { eventId: cachedId };
+          setDeferred(true);
         }
       }
       // Read fresh each time: the token can expire (or be refreshed) between runs.
@@ -344,6 +380,7 @@ export function AppShell() {
     return () => {
       stopped = true;
       scheduleRef.current = null;
+      applyHeldRef.current = null;
       clearInterval(timer);
       window.removeEventListener('online', schedule);
       unsubscribe();
@@ -360,7 +397,10 @@ export function AppShell() {
     const previous = lastPath.current;
     lastPath.current = location.pathname;
     if (previous === null || previous === location.pathname) return;
-    if (navigator.onLine || pendingRef.current !== null) scheduleRef.current?.();
+    // Leaving the entry route with a move held: the move itself, at once. Offline too —
+    // new entries must not keep going to the old event while a connection is awaited.
+    if (pendingRef.current !== null && !onEntryRouteRef.current) applyHeldRef.current?.();
+    else if (navigator.onLine) scheduleRef.current?.();
   }, [location.pathname]);
 
   // SPEC-FINAL 9.3: pull-to-refresh — a drag down from the very top of the page, once per
@@ -400,7 +440,10 @@ export function AppShell() {
   // match list that never fills itself in. The gate takes the Outlet's place INSIDE the
   // layout, so the header (and the Users link) stays reachable.
   const loaded = gate.state === 'cached' || gate.state === 'fresh';
-  const showPage = !gated || loaded;
+  // A move is held but no entry is open: the few milliseconds before the new event
+  // settles. The gated pages would still be the old event's, so they wait (finding 1).
+  const moving = deferred && !onEntryRoute;
+  const showPage = !gated || (loaded && !moving);
   const workingOn = eventName ?? 'this competition';
   const lookingAt = override?.eventName ?? 'another competition';
 
@@ -504,6 +547,10 @@ export function AppShell() {
           change and would throw away a part-filled form ('cached' → 'fresh'). */}
       {showPage ? (
         <Outlet context={context} />
+      ) : moving ? (
+        <p className="p-8 text-center text-[var(--text-muted)]">
+          Moving to the new default competition…
+        </p>
       ) : (
         <HydrationGate
           state={gate.state}

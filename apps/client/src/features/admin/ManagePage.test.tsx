@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -115,5 +115,78 @@ describe('ManagePage', () => {
     await user.click(screen.getByRole('tab', { name: 'Events' }));
     await waitFor(() => expect(call).toHaveBeenCalledWith('listEvents', { season_id: 's-new' }));
     expect(screen.queryByText(/create a season first/i)).not.toBeInTheDocument();
+  });
+});
+
+// Branch review, finding 6: an Events-tab refresh started for one season must never land
+// after the admin has picked another, or Roster/Matches would edit the other season's event.
+describe('ManagePage and a stale events refresh', () => {
+  it('drops a refresh for season X once season Y is selected', async () => {
+    const seasons = [
+      {
+        id: 's-x',
+        year: 2026,
+        game_name: 'CRESCENDO',
+        field_image_path: 'seasons/2026/field.webp',
+      },
+      {
+        id: 's-y',
+        year: 2025,
+        game_name: 'REEFSCAPE',
+        field_image_path: 'seasons/2026/field.webp',
+      },
+    ];
+    const eventsOf: Record<
+      string,
+      Array<{ id: string; season_id: string; name: string; sort_order: number }>
+    > = {
+      's-x': [{ id: 'ex-1', season_id: 's-x', name: 'Week 1', sort_order: 1 }],
+      's-y': [
+        { id: 'ey-1', season_id: 's-y', name: 'Champs', sort_order: 1 },
+        { id: 'ey-2', season_id: 's-y', name: 'Offseason', sort_order: 2 },
+      ],
+    };
+    let holdX = false;
+    const heldX: Array<() => void> = [];
+    const call = vi.fn(async (name: string, input?: unknown) => {
+      if (name === 'listSeasons') return { items: seasons, next_cursor: null };
+      if (name === 'getActiveContext') return { active_season_id: 's-x', active_event_id: 'ex-1' };
+      if (name === 'createEvent') {
+        holdX = true;
+        return { id: 'ex-2', season_id: 's-x', name: 'Week 2', sort_order: 2 };
+      }
+      if (name === 'listEvents') {
+        const seasonId = (input as { season_id: string }).season_id;
+        const answer = { items: eventsOf[seasonId] ?? [], next_cursor: null };
+        if (seasonId === 's-x' && holdX) {
+          return new Promise((resolve) => heldX.push(() => resolve(answer)));
+        }
+        return answer;
+      }
+      if (name === 'listEventRoster') return { items: [], next_cursor: null };
+      if (name === 'listTeams') return { items: [], next_cursor: null };
+      if (name === 'listMatches') return { items: [], next_cursor: null };
+      return {};
+    });
+    const user = userEvent.setup();
+    renderWithCall('admin', call);
+
+    await user.click(await screen.findByRole('tab', { name: 'Events' }));
+    await user.click(await screen.findByRole('button', { name: 'New event' }));
+    await user.type(screen.getByLabelText('Name'), 'Week 2');
+    await user.click(screen.getByRole('button', { name: 'Create event' }));
+    await waitFor(() => expect(heldX.length).toBeGreaterThan(0));
+
+    await user.selectOptions(screen.getByLabelText('Season'), 's-y');
+    await waitFor(() => expect(call).toHaveBeenCalledWith('listEvents', { season_id: 's-y' }));
+    // The refresh for X answers only now, after Y was chosen.
+    await act(async () => {
+      for (const release of heldX) release();
+    });
+
+    await user.click(screen.getByRole('tab', { name: 'Matches' }));
+    const eventPicker = await screen.findByLabelText('Event');
+    expect(eventPicker).toHaveValue('ey-1');
+    expect(screen.queryByRole('option', { name: 'Week 1' })).not.toBeInTheDocument();
   });
 });

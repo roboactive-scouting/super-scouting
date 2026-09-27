@@ -159,3 +159,30 @@ describe('ContextPage beyond the plan (task-1.22 addendum A)', () => {
     expect(document.querySelector('select')).toBeNull();
   });
 });
+
+describe('ContextPage when the default moves while it is open (branch review, finding 4)', () => {
+  it('reads the default again when an event is chosen', async () => {
+    const user = userEvent.setup();
+    render(<ContextPage rpc={unreachableRpc} />);
+    await screen.findByRole('button', { name: /week 3/i });
+
+    // The admin moves the default to Week 3; the shell's pull caches it.
+    await db.rows.put({
+      entity: 'app_settings',
+      id: 'true',
+      active_season_id: 's-1',
+      active_event_id: 'e-2',
+    });
+
+    // Choosing the real default is no override at all.
+    await user.click(screen.getByRole('button', { name: /week 3/i }));
+    expect(sessionOverride.get()).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /week 3/i })).toHaveTextContent(/current/i),
+    );
+
+    // The old default is now the other competition.
+    await user.click(screen.getByRole('button', { name: /week 1/i }));
+    expect(sessionOverride.get()).toBe('e-1');
+  });
+});

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { session } from '@/auth/session';
 
 let overriddenEventId: string | null = null;
 /** The chosen event's name, for the notices that name it. In memory, like the id. */
@@ -29,6 +30,21 @@ export const sessionOverride = {
     return () => listeners.delete(listener);
   },
 };
+
+/**
+ * The override belongs to the person who chose it (branch review, finding 5). On a shared
+ * tablet a sign-out, or Switch scouter handing the device to someone else, clears it, so
+ * the next scouter never inherits a paused Scout page and someone else's banner. A new
+ * token for the same person (a reconnect, a refresh) or an expiry keeps it.
+ */
+let lastUserId: string | null | undefined;
+session.subscribe((next) => {
+  const userId = next?.user.id ?? null;
+  if (userId === null || (lastUserId !== undefined && userId !== lastUserId)) {
+    if (overriddenEventId !== null) sessionOverride.clear();
+  }
+  lastUserId = userId;
+});
 
 export function entryCreationAllowed(): boolean {
   return overriddenEventId === null;

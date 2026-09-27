@@ -144,8 +144,16 @@ export function ContextPage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
   const chosenSeason = seasons.find((s) => s.id === chosenSeasonId) ?? null;
   const shownEvents = [...(chosenSeasonId ? (events[chosenSeasonId] ?? []) : [])].sort(bySortOrder);
 
-  function choose(event: EventCard) {
-    if (event.id === defaultEventId) sessionOverride.clear();
+  /**
+   * The default is read again at the moment of choosing (branch review, finding 4): the
+   * admin can move it while this page is open, and the shell follows. Judged against the
+   * page's first read, the new default would become an "override" that pauses entries on
+   * the very competition they belong to.
+   */
+  async function choose(event: EventCard) {
+    const latest = (await cachedRows<AppSettings>('app_settings'))[0] ?? null;
+    setSettings(latest);
+    if (event.id === (latest?.active_event_id ?? null)) sessionOverride.clear();
     else sessionOverride.set(event.id, event.name);
   }
 
@@ -259,7 +267,7 @@ export function ContextPage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
                       aria-pressed={isCurrent}
                       disabled={!online && !isDefault}
                       className={`${CARD} ${isCurrent ? CARD_SELECTED : ''}`}
-                      onClick={() => choose(event)}
+                      onClick={() => void choose(event)}
                     >
                       <span dir="auto" className="text-lg font-semibold">
                         {event.name}

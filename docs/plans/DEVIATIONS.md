@@ -3946,3 +3946,107 @@ Rejected:
 **What I did instead:** in both tests, replaced the bare `screen.findByRole('alert')` with a `waitFor` that calls `screen.getAllByRole('alert')` and picks the one whose text contains the expected server-error sentence, leaving every assertion on that alert's content unchanged.
 
 **Risk:** none — the fix only narrows which alert is asserted on; it does not weaken either assertion.
+
+## Task 1.22 (branch review, finding 1) — a held move is applied at once, outside the sync queue, and a stale sync settles nothing
+
+**Plan said:** (addendum C.11) apply the deferred switch "on the next `schedule()` after the pathname leaves the entry route".
+
+**What was wrong:** from the branch review: "leaving the entry route only calls `schedule()`, so the move runs in the same promise queue as every sync, and `api.push`/`api.pull` put no deadline on `fetch`". A 45 s tick's `sync(A)` hung on a dying venue connection while the move waited behind it. Scout rendered for A, ungated, and new entries attached to A, which was no longer the default.
+
+**What I did instead:** three changes.
+- (a) Leaving the entry route with a move held calls the loop's `applyHeld` (exposed through a ref), which runs `moveTo(new, false)` at once — settling the new event without waiting on the queue — and then queues its sync.
+- (b) `sync()` checks `active !== eventId` after reading the device id and again after `syncNow` returns. A shell that has moved on settles nothing, shows no gone-notice and calls no `followDefault`.
+- (c) While a move is held and the route is not the entry route, gated routes show one line, "Moving to the new default competition…", instead of the page. `moveTo` now drops the held flag in the same tick as the new event settles, so no frame shows the old event's pages.
+
+Test: after a deferral, a `sync(A)` that hangs; the scout leaves the entry route. The shell names Week 3 at once and shows the loading gate. A's late `OK` is ignored, B then loads, and A's picker is never rendered. Each of (a) and (b) was removed in turn, and each removal fails the test.
+
+**Rejected:** a deadline on `fetch` alone — it would shorten the window, not close it.
+
+**Risk:** low. A second `moveTo` for the same event (a queued run that also saw the held move) settles the same state again.
+
+## Task 1.22 (branch review, finding 2) — a restart with a default move pending starts on the loaded event, with the move held
+
+**Plan said:** nothing. The held move lived in memory only.
+
+**What was wrong:** from the branch review: after a restart `pendingRef` is gone, `known` is the cached default B, and `cachedHydration(B)` is `blocked` (HYDRATED is still A), so nothing settles. Offline, `resolve()` settles `(null, 'blocked')` and the entry route shows "has not loaded the competition yet" with A fully cached and the draft present. With an expired session, `noEvent` sends the entry to `/login`. Online, it works only if B's full pull completes.
+
+**What I did instead:** at the first cache read, if the cached default differs from `sync.hydrated_event_id` (and a row and a hydrated event exist), the shell settles the hydrated event A as `'cached'` with the move to the default held — the deferred state exactly. On the entry route the form finishes against A from the cache, online, offline or expired. Anywhere else the run applies the move at once, as before: online B loads; offline B is `'blocked'`, which is correct, since there is nothing to scout into. New helper: `lastHydratedEventId()` in `data/sync.ts`. Tests:
+- an offline restart on the entry route mounts the form with its draft;
+- an expired-session restart mounts it with no `/login` redirect and no sync;
+- an online restart on Scout moves to B and never renders A's picker.
+
+All three failed before the change.
+
+**Rejected:**
+- Show the "not loaded" gate. It strands a cached draft.
+- Persist the pending move in `meta`. Redundant: the cached default against the hydrated id already encodes it.
+
+**Risk:** low. The entry route on A with a move held is the same state the deferral already tests.
+
+## Task 1.22 (branch review, finding 3) — MatchesPanel tracks each match's slot request, not one shared busy id
+
+**Plan said:** (task 1.21) a single `busyId`.
+
+**What was wrong:** from the branch review: "`busyId` is one value, and each request's `finally` sets it to `null`", even when another match's request is still out. A finishing request re-enabled a row whose closure still held stale slots. The next change sent that stale full set, and `setMatchTeams` replaces the whole set, so the server cleared a slot.
+
+**What I did instead:** `busyIds` is a `Set` of match ids. A row's selects are disabled while its own request is in flight. A response is adopted only when its `id` is that match's. On a refusal or no answer, the panel lists the matches again and adopts that match's server state. Tests:
+- two overlapping changes on two matches: the second row stays disabled until its own answer, and the third change sends Q2's full current set;
+- a refused change re-lists the match and shows the server's slots.
+
+Both failed on the old code.
+
+**Rejected:** disabling every slot select while any request is in flight. It is safe, but it stalls row-by-row schedule filling on a slow link.
+
+**Risk:** none.
+
+## Task 1.22 (branch review, finding 4) — the context page reads the default again when an event is chosen
+
+**Plan said:** the page reads the cached `app_settings` once.
+
+**What was wrong:** from the branch review: with the page open, a default move from A to B left A marked Default/Current. Tapping B called `sessionOverride.set(B)`, which paused entries on the real default.
+
+**What I did instead:** `choose()` re-reads the cached `app_settings` first and updates the page's markers. Choosing the current default clears the override; anything else sets it. Test: the cached default moves to Week 3 while the page is open. Choosing Week 3 leaves no override and moves the Current marker; choosing Week 1 then sets the override. The test failed before the change.
+
+**Risk:** low. `choose` is now async (one cached read). The plan's cases that assert the override right after a click still pass. They ran repeatedly and in the full suite with no flake.
+
+## Task 1.22 (branch review, finding 5) — a sign-out or a scouter switch clears the session override
+
+**Plan said:** nothing.
+
+**What was wrong:** from the branch review: "the override is module memory, and nothing clears it when the session changes". The next scouter on a shared tablet inherited the override banner and a paused Scout page.
+
+**What I did instead:** `sessionOverride.ts` subscribes to `session` at module load. The override is cleared when the session ends, or when the signed-in user id changes (Switch scouter signs the next person in). A new token or an expiry for the same person keeps it. New `sessionOverride.test.ts` covers sign-out, a switch to another user, and a refresh or expiry for the same user. The first two failed before the change.
+
+**Rejected:** clearing it inside `session.signOut`/`signIn`. That would make the auth module import a feature module.
+
+**Risk:** none.
+
+## Task 1.22 (branch review, finding 6) — ManagePage drops an events refresh for a season that is no longer selected
+
+**Plan said:** (task 1.21) `onChanged={() => refreshEvents(managedSeasonId, () => true)}`.
+
+**What was wrong:** from the branch review: with no liveness check, a refresh for season X that resolved after the admin picked season Y wrote X's events, and possibly `managedEventId`, while Y was selected. The Roster and Matches tabs then edited the other season's event.
+
+**What I did instead:** a `managedSeasonRef` mirrors the selected season on every render. The Events tab's `onChanged` passes `() => managedSeasonRef.current === seasonId` as the liveness check. Test: a create in X whose refresh is held, a switch to Y, then the X answer is released. The Matches tab's event picker still shows Y's event, and no option names X's. The test failed before the change.
+
+**Risk:** none.
+
+## Task 1.22 (branch review, finding 7) — FieldImage fails loudly when a listed image does not load
+
+**Plan said:** (task 1.23) the alert only for a path not in the manifest.
+
+**What was wrong:** from the branch review: "There is no `onError`". A listed image that 404s, or was never precached on a device first opened offline, rendered a broken `<img>`, not the named-path error §16.7 requires.
+
+**What I did instead:** the image's `error` event records the failed path, and the component renders the same `role="alert"` naming it — the same state as a missing manifest entry. A caller's own `onError` still runs. A different path gets its own attempt. Test: `fireEvent.error` on the image shows the alert with the path, and the image is gone.
+
+**Risk:** none.
+
+## Task 1.22 (branch review, finding 8) — OPEN, not fixed: after a default move, the old event's unsynced entries vanish from Entries
+
+**Plan said:** nothing.
+
+**What was wrong:** from the branch review: `EntriesPage` filters by the shell's event (`EntriesPage.tsx:39`). After a move from A to B, A's entries that are still in the outbox, or were rejected, no longer show, so the scout cannot see the sync state of work that is still pending.
+
+**What I did instead:** nothing in code, by decision. This is logged open for phase 1F's sync-status surface (SPEC-FINAL 9.10); the orchestrator records it in the spec.
+
+**Risk:** a scout cannot see, on Entries, that A's work has not synced. The outbox still keeps it and pushes it: the push is event-independent.

@@ -155,8 +155,12 @@ export async function hydrate(deps: SyncDeps): Promise<HydrationState> {
  * (expired, or an offline sign-in in task 1.16), where a pull could only answer 401.
  */
 export async function cachedHydration(eventId: string): Promise<'cached' | 'blocked'> {
-  const hydratedEventId = await getMeta<string | null>(HYDRATED, null);
-  return hydratedEventId === eventId ? 'cached' : 'blocked';
+  return (await lastHydratedEventId()) === eventId ? 'cached' : 'blocked';
+}
+
+/** The event whose pull last completed on this device, or null when none has. */
+export async function lastHydratedEventId(): Promise<string | null> {
+  return getMeta<string | null>(HYDRATED, null);
 }
 
 /**

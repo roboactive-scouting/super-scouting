@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { EventRow, SeasonRow } from '@frc/shared';
 import { FIELD } from '@/components/buttonStyles';
 import { StateMessage } from '@/components/StateMessage';
@@ -35,6 +35,13 @@ export function ManagePage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
   // else the newest, else none. Chosen once seasons are known, then left to the admin's
   // own selection (task 1.20).
   const [managedSeasonId, setManagedSeasonId] = useState<string | null>(null);
+  /**
+   * The managed season as of the latest render (branch review, finding 6): an Events-tab
+   * refresh started for season X must not land once the admin has picked season Y, or
+   * the Roster and Matches tabs would edit an event of the other season.
+   */
+  const managedSeasonRef = useRef<string | null>(managedSeasonId);
+  managedSeasonRef.current = managedSeasonId;
   const [events, setEvents] = useState<EventRow[] | null>(null);
   // The event the Roster/Matches tabs manage (task 1.21 addendum): the active event if it
   // belongs to the managed season, else that season's first event by sort_order, else none.
@@ -167,7 +174,10 @@ export function ManagePage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
               <EventsPanel
                 seasonId={managedSeasonId}
                 rpc={rpc}
-                onChanged={() => refreshEvents(managedSeasonId, () => true)}
+                onChanged={() => {
+                  const seasonId = managedSeasonId;
+                  refreshEvents(seasonId, () => managedSeasonRef.current === seasonId);
+                }}
               />
             </>
           ) : (

@@ -115,7 +115,13 @@ export function MatchesPanel({
   const [load, setLoad] = useState<Load>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  /**
+   * Every match with a slot request in flight (branch review, finding 3). One shared value
+   * let a finishing request re-enable ANOTHER match's row while its own request was still
+   * out, and that row's next change then sent a stale full slot set, which the server
+   * applies as a replacement, silently clearing a slot.
+   */
+  const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(() => new Set());
   const singleTypeId = useId();
 
   // Bulk create (by count).
@@ -232,23 +238,35 @@ export function MatchesPanel({
   ) {
     const others = match.slots.filter((s) => !(s.alliance === alliance && s.station === station));
     const slots = teamId ? [...others, { alliance, station, team_id: teamId }] : others;
-    setBusyId(match.id);
+    setBusyIds((prev) => new Set(prev).add(match.id));
     setError(null);
+    const adopt = (row: MatchRow) =>
+      setLoad((prev) =>
+        prev.status === 'ready'
+          ? { ...prev, matches: prev.matches.map((m) => (m.id === row.id ? row : m)) }
+          : prev,
+      );
     try {
       const updated = (await rpc.call('setMatchTeams', { match_id: match.id, slots })) as
         MatchRow | undefined;
-      if (updated?.id) {
-        const withSlots = { ...updated, slots: updated.slots ?? [] };
-        setLoad((prev) =>
-          prev.status === 'ready'
-            ? { ...prev, matches: prev.matches.map((m) => (m.id === withSlots.id ? withSlots : m)) }
-            : prev,
-        );
-      }
+      // Only this match's own answer is adopted, and only onto this match.
+      if (updated?.id === match.id) adopt({ ...updated, slots: updated.slots ?? [] });
     } catch (e) {
       setError(panelErrorLine(e));
+      // Refused or unanswered: what the server holds for this match is unknown here, so
+      // it is listed again rather than trusting the slots on screen.
+      try {
+        const fresh = (await loadAllMatches(rpc, eventId)).find((m) => m.id === match.id);
+        if (fresh) adopt(fresh);
+      } catch {
+        // Still unreachable: the error line above already says so.
+      }
     } finally {
-      setBusyId(null);
+      setBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(match.id);
+        return next;
+      });
     }
   }
 
@@ -434,7 +452,7 @@ export function MatchesPanel({
                   roster={load.roster}
                   teamsById={teamsById}
                   rosterIds={rosterIds}
-                  busy={busyId === match.id}
+                  busy={busyIds.has(match.id)}
                   onSlotChange={(alliance, station, teamId) =>
                     void changeSlot(match, alliance, station, teamId)
                   }

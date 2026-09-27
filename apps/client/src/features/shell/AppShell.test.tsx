@@ -85,11 +85,12 @@ function ScoutProbe() {
 /** The entry stand-in: the event it was handed, and a field that writes a real draft. */
 function EntryProbe() {
   const eventId = useActiveEventId();
-  const { save } = useDraft(DRAFT_KEY);
+  const { draft, save } = useDraft(DRAFT_KEY);
   return (
     <div>
       <p>{ENTRY_CHILD}</p>
       <p>entry for {eventId}</p>
+      <p>draft notes: {String(draft?.notes ?? '')}</p>
       <label>
         Notes
         <input onChange={(e) => save({ notes: e.target.value })} />
@@ -769,6 +770,37 @@ describe('AppShell and a changed default (task 1.22)', () => {
     expect(await db.drafts.get(DRAFT_KEY)).toMatchObject({ payload: { notes: 'fast' } });
   });
 
+  it('moves at once on leaving the entry, even while a sync of the old event hangs', async () => {
+    const router = renderShell('/entry/m-1/t-1');
+    await screen.findByLabelText('Notes');
+    await waitFor(() => expect(syncNow).toHaveBeenCalledTimes(1));
+    serverDefault = OTHER_EVENT;
+    await reconnect();
+    await screen.findByText(/the default competition has changed/i);
+
+    // A dying venue connection: the next sync of A does not answer until the test says so.
+    const hung = deferred<SyncOutcome>();
+    const answer = syncNow.getMockImplementation()!;
+    syncNow.mockImplementation((deps) => (deps.eventId === EVENT ? hung.promise : answer(deps)));
+    await reconnect();
+    await waitFor(() => expect(syncNow).toHaveBeenCalledTimes(3));
+
+    const oldPicker = watchFor(new RegExp(`working on ${EVENT}`));
+    await act(() => router.navigate('/'));
+
+    // The shell is on B at once; B was never loaded here, and its sync waits behind A's.
+    expect(
+      await screen.findByRole('link', { name: /working on week 3 · change/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(LOADING)).toBeInTheDocument();
+
+    // A's answer arrives late, and is ignored: it never settles the shell back on A.
+    await act(async () => hung.settle(OK));
+    expect(await screen.findByText(`working on ${OTHER_EVENT}`)).toBeInTheDocument();
+    oldPicker.stop();
+    expect(oldPicker.seen.ever).toBe(false);
+  });
+
   it('moves even offline once the entry is left, rather than keep scouting into the old event', async () => {
     const router = renderShell('/entry/m-1/t-1');
     await screen.findByLabelText('Notes');
@@ -933,5 +965,58 @@ describe('AppShell footer and notices (SPEC-FINAL 9.1, 9.3)', () => {
     ).toBeInTheDocument();
     expect(await screen.findByText(`working on ${EVENT}`)).toBeInTheDocument();
     expect(await db.rows.where('event_id').equals(OTHER_EVENT).count()).toBe(0);
+  });
+});
+
+describe('AppShell restarted with a default move pending (branch review, finding 2)', () => {
+  // The pull that brought B landed, then the tablet restarted before the move was made:
+  // B is the cached default, but A is the event this device has loaded.
+  beforeEach(async () => {
+    await hydratedFor(EVENT);
+    await cacheEventNames();
+    await db.rows.put({
+      entity: 'app_settings',
+      id: 'true',
+      active_season_id: SEASON,
+      active_event_id: OTHER_EVENT,
+    });
+    await db.drafts.put({
+      key: DRAFT_KEY,
+      row_id: '',
+      payload: { notes: 'fast' },
+      updated_at: '2026-09-27T10:00:00.000Z',
+    });
+  });
+
+  it('offline, reopens the entry against the loaded event, with its draft', async () => {
+    online = false;
+    server.reachable = false;
+    renderShell('/entry/m-1/t-1');
+    expect(await screen.findByText(`entry for ${EVENT}`)).toBeInTheDocument();
+    expect(await screen.findByText('draft notes: fast')).toBeInTheDocument();
+    expect(screen.getByText(/the default competition has changed/i)).toBeInTheDocument();
+    expect(screen.queryByText(/has not loaded the competition/i)).not.toBeInTheDocument();
+  });
+
+  it('with an expired session, reopens the entry and never sends it to sign-in', async () => {
+    await session.expire();
+    renderShell('/entry/m-1/t-1');
+    expect(await screen.findByText(`entry for ${EVENT}`)).toBeInTheDocument();
+    expect(await screen.findByText('draft notes: fast')).toBeInTheDocument();
+    expect(screen.queryByText('the login page')).not.toBeInTheDocument();
+    expect(syncNow).not.toHaveBeenCalled();
+  });
+
+  it('online on Scout, moves to the new default straight away', async () => {
+    syncNow.mockImplementation(async (deps) => {
+      await setMeta('sync.hydrated_event_id', deps.eventId);
+      return OK;
+    });
+    const oldPicker = watchFor(new RegExp(`working on ${EVENT}`));
+    renderShell('/');
+    expect(await screen.findByText(`working on ${OTHER_EVENT}`)).toBeInTheDocument();
+    expect(syncNow.mock.calls.map(([d]) => d.eventId)).toEqual([OTHER_EVENT]);
+    oldPicker.stop();
+    expect(oldPicker.seen.ever).toBe(false);
   });
 });
