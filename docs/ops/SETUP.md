@@ -71,6 +71,10 @@ Then fill them in:
 - `apps/client/.env` — `VITE_API_BASE_URL=http://localhost:3000` and any
   `VITE_DEVICE_WIPE_CODE`. Leave `VITE_APP_VERSION` empty; the build fills it in.
 
+Start the server with `pnpm --filter @frc/server dev`. It reads `apps/server/.env`
+itself (Node's `--env-file`), so there is nothing to export first. Never `source` the
+file.
+
 **Local always points at the dev Supabase project. Never production.** Both `.env`
 files are matched by `.gitignore`'s `.env.*` rule and cannot be committed; the
 `.env.example` templates beside them are generated from `ENVIRONMENT.md` by
