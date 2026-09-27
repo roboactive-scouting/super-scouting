@@ -3093,3 +3093,13 @@ Choices the brief left open:
 **What I did instead:** left `fake-context.ts` unchanged and added the two server tests the brief asked for (`refuses a rename to a taken username in any case`, parametrised over `Dana`/`DANA`/` dana `; and the pre-check-bypass race test) to prove the existing code already does this rather than assuming it.
 
 **Risk:** none.
+
+## Follow-up to task 1.17b — the server's `dev` script now loads `.env`
+
+**Plan said:** nothing. Task 1.17b's entry left the script as is, because fixing it was outside that task.
+
+**What was wrong:** `pnpm --filter @frc/server dev` ran `tsx watch src/dev-server.ts`, which never reads `apps/server/.env`, so the server died at startup with `Error: Server environment is not usable. Fix these variables (see docs/ops/ENVIRONMENT.md): SUPABASE_URL: Required …`.
+
+**What I did instead:** changed the script to `tsx watch --env-file=.env src/dev-server.ts`. pnpm runs it from `apps/server`, so the relative path resolves there, and Node reads the file itself (BUILD-CONTEXT §3). Proven by starting it with the plain command and fetching `http://localhost:3000/health`, which returned `{"status":"ok","database":"ok",…}`. `SETUP.md` "Running it locally" gains one line.
+
+**Risk:** Node's `--env-file` fails at startup if `apps/server/.env` is missing. That is the right failure: with no file, the server has no usable environment.

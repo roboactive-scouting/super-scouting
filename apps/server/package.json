@@ -7,7 +7,7 @@
     "node": ">=22.0.0 <23"
   },
   "scripts": {
-    "dev": "tsx watch src/dev-server.ts",
+    "dev": "tsx watch --env-file=.env src/dev-server.ts",
     "build": "tsc --noEmit && node scripts/build-function.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --no-error-on-unmatched-pattern"
