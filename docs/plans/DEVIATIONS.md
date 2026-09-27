@@ -3906,3 +3906,43 @@ Rejected:
 **Rejected:** refusing every entry whose match is not the default's. That would strand the part-filled form the rule exists to protect.
 
 **Risk:** low. Reading the season from the event row also closes the entry → entry edge noted in the first report. A match row with no `event_id` falls back to the shell's event, which is the old behaviour.
+
+## Task 1.23 — vite.config.ts precache test already existed
+
+**Plan said:** Step 1's file list has `apps/client/vite.config.ts` as a file this task modifies (precache `seasons/**/*.webp`), and the orchestrator addendum says to add a test proving the season images are precached if none exists, changing `vite.config.ts` only if the existing glob does not cover it.
+
+**What was wrong:** nothing wrong — `workbox.globPatterns` in `vite.config.ts` is already `['**/*.{js,css,html,woff2,webp,png,svg}']`, which covers any `seasons/**/*.webp` path, and `apps/client/src/manifest.test.ts` already has a test, `'precaches the app shell, the fonts and the season game images'`, asserting `globPatterns`/`webp` are present.
+
+**What I did instead:** left `vite.config.ts` and `manifest.test.ts` untouched.
+
+**Risk:** none.
+
+## Task 1.23 — SETUP.md new-season checklist already complete
+
+**Plan said:** modify `docs/ops/SETUP.md` to add a new-season checklist line about committing the image and redeploying.
+
+**What was wrong:** nothing wrong — the "New-season checklist" section's step 1 already says to commit `apps/client/public/seasons/<year>/field.webp`, run `pnpm season:images`, redeploy the client, and (for the server's bundled copy of the manifest) rebuild and redeploy the server too.
+
+**What I did instead:** left `SETUP.md` unchanged.
+
+**Risk:** none.
+
+## Task 1.23 — seed season image path
+
+**Plan said:** nothing (this file isn't in the plan's file list); orchestrator addendum item 4 directs pointing the dev seed season's `field_image_path` at `SEASON_IMAGE_MANIFEST[0]` instead of the literal `seasons/1999/field.webp`, keeping the seed year at 1999, and updating any seed test that asserts the old path.
+
+**What was wrong:** `packages/db/src/seed/seed.ts` built the seed season's `field_image_path` as `` `seasons/${SEED.year}/field.webp` `` (i.e. `seasons/1999/field.webp`), which is not a committed image, so a freshly seeded dev database would show the fail-loud missing-image state forever with no way to clear it from the UI (the season has entries by the time anyone notices, and `updateSeason` refuses to change the image once entries exist).
+
+**What I did instead:** imported `SEASON_IMAGE_MANIFEST` from `@frc/shared` (already a dependency of `@frc/db`) and set `field_image_path: SEASON_IMAGE_MANIFEST[0]`. Searched for a seed test asserting the old path (`grep -rn "seasons/1999" --include="*.ts"`); the only hits are in `apps/server/src/core/commands/seasons.test.ts`, which seeds its own in-memory fixture rows directly (`seedSeason(SE_2, 1999, 'seasons/1999/field.webp')`) and is unrelated to `packages/db`'s seed script, so nothing needed updating. `packages/db/test/seed.itest.ts` does not assert `field_image_path` at all.
+
+**Risk:** none — per the addendum, SPEC-FINAL 16.7's "immutable once entries exist" rule doesn't apply here because the old path never resolved to an image, so no seeded coordinate was ever measured against one.
+
+## Task 1.23 — two pre-existing SeasonsPanel tests needed disambiguation after adding the FieldImage preview
+
+**Plan said:** nothing about existing tests; orchestrator addendum item 3 says the season edit/create form shows a `FieldImage` preview for the path currently typed, and to add one new `SeasonsPanel.test.tsx` case for the fail-loud row alert.
+
+**What was wrong:** once `SeasonForm` renders a live `FieldImage` preview for the typed `imagePath`, two already-committed tests broke because they type an uncommitted path (`seasons/2028/field.webp`, `seasons/2027/field-v2.webp` — neither is in `SEASON_IMAGE_MANIFEST`) and then call `screen.findByRole('alert')` expecting exactly one match; with the preview added there are now (at least) two: the preview's fail-loud alert and the server-error `FormError` alert. Vitest run: `TestingLibraryElementError: Found multiple elements with the role "alert"` in both `'shows the server error when the image path does not resolve, without a raw code'` and `'shows the update error for a conflict, and lets the admin cancel out'`.
+
+**What I did instead:** in both tests, replaced the bare `screen.findByRole('alert')` with a `waitFor` that calls `screen.getAllByRole('alert')` and picks the one whose text contains the expected server-error sentence, leaving every assertion on that alert's content unchanged.
+
+**Risk:** none — the fix only narrows which alert is asserted on; it does not weaken either assertion.

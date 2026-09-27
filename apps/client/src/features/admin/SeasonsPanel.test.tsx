@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SeasonsPanel } from './SeasonsPanel';
@@ -65,7 +65,18 @@ describe('SeasonsPanel', () => {
     await user.type(screen.getByLabelText(/game name/i), 'NEW');
     await user.type(screen.getByLabelText(/game image path/i), 'seasons/2028/field.webp');
     await user.click(screen.getByRole('button', { name: /create season/i }));
-    const alert = await screen.findByRole('alert');
+    // Task 1.23 added a FieldImage preview to this same form, which is its own alert for an
+    // uncommitted path (seasons/2028/field.webp isn't in SEASON_IMAGE_MANIFEST either) —
+    // find the server-error alert specifically rather than assuming there is only one.
+    const alert = await waitFor(() => {
+      const found = screen
+        .getAllByRole('alert')
+        .find((el) =>
+          el.textContent?.includes('commit apps/client/public/seasons/2028/field.webp'),
+        );
+      if (!found) throw new Error('server error alert not found yet');
+      return found;
+    });
     expect(alert).toHaveTextContent(/commit apps\/client\/public\/seasons\/2028\/field\.webp/);
     expect(alert).not.toHaveTextContent('invalid');
   });
@@ -120,9 +131,53 @@ describe('SeasonsPanel', () => {
     await user.clear(imagePath);
     await user.type(imagePath, 'seasons/2027/field-v2.webp');
     await user.click(screen.getByRole('button', { name: /save changes/i }));
-    const alert = await screen.findByRole('alert');
+    // Same reason as above: the typed path (seasons/2027/field-v2.webp) is itself unknown,
+    // so the FieldImage preview renders its own alert alongside the server-error one.
+    const alert = await waitFor(() => {
+      const found = screen
+        .getAllByRole('alert')
+        .find((el) => el.textContent?.includes('the image cannot change'));
+      if (!found) throw new Error('conflict error alert not found yet');
+      return found;
+    });
     expect(alert).toHaveTextContent(/the image cannot change/);
     expect(alert).not.toHaveTextContent('conflict');
+  });
+
+  it('shows the fail-loud alert for a season whose image is not committed, and none for one that is', async () => {
+    const rpc = harness({
+      call: vi.fn(async (name: string) => {
+        if (name === 'listSeasons') {
+          return {
+            items: [
+              {
+                id: 's-1',
+                year: 2026,
+                game_name: 'CRESCENDO',
+                field_image_path: 'seasons/2026/field.webp',
+              },
+              {
+                id: 's-4',
+                year: 1999,
+                game_name: 'MISSING GAME',
+                field_image_path: 'seasons/1999/field.webp',
+              },
+            ],
+            next_cursor: null,
+          };
+        }
+        if (name === 'getActiveContext') {
+          return { active_season_id: 's-1', active_event_id: null };
+        }
+        throw new Error('not used');
+      }),
+    });
+    render(<SeasonsPanel rpc={rpc} />);
+    const rows = await screen.findAllByRole('row');
+    const missingRow = rows.find((row) => row.textContent?.includes('1999'));
+    const knownRow = rows.find((row) => row.textContent?.includes('2026'));
+    expect(within(missingRow!).getByRole('alert')).toHaveTextContent('seasons/1999/field.webp');
+    expect(within(knownRow!).queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('disables "make active" while offline, and says why', async () => {

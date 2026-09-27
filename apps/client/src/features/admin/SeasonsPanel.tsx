@@ -4,6 +4,8 @@ import { FIELD, PRIMARY_BUTTON, SECONDARY_BUTTON } from '@/components/buttonStyl
 import { StateMessage } from '@/components/StateMessage';
 import { typedCall as defaultCall, type Rpc } from '@/data/rpc';
 import { useOnline } from '@/lib/useOnline';
+import { FieldImage } from '@/season/FieldImage';
+import { isKnownSeasonImage } from '@/season/images';
 import { panelErrorLine, unreachable } from './adminMessages';
 import { FormError, TextField } from './fields';
 
@@ -164,7 +166,19 @@ export function SeasonsPanel({
                   <td className="py-2 pr-4" dir="auto">
                     {season.game_name}
                   </td>
-                  <td className="py-2 pr-4 font-mono text-sm">{season.field_image_path}</td>
+                  <td className="py-2 pr-4 font-mono text-sm">
+                    {season.field_image_path}
+                    {/* Task 1.23 (SPEC-FINAL 16.7): fail loudly, right where an admin will see
+                        it, rather than a season silently pointing at nothing. */}
+                    {!isKnownSeasonImage(season.field_image_path) && (
+                      <div className="mt-1 font-sans">
+                        <FieldImage
+                          path={season.field_image_path}
+                          alt={`${season.year} field image`}
+                        />
+                      </div>
+                    )}
+                  </td>
                   <td className="py-2 pr-4">
                     {season.id === load.activeSeasonId ? (
                       <span className="font-medium">Active</span>
@@ -400,6 +414,17 @@ function SeasonForm({
         invalid={!!error}
         errorId={errorId}
       />
+      {/* Task 1.23: preview the path as typed, so a typo or an uncommitted image fails loudly
+          before the admin saves, not after. Nothing to show until something is typed. */}
+      {imagePath.trim() !== '' && (
+        <div className="mt-2 max-w-[16rem]">
+          <FieldImage
+            path={imagePath}
+            alt={`${gameName || 'season'} field preview`}
+            className="h-auto w-full rounded"
+          />
+        </div>
+      )}
       <FormError id={errorId} message={error} />
       <div className="tap-row mt-4 flex gap-2">
         <button type="submit" disabled={busy} className={PRIMARY_BUTTON}>
