@@ -6,6 +6,8 @@ import { DesktopOnly } from '@/components/DesktopOnly';
 import { ManagePage } from '@/features/admin/ManagePage';
 import { UserDetailPage } from '@/features/admin/UserDetailPage';
 import { UsersPage } from '@/features/admin/UsersPage';
+import { ContextPage } from '@/features/context/ContextPage';
+import { OverrideGuard } from '@/features/context/OverrideGuard';
 import { AppShell } from '@/features/shell/AppShell';
 import { NO_HYDRATION, useActiveEventId, useSignedInUser } from '@/features/shell/shellContext';
 import { EntriesPage } from '@/features/entries/EntriesPage';
@@ -18,12 +20,26 @@ import { EntryRoute } from '@/features/entry/EntryRoute';
  * event: AppShell resolves it (cache first, then the server's active context) and hands it
  * down; it is never a route-tree argument (task 1.17b).
  */
+/*
+ * SPEC-FINAL 6.3: no new entry while a session override is in effect. Both routes that
+ * create entries are guarded here, whatever the nav offers (task 1.22).
+ */
 function ScoutRoute() {
-  return <SelectRobotPage eventId={useActiveEventId()} author={useSignedInUser()} />;
+  const eventId = useActiveEventId();
+  return (
+    <OverrideGuard defaultEventId={eventId}>
+      <SelectRobotPage eventId={eventId} author={useSignedInUser()} />
+    </OverrideGuard>
+  );
 }
 
 function SignedInEntryRoute() {
-  return <EntryRoute eventId={useActiveEventId()} author={useSignedInUser()} />;
+  const eventId = useActiveEventId();
+  return (
+    <OverrideGuard defaultEventId={eventId}>
+      <EntryRoute eventId={eventId} author={useSignedInUser()} />
+    </OverrideGuard>
+  );
 }
 
 function EntriesRoute() {
@@ -52,6 +68,10 @@ export function routeTree(): RouteObject[] {
         // Inside the shell: it needs a signed-in device, and never leaves the outbox. It
         // reads only the cached accounts, so it works before any event is loaded.
         { path: 'switch-scouter', element: <SwitchScouter />, handle: NO_HYDRATION },
+        // Task 1.22, SPEC-FINAL 6.3: the context page, the one place the session-only
+        // override is chosen. Every role, not desktop-only. It reads the cache and the
+        // server itself (never useActiveEventId), so it renders with no event loaded.
+        { path: 'context', element: <ContextPage />, handle: NO_HYDRATION },
         // SPEC-FINAL 17.2: user administration is computer work. The pages check the role
         // themselves (7.4: device gating is not a permission), and the server again. They
         // read no event data, so an admin reaches them on an install with no competition.

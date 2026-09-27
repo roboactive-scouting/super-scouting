@@ -63,7 +63,14 @@ export async function syncNow(deps: SyncDeps): Promise<SyncOutcome> {
 
   let pulled = 0;
   try {
-    const since = await getMeta<string | null>(WATERMARK, null);
+    // The watermark is one device-wide value, and it belongs to the event whose pull last
+    // completed (task 1.22). Another event's watermark would make this a delta of rows
+    // updated since that pull — skipping every older match, roster row and form of an
+    // event this device has never loaded, while still marking it hydrated. So a pull for
+    // any other event starts from scratch.
+    const hydratedFor = await getMeta<string | null>(HYDRATED, null);
+    const since =
+      hydratedFor === deps.eventId ? await getMeta<string | null>(WATERMARK, null) : null;
     let cursor: string | undefined;
     let bestWatermark = since;
     let complete = false;
@@ -187,5 +194,16 @@ export async function activeEvent(): Promise<ActiveEvent> {
 /** The active event the last completed pull cached, or null on a device that has none. */
 export async function cachedActiveEventId(): Promise<string | null> {
   const rows = await cachedRows<{ active_event_id?: string | null }>('app_settings');
+  return rows[0]?.active_event_id ?? null;
+}
+
+/**
+ * The admin default as the last pull cached it (task 1.22) — `undefined` when the device
+ * holds no `app_settings` row at all, which is not the admin setting no event (`null`).
+ * The shell compares this after every sync to notice a changed default.
+ */
+export async function cachedDefaultEventId(): Promise<string | null | undefined> {
+  const rows = await cachedRows<{ active_event_id?: string | null }>('app_settings');
+  if (rows.length === 0) return undefined;
   return rows[0]?.active_event_id ?? null;
 }

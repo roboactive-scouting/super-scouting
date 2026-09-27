@@ -15,3 +15,9 @@ export async function cachedFormFields(formVersionId: string): Promise<FormField
 export async function cachedEntry(rowId: string): Promise<Record<string, unknown> | undefined> {
   return db.rows.get(['scouting_entries', rowId]);
 }
+
+/** The cached event's name, or null when this device holds no row for it. */
+export async function cachedEventName(eventId: string): Promise<string | null> {
+  const row = await db.rows.get(['events', eventId]);
+  return typeof row?.name === 'string' ? row.name : null;
+}

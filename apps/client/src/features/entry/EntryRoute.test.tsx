@@ -92,3 +92,90 @@ describe('EntryRoute and an entry already on this device (SPEC-FINAL 8.1, 7.6)',
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
+
+describe('EntryRoute for a match of another event (SPEC-FINAL 6.3, task 1.22)', () => {
+  // The shell works on ev-1 (Week 3, season se-1). m-9 belongs to ev-0 (Week 1, season
+  // se-0): the default moved while an entry for it was open, and the tablet restarted.
+  beforeEach(async () => {
+    await db.rows.bulkPut([
+      { entity: 'events', id: 'ev-0', season_id: 'se-0', name: 'Week 1', sort_order: 1 },
+      { entity: 'events', id: 'ev-1', season_id: 'se-1', name: 'Week 3', sort_order: 2 },
+      { entity: 'matches', id: 'm-9', event_id: 'ev-0', match_type: 'qualification', number: 9 },
+      { entity: 'forms', id: 'f-0', kind: 'match', season_id: 'se-0', active_version_id: 'fv-0' },
+    ]);
+  });
+
+  it('finishes an entry with a draft against the event it started in, and its season form', async () => {
+    await db.drafts.put({
+      key: 'fv-0:m-9:t-1',
+      row_id: '',
+      payload: { robot_status: 'no_show', breakdown_seconds: 0, data: {} },
+      updated_at: new Date().toISOString(),
+    });
+    const user = userEvent.setup();
+    renderAt('/entry/m-9/t-1?alliance=red');
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'This entry belongs to Week 1, which is no longer the default competition. It is saved there when you submit.',
+    );
+    await waitFor(() => expect(screen.getByRole('radio', { name: /no show/i })).toBeChecked());
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    await user.click(await screen.findByRole('button', { name: /submit entry/i }));
+
+    await waitFor(async () => expect(await pending(10)).toHaveLength(1));
+    const [op] = await pending(10);
+    expect(op!.payload).toMatchObject({
+      event_id: 'ev-0',
+      form_version_id: 'fv-0',
+      match_id: 'm-9',
+    });
+  });
+
+  it('edits an entry this device already holds for that event against that event', async () => {
+    await db.rows.put({
+      ...entry(60 * 1000),
+      id: 'e-9',
+      event_id: 'ev-0',
+      match_id: 'm-9',
+      form_version_id: 'fv-0',
+    });
+    renderAt('/entry/m-9/t-1?alliance=red');
+    expect(await screen.findByRole('button', { name: /review entry/i })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('This entry belongs to Week 1');
+  });
+
+  it('refuses to start a new entry for a match outside the default competition', async () => {
+    renderAt('/entry/m-9/t-1?alliance=red');
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'This match belongs to Week 1, which is not the default competition. New entries can only be made in Week 3.',
+    );
+    expect(screen.queryByRole('button', { name: /review entry/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /no show/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /back to scouting/i })).toBeInTheDocument();
+  });
+
+  it('takes the season from the match event row, not from app_settings, for the default too', async () => {
+    // app_settings already names the next season; the shell still holds ev-0 (a held move).
+    await db.rows.put({ entity: 'app_settings', id: 'singleton', active_season_id: 'se-1' });
+    render(
+      <MemoryRouter initialEntries={['/entry/m-9/t-1?alliance=red']}>
+        <Routes>
+          <Route
+            path="/entry/:matchId/:teamId"
+            element={<EntryRoute eventId="ev-0" author={scouter} />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('radio', { name: /no show/i }));
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    await user.click(await screen.findByRole('button', { name: /submit entry/i }));
+    await waitFor(async () => expect(await pending(10)).toHaveLength(1));
+    expect((await pending(10))[0]!.payload).toMatchObject({
+      event_id: 'ev-0',
+      form_version_id: 'fv-0',
+    });
+  });
+});

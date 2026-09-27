@@ -3710,3 +3710,199 @@ Rejected:
 **What I did instead:** created `apps/client/src/lib/matchLabel.ts` exporting `MATCH_TYPE_PREFIX` and `matchLabel()`, alongside the existing `apps/client/src/lib/useOnline.ts`. `EntryRoute.tsx` now imports `matchLabel` from there instead of keeping its own copy; its local `MatchRow`/`TeamRow` types are untouched (common.md: "do not import those" shared types), and its behaviour (the `Q12`/`P3`/`PO1` label text) is unchanged.
 
 **Risk:** none — pure move, `EntryRoute.test.tsx` (3 tests) still passes unchanged.
+
+## Task 1.22 — the plan's ContextPage tests get an injected unreachable `rpc` and a mocked `@/config`
+
+**Plan said:** `render(<ContextPage />)` with only the cache seeded, and no `@/config` mock.
+
+**What was wrong:** the addendum (A.2) has the page call `listSeasons`/`listEvents` online through an injectable `rpc` defaulting to the real typed client, which would issue a real fetch from the test; and the page footer calls `clientConfig()`, which throws in the test environment without `VITE_API_BASE_URL` (every other page test mocks `@/config` for this reason).
+
+**What I did instead:** each plan case renders `<ContextPage rpc={unreachableRpc} />`, an rpc that throws `RpcError('offline', …, 0)`, so the page shows what the cache holds; the file mocks `@/config` as the other page tests do. The six plan cases are otherwise unchanged. Three cases were added (server-listed seasons and events, "Back to the default" offline, no `<select>`).
+
+**Risk:** none — the cases assert the same things; the new ones cover the server path the plan's fixture could not.
+
+## Task 1.22 — the "Current" marker sits on the default event's card in the grid, not on a separate non-button card
+
+**Plan said:** "renders the default as a 'current' card, then a grid of season cards … each expanding to its events"; the addendum (A.3): "a 'Current' card for the admin default (not a button)". The plan's own tests: `findByText(/Week 1/)` and `getByText(/current/i)` (each must match exactly one element) and `findAllByRole('button', { name: /week/i })` has length 2.
+
+**What was wrong:** a separate Current card naming Week 1 plus a Week 1 event card is two elements matching `/Week 1/`, which `findByText` refuses ("Found multiple elements with the text") — reasoned from Testing Library's single-match rule, not run; and the length-2 button assertion needs the default to be one of the event buttons. The two texts cannot both hold.
+
+**What I did instead:** no separate card. The admin default is the event card marked "Current" (or "Default" while an override is set; the override's card then reads "Current, this session only"), with `aria-pressed` on the one being worked on. Choosing it clears the override. Seasons are a card grid of their own (`aria-pressed` on the chosen one); the chosen season's events are a second grid below it, rather than an accordion.
+
+**Risk:** low. The default is still unmissable (bordered, marked); only its position differs from the addendum's wording.
+
+## Task 1.22 — `sessionOverride` also holds the chosen event's name, and `useSessionOverride` uses `useSyncExternalStore`
+
+**Plan said:** `sessionOverride` exactly as written (`get/set(eventId)/clear/subscribe`); addendum A.4: add a `useSessionOverride()` hook that subscribes and unsubscribes in an effect.
+
+**What was wrong:** the notices the addendum asks for ("You are looking at <event> …") must name the overridden event, and a device caches only the default event's row, so the shell and the route guard cannot look the name up.
+
+**What I did instead:** `set(eventId, eventName?)` and `name()` added; the name is held in memory beside the id and cleared with it. The plan's four members are unchanged. `useSessionOverride()` uses `useSyncExternalStore` (React's own subscribe/unsubscribe-in-an-effect, with its tearing guard) and returns `{ eventId, eventName } | null`.
+
+**Risk:** none — still memory only; the plan's "never written anywhere" test passes.
+
+## Task 1.22 — three files and two helpers beyond the plan's file list
+
+**Plan said:** create `ContextPage.tsx`, its test and `sessionOverride.ts`; modify `routes.tsx` and `AppShell.tsx`.
+
+**What was wrong:** the addendum's route guard (A.5), the notices that name events, and the changed-default detection (C.10) each need code the listed files would otherwise duplicate.
+
+**What I did instead:** created `features/context/OverrideGuard.tsx` (the blocking notice `ScoutRoute` and `SignedInEntryRoute` render while an override is set) and `features/context/useEventName.ts` (the cached name of an event id, re-read on a key); added `cachedEventName()` to `data/cache.ts` and `cachedDefaultEventId()` to `data/sync.ts` (returns `undefined` when there is no `app_settings` row, which is not the admin setting none). Also modified `pwa.ts`, `main.tsx`, `data/sync.ts` (addendum B.7, C.13) and their tests.
+
+**Rejected:** putting the guard inside `routes.tsx` — it needs its own hooks and a test surface, and the route file is the route table.
+
+**Risk:** none.
+
+## Task 1.22 — the update hint reads a store `main.tsx` sets; AppShell never registers the service worker
+
+**Plan said:** in `AppShell`, `useEffect(() => { void registerServiceWorker(() => setUpdateReady(true), browserAdapter()); }, [])`.
+
+**What was wrong:** `main.tsx` already registers once; the shell remounts after every sign-in, so the plan's snippet registers again on every remount (addendum B.7).
+
+**What I did instead:** `pwa.ts` exports `updateReady` (`get/set/subscribe`, plus `reset` for tests); `main.tsx`'s one registration calls `updateReady.set()` in place of its `console.warn`; `AppShell` subscribes with `useSyncExternalStore` and renders the plan's footer line, with no reload control.
+
+**Risk:** none.
+
+## Task 1.22 — the screen-entry pull skips the mount, and runs offline only to apply a held move
+
+**Plan said:** `useEffect(() => { if (navigator.onLine) void run(false); }, [pathname]);`
+
+**What was wrong:** run on the mount path it doubles the mount's own sync (existing tests count one `syncNow` and one `getActiveContext` at mount); and `run` lives inside the sync loop's effect, so calling it directly would bypass the one-run-at-a-time queue.
+
+**What I did instead:** the effect calls the loop's own `schedule()` through a ref, only when the pathname actually changed from the previous render's. It schedules offline too when a changed default is being held for an open entry (see below), so that move is not left waiting for a connection. Pull-to-refresh (touchstart/touchmove on the shell's root, a drag of 80 px or more starting at `scrollY` 0, once per gesture, online only) calls the same `schedule()`.
+
+**Risk:** low. A screen change adds one sync; the queue serialises it with the tick.
+
+## Task 1.22 — a changed default is detected as a change in the cached default, not as any mismatch with the active event
+
+**Plan said:** (addendum C.10) "After `sync(active)` answers `ok`, read `cachedActiveEventId()`. If it differs from `active` … the default changed."
+
+**What was wrong:** a plain mismatch also fires when the pull changed nothing: an absent `app_settings` row reads as `null` ("no competition") through `cachedActiveEventId()`, and after an event-gone re-resolve the server's answer can differ from a cache the pull has not overwritten. With the mismatch rule, existing AppShell cases whose mocked `syncNow` writes no `app_settings` would move the shell to "no competition" or back to the deleted event — reasoned from the code path before running, then designed out.
+
+**What I did instead:** the loop remembers the cached default it last acted on (`known`, read at mount). After each `ok` sync, `cachedDefaultEventId()` is read; no row is ignored; an unchanged value is ignored; a changed value is recorded and, if it differs from the active event, the shell moves (or holds the move while an entry is open). A change back to the active event drops a held move. A pull that lands the change and then fails is still caught by the next `ok` sync, because `known` is updated only there.
+
+**Risk:** low. The one case a mismatch rule would catch and this does not — a cache that already disagreed with the active event at mount — cannot arise: the mount resolves from that same cache.
+
+## Task 1.22 — a new default of `null` settles on "no competition" directly
+
+**Plan said:** (addendum C.11) "for null, re-resolve (which lands on `'no-event'`)."
+
+**What was wrong:** nothing is wrong with re-resolving, but the cached `app_settings` is already the server's answer, and a re-resolve that goes unanswered settles on `'blocked'` ("not loaded yet") rather than "no competition".
+
+**What I did instead:** `settle(null, 'no-event')`. The next run, with no event, re-asks `getActiveContext` as it always does.
+
+**Risk:** none — the addendum's stated outcome is the same.
+
+## Task 1.22 — a move held for an open entry is applied even offline once the entry is left
+
+**Plan said:** (addendum C.11) "Apply the deferred switch on the next `schedule()` after the pathname leaves the entry route (the pathname-change pull from B.8 triggers it)." B.8: "Online only."
+
+**What was wrong:** read literally, a device that goes offline before the scout leaves the entry keeps working on the old event — every entry started afterwards is attributed to it, the exact failure this task closes.
+
+**What I did instead:** the pathname-change effect schedules a run offline when a move is held; the run applies it before anything else. If the new event is not on the device, the shell shows "not loaded yet", exactly as a cold start would after the same change.
+
+**Rejected:** staying on the old event until a connection returns — misattributes silently.
+
+**Risk:** a scout who goes offline mid-entry just after an admin changed the default cannot start the next entry until a connection loads the new event. That is the cold-start behaviour, and it is visible.
+
+## Task 1.22 — rejected ways to handle a changed default (addendum C.15)
+
+**Plan said:** nothing; the addendum decided the shape and asked for the rejected alternatives to be logged.
+
+**What was wrong:** —
+
+**What I did instead:** move at once, or hold the move for the open entry. Rejected: (i) keep the next-mount behaviour — an all-day tablet keeps attaching entries to the old event; (ii) a modal "switch now?" prompt — a scout mid-match cannot be interrupted, and a dismissed prompt leaves the wrong event active; (iii) switch immediately even on the entry route, re-keying the draft — moves a half-recorded observation to an event it was not recorded at; (iv) force a reload — SPEC-FINAL 9.1 never reloads mid-match.
+
+**Risk:** none.
+
+## Task 1.22 — the sync watermark is used only for the event it belongs to
+
+**Plan said:** nothing (addendum C.13 found the bug).
+
+**What was wrong:** `syncNow` read one device-wide `sync.watermark` whatever the event, so the first pull of a newly active event was a delta from the old event's watermark and never brought its older rows. The new test, before the fix: `AssertionError: expected { event_id: 'ev-B', since: 'w-2' } to deeply equal { event_id: 'ev-B' }`.
+
+**What I did instead:** `syncNow` uses the stored watermark only when `sync.hydrated_event_id` equals `deps.eventId`; otherwise it pulls with no `since`. Two tests in `sync.test.ts`: A then B (B sends no `since`, B's second pull sends B's own), and an incomplete pull of B keeps B pulling from scratch.
+
+**Risk:** a first pull of a new event is a full pull — correct, and what a cold start does anyway.
+
+## Task 1.22 — one existing AppShell test keeps its server silent after screen entry
+
+**Plan said:** nothing about existing tests.
+
+**What was wrong:** "renders an ungated route in every state, and never remounts it" navigates to `/` expecting the "not loaded yet" gate. The new screen-entry pull ran with `syncNow`'s default `OK` and loaded the event first: `Error: expect(element).toBeInTheDocument() — element could not be found in the document`, at the `findByText(/has not loaded the competition yet/i)` line.
+
+**What I did instead:** `syncNow.mockResolvedValue(OFFLINE)` before the gate's pull settles, with a comment, so every later pull fails as the case intends.
+
+**Risk:** none — the case still asserts the same states.
+
+## Task 1.22 — the routes test's NO_HYDRATION list includes `context`; the AppShell test's entry stand-in writes a real draft
+
+**Plan said:** nothing about these tests.
+
+**What was wrong:** `routes.test.tsx` asserts the exact list of NO_HYDRATION routes, and `/context` is a new one (addendum A.1). The addendum's case C.14(b) needs a part-filled form, and the shell test's entry route rendered a bare `<p>`.
+
+**What I did instead:** added `'context'` to the expected list (and to the case's title). The shell test's entry route renders `EntryProbe`, which shows the event it was handed and writes a draft through the real `useDraft`; it still renders the old stand-in text, so every earlier case is unchanged. A `/context` stand-in route was added.
+
+**Risk:** none.
+
+## Task 1.22 — the shell's override strip, context link and version line are hidden on `/context`
+
+**Plan said:** (addendum A.5) "a persistent one-line `role="status"` strip under the header on every page while an override is set"; the plan puts the version string in the context page's own footer.
+
+**What was wrong:** on `/context` the page carries the plan's own `role="status"` banner (with its own "Back to <default>" button) and its own version line, so the shell's would say each thing twice; and the footer's "Working on … · Change" link would point at the page it is on.
+
+**What I did instead:** the shell omits the three on `/context` only.
+
+**Risk:** none.
+
+## Task 1.22 — the Scout nav entry is an `aria-disabled` span while an override is set
+
+**Plan said:** "`AppShell` … disables the 'Scout' nav entry while one is active."
+
+**What was wrong:** a `<Link>` has no disabled state; one carrying `aria-disabled` still navigates.
+
+**What I did instead:** while an override is set the entry renders as a muted `<span aria-disabled="true">Scout</span>` with the same tap-target classes. The routes refuse too (`OverrideGuard`), so a typed URL or Back gets the blocking notice.
+
+**Risk:** none.
+
+## Task 1.22 — an unmounted shell no longer starts a sync
+
+**Plan said:** nothing.
+
+**What was wrong:** found while mutation-testing the screen-entry pull: with the pathname effect removed, "pulls when the screen changes" still passed in the full file — a run queued by the previous case's shell reached `syncNow` after that shell had unmounted, and landed in the next case's count.
+
+**What I did instead:** the loop checks `stopped` after reading the session and after reading the device id, before calling `syncNow`. With the fix, the same mutation fails the case.
+
+**Risk:** none — an unmounted shell has nothing to show the result on.
+
+## Task 1.22 — the event-gone test runs the real `syncNow`
+
+**Plan said:** "`event-gone` renders a notice containing the event's name and empties `db.rows` for it."
+
+**What was wrong:** `AppShell.test.tsx` mocks `syncNow`, and the wipe is `syncNow`'s own work; a mock returning `{ status: 'event-gone' }` empties nothing.
+
+**What I did instead:** that case runs the real `syncNow` against an api whose pull throws `{ code: 'not-found' }` for the deleted event (the pattern the offline case already uses). The notice is named from the cached `events` row, read after `syncNow` returns and before the re-resolve (the wipe removes rows carrying the event's id, never the event's own row); with no row it reads "The competition this device had loaded no longer exists. …".
+
+**Risk:** none.
+
+## Task 1.22 — one existing AppShell case waits for the first mount's sync before leaving
+
+**Plan said:** nothing about existing tests.
+
+**What was wrong:** after the unmounted-shell fix above, "never shows the loading screen when the shell remounts after /change-password" failed in the full suite. It counted two `syncNow` calls, and one had been the unmounted shell's straggler: the case navigated away before the first mount's sync began. The run: `× AppShell cached-first start (task 1.17b) > never shows the loading screen when the shell remounts after /change-password`, `Tests 1 failed | 987 passed (988)`.
+
+**What I did instead:** the case waits for the first mount's sync (`toHaveBeenCalledTimes(1)`) before navigating away. Its assertions are unchanged.
+
+**Risk:** none — both counted syncs are now real ones, and the count no longer depends on timing.
+
+## Task 1.22 — an entry's event is its match's event (review finding)
+
+**Plan said:** nothing; `EntryRoute` took its event from the shell and its season from the cached `app_settings`.
+
+**What was wrong:** review finding, reported as Important: a PWA restores its URL on reload. A scout is mid-entry on `/entry/<A-match>/<team>`, the admin moves the default to B, the pull caches `app_settings` = B while the shell holds A (correct), and then the tablet reloads before submit. On the cold start the shell resolves B, and once B hydrates `EntryRoute` renders with `eventId` = B, a match id that belongs to A (A's rows are still cached) and B's season form. Submitting attaches an A-match observation to event B, and the draft (keyed form version : match : team) is missed if the season changed. The new tests before the fix: `Unable to find role="status"`, `Unable to find role="alert"`, `expected { …(11) } to match object { event_id: 'ev-0', …(1) }`.
+
+**What I did instead:** `EntryRoute` takes the entry's event from the cached match row's `event_id`, and the season from that event's cached `events` row (which survives a wipe), falling back to `app_settings` only when the row is missing. It picks that season's form and looks up the existing entry under that event. If the match's event is the shell's, nothing changes. If it differs and the device holds a draft for the key or a local entry, the form renders against the match's event, and `EntryPage` and `submitEntry` get that event id. A one-line `role="status"` reads "This entry belongs to <event>, which is no longer the default competition. It is saved there when you submit." If it differs and nothing was begun, the route refuses, as the locked-entry branch does: "This match belongs to <event>, which is not the default competition. New entries can only be made in <default>." with Back to scouting. Four tests in `EntryRoute.test.tsx` cover a draft (the enqueued op carries the match's event and that season's form version), an existing entry, the refusal, and a held move whose `app_settings` already names the next season. The §4.1 bullet gained one clause.
+
+**Rejected:** refusing every entry whose match is not the default's. That would strand the part-filled form the rule exists to protect.
+
+**Risk:** low. Reading the season from the event row also closes the entry → entry edge noted in the first report. A match row with no `event_id` falls back to the shell's event, which is the old behaviour.
