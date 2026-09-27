@@ -156,12 +156,17 @@ function recordingDb(result: {
     'select',
     'insert',
     'update',
+    'upsert',
     'eq',
     'is',
     'gt',
+    'lt',
+    'or',
+    'in',
     'order',
     'limit',
     'single',
+    'maybeSingle',
   ]) {
     chain[method] = (...args: unknown[]) => {
       calls.push([method, ...args]);
@@ -293,5 +298,96 @@ describe('supabaseStore.getActiveContext (task 1.17b)', () => {
       fakeDbById({ data: null, error: { message: 'connection refused' } }, {}),
     );
     await expect(store.getActiveContext()).rejects.toThrow('connection refused');
+  });
+});
+
+describe('supabaseStore seasons, events and the active context (task 1.18)', () => {
+  const SEASON = '11111111-1111-4111-8111-111111111111';
+  const EVENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+  it('setActiveContext writes both ids in one upsert of the singleton', async () => {
+    const ids = { active_season_id: SEASON, active_event_id: EVENT };
+    const { db, calls } = recordingDb({ data: ids, error: null });
+    expect(await supabaseStore(db).setActiveContext(ids)).toEqual(ids);
+    expect(calls).toContainEqual(['from', 'app_settings']);
+    expect(calls).toContainEqual(['upsert', { id: true, ...ids }, { onConflict: 'id' }]);
+    expect(calls.filter(([m]) => m === 'upsert' || m === 'update')).toHaveLength(1);
+  });
+
+  it('setActiveContext throws on a database error, keeping the Postgres code', async () => {
+    const { db } = recordingDb({ data: null, error: { message: 'fk', code: '23503' } });
+    await expect(
+      supabaseStore(db).setActiveContext({ active_season_id: SEASON, active_event_id: null }),
+    ).rejects.toMatchObject({ code: '23503' });
+  });
+
+  it('season and event reads select an explicit column list with no version', async () => {
+    const { db, calls } = recordingDb({ data: null, error: null });
+    const store = supabaseStore(db);
+    await store.getSeason(SEASON);
+    await store.getEvent(EVENT);
+    const selects = calls.filter(([m]) => m === 'select').map(([, cols]) => cols);
+    expect(selects).toEqual([
+      'id, year, game_name, field_image_path, created_at, updated_at',
+      'id, season_id, name, code, sort_order, created_at, updated_at',
+    ]);
+  });
+
+  it('keeps the Postgres code on a duplicate year or event name', async () => {
+    const { db } = recordingDb({ data: null, error: { message: 'dup', code: '23505' } });
+    await expect(supabaseStore(db).insertSeason({ id: SEASON })).rejects.toMatchObject({
+      code: '23505',
+    });
+    await expect(supabaseStore(db).insertEvent({ id: EVENT })).rejects.toMatchObject({
+      code: '23505',
+    });
+  });
+
+  it('listSeasons orders newest first and pages with lt on year', async () => {
+    const { db, calls } = recordingDb({ data: [], error: null });
+    await supabaseStore(db).listSeasons(51, { year: 2026 });
+    expect(calls).toContainEqual(['lt', 'year', 2026]);
+    expect(calls).toContainEqual(['order', 'year', { ascending: false }]);
+    expect(calls).toContainEqual(['limit', 51]);
+  });
+
+  it('listEvents filters the season, orders by sort_order then id, and pages on both', async () => {
+    const { db, calls } = recordingDb({ data: [], error: null });
+    await supabaseStore(db).listEvents(SEASON, 3, { sort_order: 2, id: EVENT });
+    expect(calls).toContainEqual(['eq', 'season_id', SEASON]);
+    expect(calls).toContainEqual(['or', `sort_order.gt.2,and(sort_order.eq.2,id.gt.${EVENT})`]);
+    expect(calls).toContainEqual(['order', 'sort_order', { ascending: true }]);
+    expect(calls).toContainEqual(['order', 'id', { ascending: true }]);
+  });
+
+  it('listEvents refuses a keyset that is not an integer and a uuid, before any query', async () => {
+    const { db, calls } = recordingDb({ data: [], error: null });
+    await expect(
+      supabaseStore(db).listEvents(SEASON, 3, { sort_order: 1, id: 'x),id.gt.(' }),
+    ).rejects.toThrow('listEvents: a keyset must be an integer sort_order and a uuid');
+    expect(calls.find(([m]) => m === 'or')).toBeUndefined();
+  });
+
+  it('countEntriesBySeason counts every entry of the season’s events', async () => {
+    const { db, calls } = recordingDb({ data: [{ id: EVENT }], error: null, count: 40 });
+    expect(await supabaseStore(db).countEntriesBySeason(SEASON)).toBe(40);
+    expect(calls).toContainEqual(['from', 'scouting_entries']);
+    expect(calls).toContainEqual(['in', 'event_id', [EVENT]]);
+    // soft-deleted entries count too: nothing filters deleted_at
+    expect(calls.find(([m, col]) => m === 'is' && col === 'deleted_at')).toBeUndefined();
+  });
+
+  it('countEntriesBySeason is 0 for a season with no events, without counting entries', async () => {
+    const { db, calls } = recordingDb({ data: [], error: null });
+    expect(await supabaseStore(db).countEntriesBySeason(SEASON)).toBe(0);
+    expect(calls).not.toContainEqual(['from', 'scouting_entries']);
+  });
+
+  it('countEntriesBySeason throws on a database error instead of reading as "no entries"', async () => {
+    // Swallowed, a blip would read as 0 and let the image be swapped under real entries.
+    const { db } = recordingDb({ data: null, error: { message: 'connection refused' } });
+    await expect(supabaseStore(db).countEntriesBySeason(SEASON)).rejects.toThrow(
+      'connection refused',
+    );
   });
 });

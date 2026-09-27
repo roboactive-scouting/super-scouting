@@ -2,9 +2,11 @@ import type { FormFieldDefinition, SyncEntity } from '@frc/shared';
 import type {
   PullScope,
   Store,
+  StoredEvent,
   StoredFullUser,
   StoredPublicUser,
   StoredRow,
+  StoredSeason,
   StoredUser,
 } from '../core/context.js';
 import type { Db } from '../db/client.js';
@@ -26,6 +28,9 @@ const FULL_USER_COLUMNS =
   'id, username, full_name, password_hash, role, must_change_password, disabled_at, created_at';
 const PUBLIC_USER_COLUMNS =
   'id, username, full_name, role, must_change_password, disabled_at, created_at';
+const SEASON_COLUMNS = 'id, year, game_name, field_image_path, created_at, updated_at';
+const EVENT_COLUMNS = 'id, season_id, name, code, sort_order, created_at, updated_at';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Keeps Postgres's error `code` (a unique violation is '23505') so a use case can map it,
@@ -195,6 +200,143 @@ export function supabaseStore(db: Db): Store {
         active_event_id: data?.active_event_id ?? null,
       };
     },
+    // Task 1.18. Both ids in ONE write, so the singleton never holds a mismatched pair.
+    // An upsert on the singleton's key, not an update: the skeleton migration creates the
+    // row, but an update of a missing row would fail as PGRST116 with nothing to fix it.
+    async setActiveContext(next) {
+      const { data, error } = await db
+        .from('app_settings')
+        .upsert(
+          {
+            id: true,
+            active_season_id: next.active_season_id,
+            active_event_id: next.active_event_id,
+          },
+          { onConflict: 'id' },
+        )
+        .select('active_season_id, active_event_id')
+        .single();
+      if (error) throw dbError(error);
+      return {
+        active_season_id: data.active_season_id ?? null,
+        active_event_id: data.active_event_id ?? null,
+      };
+    },
+    async getSeason(id: string): Promise<StoredSeason | null> {
+      const { data, error } = await db
+        .from('seasons')
+        .select(SEASON_COLUMNS)
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw dbError(error);
+      return (data as StoredSeason | null) ?? null;
+    },
+    async getSeasonByYear(year: number): Promise<StoredSeason | null> {
+      const { data, error } = await db
+        .from('seasons')
+        .select(SEASON_COLUMNS)
+        .eq('year', year)
+        .maybeSingle();
+      if (error) throw dbError(error);
+      return (data as StoredSeason | null) ?? null;
+    },
+    async insertSeason(row: Record<string, unknown>): Promise<StoredSeason> {
+      const { data, error } = await db
+        .from('seasons')
+        .insert(row as never)
+        .select(SEASON_COLUMNS)
+        .single();
+      if (error) throw dbError(error);
+      return data as StoredSeason;
+    },
+    async updateSeason(id: string, patch: Record<string, unknown>): Promise<StoredSeason> {
+      // updated_at is set by the table's set_updated_at trigger.
+      const { data, error } = await db
+        .from('seasons')
+        .update(patch as never)
+        .eq('id', id)
+        .select(SEASON_COLUMNS)
+        .single();
+      if (error) throw dbError(error);
+      return data as StoredSeason;
+    },
+    async listSeasons(limit: number, after?: { year: number }): Promise<StoredSeason[]> {
+      let query = db.from('seasons').select(SEASON_COLUMNS);
+      // `year` is unique, so it alone is an exact keyset. Newest first.
+      if (after) query = query.lt('year', after.year);
+      const { data, error } = await query.order('year', { ascending: false }).limit(limit);
+      if (error) throw dbError(error);
+      return (data ?? []) as StoredSeason[];
+    },
+    async getEvent(id: string): Promise<StoredEvent | null> {
+      const { data, error } = await db
+        .from('events')
+        .select(EVENT_COLUMNS)
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw dbError(error);
+      return (data as StoredEvent | null) ?? null;
+    },
+    async insertEvent(row: Record<string, unknown>): Promise<StoredEvent> {
+      const { data, error } = await db
+        .from('events')
+        .insert(row as never)
+        .select(EVENT_COLUMNS)
+        .single();
+      if (error) throw dbError(error);
+      return data as StoredEvent;
+    },
+    async updateEvent(id: string, patch: Record<string, unknown>): Promise<StoredEvent> {
+      const { data, error } = await db
+        .from('events')
+        .update(patch as never)
+        .eq('id', id)
+        .select(EVENT_COLUMNS)
+        .single();
+      if (error) throw dbError(error);
+      return data as StoredEvent;
+    },
+    async listEvents(
+      seasonId: string,
+      limit: number,
+      after?: { sort_order: number; id: string },
+    ): Promise<StoredEvent[]> {
+      let query = db.from('events').select(EVENT_COLUMNS).eq('season_id', seasonId);
+      if (after) {
+        // The keyset is interpolated into a PostgREST filter string, so both values are
+        // checked here as well as in the use case's cursor schema.
+        if (!Number.isInteger(after.sort_order) || !UUID.test(after.id)) {
+          throw new Error('listEvents: a keyset must be an integer sort_order and a uuid');
+        }
+        query = query.or(
+          `sort_order.gt.${after.sort_order},and(sort_order.eq.${after.sort_order},id.gt.${after.id})`,
+        );
+      }
+      const { data, error } = await query
+        .order('sort_order', { ascending: true })
+        .order('id', { ascending: true })
+        .limit(limit);
+      if (error) throw dbError(error);
+      return (data ?? []) as StoredEvent[];
+    },
+    // Soft-deleted entries count: they still hold positions measured against the image,
+    // and a restore would bring them back re-framed. Two reads rather than an embedded
+    // join: a season holds a handful of events.
+    async countEntriesBySeason(seasonId: string): Promise<number> {
+      const { data: events, error } = await db
+        .from('events')
+        .select('id')
+        .eq('season_id', seasonId);
+      if (error) throw dbError(error);
+      const eventIds = (events ?? []).map((e) => e.id);
+      if (eventIds.length === 0) return 0;
+      const { count, error: countError } = await db
+        .from('scouting_entries')
+        .select('id', { count: 'exact', head: true })
+        .in('event_id', eventIds);
+      if (countError) throw dbError(countError);
+      return count ?? 0;
+    },
     // The remaining methods start as loud stubs, exactly as the fake does. Each later
     // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
     // without these the file does not compile at all.
@@ -205,16 +347,6 @@ export function supabaseStore(db: Db): Store {
       'listConflicts',
       'getConflict',
       'resolveConflictRow',
-      'setActiveContext',
-      'getSeason',
-      'getSeasonByYear',
-      'insertSeason',
-      'updateSeason',
-      'listSeasons',
-      'getEvent',
-      'insertEvent',
-      'updateEvent',
-      'listEvents',
       'getTeam',
       'getTeamByNumber',
       'insertTeam',
@@ -227,7 +359,6 @@ export function supabaseStore(db: Db): Store {
       'listMatches',
       'setMatchTeams',
       'countEntriesByMatch',
-      'countEntriesBySeason',
       'deleteMatch',
       'getForm',
       'getFormByKind',

@@ -1,7 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { API } from './index';
 import { loginInput, loginOutput, refreshTokenInput } from './auth';
-import { activeContext, getActiveContextInput } from './context';
+import {
+  activeContext,
+  createEventInput,
+  createSeasonInput,
+  eventRow,
+  getActiveContextInput,
+  listEventsInput,
+  listEventsOutput,
+  listSeasonsInput,
+  listSeasonsOutput,
+  reorderEventsInput,
+  reorderEventsOutput,
+  seasonRow,
+  setActiveEventInput,
+  setActiveSeasonInput,
+  updateEventInput,
+  updateSeasonInput,
+} from './context';
 import {
   changeOwnPasswordInput,
   createUserInput,
@@ -19,16 +36,25 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
   it('names every registry use case', () => {
     expect(Object.keys(API).sort()).toEqual([
       'changeOwnPassword',
+      'createEvent',
+      'createSeason',
       'createUser',
       'disableUser',
       'enableUser',
       'getActiveContext',
+      'listEvents',
+      'listSeasons',
       'listUsers',
       'login',
       'refreshToken',
       'renameUser',
+      'reorderEvents',
       'resetPassword',
+      'setActiveEvent',
+      'setActiveSeason',
       'setUserRole',
+      'updateEvent',
+      'updateSeason',
     ]);
   });
 
@@ -48,5 +74,14 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
       input: getActiveContextInput,
       output: activeContext,
     });
+    expect(API.createSeason).toEqual({ input: createSeasonInput, output: seasonRow });
+    expect(API.updateSeason).toEqual({ input: updateSeasonInput, output: seasonRow });
+    expect(API.setActiveSeason).toEqual({ input: setActiveSeasonInput, output: activeContext });
+    expect(API.listSeasons).toEqual({ input: listSeasonsInput, output: listSeasonsOutput });
+    expect(API.createEvent).toEqual({ input: createEventInput, output: eventRow });
+    expect(API.updateEvent).toEqual({ input: updateEventInput, output: eventRow });
+    expect(API.reorderEvents).toEqual({ input: reorderEventsInput, output: reorderEventsOutput });
+    expect(API.setActiveEvent).toEqual({ input: setActiveEventInput, output: activeContext });
+    expect(API.listEvents).toEqual({ input: listEventsInput, output: listEventsOutput });
   });
 });

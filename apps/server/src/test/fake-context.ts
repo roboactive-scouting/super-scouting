@@ -1,8 +1,10 @@
 import type { FormFieldDefinition } from '@frc/shared';
 import type {
   Store,
+  StoredEvent,
   StoredFullUser,
   StoredRow,
+  StoredSeason,
   StoredUser,
   UseCaseContext,
 } from '../core/context.js';
@@ -46,9 +48,36 @@ const USER_COLUMNS = new Set([
 ]);
 
 function checkUserColumns(row: Record<string, unknown>): void {
-  const unknown = Object.keys(row).find((column) => !USER_COLUMNS.has(column));
+  checkColumns('users', USER_COLUMNS, row);
+}
+
+/**
+ * The columns of public.seasons and public.events (migration 20260903090000_skeleton.sql).
+ * Neither has a `version`: they are not synced. Checked like matches and users, so a
+ * phantom column fails a unit test instead of a deployed write.
+ */
+const SEASON_COLUMNS = new Set([
+  'id',
+  'year',
+  'game_name',
+  'field_image_path',
+  'created_at',
+  'updated_at',
+]);
+const EVENT_COLUMNS = new Set([
+  'id',
+  'season_id',
+  'name',
+  'code',
+  'sort_order',
+  'created_at',
+  'updated_at',
+]);
+
+function checkColumns(table: string, columns: Set<string>, row: Record<string, unknown>): void {
+  const unknown = Object.keys(row).find((column) => !columns.has(column));
   if (unknown !== undefined) {
-    throw new Error(`Could not find the '${unknown}' column of 'users' in the schema cache`);
+    throw new Error(`Could not find the '${unknown}' column of '${table}' in the schema cache`);
   }
 }
 
@@ -197,8 +226,8 @@ export type FakeContext = UseCaseContext & {
   users: Map<string, StoredUser>;
   usersById: Map<string, StoredFullUser>;
   usersByName: Map<string, StoredFullUser>;
-  seasons: Map<string, FakeRow>;
-  events: Map<string, FakeRow>;
+  seasons: Map<string, StoredSeason>;
+  events: Map<string, StoredEvent>;
   teams: Map<string, FakeRow>;
   eventTeams: Map<string, FakeRow>;
   roster: Map<string, string[]>;
@@ -295,6 +324,20 @@ export function makeFakeContext(): FakeContext {
   const appliedOrder: string[] = [];
   const pullRows = new Map<string, Record<string, unknown>[]>();
   const knownEvents = new Set(['ev-1']);
+  const seasons = new Map<string, StoredSeason>();
+  const events = new Map<string, StoredEvent>();
+  // The unique (season_id, name) constraint on events.
+  const assertEventNameFree = (event: StoredEvent): void => {
+    for (const other of events.values()) {
+      if (
+        other.id !== event.id &&
+        other.season_id === event.season_id &&
+        other.name === event.name
+      ) {
+        throw pgError('23505', 'events_season_id_name_key');
+      }
+    }
+  };
   // The app_settings singleton: both null on an empty install, as the migration leaves it.
   let activeContext: { active_season_id: string | null; active_event_id: string | null } = {
     active_season_id: null,
@@ -307,8 +350,8 @@ export function makeFakeContext(): FakeContext {
     users,
     usersById,
     usersByName,
-    seasons: new Map(),
-    events: new Map(),
+    seasons,
+    events,
     teams: new Map(),
     eventTeams: new Map(),
     roster: new Map(),
@@ -447,8 +490,9 @@ export function makeFakeContext(): FakeContext {
     async getFormFields(_formVersionId) {
       return SKELETON_FIELDS;
     },
+    // `knownEvents` is the pull tests' shorthand; an event a use case created is real too.
     async eventExists(eventId) {
-      return knownEvents.has(eventId);
+      return knownEvents.has(eventId) || events.has(eventId);
     },
     async pullEntity(key, scope, since, offset, limit) {
       void scope;
@@ -463,6 +507,94 @@ export function makeFakeContext(): FakeContext {
     async getActiveContext() {
       return { ...activeContext };
     },
+    // Task 1.18. Both foreign keys checked, as Postgres does (23503); `knownEvents` counts
+    // as an event, so a pull test's shorthand id stays settable.
+    async setActiveContext(next) {
+      if (next.active_season_id !== null && !seasons.has(next.active_season_id)) {
+        throw pgError('23503', 'app_settings_active_season_id_fkey');
+      }
+      if (
+        next.active_event_id !== null &&
+        !events.has(next.active_event_id) &&
+        !knownEvents.has(next.active_event_id)
+      ) {
+        throw pgError('23503', 'app_settings_active_event_id_fkey');
+      }
+      activeContext = { ...next };
+      return { ...activeContext };
+    },
+    async getSeason(id) {
+      return seasons.get(id) ?? null;
+    },
+    async getSeasonByYear(year) {
+      return [...seasons.values()].find((s) => s.year === year) ?? null;
+    },
+    async insertSeason(row) {
+      checkColumns('seasons', SEASON_COLUMNS, row);
+      const at = fake.nowValue.toISOString();
+      const season = { created_at: at, updated_at: at, ...row } as StoredSeason;
+      if (seasons.has(season.id)) throw pgError('23505', 'seasons_pkey');
+      if ([...seasons.values()].some((s) => s.year === season.year)) {
+        throw pgError('23505', 'seasons_year_key');
+      }
+      seasons.set(season.id, season);
+      return season;
+    },
+    async updateSeason(id, patch) {
+      checkColumns('seasons', SEASON_COLUMNS, patch);
+      const existing = seasons.get(id);
+      if (!existing) throw pgError('PGRST116', 'no season with that id');
+      const next = { ...existing, ...patch, updated_at: fake.nowValue.toISOString() };
+      if ([...seasons.values()].some((s) => s.id !== id && s.year === next.year)) {
+        throw pgError('23505', 'seasons_year_key');
+      }
+      seasons.set(id, next);
+      return next;
+    },
+    // Newest year first; `year` is unique, so it alone is the keyset.
+    async listSeasons(limit, after) {
+      return [...seasons.values()]
+        .sort((a, b) => b.year - a.year)
+        .filter((s) => after === undefined || s.year < after.year)
+        .slice(0, limit);
+    },
+    async getEvent(id) {
+      return events.get(id) ?? null;
+    },
+    async insertEvent(row) {
+      checkColumns('events', EVENT_COLUMNS, row);
+      const at = fake.nowValue.toISOString();
+      const event = { code: null, created_at: at, updated_at: at, ...row } as StoredEvent;
+      if (!seasons.has(event.season_id)) throw pgError('23503', 'events_season_id_fkey');
+      if (events.has(event.id)) throw pgError('23505', 'events_pkey');
+      assertEventNameFree(event);
+      events.set(event.id, event);
+      return event;
+    },
+    async updateEvent(id, patch) {
+      checkColumns('events', EVENT_COLUMNS, patch);
+      const existing = events.get(id);
+      if (!existing) throw pgError('PGRST116', 'no event with that id');
+      const next = { ...existing, ...patch, updated_at: fake.nowValue.toISOString() };
+      if (!seasons.has(next.season_id)) throw pgError('23503', 'events_season_id_fkey');
+      assertEventNameFree(next);
+      events.set(id, next);
+      return next;
+    },
+    // By sort_order then id; sort_order is not unique, so the id is part of the keyset.
+    async listEvents(seasonId, limit, after) {
+      const key = (e: { sort_order: number; id: string }): [number, string] => [e.sort_order, e.id];
+      const cmp = (a: [number, string], b: [number, string]) =>
+        a[0] !== b[0] ? a[0] - b[0] : a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0;
+      return [...events.values()]
+        .filter((e) => e.season_id === seasonId)
+        .sort((a, b) => cmp(key(a), key(b)))
+        .filter((e) => after === undefined || cmp(key(e), key(after)) > 0)
+        .slice(0, limit);
+    },
+    async countEntriesBySeason(seasonId) {
+      return fake.entryCountsBySeason.get(seasonId) ?? 0;
+    },
     // Everything else on the Store starts as a loud stub; each later task
     // replaces the two or three entries it needs.
     ...stubsFor([
@@ -472,16 +604,6 @@ export function makeFakeContext(): FakeContext {
       'listConflicts',
       'getConflict',
       'resolveConflictRow',
-      'setActiveContext',
-      'getSeason',
-      'getSeasonByYear',
-      'insertSeason',
-      'updateSeason',
-      'listSeasons',
-      'getEvent',
-      'insertEvent',
-      'updateEvent',
-      'listEvents',
       'getTeam',
       'getTeamByNumber',
       'insertTeam',
@@ -494,7 +616,6 @@ export function makeFakeContext(): FakeContext {
       'listMatches',
       'setMatchTeams',
       'countEntriesByMatch',
-      'countEntriesBySeason',
       'deleteMatch',
       'getForm',
       'getFormByKind',

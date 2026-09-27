@@ -6,6 +6,7 @@ export * from './auth/permissions';
 export * from './caller';
 export * from './errors';
 export * from './format';
+export * from './season/manifest';
 export * from './forms/entryShape';
 export * from './forms/types';
 export * from './forms/validate';

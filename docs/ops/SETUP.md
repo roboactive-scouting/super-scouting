@@ -625,6 +625,10 @@ In this order. Steps 2 onward are done in the running app; step 1 is a commit.
    `apps/client/public/seasons/<year>/field.webp`, run `pnpm season:images`, and
    **redeploy the client**. The season cannot be created until that image is live —
    the app fails loudly rather than rendering a season with no field.
+   The server checks the path against the same generated list, bundled into
+   `apps/server/api/index.js`, so also run `pnpm --filter @frc/server build`, commit the
+   regenerated bundle with the image, and redeploy the server — CI's bundle-drift test
+   fails until you do.
 2. **Create the season**, pointing at that exact image path.
 3. **Create the events**, in competition order.
 4. **Build and publish both forms** — the `match` form and the `super` form.

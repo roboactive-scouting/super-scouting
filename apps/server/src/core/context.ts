@@ -19,6 +19,30 @@ export type StoredPublicUser = Omit<StoredFullUser, 'password_hash'>;
 
 export type StoredRow = Record<string, unknown> & { id: string; version: number };
 
+/**
+ * A `seasons` row (migration 20260903090000_skeleton.sql). Not a StoredRow: seasons are
+ * not synced and carry no `version` column.
+ */
+export type StoredSeason = {
+  id: string;
+  year: number;
+  game_name: string;
+  field_image_path: string;
+  created_at: string;
+  updated_at: string;
+};
+
+/** An `events` row (same migration). Unversioned, like seasons. */
+export type StoredEvent = {
+  id: string;
+  season_id: string;
+  name: string;
+  code: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
 export type PullScope = { eventId: string; seasonId: string };
 
 export type PullEntitySource = (
@@ -94,15 +118,26 @@ export type Store = {
     active_season_id: string | null;
     active_event_id: string | null;
   }>;
-  getSeason(id: string): Promise<StoredRow | null>;
-  getSeasonByYear(year: number): Promise<StoredRow | null>;
-  insertSeason(row: Record<string, unknown>): Promise<StoredRow>;
-  updateSeason(id: string, patch: Record<string, unknown>): Promise<StoredRow>;
-  listSeasons(limit: number, cursor?: string): Promise<StoredRow[]>;
-  getEvent(id: string): Promise<StoredRow | null>;
-  insertEvent(row: Record<string, unknown>): Promise<StoredRow>;
-  updateEvent(id: string, patch: Record<string, unknown>): Promise<StoredRow>;
-  listEvents(seasonId: string, limit: number, cursor?: string): Promise<StoredRow[]>;
+  getSeason(id: string): Promise<StoredSeason | null>;
+  getSeasonByYear(year: number): Promise<StoredSeason | null>;
+  /**
+   * The season and event writes throw an error whose `code` is Postgres's own, like the
+   * user writes: '23505' on a duplicate year or a duplicate event name in a season,
+   * '23503' when an event names a season that no longer exists.
+   */
+  insertSeason(row: Record<string, unknown>): Promise<StoredSeason>;
+  updateSeason(id: string, patch: Record<string, unknown>): Promise<StoredSeason>;
+  /** Newest year first; `after` is the last row of the previous page (keyset, as listUsers). */
+  listSeasons(limit: number, after?: { year: number }): Promise<StoredSeason[]>;
+  getEvent(id: string): Promise<StoredEvent | null>;
+  insertEvent(row: Record<string, unknown>): Promise<StoredEvent>;
+  updateEvent(id: string, patch: Record<string, unknown>): Promise<StoredEvent>;
+  /** By sort_order then id; `after` is the last row of the previous page (keyset). */
+  listEvents(
+    seasonId: string,
+    limit: number,
+    after?: { sort_order: number; id: string },
+  ): Promise<StoredEvent[]>;
 
   // teams, roster, matches (task 1.19)
   getTeam(id: string): Promise<StoredRow | null>;
@@ -122,6 +157,7 @@ export type Store = {
   listMatches(eventId: string, limit: number, cursor?: string): Promise<StoredRow[]>;
   setMatchTeams(matchId: string, slots: Record<string, unknown>[]): Promise<void>;
   countEntriesByMatch(matchId: string): Promise<number>;
+  /** Every entry of every event in the season, soft-deleted ones included (task 1.18). */
   countEntriesBySeason(seasonId: string): Promise<number>;
   deleteMatch(id: string): Promise<void>;
 

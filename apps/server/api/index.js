@@ -98,6 +98,68 @@ var activeContext = z3.object({
   active_season_id: z3.string().uuid().nullable(),
   active_event_id: z3.string().uuid().nullable()
 });
+var uuid = z3.string().uuid();
+var SEASON_YEAR_MIN = 1992;
+var SEASON_YEAR_MAX = 2100;
+var NAME_MAX_LENGTH = 80;
+var REORDER_EVENTS_MAX = 200;
+var LIST_SEASONS_DEFAULT_LIMIT = 50;
+var LIST_SEASONS_MAX_LIMIT = 200;
+var LIST_EVENTS_DEFAULT_LIMIT = 50;
+var LIST_EVENTS_MAX_LIMIT = 200;
+var seasonYear = z3.number().int().min(SEASON_YEAR_MIN).max(SEASON_YEAR_MAX);
+var displayName = z3.string().trim().min(1).max(NAME_MAX_LENGTH);
+var fieldImagePath = z3.string().trim().min(1).max(200);
+var seasonRow = z3.object({
+  id: uuid,
+  year: z3.number().int(),
+  game_name: z3.string(),
+  field_image_path: z3.string(),
+  created_at: z3.string(),
+  updated_at: z3.string()
+});
+var eventRow = z3.object({
+  id: uuid,
+  season_id: uuid,
+  name: z3.string(),
+  code: z3.string().nullable(),
+  sort_order: z3.number().int(),
+  created_at: z3.string(),
+  updated_at: z3.string()
+});
+var createSeasonInput = z3.object({ year: seasonYear, game_name: displayName, field_image_path: fieldImagePath }).strict();
+var updateSeasonInput = z3.object({
+  season_id: uuid,
+  year: seasonYear.optional(),
+  game_name: displayName.optional(),
+  field_image_path: fieldImagePath.optional()
+}).strict().refine(
+  (value) => value.year !== void 0 || value.game_name !== void 0 || value.field_image_path !== void 0,
+  { message: "give a new year, game name or game image path" }
+);
+var setActiveSeasonInput = z3.object({ season_id: uuid }).strict();
+var listSeasonsInput = z3.object({
+  limit: z3.number().int().min(1).optional(),
+  cursor: z3.string().min(1).optional()
+}).strict();
+var listSeasonsOutput = z3.object({
+  items: z3.array(seasonRow),
+  next_cursor: z3.string().nullable()
+});
+var createEventInput = z3.object({ season_id: uuid, name: displayName }).strict();
+var updateEventInput = z3.object({ event_id: uuid, name: displayName }).strict();
+var reorderEventsInput = z3.object({ season_id: uuid, event_ids: z3.array(uuid).max(REORDER_EVENTS_MAX) }).strict();
+var reorderEventsOutput = z3.object({ items: z3.array(eventRow) });
+var setActiveEventInput = z3.object({ event_id: uuid }).strict();
+var listEventsInput = z3.object({
+  season_id: uuid,
+  limit: z3.number().int().min(1).optional(),
+  cursor: z3.string().min(1).optional()
+}).strict();
+var listEventsOutput = z3.object({
+  items: z3.array(eventRow),
+  next_cursor: z3.string().nullable()
+});
 
 // ../../packages/shared/src/api/index.ts
 var API = {
@@ -111,7 +173,16 @@ var API = {
   enableUser: { input: enableUserInput, output: publicUser },
   renameUser: { input: renameUserInput, output: publicUser },
   listUsers: { input: listUsersInput, output: listUsersOutput },
-  getActiveContext: { input: getActiveContextInput, output: activeContext }
+  getActiveContext: { input: getActiveContextInput, output: activeContext },
+  createSeason: { input: createSeasonInput, output: seasonRow },
+  updateSeason: { input: updateSeasonInput, output: seasonRow },
+  setActiveSeason: { input: setActiveSeasonInput, output: activeContext },
+  listSeasons: { input: listSeasonsInput, output: listSeasonsOutput },
+  createEvent: { input: createEventInput, output: eventRow },
+  updateEvent: { input: updateEventInput, output: eventRow },
+  reorderEvents: { input: reorderEventsInput, output: reorderEventsOutput },
+  setActiveEvent: { input: setActiveEventInput, output: activeContext },
+  listEvents: { input: listEventsInput, output: listEventsOutput }
 };
 
 // ../../packages/shared/src/errors.ts
@@ -169,6 +240,11 @@ function withinSelfEditWindow(clientCreatedAt, clientUpdatedAt) {
   const elapsed = updated - created;
   return elapsed >= 0 && elapsed <= SELF_EDIT_WINDOW_MS;
 }
+
+// ../../packages/shared/src/season/manifest.ts
+var SEASON_IMAGE_MANIFEST = [
+  "seasons/2026/field.webp"
+];
 
 // ../../packages/shared/src/forms/entryShape.ts
 function validateEntryShape(row) {
@@ -676,6 +752,9 @@ var TABLE = {
 };
 var FULL_USER_COLUMNS = "id, username, full_name, password_hash, role, must_change_password, disabled_at, created_at";
 var PUBLIC_USER_COLUMNS = "id, username, full_name, role, must_change_password, disabled_at, created_at";
+var SEASON_COLUMNS = "id, year, game_name, field_image_path, created_at, updated_at";
+var EVENT_COLUMNS = "id, season_id, name, code, sort_order, created_at, updated_at";
+var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function dbError(error) {
   return Object.assign(new Error(error.message), { code: error.code });
 }
@@ -775,6 +854,92 @@ function supabaseStore(db) {
         active_event_id: data?.active_event_id ?? null
       };
     },
+    // Task 1.18. Both ids in ONE write, so the singleton never holds a mismatched pair.
+    // An upsert on the singleton's key, not an update: the skeleton migration creates the
+    // row, but an update of a missing row would fail as PGRST116 with nothing to fix it.
+    async setActiveContext(next) {
+      const { data, error } = await db.from("app_settings").upsert(
+        {
+          id: true,
+          active_season_id: next.active_season_id,
+          active_event_id: next.active_event_id
+        },
+        { onConflict: "id" }
+      ).select("active_season_id, active_event_id").single();
+      if (error) throw dbError(error);
+      return {
+        active_season_id: data.active_season_id ?? null,
+        active_event_id: data.active_event_id ?? null
+      };
+    },
+    async getSeason(id) {
+      const { data, error } = await db.from("seasons").select(SEASON_COLUMNS).eq("id", id).maybeSingle();
+      if (error) throw dbError(error);
+      return data ?? null;
+    },
+    async getSeasonByYear(year) {
+      const { data, error } = await db.from("seasons").select(SEASON_COLUMNS).eq("year", year).maybeSingle();
+      if (error) throw dbError(error);
+      return data ?? null;
+    },
+    async insertSeason(row) {
+      const { data, error } = await db.from("seasons").insert(row).select(SEASON_COLUMNS).single();
+      if (error) throw dbError(error);
+      return data;
+    },
+    async updateSeason(id, patch) {
+      const { data, error } = await db.from("seasons").update(patch).eq("id", id).select(SEASON_COLUMNS).single();
+      if (error) throw dbError(error);
+      return data;
+    },
+    async listSeasons(limit, after) {
+      let query = db.from("seasons").select(SEASON_COLUMNS);
+      if (after) query = query.lt("year", after.year);
+      const { data, error } = await query.order("year", { ascending: false }).limit(limit);
+      if (error) throw dbError(error);
+      return data ?? [];
+    },
+    async getEvent(id) {
+      const { data, error } = await db.from("events").select(EVENT_COLUMNS).eq("id", id).maybeSingle();
+      if (error) throw dbError(error);
+      return data ?? null;
+    },
+    async insertEvent(row) {
+      const { data, error } = await db.from("events").insert(row).select(EVENT_COLUMNS).single();
+      if (error) throw dbError(error);
+      return data;
+    },
+    async updateEvent(id, patch) {
+      const { data, error } = await db.from("events").update(patch).eq("id", id).select(EVENT_COLUMNS).single();
+      if (error) throw dbError(error);
+      return data;
+    },
+    async listEvents(seasonId, limit, after) {
+      let query = db.from("events").select(EVENT_COLUMNS).eq("season_id", seasonId);
+      if (after) {
+        if (!Number.isInteger(after.sort_order) || !UUID.test(after.id)) {
+          throw new Error("listEvents: a keyset must be an integer sort_order and a uuid");
+        }
+        query = query.or(
+          `sort_order.gt.${after.sort_order},and(sort_order.eq.${after.sort_order},id.gt.${after.id})`
+        );
+      }
+      const { data, error } = await query.order("sort_order", { ascending: true }).order("id", { ascending: true }).limit(limit);
+      if (error) throw dbError(error);
+      return data ?? [];
+    },
+    // Soft-deleted entries count: they still hold positions measured against the image,
+    // and a restore would bring them back re-framed. Two reads rather than an embedded
+    // join: a season holds a handful of events.
+    async countEntriesBySeason(seasonId) {
+      const { data: events, error } = await db.from("events").select("id").eq("season_id", seasonId);
+      if (error) throw dbError(error);
+      const eventIds = (events ?? []).map((e) => e.id);
+      if (eventIds.length === 0) return 0;
+      const { count, error: countError } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).in("event_id", eventIds);
+      if (countError) throw dbError(countError);
+      return count ?? 0;
+    },
     // The remaining methods start as loud stubs, exactly as the fake does. Each later
     // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
     // without these the file does not compile at all.
@@ -785,16 +950,6 @@ function supabaseStore(db) {
       "listConflicts",
       "getConflict",
       "resolveConflictRow",
-      "setActiveContext",
-      "getSeason",
-      "getSeasonByYear",
-      "insertSeason",
-      "updateSeason",
-      "listSeasons",
-      "getEvent",
-      "insertEvent",
-      "updateEvent",
-      "listEvents",
       "getTeam",
       "getTeamByNumber",
       "insertTeam",
@@ -807,7 +962,6 @@ function supabaseStore(db) {
       "listMatches",
       "setMatchTeams",
       "countEntriesByMatch",
-      "countEntriesBySeason",
       "deleteMatch",
       "getForm",
       "getFormByKind",
@@ -1116,6 +1270,298 @@ async function changeOwnPassword(caller, input, ctx) {
   return toPublicUser(stored);
 }
 
+// src/core/seasonRows.ts
+function toSeason(row) {
+  return {
+    id: row.id,
+    year: row.year,
+    game_name: row.game_name,
+    field_image_path: row.field_image_path,
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  };
+}
+function toEvent(row) {
+  return {
+    id: row.id,
+    season_id: row.season_id,
+    name: row.name,
+    code: row.code ?? null,
+    sort_order: row.sort_order,
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  };
+}
+function noSuchSeason(seasonId) {
+  return new AppError("not-found", "that season does not exist; it may have been deleted", {
+    season_id: seasonId
+  });
+}
+function noSuchEvent(eventId) {
+  return new AppError("not-found", "that event does not exist; it may have been deleted", {
+    event_id: eventId
+  });
+}
+async function seasonOrNotFound(ctx, id) {
+  const season = await ctx.store.getSeason(id);
+  if (!season) throw noSuchSeason(id);
+  return season;
+}
+async function eventOrNotFound(ctx, id) {
+  const event = await ctx.store.getEvent(id);
+  if (!event) throw noSuchEvent(id);
+  return event;
+}
+var EVENTS_PAGE = 200;
+async function allEventsOf(ctx, seasonId) {
+  const all = [];
+  let after;
+  for (; ; ) {
+    const page = await ctx.store.listEvents(seasonId, EVENTS_PAGE, after);
+    all.push(...page);
+    const last = page[page.length - 1];
+    if (page.length < EVENTS_PAGE || !last) return all;
+    after = { sort_order: last.sort_order, id: last.id };
+  }
+}
+function pgCode(e) {
+  if (typeof e !== "object" || e === null) return void 0;
+  const code = e.code;
+  return typeof code === "string" ? code : void 0;
+}
+
+// src/core/queries/listEvents.ts
+import { z as z8 } from "zod";
+
+// src/core/cursor.ts
+function encodeCursor(value) {
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
+function decodeCursor(schema2, raw) {
+  let decoded;
+  try {
+    decoded = JSON.parse(Buffer.from(raw, "base64url").toString("utf8"));
+  } catch {
+    decoded = void 0;
+  }
+  const parsed = schema2.safeParse(decoded);
+  if (!parsed.success) {
+    throw new AppError("invalid", "cursor is not readable; list again without one");
+  }
+  return parsed.data;
+}
+
+// src/core/queries/listEvents.ts
+var eventCursor = z8.object({ s: z8.number().int(), i: z8.string().uuid() }).strict();
+async function listEvents(caller, input, ctx) {
+  void caller;
+  const parsed = parseInput(listEventsInput, input);
+  const limit = Math.min(parsed.limit ?? LIST_EVENTS_DEFAULT_LIMIT, LIST_EVENTS_MAX_LIMIT);
+  const cursor = parsed.cursor ? decodeCursor(eventCursor, parsed.cursor) : void 0;
+  const season = await seasonOrNotFound(ctx, parsed.season_id);
+  const rows = await ctx.store.listEvents(
+    season.id,
+    limit + 1,
+    cursor ? { sort_order: cursor.s, id: cursor.i } : void 0
+  );
+  const page = rows.slice(0, limit);
+  const last = page[page.length - 1];
+  return {
+    items: page.map(toEvent),
+    next_cursor: rows.length > limit && last ? encodeCursor({ s: last.sort_order, i: last.id }) : null
+  };
+}
+
+// src/core/commands/events.ts
+function nameTaken(name) {
+  return new AppError("conflict", `this season already has an event named '${name}'`, { name });
+}
+async function writeEvent(name, seasonId, write) {
+  try {
+    return await write();
+  } catch (e) {
+    const code = pgCode(e);
+    if (code === "23505") throw nameTaken(name);
+    if (code === "23503") throw noSuchSeason(seasonId);
+    throw e;
+  }
+}
+async function createEvent(caller, input, ctx) {
+  assertCan(caller, "manage_events");
+  const parsed = parseInput(createEventInput, input);
+  const season = await seasonOrNotFound(ctx, parsed.season_id);
+  const siblings = await allEventsOf(ctx, season.id);
+  if (siblings.some((e) => e.name === parsed.name)) throw nameTaken(parsed.name);
+  const sortOrder = siblings.reduce((max, e) => Math.max(max, e.sort_order), 0) + 1;
+  const stored = await writeEvent(
+    parsed.name,
+    season.id,
+    () => ctx.store.insertEvent({
+      id: crypto.randomUUID(),
+      season_id: season.id,
+      name: parsed.name,
+      sort_order: sortOrder
+    })
+  );
+  return toEvent(stored);
+}
+async function updateEvent(caller, input, ctx) {
+  assertCan(caller, "manage_events");
+  const parsed = parseInput(updateEventInput, input);
+  const current = await eventOrNotFound(ctx, parsed.event_id);
+  if (parsed.name === current.name) return toEvent(current);
+  const siblings = await allEventsOf(ctx, current.season_id);
+  if (siblings.some((e) => e.id !== current.id && e.name === parsed.name)) {
+    throw nameTaken(parsed.name);
+  }
+  const stored = await writeEvent(
+    parsed.name,
+    current.season_id,
+    () => ctx.store.updateEvent(current.id, { name: parsed.name })
+  );
+  return toEvent(stored);
+}
+async function reorderEvents(caller, input, ctx) {
+  assertCan(caller, "manage_events");
+  const parsed = parseInput(reorderEventsInput, input);
+  const season = await seasonOrNotFound(ctx, parsed.season_id);
+  const current = await allEventsOf(ctx, season.id);
+  const byId = new Map(current.map((e) => [e.id, e]));
+  const ids = parsed.event_ids;
+  const isPermutation = ids.length === current.length && new Set(ids).size === ids.length && ids.every((id) => byId.has(id));
+  if (!isPermutation) {
+    throw new AppError(
+      "invalid",
+      `the new order must name every event in this season exactly once (it has ${current.length}); reload the events and try again`,
+      { expected: current.length, received: ids.length }
+    );
+  }
+  const items = [];
+  for (const [index, id] of ids.entries()) {
+    const event = byId.get(id);
+    const sortOrder = index + 1;
+    items.push(
+      toEvent(
+        event.sort_order === sortOrder ? event : await ctx.store.updateEvent(id, { sort_order: sortOrder })
+      )
+    );
+  }
+  return { items };
+}
+async function setActiveEvent(caller, input, ctx) {
+  assertCan(caller, "manage_events");
+  const parsed = parseInput(setActiveEventInput, input);
+  const event = await eventOrNotFound(ctx, parsed.event_id);
+  return ctx.store.setActiveContext({
+    active_season_id: event.season_id,
+    active_event_id: event.id
+  });
+}
+
+// src/core/queries/listSeasons.ts
+import { z as z9 } from "zod";
+var seasonCursor = z9.object({ y: z9.number().int() }).strict();
+async function listSeasons(caller, input, ctx) {
+  void caller;
+  const parsed = parseInput(listSeasonsInput, input);
+  const limit = Math.min(parsed.limit ?? LIST_SEASONS_DEFAULT_LIMIT, LIST_SEASONS_MAX_LIMIT);
+  const after = parsed.cursor ? { year: decodeCursor(seasonCursor, parsed.cursor).y } : void 0;
+  const rows = await ctx.store.listSeasons(limit + 1, after);
+  const page = rows.slice(0, limit);
+  const last = page[page.length - 1];
+  return {
+    items: page.map(toSeason),
+    next_cursor: rows.length > limit && last ? encodeCursor({ y: last.year }) : null
+  };
+}
+
+// src/core/commands/seasons.ts
+var COMMITTED_IMAGES = new Set(SEASON_IMAGE_MANIFEST);
+function assertImageResolves(path) {
+  if (!COMMITTED_IMAGES.has(path)) {
+    throw new AppError(
+      "invalid",
+      `there is no committed game image at ${path}; commit apps/client/public/${path} and redeploy the client first`,
+      { field_image_path: path }
+    );
+  }
+}
+function yearTaken(year) {
+  return new AppError(
+    "conflict",
+    year === void 0 ? "a season for that year already exists" : `a season for ${year} already exists`,
+    year === void 0 ? void 0 : { year }
+  );
+}
+async function writeSeason(year, write) {
+  try {
+    return await write();
+  } catch (e) {
+    if (pgCode(e) === "23505") throw yearTaken(year);
+    throw e;
+  }
+}
+async function createSeason(caller, input, ctx) {
+  assertCan(caller, "manage_events");
+  const parsed = parseInput(createSeasonInput, input);
+  assertImageResolves(parsed.field_image_path);
+  if (await ctx.store.getSeasonByYear(parsed.year)) throw yearTaken(parsed.year);
+  const stored = await writeSeason(
+    parsed.year,
+    () => ctx.store.insertSeason({
+      id: crypto.randomUUID(),
+      year: parsed.year,
+      game_name: parsed.game_name,
+      field_image_path: parsed.field_image_path
+    })
+  );
+  return toSeason(stored);
+}
+async function updateSeason(caller, input, ctx) {
+  assertCan(caller, "manage_events");
+  const parsed = parseInput(updateSeasonInput, input);
+  const current = await seasonOrNotFound(ctx, parsed.season_id);
+  const patch = {};
+  if (parsed.game_name !== void 0 && parsed.game_name !== current.game_name) {
+    patch.game_name = parsed.game_name;
+  }
+  if (parsed.year !== void 0 && parsed.year !== current.year) {
+    const holder = await ctx.store.getSeasonByYear(parsed.year);
+    if (holder && holder.id !== current.id) throw yearTaken(parsed.year);
+    patch.year = parsed.year;
+  }
+  if (parsed.field_image_path !== void 0 && parsed.field_image_path !== current.field_image_path) {
+    if (await ctx.store.countEntriesBySeason(current.id) > 0) {
+      throw new AppError(
+        "conflict",
+        "this season already has scouting entries, and every position in them is measured against its current game image: a new image means a new filename and a new form version \u2014 create the new form version, do not swap the image.",
+        { season_id: current.id }
+      );
+    }
+    assertImageResolves(parsed.field_image_path);
+    patch.field_image_path = parsed.field_image_path;
+  }
+  if (Object.keys(patch).length === 0) return toSeason(current);
+  const stored = await writeSeason(parsed.year, () => ctx.store.updateSeason(current.id, patch));
+  return toSeason(stored);
+}
+async function setActiveSeason(caller, input, ctx) {
+  assertCan(caller, "manage_events");
+  const parsed = parseInput(setActiveSeasonInput, input);
+  const season = await seasonOrNotFound(ctx, parsed.season_id);
+  let eventId = null;
+  const current = await ctx.store.getActiveContext();
+  if (current.active_event_id !== null) {
+    const active = await ctx.store.getEvent(current.active_event_id);
+    if (active && active.season_id === season.id) eventId = active.id;
+  }
+  if (eventId === null) {
+    const [first] = await ctx.store.listEvents(season.id, 1);
+    eventId = first?.id ?? null;
+  }
+  return ctx.store.setActiveContext({ active_season_id: season.id, active_event_id: eventId });
+}
+
 // src/core/queries/context.ts
 async function getActiveContext(caller, input, ctx) {
   void caller;
@@ -1130,8 +1576,8 @@ async function getActiveContext(caller, input, ctx) {
 }
 
 // src/core/queries/listUsers.ts
-var encodeCursor = (c) => Buffer.from(JSON.stringify({ u: c.username, i: c.id }), "utf8").toString("base64url");
-var decodeCursor = (raw) => {
+var encodeCursor2 = (c) => Buffer.from(JSON.stringify({ u: c.username, i: c.id }), "utf8").toString("base64url");
+var decodeCursor2 = (raw) => {
   try {
     const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8"));
     if (typeof parsed.u !== "string" || typeof parsed.i !== "string") throw new Error("shape");
@@ -1144,7 +1590,7 @@ async function listUsers(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listUsersInput, input);
   const limit = Math.min(parsed.limit ?? LIST_USERS_DEFAULT_LIMIT, LIST_USERS_MAX_LIMIT);
-  const after = parsed.cursor ? decodeCursor(parsed.cursor) : void 0;
+  const after = parsed.cursor ? decodeCursor2(parsed.cursor) : void 0;
   const rows = await ctx.store.listUsers({
     includeDisabled: parsed.include_disabled,
     limit: limit + 1,
@@ -1154,7 +1600,7 @@ async function listUsers(caller, input, ctx) {
   const last = page[page.length - 1];
   return {
     items: page.map(toPublicUser),
-    next_cursor: rows.length > limit && last ? encodeCursor({ username: last.username, id: last.id }) : null
+    next_cursor: rows.length > limit && last ? encodeCursor2({ username: last.username, id: last.id }) : null
   };
 }
 
@@ -1238,6 +1684,69 @@ var REGISTRY = {
     input: API.getActiveContext.input,
     output: API.getActiveContext.output,
     handler: getActiveContext
+  },
+  createSeason: {
+    kind: "command",
+    description: "Admin only: create a season with a unique year, a game name and the path of its game image, which must already be committed and deployed with the client.",
+    input: API.createSeason.input,
+    output: API.createSeason.output,
+    handler: createSeason
+  },
+  updateSeason: {
+    kind: "command",
+    description: "Admin only: correct a season's year, game name or game image path. The image cannot change once the season has entries: a new image needs a new form version.",
+    input: API.updateSeason.input,
+    output: API.updateSeason.output,
+    handler: updateSeason
+  },
+  setActiveSeason: {
+    kind: "command",
+    description: "Admin only: make a season the default every device opens to. The active event stays if it is in that season, else becomes the season's first event, or none.",
+    input: API.setActiveSeason.input,
+    output: API.setActiveSeason.output,
+    handler: setActiveSeason
+  },
+  listSeasons: {
+    kind: "query",
+    description: "Every season, newest year first, paginated.",
+    input: API.listSeasons.input,
+    output: API.listSeasons.output,
+    handler: listSeasons
+  },
+  createEvent: {
+    kind: "command",
+    description: "Admin only: create an event in a season. Its name is unique in the season, and it goes last in the season order.",
+    input: API.createEvent.input,
+    output: API.createEvent.output,
+    handler: createEvent
+  },
+  updateEvent: {
+    kind: "command",
+    description: "Admin only: rename an event. Its name stays unique in its season; its order and its season never change here.",
+    input: API.updateEvent.input,
+    output: API.updateEvent.output,
+    handler: updateEvent
+  },
+  reorderEvents: {
+    kind: "command",
+    description: "Admin only: set a season's event display order, naming every event once. Changes display order only; it never re-weights an aggregate.",
+    input: API.reorderEvents.input,
+    output: API.reorderEvents.output,
+    handler: reorderEvents
+  },
+  setActiveEvent: {
+    kind: "command",
+    description: "Admin only: make an event, and with it its season, the default every device opens to. Both are written together, so they never disagree.",
+    input: API.setActiveEvent.input,
+    output: API.setActiveEvent.output,
+    handler: setActiveEvent
+  },
+  listEvents: {
+    kind: "query",
+    description: "A season's events in display order (sort_order, then id), paginated. The order every season-spanning view reads left to right.",
+    input: API.listEvents.input,
+    output: API.listEvents.output,
+    handler: listEvents
   }
 };
 
@@ -1437,8 +1946,8 @@ async function applyEntry(op, author, ctx) {
 
 // src/core/queries/syncPull.ts
 var PULL_PAGE_ROWS = 2e3;
-var encodeCursor2 = (c) => btoa(JSON.stringify(c));
-var decodeCursor2 = (raw) => {
+var encodeCursor3 = (c) => btoa(JSON.stringify(c));
+var decodeCursor3 = (raw) => {
   try {
     const parsed = JSON.parse(atob(raw));
     if (typeof parsed.entityIndex !== "number" || typeof parsed.offset !== "number") {
@@ -1455,7 +1964,7 @@ async function syncPull(caller, input, ctx) {
     throw new AppError("not-found", "that event no longer exists", { event_id: input.event_id });
   }
   const scope = await ctx.store.resolveScope(input.event_id);
-  const start = input.cursor ? decodeCursor2(input.cursor) : { entityIndex: 0, offset: 0 };
+  const start = input.cursor ? decodeCursor3(input.cursor) : { entityIndex: 0, offset: 0 };
   const entities = Object.fromEntries(
     PULL_ENTITY_KEYS.map((key2) => [key2, []])
   );
@@ -1467,7 +1976,7 @@ async function syncPull(caller, input, ctx) {
     let offset = index === start.entityIndex ? start.offset : 0;
     for (; ; ) {
       if (budget === 0) {
-        nextCursor = encodeCursor2({ entityIndex: index, offset });
+        nextCursor = encodeCursor3({ entityIndex: index, offset });
         break;
       }
       const rows = await ctx.store.pullEntity(key2, scope, input.since, offset, budget);

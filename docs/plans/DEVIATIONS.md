@@ -3103,3 +3103,189 @@ Choices the brief left open:
 **What I did instead:** changed the script to `tsx watch --env-file=.env src/dev-server.ts`. pnpm runs it from `apps/server`, so the relative path resolves there, and Node reads the file itself (BUILD-CONTEXT §3). Proven by starting it with the plain command and fetching `http://localhost:3000/health`, which returned `{"status":"ok","database":"ok",…}`. `SETUP.md` "Running it locally" gains one line.
 
 **Risk:** Node's `--env-file` fails at startup if `apps/server/.env` is missing. That is the right failure: with no file, the server has no usable environment.
+
+## Task 1.18 — the game image was supplied, not created
+
+**Plan said:** "Create: `apps/client/public/seasons/2026/field.webp` — the real game image for the current season."
+
+**What was wrong:** nothing. The user supplied the file in the working copy (untracked, 183,918 bytes, `RIFF … Web/P image`).
+
+**What I did instead:** left it byte-for-byte untouched (sha256 `a4ddfd9e299e39d1f718e522955be11748de3ae41580e43997f06bcb5d0c653b` before and after) and generated the manifest from it. The directory `packages/shared/src/season/` had to be created first. The plan's script calls `writeFileSync` without creating the directory, and `--check` on a missing manifest throws `ENOENT` rather than printing the drift message. The script is otherwise verbatim.
+
+**Risk:** none for this task. A fresh clone always has the committed manifest, so the missing-directory case only bites whoever first adds the file.
+
+## Task 1.18 — test fixture ids are uuids, and imports carry `.js`
+
+**Plan said:** the tests use `'se-1'`, `'se-2'` and `'nope'` as ids, and import `./seasons` / `./events`.
+
+**What was wrong:** wire ids are uuids. With strict `z.string().uuid()` input schemas (orchestrator decision 2), `setActiveEvent(admin, { event_id: 'nope' })` answers `invalid` rather than the asserted `not-found`, and `updateSeason(…, { season_id: 'se-1' })` never reaches the rule under test.
+
+**What I did instead:** kept the schemas strict and replaced the fixtures with uuid constants at the top of each test file (`SE_1`, `SE_2`, `NOPE`, …). Every assertion keeps its intent. The plan's two image-swap tests ran against a season the fake did not hold; they now seed `SE_1` first, or `updateSeason` would answer `not-found` before reaching the rule. Imports use the house `.js` extension (BUILD-CONTEXT §6). Rejected: loosening ids to `z.string().min(1)` as `users.ts` does. That comment exists because the user fixtures are not uuids, and task 1.19's `ensureMatchInput` already uses uuids.
+
+**Risk:** none.
+
+## Task 1.18 — the manifest was already Prettier-ignored
+
+**Plan said:** nothing. Orchestrator decision 3: if Prettier would reformat the generated file, add it to `.prettierignore` rather than make the generator depend on Prettier.
+
+**What was wrong:** nothing. Prettier would reformat the file (it collapses the one-entry array onto one line), but `.prettierignore` already lists `packages/shared/src/season/manifest.ts`.
+
+**What I did instead:** no change. `format:check` passes and `season:images:check` compares byte for byte. `.gitattributes` is `* text=auto eol=lf`, so a Windows checkout cannot turn the LF manifest into CRLF and fail the check.
+
+**Risk:** none.
+
+## Task 1.18 — the Vite glob assertion is left to task 1.23
+
+**Plan said:** "`'seasons/**/*.webp'` is already covered by the `webp` extension added in task 0.5 — assert it in the manifest test."
+
+**What was wrong:** the client half (`images.test.ts`, `vite.config.ts`) is task 1.23 (orchestrator decision 5). The plan's step 1 command `pnpm --filter @frc/client exec vitest run src/season 2>/dev/null || true` has nothing to run, because there is no `apps/client/src/season` yet.
+
+**What I did instead:** added `packages/shared/src/season/manifest.test.ts`. It asserts that the manifest holds `seasons/2026/field.webp`, that every entry matches `^seasons/\d{4}/[^/]+\.webp$`, that the list is sorted with no duplicates, and that the package root exports it. Nothing asserts the workbox glob.
+
+**Risk:** until task 1.23 lands, nothing proves the service worker precaches the image.
+
+## Task 1.18 — the list queries live in core/queries/, and the Store's list and row types changed
+
+**Plan said:** the `Store` in `core/context.ts` is declared in full: `getSeason(id): Promise<StoredRow | null>`, `listSeasons(limit, cursor?: string)`, `listEvents(seasonId, limit, cursor?: string)` and so on. The events test imports `listEvents` from `./events`.
+
+**What was wrong:** three things.
+- `StoredRow` is `{ id; version: number }`, but `seasons` and `events` have no `version` column (skeleton migration).
+- A string `cursor` in the store would mean the store parses the client's cursor. `listUsers` had already moved away from that to a typed `after` keyset.
+- A query use case placed in `commands/` contradicts SPEC-FINAL 16.5's "every `commands/` use case rejects [a service caller]".
+
+**What I did instead:**
+- Added `StoredSeason` and `StoredEvent` and used them in the nine season/event signatures.
+- `listSeasons(limit, after?: { year })` returns newest first. `listEvents(seasonId, limit, after?: { sort_order, id })` orders by sort_order, then id.
+- The use cases own the opaque base64url cursor (`core/cursor.ts`). It is validated with zod before use, because the Supabase store interpolates it into a PostgREST `.or()` filter; the store re-checks it too.
+- `FakeContext.seasons` and `FakeContext.events` are now `Map<string, StoredSeason>` and `Map<string, StoredEvent>`, not `FakeRow`.
+- `listSeasons` and `listEvents` are in `core/queries/listSeasons.ts` and `core/queries/listEvents.ts`. They are re-exported from `commands/seasons.ts` and `commands/events.ts`, so the plan's imports resolve.
+- Shared row mapping and lookups are in `core/seasonRows.ts`, so the query modules never import a command module that re-exports them.
+- No new Store method was added.
+
+Rejected: keeping `StoredRow` and casting. That would type a `version` that the fake's column check refuses.
+
+**Risk:** task 1.19's `listTeams` and `listMatches` are still declared with `cursor?: string` and will probably want the same change.
+
+## Task 1.18 — updateSeason: which refusal wins, and what counts as a change
+
+**Plan said:** `createSeason`/`updateSeason` refuse a path outside `SEASON_IMAGE_MANIFEST`, and `updateSeason` refuses to change `field_image_path` once entries exist. The swap test uses `seasons/2027/field.webp`, which is not in the manifest, and expects `/new form version/`.
+
+**What was wrong:** the plan does not say which check runs first. Run the manifest check first, and the plan's own test fails with the "commit apps/client/public/…" message (mutation-checked).
+
+**What I did instead:**
+- The entries check runs first. A swap is refused whatever the new path is, and telling the admin to commit a file they still could not use would send them the wrong way.
+- Codes: a path that does not resolve is `invalid` (400). A swap on a season with entries is `conflict` (409).
+- Setting a field to its current value is not a change. It never trips the image rule, never re-checks the manifest, and writes nothing. This matters for the dev seed, whose season points at the uncommitted `seasons/1999/field.webp`.
+- A year change keeps uniqueness: a pre-check, plus `23505` mapped to `conflict`.
+
+**Risk:** none known.
+
+## Task 1.18 — countEntriesBySeason: two reads, soft-deleted entries count
+
+**Plan said:** "`Store.countDeleteImpact` already reads the same underlying count on the real store."
+
+**What was wrong:** `countDeleteImpact` is still a loud stub (task 1.60). There was nothing to reuse.
+
+**What I did instead:**
+- The Supabase store reads the season's event ids, then takes a head-only exact count of `scouting_entries` with `event_id in (…)`.
+- It skips the second read when there are no events.
+- It throws on either error: a blip read as 0 would let the image be swapped under real entries.
+- It counts soft-deleted entries. They still hold positions measured against the image, and a restore would bring them back re-framed.
+- The fake reads `ctx.entryCountsBySeason`.
+
+Rejected: an embedded `events!inner(season_id)` filter in a single query. It would work, but it would be the codebase's first embedded join, for a table with a handful of rows.
+
+**Risk:** the two reads are not one snapshot. The count misses an entry only if both its event and the entry are created between the two reads, which is negligible at this scale.
+
+## Task 1.18 — setActiveSeason, reorderEvents and createEvent details
+
+**Plan said:** `setActiveSeason` returns the context, with `active_event_id` null for a season with no events. `reorderEvents` "changes display order only". Each function is "the same five lines".
+
+**What was wrong:** the plan leaves three things unspecified: which event becomes active when the season has events, the shape of `reorderEvents`' input and output, and how `createEvent` picks `sort_order`.
+
+**What I did instead:** (orchestrator decisions 8 and 9)
+- `setActiveSeason` keeps the active event if it belongs to that season. Otherwise it takes the season's first event by sort_order, or null if there are none. It writes both ids in one `setActiveContext`.
+- `reorderEvents({ season_id, event_ids })` requires an exact permutation of the season's events: no missing, duplicate, foreign or unknown id. Anything else is `invalid`, and the message names the count. It writes `{ sort_order }` (1..n) only on events that moved, and returns `{ items }` in the new order.
+- `createEvent` takes `max(sort_order) + 1`, not `count + 1`, so a gap left by a later delete cannot produce a duplicate. It refuses a missing season with `not-found`, and maps `23505` to `conflict` and `23503` to `not-found`.
+- Event-name uniqueness is exact, because the `unique (season_id, name)` constraint compares names exactly.
+- The fake's `Store.setActiveContext` enforces both foreign keys (`23503`). Its `eventExists` also sees `ctx.events`, and `knownEvents` is kept.
+
+**Risk:** `reorderEvents` is N single-row updates, not a transaction. A failure midway leaves a partial order. That is harmless (display only, and re-running fixes it), but it is not atomic.
+
+## Task 1.18 — every new input schema is strict; the row schemas are named eventRow / seasonRow
+
+**Plan said:** nothing about strictness or names.
+
+**What was wrong:**
+- With a plain `z.object`, `updateEvent({ event_id, name, sort_order })` would silently drop `sort_order`, and a client that believes a rename can reorder or move an event would never hear otherwise.
+- A shared export named `event`/`Event` would shadow the DOM's `event` global and `Event` type in any client file that imported it.
+
+**What I did instead:**
+- All nine new inputs are `.strict()`.
+- `createSeason` generates the id on the server, like `createUser`: seasons are made by an admin online, never created offline.
+- `createEvent` does not take `code`, which is reserved and unused in v1.
+- The output schemas are `seasonRow`/`SeasonRow` and `eventRow`/`EventRow`.
+
+**Risk:** a client that sends an extra field gets a 400. That is intended.
+
+## Task 1.18 — `pnpm db:clean` also clears stray seasons, events, teams, rosters and match slots
+
+**Plan said:** nothing. `packages/db/src/seed/clean.ts` is outside the task's file list; this is orchestrator decision 12.
+
+**What was wrong:** the dev proof of this task creates seasons and events on the dev project, but `db:clean` purged only `scouting_entries`, `matches` and `users`.
+
+**What I did instead:**
+- Added `PURGE_ORDER` to `strays.ts`. It is a pure constant, and a unit test checks that every child comes before each parent it references: `scouting_entries`, `match_teams`, `matches`, `event_teams`, `events`, `seasons`, `users`, `teams`.
+- `clean.ts` loops over it with the existing `strayIds` filter.
+- `users` now comes after `events`, because a stray event takes its conflicts and alliance rows with it.
+- `teams` is last, because every reference to it is `on delete restrict`.
+- The production refusal is unchanged, `applied_operations` is still untouched, and nothing was run against a database.
+
+**Risk:** `app_settings` is `on delete set null`. Cleaning a stray season or event that was the active context leaves the context empty until `pnpm seed` restores the seed's, so run `pnpm seed` after `pnpm db:clean`.
+
+## Task 1.18 — SETUP.md step 1 already existed; it gained the server rebuild
+
+**Plan said:** add step 1 to the new-season checklist: "commit `apps/client/public/seasons/<year>/field.webp`, run `pnpm season:images`, and redeploy the client".
+
+**What was wrong:** step 1 was already there in those words, and it was incomplete. The server validates against `SEASON_IMAGE_MANIFEST` as bundled into `apps/server/api/index.js`; the built bundle contains `"seasons/2026/field.webp"`. A new image therefore also needs a server rebuild and redeploy, or `createSeason` keeps refusing it.
+
+**What I did instead:** kept step 1 and added one sentence: run `pnpm --filter @frc/server build`, commit the regenerated bundle with the image, and redeploy the server. CI's bundle-drift test enforces the rebuild.
+
+**Risk:** none.
+
+## Task 1.18 — step 3 ("watch fail") replaced by mutation checks
+
+**Plan said:** Step 3: run the new tests and see `Failed to resolve import "./seasons"`.
+
+**What was wrong:** the implementation was written before the tests, so the red run was never observed.
+
+**What I did instead:** ran five mutations against the finished code, each reverted afterwards:
+- dropping the entries-exist refusal;
+- running the manifest check before the swap refusal;
+- disabling the permutation check;
+- removing `assertCan` from `setActiveEvent`;
+- making `setActiveSeason` ignore the current event.
+
+Each made its target test fail. Removing `assertCan` also failed the registry's service-caller sweep.
+
+**Risk:** none known.
+
+## Task 1.18 — the task index's "Run 1.23 first" line was stale (orchestrator)
+
+**Plan said:** the task index row for Phase 1 C: "**Run 1.23 first** — see below."
+
+**What was wrong:** Appendix P86 moved the whole image-manifest contract (asset, generator, manifest, shared export, CI check) into task 1.18 and dropped the 1.23 → 1.18 row from the exception table, so "see below" pointed at nothing and the instruction was the opposite of the current plan.
+
+**What I did instead:** replaced it with "Numeric order: P86 moved the whole image-manifest contract into 1.18, so 1.23 no longer runs first." in 1.18's commit, as the phase prompt instructed.
+
+**Risk:** none. The exception table below it (1.54–1.56 before 1.50) is unchanged.
+
+## Phase 1C — no per-task reviewer subagent (orchestrator)
+
+**Plan said:** BUILD-CONTEXT §9 loads `subagent-driven-development`, whose loop dispatches a reviewer subagent after every implementer.
+
+**What was wrong:** nothing broken — a precedence conflict. `CLAUDE.md` non-negotiable 5 says a subagent verification pass is offered, never run automatically, and the phase prompt ranks above the skill.
+
+**What I did instead:** the orchestrator reviewed each diff itself, re-ran the full suite, ran its own mutation check, and proved the use cases against the dev project over HTTP (local dev server, seed users). The skill's "implementer commits" step was likewise set aside for BUILD-CONTEXT §9's "the orchestrator commits".
+
+**Risk:** a fresh reviewer might catch something the orchestrator's read missed. Offered in the final report.

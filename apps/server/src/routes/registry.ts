@@ -13,6 +13,19 @@ import {
   resetPassword,
   setUserRole,
 } from '../core/commands/users.js';
+import {
+  createEvent,
+  listEvents,
+  reorderEvents,
+  setActiveEvent,
+  updateEvent,
+} from '../core/commands/events.js';
+import {
+  createSeason,
+  listSeasons,
+  setActiveSeason,
+  updateSeason,
+} from '../core/commands/seasons.js';
 import { getActiveContext } from '../core/queries/context.js';
 import { listUsers } from '../core/queries/listUsers.js';
 
@@ -141,5 +154,76 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     input: API.getActiveContext.input,
     output: API.getActiveContext.output,
     handler: getActiveContext,
+  },
+  createSeason: {
+    kind: 'command',
+    description:
+      'Admin only: create a season with a unique year, a game name and the path of its game image, which must already be committed and deployed with the client.',
+    input: API.createSeason.input,
+    output: API.createSeason.output,
+    handler: createSeason,
+  },
+  updateSeason: {
+    kind: 'command',
+    description:
+      "Admin only: correct a season's year, game name or game image path. The image cannot change once the season has entries: a new image needs a new form version.",
+    input: API.updateSeason.input,
+    output: API.updateSeason.output,
+    handler: updateSeason,
+  },
+  setActiveSeason: {
+    kind: 'command',
+    description:
+      "Admin only: make a season the default every device opens to. The active event stays if it is in that season, else becomes the season's first event, or none.",
+    input: API.setActiveSeason.input,
+    output: API.setActiveSeason.output,
+    handler: setActiveSeason,
+  },
+  listSeasons: {
+    kind: 'query',
+    description: 'Every season, newest year first, paginated.',
+    input: API.listSeasons.input,
+    output: API.listSeasons.output,
+    handler: listSeasons,
+  },
+  createEvent: {
+    kind: 'command',
+    description:
+      'Admin only: create an event in a season. Its name is unique in the season, and it goes last in the season order.',
+    input: API.createEvent.input,
+    output: API.createEvent.output,
+    handler: createEvent,
+  },
+  updateEvent: {
+    kind: 'command',
+    description:
+      'Admin only: rename an event. Its name stays unique in its season; its order and its season never change here.',
+    input: API.updateEvent.input,
+    output: API.updateEvent.output,
+    handler: updateEvent,
+  },
+  reorderEvents: {
+    kind: 'command',
+    description:
+      "Admin only: set a season's event display order, naming every event once. Changes display order only; it never re-weights an aggregate.",
+    input: API.reorderEvents.input,
+    output: API.reorderEvents.output,
+    handler: reorderEvents,
+  },
+  setActiveEvent: {
+    kind: 'command',
+    description:
+      'Admin only: make an event, and with it its season, the default every device opens to. Both are written together, so they never disagree.',
+    input: API.setActiveEvent.input,
+    output: API.setActiveEvent.output,
+    handler: setActiveEvent,
+  },
+  listEvents: {
+    kind: 'query',
+    description:
+      "A season's events in display order (sort_order, then id), paginated. The order every season-spanning view reads left to right.",
+    input: API.listEvents.input,
+    output: API.listEvents.output,
+    handler: listEvents,
   },
 };

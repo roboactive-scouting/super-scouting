@@ -1,5 +1,22 @@
 import { loginInput, loginOutput, refreshTokenInput } from './auth';
-import { activeContext, getActiveContextInput } from './context';
+import {
+  activeContext,
+  createEventInput,
+  createSeasonInput,
+  eventRow,
+  getActiveContextInput,
+  listEventsInput,
+  listEventsOutput,
+  listSeasonsInput,
+  listSeasonsOutput,
+  reorderEventsInput,
+  reorderEventsOutput,
+  seasonRow,
+  setActiveEventInput,
+  setActiveSeasonInput,
+  updateEventInput,
+  updateSeasonInput,
+} from './context';
 import {
   changeOwnPasswordInput,
   createUserInput,
@@ -34,6 +51,15 @@ export const API = {
   renameUser: { input: renameUserInput, output: publicUser },
   listUsers: { input: listUsersInput, output: listUsersOutput },
   getActiveContext: { input: getActiveContextInput, output: activeContext },
+  createSeason: { input: createSeasonInput, output: seasonRow },
+  updateSeason: { input: updateSeasonInput, output: seasonRow },
+  setActiveSeason: { input: setActiveSeasonInput, output: activeContext },
+  listSeasons: { input: listSeasonsInput, output: listSeasonsOutput },
+  createEvent: { input: createEventInput, output: eventRow },
+  updateEvent: { input: updateEventInput, output: eventRow },
+  reorderEvents: { input: reorderEventsInput, output: reorderEventsOutput },
+  setActiveEvent: { input: setActiveEventInput, output: activeContext },
+  listEvents: { input: listEventsInput, output: listEventsOutput },
 } as const;
 
 export type Api = typeof API;

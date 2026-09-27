@@ -97,7 +97,7 @@ Every task's requirements implicitly include this section. Values are copied ver
 | **Phase 0 — post-gate** | 0.8 – 0.17 | Schema migrations, generated types, seed script, CI, keep-alive, both deployments. |
 | **Phase 1 A — walking skeleton** | 1.1 – 1.9 | §20.3's vertical slice: hardcoded form → offline entry → sync → visible on a laptop. |
 | **Phase 1 B — auth and roles** | 1.10 – 1.17, 1.17a, 1.17b | Login, JWT, the caller contract at the edge, the typed client, permissions, offline login, user administration. **1.17a and 1.17b were added 2026-09-24**, after the first production sign-in: the user-administration gaps (spec §5.4 item 3), and the shell's hydration gate (spec §4.3). **Run 1.17b before 1.18.** |
-| **Phase 1 C — seasons, events, teams, matches** | 1.18 – 1.23 | The admin management page, the active context and the game-image pipeline. **Run 1.23 first** — see below. |
+| **Phase 1 C — seasons, events, teams, matches** | 1.18 – 1.23 | The admin management page, the active context and the game-image pipeline. Numeric order: P86 moved the whole image-manifest contract into 1.18, so 1.23 no longer runs first. |
 | **Phase 1 D — form builder** | 1.24 – 1.32 | Field catalogue, semantic metadata, scoring editor, versioning, JSON export/import. |
 | **Phase 1 E — data-entry runtime** | 1.33 – 1.38 | All field types, the sticky timer, robot status, super scouting, undo, drafts, practice mode. |
 | **Phase 1 F — sync protocol** | 1.39 – 1.45 | Outbox, push, delta pull, hydration, conflicts, the review screen, the sync page. |

@@ -30,18 +30,25 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
     }
   });
 
-  it('has seven authenticated commands for that loop to check, so it is not vacuous', () => {
+  it('has fourteen authenticated commands for that loop to check, so it is not vacuous', () => {
     const commands = Object.entries(REGISTRY).filter(
       ([, e]) => e.kind === 'command' && !e.unauthenticated,
     );
     expect(commands.map(([n]) => n).sort()).toEqual([
       'changeOwnPassword',
+      'createEvent',
+      'createSeason',
       'createUser',
       'disableUser',
       'enableUser',
       'renameUser',
+      'reorderEvents',
       'resetPassword',
+      'setActiveEvent',
+      'setActiveSeason',
       'setUserRole',
+      'updateEvent',
+      'updateSeason',
     ]);
   });
 
@@ -55,16 +62,25 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
   it('holds exactly the entries registered so far', () => {
     expect(Object.keys(REGISTRY).sort()).toEqual([
       'changeOwnPassword',
+      'createEvent',
+      'createSeason',
       'createUser',
       'disableUser',
       'enableUser',
       'getActiveContext',
+      'listEvents',
+      'listSeasons',
       'listUsers',
       'login',
       'refreshToken',
       'renameUser',
+      'reorderEvents',
       'resetPassword',
+      'setActiveEvent',
+      'setActiveSeason',
       'setUserRole',
+      'updateEvent',
+      'updateSeason',
     ]);
   });
 
