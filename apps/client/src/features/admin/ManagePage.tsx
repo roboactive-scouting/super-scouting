@@ -31,6 +31,24 @@ export function ManagePage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
   const allowed = canManageEvents(user);
   const [tab, setTab] = useState<TabKey>('seasons');
   const [seasons, setSeasons] = useState<SeasonRow[] | null>(null);
+  // True while the page is mounted (follow-up fix): `refreshSeasons`'s own `onChanged` call
+  // is not inside the mount effect that would otherwise catch this for it. Set in the
+  // effect's own setup, not only the `useRef(true)` initialiser — StrictMode's dev-mode
+  // setup → cleanup → setup would otherwise leave this false forever after the first
+  // render, since a ref's initial value is not re-applied on a second setup.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  /**
+   * The generation of the latest `refreshSeasons` call (follow-up fix, same idea as
+   * `managedSeasonRef` below): a stale response — one from a call that is no longer the
+   * most recent — is dropped, exactly as a stale Events-tab refresh already is.
+   */
+  const seasonsRefreshRef = useRef(0);
   // The season the Events/Roster/Matches tabs manage: the active season if one is set,
   // else the newest, else none. Chosen once seasons are known, then left to the admin's
   // own selection (task 1.20).
@@ -52,9 +70,11 @@ export function ManagePage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
   // switches to Events still sees "Create a season first" until a reload.
   const refreshSeasons = useCallback(
     (live: () => boolean) => {
+      const generation = ++seasonsRefreshRef.current;
+      const stillLatest = () => seasonsRefreshRef.current === generation;
       Promise.all([rpc.call('listSeasons', {}), rpc.call('getActiveContext', {})]).then(
         ([seasonsOut, contextOut]) => {
-          if (!live()) return;
+          if (!live() || !stillLatest()) return;
           const items = (seasonsOut as { items: SeasonRow[] }).items;
           const sorted = [...items].sort((a, b) => b.year - a.year);
           const activeSeasonId = (contextOut as { active_season_id: string | null })
@@ -63,7 +83,7 @@ export function ManagePage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
           setManagedSeasonId((prev) => prev ?? activeSeasonId ?? sorted[0]?.id ?? null);
         },
         () => {
-          if (live()) setSeasons([]);
+          if (live() && stillLatest()) setSeasons([]);
         },
       );
     },
@@ -159,7 +179,7 @@ export function ManagePage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
       </div>
       <div className="mt-6">
         {tab === 'seasons' && (
-          <SeasonsPanel rpc={rpc} onChanged={() => refreshSeasons(() => true)} />
+          <SeasonsPanel rpc={rpc} onChanged={() => refreshSeasons(() => mountedRef.current)} />
         )}
         {tab === 'events' &&
           (managedSeasonId ? (

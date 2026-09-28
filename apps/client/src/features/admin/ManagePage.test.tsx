@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom';
@@ -5,8 +6,12 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Role } from '@frc/shared';
 import { ManagePage } from './ManagePage';
 
-/** Mounts `<ManagePage rpc={{ call }} />` under the outlet context it reads its user from. */
-function renderWithCall(role: Role, call: ReturnType<typeof vi.fn>) {
+/**
+ * Mounts `<ManagePage rpc={{ call }} />` under the outlet context it reads its user from.
+ * `strict` wraps it in `<StrictMode>` (follow-up fix): dev-mode's setup → cleanup → setup
+ * of the mount effect is what exposed `mountedRef` never being set back to `true`.
+ */
+function renderWithCall(role: Role, call: ReturnType<typeof vi.fn>, strict = false) {
   const user = {
     id: 'u-1',
     username: 'seed_user',
@@ -21,7 +26,8 @@ function renderWithCall(role: Role, call: ReturnType<typeof vi.fn>) {
       children: [{ index: true, element: <ManagePage rpc={{ call }} /> }],
     },
   ]);
-  render(<RouterProvider router={router} />);
+  const tree = <RouterProvider router={router} />;
+  render(strict ? <StrictMode>{tree}</StrictMode> : tree);
 }
 
 /**
@@ -112,6 +118,52 @@ describe('ManagePage', () => {
     await waitFor(() => expect(call).toHaveBeenCalledWith('createSeason', expect.anything()));
 
     // Switching to Events now finds the new season with no reload.
+    await user.click(screen.getByRole('tab', { name: 'Events' }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith('listEvents', { season_id: 's-new' }));
+    expect(screen.queryByText(/create a season first/i)).not.toBeInTheDocument();
+  });
+});
+
+// Follow-up fix: `mountedRef` was set false in the mount effect's cleanup but never back to
+// true in its setup, so StrictMode's dev-mode setup → cleanup → setup left it false for
+// good — silently disabling `onChanged`'s `refreshSeasons` call and bringing back exactly
+// the task 1.20 bug the test above already covers, but only under StrictMode (main.tsx's
+// real render tree).
+describe('ManagePage under StrictMode', () => {
+  it('still picks up a season created on the Seasons tab as soon as the Events tab is opened', async () => {
+    let seasons: Array<{
+      id: string;
+      year: number;
+      game_name: string;
+      field_image_path: string;
+    }> = [];
+    const call = vi.fn(async (name: string, input?: unknown) => {
+      if (name === 'listSeasons') return { items: seasons, next_cursor: null };
+      if (name === 'getActiveContext') return { active_season_id: null, active_event_id: null };
+      if (name === 'createSeason') {
+        const body = input as { year: number; game_name: string; field_image_path: string };
+        const created = { id: 's-new', ...body };
+        seasons = [created];
+        return created;
+      }
+      if (name === 'listEvents') return { items: [], next_cursor: null };
+      return {};
+    });
+    const user = userEvent.setup();
+    renderWithCall('admin', call, true);
+
+    await user.click(await screen.findByRole('tab', { name: 'Events' }));
+    expect(await screen.findByText(/create a season first/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: 'Seasons' }));
+    await user.click(await screen.findByRole('button', { name: /new season/i }));
+    await user.type(screen.getByLabelText(/year/i), '2026');
+    await user.type(screen.getByLabelText(/game name/i), 'CRESCENDO');
+    await user.type(screen.getByLabelText(/game image path/i), 'seasons/2026/field.webp');
+    await user.click(screen.getByRole('button', { name: /create season/i }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith('createSeason', expect.anything()));
+
+    // Under StrictMode, `mountedRef` must still read true here, or this never fires.
     await user.click(screen.getByRole('tab', { name: 'Events' }));
     await waitFor(() => expect(call).toHaveBeenCalledWith('listEvents', { season_id: 's-new' }));
     expect(screen.queryByText(/create a season first/i)).not.toBeInTheDocument();

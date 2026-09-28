@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { formatCount } from '@frc/shared';
+import { StateMessage } from '@/components/StateMessage';
 import { cachedRows } from '@/data/cache';
 import { db } from '@/data/db';
 import { matchLabel } from '@/lib/matchLabel';
@@ -38,10 +39,14 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
   const navigate = useNavigate();
   const alliance: 'red' | 'blue' = searchParams.get('alliance') === 'blue' ? 'blue' : 'red';
   const [resolved, setResolved] = useState<Resolved | null>(null);
+  // Set instead of `resolved` when the resolve effect finds nothing to resolve, so
+  // "Loading…" never becomes the permanent state (branch review, phase 1C follow-up).
+  const [blocked, setBlocked] = useState<'not-cached' | 'no-form' | null>(null);
 
   useEffect(() => {
     if (!matchId || !teamId) return;
     setResolved(null);
+    setBlocked(null);
     void (async () => {
       const [matches, teams, forms, appSettings, events] = await Promise.all([
         cachedRows<MatchRow>('matches'),
@@ -52,7 +57,10 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
       ]);
       const match = matches.find((m) => m.id === matchId);
       const team = teams.find((t) => t.id === teamId);
-      if (!match || !team) return;
+      if (!match || !team) {
+        setBlocked('not-cached');
+        return;
+      }
       // SPEC-FINAL 6.3 (task 1.22): an entry belongs to its match's event, and its form to
       // that event's season, read from the cached `events` row (which survives an event
       // wipe). `app_settings` names the CURRENT default's season — after a changed default
@@ -62,7 +70,10 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
       const entryEvent = events.find((e) => e.id === entryEventId);
       const seasonId = entryEvent?.season_id ?? appSettings[0]?.active_season_id ?? null;
       const form = forms.find((f) => f.kind === 'match' && f.season_id === seasonId);
-      if (!form?.active_version_id) return;
+      if (!form?.active_version_id) {
+        setBlocked('no-form');
+        return;
+      }
       const existing = await findLocalEntry({
         eventId: entryEventId,
         formKind: 'match',
@@ -96,6 +107,28 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
 
   if (!matchId || !teamId) {
     return <p className="p-4 text-[var(--text-muted)]">No match selected.</p>;
+  }
+  if (blocked === 'not-cached') {
+    return (
+      <StateMessage
+        variant="no-results"
+        headingLevel={1}
+        title="This match or team is not on this device"
+        detail="Go back and pick the robot again. If it is still missing, this device may need to sync."
+        action={{ label: 'Back to scouting', to: '/' }}
+      />
+    );
+  }
+  if (blocked === 'no-form') {
+    return (
+      <StateMessage
+        variant="form-not-published"
+        headingLevel={1}
+        title="No scouting form is published for this season yet"
+        detail="An admin publishes one in the form builder. Nothing can be recorded for this competition until then."
+        action={{ label: 'Back to scouting', to: '/' }}
+      />
+    );
   }
   if (resolved === null) return <p className="p-4 text-[var(--text-muted)]">Loading…</p>;
 

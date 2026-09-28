@@ -4050,3 +4050,45 @@ Both failed on the old code.
 **What I did instead:** nothing in code, by decision. This is logged open for phase 1F's sync-status surface (SPEC-FINAL 9.10); the orchestrator records it in the spec.
 
 **Risk:** a scout cannot see, on Entries, that A's work has not synced. The outbox still keeps it and pushes it: the push is event-independent.
+
+## Follow-up 1 — `EntryRoute` never hangs on "Loading…"
+
+**Plan said:** replace each silent `return` in the resolve effect with an explicit state rendered through `StateMessage`, picking "the fitting existing `variant`" for each of the two cases (match/team not cached; no published `match` form), each with a "Back to scouting" action to `/`.
+
+**What was wrong:** nothing — the brief left the variant choice to this chat's judgement rather than naming one.
+
+**What I did instead:** `no-form` uses `variant="form-not-published"` (built for exactly this case; its own default title/detail are close enough that only the two callers ever holding the same shape confirms it fits, and this task's exact copy overrides them anyway). `not-cached` uses `variant="no-results"` — the same choice `UserDetailPage.tsx` makes for "no user at this address": a lookup by id that came up empty, not a listing that is merely unpopulated (`no-data`) or a server error (`failed`). Both new states use `headingLevel={1}`, matching `ManagePage`'s own top-level `not-permitted` state, since neither is nested under an `<h1>` elsewhere on the page. Added a `blocked: 'not-cached' | 'no-form' | null` state read alongside `resolved`, reset together at the top of the effect, checked before the `resolved === null` ("Loading…") branch.
+
+**Risk:** none identified. Both new tests in `EntryRoute.test.tsx` assert the heading, the detail line, the "Back to scouting" link's `href`, and the absence of "Loading…".
+
+## Follow-up 2 — push and pull get a deadline
+
+**Plan said:** add `export const SYNC_REQUEST_TIMEOUT_MS = 30_000` to `data/api.ts`, abort both the fetch and the body read after it, reuse the pattern of `deadline()` in `data/rpc.ts` ("extract a shared helper if that is cleaner, without changing `rpc.ts` behaviour"), an injectable timeout, and an expired deadline throws a plain `Error` ("the server did not answer in time"), never an `ApiError`.
+
+**What was wrong:** nothing — extraction was offered as one of two acceptable options.
+
+**What I did instead:** extracted `deadline()` verbatim into a new `data/deadline.ts`, parametrised on what to throw when the deadline expires (`onExpire: () => E`) so `rpc.ts` keeps throwing its own `DeadlineExceeded` — `rpc.test.ts`'s existing deadline tests pass unmodified, confirming no behaviour change there. `apiClient(config, auth, timeoutMs = SYNC_REQUEST_TIMEOUT_MS)` takes the timeout as a third, defaulted, positional parameter (mirroring `auth`'s own default-parameter injection immediately to its left) rather than an options object, since `request()` has no options bag to extend. Both the `fetch` call and the `res.json()` read are wrapped in `limit.race(...)`. Because the default timeout is always live now, `apiClient(config).pull(...)` always carries an `AbortSignal` (previously never); the added "carries a signal on an ordinary call too" test in `api.test.ts` documents this rather than asserting the old absence.
+
+**Risk:** none identified for the sync path. `rpc.ts` (the login path and every other use case) is untouched behaviourally — same class thrown, same signal-or-undefined shape, same tests green.
+
+## Follow-up 3 — `ManagePage`'s Seasons-tab refresh gets a liveness guard
+
+**Plan said:** give the Seasons tab's `onChanged` → `refreshSeasons(() => true)` "the same guard `refreshEvents` got in the branch review (a stale response is dropped once a newer refresh has started, or the page has unmounted). Add a test only if it is cheap; otherwise say why in the deviation."
+
+**What was wrong:** nothing.
+
+**What I did instead:** `refreshEvents`'s guard compares the managed *season id* to a ref, which has no analogue for `refreshSeasons` (nothing it's keyed on changes per call). Added a `seasonsRefreshRef` generation counter instead — each call captures `++seasonsRefreshRef.current` and drops its own response once a later call has bumped it past that — plus a component-lifetime `mountedRef` (set false only in an unmount cleanup) for "the page has unmounted", since `onChanged`'s call site is not inside the mount effect that already tracks its own `live` flag. The mount effect's own `refreshSeasons(() => live)` call is unchanged.
+
+No test was added. `SeasonsPanel` (like `EventsPanel`) fetches its own `listSeasons` independently of `ManagePage`'s `refreshSeasons` (`SeasonsPanel.tsx`'s own `loadSeasons` effect), through the same injected `rpc.call` mock a test would use. The existing `refreshEvents` race test holds *every* matching `listEvents` call uniformly and only asserts on state that call feeds, so it never needed to isolate which caller (`EventsPanel` vs. `ManagePage`) issued which request. Reproducing the same race for seasons requires holding specifically `ManagePage`'s own mount-triggered `listSeasons` call while letting a second, `onChanged`-triggered call resolve first — and distinguishing the two calls from `SeasonsPanel`'s own concurrent `listSeasons` calls has no reliable hook other than call order, which is not a react effect-scheduling guarantee this repo makes elsewhere. A fragile, order-dependent test seemed worse than none; the change itself is a direct structural copy of the already-tested `refreshEvents` guard.
+
+**Risk:** low. The guard is inert unless two `refreshSeasons` calls are genuinely in flight at once (e.g. a rapid create-then-switch-tab), the same window `refreshEvents` already covers for events; unverified by a dedicated test, but exercised incidentally by every existing `ManagePage` test that survives unchanged.
+
+## Follow-up 3 correction (coordinator review) — `mountedRef` never came back true
+
+**Plan said:** (this chat's own follow-up 3 entry above) add a `mountedRef` set false only in the mount effect's cleanup, for `onChanged`'s liveness check.
+
+**What was wrong:** the coordinator caught it before commit: `useRef(true)`'s initial value is applied once, at the first render, not re-applied on a second effect setup. `main.tsx` renders under `<StrictMode>`, whose dev-mode double-invoke runs the mount effect's setup → cleanup → setup on the same instance. The cleanup set `mountedRef.current = false`; nothing ever set it back to `true`, so in every dev build the ref read false for good after mount, `onChanged={() => refreshSeasons(() => mountedRef.current)}` treated the page as already unmounted, and the task 1.20 stale-seasons bug (Events tab not picking up a season just created) returned — silently, since production (non-StrictMode) builds never double-invoke and so never showed it in a quick manual check.
+
+**What I did instead:** set `mountedRef.current = true` in the effect's own setup as well as the `useRef(true)` initialiser, so StrictMode's setup → cleanup → setup sequence ends on `true` again, matching a real mount. Added `ManagePage under StrictMode > still picks up a season created on the Seasons tab as soon as the Events tab is opened` to `ManagePage.test.tsx` — the existing task 1.20 regression case, re-rendered inside `<StrictMode>` via a new `strict` parameter on the test file's `renderWithCall` helper. Verified the test actually catches the bug: reverted the one-line fix locally, reran the file, watched this new test fail (timeout waiting for `listEvents` with `season_id: 's-new'`, the tab still stuck on "Create a season first") while the other five tests stayed green, then restored the fix and reran to green.
+
+**Risk:** none identified now; this was the whole point of the coordinator's catch. Worth remembering for any future `useRef(true)`-as-liveness-flag pattern in this codebase: StrictMode's dev double-invoke means "true at declaration" is not the same as "true after the first effect run" — the setup function must re-assert it.

@@ -2,6 +2,7 @@ import type { z } from 'zod';
 import { API, UNAUTHENTICATED_USE_CASES, type Api, type ApiName } from '@frc/shared';
 import { session } from '@/auth/session';
 import { clientConfig } from '@/config';
+import { deadline } from './deadline';
 
 /** Per-call transport options. Only the login path sets a deadline (task 1.16). */
 export type CallOptions = {
@@ -86,35 +87,6 @@ export const typedCall: Rpc['call'] = (name, input, options) =>
 class DeadlineExceeded extends Error {}
 
 /**
- * Races `work` against the deadline. The abort also cancels the request itself; the race
- * is what guarantees the deadline even if something in between ignores the signal.
- */
-function deadline(timeoutMs: number | undefined): {
-  signal: AbortSignal | undefined;
-  race: <T>(work: Promise<T>) => Promise<T>;
-  done: () => void;
-} {
-  if (timeoutMs === undefined) {
-    return { signal: undefined, race: (work) => work, done: () => {} };
-  }
-  const controller = new AbortController();
-  let expire!: () => void;
-  const expired = new Promise<never>((_, reject) => {
-    expire = () => reject(new DeadlineExceeded());
-  });
-  expired.catch(() => {}); // never an unhandled rejection when nobody is racing
-  const timer = setTimeout(() => {
-    controller.abort();
-    expire();
-  }, timeoutMs);
-  return {
-    signal: controller.signal,
-    race: (work) => Promise.race([work, expired]),
-    done: () => clearTimeout(timer),
-  };
-}
-
-/**
  * The untyped transport under `call`. SPEC-FINAL 7.5: `Authorization: Bearer <token>`,
  * never cookies; any `X-Refreshed-Token` is stored.
  *
@@ -127,7 +99,7 @@ export const rpc: Rpc = {
   async call(name: string, input: unknown = {}, options: CallOptions = {}): Promise<unknown> {
     const open = OPEN.has(name);
     const bearer = open ? null : await session.token();
-    const limit = deadline(options.timeoutMs);
+    const limit = deadline(options.timeoutMs, () => new DeadlineExceeded());
     try {
       let res: Response;
       try {

@@ -93,6 +93,37 @@ describe('EntryRoute and an entry already on this device (SPEC-FINAL 8.1, 7.6)',
   });
 });
 
+describe('EntryRoute when the resolve effect finds nothing to resolve (branch review, phase 1C follow-up)', () => {
+  it('shows a clear state, never stuck on "Loading…", when the match or team is not on this device', async () => {
+    renderAt('/entry/missing-match/t-1?alliance=red');
+    expect(
+      await screen.findByRole('heading', { name: /this match or team is not on this device/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/go back and pick the robot again/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /back to scouting/i })).toHaveAttribute('href', '/');
+    expect(screen.queryByText(/^loading…$/i)).not.toBeInTheDocument();
+  });
+
+  it('shows a clear state, never stuck on "Loading…", when the season has no published match form', async () => {
+    await db.rows.put({
+      entity: 'forms',
+      id: 'f-1',
+      kind: 'match',
+      season_id: 'se-1',
+      active_version_id: null,
+    });
+    renderAt('/entry/m-1/t-1?alliance=red');
+    expect(
+      await screen.findByRole('heading', {
+        name: /no scouting form is published for this season yet/i,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/an admin publishes one in the form builder/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /back to scouting/i })).toHaveAttribute('href', '/');
+    expect(screen.queryByText(/^loading…$/i)).not.toBeInTheDocument();
+  });
+});
+
 describe('EntryRoute for a match of another event (SPEC-FINAL 6.3, task 1.22)', () => {
   // The shell works on ev-1 (Week 3, season se-1). m-9 belongs to ev-0 (Week 1, season
   // se-0): the default moved while an entry for it was open, and the tablet restarted.

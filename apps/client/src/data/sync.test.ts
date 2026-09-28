@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PullResponse, PushRequest, PushResponse } from '@frc/shared';
 import { PULL_ENTITY_KEYS } from '@frc/shared';
 import { session } from '@/auth/session';
+import { apiClient } from './api';
 import { db, getMeta } from './db';
 import { enqueue, pending } from './outbox';
 import { activeEvent, cachedActiveEventId, cachedDefaultEventId, hydrate, syncNow } from './sync';
@@ -156,6 +157,30 @@ describe('syncNow', () => {
     });
     expect(outcome.status).toBe('event-gone');
     expect(await db.rows.where('event_id').equals('ev-1').count()).toBe(0);
+  });
+});
+
+describe('syncNow through the real transport and its deadline (phase 1C follow-up)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('reports offline, not stuck, when a push never answers — every operation stays queued', async () => {
+    await enqueue(op('row-1'));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
+    const api = apiClient(
+      { apiBaseUrl: 'https://api.test', deviceWipeCode: 'w', appVersion: 't' },
+      session,
+      20,
+    );
+
+    const outcome = await syncNow({ api, eventId: 'ev-1', deviceId: 'd-1' });
+
+    expect(outcome.status).toBe('offline');
+    expect(await pending(50)).toHaveLength(1);
   });
 });
 
