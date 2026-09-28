@@ -14443,6 +14443,8 @@ git add -A && git commit -m "feat(shared): implement the conflict policy as pure
 
 ## Task 1.40: Server — the full push semantics
 
+**Open input from phase 1C — close both before this task's commit.** Spec §7.5 items 1 and 2 (`docs/spec/frc-scouting-app-spec.md`). **(1)** `deleteMatch` and `setMatchTeams` hard-delete, so a deleted match or a cleared slot never reaches a device: add a `deleted_at` migration on `matches` and `match_teams` and tombstone instead, as `event_teams` already does, so the delta pull carries the removal. **(2)** When a bare match resolves to an id the server already holds (`noop` with the server's `row_id`), rewrite that id in every later operation of the **same push batch** before applying it, so an entry sent alongside its bare match does not fail the foreign key as `rejected: invalid`.
+
 **Files:**
 - Modify: `apps/server/src/core/commands/syncPush.ts`, `apps/server/src/core/commands/syncPush.test.ts`
 - Modify: `apps/server/src/repos/store.ts` and `apps/server/src/test/fake-context.ts` (replace the `findByLogicalKey`, `parentsExist` and `insertConflict` stubs — all three are already declared by task 1.3)
@@ -14746,6 +14748,8 @@ git add -A && git commit -m "feat(server): add the conflict review queue and res
 
 ## Task 1.42: Client — parent-deleted records and the discarded-records log
 
+**Open input from phase 1C.** Spec §7.5 item 3: since task 1.22 an open device moves to a changed default mid-session, and nothing evicts the event it left from `db.rows`, which breaks §7.3's active-competition-only bound. Evict that event's rows once every outbox operation for it is acknowledged. Never evict a draft, an unacknowledged row, or anything the outbox still references.
+
 **Files:**
 - Create: `apps/client/src/data/discarded.ts`, `apps/client/src/data/discarded.test.ts`
 - Create: `apps/client/src/features/sync/DiscardedNotice.tsx`, `apps/client/src/features/sync/DiscardedLogPage.tsx`
@@ -14841,6 +14845,8 @@ git add -A && git commit -m "feat(client): handle parent-deleted records and kee
 ---
 
 ## Task 1.43: Client — the sync page
+
+**Open input from phase 1C.** Spec §7.5 item 4: `EntriesPage` lists only the shell's event, so after a default move the old event's unsynced or rejected entries are on no screen. The pending list here covers **every** unsynced or rejected record on the device, whatever its event, and names the event when it is not the current one.
 
 **Files:**
 - Create: `apps/client/src/features/sync/SyncPage.tsx`, `apps/client/src/features/sync/SyncPage.test.tsx`
@@ -17657,6 +17663,8 @@ git add -A && git commit -m "docs(ops): record the phase 1 gate rehearsal result
 ---
 
 # Phase 2 — Analysis
+
+**Open input from phase 1C — binding on every analysis screen.** Spec §4.3, "A session override changes no page's data yet": a user can choose another event on `/context` for this session only (`useSessionOverride()`, `apps/client/src/features/context/sessionOverride.ts`). While it is set, a screen must show the **server's computed results for that event** (SPEC-FINAL §6.3) instead of the cache. A screen that forgets shows the default event's numbers under a banner naming another event.
 
 **Headings only.** Phase 2 is re-planned in full task detail **after the phase 1 gate passes** (SPEC-FINAL §20.8), because what the gate rehearsal reveals changes what phase 2 should be.
 
