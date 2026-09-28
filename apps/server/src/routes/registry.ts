@@ -13,6 +13,34 @@ import {
   resetPassword,
   setUserRole,
 } from '../core/commands/users.js';
+import {
+  createEvent,
+  listEvents,
+  reorderEvents,
+  setActiveEvent,
+  updateEvent,
+} from '../core/commands/events.js';
+import {
+  createSeason,
+  listSeasons,
+  setActiveSeason,
+  updateSeason,
+} from '../core/commands/seasons.js';
+import {
+  createMatch,
+  deleteMatch,
+  ensureMatch,
+  listMatches,
+  setMatchTeams,
+  updateMatch,
+} from '../core/commands/matches.js';
+import {
+  createTeam,
+  listEventRoster,
+  listTeams,
+  setEventRoster,
+  updateTeam,
+} from '../core/commands/teams.js';
 import { getActiveContext } from '../core/queries/context.js';
 import { listUsers } from '../core/queries/listUsers.js';
 
@@ -141,5 +169,163 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     input: API.getActiveContext.input,
     output: API.getActiveContext.output,
     handler: getActiveContext,
+  },
+  createSeason: {
+    kind: 'command',
+    description:
+      'Admin only: create a season with a unique year, a game name and the path of its game image, which must already be committed and deployed with the client.',
+    input: API.createSeason.input,
+    output: API.createSeason.output,
+    handler: createSeason,
+  },
+  updateSeason: {
+    kind: 'command',
+    description:
+      "Admin only: correct a season's year, game name or game image path. The image cannot change once the season has entries: a new image needs a new form version.",
+    input: API.updateSeason.input,
+    output: API.updateSeason.output,
+    handler: updateSeason,
+  },
+  setActiveSeason: {
+    kind: 'command',
+    description:
+      "Admin only: make a season the default every device opens to. The active event stays if it is in that season, else becomes the season's first event, or none.",
+    input: API.setActiveSeason.input,
+    output: API.setActiveSeason.output,
+    handler: setActiveSeason,
+  },
+  listSeasons: {
+    kind: 'query',
+    description: 'Every season, newest year first, paginated.',
+    input: API.listSeasons.input,
+    output: API.listSeasons.output,
+    handler: listSeasons,
+  },
+  createEvent: {
+    kind: 'command',
+    description:
+      'Admin only: create an event in a season. Its name is unique in the season, and it goes last in the season order.',
+    input: API.createEvent.input,
+    output: API.createEvent.output,
+    handler: createEvent,
+  },
+  updateEvent: {
+    kind: 'command',
+    description:
+      'Admin only: rename an event. Its name stays unique in its season; its order and its season never change here.',
+    input: API.updateEvent.input,
+    output: API.updateEvent.output,
+    handler: updateEvent,
+  },
+  reorderEvents: {
+    kind: 'command',
+    description:
+      "Admin only: set a season's event display order, naming every event once. Changes display order only; it never re-weights an aggregate.",
+    input: API.reorderEvents.input,
+    output: API.reorderEvents.output,
+    handler: reorderEvents,
+  },
+  setActiveEvent: {
+    kind: 'command',
+    description:
+      'Admin only: make an event, and with it its season, the default every device opens to. Both are written together, so they never disagree.',
+    input: API.setActiveEvent.input,
+    output: API.setActiveEvent.output,
+    handler: setActiveEvent,
+  },
+  listEvents: {
+    kind: 'query',
+    description:
+      "A season's events in display order (sort_order, then id), paginated. The order every season-spanning view reads left to right.",
+    input: API.listEvents.input,
+    output: API.listEvents.output,
+    handler: listEvents,
+  },
+  createTeam: {
+    kind: 'command',
+    description:
+      'Admin only: add a team to the global registry with its number (1..99999) and name. A team number is global and permanent; a taken one reads as conflict.',
+    input: API.createTeam.input,
+    output: API.createTeam.output,
+    handler: createTeam,
+  },
+  updateTeam: {
+    kind: 'command',
+    description:
+      'Admin only: rename a team. The number is permanent and cannot be changed; sending one is refused.',
+    input: API.updateTeam.input,
+    output: API.updateTeam.output,
+    handler: updateTeam,
+  },
+  listTeams: {
+    kind: 'query',
+    description:
+      'The global team registry by number, paginated. An optional query matches a number prefix or a case-insensitive name substring, taken literally.',
+    input: API.listTeams.input,
+    output: API.listTeams.output,
+    handler: listTeams,
+  },
+  setEventRoster: {
+    kind: 'command',
+    description:
+      "Admin only: make a list of teams an event's roster (at most 200). Removals are soft-deleted so they reach every device; a team added back reuses its old row.",
+    input: API.setEventRoster.input,
+    output: API.setEventRoster.output,
+    handler: setEventRoster,
+  },
+  listEventRoster: {
+    kind: 'query',
+    description: "An event's live roster by team number: each team's id, number and name.",
+    input: API.listEventRoster.input,
+    output: API.listEventRoster.output,
+    handler: listEventRoster,
+  },
+  createMatch: {
+    kind: 'command',
+    description:
+      'Admin only: create one match by type and number (an existing one is a conflict), or matches 1..count in bulk, skipping numbers that exist. Returns the matches it created.',
+    input: API.createMatch.input,
+    output: API.createMatch.output,
+    handler: createMatch,
+  },
+  updateMatch: {
+    kind: 'command',
+    description:
+      "Admin only: correct a match's type and/or number. Never moves it to another event and never touches its slots; the corrected number must be free.",
+    input: API.updateMatch.input,
+    output: API.updateMatch.output,
+    handler: updateMatch,
+  },
+  setMatchTeams: {
+    kind: 'command',
+    description:
+      "Admin only: set a match's filled alliance slots (red and blue, stations 1..3). Omitted slots are cleared; a newly placed team must be on the event's roster.",
+    input: API.setMatchTeams.input,
+    output: API.setMatchTeams.output,
+    handler: setMatchTeams,
+  },
+  deleteMatch: {
+    kind: 'command',
+    description:
+      'Admin only: delete a match and its slots. Refused while any entry names it; correct the match number instead.',
+    input: API.deleteMatch.input,
+    output: API.deleteMatch.output,
+    handler: deleteMatch,
+  },
+  listMatches: {
+    kind: 'query',
+    description:
+      "An event's matches with their filled slots: practice, then qualification, then playoff, each by number, paginated.",
+    input: API.listMatches.input,
+    output: API.listMatches.output,
+    handler: listMatches,
+  },
+  ensureMatch: {
+    kind: 'command',
+    description:
+      'Any authenticated user: create the bare match row (event, type and number only, no teams) when a scouter enters an unknown match number. A no-op returning the existing id if it exists. Cannot set teams, edit or delete.',
+    input: API.ensureMatch.input,
+    output: API.ensureMatch.output,
+    handler: ensureMatch,
   },
 };

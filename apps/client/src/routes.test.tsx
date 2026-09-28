@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,6 +7,7 @@ import { session } from '@/auth/session';
 import { db, setMeta } from '@/data/db';
 import type * as SyncModule from '@/data/sync';
 import { pending } from '@/data/outbox';
+import { sessionOverride } from '@/features/context/sessionOverride';
 import { NO_HYDRATION } from '@/features/shell/shellContext';
 import { routeTree } from './routes';
 
@@ -206,12 +207,18 @@ describe('switch scouter on a shared device (SPEC-FINAL 7.3, task 1.16)', () => 
 });
 
 describe('which routes wait for the event to load (task 1.17b)', () => {
-  it('marks exactly Users, the user detail page and Switch scouter as needing no event', () => {
+  it('marks exactly Users, the user detail page, Manage, Switch scouter and the context page as needing no event', () => {
     const shell = routeTree().find((r) => r.path === '/');
     const marked = (shell?.children ?? [])
       .filter((r) => r.handle === NO_HYDRATION)
       .map((r) => r.path);
-    expect(marked.sort()).toEqual(['admin/users', 'admin/users/:id', 'switch-scouter']);
+    expect(marked.sort()).toEqual([
+      'admin/manage',
+      'admin/users',
+      'admin/users/:id',
+      'context',
+      'switch-scouter',
+    ]);
   });
 
   it('leaves Scout, the entry screen and Entries gated', () => {
@@ -220,5 +227,59 @@ describe('which routes wait for the event to load (task 1.17b)', () => {
       .filter((r) => r.handle !== NO_HYDRATION)
       .map((r) => (r.index ? '(index)' : r.path));
     expect(gated.sort()).toEqual(['(index)', 'entries', 'entry/:matchId/:teamId']);
+  });
+});
+
+describe('no new entry while a session override is in effect (SPEC-FINAL 6.3, task 1.22)', () => {
+  const PAUSED = 'New entries are paused for this session';
+
+  beforeEach(async () => {
+    await db.rows.bulkPut([
+      { entity: 'events', id: 'ev-1', season_id: 'se-1', name: 'Week 1', sort_order: 1 },
+      { entity: 'matches', id: 'm-1', event_id: 'ev-1', match_type: 'qualification', number: 21 },
+      { entity: 'forms', id: 'f-1', kind: 'match', season_id: 'se-1', active_version_id: 'fv-1' },
+    ]);
+    await session.signIn(user, 'token-abc');
+    sessionOverride.set('ev-2', 'Week 3');
+  });
+
+  afterEach(() => {
+    sessionOverride.clear();
+  });
+
+  it('refuses the Scout picker, and gives it back when the override is cleared', async () => {
+    renderAt('/');
+    const heading = await screen.findByRole('heading', { name: PAUSED });
+    const notice = heading.closest('main') as HTMLElement;
+    await waitFor(() =>
+      expect(notice).toHaveTextContent(
+        'You are looking at Week 3 only for this session. New entries can only be made in Week 1.',
+      ),
+    );
+    expect(screen.queryByLabelText(/match number/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Choose a competition' })).toHaveAttribute(
+      'href',
+      '/context',
+    );
+
+    await userEvent.setup().click(within(notice).getByRole('button', { name: 'Back to Week 1' }));
+    expect(await screen.findByLabelText(/match number/i)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: PAUSED })).not.toBeInTheDocument();
+  });
+
+  it('refuses the entry screen too, and keeps its draft for when it opens again', async () => {
+    await db.drafts.put({
+      key: 'fv-1:m-1:t-1',
+      row_id: '',
+      payload: { robot_status: 'broke_down', breakdown_seconds: 30, data: {} },
+      updated_at: '2026-09-24T10:00:00.000Z',
+    });
+    renderAt('/entry/m-1/t-1?alliance=red');
+    expect(await screen.findByRole('heading', { name: PAUSED })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /broke down/i })).not.toBeInTheDocument();
+
+    sessionOverride.clear();
+    await waitFor(() => expect(screen.getByRole('radio', { name: /broke down/i })).toBeChecked());
+    expect(await db.drafts.get('fv-1:m-1:t-1')).toBeDefined();
   });
 });

@@ -2,9 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PullResponse, PushRequest, PushResponse } from '@frc/shared';
 import { PULL_ENTITY_KEYS } from '@frc/shared';
 import { session } from '@/auth/session';
+import { apiClient } from './api';
 import { db, getMeta } from './db';
 import { enqueue, pending } from './outbox';
-import { activeEvent, cachedActiveEventId, hydrate, syncNow } from './sync';
+import { activeEvent, cachedActiveEventId, cachedDefaultEventId, hydrate, syncNow } from './sync';
 
 vi.mock('@/config', () => ({
   clientConfig: () => ({ apiBaseUrl: 'https://api.test', deviceWipeCode: 'w', appVersion: 't' }),
@@ -156,6 +157,70 @@ describe('syncNow', () => {
     });
     expect(outcome.status).toBe('event-gone');
     expect(await db.rows.where('event_id').equals('ev-1').count()).toBe(0);
+  });
+});
+
+describe('syncNow through the real transport and its deadline (phase 1C follow-up)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('reports offline, not stuck, when a push never answers — every operation stays queued', async () => {
+    await enqueue(op('row-1'));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
+    const api = apiClient(
+      { apiBaseUrl: 'https://api.test', deviceWipeCode: 'w', appVersion: 't' },
+      session,
+      20,
+    );
+
+    const outcome = await syncNow({ api, eventId: 'ev-1', deviceId: 'd-1' });
+
+    expect(outcome.status).toBe('offline');
+    expect(await pending(50)).toHaveLength(1);
+  });
+});
+
+describe('syncNow and the watermark across events (task 1.22)', () => {
+  it('pulls a different event from scratch, then deltas it from its own watermark', async () => {
+    const pull = vi.fn(
+      async (_req: { event_id: string; since?: string }): Promise<PullResponse> => ({
+        watermark: `w-${pull.mock.calls.length}`,
+        next_cursor: null,
+        complete: true,
+        entities: emptyEntities,
+      }),
+    );
+    const api = { push: async () => ({ results: [] }), pull };
+
+    await syncNow({ api, eventId: 'ev-A', deviceId: 'd-1' });
+    await syncNow({ api, eventId: 'ev-A', deviceId: 'd-1' });
+    expect(pull.mock.calls[1]![0]).toMatchObject({ event_id: 'ev-A', since: 'w-1' });
+
+    // The default moved: A's watermark would skip every older row of B.
+    await syncNow({ api, eventId: 'ev-B', deviceId: 'd-1' });
+    expect(pull.mock.calls[2]![0]).toEqual({ event_id: 'ev-B' });
+    expect(await getMeta('sync.hydrated_event_id', null)).toBe('ev-B');
+
+    await syncNow({ api, eventId: 'ev-B', deviceId: 'd-1' });
+    expect(pull.mock.calls[3]![0]).toMatchObject({ event_id: 'ev-B', since: 'w-3' });
+  });
+
+  it('keeps pulling a new event from scratch until one of its pulls completes', async () => {
+    const pull = vi.fn(async (req: { event_id: string; since?: string }) => ({
+      watermark: 'w-A',
+      next_cursor: req.event_id === 'ev-B' ? 'c1' : null,
+      complete: req.event_id !== 'ev-B',
+      entities: emptyEntities,
+    }));
+    const api = { push: async () => ({ results: [] }), pull };
+    await syncNow({ api, eventId: 'ev-A', deviceId: 'd-1' });
+    await syncNow({ api, eventId: 'ev-B', deviceId: 'd-1', maxPages: 1 });
+    await syncNow({ api, eventId: 'ev-B', deviceId: 'd-1', maxPages: 1 });
+    expect(pull.mock.calls[2]![0]).toEqual({ event_id: 'ev-B' });
   });
 });
 
@@ -365,6 +430,24 @@ describe('the active event (task 1.17b)', () => {
       active_event_id: EVENT,
     });
     expect(await cachedActiveEventId()).toBe(EVENT);
+  });
+
+  it('tells a device with no app_settings row apart from an admin who set no event', async () => {
+    expect(await cachedDefaultEventId()).toBeUndefined();
+    await db.rows.put({
+      entity: 'app_settings',
+      id: 'true',
+      active_season_id: SEASON,
+      active_event_id: null,
+    });
+    expect(await cachedDefaultEventId()).toBeNull();
+    await db.rows.put({
+      entity: 'app_settings',
+      id: 'true',
+      active_season_id: SEASON,
+      active_event_id: EVENT,
+    });
+    expect(await cachedDefaultEventId()).toBe(EVENT);
   });
 
   it('asks the server with getActiveContext, and names the event it answers', async () => {

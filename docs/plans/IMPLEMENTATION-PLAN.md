@@ -97,7 +97,7 @@ Every task's requirements implicitly include this section. Values are copied ver
 | **Phase 0 — post-gate** | 0.8 – 0.17 | Schema migrations, generated types, seed script, CI, keep-alive, both deployments. |
 | **Phase 1 A — walking skeleton** | 1.1 – 1.9 | §20.3's vertical slice: hardcoded form → offline entry → sync → visible on a laptop. |
 | **Phase 1 B — auth and roles** | 1.10 – 1.17, 1.17a, 1.17b | Login, JWT, the caller contract at the edge, the typed client, permissions, offline login, user administration. **1.17a and 1.17b were added 2026-09-24**, after the first production sign-in: the user-administration gaps (spec §5.4 item 3), and the shell's hydration gate (spec §4.3). **Run 1.17b before 1.18.** |
-| **Phase 1 C — seasons, events, teams, matches** | 1.18 – 1.23 | The admin management page, the active context and the game-image pipeline. **Run 1.23 first** — see below. |
+| **Phase 1 C — seasons, events, teams, matches** | 1.18 – 1.23 | The admin management page, the active context and the game-image pipeline. Numeric order: P86 moved the whole image-manifest contract into 1.18, so 1.23 no longer runs first. |
 | **Phase 1 D — form builder** | 1.24 – 1.32 | Field catalogue, semantic metadata, scoring editor, versioning, JSON export/import. |
 | **Phase 1 E — data-entry runtime** | 1.33 – 1.38 | All field types, the sticky timer, robot status, super scouting, undo, drafts, practice mode. |
 | **Phase 1 F — sync protocol** | 1.39 – 1.45 | Outbox, push, delta pull, hydration, conflicts, the review screen, the sync page. |
@@ -14443,6 +14443,8 @@ git add -A && git commit -m "feat(shared): implement the conflict policy as pure
 
 ## Task 1.40: Server — the full push semantics
 
+**Open input from phase 1C — close both before this task's commit.** Spec §7.5 items 1 and 2 (`docs/spec/frc-scouting-app-spec.md`). **(1)** `deleteMatch` and `setMatchTeams` hard-delete, so a deleted match or a cleared slot never reaches a device: add a `deleted_at` migration on `matches` and `match_teams` and tombstone instead, as `event_teams` already does, so the delta pull carries the removal. **(2)** When a bare match resolves to an id the server already holds (`noop` with the server's `row_id`), rewrite that id in every later operation of the **same push batch** before applying it, so an entry sent alongside its bare match does not fail the foreign key as `rejected: invalid`.
+
 **Files:**
 - Modify: `apps/server/src/core/commands/syncPush.ts`, `apps/server/src/core/commands/syncPush.test.ts`
 - Modify: `apps/server/src/repos/store.ts` and `apps/server/src/test/fake-context.ts` (replace the `findByLogicalKey`, `parentsExist` and `insertConflict` stubs — all three are already declared by task 1.3)
@@ -14746,6 +14748,8 @@ git add -A && git commit -m "feat(server): add the conflict review queue and res
 
 ## Task 1.42: Client — parent-deleted records and the discarded-records log
 
+**Open input from phase 1C.** Spec §7.5 item 3: since task 1.22 an open device moves to a changed default mid-session, and nothing evicts the event it left from `db.rows`, which breaks §7.3's active-competition-only bound. Evict that event's rows once every outbox operation for it is acknowledged. Never evict a draft, an unacknowledged row, or anything the outbox still references.
+
 **Files:**
 - Create: `apps/client/src/data/discarded.ts`, `apps/client/src/data/discarded.test.ts`
 - Create: `apps/client/src/features/sync/DiscardedNotice.tsx`, `apps/client/src/features/sync/DiscardedLogPage.tsx`
@@ -14841,6 +14845,8 @@ git add -A && git commit -m "feat(client): handle parent-deleted records and kee
 ---
 
 ## Task 1.43: Client — the sync page
+
+**Open input from phase 1C.** Spec §7.5 item 4: `EntriesPage` lists only the shell's event, so after a default move the old event's unsynced or rejected entries are on no screen. The pending list here covers **every** unsynced or rejected record on the device, whatever its event, and names the event when it is not the current one.
 
 **Files:**
 - Create: `apps/client/src/features/sync/SyncPage.tsx`, `apps/client/src/features/sync/SyncPage.test.tsx`
@@ -17657,6 +17663,8 @@ git add -A && git commit -m "docs(ops): record the phase 1 gate rehearsal result
 ---
 
 # Phase 2 — Analysis
+
+**Open input from phase 1C — binding on every analysis screen.** Spec §4.3, "A session override changes no page's data yet": a user can choose another event on `/context` for this session only (`useSessionOverride()`, `apps/client/src/features/context/sessionOverride.ts`). While it is set, a screen must show the **server's computed results for that event** (SPEC-FINAL §6.3) instead of the cache. A screen that forgets shows the default event's numbers under a banner naming another event.
 
 **Headings only.** Phase 2 is re-planned in full task detail **after the phase 1 gate passes** (SPEC-FINAL §20.8), because what the gate rehearsal reveals changes what phase 2 should be.
 

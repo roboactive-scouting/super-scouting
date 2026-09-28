@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { config as loadEnv } from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '../database.types';
-import { SEED_PREFIX, strayIds } from './strays';
+import { PURGE_ORDER, SEED_PREFIX, strayIds, type PurgeTable } from './strays';
 
 /**
  * Removes rows the app or a test created in the DEV project, leaving the deterministic
@@ -13,18 +13,23 @@ import { SEED_PREFIX, strayIds } from './strays';
  * rehearsal or a smoke run. Offline rehearsals and the smoke suite both leave litter
  * behind — stray bare matches and their entries, and stray users (e.g. a disabled
  * `probe_*` account from a role probe) — and by the time the ranking table lands
- * (phase 1 I) that litter is visible in the product.
+ * (phase 1 I) that litter is visible in the product. Since task 1.18 the admin use cases
+ * create seasons and events too, and from task 1.19 teams, rosters and match slots, so a
+ * dev proof leaves those behind as well.
  *
  * DEV ONLY. The guard below refuses to run against anything but the dev project, and
  * production is never migrated or seeded from a script (SPEC-FINAL 19.4).
  *
- * Deletes in foreign-key order: entries reference both matches and users, so entries
- * go first, then matches, then users. `sync_conflicts` and `do_not_pick` also reference
- * users but are not "litter" this script purges (they hold no stray rows yet — nothing
- * writes them outside the entries/matches path) — if a stray user is still referenced
- * from one of those tables, the user delete fails and this script reports which table
- * blocked it rather than silently leaving the user behind or purging tables outside its
- * remit.
+ * Deletes in foreign-key order, children first (`PURGE_ORDER` in strays.ts, unit-tested):
+ * entries, match slots, matches, rosters, events, seasons, users, and teams last, because
+ * every reference to a team is `on delete restrict`. Deleting a stray event or season
+ * cascades to what hangs off it (conflicts, forms, alliance rows); `app_settings` is
+ * `on delete set null`, so if the active context named a stray season or event it reads as
+ * nothing set up until `pnpm seed` restores the seed's. `sync_conflicts` and
+ * `do_not_pick` also reference users but are not "litter" this script purges — if a
+ * stray user or team is still referenced from a table outside the list, its delete fails
+ * and this script reports which table blocked it rather than silently leaving the row
+ * behind or purging tables outside its remit.
  *
  * Deliberately leaves `applied_operations` alone. Those rows are the idempotency
  * ledger; clearing them would let an already-applied operation replay as a new write.
@@ -53,7 +58,7 @@ if (ref && !url.includes(ref)) {
 
 const db = createClient<Database>(url, key, { auth: { persistSession: false } });
 
-async function purge(table: 'scouting_entries' | 'matches' | 'users'): Promise<number> {
+async function purge(table: PurgeTable): Promise<number> {
   const { data, error } = await db.from(table).select('id');
   if (error) throw new Error(`${table}: ${error.message}`);
   const strays = strayIds(
@@ -66,9 +71,8 @@ async function purge(table: 'scouting_entries' | 'matches' | 'users'): Promise<n
   return strays.length;
 }
 
-const entries = await purge('scouting_entries');
-const matches = await purge('matches');
-const users = await purge('users');
-console.warn(
-  `dev database cleaned: removed ${entries} entries, ${matches} matches, and ${users} users`,
-);
+const removed: string[] = [];
+for (const table of PURGE_ORDER) {
+  removed.push(`${await purge(table)} ${table}`);
+}
+console.warn(`dev database cleaned: removed ${removed.join(', ')}`);

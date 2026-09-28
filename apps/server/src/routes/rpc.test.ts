@@ -30,18 +30,33 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
     }
   });
 
-  it('has seven authenticated commands for that loop to check, so it is not vacuous', () => {
+  it('has twenty-two authenticated commands for that loop to check, so it is not vacuous', () => {
     const commands = Object.entries(REGISTRY).filter(
       ([, e]) => e.kind === 'command' && !e.unauthenticated,
     );
     expect(commands.map(([n]) => n).sort()).toEqual([
       'changeOwnPassword',
+      'createEvent',
+      'createMatch',
+      'createSeason',
+      'createTeam',
       'createUser',
+      'deleteMatch',
       'disableUser',
       'enableUser',
+      'ensureMatch',
       'renameUser',
+      'reorderEvents',
       'resetPassword',
+      'setActiveEvent',
+      'setActiveSeason',
+      'setEventRoster',
+      'setMatchTeams',
       'setUserRole',
+      'updateEvent',
+      'updateMatch',
+      'updateSeason',
+      'updateTeam',
     ]);
   });
 
@@ -55,16 +70,36 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
   it('holds exactly the entries registered so far', () => {
     expect(Object.keys(REGISTRY).sort()).toEqual([
       'changeOwnPassword',
+      'createEvent',
+      'createMatch',
+      'createSeason',
+      'createTeam',
       'createUser',
+      'deleteMatch',
       'disableUser',
       'enableUser',
+      'ensureMatch',
       'getActiveContext',
+      'listEventRoster',
+      'listEvents',
+      'listMatches',
+      'listSeasons',
+      'listTeams',
       'listUsers',
       'login',
       'refreshToken',
       'renameUser',
+      'reorderEvents',
       'resetPassword',
+      'setActiveEvent',
+      'setActiveSeason',
+      'setEventRoster',
+      'setMatchTeams',
       'setUserRole',
+      'updateEvent',
+      'updateMatch',
+      'updateSeason',
+      'updateTeam',
     ]);
   });
 

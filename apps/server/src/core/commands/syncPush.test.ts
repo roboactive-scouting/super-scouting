@@ -29,9 +29,17 @@ const op = (over: Partial<Operation> = {}): Operation => ({
   ...over,
 });
 
+// A bare match now goes through ensureMatch (task 1.19), whose input is uuids, so the bare
+// match fixtures are these rather than 'ev-1' / 'm-9'. The entry fixtures are unchanged.
+const EV = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+const M_1 = 'bbbbbbbb-0000-4000-8000-000000000001';
+const M_9 = 'bbbbbbbb-0000-4000-8000-000000000009';
+const M_OTHER = 'bbbbbbbb-0000-4000-8000-0000000000ff';
+
 let ctx: FakeContext;
 beforeEach(() => {
   ctx = makeFakeContext();
+  ctx.knownEvents.add(EV);
 });
 
 describe('syncPush', () => {
@@ -153,15 +161,15 @@ describe('syncPush', () => {
         operations: [
           op({
             entity: 'match',
-            row_id: 'm-9',
-            payload: { event_id: 'ev-1', match_type: 'qualification', number: 9 },
+            row_id: M_9,
+            payload: { event_id: EV, match_type: 'qualification', number: 9 },
           }),
         ],
       },
       ctx,
     );
     expect(res.results[0]).toMatchObject({ status: 'applied' });
-    expect(ctx.rows.matches.get('m-9')).toMatchObject({ number: 9, match_type: 'qualification' });
+    expect(ctx.rows.matches.get(M_9)).toMatchObject({ number: 9, match_type: 'qualification' });
   });
 
   it('rejects a match entry missing its alliance or its robot status (SPEC-FINAL 3.5)', async () => {
@@ -238,9 +246,9 @@ describe('syncPush', () => {
   });
 
   it('is a noop when the bare match already exists', async () => {
-    ctx.rows.matches.set('m-9', {
-      id: 'm-9',
-      event_id: 'ev-1',
+    ctx.rows.matches.set(M_9, {
+      id: M_9,
+      event_id: EV,
       match_type: 'qualification',
       number: 9,
     });
@@ -251,33 +259,83 @@ describe('syncPush', () => {
         operations: [
           op({
             entity: 'match',
-            row_id: 'm-9',
-            payload: { event_id: 'ev-1', match_type: 'qualification', number: 9 },
+            row_id: M_9,
+            payload: { event_id: EV, match_type: 'qualification', number: 9 },
           }),
         ],
       },
       ctx,
     );
-    expect(res.results[0]).toMatchObject({ status: 'noop', new_version: 1 });
+    expect(res.results[0]).toMatchObject({ status: 'noop', row_id: M_9, new_version: 1 });
   });
 
   const bareMatch = (over: Partial<Operation> = {}): Operation =>
     op({
       entity: 'match',
-      row_id: 'm-1',
-      payload: { event_id: 'ev-1', match_type: 'qualification', number: 21 },
+      row_id: M_1,
+      payload: { event_id: EV, match_type: 'qualification', number: 21 },
       ...over,
     });
 
   it('writes only the columns matches has — no version (SPEC-FINAL 6.4)', async () => {
     const res = await syncPush(scouter, { device_id: 'd-1', operations: [bareMatch()] }, ctx);
-    expect(res.results[0]).toMatchObject({ status: 'applied', row_id: 'm-1', new_version: 1 });
-    expect(ctx.rows.matches.get('m-1')).toEqual({
-      id: 'm-1',
-      event_id: 'ev-1',
+    expect(res.results[0]).toMatchObject({ status: 'applied', row_id: M_1, new_version: 1 });
+    expect(ctx.rows.matches.get(M_1)).toEqual({
+      id: M_1,
+      event_id: EV,
       match_type: 'qualification',
       number: 21,
     });
+  });
+
+  it('answers with the canonical id when another device already created that match number', async () => {
+    // Two offline devices can auto-create the same (event, type, number) with different
+    // ids. The server keeps the first; the second hears its id, so the client can remap.
+    await syncPush(scouter, { device_id: 'd-1', operations: [bareMatch()] }, ctx);
+    const second = bareMatch({ row_id: M_OTHER });
+    const res = await syncPush(scouter, { device_id: 'd-2', operations: [second] }, ctx);
+    expect(res.results[0]).toEqual({
+      op_id: second.op_id,
+      status: 'noop',
+      row_id: M_1,
+      new_version: 1,
+    });
+    expect(ctx.rows.matches.has(M_OTHER)).toBe(false);
+    // A replay of that op, after a lost response, still names the canonical id.
+    const replay = await syncPush(scouter, { device_id: 'd-2', operations: [second] }, ctx);
+    expect(replay.results[0]).toMatchObject({ status: 'noop', row_id: M_1 });
+  });
+
+  it('rejects a bare match whose event no longer exists as parent-deleted', async () => {
+    const operation = bareMatch({
+      payload: {
+        event_id: '99999999-9999-4999-8999-999999999999',
+        match_type: 'qualification',
+        number: 21,
+      },
+    });
+    const res = await syncPush(scouter, { device_id: 'd-1', operations: [operation] }, ctx);
+    expect(res.results[0]).toMatchObject({ status: 'rejected', reason: 'parent-deleted' });
+    expect(ctx.rows.matches.size).toBe(0);
+    expect(ctx.ops.has(operation.op_id)).toBe(false);
+  });
+
+  it('rejects a bare match with a malformed payload as invalid, naming the field', async () => {
+    const res = await syncPush(
+      scouter,
+      {
+        device_id: 'd-1',
+        operations: [
+          bareMatch({ payload: { event_id: EV, match_type: 'final', number: 21 } }),
+          bareMatch({ payload: { event_id: EV, match_type: 'qualification' } }),
+        ],
+      },
+      ctx,
+    );
+    expect(res.results[0]).toMatchObject({ status: 'rejected', reason: 'invalid' });
+    expect((res.results[0] as { detail: string }).detail).toContain('match_type');
+    expect(res.results[1]).toMatchObject({ status: 'rejected', reason: 'invalid' });
+    expect(ctx.rows.matches.size).toBe(0);
   });
 
   it('replaying a bare match op_id is a noop with version 1', async () => {
@@ -294,7 +352,7 @@ describe('syncPush', () => {
       ctx,
     );
     expect(res.results.map((r) => r.status)).toEqual(['applied', 'applied']);
-    expect(ctx.appliedOrder).toEqual(['m-1', 'e-1']);
+    expect(ctx.appliedOrder).toEqual([M_1, 'e-1']);
   });
 
   it('turns a thrown store error into a per-operation rejection with a fixed detail (SPEC-FINAL 9.3.1)', async () => {

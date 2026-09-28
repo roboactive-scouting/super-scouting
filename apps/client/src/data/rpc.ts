@@ -2,6 +2,7 @@ import type { z } from 'zod';
 import { API, UNAUTHENTICATED_USE_CASES, type Api, type ApiName } from '@frc/shared';
 import { session } from '@/auth/session';
 import { clientConfig } from '@/config';
+import { deadline } from './deadline';
 
 /** Per-call transport options. Only the login path sets a deadline (task 1.16). */
 export type CallOptions = {
@@ -72,36 +73,18 @@ export async function call<K extends ApiName>(
   return parsedOutput.data as z.output<Api[K]['output']>;
 }
 
-class DeadlineExceeded extends Error {}
-
 /**
- * Races `work` against the deadline. The abort also cancels the request itself; the race
- * is what guarantees the deadline even if something in between ignores the signal.
+ * `call`, widened to the plain `Rpc` shape (task 1.20): the season/event management
+ * panels take an injectable `rpc: Rpc` prop so their tests can hand back a plain
+ * `vi.fn`, and this is what that prop defaults to. The validation and `RpcError`
+ * behaviour underneath are exactly `call`'s own — only the compile-time signature is
+ * widened (an admin panel's own use-case names are checked against `API` at the call
+ * site already, via the shared schemas it imports for its forms).
  */
-function deadline(timeoutMs: number | undefined): {
-  signal: AbortSignal | undefined;
-  race: <T>(work: Promise<T>) => Promise<T>;
-  done: () => void;
-} {
-  if (timeoutMs === undefined) {
-    return { signal: undefined, race: (work) => work, done: () => {} };
-  }
-  const controller = new AbortController();
-  let expire!: () => void;
-  const expired = new Promise<never>((_, reject) => {
-    expire = () => reject(new DeadlineExceeded());
-  });
-  expired.catch(() => {}); // never an unhandled rejection when nobody is racing
-  const timer = setTimeout(() => {
-    controller.abort();
-    expire();
-  }, timeoutMs);
-  return {
-    signal: controller.signal,
-    race: (work) => Promise.race([work, expired]),
-    done: () => clearTimeout(timer),
-  };
-}
+export const typedCall: Rpc['call'] = (name, input, options) =>
+  call(name as ApiName, input as never, options);
+
+class DeadlineExceeded extends Error {}
 
 /**
  * The untyped transport under `call`. SPEC-FINAL 7.5: `Authorization: Bearer <token>`,
@@ -116,7 +99,7 @@ export const rpc: Rpc = {
   async call(name: string, input: unknown = {}, options: CallOptions = {}): Promise<unknown> {
     const open = OPEN.has(name);
     const bearer = open ? null : await session.token();
-    const limit = deadline(options.timeoutMs);
+    const limit = deadline(options.timeoutMs, () => new DeadlineExceeded());
     try {
       let res: Response;
       try {

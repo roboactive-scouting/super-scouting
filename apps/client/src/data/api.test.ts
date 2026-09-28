@@ -132,6 +132,33 @@ describe('the sync API client and the bearer token (SPEC-FINAL 7.5)', () => {
   });
 });
 
+describe('the sync request deadline (phase 1C follow-up)', () => {
+  it('aborts a fetch that never settles and rejects with a plain Error, not an ApiError', async () => {
+    await session.signIn(user, 'token-abc');
+    const expire = vi.spyOn(session, 'expire');
+    let signal: AbortSignal | undefined;
+    fetchMock.mockImplementationOnce((_url, init) => {
+      signal = init?.signal ?? undefined;
+      return new Promise<Response>(() => {});
+    });
+
+    const pull = apiClient(config, session, 20).pull({ event_id: 'ev-1' });
+
+    await expect(pull).rejects.toThrow('the server did not answer in time');
+    await expect(pull).rejects.not.toBeInstanceOf(ApiError);
+    expect(signal?.aborted).toBe(true);
+    // A deadline is not a 401: the session must stay exactly as it was.
+    expect(expire).not.toHaveBeenCalled();
+    expect(await session.token()).toBe('token-abc');
+  });
+
+  it('carries a signal on an ordinary call too, from the default deadline', async () => {
+    fetchMock.mockResolvedValueOnce(okPull());
+    await apiClient(config).pull({ event_id: 'ev-1' });
+    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+});
+
 describe('a 401 in the middle of a sync never loses an operation (SPEC-FINAL 9.4)', () => {
   it('on the first push: expires the session and leaves every op queued, unchanged', async () => {
     await session.signIn(user, 'token-abc');

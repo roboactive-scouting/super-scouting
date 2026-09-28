@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { SEASON_IMAGE_MANIFEST } from '@frc/shared';
 import type { Database } from '../database.types';
 import { SEED, SEED_FIELDS, SEED_SUPER_FIELDS, type SeedField } from './fixtures';
 
@@ -70,7 +71,10 @@ export async function seedDevDatabase(
     id: SEED.season,
     year: SEED.year,
     game_name: 'SEED GAME 1999',
-    field_image_path: `seasons/${SEED.year}/field.webp`,
+    // Task 1.23: the seed year (1999) has no committed game image, so this must point at a
+    // real one (SEASON_IMAGE_MANIFEST[0]) or the dev seed shows the fail-loud missing-image
+    // state forever. The year itself stays 1999 — the deterministic seed ids depend on it.
+    field_image_path: SEASON_IMAGE_MANIFEST[0],
   });
 
   await db.from('events').upsert({

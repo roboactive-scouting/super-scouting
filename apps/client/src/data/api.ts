@@ -1,6 +1,7 @@
 import type { PullRequest, PullResponse, PushRequest, PushResponse } from '@frc/shared';
 import { session } from '@/auth/session';
 import type { ClientConfig } from '@/config';
+import { deadline } from './deadline';
 
 export type Api = {
   push(request: PushRequest): Promise<PushResponse>;
@@ -22,6 +23,13 @@ export class ApiError extends Error {
 export type SessionPort = Pick<typeof session, 'token' | 'replaceToken' | 'expire'>;
 
 /**
+ * Phase 1C follow-up: a venue connection can die mid-request without ever failing the
+ * fetch, which would hang the shell's sync queue on a push or pull that never answers.
+ * 30s and the transport gives up.
+ */
+export const SYNC_REQUEST_TIMEOUT_MS = 30_000;
+
+/**
  * The client for `/sync/push` and `/sync/pull`, which are not registry routes (rpc.ts
  * owns those). SPEC-FINAL 7.5: `Authorization: Bearer <token>` — never cookies, because
  * client and server are cross-origin — and any `X-Refreshed-Token` is stored.
@@ -30,29 +38,47 @@ export type SessionPort = Pick<typeof session, 'token' | 'replaceToken' | 'expir
  * the session is expired (user kept, token dropped) and the call still throws, so
  * `syncNow` stops and the outbox is untouched. A 403 is NOT a dead session — the token
  * is still good — and never signs anyone out.
+ *
+ * `timeoutMs` is injectable (default `SYNC_REQUEST_TIMEOUT_MS`) so a test need not wait
+ * the full 30s. An expired deadline rejects with a plain `Error` — never an `ApiError` —
+ * so `syncNow` cannot mistake it for a 401 or an event-gone 404; it falls through to its
+ * generic `offline` outcome instead.
  */
-export function apiClient(config: ClientConfig, auth: SessionPort = session): Api {
+export function apiClient(
+  config: ClientConfig,
+  auth: SessionPort = session,
+  timeoutMs: number = SYNC_REQUEST_TIMEOUT_MS,
+): Api {
   async function request<T>(path: string, init: RequestInit): Promise<T> {
     const bearer = await auth.token();
-    const res = await fetch(`${config.apiBaseUrl}${path}`, {
-      ...init,
-      headers: {
-        'content-type': 'application/json',
-        ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
-        ...init.headers,
-      },
-    });
-    const refreshed = res.headers.get('x-refreshed-token');
-    if (refreshed && bearer) await auth.replaceToken(refreshed, bearer);
+    const limit = deadline(timeoutMs, () => new Error('the server did not answer in time'));
+    try {
+      const res = await limit.race(
+        fetch(`${config.apiBaseUrl}${path}`, {
+          ...init,
+          headers: {
+            'content-type': 'application/json',
+            ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
+            ...init.headers,
+          },
+          ...(limit.signal ? { signal: limit.signal } : {}),
+        }),
+      );
+      const refreshed = res.headers.get('x-refreshed-token');
+      if (refreshed && bearer) await auth.replaceToken(refreshed, bearer);
 
-    const body: unknown = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      // A 401 to a request that carried no token says nothing about any token.
-      if (res.status === 401 && bearer) await auth.expire(bearer);
-      const error = (body as { error?: { code?: string; message?: string } }).error;
-      throw new ApiError(error?.code ?? 'unknown', error?.message ?? res.statusText, res.status);
+      // A body that never finishes arriving is also bound by the same deadline.
+      const body: unknown = await limit.race(res.json()).catch(() => ({}));
+      if (!res.ok) {
+        // A 401 to a request that carried no token says nothing about any token.
+        if (res.status === 401 && bearer) await auth.expire(bearer);
+        const error = (body as { error?: { code?: string; message?: string } }).error;
+        throw new ApiError(error?.code ?? 'unknown', error?.message ?? res.statusText, res.status);
+      }
+      return body as T;
+    } finally {
+      limit.done();
     }
-    return body as T;
   }
 
   return {

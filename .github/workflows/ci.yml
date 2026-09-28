@@ -31,6 +31,9 @@ jobs:
       - name: Environment worksheet has not drifted
         run: pnpm env:example:check
 
+      - name: Season image manifest has not drifted
+        run: pnpm season:images:check
+
       - name: Required ops documentation is present
         run: pnpm docs:check
 
