@@ -61,6 +61,7 @@ Every task's requirements implicitly include this section. Values are copied ver
 
 - **Node 22.** pnpm 9, pinned in the root `packageManager` field. Turborepo for the task graph.
 - **TypeScript everywhere**, `strict: true`, no `any` in committed code.
+- **Every task that adds or changes a screen follows `docs/ops/BUILD-CONTEXT.md` §12, the visual standard**: the SPEC-FINAL §17.9 reference app for that screen, shadcn/ui components, and screenshot proof at 375 px and 1280 px, reported for the user's review. This holds even where a task's own text never mentions design. *(added 2026-09-29)*
 - **`packages/shared` is browser-safe**: no Node built-ins, no `@supabase/supabase-js`, no `process.env`. Enforced by an ESLint rule and a test (task 0.2).
 - **`packages/shared` is also the single validation source for both sides** (§16.1): every use-case input and output schema lives there, and the server registry and the typed client both import them.
 - **All client traffic goes through the server API** (§16.2). The client never imports `@supabase/supabase-js`.

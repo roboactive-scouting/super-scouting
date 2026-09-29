@@ -271,3 +271,47 @@ One entry per departure from the plan's literal steps, in execution order:
 Include trivial entries. An unlogged deviation is worse than a noisy log. Record
 rejected alternatives and why — the next reader's instinct will be the option that was
 already tried.
+
+## 12. The visual standard for every client task
+
+**Every task that adds or changes a screen must make it look like the reference app
+the spec names for it.** After phase 1C, the user reviewed the built screens and found
+they do not follow spec §16. The rules were already written down, but nothing made a
+chat check its screens against them. This section does. It applies to every client
+task, whether or not the task's plan text mentions design.
+
+1. **Name the reference before building.** Find the screen's row in SPEC-FINAL §17.9;
+   spec §16.3 has the same table with more detail. A screen with no row uses the
+   system-wide baseline, **Linear / Vercel**. Copy that row's "What we take" items into
+   the subagent's brief as a checklist. They are references for **layout and
+   behaviour, never palette**: colour comes only from the §16.2 tokens.
+2. **Build from shadcn/ui components, not hand-styled elements.** Spec §16.1 names
+   Tailwind **and shadcn/ui**, and the Linear / Vercel baseline is shadcn's default
+   look. As of phase 1C shadcn was never set up: every screen hand-writes its own
+   classes. So when a task needs a button, input, select, checkbox, dialog, table,
+   tabs, badge or card, add that shadcn component to `apps/client/src/components/ui/`
+   the first time, styled with the §16.2 tokens and never shadcn's own palette, and use
+   it from then on. A task that changes an existing screen moves that screen's
+   elements onto these components. It does not restyle screens outside its scope.
+3. **Use the `frontend-design` skill exactly as spec §16.3's table says:** craft yes,
+   identity no. Where it and §16 disagree, §16 wins, and the chat says which line.
+4. **Reject the tells of generated UI**, which are what make a screen look
+   AI-made rather than designed:
+   - everything centred;
+   - cards inside cards;
+   - the same padding everywhere, with no hierarchy;
+   - an icon beside every heading;
+   - shadows, gradients or glows where §16.3 asks for muted 1-px borders;
+   - marketing-tone copy;
+   - placeholder text.
+5. **Prove it with screenshots.** Before reporting, take a screenshot of every new or
+   changed screen in the browser pane. Use phone width (375 px) and desktop width
+   (1280 px); a desktop-only builder needs 1280 px only. Take both themes once task
+   1.38 exists, and dark only until then. Use realistic dev-seed data, never an empty
+   screen unless the empty state is the screen being built. Check each screenshot
+   against the step-1 checklist, item by item. §1's browser-pane rules apply: confirm
+   the tab, and never type a credential.
+6. **Report it so the user can review it.** List each screen with its route and its
+   reference app, the checklist result for each item, and anything that fell short and
+   why. The user checks these screens on dev at the end of the part. The report is the
+   list they work from.
