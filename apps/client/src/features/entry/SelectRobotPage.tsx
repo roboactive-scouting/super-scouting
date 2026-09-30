@@ -1,6 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { formatCount } from '@frc/shared';
+import { ChoiceGroup } from '@/components/entry/ChoiceGroup';
+import { StickyActionBar } from '@/components/entry/StickyActionBar';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Notice } from '@/components/ui/notice';
 import { cachedRows } from '@/data/cache';
 import { db } from '@/data/db';
 import { enqueue, nextSeq } from '@/data/outbox';
@@ -22,6 +29,11 @@ type RosterRow = { event_id: string; team_id: string; deleted_at: string | null 
 /** What EntryRoute hands back through router state after a submit (SPEC-FINAL 8.1). */
 export type SavedNotice = { matchLabel: string; teamLabel: string; edited: boolean };
 
+const ALLIANCES = [
+  { value: 'red', label: 'Red', ariaLabel: 'red', accent: 'var(--alliance-red)' },
+  { value: 'blue', label: 'Blue', ariaLabel: 'blue', accent: 'var(--alliance-blue)' },
+] as const;
+
 export function SelectRobotPage({ eventId, author }: { eventId: string; author: Editor }) {
   const navigate = useNavigate();
   const saved = (useLocation().state as { saved?: SavedNotice } | null)?.saved;
@@ -33,6 +45,9 @@ export function SelectRobotPage({ eventId, author }: { eventId: string; author: 
   const [alliance, setAlliance] = useState<'red' | 'blue' | null>(null);
   const [teamId, setTeamId] = useState('');
   const [entries, setEntries] = useState<LocalEntry[]>([]);
+  const typeId = useId();
+  const numberId = useId();
+  const robotId = useId();
 
   useEffect(() => {
     void (async () => {
@@ -131,84 +146,75 @@ export function SelectRobotPage({ eventId, author }: { eventId: string; author: 
   }
 
   return (
-    <main className="mx-auto max-w-xl p-4">
+    <main className="mx-auto w-full max-w-xl px-4 pt-6">
       {saved && (
-        // Static on purpose: no entrance animation on the data-entry path (SPEC-FINAL 17).
+        // Static on purpose (SPEC-FINAL 17.9): the confirmation stands still on the entry path.
         // Submitting only queues the entry; the connection indicator owns sync state.
-        <section
-          role="status"
-          aria-label="Entry saved"
-          className="mb-3 rounded-lg border-2 border-[var(--status-played)] bg-[var(--surface)] p-3"
-        >
+        <Notice role="status" aria-label="Entry saved" tone="success" still className="mb-5">
           <p className="font-semibold">
             {saved.edited ? 'Changes saved on this device' : 'Entry saved on this device'}
           </p>
           <p className="mt-1">
             {saved.matchLabel} · <span dir="auto">{saved.teamLabel}</span>
           </p>
-          <p className="mt-1 text-sm text-[var(--text-muted)]">
+          <p className="mt-1 text-text-muted">
             It is queued to send and stays safe here with no network.
           </p>
-        </section>
+        </Notice>
       )}
-      <label className="block py-2">
-        <span className="text-sm font-medium">Match type</span>
-        <select
-          className="tap-target mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)]"
-          value={matchType}
-          onChange={(e) => setMatchType(e.target.value)}
-        >
-          <option value="qualification">Qualification</option>
-          <option value="practice">Practice</option>
-          <option value="playoff">Playoff</option>
-        </select>
-      </label>
+      <h1 className="text-2xl font-semibold tracking-tight">Scout a match</h1>
 
-      <label className="block py-2">
-        <span className="text-sm font-medium">Match number</span>
-        <input
-          type="number"
-          min={1}
-          inputMode="numeric"
-          className="tap-target mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2"
-          value={number}
-          onChange={(e) => setNumber(e.target.value)}
-        />
-      </label>
+      <div className="mt-6 grid grid-cols-2 gap-3">
+        <div>
+          <Label htmlFor={typeId}>Match type</Label>
+          <NativeSelect
+            id={typeId}
+            wrapperClassName="mt-1.5"
+            value={matchType}
+            onChange={(e) => setMatchType(e.target.value)}
+          >
+            <option value="qualification">Qualification</option>
+            <option value="practice">Practice</option>
+            <option value="playoff">Playoff</option>
+          </NativeSelect>
+        </div>
+        <div>
+          <Label htmlFor={numberId}>Match number</Label>
+          <Input
+            id={numberId}
+            type="number"
+            min={1}
+            inputMode="numeric"
+            className="mt-1.5 text-xl font-semibold tabular-nums"
+            value={number}
+            onChange={(e) => setNumber(e.target.value)}
+          />
+        </div>
+      </div>
 
       {parsed > 0 && !existing && (
-        <p role="status" className="rounded-lg border border-[var(--border)] p-2 text-sm">
+        <Notice role="status" className="mt-4">
           Match {formatCount(parsed)} is not on this device yet. It will be created when you submit
           — keep scouting.
-        </p>
+        </Notice>
       )}
 
-      <fieldset role="group" aria-label="Alliance" className="py-2">
-        <legend className="text-sm font-medium">Alliance</legend>
-        <div className="tap-row mt-1 flex">
-          {(['red', 'blue'] as const).map((side) => (
-            <label
-              key={side}
-              className="tap-target flex flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--border)]"
-            >
-              <input
-                type="radio"
-                name="alliance"
-                aria-label={side}
-                checked={alliance === side}
-                onChange={() => setAlliance(side)}
-              />
-              <span className="capitalize">{side}</span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <div className="mt-6">
+        <ChoiceGroup
+          legend="Alliance"
+          name="alliance"
+          value={alliance}
+          options={ALLIANCES}
+          onChange={(side) => setAlliance(side)}
+        />
+      </div>
 
-      <label className="block py-2">
-        <span className="text-sm font-medium">Robot</span>
+      <div className="mt-6">
+        <Label htmlFor={robotId}>Robot</Label>
         {/* Native, so a phone shows its own picker rather than a 30-row scroll. */}
-        <select
-          className="tap-target mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)]"
+        <NativeSelect
+          id={robotId}
+          wrapperClassName="mt-1.5"
           value={chosen?.id ?? ''}
           disabled={!ready}
           onChange={(e) => setTeamId(e.target.value)}
@@ -221,34 +227,27 @@ export function SelectRobotPage({ eventId, author }: { eventId: string; author: 
               {optionLabel(team)}
             </option>
           ))}
-        </select>
-      </label>
+        </NativeSelect>
+      </div>
 
-      <button
-        type="button"
-        disabled={!chosen}
-        className="tap-target mt-2 w-full rounded-lg bg-[var(--brand-plate)] font-semibold text-[var(--brand)] disabled:opacity-50"
-        onClick={start}
-      >
-        {chosenEntry ? 'Edit the existing entry' : 'Start entry'}
-      </button>
-      {chosenEntry && editsAnyTime(author) && (
-        <p className="mt-2 text-sm text-[var(--text-muted)]">
-          This robot is already scouted in this match on this device. You can change that entry; a
-          second one cannot be started.
+      {chosenEntry && (
+        <p className="mt-3 text-sm text-text-muted">
+          {editsAnyTime(author)
+            ? 'This robot is already scouted in this match on this device. You can change that entry; a second one cannot be started.'
+            : `This robot is already scouted in this match on this device. You can change that entry until ${editableUntil(
+                chosenEntry,
+              ).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}; a second one cannot be started.`}
         </p>
       )}
-      {chosenEntry && !editsAnyTime(author) && (
-        <p className="mt-2 text-sm text-[var(--text-muted)]">
-          This robot is already scouted in this match on this device. You can change that entry
-          until{' '}
-          {editableUntil(chosenEntry).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
-          ; a second one cannot be started.
-        </p>
-      )}
+
+      <StickyActionBar>
+        <Button variant="primary" size="block" disabled={!chosen} onClick={start}>
+          {chosenEntry ? 'Edit the existing entry' : 'Start entry'}
+        </Button>
+      </StickyActionBar>
     </main>
   );
 }

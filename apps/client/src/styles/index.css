@@ -25,6 +25,8 @@
   --color-sync-offline: var(--sync-offline);
   --color-sync-syncing: var(--sync-syncing);
   --color-sync-online: var(--sync-online);
+  --color-alliance-red: var(--alliance-red);
+  --color-alliance-blue: var(--alliance-blue);
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-hebrew: 'Noto Sans Hebrew', 'Inter', system-ui, sans-serif;
 }

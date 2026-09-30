@@ -11,6 +11,8 @@ const TONE = {
   success: ['border-status-played', 'bg-status-played'],
   warning: ['border-warning', 'bg-warning'],
   danger: ['border-danger', 'bg-danger'],
+  'alliance-red': ['border-alliance-red', 'bg-alliance-red'],
+  'alliance-blue': ['border-alliance-blue', 'bg-alliance-blue'],
 } as const;
 
 export type BadgeTone = keyof typeof TONE;

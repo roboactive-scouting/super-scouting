@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { formatCount } from '@frc/shared';
 import { StateMessage } from '@/components/StateMessage';
+import { Button } from '@/components/ui/button';
+import { Notice } from '@/components/ui/notice';
 import { cachedRows } from '@/data/cache';
 import { db } from '@/data/db';
 import { matchLabel } from '@/lib/matchLabel';
@@ -107,7 +109,7 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
   }, [eventId, matchId, teamId]);
 
   if (!matchId || !teamId) {
-    return <p className="p-4 text-[var(--text-muted)]">No match selected.</p>;
+    return <p className="p-4 text-text-muted">No match selected.</p>;
   }
   if (blocked === 'not-cached') {
     return (
@@ -131,26 +133,31 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
       />
     );
   }
-  if (resolved === null) return <p className="p-4 text-[var(--text-muted)]">Loading…</p>;
+  // Plain text, not a Skeleton: a role="status" here would be the first status the
+  // other-event notice test finds (EntryRoute.test.tsx), and this lasts milliseconds.
+  if (resolved === null) {
+    return <p className="mx-auto w-full max-w-xl px-4 pt-6 text-text-muted">Loading…</p>;
+  }
 
   // SPEC-FINAL 6.3: no new entry outside the default competition, whatever URL got here.
   if (resolved.refused) {
     return (
-      <main className="mx-auto max-w-xl p-4">
-        <h1 className="text-lg font-semibold">
+      <main className="mx-auto w-full max-w-xl px-4 pt-6">
+        <h1 className="text-xl font-semibold">
           {resolved.matchLabel} · <span dir="auto">{resolved.teamLabel}</span>
         </h1>
-        <p role="alert" dir="auto" className="mt-3 rounded-lg border border-[var(--border)] p-3">
+        <Notice role="alert" tone="warning" still className="mt-4">
           This match belongs to {resolved.foreignEventName}, which is not the default competition.
           New entries can only be made in {resolved.refused.defaultName}.
-        </p>
-        <button
-          type="button"
-          className="tap-target mt-4 w-full rounded-lg border border-[var(--border)]"
+        </Notice>
+        <Button
+          variant="secondary"
+          size="block"
+          className="mt-4"
           onClick={() => navigate(PATHS.scout)}
         >
           Back to scouting
-        </button>
+        </Button>
       </main>
     );
   }
@@ -158,21 +165,22 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
   // The picker never offers this, but a stale screen or a typed URL can still get here.
   if (resolved.existing && !canSelfEdit(resolved.existing, author, new Date())) {
     return (
-      <main className="mx-auto max-w-xl p-4">
-        <h1 className="text-lg font-semibold">
+      <main className="mx-auto w-full max-w-xl px-4 pt-6">
+        <h1 className="text-xl font-semibold">
           {resolved.matchLabel} · <span dir="auto">{resolved.teamLabel}</span>
         </h1>
-        <p role="alert" className="mt-3 rounded-lg border border-[var(--border)] p-3">
+        <Notice role="alert" tone="warning" still className="mt-4">
           This robot is already scouted in this match on this device, and the entry is locked — ask
           a lead to change it.
-        </p>
-        <button
-          type="button"
-          className="tap-target mt-4 w-full rounded-lg border border-[var(--border)]"
+        </Notice>
+        <Button
+          variant="secondary"
+          size="block"
+          className="mt-4"
           onClick={() => navigate(PATHS.scout)}
         >
           Back to scouting
-        </button>
+        </Button>
       </main>
     );
   }
@@ -204,10 +212,15 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
   // The entry finishes against the event it started in (task 1.22), and says so.
   return (
     <>
-      <p role="status" dir="auto" className="border-b-2 border-[var(--warning)] p-2 text-sm">
+      <Notice
+        role="status"
+        tone="warning"
+        still
+        className="rounded-none border-0 border-b border-s-4 px-4"
+      >
         This entry belongs to {resolved.foreignEventName}, which is no longer the default
         competition. It is saved there when you submit.
-      </p>
+      </Notice>
       {page}
     </>
   );
