@@ -3,6 +3,20 @@ import { formatCount, formatDate, formatTime } from '@frc/shared';
 import { cachedRows } from '@/data/cache';
 import { rejectedRows } from '@/data/outbox';
 import { rejectionMessage } from '@/data/rejections';
+import { Skeleton } from '@/components/Skeleton';
+import { StateMessage } from '@/components/StateMessage';
+import { Badge, type BadgeTone } from '@/components/ui/badge';
+import { Notice } from '@/components/ui/notice';
+import { PageHeader } from '@/components/ui/page-header';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { PATHS } from '@/lib/paths';
 
 type Row = {
   id: string;
@@ -14,6 +28,16 @@ type Row = {
   /** Why the server refused this entry's last push; it is still queued and retried. */
   rejection: string | null;
 };
+
+const STATUS_TONE: Record<string, BadgeTone> = {
+  played: 'played',
+  broke_down: 'broke_down',
+  disabled: 'disabled',
+  no_show: 'no_show',
+};
+
+const TITLE = 'Entries';
+const DESCRIPTION = 'Everything this device holds for the current competition, by match.';
 
 export function EntriesPage({ eventId }: { eventId: string }) {
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -53,62 +77,72 @@ export function EntriesPage({ eventId }: { eventId: string }) {
     })();
   }, [eventId]);
 
-  if (rows === null) return <p className="p-4 text-[var(--text-muted)]">Loading…</p>;
+  if (rows === null) {
+    return (
+      <main className="mx-auto w-full max-w-6xl px-4 py-8 lg:px-8">
+        <PageHeader title={TITLE} description={DESCRIPTION} />
+        <div className="mt-6">
+          <Skeleton rows={6} label="Loading the entries" />
+        </div>
+      </main>
+    );
+  }
 
   if (rows.length === 0) {
     return (
-      <div className="p-8 text-center">
-        <p className="text-lg font-semibold">No entries yet</p>
-        <p className="text-[var(--text-muted)]">
-          Entries appear here as soon as a device syncs. Nothing is lost while a device is offline.
-        </p>
-      </div>
+      <main className="mx-auto w-full max-w-6xl px-4 py-8 lg:px-8">
+        <PageHeader title={TITLE} description={DESCRIPTION} />
+        <StateMessage
+          variant="no-data"
+          title="No entries yet"
+          detail="Entries appear here as soon as a device syncs. Nothing is lost while a device is offline."
+          action={{ label: 'Scout a match', to: PATHS.scout }}
+        />
+      </main>
     );
   }
 
   return (
-    <div className="max-h-[70vh] overflow-auto p-4">
-      <table className="w-full text-sm">
-        <thead className="sticky top-0 bg-[var(--surface)]">
-          <tr>
-            <th className="p-2 text-right">Match</th>
-            <th className="p-2 text-left">Team</th>
-            <th className="p-2 text-left">Status</th>
-            <th className="p-2 text-left">Scouter</th>
-            <th className="p-2 text-left">Recorded</th>
-          </tr>
-        </thead>
-        <tbody>
+    <main className="mx-auto w-full max-w-6xl px-4 py-8 lg:px-8">
+      <PageHeader title={TITLE} description={DESCRIPTION} />
+      <Table containerClassName="mt-6 max-h-[70vh] overflow-auto rounded-xl border border-border bg-surface">
+        <TableHeader sticky>
+          <TableRow>
+            <TableHead numeric>Match</TableHead>
+            <TableHead>Team</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Scouter</TableHead>
+            <TableHead>Recorded</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {rows.map((row) => (
             <Fragment key={row.id}>
-              <tr className="border-t border-[var(--border)]">
-                <td className="p-2 text-right tabular-nums">{row.match}</td>
-                <td className="p-2" dir="auto">
-                  {row.team}
-                </td>
-                <td className="p-2">{row.status}</td>
-                <td className="p-2" dir="auto">
-                  {row.scouter}
-                </td>
-                <td className="p-2 tabular-nums">{row.when}</td>
-              </tr>
+              <TableRow className={row.rejection ? 'border-b-0' : undefined}>
+                <TableCell numeric>{row.match}</TableCell>
+                <TableCell dir="auto">{row.team}</TableCell>
+                <TableCell>
+                  {row.status && (
+                    <Badge tone={STATUS_TONE[row.status] ?? 'neutral'}>{row.status}</Badge>
+                  )}
+                </TableCell>
+                <TableCell dir="auto">{row.scouter}</TableCell>
+                <TableCell className="tabular-nums">{row.when}</TableCell>
+              </TableRow>
               {row.rejection && (
-                <tr>
-                  <td colSpan={5} className="px-2 pb-2 text-sm">
-                    <span
-                      dir="auto"
-                      className="block rounded-md border-l-4 border-[var(--warning)] py-1 pl-2"
-                    >
+                <TableRow>
+                  <TableCell colSpan={5} className="pt-0">
+                    <Notice tone="warning" still>
                       <span className="font-semibold">Not synced: </span>
                       {row.rejection}
-                    </span>
-                  </td>
-                </tr>
+                    </Notice>
+                  </TableCell>
+                </TableRow>
               )}
             </Fragment>
           ))}
-        </tbody>
-      </table>
-    </div>
+        </TableBody>
+      </Table>
+    </main>
   );
 }

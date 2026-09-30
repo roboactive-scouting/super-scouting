@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { db } from '@/data/db';
+import { MemoryRouter } from 'react-router-dom';
 import { EntriesPage } from './EntriesPage';
 
 beforeEach(async () => {
@@ -39,7 +40,11 @@ beforeEach(async () => {
 
 describe('EntriesPage — the laptop view of the walking skeleton', () => {
   it('lists a live entry with its match, team, status and scouter', async () => {
-    render(<EntriesPage eventId="ev-1" />);
+    render(
+      <MemoryRouter>
+        <EntriesPage eventId="ev-1" />
+      </MemoryRouter>,
+    );
     const row = await screen.findByRole('row', { name: /2096/ });
     expect(row).toHaveTextContent('12');
     expect(row).toHaveTextContent('ROBACTIVE');
@@ -48,13 +53,21 @@ describe('EntriesPage — the laptop view of the walking skeleton', () => {
   });
 
   it('never lists a soft-deleted entry', async () => {
-    render(<EntriesPage eventId="ev-1" />);
+    render(
+      <MemoryRouter>
+        <EntriesPage eventId="ev-1" />
+      </MemoryRouter>,
+    );
     expect(await screen.findAllByRole('row')).toHaveLength(2); // header + one live row
   });
 
   it('shows the empty state when the event has no entries', async () => {
     await db.rows.where('entity').equals('scouting_entries').delete();
-    render(<EntriesPage eventId="ev-1" />);
+    render(
+      <MemoryRouter>
+        <EntriesPage eventId="ev-1" />
+      </MemoryRouter>,
+    );
     expect(await screen.findByText(/no entries yet/i)).toBeInTheDocument();
   });
 
@@ -80,7 +93,11 @@ describe('EntriesPage — the laptop view of the walking skeleton', () => {
         origin: 'local',
         rejection: { code, message, at: '2026-11-14T09:05:00.000Z' },
       });
-      render(<EntriesPage eventId="ev-1" />);
+      render(
+        <MemoryRouter>
+          <EntriesPage eventId="ev-1" />
+        </MemoryRouter>,
+      );
       const notice = await screen.findByText(line, { exact: false });
       expect(notice).toHaveTextContent(`Not synced: ${line}`);
       expect(screen.getAllByText(/not synced/i)).toHaveLength(1);
@@ -90,7 +107,11 @@ describe('EntriesPage — the laptop view of the walking skeleton', () => {
 
   it('shows no rejection line for an entry that synced', async () => {
     await db.syncState.put({ row_id: 'e-1', sync_state: 'acked', acked_at: 'x', origin: 'local' });
-    render(<EntriesPage eventId="ev-1" />);
+    render(
+      <MemoryRouter>
+        <EntriesPage eventId="ev-1" />
+      </MemoryRouter>,
+    );
     await screen.findByRole('row', { name: /2096/ });
     expect(screen.queryByText(/not synced/i)).not.toBeInTheDocument();
   });
