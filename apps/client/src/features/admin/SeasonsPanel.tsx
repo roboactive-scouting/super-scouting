@@ -8,6 +8,20 @@ import { FieldImage } from '@/season/FieldImage';
 import { isKnownSeasonImage } from '@/season/images';
 import { panelErrorLine, unreachable } from './adminMessages';
 import { FormError, TextField } from './fields';
+import { Pencil } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { SectionHeader } from '@/components/ui/page-header';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 /**
  * SPEC-FINAL 6.4: the seasons table (year, game name, image path, active marker, edit),
@@ -122,91 +136,81 @@ export function SeasonsPanel({
 
   return (
     <section aria-label="Seasons">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h2 className="text-lg font-semibold">Seasons</h2>
-        <button
-          type="button"
-          className={SECONDARY_BUTTON}
-          onClick={() =>
-            setForm((f) => (f.kind === 'create' ? { kind: 'none' } : { kind: 'create' }))
-          }
-        >
-          {form.kind === 'create' ? 'Cancel' : 'New season'}
-        </button>
-      </div>
-      {!online && <p className="mt-2 text-sm text-[var(--text-muted)]">{OFFLINE_SWITCH_HINT}</p>}
+      <SectionHeader
+        title="Seasons"
+        actions={
+          <button
+            type="button"
+            className={SECONDARY_BUTTON}
+            onClick={() =>
+              setForm((f) => (f.kind === 'create' ? { kind: 'none' } : { kind: 'create' }))
+            }
+          >
+            {form.kind === 'create' ? 'Cancel' : 'New season'}
+          </button>
+        }
+      />
+      {!online && <p className="mt-2 text-sm text-text-muted">{OFFLINE_SWITCH_HINT}</p>}
       {load.status === 'loading' ? (
-        <p className="mt-4 text-[var(--text-muted)]">Loading the seasons…</p>
+        <p className="mt-4 text-text-muted">Loading the seasons…</p>
       ) : (
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full border-collapse text-left">
-            <thead>
-              <tr className="border-b border-[var(--border)] text-sm text-[var(--text-muted)]">
-                <th scope="col" className="py-2 pr-4 font-medium">
-                  Year
-                </th>
-                <th scope="col" className="py-2 pr-4 font-medium">
-                  Game
-                </th>
-                <th scope="col" className="py-2 pr-4 font-medium">
-                  Image path
-                </th>
-                <th scope="col" className="py-2 pr-4 font-medium">
-                  Default season
-                </th>
-                <th scope="col" className="py-2 font-medium">
-                  Edit
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {load.seasons.map((season) => (
-                <tr key={season.id} className="border-b border-[var(--border)]">
-                  <td className="py-2 pr-4">{season.year}</td>
-                  <td className="py-2 pr-4" dir="auto">
-                    {season.game_name}
-                  </td>
-                  <td className="py-2 pr-4 font-mono text-sm">
-                    {season.field_image_path}
-                    {/* Task 1.23 (SPEC-FINAL 16.7): fail loudly, right where an admin will see
+        <Table containerClassName="mt-4 rounded-xl border border-border bg-surface">
+          <TableHeader>
+            <TableRow>
+              <TableHead numeric>Year</TableHead>
+              <TableHead>Game</TableHead>
+              <TableHead>Image path</TableHead>
+              <TableHead>Default season</TableHead>
+              <TableHead>Edit</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {load.seasons.map((season) => (
+              <TableRow key={season.id}>
+                <TableCell numeric>{season.year}</TableCell>
+                <TableCell dir="auto">{season.game_name}</TableCell>
+                <TableCell className="font-mono text-sm">
+                  {season.field_image_path}
+                  {/* Task 1.23 (SPEC-FINAL 16.7): fail loudly, right where an admin will see
                         it, rather than a season silently pointing at nothing. */}
-                    {!isKnownSeasonImage(season.field_image_path) && (
-                      <div className="mt-1 font-sans">
-                        <FieldImage
-                          path={season.field_image_path}
-                          alt={`${season.year} field image`}
-                        />
-                      </div>
-                    )}
-                  </td>
-                  <td className="py-2 pr-4">
-                    {season.id === load.activeSeasonId ? (
-                      <span className="font-medium">Active</span>
-                    ) : (
-                      <button
-                        type="button"
-                        className={`${SECONDARY_BUTTON} tap-target`}
-                        disabled={!online || switchingId !== null}
-                        onClick={() => void makeActive(season)}
-                      >
-                        {switchingId === season.id ? 'Switching…' : `Make ${season.year} active`}
-                      </button>
-                    )}
-                  </td>
-                  <td className="py-2">
+                  {!isKnownSeasonImage(season.field_image_path) && (
+                    <div className="mt-1 font-sans">
+                      <FieldImage
+                        path={season.field_image_path}
+                        alt={`${season.year} field image`}
+                      />
+                    </div>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {season.id === load.activeSeasonId ? (
+                    <Badge tone="success">Active</Badge>
+                  ) : (
                     <button
                       type="button"
                       className={SECONDARY_BUTTON}
-                      onClick={() => setForm({ kind: 'edit', season })}
+                      disabled={!online || switchingId !== null}
+                      onClick={() => void makeActive(season)}
                     >
-                      Edit
+                      {switchingId === season.id ? 'Switching…' : `Make ${season.year} active`}
                     </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Edit"
+                    title="Edit"
+                    onClick={() => setForm({ kind: 'edit', season })}
+                  >
+                    <Pencil aria-hidden="true" />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       )}
       <FormError message={switchError} />
       {form.kind !== 'none' && (
@@ -239,9 +243,7 @@ function YearField({
   const id = useId();
   return (
     <div className="mt-4">
-      <label htmlFor={id} className="block text-sm font-medium">
-        Year
-      </label>
+      <Label htmlFor={id}>Year</Label>
       <input
         id={id}
         type="number"
@@ -272,9 +274,7 @@ function ImagePathField({
   const hintId = `${id}-hint`;
   return (
     <div className="mt-4">
-      <label htmlFor={id} className="block text-sm font-medium">
-        Game image path
-      </label>
+      <Label htmlFor={id}>Game image path</Label>
       <input
         id={id}
         type="text"
@@ -296,7 +296,7 @@ function ImagePathField({
           <option key={path} value={path} />
         ))}
       </datalist>
-      <p id={hintId} className="mt-1 text-sm text-[var(--text-muted)]">
+      <p id={hintId} className="mt-1 text-sm text-text-muted">
         {IMAGE_PATH_HINT}
       </p>
     </div>
@@ -391,49 +391,46 @@ function SeasonForm({
   }
 
   return (
-    <form
-      aria-labelledby={titleId}
-      noValidate
-      onSubmit={(e) => void submit(e)}
-      className="mt-4 max-w-sm rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"
-    >
-      <h3 id={titleId} className="font-semibold">
-        {season ? `Edit ${season.year}` : 'New season'}
-      </h3>
-      <YearField value={year} onChange={setYear} invalid={!!error} errorId={errorId} />
-      <TextField
-        label="Game name"
-        value={gameName}
-        onChange={setGameName}
-        invalid={!!error}
-        errorId={errorId}
-      />
-      <ImagePathField
-        value={imagePath}
-        onChange={setImagePath}
-        invalid={!!error}
-        errorId={errorId}
-      />
-      {/* Task 1.23: preview the path as typed, so a typo or an uncommitted image fails loudly
+    <Card className="mt-4 max-w-sm">
+      <form aria-labelledby={titleId} noValidate onSubmit={(e) => void submit(e)}>
+        <CardTitle id={titleId} level={3}>
+          {season ? `Edit ${season.year}` : 'New season'}
+        </CardTitle>
+        <YearField value={year} onChange={setYear} invalid={!!error} errorId={errorId} />
+        <TextField
+          label="Game name"
+          value={gameName}
+          onChange={setGameName}
+          invalid={!!error}
+          errorId={errorId}
+        />
+        <ImagePathField
+          value={imagePath}
+          onChange={setImagePath}
+          invalid={!!error}
+          errorId={errorId}
+        />
+        {/* Task 1.23: preview the path as typed, so a typo or an uncommitted image fails loudly
           before the admin saves, not after. Nothing to show until something is typed. */}
-      {imagePath.trim() !== '' && (
-        <div className="mt-2 max-w-[16rem]">
-          <FieldImage
-            path={imagePath}
-            alt={`${gameName || 'season'} field preview`}
-            className="h-auto w-full rounded"
-          />
+        {imagePath.trim() !== '' && (
+          <div className="mt-2 max-w-[16rem]">
+            <FieldImage
+              path={imagePath}
+              alt={`${gameName || 'season'} field preview`}
+              className="h-auto w-full rounded"
+            />
+          </div>
+        )}
+        <FormError id={errorId} message={error} />
+        <div className="tap-row mt-4 flex gap-2">
+          <button type="submit" disabled={busy} className={PRIMARY_BUTTON}>
+            {busy ? 'Saving…' : season ? 'Save changes' : 'Create season'}
+          </button>
+          <button type="button" disabled={busy} className={SECONDARY_BUTTON} onClick={onCancel}>
+            Cancel
+          </button>
         </div>
-      )}
-      <FormError id={errorId} message={error} />
-      <div className="tap-row mt-4 flex gap-2">
-        <button type="submit" disabled={busy} className={PRIMARY_BUTTON}>
-          {busy ? 'Saving…' : season ? 'Save changes' : 'Create season'}
-        </button>
-        <button type="button" disabled={busy} className={SECONDARY_BUTTON} onClick={onCancel}>
-          Cancel
-        </button>
-      </div>
-    </form>
+      </form>
+    </Card>
   );
 }

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { EventRow, SeasonRow } from '@frc/shared';
-import { FIELD } from '@/components/buttonStyles';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
+import { PageHeader } from '@/components/ui/page-header';
+import { Tabs } from '@/components/ui/tabs';
 import { StateMessage } from '@/components/StateMessage';
 import { typedCall as defaultCall, type Rpc } from '@/data/rpc';
 import { useSignedInUser } from '@/features/shell/shellContext';
@@ -154,29 +157,13 @@ export function ManagePage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
   }
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-6">
-      <h1 className="text-xl font-semibold">Season and event management</h1>
-      <div
-        role="tablist"
-        aria-label="Manage"
-        className="tap-row mt-4 flex flex-wrap gap-1 border-b border-[var(--border)]"
-      >
-        {TABS.map(({ key, label }) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            aria-selected={tab === key}
-            className={`tap-target px-4 ${
-              tab === key
-                ? 'border-b-2 border-[var(--brand-plate)] font-semibold'
-                : 'text-[var(--text-muted)]'
-            }`}
-            onClick={() => setTab(key)}
-          >
-            {label}
-          </button>
-        ))}
+    <main className="mx-auto w-full max-w-6xl px-4 py-8 lg:px-8">
+      <PageHeader
+        title="Season and event management"
+        description="Seasons, events, rosters and matches. The default event is the one every device works on."
+      />
+      <div className="mt-6">
+        <Tabs label="Manage" tabs={TABS} value={tab} onChange={setTab} />
       </div>
       <div className="mt-6">
         {tab === 'seasons' && (
@@ -307,13 +294,11 @@ function SeasonSelect({
   const id = useId();
   return (
     <div className="mb-4 max-w-xs">
-      <label htmlFor={id} className="block text-sm font-medium">
-        Season
-      </label>
-      <select
+      <Label htmlFor={id}>Season</Label>
+      <NativeSelect
         id={id}
         value={value}
-        className={`${FIELD} mt-1`}
+        wrapperClassName="mt-1.5"
         onChange={(e) => onChange(e.target.value)}
       >
         {seasons.map((season) => (
@@ -321,7 +306,7 @@ function SeasonSelect({
             {season.year} — {season.game_name}
           </option>
         ))}
-      </select>
+      </NativeSelect>
     </div>
   );
 }
@@ -339,13 +324,11 @@ function EventSelect({
   const id = useId();
   return (
     <div className="mb-4 max-w-xs">
-      <label htmlFor={id} className="block text-sm font-medium">
-        Event
-      </label>
-      <select
+      <Label htmlFor={id}>Event</Label>
+      <NativeSelect
         id={id}
         value={value}
-        className={`${FIELD} mt-1`}
+        wrapperClassName="mt-1.5"
         onChange={(e) => onChange(e.target.value)}
       >
         {events.map((event) => (
@@ -353,7 +336,7 @@ function EventSelect({
             {event.name}
           </option>
         ))}
-      </select>
+      </NativeSelect>
     </div>
   );
 }

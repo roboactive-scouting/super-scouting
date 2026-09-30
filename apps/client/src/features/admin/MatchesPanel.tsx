@@ -11,12 +11,7 @@ import {
   type RosterRow,
   type TeamRow,
 } from '@frc/shared';
-import {
-  DESTRUCTIVE_BUTTON,
-  FIELD,
-  PRIMARY_BUTTON,
-  SECONDARY_BUTTON,
-} from '@/components/buttonStyles';
+import { PRIMARY_BUTTON, SECONDARY_BUTTON } from '@/components/buttonStyles';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { StateMessage } from '@/components/StateMessage';
 import { typedCall as defaultCall, type Rpc } from '@/data/rpc';
@@ -24,6 +19,21 @@ import { matchLabel } from '@/lib/matchLabel';
 import { panelErrorLine, unreachable } from './adminMessages';
 import { FormError, NumberField } from './fields';
 import { loadAllTeams } from './teamsRegistry';
+import { Pencil, Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Notice } from '@/components/ui/notice';
+import { SectionHeader } from '@/components/ui/page-header';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 /**
  * SPEC-FINAL 6.4 (task 1.21): bulk-create qualification matches by count, create one match
@@ -339,7 +349,7 @@ export function MatchesPanel({
 
   return (
     <section aria-label="Matches">
-      <h2 className="text-lg font-semibold">Matches</h2>
+      <SectionHeader title="Matches" />
 
       <form
         aria-label="Bulk create qualification matches"
@@ -374,13 +384,11 @@ export function MatchesPanel({
         className="tap-row mt-4 flex flex-wrap items-end gap-3"
       >
         <div className="w-40">
-          <label className="block text-sm font-medium" htmlFor={singleTypeId}>
-            Match type
-          </label>
-          <select
+          <Label htmlFor={singleTypeId}>Match type</Label>
+          <NativeSelect
             id={singleTypeId}
             value={singleType}
-            className={`${FIELD} mt-1`}
+            wrapperClassName="mt-1.5"
             onChange={(e) => setSingleType(e.target.value as MatchType)}
           >
             {MATCH_TYPES.map((t) => (
@@ -388,7 +396,7 @@ export function MatchesPanel({
                 {MATCH_TYPE_LABEL[t]}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
         <div className="w-32">
           <NumberField
@@ -406,66 +414,46 @@ export function MatchesPanel({
       <FormError message={error} />
 
       {load.status === 'loading' ? (
-        <p className="mt-4 text-[var(--text-muted)]">Loading the matches…</p>
+        <p className="mt-4 text-text-muted">Loading the matches…</p>
       ) : load.matches.length === 0 ? (
-        <p className="mt-4 text-[var(--text-muted)]">No matches yet.</p>
+        <p className="mt-4 text-text-muted">No matches yet.</p>
       ) : (
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full border-collapse text-left">
-            <thead>
-              <tr className="border-b border-[var(--border)] text-sm text-[var(--text-muted)]">
-                <th scope="col" className="py-2 pr-4 font-medium">
-                  Match
-                </th>
-                <th scope="col" className="py-2 pr-2 font-medium">
-                  Red 1
-                </th>
-                <th scope="col" className="py-2 pr-2 font-medium">
-                  Red 2
-                </th>
-                <th scope="col" className="py-2 pr-2 font-medium">
-                  Red 3
-                </th>
-                <th scope="col" className="py-2 pr-2 font-medium">
-                  Blue 1
-                </th>
-                <th scope="col" className="py-2 pr-2 font-medium">
-                  Blue 2
-                </th>
-                <th scope="col" className="py-2 pr-4 font-medium">
-                  Blue 3
-                </th>
-                <th scope="col" className="py-2 pr-4 font-medium">
-                  Edit
-                </th>
-                <th scope="col" className="py-2 font-medium">
-                  Delete
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {load.matches.map((match) => (
-                <MatchRowView
-                  key={match.id}
-                  match={match}
-                  label={matchLabel(match)}
-                  roster={load.roster}
-                  teamsById={teamsById}
-                  rosterIds={rosterIds}
-                  busy={busyIds.has(match.id)}
-                  onSlotChange={(alliance, station, teamId) =>
-                    void changeSlot(match, alliance, station, teamId)
-                  }
-                  onEdit={() => setEditing(match)}
-                  onDelete={() => {
-                    setDeleteError(null);
-                    setConfirming(match);
-                  }}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Table containerClassName="mt-4 rounded-xl border border-border bg-surface">
+          <TableHeader>
+            <TableRow>
+              <TableHead numeric>Match</TableHead>
+              <TableHead>Red 1</TableHead>
+              <TableHead>Red 2</TableHead>
+              <TableHead>Red 3</TableHead>
+              <TableHead>Blue 1</TableHead>
+              <TableHead>Blue 2</TableHead>
+              <TableHead>Blue 3</TableHead>
+              <TableHead>Edit</TableHead>
+              <TableHead>Delete</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {load.matches.map((match) => (
+              <MatchRowView
+                key={match.id}
+                match={match}
+                label={matchLabel(match)}
+                roster={load.roster}
+                teamsById={teamsById}
+                rosterIds={rosterIds}
+                busy={busyIds.has(match.id)}
+                onSlotChange={(alliance, station, teamId) =>
+                  void changeSlot(match, alliance, station, teamId)
+                }
+                onEdit={() => setEditing(match)}
+                onDelete={() => {
+                  setDeleteError(null);
+                  setConfirming(match);
+                }}
+              />
+            ))}
+          </TableBody>
+        </Table>
       )}
 
       {editing && (
@@ -515,8 +503,8 @@ function MatchRowView({
 }) {
   const slotsByStation = new Map(match.slots.map((s) => [`${s.alliance} ${s.station}`, s.team_id]));
   return (
-    <tr className="border-b border-[var(--border)] align-top">
-      <td className="py-2 pr-4 font-medium">{label}</td>
+    <TableRow className="align-top">
+      <TableCell className="font-medium">{label}</TableCell>
       {STATIONS.map(({ alliance, station }) => {
         const key = `${alliance} ${station}`;
         const teamId = slotsByStation.get(key) ?? '';
@@ -525,12 +513,12 @@ function MatchRowView({
         // flagged, rather than silently hiding or blanking a filled station.
         const offRosterTeam = teamId && !rosterIds.has(teamId) ? teamsById.get(teamId) : undefined;
         return (
-          <td key={key} className="py-2 pr-2">
-            <select
+          <TableCell key={key}>
+            <NativeSelect
               aria-label={`${label} ${key}`}
               value={teamId}
               disabled={busy}
-              className={`${FIELD} min-w-32`}
+              className="min-w-32"
               onChange={(e) => onSlotChange(alliance, station, e.target.value)}
             >
               <option value="">—</option>
@@ -544,26 +532,39 @@ function MatchRowView({
                   {rosterOptionLabel(offRosterTeam)}
                 </option>
               )}
-            </select>
+            </NativeSelect>
             {offRosterTeam && (
-              <p className="mt-1 text-xs text-[var(--warning)]">
+              <Notice tone="warning" still className="mt-1 px-2 py-1 text-xs">
                 {`${offRosterTeam.number} is not on this event's roster`}
-              </p>
+              </Notice>
             )}
-          </td>
+          </TableCell>
         );
       })}
-      <td className="py-2 pr-4">
-        <button type="button" className={SECONDARY_BUTTON} onClick={onEdit}>
-          {`Edit match ${match.number} (${match.match_type})`}
-        </button>
-      </td>
-      <td className="py-2">
-        <button type="button" className={DESTRUCTIVE_BUTTON} onClick={onDelete}>
-          {`Delete match ${match.number} (${match.match_type})`}
-        </button>
-      </td>
-    </tr>
+      <TableCell>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={`Edit match ${match.number} (${match.match_type})`}
+          title={`Edit match ${match.number} (${match.match_type})`}
+          onClick={onEdit}
+        >
+          <Pencil aria-hidden="true" />
+        </Button>
+      </TableCell>
+      <TableCell>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-danger"
+          aria-label={`Delete match ${match.number} (${match.match_type})`}
+          title={`Delete match ${match.number} (${match.match_type})`}
+          onClick={onDelete}
+        >
+          <Trash2 aria-hidden="true" />
+        </Button>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -610,47 +611,42 @@ function EditMatchForm({
   }
 
   return (
-    <form
-      aria-labelledby={titleId}
-      noValidate
-      onSubmit={submit}
-      className="mt-4 max-w-sm rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"
-    >
-      <h3 id={titleId} className="font-semibold">
-        {`Edit match ${match.number} (${match.match_type})`}
-      </h3>
-      <div className="mt-4">
-        <label className="block text-sm font-medium" htmlFor={typeId}>
-          Match type
-        </label>
-        <select
-          id={typeId}
-          value={type}
-          className={`${FIELD} mt-1`}
-          onChange={(e) => setType(e.target.value as MatchType)}
-        >
-          {MATCH_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {MATCH_TYPE_LABEL[t]}
-            </option>
-          ))}
-        </select>
-      </div>
-      <NumberField
-        label="Match number"
-        value={number}
-        onChange={setNumber}
-        max={MATCH_NUMBER_MAX}
-      />
-      <FormError message={localError} />
-      <div className="tap-row mt-4 flex gap-2">
-        <button type="submit" disabled={busy} className={PRIMARY_BUTTON}>
-          {busy ? 'Saving…' : 'Save changes'}
-        </button>
-        <button type="button" disabled={busy} className={SECONDARY_BUTTON} onClick={onCancel}>
-          Cancel
-        </button>
-      </div>
-    </form>
+    <Card className="mt-4 max-w-sm">
+      <form aria-labelledby={titleId} noValidate onSubmit={submit}>
+        <CardTitle id={titleId} level={3}>
+          {`Edit match ${match.number} (${match.match_type})`}
+        </CardTitle>
+        <div className="mt-4">
+          <Label htmlFor={typeId}>Match type</Label>
+          <NativeSelect
+            id={typeId}
+            value={type}
+            wrapperClassName="mt-1.5"
+            onChange={(e) => setType(e.target.value as MatchType)}
+          >
+            {MATCH_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {MATCH_TYPE_LABEL[t]}
+              </option>
+            ))}
+          </NativeSelect>
+        </div>
+        <NumberField
+          label="Match number"
+          value={number}
+          onChange={setNumber}
+          max={MATCH_NUMBER_MAX}
+        />
+        <FormError message={localError} />
+        <div className="tap-row mt-4 flex gap-2">
+          <button type="submit" disabled={busy} className={PRIMARY_BUTTON}>
+            {busy ? 'Saving…' : 'Save changes'}
+          </button>
+          <button type="button" disabled={busy} className={SECONDARY_BUTTON} onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </Card>
   );
 }

@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import { createTeamInput, updateTeamInput, type TeamRow } from '@frc/shared';
-import { FIELD, PRIMARY_BUTTON, SECONDARY_BUTTON } from '@/components/buttonStyles';
+import { PRIMARY_BUTTON, SECONDARY_BUTTON } from '@/components/buttonStyles';
 import { StateMessage } from '@/components/StateMessage';
 import { typedCall as defaultCall, type Rpc } from '@/data/rpc';
 import { panelErrorLine, unreachable } from './adminMessages';
 import { Checkbox, FormError, NumberField, TextField } from './fields';
 import { loadAllTeams } from './teamsRegistry';
+import { Pencil } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { SectionHeader } from '@/components/ui/page-header';
 
 /**
  * SPEC-FINAL 6.4 (task 1.21): the global team registry, with a roster checkbox per row for
@@ -179,8 +185,8 @@ export function TeamsPanel({
 
   return (
     <section aria-label="Teams and roster">
-      <h2 className="text-lg font-semibold">Teams &amp; roster</h2>
-      <p className="mt-2 text-sm text-[var(--text-muted)]">{TEAM_NUMBER_PERMANENT_NOTE}</p>
+      <SectionHeader title="Teams & roster" />
+      <p className="mt-2 text-sm text-text-muted">{TEAM_NUMBER_PERMANENT_NOTE}</p>
 
       {/* Always visible, not gated behind a toggle: this is the whole global registry's
           only entry point, unlike the Seasons/Events "New …" forms (task 1.21 deviation). */}
@@ -204,26 +210,24 @@ export function TeamsPanel({
       <FormError message={error} />
 
       <div className="mt-6 max-w-xs">
-        <label htmlFor={filterId} className="block text-sm font-medium">
-          Filter teams
-        </label>
-        <input
+        <Label htmlFor={filterId}>Filter teams</Label>
+        <Input
           id={filterId}
           type="text"
           value={filter}
           dir="auto"
           placeholder="Number or name"
-          className={`${FIELD} mt-1`}
+          className="mt-1.5"
           onChange={(e) => setFilter(e.target.value)}
         />
       </div>
 
       {load.status === 'loading' ? (
-        <p className="mt-4 text-[var(--text-muted)]">Loading the teams…</p>
+        <p className="mt-4 text-text-muted">Loading the teams…</p>
       ) : filtered.length === 0 ? (
-        <p className="mt-4 text-[var(--text-muted)]">Nothing matches that filter.</p>
+        <p className="mt-4 text-text-muted">Nothing matches that filter.</p>
       ) : (
-        <ul className="mt-4 divide-y divide-[var(--border)]">
+        <ul className="mt-4 divide-y divide-border rounded-xl border border-border bg-surface px-4">
           {filtered.map((team) => (
             <li key={team.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
               <Checkbox
@@ -232,14 +236,10 @@ export function TeamsPanel({
                 disabled={busyId !== null}
                 onChange={(checked) => void toggleRoster(team, checked)}
               />
-              <button
-                type="button"
-                dir="auto"
-                className={SECONDARY_BUTTON}
-                onClick={() => setRenaming(team)}
-              >
+              <Button variant="ghost" dir="auto" onClick={() => setRenaming(team)}>
+                <Pencil aria-hidden="true" />
                 {`Rename ${team.number} ${team.name}`}
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
@@ -271,27 +271,28 @@ function RenameForm({
   const titleId = useId();
   const [name, setName] = useState(team.name);
   return (
-    <form
-      aria-labelledby={titleId}
-      noValidate
-      onSubmit={(e) => {
-        e.preventDefault();
-        onSubmit(name);
-      }}
-      className="mt-4 max-w-sm rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"
-    >
-      <h3 id={titleId} className="font-semibold" dir="auto">
-        {`Rename ${team.number} ${team.name}`}
-      </h3>
-      <TextField label="Team name" value={name} onChange={setName} />
-      <div className="tap-row mt-4 flex gap-2">
-        <button type="submit" disabled={busy} className={PRIMARY_BUTTON}>
-          {busy ? 'Saving…' : 'Save name'}
-        </button>
-        <button type="button" disabled={busy} className={SECONDARY_BUTTON} onClick={onCancel}>
-          Cancel
-        </button>
-      </div>
-    </form>
+    <Card className="mt-4 max-w-sm">
+      <form
+        aria-labelledby={titleId}
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit(name);
+        }}
+      >
+        <CardTitle id={titleId} level={3} dir="auto">
+          {`Rename ${team.number} ${team.name}`}
+        </CardTitle>
+        <TextField label="Team name" value={name} onChange={setName} />
+        <div className="tap-row mt-4 flex gap-2">
+          <button type="submit" disabled={busy} className={PRIMARY_BUTTON}>
+            {busy ? 'Saving…' : 'Save name'}
+          </button>
+          <button type="button" disabled={busy} className={SECONDARY_BUTTON} onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </Card>
   );
 }

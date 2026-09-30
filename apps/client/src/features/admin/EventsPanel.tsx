@@ -7,6 +7,19 @@ import { useOnline } from '@/lib/useOnline';
 import { OFFLINE_SWITCH_HINT } from './SeasonsPanel';
 import { panelErrorLine, unreachable } from './adminMessages';
 import { FormError, TextField } from './fields';
+import { ArrowDown, ArrowUp, Pencil } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardTitle } from '@/components/ui/card';
+import { SectionHeader } from '@/components/ui/page-header';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 /**
  * SPEC-FINAL 6.2, 6.4: a season's events in `sort_order`, with up/down reorder (sends the
@@ -141,98 +154,89 @@ export function EventsPanel({
 
   return (
     <section aria-label="Events">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h2 className="text-lg font-semibold">Events</h2>
-        <button
-          type="button"
-          className={SECONDARY_BUTTON}
-          onClick={() =>
-            setForm((f) => (f.kind === 'create' ? { kind: 'none' } : { kind: 'create' }))
-          }
-        >
-          {form.kind === 'create' ? 'Cancel' : 'New event'}
-        </button>
-      </div>
-      <p className="mt-2 text-sm text-[var(--text-muted)]">{REORDER_NOTE}</p>
-      {!online && <p className="mt-1 text-sm text-[var(--text-muted)]">{OFFLINE_SWITCH_HINT}</p>}
+      <SectionHeader
+        title="Events"
+        actions={
+          <button
+            type="button"
+            className={SECONDARY_BUTTON}
+            onClick={() =>
+              setForm((f) => (f.kind === 'create' ? { kind: 'none' } : { kind: 'create' }))
+            }
+          >
+            {form.kind === 'create' ? 'Cancel' : 'New event'}
+          </button>
+        }
+      />
+      <p className="mt-2 text-sm text-text-muted">{REORDER_NOTE}</p>
+      {!online && <p className="mt-1 text-sm text-text-muted">{OFFLINE_SWITCH_HINT}</p>}
       {load.status === 'loading' ? (
-        <p className="mt-4 text-[var(--text-muted)]">Loading the events…</p>
+        <p className="mt-4 text-text-muted">Loading the events…</p>
       ) : (
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full border-collapse text-left">
-            <thead>
-              <tr className="border-b border-[var(--border)] text-sm text-[var(--text-muted)]">
-                <th scope="col" className="py-2 pr-4 font-medium">
-                  Name
-                </th>
-                <th scope="col" className="py-2 pr-4 font-medium">
-                  Default event
-                </th>
-                <th scope="col" className="py-2 pr-4 font-medium">
-                  Order
-                </th>
-                <th scope="col" className="py-2 font-medium">
-                  Rename
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {load.events.map((event, index) => (
-                <tr key={event.id} className="border-b border-[var(--border)]">
-                  <td className="py-2 pr-4" dir="auto">
-                    {event.name}
-                  </td>
-                  <td className="py-2 pr-4">
-                    {event.id === load.activeEventId ? (
-                      <span className="font-medium">Default</span>
-                    ) : (
-                      <button
-                        type="button"
-                        dir="auto"
-                        className={`${SECONDARY_BUTTON} tap-target`}
-                        disabled={!online || busyId !== null}
-                        onClick={() => void makeDefault(event)}
-                      >
-                        {busyId === event.id ? 'Switching…' : `Make ${event.name} the default`}
-                      </button>
-                    )}
-                  </td>
-                  <td className="py-2 pr-4">
-                    <div className="tap-row flex gap-1">
-                      <button
-                        type="button"
-                        dir="auto"
-                        className={SECONDARY_BUTTON}
-                        disabled={index === 0 || busyId !== null}
-                        onClick={() => void move(load.events, index, -1)}
-                      >
-                        {`Move ${event.name} up`}
-                      </button>
-                      <button
-                        type="button"
-                        dir="auto"
-                        className={SECONDARY_BUTTON}
-                        disabled={index === load.events.length - 1 || busyId !== null}
-                        onClick={() => void move(load.events, index, 1)}
-                      >
-                        {`Move ${event.name} down`}
-                      </button>
-                    </div>
-                  </td>
-                  <td className="py-2">
+        <Table containerClassName="mt-4 rounded-xl border border-border bg-surface">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Default event</TableHead>
+              <TableHead numeric>Order</TableHead>
+              <TableHead>Rename</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {load.events.map((event, index) => (
+              <TableRow key={event.id}>
+                <TableCell dir="auto">{event.name}</TableCell>
+                <TableCell>
+                  {event.id === load.activeEventId ? (
+                    <Badge tone="success">Default</Badge>
+                  ) : (
                     <button
                       type="button"
+                      dir="auto"
                       className={SECONDARY_BUTTON}
-                      onClick={() => setForm({ kind: 'edit', event })}
+                      disabled={!online || busyId !== null}
+                      onClick={() => void makeDefault(event)}
                     >
-                      Rename
+                      {busyId === event.id ? 'Switching…' : `Make ${event.name} the default`}
                     </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <div className="tap-row flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Move ${event.name} up`}
+                      title={`Move ${event.name} up`}
+                      dir="auto"
+                      disabled={index === 0 || busyId !== null}
+                      onClick={() => void move(load.events, index, -1)}
+                    >
+                      <ArrowUp aria-hidden="true" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Move ${event.name} down`}
+                      title={`Move ${event.name} down`}
+                      dir="auto"
+                      disabled={index === load.events.length - 1 || busyId !== null}
+                      onClick={() => void move(load.events, index, 1)}
+                    >
+                      <ArrowDown aria-hidden="true" />
+                    </Button>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <Button variant="ghost" onClick={() => setForm({ kind: 'edit', event })}>
+                    <Pencil aria-hidden="true" />
+                    Rename
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       )}
       <FormError message={actionError} />
       {form.kind !== 'none' && (
@@ -296,25 +300,28 @@ function EventForm({
   }
 
   return (
-    <form
-      aria-labelledby={titleId}
-      noValidate
-      onSubmit={(e) => void submit(e)}
-      className="mt-4 max-w-sm rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"
-    >
-      <h3 id={titleId} className="font-semibold">
-        {event ? `Rename ${event.name}` : 'New event'}
-      </h3>
-      <TextField label="Name" value={name} onChange={setName} invalid={!!error} errorId={errorId} />
-      <FormError id={errorId} message={error} />
-      <div className="tap-row mt-4 flex gap-2">
-        <button type="submit" disabled={busy} className={PRIMARY_BUTTON}>
-          {busy ? 'Saving…' : event ? 'Save name' : 'Create event'}
-        </button>
-        <button type="button" disabled={busy} className={SECONDARY_BUTTON} onClick={onCancel}>
-          Cancel
-        </button>
-      </div>
-    </form>
+    <Card className="mt-4 max-w-sm">
+      <form aria-labelledby={titleId} noValidate onSubmit={(e) => void submit(e)}>
+        <CardTitle id={titleId} level={3}>
+          {event ? `Rename ${event.name}` : 'New event'}
+        </CardTitle>
+        <TextField
+          label="Name"
+          value={name}
+          onChange={setName}
+          invalid={!!error}
+          errorId={errorId}
+        />
+        <FormError id={errorId} message={error} />
+        <div className="tap-row mt-4 flex gap-2">
+          <button type="submit" disabled={busy} className={PRIMARY_BUTTON}>
+            {busy ? 'Saving…' : event ? 'Save name' : 'Create event'}
+          </button>
+          <button type="button" disabled={busy} className={SECONDARY_BUTTON} onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </Card>
   );
 }
