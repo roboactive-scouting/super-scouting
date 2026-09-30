@@ -28,6 +28,7 @@ import {
 import { canManageEvents, canManageUsers } from '@/features/admin/AdminOnly';
 import { sessionOverride, useSessionOverride } from '@/features/context/sessionOverride';
 import { useEventName } from '@/features/context/useEventName';
+import { ENTRY_ROUTE, PATHS } from '@/lib/paths';
 import { useOnline } from '@/lib/useOnline';
 import { updateReady } from '@/pwa';
 import { CloudDownload, CloudOff } from 'lucide-react';
@@ -43,12 +44,6 @@ import { needsNoHydration, type ShellContext } from './shellContext';
  */
 type GateState = 'resolving' | 'loading' | HydrationState | 'no-event';
 type Gate = { state: GateState; eventId: string | null };
-
-/** The one route that keeps working after the session expires (task 1.15). */
-const ENTRY_ROUTE = '/entry/:matchId/:teamId';
-
-/** The context page (task 1.22): it carries its own override banner and version line. */
-const CONTEXT_ROUTE = '/context';
 
 /** SPEC-FINAL 10: a background auto-refresh every 45 seconds on data-bearing screens. */
 const AUTO_REFRESH_MS = 45_000;
@@ -121,7 +116,8 @@ export function AppShell() {
   const location = useLocation();
   const matches = useMatches();
   const onEntryRoute = matchPath(ENTRY_ROUTE, location.pathname) !== null;
-  const onContextPage = matchPath(CONTEXT_ROUTE, location.pathname) !== null;
+  /** Home — the context page (task 1.22) — carries its own override banner and version line. */
+  const onHome = location.pathname === PATHS.home;
   // Gated by default: only a route marked NO_HYDRATION renders before the event is loaded.
   const gated = !matches.some((m) => needsNoHydration(m.handle));
   // Hydration needs a session: a pull without a token can only answer 401.
@@ -456,7 +452,7 @@ export function AppShell() {
               Scout
             </span>
           ) : (
-            <Link className="tap-target px-3 leading-[48px]" to="/">
+            <Link className="tap-target px-3 leading-[48px]" to={PATHS.scout}>
               Scout
             </Link>
           )}
@@ -506,7 +502,7 @@ export function AppShell() {
           </p>
         )
       )}
-      {override && !onContextPage && (
+      {override && !onHome && (
         // Persistent, on every page but the context page (which carries its own banner).
         <div
           role="status"
@@ -555,8 +551,8 @@ export function AppShell() {
       )}
       <footer className="flex flex-wrap items-center justify-center gap-x-4 p-2 text-xs text-[var(--text-muted)]">
         {/* SPEC-FINAL 6.3: a link to the page, naming the context — never the switcher. */}
-        {gate.eventId !== null && !current.expired && !onContextPage && (
-          <Link className="tap-target inline-flex items-center px-2" to={CONTEXT_ROUTE}>
+        {gate.eventId !== null && !current.expired && !onHome && (
+          <Link className="tap-target inline-flex items-center px-2" to={PATHS.home}>
             <span dir="auto">
               {override ? `Looking at ${lookingAt}` : `Working on ${workingOn}`}
             </span>
@@ -582,7 +578,7 @@ export function AppShell() {
         {/* SPEC-FINAL 9.1: said, never acted on — no reload button, because there is
             nothing safe for it to do mid-match. */}
         {updateIsReady && <span>{UPDATE_READY_LINE}</span>}
-        {!onContextPage && <span>version {clientConfig().appVersion}</span>}
+        {!onHome && <span>version {clientConfig().appVersion}</span>}
       </footer>
     </div>
   );

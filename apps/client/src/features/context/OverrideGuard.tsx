@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from '@/components/buttonStyles';
 import { sessionOverride, useSessionOverride } from './sessionOverride';
 import { useEventName } from './useEventName';
+import { PATHS } from '@/lib/paths';
 
 /**
  * SPEC-FINAL 6.3: "No new entry may be created while an override is in effect" — enforced
@@ -34,7 +35,7 @@ export function OverrideGuard({
         <button type="button" className={PRIMARY_BUTTON} onClick={() => sessionOverride.clear()}>
           <span dir="auto">Back to {defaultName}</span>
         </button>
-        <Link to="/context" className={SECONDARY_BUTTON}>
+        <Link to={PATHS.home} className={SECONDARY_BUTTON}>
           Choose a competition
         </Link>
       </div>

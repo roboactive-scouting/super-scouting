@@ -9,6 +9,7 @@ import { EventsPanel } from './EventsPanel';
 import { MatchesPanel } from './MatchesPanel';
 import { SeasonsPanel } from './SeasonsPanel';
 import { TeamsPanel } from './TeamsPanel';
+import { PATHS } from '@/lib/paths';
 
 /**
  * SPEC-FINAL 6.2–6.4 (tasks 1.20–1.21): season, event, team/roster and match management,
@@ -147,7 +148,7 @@ export function ManagePage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
         headingLevel={1}
         title="Only an admin can manage seasons and events"
         detail="Seasons, events, rosters and matches are managed by an admin. Ask one if something needs to change."
-        action={{ label: 'Back to scouting', to: '/' }}
+        action={{ label: 'Back to scouting', to: PATHS.scout }}
       />
     );
   }

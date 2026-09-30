@@ -12,6 +12,7 @@ import {
   type Editor,
   type LocalEntry,
 } from './localEntries';
+import { entryPath } from '@/lib/paths';
 
 type MatchRow = { id: string; event_id: string; match_type: string; number: number };
 type TeamRow = { id: string; number: number; name: string };
@@ -98,9 +99,7 @@ export function SelectRobotPage({ eventId, author }: { eventId: string; author: 
     const team = chosen;
     // Editing keeps the alliance the entry was recorded with.
     const side = chosenEntry?.alliance ?? alliance;
-    void ensureMatchLocally().then((matchId) =>
-      navigate(`/entry/${matchId}/${team.id}?alliance=${side}`),
-    );
+    void ensureMatchLocally().then((matchId) => navigate(entryPath(matchId, team.id, side)));
   }
 
   /**

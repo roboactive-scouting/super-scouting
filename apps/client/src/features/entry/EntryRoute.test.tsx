@@ -48,7 +48,7 @@ function renderAt(path: string) {
   render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
-        <Route path="/" element={<SelectRobotPage eventId="ev-1" author={scouter} />} />
+        <Route path="/scout" element={<SelectRobotPage eventId="ev-1" author={scouter} />} />
         <Route
           path="/entry/:matchId/:teamId"
           element={<EntryRoute eventId="ev-1" author={scouter} />}
@@ -100,7 +100,10 @@ describe('EntryRoute when the resolve effect finds nothing to resolve (branch re
       await screen.findByRole('heading', { name: /this match or team is not on this device/i }),
     ).toBeInTheDocument();
     expect(screen.getByText(/go back and pick the robot again/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /back to scouting/i })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: /back to scouting/i })).toHaveAttribute(
+      'href',
+      '/scout',
+    );
     expect(screen.queryByText(/^loading…$/i)).not.toBeInTheDocument();
   });
 
@@ -119,7 +122,10 @@ describe('EntryRoute when the resolve effect finds nothing to resolve (branch re
       }),
     ).toBeInTheDocument();
     expect(screen.getByText(/an admin publishes one in the form builder/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /back to scouting/i })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: /back to scouting/i })).toHaveAttribute(
+      'href',
+      '/scout',
+    );
     expect(screen.queryByText(/^loading…$/i)).not.toBeInTheDocument();
   });
 });

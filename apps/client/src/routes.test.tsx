@@ -52,7 +52,7 @@ beforeEach(async () => {
 describe('the route tree and the session (task 1.15)', () => {
   it('attributes a locally authored operation to the signed-in user', async () => {
     await session.signIn(user, 'token-abc');
-    renderAt('/');
+    renderAt('/scout');
     const u = userEvent.setup();
     await u.type(await screen.findByLabelText(/match number/i), '42');
     await u.click(screen.getByRole('radio', { name: 'red' }));
@@ -65,7 +65,7 @@ describe('the route tree and the session (task 1.15)', () => {
     expect((await pending(10))[0]!.author_user_id).toBe('u-signed-in');
   });
 
-  it.each(['/', '/entries', '/change-password'])(
+  it.each(['/', '/scout', '/entries', '/change-password'])(
     'an expired session sends %s to the login screen',
     async (path) => {
       await session.signIn(user, 'token-abc');
@@ -88,7 +88,7 @@ describe('the route tree and the session (task 1.15)', () => {
   });
 
   it('no session sends every route to the login screen', async () => {
-    for (const path of ['/', '/entries', '/entry/m-1/t-1', '/change-password']) {
+    for (const path of ['/', '/scout', '/entries', '/entry/m-1/t-1', '/change-password']) {
       const router = renderAt(path);
       await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
     }
@@ -139,7 +139,7 @@ describe('switch scouter on a shared device (SPEC-FINAL 7.3, task 1.16)', () => 
 
   it('attributes what is entered after a switch to the new scouter, and never re-authors the old ops', async () => {
     await session.signIn(user, 'token-abc');
-    const router = renderAt('/');
+    const router = renderAt('/scout');
     const u = userEvent.setup();
 
     // Dana starts an entry (its bare match op is hers), then hands the device over.
@@ -156,7 +156,7 @@ describe('switch scouter on a shared device (SPEC-FINAL 7.3, task 1.16)', () => 
     );
     await u.type(screen.getByLabelText(/^Password for/), 'noa-pass');
     await u.click(screen.getByRole('button', { name: 'Switch scouter' }));
-    await waitFor(() => expect(router.state.location.pathname).toBe('/'));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/scout'));
     expect(await screen.findByText('Noa')).toBeInTheDocument(); // "Signed in as Noa"
 
     await startEntry(u, '43');
@@ -188,7 +188,7 @@ describe('switch scouter on a shared device (SPEC-FINAL 7.3, task 1.16)', () => 
     );
     await u.type(screen.getByLabelText(/^Password for/), 'noa-pass');
     await u.click(screen.getByRole('button', { name: 'Switch scouter' }));
-    await waitFor(() => expect(router.state.location.pathname).toBe('/'));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/scout'));
 
     await router.navigate('/entry/m-1/t-1?alliance=red');
     // Dana's draft is what Noa picks up.
@@ -207,12 +207,13 @@ describe('switch scouter on a shared device (SPEC-FINAL 7.3, task 1.16)', () => 
 });
 
 describe('which routes wait for the event to load (task 1.17b)', () => {
-  it('marks exactly Users, the user detail page, Manage, Switch scouter and the context page as needing no event', () => {
+  it('marks exactly Home, Users, the user detail page, Manage, Switch scouter and the old context path as needing no event', () => {
     const shell = routeTree().find((r) => r.path === '/');
     const marked = (shell?.children ?? [])
       .filter((r) => r.handle === NO_HYDRATION)
-      .map((r) => r.path);
+      .map((r) => (r.index ? '(index)' : r.path));
     expect(marked.sort()).toEqual([
+      '(index)',
       'admin/manage',
       'admin/users',
       'admin/users/:id',
@@ -226,7 +227,7 @@ describe('which routes wait for the event to load (task 1.17b)', () => {
     const gated = (shell?.children ?? [])
       .filter((r) => r.handle !== NO_HYDRATION)
       .map((r) => (r.index ? '(index)' : r.path));
-    expect(gated.sort()).toEqual(['(index)', 'entries', 'entry/:matchId/:teamId']);
+    expect(gated.sort()).toEqual(['entries', 'entry/:matchId/:teamId', 'scout']);
   });
 });
 
@@ -248,7 +249,7 @@ describe('no new entry while a session override is in effect (SPEC-FINAL 6.3, ta
   });
 
   it('refuses the Scout picker, and gives it back when the override is cleared', async () => {
-    renderAt('/');
+    renderAt('/scout');
     const heading = await screen.findByRole('heading', { name: PAUSED });
     const notice = heading.closest('main') as HTMLElement;
     await waitFor(() =>
@@ -257,10 +258,7 @@ describe('no new entry while a session override is in effect (SPEC-FINAL 6.3, ta
       ),
     );
     expect(screen.queryByLabelText(/match number/i)).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Choose a competition' })).toHaveAttribute(
-      'href',
-      '/context',
-    );
+    expect(screen.getByRole('link', { name: 'Choose a competition' })).toHaveAttribute('href', '/');
 
     await userEvent.setup().click(within(notice).getByRole('button', { name: 'Back to Week 1' }));
     expect(await screen.findByLabelText(/match number/i)).toBeInTheDocument();

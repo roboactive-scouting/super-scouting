@@ -99,7 +99,7 @@ function EntryProbe() {
   );
 }
 
-function renderShell(path = '/') {
+function renderShell(path = '/scout') {
   const router = createMemoryRouter(
     [
       { path: '/login', element: <p>the login page</p> },
@@ -108,12 +108,12 @@ function renderShell(path = '/') {
         path: '/',
         element: <AppShell />,
         children: [
-          { index: true, element: <ScoutProbe /> },
+          { index: true, element: <p>{CONTEXT_CHILD}</p>, handle: NO_HYDRATION },
+          { path: 'scout', element: <ScoutProbe /> },
           { path: 'entries', element: <p>the entries list</p> },
           { path: 'entry/:matchId/:teamId', element: <EntryProbe /> },
           { path: 'admin/users', element: <p>{USERS_CHILD}</p>, handle: NO_HYDRATION },
           { path: 'admin/manage', element: <p>{MANAGE_CHILD}</p>, handle: NO_HYDRATION },
-          { path: 'context', element: <p>{CONTEXT_CHILD}</p>, handle: NO_HYDRATION },
         ],
       },
     ],
@@ -276,7 +276,7 @@ describe('AppShell cached-first start (task 1.17b)', () => {
 
     await act(() => router.navigate('/change-password'));
     expect(await screen.findByText('the change password page')).toBeInTheDocument();
-    await act(() => router.navigate('/'));
+    await act(() => router.navigate('/scout'));
 
     expect(await screen.findByText(CHILD)).toBeInTheDocument();
     await waitFor(() => expect(syncNow).toHaveBeenCalledTimes(2));
@@ -397,7 +397,7 @@ describe('AppShell with no active event (task 1.17b)', () => {
     expect(screen.getByRole('link', { name: 'Users' })).toBeInTheDocument();
     expect(screen.queryByText(NO_COMPETITION)).not.toBeInTheDocument();
 
-    await act(() => router.navigate('/'));
+    await act(() => router.navigate('/scout'));
     expect(await screen.findByRole('heading', { name: NO_COMPETITION })).toBeInTheDocument();
     expect(screen.queryByText(CHILD)).not.toBeInTheDocument();
 
@@ -493,7 +493,7 @@ describe('AppShell on a device that has never loaded the event (task 1.17b)', ()
     // Screen entry pulls too (task 1.22): keep the server silent so 'blocked' stays.
     syncNow.mockResolvedValue(OFFLINE);
     await act(async () => first.settle(OFFLINE)); // 'blocked'
-    await act(() => router.navigate('/'));
+    await act(() => router.navigate('/scout'));
     expect(await screen.findByText(/has not loaded the competition yet/i)).toBeInTheDocument();
     await act(() => router.navigate('/admin/users'));
     expect(await screen.findByText(USERS_CHILD)).toBeInTheDocument();
@@ -503,7 +503,7 @@ describe('AppShell on a device that has never loaded the event (task 1.17b)', ()
 describe('AppShell and the session (SPEC-FINAL 7.5, task 1.15)', () => {
   it('redirects to /login with no session, and never pulls without a token', async () => {
     await session.signOut();
-    renderShell('/');
+    renderShell('/scout');
     expect(await screen.findByText('the login page')).toBeInTheDocument();
     expect(syncNow).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -553,7 +553,7 @@ describe('AppShell and the session (SPEC-FINAL 7.5, task 1.15)', () => {
 
   it('sends a signed-in user with must_change_password to the change-password screen', async () => {
     await session.signIn({ ...user, must_change_password: true }, 'token-abc');
-    renderShell('/');
+    renderShell('/scout');
     expect(await screen.findByText('the change password page')).toBeInTheDocument();
   });
 
@@ -571,7 +571,7 @@ describe('AppShell and the session (SPEC-FINAL 7.5, task 1.15)', () => {
       client_updated_at: 'x',
       seq: 1,
     });
-    renderShell('/');
+    renderShell('/scout');
     expect(await screen.findByText('Seed Scouter')).toBeInTheDocument();
     screen.getByRole('button', { name: 'Sign out' }).click();
     expect(await screen.findByText('the login page')).toBeInTheDocument();
@@ -595,7 +595,7 @@ describe('AppShell and an offline sign-in (SPEC-FINAL 7.5, task 1.16)', () => {
 
   it('says it is signed in from the cached accounts, and offers no password change', async () => {
     online = false;
-    renderShell('/');
+    renderShell('/scout');
     expect(await screen.findByText(OFFLINE_SIGNED_IN_LINE)).toBeInTheDocument();
     expect(await screen.findByText(CHILD)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Change password' })).not.toBeInTheDocument();
@@ -605,7 +605,7 @@ describe('AppShell and an offline sign-in (SPEC-FINAL 7.5, task 1.16)', () => {
 
   it('offers switch scouter from the header as one 48 px action', async () => {
     online = false;
-    renderShell('/');
+    renderShell('/scout');
     const link = await screen.findByRole('link', { name: 'Switch scouter' });
     expect(link).toHaveAttribute('href', '/switch-scouter');
     expect(link).toHaveClass('tap-target');
@@ -614,7 +614,7 @@ describe('AppShell and an offline sign-in (SPEC-FINAL 7.5, task 1.16)', () => {
   it('exchanges the held password for a token when the connection returns, then syncs at once', async () => {
     online = false;
     pendingCredential.set({ username: 'seed_scouter', password: 'seedpass1' });
-    renderShell('/');
+    renderShell('/scout');
     await screen.findByText(OFFLINE_SIGNED_IN_LINE);
     expect(fetchMock).not.toHaveBeenCalled();
 
@@ -632,7 +632,7 @@ describe('AppShell and an offline sign-in (SPEC-FINAL 7.5, task 1.16)', () => {
   });
 
   it('asks once for the password when none is held (the app was closed), without a dialog', async () => {
-    renderShell('/');
+    renderShell('/scout');
     const prompt = await screen.findByRole('region', { name: RECONNECT_TITLE });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(prompt).toHaveTextContent(/safe on this device/i);
@@ -649,7 +649,7 @@ describe('AppShell and an offline sign-in (SPEC-FINAL 7.5, task 1.16)', () => {
   });
 
   it('signs in from the prompt and syncs', async () => {
-    renderShell('/');
+    renderShell('/scout');
     const prompt = await screen.findByRole('region', { name: RECONNECT_TITLE });
     fetchMock.mockResolvedValueOnce(loginOk());
     const u = userEvent.setup();
@@ -665,7 +665,7 @@ describe('AppShell and an offline sign-in (SPEC-FINAL 7.5, task 1.16)', () => {
     fetchMock.mockResolvedValueOnce(
       json({ error: { code: 'unauthenticated', message: 'no' } }, 401),
     );
-    renderShell('/');
+    renderShell('/scout');
     const prompt = await screen.findByRole('region', { name: RECONNECT_TITLE });
     expect(within(prompt).getByRole('alert')).toHaveTextContent(PASSWORD_CHANGED_LINE);
     expect(pendingCredential.get()).toBeNull();
@@ -675,7 +675,7 @@ describe('AppShell and an offline sign-in (SPEC-FINAL 7.5, task 1.16)', () => {
 
   it('syncs as soon as a token arrives in place, not on the next tick', async () => {
     online = false;
-    renderShell('/');
+    renderShell('/scout');
     await screen.findByText(OFFLINE_SIGNED_IN_LINE);
     expect(syncNow).not.toHaveBeenCalled();
     await session.signIn(loginUser, 'tok-other-path');
@@ -761,7 +761,7 @@ describe('AppShell and a changed default (task 1.22)', () => {
     expect(screen.getByText(`entry for ${EVENT}`)).toBeInTheDocument();
     expect(syncNow.mock.calls.every(([d]) => d.eventId === EVENT)).toBe(true);
 
-    await act(() => router.navigate('/'));
+    await act(() => router.navigate('/scout'));
 
     expect(await screen.findByText(`working on ${OTHER_EVENT}`)).toBeInTheDocument();
     expect(screen.queryByText(/the default competition has changed/i)).not.toBeInTheDocument();
@@ -786,7 +786,7 @@ describe('AppShell and a changed default (task 1.22)', () => {
     await waitFor(() => expect(syncNow).toHaveBeenCalledTimes(3));
 
     const oldPicker = watchFor(new RegExp(`working on ${EVENT}`));
-    await act(() => router.navigate('/'));
+    await act(() => router.navigate('/scout'));
 
     // The shell is on B at once; B was never loaded here, and its sync waits behind A's.
     expect(
@@ -810,7 +810,7 @@ describe('AppShell and a changed default (task 1.22)', () => {
     await screen.findByText(/the default competition has changed/i);
 
     online = false;
-    await act(() => router.navigate('/'));
+    await act(() => router.navigate('/scout'));
 
     // B was never loaded on this device: the gate says so, and Scout for A is gone.
     expect(await screen.findByText(/has not loaded the competition yet/i)).toBeInTheDocument();
@@ -829,7 +829,7 @@ describe('AppShell and a changed default (task 1.22)', () => {
 
   it('clears a session override that names the new default', async () => {
     sessionOverride.set(OTHER_EVENT, 'Week 3');
-    renderShell('/context');
+    renderShell('/');
     await screen.findByText(CONTEXT_CHILD);
     await waitFor(() => expect(syncNow).toHaveBeenCalledTimes(1));
     serverDefault = OTHER_EVENT;
@@ -847,7 +847,7 @@ describe('AppShell and a session override (SPEC-FINAL 6.3, task 1.22)', () => {
   it('names the context in the footer, as a link to the context page', async () => {
     renderShell();
     const link = await screen.findByRole('link', { name: /working on week 1 · change/i });
-    expect(link).toHaveAttribute('href', '/context');
+    expect(link).toHaveAttribute('href', '/');
   });
 
   it('disables Scout, and says so on every page, until the override is cleared', async () => {
@@ -872,7 +872,7 @@ describe('AppShell and a session override (SPEC-FINAL 6.3, task 1.22)', () => {
 
   it('leaves the banner and the version line to the context page itself there', async () => {
     sessionOverride.set(OTHER_EVENT, 'Week 3');
-    renderShell('/context');
+    renderShell('/');
     await screen.findByText(CONTEXT_CHILD);
     expect(screen.queryByText(/only for this session/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/^version /)).not.toBeInTheDocument();
@@ -1013,7 +1013,7 @@ describe('AppShell restarted with a default move pending (branch review, finding
       return OK;
     });
     const oldPicker = watchFor(new RegExp(`working on ${EVENT}`));
-    renderShell('/');
+    renderShell('/scout');
     expect(await screen.findByText(`working on ${OTHER_EVENT}`)).toBeInTheDocument();
     expect(syncNow.mock.calls.map(([d]) => d.eventId)).toEqual([OTHER_EVENT]);
     oldPicker.stop();

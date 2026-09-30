@@ -6,6 +6,7 @@ import { AuthError, AuthField, AuthFrame, AuthSubmit } from './AuthFrame';
 import { accountErrorLine, sentence } from './messages';
 import { needsSignIn, session } from './session';
 import { useSession } from './useSession';
+import { PATHS } from '@/lib/paths';
 
 /**
  * SPEC-FINAL 7.3: the one password action a non-admin has — changing their own, given the
@@ -53,7 +54,7 @@ export function ChangePasswordPage() {
         full_name: updated.full_name,
         role: updated.role,
       });
-      navigate('/', { replace: true });
+      navigate(PATHS.home, { replace: true });
     } catch (err) {
       // rpc has already expired the session on a 401; sign-in keeps the username.
       if (err instanceof RpcError && err.status === 401) {
@@ -101,7 +102,7 @@ export function ChangePasswordPage() {
       </form>
       {!forced && (
         <Link
-          to="/"
+          to={PATHS.scout}
           className="tap-target mt-2 flex w-full items-center justify-center rounded-lg border border-[var(--border)]"
         >
           Back to scouting

@@ -364,7 +364,7 @@ describe('offline login against a real server that goes away (SPEC-FINAL 7.5)', 
     // The shell is up, offline, with the lead signed in from the cache.
     render(
       createElement(RouterProvider, {
-        router: createMemoryRouter(routeTree(), { initialEntries: ['/'] }),
+        router: createMemoryRouter(routeTree(), { initialEntries: ['/scout'] }),
       }),
     );
     expect(await screen.findByText(OFFLINE_SIGNED_IN_LINE)).toBeInTheDocument();

@@ -11,6 +11,7 @@ import {
   type SignInResult,
 } from './offlineLogin';
 import { useSession } from './useSession';
+import { PATHS } from '@/lib/paths';
 
 /**
  * SPEC-FINAL 7.3, 7.5: hand a shared device to another scouter without a sign-out. The
@@ -74,7 +75,7 @@ export function SwitchScouter() {
     setBusy(true);
     try {
       await switchScouter(chosen.username, password);
-      navigate('/', { replace: true });
+      navigate(PATHS.scout, { replace: true });
     } catch (err) {
       setError(signInErrorLine(err));
       setPassword('');
@@ -144,7 +145,7 @@ export function SwitchScouter() {
         </>
       )}
       <div className="mt-2 flex justify-center">
-        <Link className="tap-target inline-flex items-center px-3" to="/">
+        <Link className="tap-target inline-flex items-center px-3" to={PATHS.home}>
           Cancel
         </Link>
       </div>

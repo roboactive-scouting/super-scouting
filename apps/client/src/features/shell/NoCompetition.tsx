@@ -2,6 +2,7 @@ import { CalendarX2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { buttonVariants } from '@/components/ui/button';
 import { ShellState } from './ShellState';
+import { PATHS } from '@/lib/paths';
 
 /**
  * The shell's gate when the server says no competition is set up (task 1.17b): the
@@ -20,7 +21,7 @@ export function NoCompetition({ canSetUp }: { canSetUp: boolean }) {
         online.
       </p>
       {canSetUp && (
-        <Link to="/admin/manage" className={`${buttonVariants({ variant: 'primary' })} mt-6`}>
+        <Link to={PATHS.manage} className={`${buttonVariants({ variant: 'primary' })} mt-6`}>
           Set up a competition
         </Link>
       )}

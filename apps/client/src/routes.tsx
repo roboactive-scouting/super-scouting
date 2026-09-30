@@ -1,4 +1,4 @@
-import { createBrowserRouter, type RouteObject } from 'react-router-dom';
+import { createBrowserRouter, Navigate, type RouteObject } from 'react-router-dom';
 import { ChangePasswordPage } from '@/auth/ChangePasswordPage';
 import { LoginPage } from '@/auth/LoginPage';
 import { SwitchScouter } from '@/auth/SwitchScouter';
@@ -13,6 +13,7 @@ import { NO_HYDRATION, useActiveEventId, useSignedInUser } from '@/features/shel
 import { EntriesPage } from '@/features/entries/EntriesPage';
 import { SelectRobotPage } from '@/features/entry/SelectRobotPage';
 import { EntryRoute } from '@/features/entry/EntryRoute';
+import { PATHS } from '@/lib/paths';
 
 /*
  * The author of every local operation and the scouter of every new entry is the
@@ -62,16 +63,17 @@ export function routeTree(): RouteObject[] {
       path: '/',
       element: <AppShell />,
       children: [
-        { index: true, element: <ScoutRoute /> },
+        // Home (redesign R.4): the context page, now the landing page. It reads the cache
+        // and the server itself (never useActiveEventId), so it renders with no event loaded.
+        { index: true, element: <ContextPage />, handle: NO_HYDRATION },
+        { path: 'scout', element: <ScoutRoute /> },
         { path: 'entry/:matchId/:teamId', element: <SignedInEntryRoute /> },
         { path: 'entries', element: <EntriesRoute /> },
         // Inside the shell: it needs a signed-in device, and never leaves the outbox. It
         // reads only the cached accounts, so it works before any event is loaded.
         { path: 'switch-scouter', element: <SwitchScouter />, handle: NO_HYDRATION },
-        // Task 1.22, SPEC-FINAL 6.3: the context page, the one place the session-only
-        // override is chosen. Every role, not desktop-only. It reads the cache and the
-        // server itself (never useActiveEventId), so it renders with no event loaded.
-        { path: 'context', element: <ContextPage />, handle: NO_HYDRATION },
+        // Task 1.22's path, kept so a bookmark or an old installed start page still lands.
+        { path: 'context', element: <Navigate to={PATHS.home} replace />, handle: NO_HYDRATION },
         // SPEC-FINAL 17.2: user administration is computer work. The pages check the role
         // themselves (7.4: device gating is not a permission), and the server again. They
         // read no event data, so an admin reaches them on an install with no competition.

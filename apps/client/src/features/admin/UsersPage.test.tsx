@@ -233,7 +233,10 @@ describe('who reaches the user administration page (SPEC-FINAL 7.2, 7.4, 17.2)',
       expect(
         await screen.findByRole('heading', { name: 'Only an admin can manage users' }),
       ).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'Back to scouting' })).toHaveAttribute('href', '/');
+      expect(screen.getByRole('link', { name: 'Back to scouting' })).toHaveAttribute(
+        'href',
+        '/scout',
+      );
       expect(screen.queryByRole('table')).not.toBeInTheDocument();
       expect(named('listUsers')).toHaveLength(0);
     },
@@ -244,7 +247,7 @@ describe('who reaches the user administration page (SPEC-FINAL 7.2, 7.4, 17.2)',
     const router = renderAt('/admin/users');
     expect(await screen.findByRole('table')).toBeInTheDocument();
     expect(screen.queryByText(/no competition is set up yet/i)).not.toBeInTheDocument();
-    await act(() => router.navigate('/'));
+    await act(() => router.navigate('/scout'));
     expect(
       await screen.findByRole('heading', { name: 'No competition is set up yet' }),
     ).toBeInTheDocument();

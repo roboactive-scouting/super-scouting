@@ -8,6 +8,7 @@ import { matchLabel } from '@/lib/matchLabel';
 import { EntryPage } from './EntryPage';
 import { canSelfEdit, findLocalEntry, type Editor, type LocalEntry } from './localEntries';
 import type { SavedNotice } from './SelectRobotPage';
+import { PATHS } from '@/lib/paths';
 
 type MatchRow = { id: string; event_id?: string; match_type: string; number: number };
 type TeamRow = { id: string; number: number; name: string };
@@ -115,7 +116,7 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
         headingLevel={1}
         title="This match or team is not on this device"
         detail="Go back and pick the robot again. If it is still missing, this device may need to sync."
-        action={{ label: 'Back to scouting', to: '/' }}
+        action={{ label: 'Back to scouting', to: PATHS.scout }}
       />
     );
   }
@@ -126,7 +127,7 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
         headingLevel={1}
         title="No scouting form is published for this season yet"
         detail="An admin publishes one in the form builder. Nothing can be recorded for this competition until then."
-        action={{ label: 'Back to scouting', to: '/' }}
+        action={{ label: 'Back to scouting', to: PATHS.scout }}
       />
     );
   }
@@ -146,7 +147,7 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
         <button
           type="button"
           className="tap-target mt-4 w-full rounded-lg border border-[var(--border)]"
-          onClick={() => navigate('/')}
+          onClick={() => navigate(PATHS.scout)}
         >
           Back to scouting
         </button>
@@ -168,7 +169,7 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
         <button
           type="button"
           className="tap-target mt-4 w-full rounded-lg border border-[var(--border)]"
-          onClick={() => navigate('/')}
+          onClick={() => navigate(PATHS.scout)}
         >
           Back to scouting
         </button>
@@ -195,7 +196,7 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
           teamLabel: resolved.teamLabel,
           edited: resolved.existing !== undefined,
         };
-        navigate('/', { replace: true, state: { saved } });
+        navigate(PATHS.scout, { replace: true, state: { saved } });
       }}
     />
   );
