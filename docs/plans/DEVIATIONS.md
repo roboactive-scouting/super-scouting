@@ -4092,3 +4092,83 @@ No test was added. `SeasonsPanel` (like `EventsPanel`) fetches its own `listSeas
 **What I did instead:** set `mountedRef.current = true` in the effect's own setup as well as the `useRef(true)` initialiser, so StrictMode's setup → cleanup → setup sequence ends on `true` again, matching a real mount. Added `ManagePage under StrictMode > still picks up a season created on the Seasons tab as soon as the Events tab is opened` to `ManagePage.test.tsx` — the existing task 1.20 regression case, re-rendered inside `<StrictMode>` via a new `strict` parameter on the test file's `renderWithCall` helper. Verified the test actually catches the bug: reverted the one-line fix locally, reran the file, watched this new test fail (timeout waiting for `listEvents` with `season_id: 's-new'`, the tab still stuck on "Create a season first") while the other five tests stayed green, then restored the fix and reran to green.
 
 **Risk:** none identified now; this was the whole point of the coordinator's catch. Worth remembering for any future `useRef(true)`-as-liveness-flag pattern in this codebase: StrictMode's dev double-invoke means "true at declaration" is not the same as "true after the first effect run" — the setup function must re-assert it.
+
+## Redesign R.1–R.14 — how the run was executed
+
+**Plan said:** one task per chat, each on its own `feat/redesign-r<N>` branch, run by an orchestrator that hands each task to a fresh subagent (BUILD-CONTEXT §9). Screenshots of every changed screen at the end of every task.
+
+**What was wrong:** the user asked, in the planning chat, for the whole redesign to run overnight and for `develop` to be fast-forwarded so the new design could be seen in the morning.
+
+**What I did instead:** ran R.1–R.13 in the planning chat itself, on one branch, `feat/redesign`, cut from `spec/redesign-plan` so the plan travels with it. There is one commit per task, with the plan's commit message. Every task ran its tests failing first, then `pnpm format`, the client suite, `typecheck`, `lint` and `format:check`, all green before its commit. Most code was written by extracting the plan's own code blocks, which checks the plan against itself. Screenshots were taken at checkpoints rather than after every task: after the shell (R.7), Home (R.8), the scout flow (R.10), Users (R.12), Manage (R.13) and sign-in (R.14).
+
+**Risk:** less independent review than per-task subagents plus a coordinator would give. The user's morning review on dev is the gate this run did not have.
+
+## Task R.4 — tests the plan's list missed
+
+**Plan said:** five test files move paths: AppShell, routes, UsersPage, EntryRoute and offlineLogin.integration.
+
+**What was wrong:** four more cases pinned the old routes: "Failed Tests 5", in `routes.test.tsx` (two route-list cases), `SwitchScouter.test.tsx` (two) and `EntryRoute.test.tsx` (one).
+
+**What I did instead:**
+- `SwitchScouter.test.tsx`: the harness route `/` becomes `/scout`, plus a `/` route. Cancel now lands on Home, so the Cancel case expects "the home page".
+- `EntryRoute.test.tsx`: its SelectRobotPage harness route becomes `/scout`.
+- `routes.test.tsx`: the route-list cases now expect the index to be the NO_HYDRATION Home and `scout` to be the gated path.
+
+These are path moves only. No assertion about behaviour changed.
+
+**Risk:** none.
+
+## Task R.6 — the signed-in name left the footer
+
+**Plan said:** `UsersPage.test.tsx` stays unmodified.
+
+**What was wrong:** its "renaming yourself" case waited for the name with `selector: 'footer *'`, and the "Signed in as" line moved into the sidebar's AccountBlock: "Unable to find an element with the text: Admin Renamed, which matches selector 'footer *'".
+
+**What I did instead:** the selector is now `'aside *'`, and the comment says "sidebar". It is the same assertion, in the new location.
+
+**Risk:** none.
+
+## Tasks R.8 and R.9 — layout fixes found in the screenshots
+
+**Plan said:** a footer on every page, `tap-row` on action rows, and the bottom-bar clearance on the footer (`pb-24`).
+
+**What was wrong:**
+- On Home the footer had nothing to say, and drew an empty bordered strip.
+- `tap-row`'s `margin-inline-start` indented any button that wrapped onto a second line.
+
+**What I did instead:**
+- ShellLayout renders the footer only when AppShell has content for it (`hasFooter`).
+- The bottom-bar clearance moved to the page column (`pb-20`).
+- HomeSummary, the PageHeader and SectionHeader actions, OverrideGuard and ReconnectPrompt use `flex-wrap gap-2` (the same 8 px). `tap-row` stays on single-line rows.
+
+**Risk:** none. `tap-row`'s 8 px floor is kept by `gap-2`.
+
+## Task R.10 — EntryRoute's loading line stays plain text
+
+**Plan said:** a Skeleton while the entry route resolves.
+
+**What was wrong:** Skeleton is `role="status"`. `EntryRoute.test.tsx`'s other-event case takes the first `role="status"` as the foreign-event notice, and got the empty skeleton: "Expected element to have text content: This entry belongs to Week 1…  Received:". The plan's own contract line for R.10 (no extra `role="status"` on the entry path) already ruled the Skeleton out.
+
+**What I did instead:** a restyled plain `Loading…` line, with a comment saying why.
+
+**Risk:** none. The state lasts milliseconds.
+
+## Task R.12 — the Users page layout
+
+**Plan said:** flex bases of 36rem and 24rem for the table and the create form.
+
+**What was wrong:** with the 16rem sidebar, 1280 px leaves about 960 px, so the form wrapped under the table.
+
+**What I did instead:** a grid, two columns from `xl`: the table flexible, the form 22rem.
+
+**Risk:** none.
+
+## Task R.13 — Rename stays visible text
+
+**Plan said:** every row action becomes an icon button, its name in `aria-label`.
+
+**What was wrong:** `aria-label="Rename"` matched `EventsPanel.test.tsx`'s `getByLabelText(/name/i)` for the Name field: "Found multiple elements with the text of: /name/i".
+
+**What I did instead:** the Rename buttons in EventsPanel and TeamsPanel are text with a Pencil icon beside it. Edit (Seasons), Move up/down (Events) and Edit/Delete match (Matches) are icon-only, their names in `aria-label` and `title`. Panel loading lines stay plain text, because a Skeleton's `role="status"` could collide with the panels' own `findByRole('status')` checks.
+
+**Risk:** none.
