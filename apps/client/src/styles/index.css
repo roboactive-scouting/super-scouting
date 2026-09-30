@@ -15,6 +15,16 @@
   --color-brand: var(--brand);
   --color-danger: var(--danger);
   --color-warning: var(--warning);
+  --color-brand-plate: var(--brand-plate);
+  --color-on-brand: var(--on-brand);
+  --color-focus: var(--focus);
+  --color-status-played: var(--status-played);
+  --color-status-broke-down: var(--status-broke-down);
+  --color-status-disabled: var(--status-disabled);
+  --color-status-no-show: var(--status-no-show);
+  --color-sync-offline: var(--sync-offline);
+  --color-sync-syncing: var(--sync-syncing);
+  --color-sync-online: var(--sync-online);
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-hebrew: 'Noto Sans Hebrew', 'Inter', system-ui, sans-serif;
 }
