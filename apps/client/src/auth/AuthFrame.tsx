@@ -1,27 +1,37 @@
 import { useId, type ReactNode } from 'react';
 import { Logo } from '@/components/Logo';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Notice } from '@/components/ui/notice';
 
 /**
- * The frame shared by the sign-in and change-password screens: the mark on its plate
- * (SPEC-FINAL 17.4), then one centred card. One job per screen (17.9), no motion.
+ * The frame shared by the sign-in and change-password screens. One job per screen
+ * (SPEC-FINAL 17.9). On a phone: the mark, then the form. On a computer, the lockup sits on
+ * its near-black plate beside the form (17.4) — brand, not a hero: no tagline, no copy.
  */
 export function AuthFrame({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <main className="flex min-h-dvh flex-col items-center justify-center px-4 py-8">
-      <div className="w-full max-w-sm">
-        {/* The mark alone: at this size the wordmark is unreadable (SPEC-FINAL 17.8). */}
-        <div className="mb-6 flex justify-center">
-          <Logo variant="mark" />
+    <main className="grid min-h-dvh lg:grid-cols-2">
+      <div
+        aria-hidden="true"
+        className="brand-plate hidden flex-col items-center justify-center gap-4 border-e border-border lg:flex"
+      >
+        <Logo size="lg" />
+      </div>
+      <div className="flex flex-col items-center justify-center px-4 py-10">
+        <div className="enter-rise w-full max-w-sm">
+          {/* The mark alone: at this size the wordmark is unreadable (SPEC-FINAL 17.8). */}
+          <div className="mb-8 flex justify-center lg:hidden">
+            <Logo variant="mark" />
+          </div>
+          <section aria-labelledby="auth-title">
+            <h1 id="auth-title" className="text-2xl font-semibold tracking-tight">
+              {title}
+            </h1>
+            {children}
+          </section>
         </div>
-        <section
-          aria-labelledby="auth-title"
-          className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5"
-        >
-          <h1 id="auth-title" className="text-xl font-semibold">
-            {title}
-          </h1>
-          {children}
-        </section>
       </div>
     </main>
   );
@@ -40,11 +50,9 @@ export function AuthField(props: {
   const id = useId();
   const hintId = `${id}-hint`;
   return (
-    <div className="mt-4">
-      <label htmlFor={id} className="block text-sm font-medium">
-        {props.label}
-      </label>
-      <input
+    <div className="mt-5">
+      <Label htmlFor={id}>{props.label}</Label>
+      <Input
         id={id}
         type={props.type}
         value={props.value}
@@ -55,11 +63,11 @@ export function AuthField(props: {
         spellCheck={false}
         dir="auto"
         aria-describedby={props.hint ? hintId : undefined}
-        className="tap-target mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3"
+        className="mt-1.5"
         onChange={(e) => props.onChange(e.target.value)}
       />
       {props.hint && (
-        <p id={hintId} className="mt-1 text-sm text-[var(--text-muted)]">
+        <p id={hintId} className="mt-1.5 text-sm text-text-muted">
           {props.hint}
         </p>
       )}
@@ -71,9 +79,9 @@ export function AuthField(props: {
 export function AuthError({ message }: { message: string | null }) {
   if (!message) return null;
   return (
-    <p role="alert" dir="auto" className="mt-4 rounded-lg border-2 border-[var(--danger)] p-3">
+    <Notice role="alert" tone="danger" className="mt-5">
       {message}
-    </p>
+    </Notice>
   );
 }
 
@@ -87,12 +95,8 @@ export function AuthSubmit({
   busyLabel: string;
 }) {
   return (
-    <button
-      type="submit"
-      disabled={busy}
-      className="tap-target mt-6 w-full rounded-lg bg-[var(--brand-plate)] font-semibold text-[var(--brand)] disabled:opacity-50"
-    >
+    <Button type="submit" variant="primary" size="block" disabled={busy} className="mt-6">
       {busy ? busyLabel : label}
-    </button>
+    </Button>
   );
 }

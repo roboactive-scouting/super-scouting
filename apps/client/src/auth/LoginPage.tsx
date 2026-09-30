@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
+import { Notice } from '@/components/ui/notice';
 import { AuthError, AuthField, AuthFrame, AuthSubmit } from './AuthFrame';
 import { OFFLINE_SIGN_IN_LINE } from './messages';
 import {
@@ -88,14 +89,14 @@ export function LoginPage({
   return (
     <AuthFrame title="Sign in">
       {current?.expired && (
-        <p role="status" className="mt-3 rounded-lg border border-[var(--warning)] p-3 text-sm">
+        <Notice role="status" tone="warning" className="mt-4">
           {EXPIRED_LINE}
-        </p>
+        </Notice>
       )}
       {!online && (
-        <p role="status" className="mt-3 rounded-lg border border-[var(--border)] p-3 text-sm">
+        <Notice role="status" className="mt-4">
           {OFFLINE_SIGN_IN_LINE}
-        </p>
+        </Notice>
       )}
       <form noValidate onSubmit={(e) => void submit(e)}>
         <AuthField
