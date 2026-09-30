@@ -1,8 +1,10 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.2 · **Date:** 2026-09-23 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.3 · **Date:** 2026-10-01 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
 
 *v1.1 amends §17.9 only, adding the standing override for the `frontend-design` skill — craft yes, identity no. No requirement changed; see the living spec's §21 for the rationale.*
+
+*v1.3 amends §17.4 (the alliance colours), §17.9 (navigation, Home at `/`, the motion rule) and nothing else. See the living spec's §21, 2026-10-01.*
 
 *v1.2 amends §9.10 only: the unsynced count counts records, not queued operations, and the pending list on the sync page is specified and reachable from the indicator. See the living spec's §21.*
 
@@ -1858,6 +1860,7 @@ Mobile-first; the width decides, never the user agent.
 | danger | red |
 | sync: offline / syncing / online | red / orange / green |
 | warnings | **orange**, not amber — kept separate from brand yellow |
+| red / blue alliance | `--alliance-red` / `--alliance-blue`: dark **#EF4444 / #3B82F6**, outdoor **#B91C1C / #1D4ED8**. Each ≥ 3:1 on `--bg`, `--surface` and `--surface-raised`, in both themes *(v1.3)* |
 | value shading ramp | red → **desaturated grey-amber** → green (the mid-tone is deliberately distinct from `#FFEA07`) |
 
 ### 17.5 Brand assets
@@ -1927,7 +1930,7 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 
 | Surface | Reference | What we take |
 |---|---|---|
-| Context / landing page | **Figma file browser** + **Notion** | Scope chosen from a **card grid, most recent first** — seasons, then that season's events — never a header dropdown; cards big and unmissable. The page reads as a **calm document, not a control panel**. The version string sits quietly in the footer. |
+| Context / landing page (**Home, at `/`**, v1.3) | **Figma file browser** + **Notion** | Scope chosen from a **card grid, most recent first** — seasons, then that season's events — never a header dropdown; cards big and unmissable. The page reads as a **calm document, not a control panel**. The version string sits quietly in the footer. **v1.3:** it is the signed-in landing page. Above the grid, one summary names the event this device works on, with **Scout as the one primary action**. Scout lives at `/scout`. |
 | Phone data entry | **Tally**, **Typeform**, **FotMob** | Pacing: one job on screen, generous spacing, no cramped rows. A dense sports UI staying thumb-reachable. Counters are a wide − / value / + triplet, never a text input. The sticky timer never fights the page scroll. |
 | Form builder | **Fillout**, **Tally** | Three panes: palette → canvas → settings. Semantic metadata lives in the settings pane so it is filled *while* the field is created. A preview toggle renders the form at phone width. |
 | Team page | **Sofascore** | Sticky team header, horizontal tab strip, stat rows as label → value → inline bar. Readable in one thumb scroll. |
@@ -1940,9 +1943,18 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 | Sync & conflict review | **Obsidian Sync** | The indicator names the state in words plus a count. There is a place to look listing what synced and what didn't. Conflicts are an explicit worklist you can finish. |
 | Admin: users, seasons, events | **Clerk** | Table → row opens a detail page; role is a select on that page; creation is one small form. Destructive rows follow the single pattern above. |
 
+**Navigation (v1.3).**
+- **≥ 1024 px:** a collapsible **sidebar**, remembered per device.
+- **Below 1024 px:** a top bar whose menu opens the same destinations as a **drawer**, plus a **bottom bar** of at most four competition jobs. Today that is Home · Scout · Entries. Team search joins with the team search page, and Ranking joins with the ranking page, which returns Entries to the drawer.
+- **The bottom bar is hidden on the entry route.**
+- The context switcher is still never in the nav: the nav links to Home, which holds it.
+
 **Standing reference libraries for the build phase:** [mobbin.com](https://mobbin.com), [godly.website](https://godly.website), [ui.shadcn.com/blocks](https://ui.shadcn.com/blocks). When a screen has no rule above, look there before inventing one.
 
-**The `frontend-design` skill: craft yes, identity no.** Build chats invoke Anthropic's `frontend-design` skill on UI tasks. Use its **Restraint and self-critique** and **More on writing in design** sections in full — the second reinforces the six-variant state component of §17.8 — plus *Structure is information* and the two-pass plan-then-critique habit. **Ignore its *Ground it in the subject* and *Process* token-invention steps entirely**: they ask for a 4–6 value palette and two or more typefaces, which is precisely what §17.4 and §17.6 already fix. Do **not** use it to choose an identity: the palette is the ten tokens of §17.4 at exact hex in two themes, the typefaces are §17.6's Inter + Noto Sans Hebrew, and each surface's reference is the table above. Components read CSS variables and never hard-code a hex; brand yellow never appears in data ink and never sits on a light surface. **No decorative animation on the data-entry path** — motion is permitted only where it carries information a scouter must notice, never as ornament, because the primary surface is a phone held in one hand in a loud arena during 2:30 of match. **Where the skill and §17 disagree, §17 wins**, and the build chat names the line that disagreed rather than silently picking one.
+**The `frontend-design` skill: craft yes, identity no.** Build chats invoke Anthropic's `frontend-design` skill on UI tasks. Use its **Restraint and self-critique** and **More on writing in design** sections in full — the second reinforces the six-variant state component of §17.8 — plus *Structure is information* and the two-pass plan-then-critique habit. **Ignore its *Ground it in the subject* and *Process* token-invention steps entirely**: they ask for a 4–6 value palette and two or more typefaces, which is precisely what §17.4 and §17.6 already fix. Do **not** use it to choose an identity: the palette is the ten tokens of §17.4 at exact hex in two themes, the typefaces are §17.6's Inter + Noto Sans Hebrew, and each surface's reference is the table above. Components read CSS variables and never hard-code a hex; brand yellow never appears in data ink and never sits on a light surface. **The motion rule (v1.3).** Motion uses **Material 3's easing and duration tokens** only, and every motion is off under reduced motion.
+- **Off the data-entry path:** the nav indicator, sidebar collapse, drawer / dialog / sheet / notice enter, a route fade, and hover and press state layers.
+- **On the data-entry path** (`/scout`, `/entry/*`, `/super`): **only motion that carries information a scouter must notice**, never ornament. That is the counter's value tick, press feedback, a chosen option's edge, and the review sheet sliding in. The primary surface is a phone held in one hand in a loud arena during 2:30 of match.
+- **Banned everywhere:** page-load sequences, scroll reveals, ambient or looping motion, and exit animations. **Where the skill and §17 disagree, §17 wins**, and the build chat names the line that disagreed rather than silently picking one.
 
 **Printing is out of scope.** There are no print stylesheets and no printable views.
 

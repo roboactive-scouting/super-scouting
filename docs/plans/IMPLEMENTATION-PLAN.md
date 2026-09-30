@@ -1,6 +1,7 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.1 · **Date:** 2026-09-03 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.0
+**Version:** 1.2 · **Date:** 2026-10-01 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.3
+*v1.2 (2026-10-01): the redesign runs now. It is `docs/plans/REDESIGN-PLAN.md` R.1–R.14, after task 1.23 and before 1.24. Every UI task from 1.29 on carries a "Design (redesign system)" block, and the new section "The redesign system" binds them all.*
 **Scope of this document:** phase 0 and phase 1 in full task detail; phase 2 as headings only (SPEC-FINAL §20.8).
 
 **Goal:** build the v1 platform defined by `SPEC-FINAL.md` — an offline-first, year-agnostic FRC scouting PWA for team 2096 — up to and including the phase 1 gate.
@@ -62,6 +63,7 @@ Every task's requirements implicitly include this section. Values are copied ver
 - **Node 22.** pnpm 9, pinned in the root `packageManager` field. Turborepo for the task graph.
 - **TypeScript everywhere**, `strict: true`, no `any` in committed code.
 - **Every task that adds or changes a screen follows `docs/ops/BUILD-CONTEXT.md` §12, the visual standard**: the SPEC-FINAL §17.9 reference app for that screen, shadcn/ui components, and screenshot proof at 375 px and 1280 px, reported for the user's review. This holds even where a task's own text never mentions design. *(added 2026-09-29)*
+- **Every UI task builds on the redesign system** (`docs/plans/REDESIGN-PLAN.md`, BUILD-CONTEXT §12.7): primitives from `components/ui`, entry controls from `components/entry`, paths from `lib/paths.ts`, one `NAV_ITEMS` row per nav destination, and motion only by the SPEC-FINAL v1.3 §17.9 rule. See "The redesign system" below. *(added 2026-10-01)*
 - **`packages/shared` is browser-safe**: no Node built-ins, no `@supabase/supabase-js`, no `process.env`. Enforced by an ESLint rule and a test (task 0.2).
 - **`packages/shared` is also the single validation source for both sides** (§16.1): every use-case input and output schema lives there, and the server registry and the typed client both import them.
 - **All client traffic goes through the server API** (§16.2). The client never imports `@supabase/supabase-js`.
@@ -76,7 +78,7 @@ Every task's requirements implicitly include this section. Values are copied ver
 - **Semantic metadata (`description`, `unit`, `phase`, `direction`) is required on every non-`section` field and is captured at field-creation time** (§5.4). It cannot be backfilled.
 - **Points are non-negative** (`check (points >= 0)`), and scores are always derived, never stored (§4.1, §18.2).
 - **Colour comes only from the §17.4 CSS variable tokens.** No component hard-codes a hex. Brand yellow `#FFEA07` never appears in data ink, and never as text or an icon on a light surface — the logo always sits on a `--brand-plate` near-black plate, in both themes.
-- **The `frontend-design` skill is used for craft, never for identity** (§17.9). Its **Restraint and self-critique** and **More on writing in design** sections apply in full, as does *Structure is information* and its plan-then-critique habit. Its *Ground it in the subject* section and its "describe the palette as 4–6 named hex values / the typefaces for 2+ roles" step do **not** — §17.4 and §17.6 fixed both. **No decorative animation on the data-entry path**: no page-load sequence, no scroll reveal, no ambient atmosphere. Where the skill and §17 disagree, §17 wins, and the build chat says which line disagreed rather than silently picking one.
+- **The `frontend-design` skill is used for craft, never for identity** (§17.9). Its **Restraint and self-critique** and **More on writing in design** sections apply in full, as does *Structure is information* and its plan-then-critique habit. Its *Ground it in the subject* section and its "describe the palette as 4–6 named hex values / the typefaces for 2+ roles" step do **not** — §17.4 and §17.6 fixed both. **Motion follows the SPEC-FINAL v1.3 §17.9 rule**: M3 tokens only. On the data-entry path only informational motion; page-load sequences, scroll reveals, ambient or looping motion and exit animations nowhere. Where the skill and §17 disagree, §17 wins, and the build chat says which line disagreed rather than silently picking one.
 - **Touch targets ≥ 48 × 48 px with ≥ 8 px between adjacent targets. WCAG AA: 4.5:1 for text, 3:1 for UI boundaries and chart strokes, in both themes** (§17.7).
 - **`dir="auto"` on every text node that can hold Hebrew** — form labels, notes, chart axis labels, table cells (§17.1).
 - **Formatting is identical on every surface** (§17.8): computed metrics and standard deviations to **2 decimal places**; integer counts and team numbers with **no decimals and no thousands separator**; percentages as **whole numbers**; dates **`DD/MM/YYYY`**; times **24-hour**; the **device's local timezone**.
@@ -86,6 +88,28 @@ Every task's requirements implicitly include this section. Values are copied ver
 - **Every environment variable is read through one typed, validated config module per app** that fails loudly at startup naming the missing variable. Nothing anywhere else reads `process.env` or `import.meta.env`.
 - **Never touch the production Supabase project** from code, CI, or a script. CI touches dev only; production is migrated by hand (§19.4).
 - **Appendix A of SPEC-FINAL is out of scope.** If a task appears to want something on that list, the task is wrong.
+
+## The redesign system — binding on every UI task from 1.24 on *(added 2026-10-01)*
+
+`docs/plans/REDESIGN-PLAN.md` (R.1–R.14) runs before 1.24. The UI tasks below were written before it: where a task's text says "a button", "a table", "a dialog", "a banner" or "a link in the header", read it as the system's version:
+
+| The task says | Build it with |
+|---|---|
+| a button, a link styled as one | `<Button variant size>` / `buttonVariants()` (`components/ui/button`) |
+| a text, number or select field | `Label` + `Input` / `NativeSelect` / `Textarea`; admin forms use `features/admin/fields.tsx` |
+| a page title | `<PageHeader title description actions>`; a section's title row is `<SectionHeader>` |
+| a table | `Table`, `TableHeader sticky?`, `TableRow`, `TableHead numeric?`, `TableCell numeric?` |
+| a bordered panel | `<Card>` (never a card inside a card) |
+| a status word, a count, a marker | `<Badge tone>` |
+| a banner, an error line, an inline notice | `<Notice tone role>` |
+| a modal, a drawer, a bottom sheet | `ConfirmDialog` (destructive), `<Sheet side>`, or a surface on `useModalFocus` |
+| a tab strip | `<Tabs label tabs value onChange>` |
+| a counter, a choice, a toggle, the entry's primary action | `CounterControl`, `ChoiceGroup`, `ToggleField`, `StickyActionBar` (`components/entry`) |
+| a route, a path, a `navigate('/…')` | a key in `PATHS` (`lib/paths.ts`) |
+| "a link in the header / nav" | one row in `NAV_ITEMS` (`features/shell/nav.ts`): a group, an icon from `lucide-react`, `visible`, and `bottomBar` only where the task's block says so |
+| an animation | `styles/motion.css` classes or `play()` / `usePlayOnChange()` with `lib/motion.ts` tokens — only as SPEC-FINAL v1.3 §17.9 allows |
+
+A task's tests, copy, roles and behaviour stay exactly as the task writes them. The system changes how a screen looks, never what it does.
 
 ---
 
@@ -99,6 +123,7 @@ Every task's requirements implicitly include this section. Values are copied ver
 | **Phase 1 A — walking skeleton** | 1.1 – 1.9 | §20.3's vertical slice: hardcoded form → offline entry → sync → visible on a laptop. |
 | **Phase 1 B — auth and roles** | 1.10 – 1.17, 1.17a, 1.17b | Login, JWT, the caller contract at the edge, the typed client, permissions, offline login, user administration. **1.17a and 1.17b were added 2026-09-24**, after the first production sign-in: the user-administration gaps (spec §5.4 item 3), and the shell's hydration gate (spec §4.3). **Run 1.17b before 1.18.** |
 | **Phase 1 C — seasons, events, teams, matches** | 1.18 – 1.23 | The admin management page, the active context and the game-image pipeline. Numeric order: P86 moved the whole image-manifest contract into 1.18, so 1.23 no longer runs first. |
+| **Redesign** | R.1 – R.14 | `docs/plans/REDESIGN-PLAN.md`: the motion system, the primitives, paths, the nav registry, the sidebar / drawer / bottom-bar shell, Home at `/`, then every screen from 1A–1C. **Run after 1.23, before 1.24** *(added 2026-10-01)*. |
 | **Phase 1 D — form builder** | 1.24 – 1.32 | Field catalogue, semantic metadata, scoring editor, versioning, JSON export/import. |
 | **Phase 1 E — data-entry runtime** | 1.33 – 1.38 | All field types, the sticky timer, robot status, super scouting, undo, drafts, practice mode. |
 | **Phase 1 F — sync protocol** | 1.39 – 1.45 | Outbox, push, delta pull, hydration, conflicts, the review screen, the sync page. |
@@ -118,6 +143,8 @@ The numbering follows SPEC-FINAL §20.2's order exactly. **Three tasks must none
 | **1.54, 1.55, 1.56** — the metric engine | **1.50** — the browse and search queries | §13.3 requires every entry-search row to carry its **scouted points**, and §11.1 allows exactly one scoring implementation. `queryEntries` calls `scoreEntry`, which 1.54 builds. |
 
 So the execution order is: … 1.49, **1.54, 1.55, 1.56**, 1.50, 1.51, 1.52, **1.57**, 1.53, 1.58 …
+
+**The redesign runs between phase 1C and 1D** *(added 2026-10-01)*: … 1.22, 1.23, **R.1 – R.14** (`docs/plans/REDESIGN-PLAN.md`), 1.24 …
 
 If you would rather the file read in execution order, renumber it once before the first build chat and never again — but do not renumber halfway through, because the commit messages and the branch names will stop matching.
 
@@ -13080,6 +13107,9 @@ git add -A && git commit -m "feat(server): add the scoring-model editor and the 
 
 ## Task 1.29: Client — the form builder shell
 
+**Design (redesign system).** Reference: **Fillout / Tally**. The three panes sit side by side as three `Card`s in a grid (palette · canvas · settings). Canvas rows are list rows inside the canvas card, not cards. Palette items are `Button variant="secondary"`. The incomplete-field red dot is `bg-danger` with `sr-only` text "incomplete". dnd-kit's drop transform may transition (the drop position is information).
+**Open input [RAISED BY ME]:** nothing lists forms or links to `/admin/forms/:formId` (living spec §4.3, 2026-10-01). Decide before this task runs. The recommendation is a minimal `/admin/forms` page (the season's match and super forms through `getFormByKind`), `PATHS.forms`, and `NAV_ITEMS` row `{ id: 'forms', label: 'Forms', icon: FileText, group: 'admin', bottomBar: null, visible: admin }`.
+
 **Files:**
 - Create: `apps/client/src/features/builder/BuilderPage.tsx`, `apps/client/src/features/builder/FieldPalette.tsx`, `apps/client/src/features/builder/BuilderCanvas.tsx`, `apps/client/src/features/builder/useBuilderState.ts`
 - Create: `packages/shared/src/forms/version.ts` — `isStructuralChange`, **moved** out of `apps/server/src/core/commands/forms.ts`
@@ -13187,6 +13217,8 @@ git add -A && git commit -m "feat(client): add the three-pane form builder shell
 ---
 
 ## Task 1.30: Client — the builder settings pane
+
+**Design (redesign system).** The settings pane is one `Card` with three `SectionHeader level={3}` groups: Configuration, Meaning (the semantic metadata), Scoring. Fields come from `features/admin/fields.tsx` and `Textarea`; errors are `FormError`.
 
 **Files:**
 - Create: `apps/client/src/features/builder/SettingsPane.tsx`, `apps/client/src/features/builder/MetadataFields.tsx`, `apps/client/src/features/builder/ScoringFields.tsx`, `apps/client/src/features/builder/ConfigFields.tsx`, `apps/client/src/features/builder/MirrorPreview.tsx`
@@ -13307,6 +13339,8 @@ git add -A && git commit -m "feat(client): add the builder settings pane with me
 
 ## Task 1.31: Client — live preview, the raw-JSON editor and export/import
 
+**Design (redesign system).** The phone-width preview is a `max-w-[375px] rounded-2xl border border-border` frame rendering the real `FieldInput`. The raw-JSON editor is `Textarea` with `font-mono`, and its line-numbered error is a `Notice tone="danger" role="alert"`. Export and import are `Button`s.
+
 **Files:**
 - Create: `apps/client/src/features/builder/LivePreview.tsx`, `apps/client/src/features/builder/RawJsonEditor.tsx`, `apps/client/src/features/builder/ImportExport.tsx`
 - Create: `apps/client/src/features/builder/LivePreview.test.tsx`, `apps/client/src/features/builder/RawJsonEditor.test.tsx`
@@ -13341,6 +13375,8 @@ git add -A && git commit -m "feat(client): add the builder live preview, raw JSO
 ---
 
 ## Task 1.32: The match-timer configuration editor
+
+**Design (redesign system).** Phases are a `Table` (numeric columns right-aligned) with `NumberField`s, and the add/remove row actions are icon `Button`s with their names in `aria-label`.
 
 **Files:**
 - Create: `packages/shared/src/forms/timer.ts`, `packages/shared/src/forms/timer.test.ts`
@@ -13452,6 +13488,18 @@ This group replaces the walking skeleton's four-type entry screen with the real 
 ---
 
 ## Task 1.33: The entry renderer — every simple field type
+
+**Design (redesign system).** Build every type from `components/entry`:
+- counter → `CounterControl`;
+- toggle → `ToggleField` (a native checkbox);
+- single_select → `ChoiceGroup`;
+- multi_select → the same card classes as `ChoiceGroup` around native checkboxes, as `components/entry/MultiChoiceGroup.tsx`;
+- rating → `ChoiceGroup` of 1–5 (stars style), or a native `<input type="range">`;
+- number and short_text → `Input`;
+- computed → a read-only value row;
+- section → `SectionHeader level={3}`.
+
+On this path motion is informational only: the counter tick, press feedback, the chosen edge.
 
 **Files:**
 - Modify: `apps/client/src/features/entry/FieldInput.tsx`
@@ -13610,6 +13658,8 @@ git add -A && git commit -m "feat(client): render every simple field type in the
 
 ## Task 1.34: The sticky match timer, the Timer field and the Event-log field
 
+**Design (redesign system).** The sticky timer is `sticky top-16 lg:top-0` under the phone top bar, with `tabular-nums` digits. A phase change may animate the phase label once (information); nothing else on it moves. Event-log buttons are `Button size="lg"`, and taps show as `Badge` chips with undo.
+
 **Files:**
 - Create: `apps/client/src/features/entry/MatchTimer.tsx`, `apps/client/src/features/entry/MatchTimer.test.tsx`
 - Create: `apps/client/src/features/entry/inputs/TimerInput.tsx`, `apps/client/src/features/entry/inputs/EventLogInput.tsx`
@@ -13730,6 +13780,8 @@ git add -A && git commit -m "feat(client): add the sticky match timer, the timer
 
 ## Task 1.35: Spatial fields — the position picker and the cycle path
 
+**Design (redesign system).** The game image sits in a `Card`. Tapped points are dots in `bg-alliance-red` / `bg-alliance-blue` for the scout's alliance, and a new point appears with `.enter-scale` (information: the tap landed). A missing image is `FieldImage`'s alert, unchanged.
+
 **Files:**
 - Create: `packages/shared/src/forms/mirror.ts`, `packages/shared/src/forms/mirror.test.ts`
 - Create: `apps/client/src/features/entry/inputs/PositionInput.tsx`, `apps/client/src/features/entry/inputs/CyclePathInput.tsx`
@@ -13824,6 +13876,8 @@ git add -A && git commit -m "feat: add the position picker and cycle path with a
 ---
 
 ## Task 1.36: The entry form's rules — phases, status, conditions, range block, confirmation
+
+**Design (redesign system).** Phase sections are R.10's `<details>` cards. The range block is a `Notice tone="danger" role="alert"`, and the confirmation is R.10's `ReviewDialog`. `/super` → add `PATHS.super`, and add `'/super'` to `ENTRY_PATH_PREFIXES` (no route fade, informational motion only). It is **not** a nav row: it is linked from `/scout`.
 
 **Files:**
 - Modify: `apps/client/src/features/entry/EntryPage.tsx`, `apps/client/src/features/entry/EntryPage.test.tsx`, `apps/client/src/routes.tsx`
@@ -13986,6 +14040,8 @@ git add -A && git commit -m "feat(client): finish the entry form rules — phase
 
 ## Task 1.37: Drafts, recovery and practice mode
 
+**Design (redesign system).** `DraftRecovery` is a `Notice` with its one action. Practice mode is a persistent `Notice tone="warning"` strip in the shell's notices (AppShell `notices`), so no screen can be mistaken for a real entry.
+
 **Files:**
 - Create: `apps/client/src/features/entry/practice.ts`, `apps/client/src/features/entry/practice.test.ts`
 - Create: `apps/client/src/features/entry/DraftRecovery.tsx`, `apps/client/src/features/entry/DraftRecovery.test.tsx`
@@ -14073,6 +14129,8 @@ git add -A && git commit -m "feat(client): add draft recovery and practice mode"
 ---
 
 ## Task 1.38: Arena comfort — themes, large text, wake lock, haptics
+
+**Design (redesign system).** `/settings` → `PATHS.settings`, plus a `NAV_ITEMS` row `{ id: 'settings', label: 'Settings', icon: Settings, group: 'device', bottomBar: null, visible: () => true }`. Add `'device'` to `NavGroup`, with the label "This device". The theme and text-size pickers are `ChoiceGroup`s. **From this task on, BUILD-CONTEXT §12's screenshots are taken in both themes.** Re-check every R-plan screen in the outdoor theme here and log what needed fixing.
 
 **Files:**
 - Create: `apps/client/src/features/settings/theme.ts`, `apps/client/src/features/settings/theme.test.ts`
@@ -14749,6 +14807,8 @@ git add -A && git commit -m "feat(server): add the conflict review queue and res
 
 ## Task 1.42: Client — parent-deleted records and the discarded-records log
 
+**Design (redesign system).** The dismissible notice is a `Notice` with a "Dismiss" `Button variant="ghost"`. The log page is a `PageHeader` and a `Table`.
+
 **Open input from phase 1C.** Spec §7.5 item 3: since task 1.22 an open device moves to a changed default mid-session, and nothing evicts the event it left from `db.rows`, which breaks §7.3's active-competition-only bound. Evict that event's rows once every outbox operation for it is acknowledged. Never evict a draft, an unacknowledged row, or anything the outbox still references.
 
 **Files:**
@@ -14846,6 +14906,12 @@ git add -A && git commit -m "feat(client): handle parent-deleted records and kee
 ---
 
 ## Task 1.43: Client — the sync page
+
+**Design (redesign system).** Reference: **Obsidian Sync**.
+- `/sync` → `PATHS.sync`, plus a `NAV_ITEMS` row `{ id: 'sync', label: 'Sync', icon: RefreshCw, group: 'device', bottomBar: null, visible: () => true }`.
+- `ConnectionIndicator` becomes a `Link` to `PATHS.sync` with its `role="status"` span inside, so its words and count are still announced.
+- The pending list is `Table` rows with `Badge`s ("local" / "QR", robot status); rejections are `Notice tone="warning"`.
+- "Sync now" is the page's one `Button variant="primary"`.
 
 **Open input from phase 1C.** Spec §7.5 item 4: `EntriesPage` lists only the shell's event, so after a default move the old event's unsynced or rejected entries are on no screen. The pending list here covers **every** unsynced or rejected record on the device, whatever its event, and names the event when it is not the current one.
 
@@ -14945,6 +15011,10 @@ git add -A && git commit -m "feat(client): add the sync page with pending, rejec
 ---
 
 ## Task 1.44: Client — the conflict-review screen
+
+**Design (redesign system).** Reference: **Obsidian Sync** (a worklist you can finish).
+- `/conflicts` → `PATHS.conflicts`, plus a `NAV_ITEMS` row `{ id: 'conflicts', label: 'Conflicts', icon: GitMerge, group: 'device', bottomBar: null, visible: lead or admin }`.
+- Works at any width, so no `DesktopOnly`. The two versions are two `Card`s side by side at ≥ 1024 px and stacked below; never a card inside a card.
 
 **Files:**
 - Create: `apps/client/src/features/sync/ConflictsPage.tsx`, `apps/client/src/features/sync/ConflictDiff.tsx`, `apps/client/src/features/sync/ConflictsPage.test.tsx`
@@ -15097,6 +15167,8 @@ git add -A && git commit -m "feat(client): add the conflict-review worklist with
 ---
 
 ## Task 1.45: Client — the offline capability matrix
+
+**Design (redesign system).** `OfflineGate` disables through `Button disabled` and renders the restyled `StateMessage variant="offline-needs-server"`. Nothing new to style.
 
 **Files:**
 - Create: `apps/client/src/data/offlineCapability.ts`, `apps/client/src/data/offlineCapability.test.ts`
@@ -15418,6 +15490,8 @@ git add -A && git commit -m "feat(shared): add the deflate + framed QR codec wit
 
 ## Task 1.47: Client — the QR sender
 
+**Design (redesign system).** The sender is a full-screen `Sheet side="bottom"` or page with a `tabular-nums` frame counter. The QR canvas draws black on white, which the QR format needs for scanning. That is the code's content, not a UI colour, so it sits outside the token rule, and the plate around it is `bg-surface`. The frame cycling is the function, not decoration; nothing else moves.
+
 **Files:**
 - Create: `apps/client/src/features/qr/QrSendPage.tsx`, `apps/client/src/features/qr/QrSendPage.test.tsx`
 - Modify: `apps/client/package.json` (add `"qrcode": "^1.5.4"`, `"@types/qrcode": "^1.5.5"`), `apps/client/src/routes.tsx`
@@ -15528,6 +15602,8 @@ git add -A && git commit -m "feat(client): add the QR sender with a cyclic five-
 ---
 
 ## Task 1.48: Client — the QR receiver and disposal on ack
+
+**Design (redesign system).** The camera view fills a `Card`, and its progress ("12 of 30 frames") is a `Badge` with `tabular-nums`. Disposal on ack is a `Notice tone="success"`.
 
 **Files:**
 - Create: `apps/client/src/features/qr/QrReceivePage.tsx`, `apps/client/src/features/qr/QrReceivePage.test.tsx`
@@ -15647,6 +15723,8 @@ git add -A && git commit -m "feat(client): add the QR receiver with ack-gated di
 ---
 
 ## Task 1.49: Client — the lead-approved device wipe
+
+**Design (redesign system).** The wipe is `ConfirmDialog` with `typeToConfirm` (a multi-record irreversible, SPEC-FINAL §17.8), reached from the sync page; not a nav row.
 
 **Files:**
 - Create: `apps/client/src/features/settings/DeviceWipe.tsx`, `apps/client/src/features/settings/DeviceWipe.test.tsx`
@@ -15861,6 +15939,11 @@ git add -A && git commit -m "feat(server): add team search, entry search and ent
 
 ## Task 1.51: Client — the team search page
 
+**Design (redesign system).** Reference: **Attio**.
+- `/teams` → `PATHS.teams`, plus a `NAV_ITEMS` row `{ id: 'teams', label: 'Search', icon: Search, group: 'competition', bottomBar: 2, visible: () => true }`. Set Entries' `bottomBar` to 3.
+- The bottom bar becomes Home · Scout · Search · Entries.
+- The search box is `Input type="search"`, and results are dense `Table` or list rows.
+
 **Files:**
 - Create: `apps/client/src/features/teams/TeamSearchPage.tsx`, `apps/client/src/features/teams/TeamSearchPage.test.tsx`, `apps/client/src/features/teams/CrossEventJump.tsx`
 - Modify: `apps/client/src/routes.tsx`
@@ -15991,6 +16074,8 @@ git add -A && git commit -m "feat(client): add the season-wide team search with 
 
 ## Task 1.52: Client — entry search and the entry preview page
 
+**Design (redesign system).** Reference: **Attio**. Filters are chips: `Button variant="secondary" size="default"` with `aria-pressed`. A row opens `/entries/:id` (`PATHS` gains an `entry(id)` helper) as a **full page**, never a drawer or `Sheet`.
+
 **Files:**
 - Create: `apps/client/src/features/entries/EntrySearchPage.tsx`, `apps/client/src/features/entries/EntryPreviewPage.tsx`
 - Create: `apps/client/src/features/entries/EntrySearchPage.test.tsx`, `apps/client/src/features/entries/EntryPreviewPage.test.tsx`
@@ -16112,6 +16197,8 @@ git add -A && git commit -m "feat(client): add entry search and the full-page en
 ---
 
 ## Task 1.53: Client — the team page
+
+**Design (redesign system).** Reference: **Sofascore**. The team header is the page's own sticky `<header>`, not `PageHeader`. This task's test finds it as `banner` rendering the page standalone. On the live phone layout the shell's `TopBar` is the top-level banner, and a `<header>` inside `<main>` is not one. The tab strip is `<Tabs>`, and stat rows are label → value → inline bar with `ShadedValue`.
 
 **Files:**
 - Create: `apps/client/src/features/teams/TeamPage.tsx`, `apps/client/src/features/teams/TeamHeader.tsx`, `apps/client/src/features/teams/MatchByMatchTable.tsx`, `apps/client/src/features/teams/NotesList.tsx`
@@ -17019,6 +17106,11 @@ git add -A && git commit -m "feat(server): add getTeamStats and the fixed phase 
 
 ## Task 1.58: Client — the fixed ranking table
 
+**Design (redesign system).** Reference: **shadcn data-table / premierleague.com**.
+- `/ranking` → `PATHS.ranking`, plus a `NAV_ITEMS` row `{ id: 'ranking', label: 'Ranking', icon: Trophy, group: 'competition', bottomBar: 3, visible: () => true }`. **Set Entries' `bottomBar` to `null`**, which moves it to the drawer and sidebar only (spec v0.49).
+- The bottom bar becomes Home · Scout · Search · Ranking.
+- The table is `Table` with `TableHeader sticky` and `numeric` cells. The top-3 medals are a `Trophy` icon plus the rank number: no new medal colours (§17.4).
+
 **Files:**
 - Create: `apps/client/src/features/ranking/RankingPage.tsx`, `apps/client/src/features/ranking/RankingPage.test.tsx`
 - Modify: `apps/client/src/routes.tsx`, `apps/client/package.json` (add `"@tanstack/react-table": "^8.20.5"`)
@@ -17134,6 +17226,8 @@ git add -A && git commit -m "feat(client): add the fixed phase 1 ranking table"
 ---
 
 ## Task 1.59: Client — value shading and the progression chart
+
+**Design (redesign system).** Shading reads only `--shade-*`. Recharts' mount animation is a page-load sequence, so every chart sets `isAnimationActive={false}`. Charts sit in `Card`s with sparse gridlines (Tremor).
 
 **Files:**
 - Create: `packages/shared/src/engine/shading.ts`, `packages/shared/src/engine/shading.test.ts`
@@ -17387,6 +17481,8 @@ git add -A && git commit -m "feat(server): add the admin cascade deletes with an
 ---
 
 ## Task 1.61: Client — the destructive-action surface
+
+**Design (redesign system).** The one dialog is `ConfirmDialog`, already restyled, and `getDeleteImpact`'s counts fill its `loss` line.
 
 **Files:**
 - Create: `apps/client/src/features/admin/DeleteDialog.tsx`, `apps/client/src/features/admin/DeleteDialog.test.tsx`
@@ -17682,6 +17778,12 @@ The order below is SPEC-FINAL §20.2's order. The gate is §20.4: *a strategy le
 7. **Pick list, do-not-pick list and alliance bracket** — §14 in full: two lists per event, seeding from a weight preset, drag-reorder against the **list-level version** of §14.7, round detection, live cross-off derived from `alliance_slots`, declines, and the lead's do-not-pick addition. The schema exists from task 0.12 and the outbox entities from task 1.1; the feature does not.
 8. **The built-in dashboards and the dashboards hub** — §12.8's five built-ins, one row per kind per season, each reachable in context from its home page, plus the hub that prompts for a parameterized built-in's input.
 
+**Design for phase 2 (redesign system).** When phase 2 is re-planned, every page follows "The redesign system" section and its SPEC-FINAL §17.9 row:
+- Dashboards and the builder use Grafana's panel grid of `Card`s, Tremor's KPI tiles and Metabase's builder order.
+- Compare and match preview are mirrored columns, with bars in `--alliance-*` where a side is an alliance.
+- Each page is one `NAV_ITEMS` row.
+- The pick list's drag uses dnd-kit's transform transition (the drop position is information), with undo as a `Notice` action.
+
 Nothing else. **Appendix A of SPEC-FINAL stays out of scope**, in phase 2 as in phase 1.
 
 ---
@@ -17899,6 +18001,10 @@ What remains is narrower: **these tasks give the component's file, props, DOM st
 Why this is tolerable: the tests assert on roles, labels, copy and behaviour, so an agent that satisfies them has little room to invent. Why it is still a gap: the diff will be less predictable than for the server, database and engine tasks, and the review will take longer.
 
 **If you want them closed**, the cheapest route is one planning chat per group (C, D, E, H) that expands only those tasks, using the finished ones — 1.7, 1.8, 1.23, 1.33 — as the house style. That is four chats, and it can happen while phase 0 is being built.
+
+### 1a. The contract-only UI tasks now have a design system to build on *(2026-10-01)*
+
+The tasks in item 1 still describe their render body in prose. Since v1.2, each also carries a "Design (redesign system)" block, and "The redesign system" section maps every generic element to a named component, so the remaining freedom is layout, not look.
 
 ### 2. Everything else in this appendix is closed
 

@@ -315,3 +315,11 @@ task, whether or not the task's plan text mentions design.
    reference app, the checklist result for each item, and anything that fell short and
    why. The user checks these screens on dev at the end of the part. The report is the
    list they work from.
+7. **Build on the redesign system** *(added 2026-10-01)*. `docs/plans/REDESIGN-PLAN.md` put these in place, and every later task uses them rather than inventing its own:
+   - `components/ui/*`: Button, Input, NativeSelect, Label, Card, Badge, Table, PageHeader, Tabs, Sheet and Notice.
+   - `components/entry/*`: ChoiceGroup, CounterControl, ToggleField and StickyActionBar.
+   - `lib/paths.ts`: every path, written once.
+   - `features/shell/nav.ts`: one row per nav destination. Never hand-write a shell link.
+   - `lib/motion.ts` plus `styles/motion.css`: M3 tokens only, and the SPEC-FINAL v1.3 §17.9 motion rule.
+
+   **Colour uses the Tailwind theme names** (`bg-surface`, `text-text-muted`, …). **One copy of each nav destination is in the DOM at a time.** jsdom has no `matchMedia`, so the shell renders its desktop layout under test.
