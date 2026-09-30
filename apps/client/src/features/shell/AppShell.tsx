@@ -25,14 +25,20 @@ import {
   syncNow,
   type HydrationState,
 } from '@/data/sync';
-import { canManageEvents, canManageUsers } from '@/features/admin/AdminOnly';
+import { canManageEvents } from '@/features/admin/AdminOnly';
 import { sessionOverride, useSessionOverride } from '@/features/context/sessionOverride';
 import { useEventName } from '@/features/context/useEventName';
 import { ENTRY_ROUTE, PATHS } from '@/lib/paths';
 import { useOnline } from '@/lib/useOnline';
 import { updateReady } from '@/pwa';
 import { CloudDownload, CloudOff } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Notice } from '@/components/ui/notice';
+import { useIsDesktop } from '@/lib/useMediaQuery';
+import { AccountBlock } from './AccountBlock';
 import { ConnectionIndicator } from './ConnectionIndicator';
+import { bottomBarItems, navItemsFor, type NavAudience } from './nav';
+import { ShellLayout } from './ShellLayout';
 import { ShellState } from './ShellState';
 import { NoCompetition } from './NoCompetition';
 import { needsNoHydration, type ShellContext } from './shellContext';
@@ -52,6 +58,9 @@ const AUTO_REFRESH_MS = 45_000;
 const PULL_TO_REFRESH_PX = 80;
 
 export const UPDATE_READY_LINE = 'An update is ready. It will apply next time you open the app.';
+
+/** A notice as a full-width strip under the shell's top edge. */
+const STRIP = 'rounded-none border-0 border-b border-s-4 px-4';
 
 /** SPEC-FINAL 9.3: the notice after a pull answered that the event is gone. */
 function goneLine(name: string | null): string {
@@ -112,6 +121,7 @@ export function AppShell() {
   /** The one-field password prompt (task 1.16); `key` remounts it for a new reason. */
   const [prompt, setPrompt] = useState<{ key: number; error: string | null } | null>(null);
   const online = useOnline();
+  const desktop = useIsDesktop();
   const current = useSession();
   const location = useLocation();
   const matches = useMatches();
@@ -438,45 +448,14 @@ export function AppShell() {
   const workingOn = eventName ?? 'this competition';
   const lookingAt = override?.eventName ?? 'another competition';
 
-  return (
-    <div className="min-h-dvh" onTouchStart={onTouchStart} onTouchMove={onTouchMove}>
-      <header className="flex flex-wrap items-center justify-between gap-y-2 border-b border-[var(--border)] p-2">
-        <nav className="tap-row flex flex-wrap">
-          {override ? (
-            // SPEC-FINAL 6.3: no new entry while an override is in effect. The routes
-            // refuse too; this only stops the nav offering what the route would refuse.
-            <span
-              aria-disabled="true"
-              className="tap-target px-3 leading-[48px] text-[var(--text-muted)]"
-            >
-              Scout
-            </span>
-          ) : (
-            <Link className="tap-target px-3 leading-[48px]" to={PATHS.scout}>
-              Scout
-            </Link>
-          )}
-          <Link className="tap-target px-3 leading-[48px]" to="/entries">
-            Entries
-          </Link>
-          {!current.expired && (
-            <Link className="tap-target px-3 leading-[48px]" to="/switch-scouter">
-              Switch scouter
-            </Link>
-          )}
-          {!current.expired && canManageUsers(current.user) && (
-            <Link className="tap-target px-3 leading-[48px]" to="/admin/users">
-              Users
-            </Link>
-          )}
-          {!current.expired && canManageEvents(current.user) && (
-            <Link className="tap-target px-3 leading-[48px]" to="/admin/manage">
-              Manage
-            </Link>
-          )}
-        </nav>
-        <ConnectionIndicator />
-      </header>
+  const who: NavAudience = {
+    user: current.user,
+    expired: current.expired,
+    override: override !== null,
+  };
+
+  const notices = (
+    <>
       {offlineSession && prompt && (
         <ReconnectPrompt
           key={prompt.key}
@@ -487,61 +466,103 @@ export function AppShell() {
       )}
       {current.expired ? (
         // Persistent and non-modal: the scout finishes the entry first (task 1.15).
-        <p role="status" className="border-b-2 border-[var(--warning)] p-2 text-sm">
+        <Notice role="status" tone="warning" className={STRIP}>
           Sign in again to sync — this entry is saved on this device
-        </p>
+        </Notice>
       ) : offlineSession ? (
-        <p role="status" dir="auto" className="border-b border-[var(--border)] p-2 text-sm">
+        <Notice role="status" className={STRIP}>
           {OFFLINE_SIGNED_IN_LINE}
-        </p>
+        </Notice>
       ) : (
         gate.state === 'cached' && (
-          <p className="border-b border-[var(--border)] p-2 text-sm text-[var(--text-muted)]">
+          <Notice className={STRIP}>
             Working from data already on this device. Your entries are safe here and will sync when
             a connection returns.
-          </p>
+          </Notice>
         )
       )}
       {override && !onHome && (
-        // Persistent, on every page but the context page (which carries its own banner).
-        <div
+        // Persistent, on every page but Home (which carries its own banner).
+        <Notice
           role="status"
-          className="tap-row flex flex-wrap items-center gap-x-2 border-b-2 border-[var(--warning)] px-2 text-sm"
+          tone="warning"
+          className={STRIP}
+          action={
+            <Button variant="ghost" className="underline" onClick={() => sessionOverride.clear()}>
+              <span dir="auto">Back to {workingOn}</span>
+            </Button>
+          }
         >
           <span dir="auto">You are looking at {lookingAt} only for this session.</span>
-          <button
-            type="button"
-            className="tap-target px-2 font-medium underline"
-            onClick={() => sessionOverride.clear()}
-          >
-            <span dir="auto">Back to {workingOn}</span>
-          </button>
-        </div>
+        </Notice>
       )}
       {deferred && onEntryRoute && (
-        <p role="status" dir="auto" className="border-b-2 border-[var(--warning)] p-2 text-sm">
+        <Notice role="status" tone="warning" className={STRIP}>
           The default competition has changed. Finish this entry — it stays with {workingOn}. This
           device moves to the new one when you leave it.
-        </p>
+        </Notice>
       )}
       {switchedTo !== null && switchedTo === gate.eventId && loaded && (
-        <p role="status" dir="auto" className="border-b border-[var(--border)] p-2 text-sm">
+        <Notice role="status" className={STRIP}>
           This device now works on {workingOn}, the new default competition.
-        </p>
+        </Notice>
       )}
       {goneNotice && (
-        <p role="status" dir="auto" className="border-b-2 border-[var(--warning)] p-2 text-sm">
+        <Notice role="status" tone="warning" className={STRIP}>
           {goneNotice}
-        </p>
+        </Notice>
       )}
+    </>
+  );
+
+  const footer = (
+    <>
+      {/* SPEC-FINAL 6.3: a link to the page, naming the context — never the switcher. */}
+      {gate.eventId !== null && !current.expired && !onHome && (
+        <Link
+          className="tap-target state-layer inline-flex items-center rounded-lg px-2"
+          to={PATHS.home}
+        >
+          <span dir="auto">{override ? `Looking at ${lookingAt}` : `Working on ${workingOn}`}</span>
+          &nbsp;· Change
+        </Link>
+      )}
+      {/* SPEC-FINAL 9.1: said, never acted on — no reload button, because there is
+          nothing safe for it to do mid-match. */}
+      {updateIsReady && <span>{UPDATE_READY_LINE}</span>}
+      {!onHome && <span>version {clientConfig().appVersion}</span>}
+    </>
+  );
+
+  return (
+    <ShellLayout
+      desktop={desktop}
+      items={navItemsFor(who)}
+      bottomItems={bottomBarItems(who)}
+      hideBottomBar={onEntryRoute}
+      who={who}
+      status={(collapsed) => <ConnectionIndicator compact={collapsed} />}
+      account={(collapsed) => (
+        <AccountBlock
+          name={current.user.full_name}
+          role={current.user.role}
+          canSwitch={!current.expired}
+          canChangePassword={current.token !== null}
+          onSignOut={() => void session.signOut()}
+          collapsed={collapsed}
+        />
+      )}
+      notices={notices}
+      footer={footer}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+    >
       {/* Deliberately NOT `<Outlet key={state} />`: that remounts the page on every state
           change and would throw away a part-filled form ('cached' → 'fresh'). */}
       {showPage ? (
         <Outlet context={context} />
       ) : moving ? (
-        <p className="p-8 text-center text-[var(--text-muted)]">
-          Moving to the new default competition…
-        </p>
+        <p className="p-8 text-center text-text-muted">Moving to the new default competition…</p>
       ) : (
         <HydrationGate
           state={gate.state}
@@ -549,37 +570,6 @@ export function AppShell() {
           canSetUp={canManageEvents(current.user)}
         />
       )}
-      <footer className="flex flex-wrap items-center justify-center gap-x-4 p-2 text-xs text-[var(--text-muted)]">
-        {/* SPEC-FINAL 6.3: a link to the page, naming the context — never the switcher. */}
-        {gate.eventId !== null && !current.expired && !onHome && (
-          <Link className="tap-target inline-flex items-center px-2" to={PATHS.home}>
-            <span dir="auto">
-              {override ? `Looking at ${lookingAt}` : `Working on ${workingOn}`}
-            </span>
-            &nbsp;· Change
-          </Link>
-        )}
-        <span>
-          Signed in as{' '}
-          <span dir="auto" className="font-medium text-[var(--text)]">
-            {current.user.full_name}
-          </span>
-        </span>
-        <span className="tap-row flex">
-          {current.token !== null && (
-            <Link className="tap-target inline-flex items-center px-2" to="/change-password">
-              Change password
-            </Link>
-          )}
-          <button type="button" className="tap-target px-2" onClick={() => void session.signOut()}>
-            Sign out
-          </button>
-        </span>
-        {/* SPEC-FINAL 9.1: said, never acted on — no reload button, because there is
-            nothing safe for it to do mid-match. */}
-        {updateIsReady && <span>{UPDATE_READY_LINE}</span>}
-        {!onHome && <span>version {clientConfig().appVersion}</span>}
-      </footer>
-    </div>
+    </ShellLayout>
   );
 }

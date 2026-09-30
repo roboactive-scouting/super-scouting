@@ -677,9 +677,9 @@ describe('renaming an account (spec §5.4 item 3)', () => {
     await u.click(within(form).getByRole('button', { name: /save/i }));
 
     await screen.findByRole('heading', { name: 'Admin Renamed' });
-    // The footer's "Signed in as ..." reads the session, so waiting for it flushes the
+    // The sidebar's "Signed in as ..." reads the session, so waiting for it flushes the
     // session.updateUser() commit before asserting on session.current() below.
-    await screen.findByText('Admin Renamed', { selector: 'footer *' });
+    await screen.findByText('Admin Renamed', { selector: 'aside *' });
     const current = await session.current();
     expect(current?.user.full_name).toBe('Admin Renamed');
     expect(current?.user.username).toBe('admin2');
