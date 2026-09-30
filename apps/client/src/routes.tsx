@@ -6,11 +6,11 @@ import { DesktopOnly } from '@/components/DesktopOnly';
 import { ManagePage } from '@/features/admin/ManagePage';
 import { UserDetailPage } from '@/features/admin/UserDetailPage';
 import { UsersPage } from '@/features/admin/UsersPage';
-import { ContextPage } from '@/features/context/ContextPage';
 import { OverrideGuard } from '@/features/context/OverrideGuard';
 import { AppShell } from '@/features/shell/AppShell';
 import { NO_HYDRATION, useActiveEventId, useSignedInUser } from '@/features/shell/shellContext';
 import { EntriesPage } from '@/features/entries/EntriesPage';
+import { HomePage } from '@/features/home/HomePage';
 import { SelectRobotPage } from '@/features/entry/SelectRobotPage';
 import { EntryRoute } from '@/features/entry/EntryRoute';
 import { PATHS } from '@/lib/paths';
@@ -63,9 +63,9 @@ export function routeTree(): RouteObject[] {
       path: '/',
       element: <AppShell />,
       children: [
-        // Home (redesign R.4): the context page, now the landing page. It reads the cache
-        // and the server itself (never useActiveEventId), so it renders with no event loaded.
-        { index: true, element: <ContextPage />, handle: NO_HYDRATION },
+        // Home (redesign R.8): the summary, then the context page. It reads the cache and the
+        // server itself (never useActiveEventId), so it renders with no event loaded.
+        { index: true, element: <HomePage />, handle: NO_HYDRATION },
         { path: 'scout', element: <ScoutRoute /> },
         { path: 'entry/:matchId/:teamId', element: <SignedInEntryRoute /> },
         { path: 'entries', element: <EntriesRoute /> },

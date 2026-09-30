@@ -97,7 +97,7 @@ export function ShellLayout({
           account={account(collapsed)}
         />
       )}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className={cn('flex min-w-0 flex-1 flex-col', showBottomBar && 'pb-20')}>
         {!desktop && (
           <TopBar menuOpen={menuOpen} onOpenMenu={() => setMenuOpen(true)} status={status(false)} />
         )}
@@ -105,14 +105,11 @@ export function ShellLayout({
         <div ref={content} className="flex-1">
           {children}
         </div>
-        <footer
-          className={cn(
-            'flex flex-wrap items-center justify-center gap-x-4 gap-y-1 border-t border-border px-4 py-3 text-xs text-text-muted',
-            showBottomBar && 'pb-24',
-          )}
-        >
-          {footer}
-        </footer>
+        {footer && (
+          <footer className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 border-t border-border px-4 py-3 text-xs text-text-muted">
+            {footer}
+          </footer>
+        )}
         {showBottomBar && <BottomBar items={bottomItems} who={who} />}
       </div>
       {!desktop && (

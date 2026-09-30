@@ -1,5 +1,13 @@
 import { useOutletContext } from 'react-router-dom';
 import type { SessionUser } from '@/auth/session';
+import type { HydrationState } from '@/data/sync';
+
+/**
+ * Where the shell stands with the event (task 1.17b). `resolving` is the moment before the
+ * cache has been read — and, on a device that holds no loaded event, the one
+ * `getActiveContext` call. `no-event` is the server's answer that nothing is set up.
+ */
+export type GateState = 'resolving' | 'loading' | HydrationState | 'no-event';
 
 /** What AppShell hands every child route through `<Outlet context>`. */
 export type ShellContext = {
@@ -14,6 +22,8 @@ export type ShellContext = {
    * renders with an id — read it with `useActiveEventId()`.
    */
   eventId: string | null;
+  /** The gate's state, for a NO_HYDRATION page that says it itself — Home (redesign R.8). */
+  gate: GateState;
 };
 
 /**
@@ -22,6 +32,11 @@ export type ShellContext = {
  */
 export function useSignedInUser(): SessionUser {
   return useOutletContext<ShellContext>().user;
+}
+
+/** The whole shell context, for a NO_HYDRATION page that renders every gate state itself. */
+export function useShellContext(): ShellContext {
+  return useOutletContext<ShellContext>();
 }
 
 /**

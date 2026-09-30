@@ -23,7 +23,7 @@ export function PageHeader({
         </h1>
         {description && <p className="mt-1 max-w-prose text-sm text-text-muted">{description}</p>}
       </div>
-      {actions && <div className="tap-row flex flex-wrap items-center">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </header>
   );
 }
@@ -46,7 +46,7 @@ export function SectionHeader({
       <Heading id={id} className="text-lg font-semibold">
         {title}
       </Heading>
-      {actions && <div className="tap-row flex flex-wrap items-center">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }

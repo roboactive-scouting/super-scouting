@@ -23,7 +23,6 @@ import {
   cachedHydration,
   lastHydratedEventId,
   syncNow,
-  type HydrationState,
 } from '@/data/sync';
 import { canManageEvents } from '@/features/admin/AdminOnly';
 import { sessionOverride, useSessionOverride } from '@/features/context/sessionOverride';
@@ -41,14 +40,8 @@ import { bottomBarItems, navItemsFor, type NavAudience } from './nav';
 import { ShellLayout } from './ShellLayout';
 import { ShellState } from './ShellState';
 import { NoCompetition } from './NoCompetition';
-import { needsNoHydration, type ShellContext } from './shellContext';
+import { needsNoHydration, type GateState, type ShellContext } from './shellContext';
 
-/**
- * Where the shell stands with the event (task 1.17b). `resolving` is the moment before the
- * cache has been read — and, on a device that holds no loaded event, the one
- * `getActiveContext` call. `no-event` is the server's answer that nothing is set up.
- */
-type GateState = 'resolving' | 'loading' | HydrationState | 'no-event';
 type Gate = { state: GateState; eventId: string | null };
 
 /** SPEC-FINAL 10: a background auto-refresh every 45 seconds on data-bearing screens. */
@@ -433,6 +426,7 @@ export function AppShell() {
     user: current.user,
     expired: current.expired,
     eventId: gate.eventId,
+    gate: gate.state,
   };
   /** Signed in against the cached hashes, no token yet (task 1.16). */
   const offlineSession = current.offline && current.token === null && !current.expired;
@@ -515,7 +509,9 @@ export function AppShell() {
     </>
   );
 
-  const footer = (
+  const hasFooter =
+    (gate.eventId !== null && !current.expired && !onHome) || updateIsReady || !onHome;
+  const footer = hasFooter && (
     <>
       {/* SPEC-FINAL 6.3: a link to the page, naming the context — never the switcher. */}
       {gate.eventId !== null && !current.expired && !onHome && (

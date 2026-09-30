@@ -5,11 +5,14 @@ import {
   type EventRow,
   type SeasonRow,
 } from '@frc/shared';
-import { SECONDARY_BUTTON } from '@/components/buttonStyles';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Notice } from '@/components/ui/notice';
 import { clientConfig } from '@/config';
 import { cachedRows } from '@/data/cache';
 import { typedCall as defaultCall, type Rpc } from '@/data/rpc';
 import { useOnline } from '@/lib/useOnline';
+import { cn } from '@/lib/utils';
 import { sessionOverride, useSessionOverride } from './sessionOverride';
 
 /**
@@ -56,10 +59,10 @@ async function listAll<T>(rpc: Rpc, name: string, input: Record<string, unknown>
 const newestFirst = (a: SeasonCard, b: SeasonCard) => b.year - a.year;
 const bySortOrder = (a: EventCard, b: EventCard) => a.sort_order - b.sort_order;
 
-/** A card: big, bordered, a 48 px floor, and a quiet marker line under the name. */
+/** A card: big, bordered, a 48 px floor, and one quiet marker under the name. */
 const CARD =
-  'tap-target flex w-full flex-col items-start gap-1 rounded-lg border border-[var(--border)] p-4 text-left disabled:opacity-50';
-const CARD_SELECTED = 'border-2 border-[var(--text)]';
+  'tap-target state-layer motion-transition flex w-full flex-col items-start gap-1 rounded-xl border border-border bg-surface p-5 text-left disabled:cursor-not-allowed disabled:opacity-50';
+const CARD_SELECTED = 'border-text bg-surface-raised';
 
 export function ContextPage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
   const online = useOnline();
@@ -160,49 +163,44 @@ export function ContextPage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
   const defaultLabel = defaultName ?? 'the default competition';
 
   return (
-    <main className="mx-auto max-w-4xl p-4">
-      <h1 className="text-xl font-semibold">Competition</h1>
-      <p className="mt-2 max-w-prose text-[var(--text-muted)]">
+    <section aria-labelledby="context-title" className="mt-10">
+      <h2 id="context-title" className="text-lg font-semibold">
+        Competitions
+      </h2>
+      <p className="mt-1 max-w-prose text-sm text-text-muted">
         This device works on the competition an admin set as the default. You can look at another
         one for this session; reopening the app always returns to the default.
       </p>
 
       {override && (
-        <div
+        <Notice
           role="status"
-          className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border-2 border-[var(--warning)] p-3"
+          tone="warning"
+          className="mt-4"
+          action={
+            <Button variant="secondary" onClick={() => sessionOverride.clear()}>
+              <span dir="auto">Back to {defaultLabel}</span>
+            </Button>
+          }
         >
-          <p dir="auto" className="flex-1">
-            You are looking at {override.eventName ?? 'another competition'} only for this session.
-            You cannot create new entries here, and reopening the app returns to {defaultLabel}.
-          </p>
-          <button
-            type="button"
-            className={SECONDARY_BUTTON}
-            onClick={() => sessionOverride.clear()}
-          >
-            <span dir="auto">Back to {defaultLabel}</span>
-          </button>
-        </div>
+          You are looking at {override.eventName ?? 'another competition'} only for this session.
+          You cannot create new entries here, and reopening the app returns to {defaultLabel}.
+        </Notice>
       )}
 
       {!online ? (
-        <p className="mt-4 text-sm text-[var(--text-muted)]">{OFFLINE_CONTEXT_LINE}</p>
+        <p className="mt-4 text-sm text-text-muted">{OFFLINE_CONTEXT_LINE}</p>
       ) : (
-        serverSilent && (
-          <p className="mt-4 text-sm text-[var(--text-muted)]">{SERVER_SILENT_LINE}</p>
-        )
+        serverSilent && <p className="mt-4 text-sm text-text-muted">{SERVER_SILENT_LINE}</p>
       )}
 
       {cacheRead && seasons.length === 0 ? (
-        <p className="mt-6 text-[var(--text-muted)]">
-          No competition is set up on this device yet.
-        </p>
+        <p className="mt-6 text-text-muted">No competition is set up on this device yet.</p>
       ) : (
         <section className="mt-6" aria-labelledby="context-seasons">
-          <h2 id="context-seasons" className="text-lg font-semibold">
+          <h3 id="context-seasons" className="text-sm font-medium text-text-muted">
             Seasons
-          </h2>
+          </h3>
           <ul
             aria-label="Seasons"
             className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
@@ -216,14 +214,14 @@ export function ContextPage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
                     type="button"
                     aria-pressed={chosen}
                     disabled={!online && !isDefault}
-                    className={`${CARD} ${chosen ? CARD_SELECTED : ''}`}
+                    className={cn(CARD, chosen && CARD_SELECTED)}
                     onClick={() => setChosenSeasonId(season.id)}
                   >
-                    <span className="text-lg font-semibold">{season.year}</span>
-                    <span dir="auto">{season.game_name}</span>
-                    {isDefault && (
-                      <span className="text-sm text-[var(--text-muted)]">Default season</span>
-                    )}
+                    <span className="text-2xl font-semibold tabular-nums">{season.year}</span>
+                    <span dir="auto" className="text-sm text-text-muted">
+                      {season.game_name}
+                    </span>
+                    {isDefault && <Badge className="mt-2">Default season</Badge>}
                   </button>
                 </li>
               );
@@ -234,11 +232,11 @@ export function ContextPage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
 
       {chosenSeason && (
         <section className="mt-8" aria-labelledby="context-events">
-          <h2 id="context-events" className="text-lg font-semibold">
+          <h3 id="context-events" className="text-sm font-medium text-text-muted">
             Events in {chosenSeason.year} <span dir="auto">{chosenSeason.game_name}</span>
-          </h2>
+          </h3>
           {shownEvents.length === 0 ? (
-            <p className="mt-3 text-[var(--text-muted)]">
+            <p className="mt-3 text-text-muted">
               {online
                 ? 'This season has no events yet.'
                 : 'This season’s events need a connection to the server.'}
@@ -251,8 +249,8 @@ export function ContextPage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
               {shownEvents.map((event) => {
                 const isDefault = event.id === defaultEventId;
                 const isCurrent = event.id === workingOn;
-                // One marker line per card. "Current" is the event this session works on:
-                // the default, or the override while one is set.
+                // One marker per card. "Current" is the event this session works on: the
+                // default, or the override while one is set.
                 const marker = isCurrent
                   ? override
                     ? 'Current, this session only'
@@ -266,13 +264,17 @@ export function ContextPage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
                       type="button"
                       aria-pressed={isCurrent}
                       disabled={!online && !isDefault}
-                      className={`${CARD} ${isCurrent ? CARD_SELECTED : ''}`}
+                      className={cn(CARD, isCurrent && CARD_SELECTED)}
                       onClick={() => void choose(event)}
                     >
                       <span dir="auto" className="text-lg font-semibold">
                         {event.name}
                       </span>
-                      {marker && <span className="text-sm text-[var(--text-muted)]">{marker}</span>}
+                      {marker && (
+                        <Badge tone={isCurrent ? 'success' : 'neutral'} className="mt-2">
+                          {marker}
+                        </Badge>
+                      )}
                     </button>
                   </li>
                 );
@@ -282,9 +284,9 @@ export function ContextPage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
         </section>
       )}
 
-      <footer className="mt-12 text-center text-xs text-[var(--text-muted)]">
+      <footer className="mt-16 border-t border-border pt-4 text-center text-xs text-text-muted">
         version {clientConfig().appVersion}
       </footer>
-    </main>
+    </section>
   );
 }

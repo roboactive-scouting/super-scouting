@@ -31,7 +31,7 @@ export function OverrideGuard({
         You are looking at {override.eventName ?? 'another competition'} only for this session. New
         entries can only be made in {defaultName}.
       </p>
-      <div className="tap-row mt-6 flex flex-wrap">
+      <div className="mt-6 flex flex-wrap gap-2">
         <button type="button" className={PRIMARY_BUTTON} onClick={() => sessionOverride.clear()}>
           <span dir="auto">Back to {defaultName}</span>
         </button>
