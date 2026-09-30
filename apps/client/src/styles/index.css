@@ -3,6 +3,7 @@
 @import '@fontsource/noto-sans-hebrew/600.css';
 @import 'tailwindcss';
 @import './tokens.css';
+@import './motion.css';
 
 @theme inline {
   --color-bg: var(--bg);
