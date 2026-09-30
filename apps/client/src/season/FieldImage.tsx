@@ -1,4 +1,5 @@
 import { useState, type ImgHTMLAttributes } from 'react';
+import { Notice } from '@/components/ui/notice';
 import { imageUrlFor, isKnownSeasonImage } from './images';
 
 /**
@@ -20,13 +21,13 @@ export function FieldImage({
   const [failedPath, setFailedPath] = useState<string | null>(null);
   if (!isKnownSeasonImage(path) || failedPath === path) {
     return (
-      <div role="alert" className="rounded-lg border border-[var(--danger)] p-4 text-sm">
+      <Notice role="alert" tone="danger" still>
         <p className="font-semibold">This season's game image is missing.</p>
-        <p className="text-[var(--text-muted)]">
+        <p className="mt-1 text-text-muted">
           The season points at <code>{path}</code>, which is not in this build. Commit it and
           redeploy the client. Field-position and cycle-path fields cannot be recorded until then.
         </p>
-      </div>
+      </Notice>
     );
   }
   return (

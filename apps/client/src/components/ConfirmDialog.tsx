@@ -1,6 +1,10 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { DESTRUCTIVE_BUTTON, FIELD, SECONDARY_BUTTON } from './buttonStyles';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Notice } from './ui/notice';
+import { useModalFocus } from './ui/useModalFocus';
 
 export type ConfirmDialogProps = {
   open: boolean;
@@ -29,14 +33,10 @@ export type ConfirmDialogProps = {
   onCancel: () => void;
 };
 
-const FOCUSABLE =
-  'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
-
 /**
  * The single destructive pattern of SPEC-FINAL 17.8. A modal with a focus trap: first
  * focus on Cancel, never on the destructive button; Escape cancels; focus returns to what
- * opened it. Not a native <dialog>: jsdom has no `showModal`, and the tests must exercise
- * the same focus rules the app ships.
+ * opened it (useModalFocus). It scales in once, and goes at once.
  */
 export function ConfirmDialog(props: ConfirmDialogProps) {
   if (!props.open) return null;
@@ -57,41 +57,16 @@ function OpenDialog({
   onCancel,
 }: ConfirmDialogProps) {
   const id = useId();
-  const panel = useRef<HTMLDivElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
   const [typed, setTyped] = useState('');
   const armed = typeToConfirm === undefined || typed === typeToConfirm;
-
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
-    cancel.current?.focus();
-    return () => {
-      if (opener && opener.isConnected) opener.focus();
-    };
-  }, []);
-
-  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      if (!busy) onCancel();
-      return;
-    }
-    if (e.key !== 'Tab' || !panel.current) return;
-    const items = [...panel.current.querySelectorAll<HTMLElement>(FOCUSABLE)];
-    const first = items[0];
-    const last = items[items.length - 1];
-    if (!first || !last) return;
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  }
+  // First focus on Cancel, never on the destructive button; Escape cancels unless busy.
+  const { panel, onKeyDown } = useModalFocus(() => {
+    if (!busy) onCancel();
+  }, cancel);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg)]/80 p-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-bg/80 p-4 sm:items-center">
       <div
         ref={panel}
         role="dialog"
@@ -99,7 +74,7 @@ function OpenDialog({
         aria-labelledby={`${id}-title`}
         aria-describedby={`${id}-body`}
         onKeyDown={onKeyDown}
-        className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5"
+        className="enter-scale w-full max-w-md rounded-2xl border border-border bg-surface p-6"
       >
         <h2 id={`${id}-title`} className="text-lg font-semibold">
           {title}
@@ -107,54 +82,39 @@ function OpenDialog({
         <p className="mt-3 font-semibold" dir="auto">
           {objectName}
         </p>
-        <div id={`${id}-body`} className="mt-2 text-[var(--text-muted)]">
+        <div id={`${id}-body`} className="mt-2 text-sm text-text-muted">
           {body}
         </div>
-        {loss && <p className="mt-2 font-medium">{loss}</p>}
+        {loss && <p className="mt-3 text-sm font-medium">{loss}</p>}
         {typeToConfirm !== undefined && (
-          <div className="mt-4">
-            <label htmlFor={`${id}-type`} className="block text-sm font-medium">
+          <div className="mt-5">
+            <Label htmlFor={`${id}-type`}>
               Type <span dir="auto">{typeToConfirm}</span> to confirm
-            </label>
-            <input
+            </Label>
+            <Input
               id={`${id}-type`}
               type="text"
               value={typed}
               autoComplete="off"
               spellCheck={false}
               dir="auto"
-              className={`${FIELD} mt-1`}
+              className="mt-1.5"
               onChange={(e) => setTyped(e.target.value)}
             />
           </div>
         )}
         {error && (
-          <p
-            role="alert"
-            dir="auto"
-            className="mt-4 rounded-lg border-2 border-[var(--danger)] p-3 text-sm"
-          >
+          <Notice role="alert" tone="danger" className="mt-4">
             {error}
-          </p>
+          </Notice>
         )}
         <div className="tap-row mt-6 flex justify-end">
-          <button
-            ref={cancel}
-            type="button"
-            className={SECONDARY_BUTTON}
-            disabled={busy}
-            onClick={onCancel}
-          >
+          <Button ref={cancel} variant="secondary" disabled={busy} onClick={onCancel}>
             {cancelLabel}
-          </button>
-          <button
-            type="button"
-            className={DESTRUCTIVE_BUTTON}
-            disabled={busy || !armed}
-            onClick={onConfirm}
-          >
+          </Button>
+          <Button variant="destructive" disabled={busy || !armed} onClick={onConfirm}>
             <span dir="auto">{confirmLabel}</span>
-          </button>
+          </Button>
         </div>
       </div>
     </div>

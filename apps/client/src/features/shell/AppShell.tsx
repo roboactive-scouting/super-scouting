@@ -30,7 +30,9 @@ import { sessionOverride, useSessionOverride } from '@/features/context/sessionO
 import { useEventName } from '@/features/context/useEventName';
 import { useOnline } from '@/lib/useOnline';
 import { updateReady } from '@/pwa';
+import { CloudDownload, CloudOff } from 'lucide-react';
 import { ConnectionIndicator } from './ConnectionIndicator';
+import { ShellState } from './ShellState';
 import { NoCompetition } from './NoCompetition';
 import { needsNoHydration, type ShellContext } from './shellContext';
 
@@ -87,15 +89,12 @@ function HydrationGate({
 
   if (state === 'loading') {
     return (
-      <div className="p-8 text-center">
-        <h1 className="text-lg font-semibold" dir="auto">
-          Loading the competition onto this device
-        </h1>
-        <p className="text-[var(--text-muted)]" dir="auto">
+      <ShellState glyph={CloudDownload} title="Loading the competition onto this device" busy>
+        <p className="mt-2 text-sm text-text-muted" dir="auto">
           This happens once, and takes a few seconds. The matches and robots appear as soon as it is
           done.
         </p>
-      </div>
+      </ShellState>
     );
   }
 
@@ -103,17 +102,13 @@ function HydrationGate({
   // that says it is offline is told it needs a connection; an online one is told the
   // server did not answer, so nobody goes hunting for Wi-Fi that will not help.
   return (
-    <div className="p-8 text-center">
-      <h1 className="text-lg font-semibold">This device has not loaded the competition yet</h1>
-      {online ? (
-        <p className="text-[var(--text-muted)]">{SERVER_UNREACHABLE_LINE}</p>
-      ) : (
-        <p className="text-[var(--text-muted)]">
-          An internet connection is required once, to load the event and its form. After that the
-          app works with no network at all.
-        </p>
-      )}
-    </div>
+    <ShellState glyph={CloudOff} title="This device has not loaded the competition yet">
+      <p className="mt-2 text-sm text-text-muted">
+        {online
+          ? SERVER_UNREACHABLE_LINE
+          : 'An internet connection is required once, to load the event and its form. After that the app works with no network at all.'}
+      </p>
+    </ShellState>
   );
 }
 
