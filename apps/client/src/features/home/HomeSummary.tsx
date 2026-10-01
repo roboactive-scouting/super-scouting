@@ -1,5 +1,6 @@
 import { CalendarCog, ClipboardPen, ListChecks } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { SERVER_UNREACHABLE_LINE } from '@/auth/messages';
 import { Skeleton } from '@/components/Skeleton';
 import { buttonVariants } from '@/components/ui/button';
 import { canManageEvents } from '@/features/admin/AdminOnly';
@@ -7,6 +8,7 @@ import { useSessionOverride } from '@/features/context/sessionOverride';
 import { useEventName } from '@/features/context/useEventName';
 import { useShellContext } from '@/features/shell/shellContext';
 import { PATHS } from '@/lib/paths';
+import { useOnline } from '@/lib/useOnline';
 import { cn } from '@/lib/utils';
 
 /** What the top of Home says before the event is on the device (task 1.17b's states). */
@@ -38,6 +40,7 @@ export function HomeSummary() {
   const override = useSessionOverride();
   const eventName = useEventName(eventId, gate);
   const admin = canManageEvents(user);
+  const online = useOnline();
 
   if (gate === 'resolving') {
     return <Skeleton rows={2} rowHeight="2.5rem" label="Checking the competition" />;
@@ -50,7 +53,11 @@ export function HomeSummary() {
         <h1 id="home-title" className="text-2xl font-semibold tracking-tight">
           {copy.title}
         </h1>
-        <p className="mt-2 max-w-prose text-text-muted">{copy.detail}</p>
+        <p className="mt-2 max-w-prose text-text-muted">
+          {/* As the shell's own gate does (task 1.17b): an online device that got no answer
+              is told the server did not answer, so nobody hunts for Wi-Fi that will not help. */}
+          {gate === 'blocked' && online ? SERVER_UNREACHABLE_LINE : copy.detail}
+        </p>
         {gate === 'no-event' && admin && (
           <Link
             to={PATHS.manage}

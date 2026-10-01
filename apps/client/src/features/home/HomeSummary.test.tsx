@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SERVER_UNREACHABLE_LINE } from '@/auth/messages';
 import type { Role } from '@frc/shared';
 import { db } from '@/data/db';
 import { sessionOverride } from '@/features/context/sessionOverride';
@@ -38,7 +39,10 @@ beforeEach(async () => {
   await db.open();
   await db.rows.put({ entity: 'events', id: EVENT, season_id: 'se-1', name: 'Week 1' });
 });
-afterEach(() => sessionOverride.clear());
+afterEach(() => {
+  sessionOverride.clear();
+  vi.restoreAllMocks();
+});
 
 describe('HomeSummary (redesign R.8, SPEC-FINAL 17.9)', () => {
   it('names the competition this device works on, with Scout as the one primary action', async () => {
@@ -82,6 +86,19 @@ describe('HomeSummary (redesign R.8, SPEC-FINAL 17.9)', () => {
   it('offers a scouter nothing to do when there is no competition yet', () => {
     renderHome({ eventId: null, gate: 'no-event' });
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  it('says the server did not answer when an online device has not loaded the event', () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+    renderHome({ eventId: null, gate: 'blocked' });
+    expect(screen.getByText(SERVER_UNREACHABLE_LINE)).toBeInTheDocument();
+    expect(screen.queryByText(/needs a connection/i)).not.toBeInTheDocument();
+  });
+
+  it('says a connection is needed once when an offline device has not loaded the event', () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    renderHome({ eventId: null, gate: 'blocked' });
+    expect(screen.getByText(/needs a connection once/i)).toBeInTheDocument();
   });
 
   it('says so while the competition loads onto the device', () => {
