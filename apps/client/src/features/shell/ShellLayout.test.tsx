@@ -71,6 +71,12 @@ describe('the phone shell (redesign R.7)', () => {
     expect(screen.queryByRole('complementary', { name: 'Sidebar' })).not.toBeInTheDocument();
   });
 
+  it('tells sticky page actions how tall the bottom bar is, so they sit above it', () => {
+    renderAt('/scout');
+    const column = screen.getByText('the page').parentElement!.parentElement as HTMLElement;
+    expect(column.style.getPropertyValue('--bottom-bar')).not.toBe('');
+  });
+
   it('hides the bottom bar on the entry route', () => {
     renderAt('/entry/m-1/t-1');
     expect(screen.queryByRole('navigation', { name: 'Quick' })).not.toBeInTheDocument();

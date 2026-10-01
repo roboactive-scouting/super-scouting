@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode, type TouchEventHandler } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type TouchEventHandler,
+} from 'react';
 import { useLocation } from 'react-router-dom';
 import { DURATION, EASING, PAGE_ENTER, usePlayOnChange } from '@/lib/motion';
 import { isEntryPath } from '@/lib/paths';
@@ -97,7 +104,17 @@ export function ShellLayout({
           account={account(collapsed)}
         />
       )}
-      <div className={cn('flex min-w-0 flex-1 flex-col', showBottomBar && 'pb-20')}>
+      <div
+        className={cn('flex min-w-0 flex-1 flex-col', showBottomBar && 'pb-20')}
+        // Sticky page actions (StickyActionBar) sit on top of the fixed bottom bar, not under it.
+        style={
+          showBottomBar
+            ? ({
+                '--bottom-bar': 'calc(4rem + 1px + env(safe-area-inset-bottom))',
+              } as CSSProperties)
+            : undefined
+        }
+      >
         {!desktop && (
           <TopBar menuOpen={menuOpen} onOpenMenu={() => setMenuOpen(true)} status={status(false)} />
         )}
