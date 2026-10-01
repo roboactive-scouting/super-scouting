@@ -145,8 +145,8 @@
 
   .motion-transition {
     transition-property:
-      color, background-color, border-color, opacity, transform, width, height, inline-size,
-      block-size;
+      color, background-color, border-color, opacity, transform, translate, rotate, scale, width,
+      height, inline-size, block-size;
     transition-duration: var(--motion-duration-short4);
     transition-timing-function: var(--motion-easing-standard);
   }
