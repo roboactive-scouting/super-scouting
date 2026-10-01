@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChoiceGroup } from './ChoiceGroup';
 import { CounterControl } from './CounterControl';
+import toggleSource from './ToggleField.tsx?raw';
 import { ToggleField } from './ToggleField';
 
 const original = window.matchMedia;
@@ -36,6 +37,25 @@ describe('ChoiceGroup', () => {
     expect(screen.getByRole('group', { name: 'Alliance' })).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole('radio', { name: 'red' }));
     expect(onChange).toHaveBeenCalledWith('red');
+  });
+
+  it('marks only the chosen card, with a check as well as colour (SPEC-FINAL 17.7)', () => {
+    const { container } = render(
+      <ChoiceGroup
+        legend="Robot status"
+        value="no_show"
+        onChange={vi.fn()}
+        options={[
+          { value: 'played', label: 'Played', accent: 'var(--status-played)' },
+          { value: 'no_show', label: 'No show', accent: 'var(--status-no-show)' },
+        ]}
+      />,
+    );
+    const checks = container.querySelectorAll('[data-chosen-mark]');
+    expect(checks).toHaveLength(1);
+    expect(screen.getByRole('radio', { name: 'No show' }).closest('label')).toContainElement(
+      checks[0] as HTMLElement,
+    );
   });
 
   it('shows the chosen value as checked', () => {
@@ -84,6 +104,11 @@ describe('CounterControl (SPEC-FINAL 17.9: a wide − / value / + triplet)', () 
 });
 
 describe('ToggleField', () => {
+  it('reads its own checkbox only: a named group, never a bare group-has- that an ancestor .group (a phase card) would match', () => {
+    expect(toggleSource).toMatch(/group\/toggle/);
+    expect(toggleSource).not.toMatch(/group-has-\[[^\]]+\]:/);
+  });
+
   it('is a native checkbox named by its label', async () => {
     const onChange = vi.fn();
     render(<ToggleField label="Left the start line" checked={false} onChange={onChange} />);

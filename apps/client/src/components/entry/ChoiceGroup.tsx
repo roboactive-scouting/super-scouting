@@ -1,3 +1,4 @@
+import { Check } from 'lucide-react';
 import { useId, type CSSProperties, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
@@ -49,7 +50,7 @@ export function ChoiceGroup<V extends string>({
           <label
             key={option.value}
             style={{ '--accent': option.accent ?? 'var(--text)' } as CSSProperties}
-            className="tap-target state-layer press motion-transition flex min-h-14 cursor-pointer items-center gap-3 rounded-xl border border-border bg-surface px-4 has-[:checked]:border-2 has-[:checked]:border-[var(--accent)] has-[:checked]:bg-surface-raised has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-focus"
+            className="tap-target state-layer press motion-transition flex min-h-14 cursor-pointer items-center gap-3 rounded-xl border border-border bg-surface px-4 has-[:checked]:border-2 has-[:checked]:border-[var(--accent)] has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-focus"
           >
             <input
               type="radio"
@@ -70,6 +71,15 @@ export function ChoiceGroup<V extends string>({
             <span className="font-medium" dir="auto">
               {option.label}
             </span>
+            {/* Chosen is said by a mark too, never by colour alone: no-show's grey is the
+                border colour, and 17.7 asks more than a 1 px change. */}
+            {value === option.value && (
+              <Check
+                data-chosen-mark=""
+                aria-hidden="true"
+                className="ms-auto size-5 shrink-0 text-text"
+              />
+            )}
           </label>
         ))}
       </div>
