@@ -256,6 +256,7 @@ function ReviewDialog(props: {
   return (
     <div
       ref={panel}
+      tabIndex={-1}
       role="dialog"
       aria-modal="true"
       aria-label="Confirm this entry"

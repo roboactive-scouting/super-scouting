@@ -9,6 +9,9 @@ const FOCUSABLE =
  * inside, Escape handed to `onEscape`, and focus handed back to what opened it on close.
  * Not a native <dialog>: jsdom has no `showModal`, and the tests must exercise the same
  * rules the app ships. Moved out of ConfirmDialog unchanged (redesign task R.3).
+ *
+ * The panel itself must carry `tabIndex={-1}` (redesign review): a click on text inside it
+ * then focuses the panel, not <body>, so Escape and the Tab trap keep working.
  */
 export function useModalFocus(onEscape: () => void, initial?: RefObject<HTMLElement | null>) {
   const panel = useRef<HTMLDivElement>(null);

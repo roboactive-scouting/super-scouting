@@ -19,6 +19,7 @@ function Harness({ onClose }: { onClose?: () => void }) {
           setOpen(false);
         }}
       >
+        <p>Some words</p>
         <button type="button">First</button>
         <a href="/last">Last</a>
       </Sheet>
@@ -53,6 +54,16 @@ describe('Sheet', () => {
     expect(screen.getByRole('link', { name: 'Last' })).toHaveFocus();
     await u.tab();
     expect(screen.getByRole('button', { name: 'First' })).toHaveFocus();
+  });
+
+  it('still closes on Escape after a click on text inside it', async () => {
+    render(<Harness />);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole('button', { name: 'Open the menu' }));
+    await u.click(screen.getByText('Some words'));
+    expect(screen.getByRole('dialog', { name: 'Menu' })).toHaveFocus();
+    await u.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('closes when the scrim is tapped', async () => {

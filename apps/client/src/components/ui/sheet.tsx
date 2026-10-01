@@ -36,6 +36,7 @@ function OpenSheet({ onClose, label, side = 'start', children }: SheetProps) {
       />
       <div
         ref={panel}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={label}
