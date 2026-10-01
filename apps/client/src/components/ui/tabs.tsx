@@ -4,8 +4,9 @@ import { cn } from '@/lib/utils';
 export type TabItem<K extends string> = { key: K; label: string };
 
 /**
- * A row of tabs (the WAI-ARIA tabs pattern: arrows move between tabs, Home / End jump, only
- * the chosen tab is in the Tab order). One underline slides to the chosen tab — it says
+ * A row of tabs (the WAI-ARIA tabs pattern with MANUAL activation: arrows and Home / End move
+ * focus, Enter or Space chooses, only the chosen tab is in the Tab order). Manual, because
+ * choosing a tab unmounts the panel, and an arrow must never drop a half-filled form. One underline slides to the chosen tab — it says
  * which tab is open, so it is informational motion. Presentation only: the page keeps the
  * chosen key and renders the panel.
  */
@@ -29,7 +30,8 @@ export function Tabs<K extends string>({
   }, [value, tabs.length]);
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    const index = tabs.findIndex((t) => t.key === value);
+    const focused = (document.activeElement as HTMLElement | null)?.dataset.tab;
+    const index = tabs.findIndex((t) => t.key === (focused ?? value));
     const next =
       e.key === 'ArrowRight'
         ? index + 1
@@ -44,7 +46,6 @@ export function Tabs<K extends string>({
     e.preventDefault();
     const target = tabs[(next + tabs.length) % tabs.length];
     if (!target) return;
-    onChange(target.key);
     list.current?.querySelector<HTMLElement>(`[data-tab="${target.key}"]`)?.focus();
   }
 

@@ -29,18 +29,27 @@ describe('Tabs (WAI-ARIA tabs pattern)', () => {
     expect(screen.getByRole('tab', { name: 'Events' })).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('moves with the arrow keys, Home and End, wrapping at the ends', async () => {
+  it('moves focus with the arrow keys, Home and End, wrapping, and never switches the panel on its own', async () => {
     render(<Harness />);
     const u = userEvent.setup();
     await u.click(screen.getByRole('tab', { name: 'Seasons' }));
     await u.keyboard('{ArrowRight}');
     expect(screen.getByRole('tab', { name: 'Events' })).toHaveFocus();
-    expect(screen.getByRole('tab', { name: 'Events' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Seasons' })).toHaveAttribute('aria-selected', 'true');
     await u.keyboard('{End}');
     expect(screen.getByRole('tab', { name: 'Matches' })).toHaveFocus();
     await u.keyboard('{ArrowRight}');
     expect(screen.getByRole('tab', { name: 'Seasons' })).toHaveFocus();
     await u.keyboard('{ArrowLeft}');
     expect(screen.getByRole('tab', { name: 'Matches' })).toHaveFocus();
+    expect(screen.getByRole('tab', { name: 'Seasons' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('chooses the focused tab on Enter (manual activation: a half-filled form is never dropped by an arrow)', async () => {
+    render(<Harness />);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole('tab', { name: 'Seasons' }));
+    await u.keyboard('{ArrowRight}{Enter}');
+    expect(screen.getByRole('tab', { name: 'Events' })).toHaveAttribute('aria-selected', 'true');
   });
 });
