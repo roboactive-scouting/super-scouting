@@ -409,7 +409,7 @@ function ResetSection({
           <div
             role="status"
             aria-labelledby={shownId}
-            className="enter-rise mt-4 rounded-lg border border-s-4 border-border border-s-status-played bg-bg p-3"
+            className="enter-rise mt-4 rounded-lg border-s-4 border-s-status-played bg-bg p-3"
           >
             <p id={shownId} className="font-medium">
               New password for <span dir="auto">{user.full_name}</span>

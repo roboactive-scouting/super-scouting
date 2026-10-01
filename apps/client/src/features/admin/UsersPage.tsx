@@ -254,7 +254,7 @@ function CreateUser({ onCreated }: { onCreated: (user: PublicUser) => void }) {
         <div
           role="status"
           aria-labelledby={createdId}
-          className="enter-rise mt-4 rounded-lg border border-s-4 border-border border-s-status-played bg-bg p-3"
+          className="enter-rise mt-4 rounded-lg border-s-4 border-s-status-played bg-bg p-3"
         >
           <p id={createdId} className="font-medium">
             Created <span dir="auto">{created.user.full_name}</span>.
