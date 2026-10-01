@@ -53,18 +53,24 @@ body {
   outline-offset: 2px;
 }
 
-/* SPEC-FINAL 17.7: the accessibility floor, applied to every tappable control. */
-.tap-target {
-  min-inline-size: 48px;
-  min-block-size: 48px;
-}
+/*
+ * Component classes sit in the components layer, so a Tailwind utility on the same element
+ * wins (redesign review): unlayered, .tap-target's 48 px floor overrode min-h-14 / min-h-16.
+ */
+@layer components {
+  /* SPEC-FINAL 17.7: the accessibility floor, applied to every tappable control. */
+  .tap-target {
+    min-inline-size: 48px;
+    min-block-size: 48px;
+  }
 
-.tap-row > * + * {
-  margin-inline-start: 8px;
-}
+  .tap-row > * + * {
+    margin-inline-start: 8px;
+  }
 
-/* SPEC-FINAL 17.4: brand yellow is legible only on a near-black plate. */
-.brand-plate {
-  background: var(--brand-plate);
-  color: var(--brand);
+  /* SPEC-FINAL 17.4: brand yellow is legible only on a near-black plate. */
+  .brand-plate {
+    background: var(--brand-plate);
+    color: var(--brand);
+  }
 }
