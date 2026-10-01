@@ -36,7 +36,7 @@ export function Sidebar({
     >
       <Brand compact={collapsed} />
       <div className={cn(collapsed && 'flex justify-center')}>{status}</div>
-      <nav aria-label="Main" className="min-h-0 flex-1 overflow-y-auto">
+      <nav aria-label="Main" className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1 py-1">
         <NavList items={items} who={who} collapsed={collapsed} />
       </nav>
       <div className="border-t border-border pt-3">{account}</div>

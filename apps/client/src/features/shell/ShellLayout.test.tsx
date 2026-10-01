@@ -116,6 +116,16 @@ describe('the phone shell (redesign R.7)', () => {
     expect(animate).toHaveBeenCalledTimes(2);
   });
 
+  it('does not reopen the drawer after the width crosses the breakpoint and back', async () => {
+    renderAt('/entries');
+    const u = userEvent.setup();
+    await u.click(screen.getByRole('button', { name: 'Open the menu' }));
+    expect(screen.getByRole('dialog', { name: 'Menu' })).toBeInTheDocument();
+    await u.click(screen.getByRole('button', { name: 'Resize' }));
+    await u.click(screen.getByRole('button', { name: 'Resize' }));
+    expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+  });
+
   it('keeps the page mounted when the width crosses the desktop breakpoint', async () => {
     renderAt('/entries');
     const page = screen.getByText('the page');

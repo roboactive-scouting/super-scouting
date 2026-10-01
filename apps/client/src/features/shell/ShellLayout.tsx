@@ -85,6 +85,12 @@ export function ShellLayout({
   // A destination chosen in the drawer closes it, and so does any other navigation.
   useEffect(() => setMenuOpen(false), [pathname]);
 
+  // The drawer belongs to the phone layout: crossing to desktop closes it, so rotating a
+  // tablet back never reopens a modal over the form.
+  useEffect(() => {
+    if (desktop) setMenuOpen(false);
+  }, [desktop]);
+
   const toggle = () => {
     const next = !collapsed;
     writeCollapsed(next);
@@ -105,7 +111,7 @@ export function ShellLayout({
         />
       )}
       <div
-        className={cn('flex min-w-0 flex-1 flex-col', showBottomBar && 'pb-20')}
+        className={cn('flex min-w-0 flex-1 flex-col', showBottomBar && 'pb-[var(--bottom-bar)]')}
         // Sticky page actions (StickyActionBar) sit on top of the fixed bottom bar, not under it.
         style={
           showBottomBar
