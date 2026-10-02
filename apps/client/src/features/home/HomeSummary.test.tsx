@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SERVER_UNREACHABLE_LINE } from '@/auth/messages';
@@ -68,7 +68,10 @@ describe('HomeSummary (redesign R.8, SPEC-FINAL 17.9)', () => {
     sessionOverride.set('ev-3', 'Week 3');
     renderHome();
     expect(await screen.findByRole('heading', { level: 1, name: 'Week 3' })).toBeInTheDocument();
-    expect(await screen.findByText(/new entries are paused/i)).toHaveTextContent('Week 1');
+    // The default's name arrives from IndexedDB a moment after the line first renders.
+    await waitFor(() =>
+      expect(screen.getByText(/new entries are paused/i)).toHaveTextContent('Week 1'),
+    );
     expect(screen.queryByRole('link', { name: 'Scout a match' })).not.toBeInTheDocument();
   });
 

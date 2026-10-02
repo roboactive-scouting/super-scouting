@@ -339,7 +339,8 @@ describe('the users table', () => {
       await screen.findByText(`Showing the first ${MAX_LISTED_USERS} accounts.`, { exact: false }),
     ).toBeInTheDocument();
     expect(named('listUsers')).toHaveLength(MAX_LISTED_USERS / 200);
-  });
+    // A 1000-row render: ~1.5 s alone, past 5 s when the whole monorepo suite shares the CPU.
+  }, 15_000);
 
   it('a row opens the detail page, by click and by keyboard', async () => {
     await signInAs('admin');
