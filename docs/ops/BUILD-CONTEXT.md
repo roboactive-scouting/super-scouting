@@ -122,6 +122,18 @@ validate against production. That is the design. Do not "fix" it.
   topic-branch deployment's "Canceled by Ignored Build Step" label can appear on a
   commit that `develop` really did build. Verify by fingerprinting the deployed bundle
   for the commit SHA, not by reading the status label.
+- **A push that changes only the client leaves the server deployment on an older commit
+  (status "Skipped - Not affected").** Vercel skips a project when nothing it is built from
+  changed. Root files outside every package, such as `docs/`, count as affecting both
+  projects, which is why this hid until the first client-only push (2026-10-01, `a4c7717`).
+  Back then, CI's `wait:deploy` demanded that `/health` report exactly the pushed commit,
+  so it timed out after 8 minutes and the smoke suite never ran. **Now `wait:deploy`
+  accepts an older live commit when it is an ancestor of the pushed one and
+  `git diff live pushed -- <SERVER_INPUTS>` is empty**: that deployment is the same server.
+  The list of inputs is in `scripts/wait-for-deploy.mjs`. **When the server starts
+  depending on a new path, add it to `SERVER_INPUTS`**, or CI will accept a server that
+  is really stale. The comparison needs full history, which is why CI's checkout has
+  `fetch-depth: 0`. Do not "fix" this by removing it.
 - **Preview Deployment Protection is off on both projects and must stay off.**
   Re-enabling it returns `302` to `vercel.com/sso-api` for every caller without a
   browser session, which kills the CI smoke suite, the keep-alive workflow, and every

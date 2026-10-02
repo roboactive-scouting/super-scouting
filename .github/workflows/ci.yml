@@ -15,7 +15,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # Full history: wait:deploy compares the live server's commit with this one (git diff).
       - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
 
       - uses: pnpm/action-setup@v4
         with: { version: 9.12.3 }

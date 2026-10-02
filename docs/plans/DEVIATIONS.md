@@ -4172,3 +4172,19 @@ These are path moves only. No assertion about behaviour changed.
 **What I did instead:** the Rename buttons in EventsPanel and TeamsPanel are text with a Pencil icon beside it. Edit (Seasons), Move up/down (Events) and Edit/Delete match (Matches) are icon-only, their names in `aria-label` and `title`. Panel loading lines stay plain text, because a Skeleton's `role="status"` could collide with the panels' own `findByRole('status')` checks.
 
 **Risk:** none.
+
+## CI follow-up — `wait:deploy` accepts a server Vercel skipped as "not affected"
+
+**Plan said:** `wait:deploy` waits until `/health` reports exactly the pushed commit (the earlier entry "wait:deploy now waits for the deployed commit").
+
+**What was wrong:** the first client-only push (`a4c7717`) got "Vercel – frc-scouting-server: Skipped - Not affected". The server stayed on `40e32bd`, and CI failed with "wait-for-deploy timed out after 480000ms … Last commit seen: 40e32bdd…, waiting for: a4c77175…". Re-running could not help.
+
+**What I did instead:** a live commit is also accepted when it is an ancestor of the expected one and `git diff --quiet live expected -- <SERVER_INPUTS>` is empty. `SERVER_INPUTS` is apps/server, packages/shared, packages/db and the root workspace files. CI's checkout now has `fetch-depth: 0`. Four new cases in `scripts/wait-for-deploy.test.ts` cover it, each against a real throwaway git repo:
+- accept when only the client changed;
+- refuse when the server, a bundled package or the lockfile changed;
+- refuse a newer live commit;
+- refuse an unknown commit.
+
+The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) against the preview server. Rejected alternative: turning off Vercel's skip for the server. It costs a server build per push, and it is a dashboard setting that the repo cannot guard.
+
+**Risk:** if the server starts depending on a path outside `SERVER_INPUTS`, CI could accept a stale server. BUILD-CONTEXT §5 says so next to the rule.

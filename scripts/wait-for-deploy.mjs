@@ -26,6 +26,55 @@
 // (install, lint, typecheck, migrations, unit tests, smoke, build), while
 // giving a slow Vercel build room to finish. Both are overridable via env vars
 // for local testing without waiting the full 8 minutes.
+//
+// A server Vercel skipped as "not affected" (see docs/ops/BUILD-CONTEXT.md §5). Vercel does
+// not rebuild a project when a push changes nothing it is built from, so a client-only push
+// leaves the server on an older commit for good and an exact-commit match would time out.
+// A live commit is therefore also accepted when (1) it is an ancestor of the expected one
+// and (2) `git diff` between them is empty for every path the server is built from. Then
+// that deployment IS the expected server, byte for byte. Anything else — a server change,
+// a commit this checkout does not know (CI needs `fetch-depth: 0`), a newer commit — keeps
+// waiting, exactly as before.
+import { execFileSync } from 'node:child_process';
+
+/** What the server function is built from: itself, the packages it bundles, the workspace. */
+export const SERVER_INPUTS = [
+  'apps/server',
+  'packages/shared',
+  'packages/db',
+  'package.json',
+  'pnpm-lock.yaml',
+  'pnpm-workspace.yaml',
+  'tsconfig.base.json',
+  'turbo.json',
+  '.npmrc',
+  '.nvmrc',
+];
+
+/** Answers per live commit: the same stale deploy is polled every 10 s, git runs once. */
+const sameBuildCache = new Map();
+
+/** True when `live` deploys the same server as `expected`; false on any doubt. */
+function sameServerBuild(live, expected) {
+  if (!sameBuildCache.has(live)) sameBuildCache.set(live, compareServerBuild(live, expected));
+  return sameBuildCache.get(live);
+}
+
+function compareServerBuild(live, expected) {
+  // Only a commit SHA can be compared; anything else is never "the same server".
+  if (!/^[0-9a-f]{7,40}$/i.test(live) || !/^[0-9a-f]{7,40}$/i.test(expected)) return false;
+  try {
+    execFileSync('git', ['merge-base', '--is-ancestor', live, expected], { stdio: 'ignore' });
+    execFileSync('git', ['diff', '--quiet', live, expected, '--', ...SERVER_INPUTS], {
+      stdio: 'ignore',
+    });
+    return true;
+  } catch {
+    // Not an ancestor, a server input changed (diff exits 1), or an unknown commit.
+    return false;
+  }
+}
+
 const base = process.env.SMOKE_API_BASE_URL;
 if (!base) {
   console.error('SMOKE_API_BASE_URL is not set. See docs/ops/ENVIRONMENT.md §3.');
@@ -49,7 +98,19 @@ while (Date.now() < deadline) {
 
     const healthy = res.status === 200 && body.status === 'ok' && body.database === 'ok';
 
-    if (healthy && expectedCommit && body.commit !== expectedCommit) {
+    if (
+      healthy &&
+      expectedCommit &&
+      typeof body.commit === 'string' &&
+      body.commit !== expectedCommit &&
+      sameServerBuild(body.commit, expectedCommit)
+    ) {
+      console.warn(
+        `deploy ready: GET ${url} serves ${body.commit}, which builds the same server as ` +
+          `${expectedCommit} (no change under ${SERVER_INPUTS.join(', ')}; Vercel skipped it as not affected)`,
+      );
+      process.exit(0);
+    } else if (healthy && expectedCommit && body.commit !== expectedCommit) {
       lastSeen = `${res.status} ${JSON.stringify(body)}`;
       lastSeenCommit = body.commit ?? null;
       console.warn(
