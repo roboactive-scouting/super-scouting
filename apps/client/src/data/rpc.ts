@@ -84,6 +84,23 @@ export async function call<K extends ApiName>(
 export const typedCall: Rpc['call'] = (name, input, options) =>
   call(name as ApiName, input as never, options);
 
+/**
+ * How long an admin management call may take before it is reported as unreachable
+ * (manage page fix). A hung request used to leave a panel on "Loading…" for as long as
+ * the browser cared to wait; past this it lands in the panel's own connection state.
+ */
+export const ADMIN_CALL_TIMEOUT_MS = 15_000;
+
+/**
+ * `typedCall` with the admin deadline: what the season/event/roster/match panels and
+ * `ManagePage` default their `rpc` prop to. `call()` and the transport underneath are
+ * unchanged for every other caller; only these pages pass a `timeoutMs`.
+ */
+export const adminRpc: Rpc = {
+  call: (name, input, options) =>
+    typedCall(name, input, { timeoutMs: ADMIN_CALL_TIMEOUT_MS, ...options }),
+};
+
 class DeadlineExceeded extends Error {}
 
 /**

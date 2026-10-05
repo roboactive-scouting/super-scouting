@@ -4188,3 +4188,46 @@ These are path moves only. No assertion about behaviour changed.
 The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) against the preview server. Rejected alternative: turning off Vercel's skip for the server. It costs a server build per push, and it is a dashboard setting that the repo cannot guard.
 
 **Risk:** if the server starts depending on a path outside `SERVER_INPUTS`, CI could accept a stale server. BUILD-CONTEXT §5 says so next to the rule.
+
+## Manage page fix — reorder and make-default update the table in place
+
+**Plan said:** after `reorderEvents` or `setActiveEvent` succeeds, the Events panel calls `reload()` and `onChanged()` (task 1.21's pattern, copied from SeasonsPanel).
+
+**What was wrong:** found in manual testing. A move discarded the `reorderEvents` answer, then `reload()` set the load state to `loading` and the table went blank on "Loading the events…" while `listEvents` and `getActiveContext` ran again, and `onChanged()` made ManagePage list the events a second time.
+
+**What I did instead:** `move()` shows the new order at once, sends one `reorderEvents`, then adopts the `items` it returns; a refusal puts the old order back and shows the server's message in the existing error line. `makeDefault()` adopts `active_event_id` from the returned `ActiveContext`. Neither calls `reload()`. Both still call `onChanged()`, and ManagePage's handler already refreshes in the background without remounting the panel; a new ManagePage test pins that. Create and rename still `reload()`: they add or change a row, which the answer does not carry back. In `EventsPanel.test.tsx` the `rpcFor` fixture now answers `reorderEvents` and `setActiveEvent` with realistic outputs (it returned `{}`), since the panel now reads them. Rejected alternative: keeping `reload()` but not blanking the table. It still lists twice for an answer the server already gave.
+
+**Risk:** the table trusts the `items` of a reorder answer. A concurrent create by another admin shows up on the next listing, not on this move.
+
+## Manage page fix — one match-type selector drives both creates
+
+**Plan said:** a bulk form for qualification matches by count, and a single-match form with its own "Match type" dropdown (task 1.21).
+
+**What was wrong:** found in manual testing. After creating qualification matches 1–10, choosing Playoff in "Match type", typing 1 in "How many qualification matches?" and pressing Create matches, the page said match 1 already existed: the bulk form always sent `match_type: 'qualification'`, and the dropdown belonged only to the single form.
+
+**What I did instead:** "Match type" is one selector above both forms (default Qualification). The bulk form sends it with `count` (the server accepts `count` for any type, `createMatchInput`), its label reads "How many {type} matches?" and its result names the type and the number: "Created 1 playoff match." / "Created 3 playoff matches." / "Created 0 playoff matches; 1 already existed." The bulk form's `aria-label` follows the type too. No existing test changed: the old label regex still holds with the default type.
+
+**Risk:** none known. The selector now also decides the single create's type, which is what it did before.
+
+## Manage page fix — say offline at once, and bound admin calls
+
+**Plan said:** ManagePage and its four panels load on mount through `typedCall`, which has no deadline; a failed `listSeasons` is shown as an empty list.
+
+**What was wrong:** found in manual testing. Offline, the page stayed on "Loading…" and the Events tab said "Create a season first" because the failed `listSeasons` was stored as `[]`; a hung call never reached the panels' unreachable state at all.
+
+**What I did instead:**
+- ManagePage reads `useOnline()`. While offline it renders one `StateMessage` (offline-needs-server, with a "Back to scouting" link, because the component requires one action), mounts no panel and makes no request; the effects depend on `online`, so it loads by itself on the `online` event.
+- A failed `listSeasons` or `getActiveContext` keeps `seasons` at `null` and shows the connection state or "Seasons did not load" with Try again on the Events, Teams and Matches tabs. I did the same for the events listing the Teams and Matches tabs wait on, which had the same bug ("Create an event first" after a failure). Both tabs now say "Loading the seasons…" / "Loading the events…" while pending, instead of the empty-state message. A background refresh that fails after a successful load keeps what is on screen.
+- `ADMIN_CALL_TIMEOUT_MS = 15_000` and `adminRpc` (`typedCall` with that `timeoutMs`) are in `data/rpc.ts`; ManagePage and the four panels default `rpc` to it. `call()` and the transport are unchanged. ContextPage and UsersPage keep their own defaults. The events effect now clears `events` and `managedEventId` whenever it re-runs, so a failed listing for a newly chosen season cannot leave the old season's event selected.
+
+**Risk:** going offline mid-session replaces the page with the offline message, which unmounts an open form and loses what was typed in it. 15 seconds suits a venue's slow link but will fail a call that is only slow, such as a very large `listMatches` over several pages (each page has its own deadline).
+
+## Manage page fix — the offline message applies only until the page has loaded
+
+**Plan said:** the entry "say offline at once, and bound admin calls" above: while offline ManagePage renders the connection message and mounts no panel.
+
+**What was wrong:** the coordinator's review of that entry's own risk line: an admin half-way through typing a new season or team lost it when the venue Wi-Fi blinked, because going offline unmounted the open form.
+
+**What I did instead:** the gate is now `!online && seasons === null`: offline before the first successful load shows the message, makes no request and loads by itself on `online`. Once loaded, going offline keeps the page and every open form; a muted line "No connection — changes cannot be saved until it returns." shows at the top, the panels' own offline behaviour (switch actions disabled, a failed write in the unreachable line) covers the rest, and the page makes no new request while offline. The events reset moved to its own effect (keyed on the season, not on `online`) so a blink does not blank events already on screen. A new ManagePage test types into the New season form, goes offline and back, and checks the form and its value stay.
+
+**Risk:** a write attempted offline waits up to `ADMIN_CALL_TIMEOUT_MS` (15 s) before it reports the unreachable line.

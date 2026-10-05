@@ -5,9 +5,11 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { PageHeader } from '@/components/ui/page-header';
 import { Tabs } from '@/components/ui/tabs';
 import { StateMessage } from '@/components/StateMessage';
-import { typedCall as defaultCall, type Rpc } from '@/data/rpc';
+import { adminRpc, type Rpc } from '@/data/rpc';
 import { useSignedInUser } from '@/features/shell/shellContext';
+import { useOnline } from '@/lib/useOnline';
 import { canManageEvents } from './AdminOnly';
+import { panelErrorLine, unreachable } from './adminMessages';
 import { EventsPanel } from './EventsPanel';
 import { MatchesPanel } from './MatchesPanel';
 import { SeasonsPanel } from './SeasonsPanel';
@@ -30,11 +32,23 @@ const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
   { key: 'matches', label: 'Matches' },
 ];
 
-export function ManagePage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
+/** Why a list the page needs did not load: no connection, or a server refusal. */
+type Failure = { unreachable: boolean; line: string };
+
+const failureOf = (e: unknown): Failure => ({
+  unreachable: unreachable(e),
+  line: panelErrorLine(e),
+});
+
+export function ManagePage({ rpc = adminRpc }: { rpc?: Rpc }) {
   const user = useSignedInUser();
   const allowed = canManageEvents(user);
+  const online = useOnline();
   const [tab, setTab] = useState<TabKey>('seasons');
+  // `null` until the first listing answers. A listing that failed leaves it `null` and sets
+  // `seasonsFailure` - never an empty list, which would read as "no seasons yet".
   const [seasons, setSeasons] = useState<SeasonRow[] | null>(null);
+  const [seasonsFailure, setSeasonsFailure] = useState<Failure | null>(null);
   // True while the page is mounted (follow-up fix): `refreshSeasons`'s own `onChanged` call
   // is not inside the mount effect that would otherwise catch this for it. Set in the
   // effect's own setup, not only the `useRef(true)` initialiser — StrictMode's dev-mode
@@ -65,6 +79,7 @@ export function ManagePage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
   const managedSeasonRef = useRef<string | null>(managedSeasonId);
   managedSeasonRef.current = managedSeasonId;
   const [events, setEvents] = useState<EventRow[] | null>(null);
+  const [eventsFailure, setEventsFailure] = useState<Failure | null>(null);
   // The event the Roster/Matches tabs manage (task 1.21 addendum): the active event if it
   // belongs to the managed season, else that season's first event by sort_order, else none.
   const [managedEventId, setManagedEventId] = useState<string | null>(null);
@@ -83,11 +98,13 @@ export function ManagePage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
           const sorted = [...items].sort((a, b) => b.year - a.year);
           const activeSeasonId = (contextOut as { active_season_id: string | null })
             .active_season_id;
+          setSeasonsFailure(null);
           setSeasons(sorted);
           setManagedSeasonId((prev) => prev ?? activeSeasonId ?? sorted[0]?.id ?? null);
         },
-        () => {
-          if (live() && stillLatest()) setSeasons([]);
+        (e: unknown) => {
+          // Seasons already on screen stay; the failure only shows when there are none.
+          if (live() && stillLatest()) setSeasonsFailure(failureOf(e));
         },
       );
     },
@@ -109,40 +126,65 @@ export function ManagePage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
         const sorted = [...items].sort((a, b) => a.sort_order - b.sort_order);
         const activeEventId = (contextOut as { active_event_id: string | null }).active_event_id;
         const activeBelongsHere = sorted.some((e) => e.id === activeEventId);
+        setEventsFailure(null);
         setEvents(sorted);
         setManagedEventId((prev) => {
           if (prev && sorted.some((e) => e.id === prev)) return prev;
           return activeBelongsHere ? activeEventId : (sorted[0]?.id ?? null);
         });
       },
-      () => {
-        if (live()) setEvents([]);
+      (e: unknown) => {
+        if (live()) setEventsFailure(failureOf(e));
       },
     );
   }, []);
 
   useEffect(() => {
-    // A non-admin makes no request at all (common.md): nothing to gate here either.
-    if (!allowed) return;
+    // A non-admin makes no request at all (common.md), and neither does an offline page:
+    // before the first load it says so, and loads by itself when `online` flips back.
+    if (!allowed || !online) return;
     let live = true;
     refreshSeasons(() => live);
     return () => {
       live = false;
     };
-  }, [allowed, refreshSeasons]);
+  }, [allowed, online, refreshSeasons]);
+
+  // A different season (or none) starts its events from scratch. Kept apart from the fetch
+  // below so a blink of the connection never blanks events that are already on screen.
+  useEffect(() => {
+    setEvents(null);
+    setEventsFailure(null);
+    setManagedEventId(null);
+  }, [allowed, managedSeasonId]);
 
   useEffect(() => {
-    if (!allowed || !managedSeasonId) {
-      setEvents(null);
-      setManagedEventId(null);
-      return;
-    }
+    if (!allowed || !online || !managedSeasonId) return;
     let live = true;
     refreshEvents(managedSeasonId, () => live);
     return () => {
       live = false;
     };
-  }, [allowed, managedSeasonId, refreshEvents]);
+  }, [allowed, online, managedSeasonId, refreshEvents]);
+
+  const retrySeasons = () => {
+    setSeasonsFailure(null);
+    refreshSeasons(() => mountedRef.current);
+  };
+  const retryEvents = () => {
+    if (!managedSeasonId) return;
+    const seasonId = managedSeasonId;
+    setEventsFailure(null);
+    refreshEvents(seasonId, () => managedSeasonRef.current === seasonId);
+  };
+  // What the Events, Roster and Matches tabs show until the seasons are known: a failure
+  // is said as one, never as "Create a season first".
+  const seasonsGate: ReactNode =
+    seasons !== null ? null : seasonsFailure ? (
+      <LoadFailure what="Seasons" failure={seasonsFailure} onRetry={retrySeasons} />
+    ) : (
+      <p className="text-text-muted">Loading the seasons…</p>
+    );
 
   if (!allowed) {
     return (
@@ -156,8 +198,26 @@ export function ManagePage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
     );
   }
 
+  // Offline before anything has loaded: nothing to show, so say so. Once the page has
+  // loaded, going offline keeps it - and every open form with what was typed in it.
+  if (!online && seasons === null) {
+    return (
+      <StateMessage
+        variant="offline-needs-server"
+        headingLevel={1}
+        detail="Managing seasons, events, rosters and matches needs a connection. This page loads by itself when the connection returns."
+        action={{ label: 'Back to scouting', to: PATHS.scout }}
+      />
+    );
+  }
+
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-8 lg:px-8">
+      {!online && (
+        <p role="status" className="mb-4 text-sm text-text-muted">
+          No connection — changes cannot be saved until it returns.
+        </p>
+      )}
       <PageHeader
         title="Season and event management"
         description="Seasons, events, rosters and matches. The default event is the one every device works on."
@@ -189,12 +249,15 @@ export function ManagePage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
               />
             </>
           ) : (
-            <NoSeasonYet onGoToSeasons={() => setTab('seasons')} />
+            (seasonsGate ?? <NoSeasonYet onGoToSeasons={() => setTab('seasons')} />)
           ))}
         {tab === 'roster' && (
           <ManagedEventGate
             managedSeasonId={managedSeasonId}
+            seasonsGate={seasonsGate}
             events={events}
+            eventsFailure={eventsFailure}
+            onRetryEvents={retryEvents}
             managedEventId={managedEventId}
             onEventChange={setManagedEventId}
             onGoToSeasons={() => setTab('seasons')}
@@ -206,7 +269,10 @@ export function ManagePage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
         {tab === 'matches' && (
           <ManagedEventGate
             managedSeasonId={managedSeasonId}
+            seasonsGate={seasonsGate}
             events={events}
+            eventsFailure={eventsFailure}
+            onRetryEvents={retryEvents}
             managedEventId={managedEventId}
             onEventChange={setManagedEventId}
             onGoToSeasons={() => setTab('seasons')}
@@ -217,6 +283,34 @@ export function ManagePage({ rpc = { call: defaultCall } }: { rpc?: Rpc }) {
         )}
       </div>
     </main>
+  );
+}
+
+/** A list the page needs and could not get: the connection state, or the server's own line. */
+function LoadFailure({
+  what,
+  failure,
+  onRetry,
+}: {
+  what: 'Seasons' | 'Events';
+  failure: Failure;
+  onRetry: () => void;
+}) {
+  return failure.unreachable ? (
+    <StateMessage
+      variant="offline-needs-server"
+      headingLevel={2}
+      detail={`${what} live on the server, and this device cannot reach it right now.`}
+      action={{ label: 'Try again', onClick: onRetry }}
+    />
+  ) : (
+    <StateMessage
+      variant="failed"
+      headingLevel={2}
+      title={`${what} did not load`}
+      detail={failure.line}
+      action={{ label: 'Try again', onClick: onRetry }}
+    />
   );
 }
 
@@ -239,7 +333,10 @@ function NoSeasonYet({ onGoToSeasons }: { onGoToSeasons: () => void }) {
  */
 function ManagedEventGate({
   managedSeasonId,
+  seasonsGate,
   events,
+  eventsFailure,
+  onRetryEvents,
   managedEventId,
   onEventChange,
   onGoToSeasons,
@@ -247,7 +344,11 @@ function ManagedEventGate({
   children,
 }: {
   managedSeasonId: string | null;
+  /** Set while the seasons are loading or failed to; the gate shows it before anything else. */
+  seasonsGate: ReactNode;
   events: EventRow[] | null;
+  eventsFailure: Failure | null;
+  onRetryEvents: () => void;
   managedEventId: string | null;
   onEventChange: (eventId: string) => void;
   onGoToSeasons: () => void;
@@ -255,7 +356,14 @@ function ManagedEventGate({
   children: (eventId: string) => ReactNode;
 }) {
   if (!managedSeasonId) {
-    return <NoSeasonYet onGoToSeasons={onGoToSeasons} />;
+    return seasonsGate ?? <NoSeasonYet onGoToSeasons={onGoToSeasons} />;
+  }
+  if (events === null) {
+    return eventsFailure ? (
+      <LoadFailure what="Events" failure={eventsFailure} onRetry={onRetryEvents} />
+    ) : (
+      <p className="text-text-muted">Loading the events…</p>
+    );
   }
   if (!managedEventId) {
     return (

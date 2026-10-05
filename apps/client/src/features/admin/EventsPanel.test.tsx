@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventsPanel } from './EventsPanel';
@@ -9,12 +9,27 @@ const events = [
 ];
 
 const rpcFor = () => ({
-  call: vi.fn(async (name: string) => {
+  call: vi.fn(async (name: string, input?: unknown) => {
     if (name === 'listEvents') return { items: events, next_cursor: null };
     if (name === 'getActiveContext') return { active_season_id: 's-1', active_event_id: 'e-1' };
+    if (name === 'reorderEvents') {
+      const ids = (input as { event_ids: string[] }).event_ids;
+      return {
+        items: ids.map((id, i) => ({ ...events.find((e) => e.id === id)!, sort_order: i + 1 })),
+      };
+    }
+    if (name === 'setActiveEvent') {
+      return {
+        active_season_id: 's-1',
+        active_event_id: (input as { event_id: string }).event_id,
+      };
+    }
     return {};
   }),
 });
+
+const callsTo = (rpc: ReturnType<typeof rpcFor>, name: string) =>
+  rpc.call.mock.calls.filter(([n]) => n === name).length;
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -114,5 +129,92 @@ describe('EventsPanel', () => {
     expect(
       screen.getByText(/changing the active season or event needs a connection/i),
     ).toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------------
+  // Manage page fix: a reorder or "make the default" updates the table in place — it
+  // never blanks it to "Loading the events…" or lists the events again.
+
+  it('moves an event with one reorderEvents and no new listing, never showing the loading line', async () => {
+    const rpc = rpcFor();
+    const onChanged = vi.fn();
+    const user = userEvent.setup();
+    render(<EventsPanel seasonId="s-1" rpc={rpc} onChanged={onChanged} />);
+    await screen.findByRole('button', { name: /move week 1 down/i });
+    expect(callsTo(rpc, 'listEvents')).toBe(1);
+    expect(callsTo(rpc, 'getActiveContext')).toBe(1);
+
+    // From here a second listing would hang, so a reload shows as the loading line.
+    const base = rpc.call.getMockImplementation()!;
+    rpc.call.mockImplementation(async (name: string, input?: unknown) =>
+      name === 'listEvents' ? new Promise(() => {}) : base(name, input),
+    );
+    await user.click(screen.getByRole('button', { name: /move week 1 down/i }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+
+    expect(screen.queryByText(/loading the events/i)).not.toBeInTheDocument();
+    const rows = screen.getAllByRole('row');
+    expect(rows[1]).toHaveTextContent('Week 3');
+    expect(rows[2]).toHaveTextContent('Week 1');
+    expect(callsTo(rpc, 'reorderEvents')).toBe(1);
+    expect(callsTo(rpc, 'listEvents')).toBe(1);
+    expect(callsTo(rpc, 'getActiveContext')).toBe(1);
+  });
+
+  it('shows the new order at once, before the server has answered', async () => {
+    const rpc = rpcFor();
+    const base = rpc.call.getMockImplementation()!;
+    let answer: () => void = () => {};
+    rpc.call.mockImplementation(async (name: string, input?: unknown) =>
+      name === 'reorderEvents'
+        ? new Promise((resolve) => {
+            answer = () => resolve(base(name, input));
+          })
+        : base(name, input),
+    );
+    const user = userEvent.setup();
+    render(<EventsPanel seasonId="s-1" rpc={rpc} />);
+    await user.click(await screen.findByRole('button', { name: /move week 1 down/i }));
+
+    expect(screen.getAllByRole('row')[1]).toHaveTextContent('Week 3');
+    await act(async () => answer());
+    expect(screen.getAllByRole('row')[1]).toHaveTextContent('Week 3');
+  });
+
+  it('restores the old order and shows the server message when a move is refused', async () => {
+    const rpc = rpcFor();
+    const base = rpc.call.getMockImplementation()!;
+    rpc.call.mockImplementation(async (name: string, input?: unknown) => {
+      if (name === 'reorderEvents') throw new Error('another admin changed these events');
+      return base(name, input);
+    });
+    const user = userEvent.setup();
+    render(<EventsPanel seasonId="s-1" rpc={rpc} />);
+    await user.click(await screen.findByRole('button', { name: /move week 1 down/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'another admin changed these events',
+    );
+    const rows = screen.getAllByRole('row');
+    expect(rows[1]).toHaveTextContent('Week 1');
+    expect(rows[2]).toHaveTextContent('Week 3');
+    expect(callsTo(rpc, 'listEvents')).toBe(1);
+  });
+
+  it('marks the new default from the answer, without listing again', async () => {
+    const rpc = rpcFor();
+    const onChanged = vi.fn();
+    const user = userEvent.setup();
+    render(<EventsPanel seasonId="s-1" rpc={rpc} onChanged={onChanged} />);
+    await user.click(await screen.findByRole('button', { name: /make week 3 the default/i }));
+
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    const rows = screen.getAllByRole('row');
+    expect(rows[2]).toHaveTextContent('Default');
+    expect(rows[1]).not.toHaveTextContent('Default');
+    expect(screen.getByRole('button', { name: /make week 1 the default/i })).toBeInTheDocument();
+    expect(screen.queryByText(/loading the events/i)).not.toBeInTheDocument();
+    expect(callsTo(rpc, 'listEvents')).toBe(1);
+    expect(callsTo(rpc, 'getActiveContext')).toBe(1);
   });
 });

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import { createTeamInput, updateTeamInput, type TeamRow } from '@frc/shared';
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from '@/components/buttonStyles';
 import { StateMessage } from '@/components/StateMessage';
-import { typedCall as defaultCall, type Rpc } from '@/data/rpc';
+import { adminRpc, type Rpc } from '@/data/rpc';
 import { panelErrorLine, unreachable } from './adminMessages';
 import { Checkbox, FormError, NumberField, TextField } from './fields';
 import { loadAllTeams } from './teamsRegistry';
@@ -49,13 +49,7 @@ function matchesFilter(team: TeamRow, filter: string): boolean {
   return String(team.number).startsWith(q) || team.name.toLowerCase().includes(q);
 }
 
-export function TeamsPanel({
-  eventId,
-  rpc = { call: defaultCall },
-}: {
-  eventId: string;
-  rpc?: Rpc;
-}) {
+export function TeamsPanel({ eventId, rpc = adminRpc }: { eventId: string; rpc?: Rpc }) {
   const [load, setLoad] = useState<Load>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [filter, setFilter] = useState('');

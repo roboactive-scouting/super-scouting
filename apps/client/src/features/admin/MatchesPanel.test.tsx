@@ -206,3 +206,73 @@ describe('MatchesPanel with overlapping slot changes', () => {
     expect(screen.getByLabelText(/Q1 red 1/i)).toHaveValue('');
   });
 });
+
+// Manage page fix: one "Match type" selector, above both create forms, drives both. The
+// bulk form used to send 'qualification' whatever the selector said.
+describe('MatchesPanel and the shared match-type selector', () => {
+  it('sends the selected type with the bulk count', async () => {
+    const rpc = rpcFor();
+    const user = userEvent.setup();
+    render(<MatchesPanel eventId="ev-1" rpc={rpc} />);
+    await user.selectOptions(await screen.findByLabelText('Match type'), 'playoff');
+    await user.type(screen.getByLabelText(/how many playoff matches/i), '1');
+    await user.click(screen.getByRole('button', { name: /create matches/i }));
+    await waitFor(() =>
+      expect(rpc.call).toHaveBeenCalledWith('createMatch', {
+        event_id: 'ev-1',
+        match_type: 'playoff',
+        count: 1,
+      }),
+    );
+  });
+
+  it('words the bulk label after the selected type', async () => {
+    const user = userEvent.setup();
+    render(<MatchesPanel eventId="ev-1" rpc={rpcFor()} />);
+    const select = await screen.findByLabelText('Match type');
+    expect(select).toHaveValue('qualification');
+    expect(screen.getByLabelText('How many qualification matches?')).toBeInTheDocument();
+    await user.selectOptions(select, 'practice');
+    expect(screen.getByLabelText('How many practice matches?')).toBeInTheDocument();
+    await user.selectOptions(select, 'playoff');
+    expect(screen.getByLabelText('How many playoff matches?')).toBeInTheDocument();
+  });
+
+  it('sends the selected type with a single match number too', async () => {
+    const rpc = rpcFor();
+    const user = userEvent.setup();
+    render(<MatchesPanel eventId="ev-1" rpc={rpc} />);
+    await user.selectOptions(await screen.findByLabelText('Match type'), 'playoff');
+    await user.type(screen.getByLabelText(/match number/i), '3');
+    await user.click(screen.getByRole('button', { name: /create match$/i }));
+    await waitFor(() =>
+      expect(rpc.call).toHaveBeenCalledWith('createMatch', {
+        event_id: 'ev-1',
+        match_type: 'playoff',
+        number: 3,
+      }),
+    );
+  });
+
+  it.each([
+    [1, 1, 'playoff', 'Created 1 playoff match.'],
+    [3, 3, 'playoff', 'Created 3 playoff matches.'],
+    [1, 0, 'playoff', 'Created 0 playoff matches; 1 already existed.'],
+    [5, 2, 'practice', 'Created 2 practice matches; 3 already existed.'],
+  ])('reports %i requested, %i created as a %s result', async (requested, created, type, line) => {
+    const rpc = {
+      call: vi.fn(async (name: string) => {
+        if (name === 'listMatches') return { items: matches, next_cursor: null };
+        if (name === 'listEventRoster') return { items: roster, next_cursor: null };
+        if (name === 'createMatch') return { created, items: [] };
+        return {};
+      }),
+    };
+    const user = userEvent.setup();
+    render(<MatchesPanel eventId="ev-1" rpc={rpc} />);
+    await user.selectOptions(await screen.findByLabelText('Match type'), type);
+    await user.type(screen.getByLabelText(/how many .* matches/i), String(requested));
+    await user.click(screen.getByRole('button', { name: /create matches/i }));
+    expect(await screen.findByRole('status')).toHaveTextContent(line);
+  });
+});

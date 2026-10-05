@@ -14,7 +14,7 @@ import {
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from '@/components/buttonStyles';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { StateMessage } from '@/components/StateMessage';
-import { typedCall as defaultCall, type Rpc } from '@/data/rpc';
+import { adminRpc, type Rpc } from '@/data/rpc';
 import { matchLabel } from '@/lib/matchLabel';
 import { panelErrorLine, unreachable } from './adminMessages';
 import { FormError, NumberField } from './fields';
@@ -36,8 +36,8 @@ import {
 } from '@/components/ui/table';
 
 /**
- * SPEC-FINAL 6.4 (task 1.21): bulk-create qualification matches by count, create one match
- * of any type, fill the six alliance slots from this event's roster (a slot may stay
+ * SPEC-FINAL 6.4 (task 1.21): bulk-create matches of the chosen type by count, create one
+ * match of that type, fill the six alliance slots from this event's roster (a slot may stay
  * empty), correct a match's type/number, and delete — behind the single destructive
  * pattern. `rpc` is injectable, as the other panels are.
  */
@@ -111,17 +111,27 @@ async function loadData(
   return { matches: sortMatches(matches), roster: rosterOut.items ?? [], teams };
 }
 
+/** "Created 1 playoff match." / "Created 0 playoff matches; 1 already existed." */
+function bulkResultLine({
+  type,
+  requested,
+  created,
+}: {
+  type: MatchType;
+  requested: number;
+  created: number;
+}): string {
+  const noun = `${MATCH_TYPE_LABEL[type].toLowerCase()} ${created === 1 ? 'match' : 'matches'}`;
+  return created < requested
+    ? `Created ${created} ${noun}; ${requested - created} already existed.`
+    : `Created ${created} ${noun}.`;
+}
+
 function rosterOptionLabel(r: { number?: number; name?: string }): string {
   return `${r.number ?? ''} ${r.name ?? ''}`.trim() || 'Unnamed team';
 }
 
-export function MatchesPanel({
-  eventId,
-  rpc = { call: defaultCall },
-}: {
-  eventId: string;
-  rpc?: Rpc;
-}) {
+export function MatchesPanel({ eventId, rpc = adminRpc }: { eventId: string; rpc?: Rpc }) {
   const [load, setLoad] = useState<Load>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -132,15 +142,22 @@ export function MatchesPanel({
    * applies as a replacement, silently clearing a slot.
    */
   const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(() => new Set());
-  const singleTypeId = useId();
+  const matchTypeId = useId();
+
+  // The type both create forms use — one selector above them, so the bulk form can never
+  // quietly create a different type from the one the admin chose.
+  const [matchType, setMatchType] = useState<MatchType>('qualification');
 
   // Bulk create (by count).
   const [bulkCount, setBulkCount] = useState('');
   const [bulkBusy, setBulkBusy] = useState(false);
-  const [bulkResult, setBulkResult] = useState<{ requested: number; created: number } | null>(null);
+  const [bulkResult, setBulkResult] = useState<{
+    type: MatchType;
+    requested: number;
+    created: number;
+  } | null>(null);
 
-  // Single create (one match of a chosen type and number).
-  const [singleType, setSingleType] = useState<MatchType>('qualification');
+  // Single create (one match of the chosen type and a number).
   const [singleNumber, setSingleNumber] = useState('');
   const [singleBusy, setSingleBusy] = useState(false);
 
@@ -201,10 +218,10 @@ export function MatchesPanel({
     try {
       const out = (await rpc.call('createMatch', {
         event_id: eventId,
-        match_type: 'qualification',
+        match_type: matchType,
         count,
       })) as { created: number } | undefined;
-      setBulkResult({ requested: count, created: out?.created ?? 0 });
+      setBulkResult({ type: matchType, requested: count, created: out?.created ?? 0 });
       reload();
     } catch (err) {
       setError(panelErrorLine(err));
@@ -225,7 +242,7 @@ export function MatchesPanel({
     try {
       await rpc.call('createMatch', {
         event_id: eventId,
-        match_type: singleType,
+        match_type: matchType,
         number: checked.data,
       });
       setSingleNumber('');
@@ -343,6 +360,7 @@ export function MatchesPanel({
     );
   }
 
+  const typeWord = MATCH_TYPE_LABEL[matchType].toLowerCase();
   const teamsById = load.status === 'ready' ? new Map(load.teams.map((t) => [t.id, t])) : new Map();
   const rosterIds =
     load.status === 'ready' ? new Set(load.roster.map((r) => r.team_id)) : new Set<string>();
@@ -351,15 +369,31 @@ export function MatchesPanel({
     <section aria-label="Matches">
       <SectionHeader title="Matches" />
 
+      <div className="mt-4 w-40">
+        <Label htmlFor={matchTypeId}>Match type</Label>
+        <NativeSelect
+          id={matchTypeId}
+          value={matchType}
+          wrapperClassName="mt-1.5"
+          onChange={(e) => setMatchType(e.target.value as MatchType)}
+        >
+          {MATCH_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {MATCH_TYPE_LABEL[t]}
+            </option>
+          ))}
+        </NativeSelect>
+      </div>
+
       <form
-        aria-label="Bulk create qualification matches"
+        aria-label={`Bulk create ${typeWord} matches`}
         noValidate
         onSubmit={(e) => void submitBulk(e)}
         className="tap-row mt-4 flex flex-wrap items-end gap-3"
       >
         <div className="w-56">
           <NumberField
-            label="How many qualification matches?"
+            label={`How many ${typeWord} matches?`}
             value={bulkCount}
             onChange={setBulkCount}
             max={MATCH_BULK_MAX}
@@ -371,9 +405,7 @@ export function MatchesPanel({
       </form>
       {bulkResult && (
         <p role="status" className="mt-2 text-sm">
-          {bulkResult.created < bulkResult.requested
-            ? `Created ${bulkResult.created} matches; ${bulkResult.requested - bulkResult.created} already existed.`
-            : `Created ${bulkResult.created} matches.`}
+          {bulkResultLine(bulkResult)}
         </p>
       )}
 
@@ -383,21 +415,6 @@ export function MatchesPanel({
         onSubmit={(e) => void submitSingle(e)}
         className="tap-row mt-4 flex flex-wrap items-end gap-3"
       >
-        <div className="w-40">
-          <Label htmlFor={singleTypeId}>Match type</Label>
-          <NativeSelect
-            id={singleTypeId}
-            value={singleType}
-            wrapperClassName="mt-1.5"
-            onChange={(e) => setSingleType(e.target.value as MatchType)}
-          >
-            {MATCH_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {MATCH_TYPE_LABEL[t]}
-              </option>
-            ))}
-          </NativeSelect>
-        </div>
         <div className="w-32">
           <NumberField
             label="Match number"

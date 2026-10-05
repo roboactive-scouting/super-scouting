@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
-import { createEventInput, type EventRow } from '@frc/shared';
+import { createEventInput, type ActiveContext, type EventRow } from '@frc/shared';
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from '@/components/buttonStyles';
 import { StateMessage } from '@/components/StateMessage';
-import { typedCall as defaultCall, type Rpc } from '@/data/rpc';
+import { adminRpc, type Rpc } from '@/data/rpc';
 import { useOnline } from '@/lib/useOnline';
 import { OFFLINE_SWITCH_HINT } from './SeasonsPanel';
 import { panelErrorLine, unreachable } from './adminMessages';
@@ -52,7 +52,7 @@ async function loadEvents(
 
 export function EventsPanel({
   seasonId,
-  rpc = { call: defaultCall },
+  rpc = adminRpc,
   onChanged,
 }: {
   seasonId: string;
@@ -96,6 +96,14 @@ export function EventsPanel({
     // rpc is an injected dependency held stable by the caller; only a retry re-fetches.
   }, [seasonId, attempt]);
 
+  /** Swap the ready table's rows or default in place; any other state is left alone. */
+  function adopt(next: { events?: EventRow[]; activeEventId?: string | null }) {
+    setLoad((prev) => (prev.status === 'ready' ? { ...prev, ...next } : prev));
+  }
+
+  // A reorder or "make the default" answers with the new state itself, so the table is
+  // updated in place: no reload (which would blank it to "Loading the events…" and list
+  // everything again). `onChanged` still tells ManagePage, which refreshes in the background.
   async function move(events: EventRow[], index: number, delta: number) {
     const target = index + delta;
     if (target < 0 || target >= events.length) return;
@@ -105,11 +113,17 @@ export function EventsPanel({
     order.splice(target, 0, moved);
     setBusyId(events[index]?.id ?? null);
     setActionError(null);
+    // Shown at once; put back if the server refuses.
+    adopt({ events: order });
     try {
-      await rpc.call('reorderEvents', { season_id: seasonId, event_ids: order.map((e) => e.id) });
-      reload();
+      const out = (await rpc.call('reorderEvents', {
+        season_id: seasonId,
+        event_ids: order.map((e) => e.id),
+      })) as { items: EventRow[] };
+      adopt({ events: [...out.items].sort((a, b) => a.sort_order - b.sort_order) });
       onChanged?.();
     } catch (e) {
+      adopt({ events });
       setActionError(panelErrorLine(e));
     } finally {
       setBusyId(null);
@@ -120,8 +134,8 @@ export function EventsPanel({
     setBusyId(event.id);
     setActionError(null);
     try {
-      await rpc.call('setActiveEvent', { event_id: event.id });
-      reload();
+      const out = (await rpc.call('setActiveEvent', { event_id: event.id })) as ActiveContext;
+      adopt({ activeEventId: out.active_event_id });
       onChanged?.();
     } catch (e) {
       setActionError(panelErrorLine(e));

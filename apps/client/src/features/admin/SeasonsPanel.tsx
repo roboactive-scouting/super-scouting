@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import { createSeasonInput, SEASON_IMAGE_MANIFEST, type SeasonRow } from '@frc/shared';
 import { FIELD, PRIMARY_BUTTON, SECONDARY_BUTTON } from '@/components/buttonStyles';
 import { StateMessage } from '@/components/StateMessage';
-import { typedCall as defaultCall, type Rpc } from '@/data/rpc';
+import { adminRpc, type Rpc } from '@/data/rpc';
 import { useOnline } from '@/lib/useOnline';
 import { FieldImage } from '@/season/FieldImage';
 import { isKnownSeasonImage } from '@/season/images';
@@ -56,7 +56,7 @@ async function loadSeasons(
 }
 
 export function SeasonsPanel({
-  rpc = { call: defaultCall },
+  rpc = adminRpc,
   onChanged,
 }: {
   rpc?: Rpc;
