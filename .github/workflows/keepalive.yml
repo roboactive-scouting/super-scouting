@@ -1,12 +1,12 @@
 name: Keep-alive
 
 # SPEC-FINAL 19.6: exactly one scheduled job in v1. No Vercel Cron, no background
-# jobs, no database-side scheduling. Twice a week is enough against the ~7-day
-# Supabase free-tier idle pause.
+# jobs, no database-side scheduling. Daily, not twice a week: production was paused
+# on 2026-10-05, four days after a green run, so the ~7-day idle rule is not the
+# whole story. Daily keeps it active and tells us within a day when it goes down.
 on:
   schedule:
-    - cron: '17 5 * * 1' # Mondays 05:17 UTC
-    - cron: '17 5 * * 4' # Thursdays 05:17 UTC
+    - cron: '17 5 * * *' # daily 05:17 UTC
   workflow_dispatch:
 
 jobs:
@@ -30,6 +30,6 @@ jobs:
             echo "::error::${{ matrix.target.secret }} is not set (docs/ops/ENVIRONMENT.md §3)"
             exit 1
           fi
-          body=$(curl --fail --silent --show-error --max-time 30 "$URL")
+          body=$(curl --fail-with-body --silent --show-error --max-time 30 "$URL")
           echo "$body"
           echo "$body" | grep -q '"database":"ok"'

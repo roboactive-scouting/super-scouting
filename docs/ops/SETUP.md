@@ -491,7 +491,7 @@ session. Three things break at once, and all three look like a broken API rather
 than an auth wall:
 
 - the CI smoke suite, which targets `SMOKE_API_BASE_URL` (the preview server);
-- the twice-weekly keep-alive, which GETs `HEALTHCHECK_DEV_URL`;
+- the daily keep-alive, which GETs `HEALTHCHECK_DEV_URL`;
 - the preview client calling the preview server.
 
 On **each** project: **Settings → Deployment Protection → Vercel Authentication →
@@ -557,7 +557,7 @@ so there is no production credential here to leak or to fire by accident.
 
 The last one is the single exception that names production, and it is a read-only
 `GET /health` against a public endpoint — it holds no credential and can change
-nothing. It exists because the twice-weekly keep-alive workflow has to keep *both*
+nothing. It exists because the daily keep-alive workflow has to keep *both*
 Supabase projects from hitting the free-tier idle pause.
 
 Tick each row in `ENVIRONMENT.md` §3 as you set it.
@@ -656,7 +656,7 @@ to remember.
 - [ ] Open the Supabase free-tier usage page for both projects and look at database
       size and egress. The keep-alive workflow prevents the idle pause; it does not
       prevent running out of quota.
-- [ ] Confirm the twice-weekly keep-alive workflow has actually been running.
+- [ ] Confirm the daily keep-alive workflow has actually been running.
       GitHub disables scheduled workflows on a repository with no activity for 60
       days, silently.
 

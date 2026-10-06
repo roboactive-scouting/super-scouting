@@ -1,10 +1,12 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.3 · **Date:** 2026-10-01 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.4 · **Date:** 2026-10-05 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
 
 *v1.1 amends §17.9 only, adding the standing override for the `frontend-design` skill — craft yes, identity no. No requirement changed; see the living spec's §21 for the rationale.*
 
 *v1.3 amends §17.4 (the alliance colours), §17.9 (navigation, Home at `/`, the motion rule) and nothing else. See the living spec's §21, 2026-10-01.*
+
+*v1.4 amends §19.6 only: the keep-alive runs daily, not twice a week. See the living spec's §21, 2026-10-05.*
 
 *v1.2 amends §9.10 only: the unsynced count counts records, not queued operations, and the pending list on the sync page is specified and reachable from the indicator. See the living spec's §21.*
 
@@ -1709,7 +1711,7 @@ frc-scouting/
     ops/                          # SETUP.md, RUNBOOK.md, ENVIRONMENT.md
     brand/                        # brand source assets (§17.5)
   .github/
-    workflows/                    # CI, and the twice-weekly keep-alive
+    workflows/                    # CI, and the daily keep-alive
 ```
 
 ### 16.4 The use-case layer
@@ -1989,7 +1991,7 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 
 **Two free-tier risks and their mitigations:**
 
-1. **Inactive-project pause** (~7 days idle) — offline-first means scouting never depends on the database being awake; the twice-weekly `/health` keep-alive (§19.6) and a 48-hour pre-event check cover it.
+1. **Inactive-project pause** (~7 days idle) — offline-first means scouting never depends on the database being awake; the daily `/health` keep-alive (§19.6) and a 48-hour pre-event check cover it.
 2. **Size and egress caps** — raw-only storage plus delta pulls keeps a season well within budget.
 
 ### 18.3 Security
@@ -2101,7 +2103,7 @@ A pull request into `main` cannot merge unless the run is green.
 
 ### 19.6 Scheduled work
 
-**Exactly one scheduled job in v1.** A **GitHub Action runs twice a week** and calls a **`/health` endpoint on the server — on both the dev and the production deployments**. That endpoint performs **one trivial database read**, which is what actually counts as activity against the free-tier pause.
+**Exactly one scheduled job in v1.** A **GitHub Action runs daily** and calls a **`/health` endpoint on the server — on both the dev and the production deployments**. That endpoint performs **one trivial database read**, which is what actually counts as activity against the free-tier pause.
 
 No Vercel Cron. No background jobs. No database-side scheduling.
 
@@ -2129,7 +2131,7 @@ The Vercel, Supabase and GitHub accounts are currently **personal**, with the in
 
 **Phase 0 — Foundations**
 
-Monorepo scaffold (pnpm + Turborepo, Node 22) → dev and production Supabase projects → **the complete §3 database schema as migrations**, plus the `updated_at` trigger and the generated DB types → the two Vercel projects → `docs/ops/SETUP.md`, `docs/ops/RUNBOOK.md` and the two per-app `.env.example` files generated from `docs/ops/ENVIRONMENT.md` → CI on `develop`, including auto-applying migrations to dev → the `/health` endpoint and its twice-weekly keep-alive → the dev seed script.
+Monorepo scaffold (pnpm + Turborepo, Node 22) → dev and production Supabase projects → **the complete §3 database schema as migrations**, plus the `updated_at` trigger and the generated DB types → the two Vercel projects → `docs/ops/SETUP.md`, `docs/ops/RUNBOOK.md` and the two per-app `.env.example` files generated from `docs/ops/ENVIRONMENT.md` → CI on `develop`, including auto-applying migrations to dev → the `/health` endpoint and its daily keep-alive → the dev seed script.
 
 **Phase 1 — Core loop (must exist before any event)**
 
