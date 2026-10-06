@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Night Shift</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#111317; --s1:#171A1F; --s2:#1E2228; --s3:#262B33; --line:#2A2F37; --line-2:#22262D;
+  --ink:#E8EAED; --ink-2:#BFC4CB; --muted:#8B929C; --faint:#5D646E;
+  --accent:#9D96E4; --accent-dim:#2C2A45;
+  --ok:#7BB89B; --ok-dim:#1F3129; --warn:#D3A266; --warn-dim:#3A2E1F;
+  --red:#DE6B5E; --red-dim:#3A2220; --blue:#6493E8; --blue-dim:#1D2840;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--ink);font-family:'Archivo',system-ui,sans-serif;font-size:14px;-webkit-font-smoothing:antialiased}
+.num,.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.wide{font-stretch:115%}
+.app{width:1440px;height:900px;display:grid;grid-template-columns:76px 1fr;overflow:hidden}
+.rail{border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding:18px 0;gap:6px;background:var(--bg)}
+.rail img{width:36px;margin-bottom:18px}
+.rail a{width:48px;height:48px;border-radius:10px;display:grid;place-items:center;color:var(--muted);position:relative}
+.rail a svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.7}
+.rail a.on{background:var(--s3);color:var(--ink)}
+.rail a.on::before{content:'';position:absolute;left:-14px;top:12px;bottom:12px;width:3px;border-radius:2px;background:var(--accent)}
+.rail .sep{width:28px;height:1px;background:var(--line);margin:8px 0}
+.rail .me{margin-top:auto;width:36px;height:36px;border-radius:50%;background:var(--s3);display:grid;place-items:center;font-size:12px;font-weight:600;color:var(--ink-2)}
+.main{display:flex;flex-direction:column;min-width:0}
+.top{height:64px;flex:none;display:flex;align-items:center;gap:16px;padding:0 32px;border-bottom:1px solid var(--line)}
+.top .ev{font-stretch:112%;font-weight:650;font-size:15px}
+.top .ev small{font-stretch:100%;color:var(--muted);font-weight:400;font-size:13px;margin-left:10px}
+.sp{flex:1}
+.stat{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-2);padding:0 12px;height:30px;border-radius:7px;background:var(--s1);border:1px solid var(--line)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+.dot.w{background:var(--warn)}
+.content{padding:24px 32px;flex:1;overflow:hidden}
+.box{background:var(--s1);border:1px solid var(--line);border-radius:12px}
+.bh{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line-2)}
+.bh h3{font-size:12px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-2);font-stretch:110%}
+.bh .aside{margin-left:auto;font-size:12px;color:var(--muted)}
+.bb{padding:16px 18px}
+.btn{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 16px;border-radius:8px;font-weight:600;font-size:13.5px;border:1px solid var(--line);background:var(--s2);color:var(--ink)}
+.btn.primary{background:var(--ink);color:#121417;border-color:var(--ink)}
+.btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2}
+.tag{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:5px;font-size:11.5px;font-weight:600;letter-spacing:.02em}
+.tag.r{background:var(--red-dim);color:var(--red)}.tag.b{background:var(--blue-dim);color:var(--blue)}
+.tag.ok{background:var(--ok-dim);color:var(--ok)}.tag.w{background:var(--warn-dim);color:var(--warn)}
+.tag.n{background:var(--s3);color:var(--ink-2)}.tag.a{background:var(--accent-dim);color:var(--accent)}
+/* charts */
+.chart text{font-family:'Archivo';font-size:12px;fill:var(--ink-2)}
+.chart .val{font-family:var(--mono);font-size:11.5px;fill:var(--ink)}
+.hbars .track{fill:var(--s3)}.hbars .bar{fill:#4A515C}.hbars .is-hl .bar{fill:var(--accent)}.hbars .is-hl .lbl{fill:var(--ink);font-weight:700}
+.columns .bar{fill:#3A404A}.columns .is-hl .bar{fill:var(--accent)}.columns .grid{stroke:var(--line-2)}.columns .axis{stroke:var(--line)}.columns .xl{fill:var(--muted);font-family:var(--mono);font-size:10.5px}
+.spark path{stroke:#6B727C;stroke-width:1.5}.spark circle{fill:var(--ink)}
+/* home */
+.hgrid{display:grid;grid-template-columns:1.35fr 1fr;grid-template-rows:auto 1fr;gap:18px;height:100%}
+.next{display:grid;grid-template-columns:1fr 330px;grid-column:1 / span 2}
+.next .l{padding:22px 24px;border-right:1px solid var(--line-2)}
+.eyebrow{font-size:12px;color:var(--muted);letter-spacing:.04em}
+.next h1{font-size:34px;font-weight:700;font-stretch:118%;letter-spacing:-.02em;margin-top:8px;line-height:1.05}
+.next h1 .t{font-family:var(--mono);font-weight:600;font-stretch:100%;letter-spacing:-.03em}
+.next h1 em{font-style:normal;color:var(--muted);font-weight:500}
+.next p{color:var(--muted);margin-top:10px;max-width:520px;line-height:1.5}
+.next .acts{display:flex;gap:10px;margin-top:20px}
+.field{padding:18px 24px;display:flex;flex-direction:column;justify-content:center}
+.field svg text{font-family:var(--mono);font-size:12px;font-weight:600}
+.next .r{padding:20px 22px;display:flex;flex-direction:column;gap:14px}
+.kv{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--line-2);padding-bottom:12px}
+.kv:last-child{border:0;padding:0}
+.kv span{color:var(--muted);font-size:13px}
+.kv b{font-family:var(--mono);font-size:22px;font-weight:500}
+.kv b small{font-family:Archivo;font-size:12px;color:var(--muted);margin-left:4px}
+.strip{display:flex;gap:2px;align-items:flex-end;height:120px;margin-top:6px}
+.strip i{flex:1;border-radius:2px 2px 0 0;background:#3A404A}
+.strip i.full{background:var(--ok);opacity:.85}
+.strip i.gap{background:var(--warn)}
+.strip i.nx{background:var(--ink)}
+.strip i.up{height:6px!important;background:var(--s3)}
+.axisrow{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-top:6px}
+.legend{display:flex;gap:16px;margin-top:12px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px}
+.tt{width:100%;border-collapse:collapse}
+.tt th{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);text-align:left;padding:0 0 8px}
+.tt td{padding:13px 0;border-top:1px solid var(--line-2);font-size:13.5px}
+.tt td.mono{font-weight:500}
+.tt tr.me td{color:var(--accent)}
+.tt .bar{height:6px;border-radius:3px;background:var(--s3);width:120px;overflow:hidden}
+.tt .bar i{display:block;height:100%;background:#59606B}
+.tt tr.me .bar i{background:var(--accent)}
+.feed .it{display:grid;grid-template-columns:52px 1fr auto;gap:12px;align-items:center;padding:11px 0;border-top:1px solid var(--line-2)}
+.feed .it:first-child{border-top:0}
+.feed .it small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+/* manage */
+.mh{display:flex;align-items:flex-end;gap:14px}
+.mh h1{font-size:26px;font-weight:700;font-stretch:118%;letter-spacing:-.015em}
+.mh p{color:var(--muted);margin-top:6px}
+.seg{display:inline-flex;background:var(--s1);border:1px solid var(--line);border-radius:9px;padding:3px;margin-top:20px}
+.seg a{padding:7px 14px;border-radius:6px;color:var(--muted);font-weight:600;font-size:13px}
+.seg a.on{background:var(--s3);color:var(--ink)}
+.seg a .c{font-family:var(--mono);font-size:11px;color:var(--faint);margin-left:6px}
+.timeline .tick{stroke:var(--line-2)}.timeline .axis{stroke:var(--line)}.timeline .xl{fill:var(--faint);font-family:var(--mono);font-size:10.5px}
+.timeline .ev rect{fill:#3A404A}.timeline .ev-done rect{fill:#5D646E}.timeline .ev-live rect{fill:var(--accent)}
+.timeline .evl{font-size:12px;fill:var(--ink-2)}.timeline .ev-live .evl{fill:var(--ink);font-weight:700}
+.timeline .today{stroke:var(--ink-2);stroke-dasharray:3 3}
+.evcards{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:16px}
+.evc{padding:16px;border-radius:12px;background:var(--s1);border:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+.evc.sel{border-color:var(--accent);background:#1B1B26}
+.evc h4{font-size:14.5px;font-weight:650;font-stretch:108%;line-height:1.25}
+.evc .d{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.evc .row{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted)}
+.evc .row b{color:var(--ink);font-family:var(--mono);font-weight:500}
+.pbar{height:5px;border-radius:3px;background:var(--s3);overflow:hidden}.pbar i{display:block;height:100%;background:var(--ok)}
+.split{display:grid;grid-template-columns:1fr 420px;gap:18px;margin-top:16px}
+.matrix{display:grid;grid-template-columns:70px repeat(6,1fr);gap:3px;font-family:var(--mono);font-size:11.5px}
+.matrix .h{color:var(--faint);padding:4px 0;text-align:center}
+.matrix .h.r{color:var(--red)}.matrix .h.b{color:var(--blue)}
+.matrix .m{color:var(--muted);padding:6px 0}
+.matrix .c{background:var(--s2);border-radius:4px;text-align:center;padding:6px 0;color:var(--ink-2)}
+.matrix .c.done{background:#22302A;color:var(--ok)}
+.matrix .c.miss{background:var(--warn-dim);color:var(--warn)}
+.steps .st{display:grid;grid-template-columns:26px 1fr auto;gap:12px;padding:12px 0;border-top:1px solid var(--line-2);align-items:center}
+.steps .st:first-child{border-top:0}
+.steps .ic{width:24px;height:24px;border-radius:50%;border:1px solid var(--line);display:grid;place-items:center;font-family:var(--mono);font-size:11px;color:var(--ok)}
+.steps .ic.w{color:var(--warn)}
+.steps small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+/* entry */
+.stage{width:1440px;height:940px;background:#0C0E11;display:flex;justify-content:center;align-items:center;gap:56px}
+.wrap{position:relative}
+.phone{width:375px;height:812px;border-radius:44px;background:var(--bg);box-shadow:0 0 0 10px #262A31,0 0 0 11px #33383F;overflow:hidden;display:flex;flex-direction:column}
+.caption{position:absolute;bottom:-46px;left:0;right:0;text-align:center;font-size:13px;color:var(--muted)}
+.sbar{height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 28px;font-weight:600;font-size:14px}
+.eh{padding:4px 18px 14px;border-bottom:1px solid var(--line)}
+.eh .row{display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:13px}
+.eh h2{margin-top:10px;font-size:24px;font-weight:700;font-stretch:115%;letter-spacing:-.01em}
+.eh h2 .mono{font-stretch:100%;font-weight:600}
+.eh .meta{margin-top:6px;font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:7px}
+.progress{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:12px}
+.progress i{height:3px;border-radius:2px;background:var(--s3)}
+.progress i.d{background:var(--ink-2)}.progress i.c{background:var(--accent)}
+.ebody{flex:1;padding:14px 16px;overflow:hidden}
+.lbl{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:8px}
+.status{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.status b{height:46px;border-radius:9px;background:var(--s1);border:1px solid var(--line);display:flex;align-items:center;gap:10px;padding:0 14px;font-weight:600;font-size:13.5px;color:var(--ink-2)}
+.status b i{width:8px;height:8px;border-radius:2px}
+.status b.on{background:var(--s3);border-color:#4A515C;color:var(--ink)}
+.phase{margin-top:16px;display:flex;justify-content:space-between;align-items:baseline}
+.phase h3{font-size:17px;font-weight:700;font-stretch:112%}
+.phase span{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.ctr{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.ctr .c{background:var(--s1);border:1px solid var(--line);border-radius:12px;padding:12px}
+.ctr .c .t{font-size:12.5px;color:var(--muted);font-weight:500}
+.ctr .c .v{font-family:var(--mono);font-size:34px;font-weight:500;margin:6px 0 10px;letter-spacing:-.02em}
+.ctr .c .bs{display:grid;grid-template-columns:1fr 1.6fr;gap:6px}
+.ctr .c .bs b{height:44px;border-radius:9px;display:grid;place-items:center;font-size:20px;font-weight:500;background:var(--s3);color:var(--ink-2)}
+.ctr .c .bs b.p{background:var(--ink);color:#111}
+.tg{display:flex;justify-content:space-between;align-items:center;padding:14px;background:var(--s1);border:1px solid var(--line);border-radius:12px;margin-top:8px;font-weight:600;font-size:13.5px}
+.sw{width:44px;height:26px;border-radius:999px;background:var(--s3);position:relative}
+.sw::after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#7A818B}
+.sw.on{background:var(--accent)}.sw.on::after{left:21px;background:#fff}
+.ebar{padding:12px 16px 26px;border-top:1px solid var(--line);display:flex;gap:10px}
+.ebar .btn{height:50px;flex:1;justify-content:center;font-size:15px}
+.rv{background:var(--s1);border:1px solid var(--line);border-radius:12px;margin-top:10px;overflow:hidden}
+.rv .r{display:flex;justify-content:space-between;padding:10px 14px;border-top:1px solid var(--line-2);font-size:13.5px}
+.rv .r:first-child{border-top:0}
+.rv .r span{color:var(--muted)}
+.rv .r b{font-family:var(--mono);font-weight:500}
+.rv .ph{padding:10px 14px 6px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);font-weight:600;background:var(--s2)}
+.callout{margin-top:14px;padding:16px;border-radius:12px;background:var(--s1);border:1px solid var(--line);line-height:1.5;color:var(--ink-2);font-size:13.5px}
+.callout b{color:var(--ink);display:block;margin-bottom:4px;font-size:14.5px}
+.ghost{margin-top:10px;border:1px dashed var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:12px}
+.ghost div{display:flex;justify-content:space-between;color:var(--faint);font-size:13px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-scout" viewBox="0 0 24 24"><path d="M9 4h6M9 4a1 1 0 0 0-1 1v1h8V5a1 1 0 0 0-1-1M8 6H6a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-2M9 13l2 2 4-4"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><path d="M3 9h18M8 3v4M16 3v4M4 5h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+</svg>
+<template id="rail">
+  <aside class="rail">
+    <img src="mark.png" alt="">
+    <a data-n="home"><svg><use href="#i-home"/></svg></a>
+    <a data-n="scout"><svg><use href="#i-scout"/></svg></a>
+    <a data-n="entries"><svg><use href="#i-list"/></svg></a>
+    <span class="sep"></span>
+    <a data-n="users"><svg><use href="#i-users"/></svg></a>
+    <a data-n="manage"><svg><use href="#i-cal"/></svg></a>
+    <span class="me">NL</span>
+  </aside>
+</template>
+
+<!-- ================= HOME ================= -->
+<section data-screen="home">
+<div class="app">
+  <div data-rail></div>
+  <div class="main">
+    <header class="top">
+      <span class="ev">District #3 · Tel Aviv<small>2026 season · Qualifications, day 2</small></span>
+      <span class="sp"></span>
+      <span class="stat"><span class="dot w"></span>3 waiting to send</span>
+      <span class="stat"><span class="dot"></span>Online · synced 11:38</span>
+    </header>
+    <div class="content">
+      <div class="hgrid">
+        <div class="box next">
+          <div style="display:grid;grid-template-columns:1fr 420px">
+            <div class="l">
+              <div class="eyebrow">NEXT FOR YOU · QUALIFICATION 39 · 11:42</div>
+              <h1>Scout <span class="t">1690</span> <em>Orbit</em></h1>
+              <p>You are on Red 1. Everything you enter is saved on this device first and sent when there is a connection.</p>
+              <div class="acts"><a class="btn primary"><svg><use href="#i-scout"/></svg>Scout Q39</a><a class="btn"><svg><use href="#i-list"/></svg>Review entries</a></div>
+            </div>
+            <div class="field">
+              <svg viewBox="0 0 380 190" width="100%">
+                <rect x="1" y="1" width="378" height="188" rx="14" fill="#14171B" stroke="#2A2F37"/>
+                <line x1="190" y1="10" x2="190" y2="180" stroke="#2A2F37" stroke-dasharray="4 4"/>
+                <rect x="1" y="1" width="64" height="188" rx="14" fill="#2A1C1B"/>
+                <rect x="315" y="1" width="64" height="188" rx="14" fill="#1A2334"/>
+                <circle cx="190" cy="95" r="26" fill="none" stroke="#2A2F37"/>
+                <g><rect x="10" y="24" width="46" height="30" rx="6" fill="#DE6B5E"/><text x="33" y="44" text-anchor="middle" fill="#111317">1690</text></g>
+                <g><rect x="10" y="80" width="46" height="30" rx="6" fill="#3A2522" stroke="#5A3530"/><text x="33" y="100" text-anchor="middle" fill="#DE6B5E">3075</text></g>
+                <g><rect x="10" y="136" width="46" height="30" rx="6" fill="#3A2522" stroke="#5A3530"/><text x="33" y="156" text-anchor="middle" fill="#DE6B5E">6230</text></g>
+                <g><rect x="324" y="24" width="46" height="30" rx="6" fill="#1E2A40" stroke="#2F4263"/><text x="347" y="44" text-anchor="middle" fill="#6493E8">2231</text></g>
+                <g><rect x="324" y="80" width="46" height="30" rx="6" fill="#1E2A40" stroke="#2F4263"/><text x="347" y="100" text-anchor="middle" fill="#6493E8">5654</text></g>
+                <g><rect x="324" y="136" width="46" height="30" rx="6" fill="#1E2A40" stroke="#2F4263"/><text x="347" y="156" text-anchor="middle" fill="#6493E8">7039</text></g>
+                <text x="74" y="44" fill="#BFC4CB" font-family="Archivo" font-weight="500" style="font-family:Archivo;font-weight:500">← you</text>
+              </svg>
+            </div>
+          </div>
+          <div class="r" style="border-left:1px solid var(--line-2)">
+            <div class="kv"><span>Matches played</span><b>38<small>/ 72</small></b></div>
+            <div class="kv"><span>Robots scouted</span><b>223<small>/ 228</small></b></div>
+            <div class="kv"><span>On this device</span><b>41<small>3 waiting</small></b></div>
+            <div class="kv"><span>Scouts active</span><b>14<small>2 offline</small></b></div>
+          </div>
+        </div>
+
+        <div class="box">
+          <div class="bh"><h3>Coverage by match</h3><span class="aside">Bar height = robots scouted, of 6</span></div>
+          <div class="bb">
+            <div class="strip" id="strip"></div>
+            <div class="axisrow"><span>Q1</span><span>Q18</span><span>Q36</span><span>Q54</span><span>Q72</span></div>
+            <div class="legend"><span><i style="background:var(--ok)"></i>All 6 robots</span><span><i style="background:var(--warn)"></i>Missing a robot (4)</span><span><i style="background:var(--ink)"></i>Next</span></div>
+            <div style="border-top:1px solid var(--line-2);margin-top:16px;padding-top:14px">
+              <div class="eyebrow" style="margin-bottom:10px">ENTRIES PER HOUR · TODAY</div>
+              <div data-kit="K.columns(D.hourly, D.hours, {w:700,h:190,gap:12,highlight:3})"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="box">
+          <div class="bh"><h3>Top teams</h3><span class="aside">Avg. points, last 5 matches</span></div>
+          <div class="bb"><table class="tt" id="tt"></table></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ================= ENTRY ================= -->
+<section data-screen="entry">
+<div class="stage">
+  <div class="wrap"><div class="phone">
+    <div class="sbar"><span>11:43</span><span style="font-size:12px;color:var(--muted)">● ● ●</span></div>
+    <div class="eh">
+      <div class="row"><span>‹ Scout</span><span class="tag r">RED 1</span></div>
+      <h2><span class="mono">Q39</span> · 1690 Orbit</h2>
+      <div class="meta"><span class="dot"></span>Saved on this device · 11:43</div>
+      <div class="progress"><i class="d"></i><i class="c"></i><i></i><i></i></div>
+    </div>
+    <div class="ebody">
+      <div class="lbl">Robot status</div>
+      <div class="status">
+        <b class="on"><i style="background:var(--ok)"></i>Played</b>
+        <b><i style="background:var(--warn)"></i>Broke down</b>
+        <b><i style="background:#7A818B"></i>Disabled</b>
+        <b><i style="background:var(--red)"></i>No show</b>
+      </div>
+      <div class="phase"><h3>Teleop</h3><span>2 of 4 · Auto done</span></div>
+      <div class="ctr">
+        <div class="c"><div class="t">High goal</div><div class="v">7</div><div class="bs"><b>−</b><b class="p">+</b></div></div>
+        <div class="c"><div class="t">Low goal</div><div class="v">4</div><div class="bs"><b>−</b><b class="p">+</b></div></div>
+        <div class="c"><div class="t">Missed shots</div><div class="v">3</div><div class="bs"><b>−</b><b class="p">+</b></div></div>
+        <div class="c"><div class="t">Fouls drawn</div><div class="v">0</div><div class="bs"><b>−</b><b class="p">+</b></div></div>
+      </div>
+      <div class="tg">Played defense<span class="sw"></span></div>
+    </div>
+    <div class="ebar"><a class="btn">Auto</a><a class="btn primary" style="flex:2">Next: Endgame</a></div>
+  </div><div class="caption">Entry form · one phase at a time</div></div>
+
+  <div class="wrap"><div class="phone">
+    <div class="sbar"><span>11:45</span><span style="font-size:12px;color:var(--muted)">● ● ●</span></div>
+    <div class="eh">
+      <div class="row"><span>Confirm this entry</span><span class="tag r">RED 1</span></div>
+      <h2><span class="mono">Q39</span> · 1690 Orbit</h2>
+      <div class="meta">You can still edit for 10 minutes after submitting.</div>
+      <div class="progress"><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i></div>
+    </div>
+    <div class="ebody">
+      <div class="rv">
+        <div class="r"><span>Status</span><b style="font-family:Archivo;font-weight:600">Played</b></div>
+        <div class="ph">Autonomous</div>
+        <div class="r"><span>Left start zone</span><b>Yes</b></div>
+        <div class="r"><span>High goal</span><b>2</b></div>
+        <div class="ph">Teleop</div>
+        <div class="r"><span>High goal</span><b>7</b></div>
+        <div class="r"><span>Low goal</span><b>4</b></div>
+        <div class="r"><span>Missed shots</span><b>3</b></div>
+        <div class="r"><span>Played defense</span><b>No</b></div>
+        <div class="ph">Endgame</div>
+        <div class="r"><span>Climb</span><b>Deep</b></div>
+      </div>
+    </div>
+    <div class="ebar"><a class="btn">Keep editing</a><a class="btn primary">Submit entry</a></div>
+  </div><div class="caption">Confirm sheet</div></div>
+
+  <div class="wrap"><div class="phone">
+    <div class="sbar"><span>11:51</span><span style="font-size:12px;color:var(--muted)">● ● ●</span></div>
+    <div class="eh">
+      <div class="row"><span>‹ Scout</span><span class="tag b">BLUE 2</span></div>
+      <h2><span class="mono">Q40</span> · 3316 D-Bug</h2>
+      <div class="meta"><span class="dot"></span>Saved on this device · 11:51</div>
+      <div class="progress"><i class="c"></i><i></i><i></i><i></i></div>
+    </div>
+    <div class="ebody">
+      <div class="lbl">Robot status</div>
+      <div class="status">
+        <b><i style="background:var(--ok)"></i>Played</b>
+        <b><i style="background:var(--warn)"></i>Broke down</b>
+        <b><i style="background:#7A818B"></i>Disabled</b>
+        <b class="on"><i style="background:var(--red)"></i>No show</b>
+      </div>
+      <div class="callout"><b>Status only</b>A no-show robot records no match fields, so its averages are never pulled down by zeros.</div>
+      <div class="ghost"><div><span>Autonomous</span><span>Skipped</span></div><div><span>Teleop</span><span>Skipped</span></div><div><span>Endgame</span><span>Skipped</span></div></div>
+    </div>
+    <div class="ebar"><a class="btn primary">Review entry</a></div>
+  </div><div class="caption">No-show: status only, never zeros</div></div>
+</div>
+</section>
+
+<!-- ================= MANAGE ================= -->
+<section data-screen="manage">
+<div class="app">
+  <div data-rail></div>
+  <div class="main">
+    <header class="top">
+      <span class="ev">Manage<small>Admin</small></span>
+      <span class="sp"></span>
+      <span class="stat"><span class="dot"></span>Online · synced 11:38</span>
+    </header>
+    <div class="content">
+      <div class="mh">
+        <div><h1>Seasons and events</h1><p>The default event is the one every device works on.</p></div>
+        <span class="sp"></span>
+        <a class="btn">2026 season</a><a class="btn primary"><svg><use href="#i-plus"/></svg>New event</a>
+      </div>
+      <div class="seg"><a>Seasons<span class="c">3</span></a><a class="on">Events<span class="c">5</span></a><a>Teams &amp; roster<span class="c">42</span></a><a>Matches<span class="c">72</span></a></div>
+
+      <div class="box" style="margin-top:16px"><div class="bb" data-kit="K.seasonTimeline({w:1220,h:92})"></div></div>
+
+      <div class="evcards">
+        <div class="evc"><span class="tag n" style="align-self:flex-start">Finished</span><h4>District #1 · Haifa</h4><span class="d">Feb 24–26</span><div class="row"><span>Coverage</span><b>99%</b></div><div class="pbar"><i style="width:99%"></i></div></div>
+        <div class="evc"><span class="tag n" style="align-self:flex-start">Finished</span><h4>District #2 · Be’er Sheva</h4><span class="d">Mar 10–12</span><div class="row"><span>Coverage</span><b>96%</b></div><div class="pbar"><i style="width:96%"></i></div></div>
+        <div class="evc sel"><span class="tag a" style="align-self:flex-start">Live · default</span><h4>District #3 · Tel Aviv</h4><span class="d">Mar 24–26</span><div class="row"><span>Coverage</span><b>98%</b></div><div class="pbar"><i style="width:98%;background:var(--accent)"></i></div></div>
+        <div class="evc"><span class="tag w" style="align-self:flex-start">Needs setup</span><h4>District #4 · Jerusalem</h4><span class="d">Apr 7–9</span><div class="row"><span>Roster</span><b>40 teams</b></div><div class="pbar"><i style="width:0"></i></div></div>
+        <div class="evc"><span class="tag n" style="align-self:flex-start">Scheduled</span><h4>District Championship</h4><span class="d">Apr 28–May 1</span><div class="row"><span>Roster</span><b>60 teams</b></div><div class="pbar"><i style="width:0"></i></div></div>
+      </div>
+
+      <div class="split">
+        <div class="box">
+          <div class="bh"><h3>Match schedule · District #3</h3><span class="aside">Last 6 played · cell = entry received</span></div>
+          <div class="bb"><div class="matrix" id="mx"></div></div>
+        </div>
+        <div class="box">
+          <div class="bh"><h3>Event readiness</h3><span class="aside">3 of 4 done</span></div>
+          <div class="bb steps">
+            <div class="st"><span class="ic">✓</span><div><b>Roster imported</b><small>42 teams</small></div><a class="tag n">Edit</a></div>
+            <div class="st"><span class="ic">✓</span><div><b>Match schedule</b><small>72 qualifications</small></div><a class="tag n">Edit</a></div>
+            <div class="st"><span class="ic">✓</span><div><b>Scouting form</b><small>Version 3, locked</small></div><a class="tag n">View</a></div>
+            <div class="st"><span class="ic w">!</span><div><b>Devices loaded</b><small>14 of 16 hold this event</small></div><a class="tag n">List</a></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<script src="kit.js"></script>
+<script>
+document.querySelectorAll('[data-rail]').forEach(el=>el.replaceWith(document.getElementById('rail').content.cloneNode(true)));
+const want=(location.hash||'#home').slice(1);
+document.querySelectorAll('[data-screen="'+want+'"] .rail a').forEach(a=>{if(a.dataset.n===want)a.classList.add('on')});
+const D=KIT.DATA;
+document.getElementById('strip').innerHTML=D.coverage.map((c,i)=>{const n=i+1;let s='up',h=6;if(c!==null){s=c===6?'full':'gap';h=c/6*100}if(n===D.current+1){s='nx';h=100}return `<i class="${s}" style="height:${s==='up'?6:h}%"></i>`}).join('');
+const maxE=Math.max(...D.topTeams.map(t=>t.epa));
+document.getElementById('tt').innerHTML='<tr><th>#</th><th>Team</th><th></th><th>Trend</th><th style="text-align:right">Avg</th></tr>'+D.topTeams.map((t,i)=>`<tr class="${t.team===2096?'me':''}"><td class="mono" style="color:var(--faint)">${i+1}</td><td><span class="mono">${t.team}</span> <span style="color:var(--muted)">${t.name}</span></td><td><div class="bar"><i style="width:${t.epa/maxE*100}%"></i></div></td><td>${KIT.sparkline(t.trend,{w:60,h:18})}</td><td class="mono" style="text-align:right">${t.epa.toFixed(1)}</td></tr>`).join('');
+const rows=[[33,1,1,1,1,1,1],[34,1,1,1,1,0,1],[35,1,1,1,1,1,1],[36,1,1,1,1,1,1],[37,1,1,1,1,1,1],[38,1,1,1,1,1,1]];
+const teams={33:[2630,1943,7067,5987,1657,3075],34:[6230,8223,2630,4319,6740,5951],35:[7039,3316,1574,2096,1937,8175],36:[1943,5654,6738,3339,4590,2231],37:[5654,6230,1690,1657,7067,5990],38:[2096,8223,4319,6740,3075,1574]};
+document.getElementById('mx').innerHTML='<span class="h"></span><span class="h r">RED 1</span><span class="h r">RED 2</span><span class="h r">RED 3</span><span class="h b">BLUE 1</span><span class="h b">BLUE 2</span><span class="h b">BLUE 3</span>'+rows.map(r=>`<span class="m">Q${r[0]}</span>`+r.slice(1).map((v,j)=>`<span class="c ${v?'done':'miss'}">${teams[r[0]][j]}</span>`).join('')).join('');
+KIT.boot();
+</script>
+</body>
+</html>
