@@ -63,8 +63,8 @@ Needed by CI, by the dev migration step, and by the keep-alive workflow. Set at 
 | `SMOKE_API_BASE_URL` | Smoke suite target | The dev or preview server deployment URL | No | `https://frc-scouting-server-git-develop-roboactive.vercel.app` | ☑ |
 | `SMOKE_SUPABASE_URL` | Smoke suite `CI` season setup/teardown | Dev project | No | `https://oqvoqddoizhhwvjwejtm.supabase.co` | ☑ |
 | `SMOKE_SUPABASE_SERVICE_ROLE_KEY` | Same | Dev project | **YES** | *(never written here)* | ☑ |
-| `HEALTHCHECK_DEV_URL` | Twice-weekly keep-alive | `https://<dev-server>/health` | No | `https://frc-scouting-server-git-develop-roboactive.vercel.app/health` | ☑ |
-| `HEALTHCHECK_PROD_URL` | Twice-weekly keep-alive | `https://<prod-server>/health` | No | `https://frc-scouting-server.vercel.app/health` | ☑ |
+| `HEALTHCHECK_DEV_URL` | Daily keep-alive | `https://<dev-server>/health` | No | `https://frc-scouting-server-git-develop-roboactive.vercel.app/health` | ☑ |
+| `HEALTHCHECK_PROD_URL` | Daily keep-alive | `https://<prod-server>/health` | No | `https://frc-scouting-server.vercel.app/health` | ☑ |
 
 **Production is deliberately absent from this table.** CI never touches the production Supabase project — production migrations are applied by hand, one deliberate CLI command, from your machine.
 

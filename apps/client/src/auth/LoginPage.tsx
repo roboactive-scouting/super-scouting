@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
+import { Notice } from '@/components/ui/notice';
 import { AuthError, AuthField, AuthFrame, AuthSubmit } from './AuthFrame';
 import { OFFLINE_SIGN_IN_LINE } from './messages';
 import {
@@ -10,6 +11,7 @@ import {
 } from './offlineLogin';
 import type { SessionUser } from './session';
 import { useSession } from './useSession';
+import { PATHS } from '@/lib/paths';
 
 export const EXPIRED_LINE =
   'Your sign-in expired. Everything you entered is saved on this device and will sync after you sign in.';
@@ -30,7 +32,7 @@ function useOnline(): boolean {
   return online;
 }
 
-const home = (user: SessionUser) => (user.must_change_password ? '/change-password' : '/');
+const home = (user: SessionUser) => (user.must_change_password ? PATHS.changePassword : PATHS.home);
 
 /**
  * `offlineSignIn` is how the cached-hash path is reached (task 1.16): the server is tried
@@ -76,7 +78,7 @@ export function LoginPage({
       });
       // An offline session is never sent to the change-password screen: that needs the
       // server, and entering match data comes first (the shell says it is offline).
-      navigate(offline ? '/' : home(user), { replace: true });
+      navigate(offline ? PATHS.home : home(user), { replace: true });
     } catch (err) {
       setError(signInErrorLine(err));
     } finally {
@@ -87,14 +89,14 @@ export function LoginPage({
   return (
     <AuthFrame title="Sign in">
       {current?.expired && (
-        <p role="status" className="mt-3 rounded-lg border border-[var(--warning)] p-3 text-sm">
+        <Notice role="status" tone="warning" className="mt-4">
           {EXPIRED_LINE}
-        </p>
+        </Notice>
       )}
       {!online && (
-        <p role="status" className="mt-3 rounded-lg border border-[var(--border)] p-3 text-sm">
+        <Notice role="status" className="mt-4">
           {OFFLINE_SIGN_IN_LINE}
-        </p>
+        </Notice>
       )}
       <form noValidate onSubmit={(e) => void submit(e)}>
         <AuthField

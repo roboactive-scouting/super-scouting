@@ -3,10 +3,16 @@ import { can, type Role } from '@frc/shared';
 import { StateMessage } from '@/components/StateMessage';
 import { useSignedInUser } from '@/features/shell/shellContext';
 import { NOT_ADMIN_TITLE } from './adminMessages';
+import { PATHS } from '@/lib/paths';
 
 /** SPEC-FINAL 7.2 through the one permission check, never a hand-written role compare. */
 export function canManageUsers(user: { id: string; role: Role }): boolean {
   return can({ kind: 'user', userId: user.id, role: user.role }, 'manage_users');
+}
+
+/** Same rule, `manage_events` (SPEC-FINAL 6.2, 6.3, 6.4): task 1.20's admin management page. */
+export function canManageEvents(user: { id: string; role: Role }): boolean {
+  return can({ kind: 'user', userId: user.id, role: user.role }, 'manage_events');
 }
 
 /**
@@ -22,7 +28,7 @@ export function AdminOnly({ children }: { children: ReactNode }) {
       headingLevel={1}
       title={NOT_ADMIN_TITLE}
       detail="Accounts, roles and passwords are managed by an admin. Ask one if something needs to change."
-      action={{ label: 'Back to scouting', to: '/' }}
+      action={{ label: 'Back to scouting', to: PATHS.scout }}
     />
   );
 }

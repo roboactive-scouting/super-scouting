@@ -101,7 +101,8 @@ function renderSwitch() {
     <MemoryRouter initialEntries={['/switch-scouter']}>
       <Routes>
         <Route path="/switch-scouter" element={<SwitchScouter />} />
-        <Route path="/" element={<p>the scout page</p>} />
+        <Route path="/scout" element={<p>the scout page</p>} />
+        <Route path="/" element={<p>the home page</p>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -231,7 +232,7 @@ describe('switch scouter (SPEC-FINAL 7.3, 7.5)', () => {
     renderSwitch();
     const u = userEvent.setup();
     await u.click(await screen.findByRole('link', { name: 'Cancel' }));
-    expect(await screen.findByText('the scout page')).toBeInTheDocument();
+    expect(await screen.findByText('the home page')).toBeInTheDocument();
     await waitFor(async () => expect((await session.current())?.user.id).toBe(DANA));
   });
 });

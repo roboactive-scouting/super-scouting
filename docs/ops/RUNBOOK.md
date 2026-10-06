@@ -24,6 +24,23 @@ still holds unacknowledged entries is a loss.
 4. Never clear a device's data to "fix" sync. The wipe refuses while anything is
    unacknowledged, and that refusal is correct.
 
+## A device shows no matches
+
+A device that has loaded the competition once opens straight to it, with or without a
+connection. These screens appear only on a device that has not loaded it yet.
+
+- **"No competition is set up yet"** — the server answered: no active event is set.
+  Not a connection problem. An admin sets the season and event; the device picks it up
+  within a minute, or at once when it reconnects.
+- **"Not loaded yet" + "Cannot reach the server"** — the device is online but the
+  server did not answer. Check the address first: only the production URL and the
+  `develop` preview URL are allowed; a per-deployment preview URL is refused by CORS.
+  Then check `/health` (Site will not load, above).
+- **"Not loaded yet" + "An internet connection is required once"** — the device says it
+  is offline. Get it onto a network once.
+- The same "Cannot reach the server" line at **sign-in** means the same thing: the
+  address, or the server, is wrong. It appears only on a device with no cached accounts.
+
 ## A tablet is dead or misbehaving
 
 1. Take a spare device, install the app, log in, and let it pull the event.

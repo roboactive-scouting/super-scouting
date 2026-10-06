@@ -4,6 +4,7 @@ import {
   createUserInput,
   listUsersInput,
   publicUser,
+  renameUserInput,
   resetPasswordInput,
   usernameSchema,
 } from './users';
@@ -35,6 +36,24 @@ describe('the user-administration wire schemas (SPEC-FINAL 7.3, 7.5)', () => {
     expect(resetPasswordInput.parse({ user_id: 'u', password: 'aaaaaaaa' }).must_change).toBe(
       false,
     );
+  });
+
+  it('defaults must_change to false on a create too', () => {
+    const base = { username: 'dana', full_name: 'Dana', role: 'scouter', password: 'aaaaaaaa' };
+    expect(createUserInput.parse(base).must_change).toBe(false);
+    expect(createUserInput.parse({ ...base, must_change: true }).must_change).toBe(true);
+  });
+
+  it('renameUserInput requires at least a username or a full name', () => {
+    expect(renameUserInput.safeParse({ user_id: 'u' }).success).toBe(false);
+    expect(renameUserInput.safeParse({ user_id: 'u', full_name: 'New Name' }).success).toBe(true);
+    expect(renameUserInput.safeParse({ user_id: 'u', username: 'newname' }).success).toBe(true);
+  });
+
+  it('renameUserInput runs a username through the same trim/lowercase/pattern rules', () => {
+    const parsed = renameUserInput.parse({ user_id: 'u', username: '  New.Name ' });
+    expect(parsed.username).toBe('new.name');
+    expect(renameUserInput.safeParse({ user_id: 'u', username: 'a*b' }).success).toBe(false);
   });
 
   it('rejects a user_id on changeOwnPassword instead of dropping it', () => {

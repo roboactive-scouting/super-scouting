@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react';
-
-const QUERY = '(min-width: 1024px)';
+import { Monitor } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { DESKTOP_QUERY, useMediaQuery } from '@/lib/useMediaQuery';
 
 /**
  * SPEC-FINAL 17.2: builders unlock at 1024 px; anything narrower gets one clear panel.
@@ -10,21 +10,19 @@ const QUERY = '(min-width: 1024px)';
  * `what` is written as it reads mid-sentence, e.g. "the form builder".
  */
 export function DesktopOnly({ what, children }: { what: string; children: ReactNode }) {
-  const [wide, setWide] = useState(() => window.matchMedia(QUERY).matches);
-
-  useEffect(() => {
-    const media = window.matchMedia(QUERY);
-    const listener = () => setWide(media.matches);
-    media.addEventListener('change', listener);
-    return () => media.removeEventListener('change', listener);
-  }, []);
-
+  const wide = useMediaQuery(DESKTOP_QUERY, true);
   if (wide) return <>{children}</>;
 
   return (
-    <div className="mx-auto max-w-md p-8 text-center">
-      <h1 className="text-lg font-semibold">This needs a computer</h1>
-      <p className="mt-2 text-[var(--text-muted)]">
+    <div className="enter-fade mx-auto flex max-w-md flex-col items-center px-4 py-16 text-center">
+      <span
+        aria-hidden="true"
+        className="flex size-12 items-center justify-center rounded-full border border-border bg-surface"
+      >
+        <Monitor className="size-6 text-text-muted" strokeWidth={1.5} />
+      </span>
+      <h1 className="mt-5 text-lg font-semibold">This needs a computer</h1>
+      <p className="mt-2 text-sm text-text-muted">
         Open {what} on a screen at least 1024 pixels wide. It is pre-competition work, done sitting
         down. Phones do the competition job — entering, browsing and reading — and this is not one
         of those.

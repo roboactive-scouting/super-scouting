@@ -1,4 +1,7 @@
 import { useId, useState, type FormEvent } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { RpcError } from '@/data/rpc';
 import { AuthError } from './AuthFrame';
 import { DISABLED } from './messages';
@@ -64,39 +67,33 @@ export function ReconnectPrompt({
   return (
     <section
       aria-labelledby={`${id}-title`}
-      className="border-b-2 border-[var(--warning)] bg-[var(--surface)] p-3"
+      className="enter-rise border-b border-s-4 border-border border-s-warning bg-surface px-4 py-3"
     >
-      <h2 id={`${id}-title`} className="font-semibold">
+      <h2 id={`${id}-title`} className="text-sm font-semibold">
         {RECONNECT_TITLE}
       </h2>
-      <p className="mt-1 text-sm text-[var(--text-muted)]">
+      <p className="mt-1 text-sm text-text-muted">
         Enter the password for <span dir="auto">{name}</span> once to upload this device&apos;s
         entries. They are safe on this device until then.
       </p>
-      <form noValidate className="mt-2" onSubmit={(e) => void submit(e)}>
-        <label htmlFor={`${id}-password`} className="block text-sm font-medium">
-          Password
-        </label>
-        <div className="tap-row mt-1 flex flex-wrap items-center gap-y-2">
-          <input
+      <form noValidate className="mt-3" onSubmit={(e) => void submit(e)}>
+        <Label htmlFor={`${id}-password`}>Password</Label>
+        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+          <Input
             id={`${id}-password`}
             type="password"
             value={password}
             autoComplete="current-password"
             dir="auto"
-            className="tap-target min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3"
+            className="flex-1"
             onChange={(e) => setPassword(e.target.value)}
           />
-          <button
-            type="submit"
-            disabled={busy}
-            className="tap-target rounded-lg bg-[var(--brand-plate)] px-4 font-semibold text-[var(--brand)] disabled:opacity-50"
-          >
+          <Button type="submit" variant="primary" disabled={busy}>
             {busy ? 'Signing in…' : 'Sign in'}
-          </button>
-          <button type="button" className="tap-target px-3" onClick={onClose}>
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
             Not now
-          </button>
+          </Button>
         </div>
         <AuthError message={error} />
       </form>

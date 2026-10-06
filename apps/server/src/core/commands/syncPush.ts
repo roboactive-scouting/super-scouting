@@ -1,10 +1,13 @@
 import {
+  AppError,
   can,
+  ensureMatchInput,
   isUser,
   validateEntryData,
   withinSelfEditWindow,
   validateEntryShape,
   type Caller,
+  type ErrorCode,
   type Operation,
   type PushRequest,
   type PushResponse,
@@ -13,6 +16,7 @@ import {
   type RobotStatus,
 } from '@frc/shared';
 import type { StoredUser, UseCaseContext } from '../context.js';
+import { ensureMatch } from './matches.js';
 
 const rejected = (opId: string, reason: RejectionReason, detail?: string): PushResult =>
   detail === undefined
@@ -91,8 +95,15 @@ async function applyOne(caller: Caller, op: Operation, ctx: UseCaseContext): Pro
 
   if (await ctx.store.wasApplied(op.op_id)) {
     // Matches are not versioned (SPEC-FINAL 6.4: event, type, number and nothing else).
+    // The replay names the CANONICAL id, as the first answer did, so a device whose
+    // first response was lost still learns which id the server kept.
     if (op.entity === 'match') {
-      return { op_id: op.op_id, status: 'noop', row_id: op.row_id, new_version: 1 };
+      return {
+        op_id: op.op_id,
+        status: 'noop',
+        row_id: await canonicalMatchId(op, ctx),
+        new_version: 1,
+      };
     }
     const existing = await ctx.store.getRow(op.entity, op.row_id);
     return {
@@ -110,37 +121,63 @@ async function applyOne(caller: Caller, op: Operation, ctx: UseCaseContext): Pro
   return applyEntry(op, author, ctx);
 }
 
+/**
+ * The bare match fields of an operation, as ensureMatch takes them. `id` is the op's
+ * row_id; everything else comes from the payload, and ensureMatch validates all of it.
+ */
+const bareMatchInput = (op: Operation) => {
+  const { event_id, match_type, number } = op.payload as Record<string, unknown>;
+  return { id: op.row_id, event_id, match_type, number } as Parameters<typeof ensureMatch>[1];
+};
+
+/** The id the server holds for this op's (event, type, number), else the op's own. */
+async function canonicalMatchId(op: Operation, ctx: UseCaseContext): Promise<string> {
+  const parsed = ensureMatchInput.safeParse(bareMatchInput(op));
+  if (!parsed.success) return op.row_id;
+  const { event_id, match_type, number } = parsed.data;
+  return (await ctx.store.findMatch(event_id, match_type, number))?.id ?? op.row_id;
+}
+
+/**
+ * A use case's refusal as a push rejection (SPEC-FINAL 9.3.1 has four reasons). A missing
+ * event is `parent-deleted` — the parent of the row is gone (9.5), which is what the
+ * client's 9.7 handling is for.
+ */
+const REASON_FOR: Partial<Record<ErrorCode, RejectionReason>> = {
+  forbidden: 'forbidden',
+  'not-found': 'parent-deleted',
+  invalid: 'invalid',
+};
+
+/**
+ * SPEC-FINAL 6.4: the bare auto-creation, through ensureMatch — the one implementation of
+ * the rule. Its caller is the operation's AUTHOR, never the bearer (7.5), so ensureMatch's
+ * own `ensure_match` check is this operation's authorization.
+ *
+ * When the match already exists the answer is `noop` with the EXISTING match's id, which
+ * may differ from op.row_id: two offline devices can each auto-create the same match
+ * number under their own ids, and the second must remap to the first's. `matches` has no
+ * version column, so new_version is always 1.
+ */
 async function applyBareMatch(
   op: Operation,
   author: StoredUser,
   ctx: UseCaseContext,
 ): Promise<PushResult> {
-  if (!can(callerOf(author), 'ensure_match')) {
-    return rejected(op.op_id, 'forbidden', 'the author may not create a match');
+  let result: { id: string; created: boolean };
+  try {
+    result = await ensureMatch(callerOf(author), bareMatchInput(op), ctx);
+  } catch (e) {
+    if (!(e instanceof AppError)) throw e;
+    return rejected(op.op_id, REASON_FOR[e.code] ?? 'invalid', e.message);
   }
-  // SPEC-FINAL 6.4: the bare auto-creation only — event, type, number. A no-op if it
-  // exists. `matches` has no version column, so new_version is always 1.
-  const existing = await ctx.store.getRow('match', op.row_id);
-  if (existing) {
-    await ctx.store.markApplied(op.op_id);
-    return { op_id: op.op_id, status: 'noop', row_id: op.row_id, new_version: 1 };
-  }
-  const { event_id, match_type, number } = op.payload as Record<string, unknown>;
-  if (
-    typeof event_id !== 'string' ||
-    typeof match_type !== 'string' ||
-    typeof number !== 'number'
-  ) {
-    return rejected(op.op_id, 'invalid', 'a bare match needs event_id, match_type and number');
-  }
-  await ctx.store.putRow('match', op.row_id, {
-    id: op.row_id,
-    event_id,
-    match_type,
-    number,
-  });
   await ctx.store.markApplied(op.op_id);
-  return { op_id: op.op_id, status: 'applied', row_id: op.row_id, new_version: 1 };
+  return {
+    op_id: op.op_id,
+    status: result.created ? 'applied' : 'noop',
+    row_id: result.id,
+    new_version: 1,
+  };
 }
 
 async function applyEntry(

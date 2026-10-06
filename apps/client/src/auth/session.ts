@@ -115,7 +115,7 @@ export const session = {
 
   /** Merges server-authoritative fields into the signed-in user (role, name, flags). */
   async updateUser(
-    patch: Partial<Pick<SessionUser, 'full_name' | 'role' | 'must_change_password'>>,
+    patch: Partial<Pick<SessionUser, 'username' | 'full_name' | 'role' | 'must_change_password'>>,
   ): Promise<void> {
     await update((current) =>
       current ? { ...current, user: { ...current.user, ...patch } } : undefined,

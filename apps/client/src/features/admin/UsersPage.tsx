@@ -10,10 +10,22 @@ import {
   type Role,
 } from '@frc/shared';
 import { sentence } from '@/auth/messages';
-import { PRIMARY_BUTTON, SECONDARY_BUTTON } from '@/components/buttonStyles';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardTitle } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { Skeleton } from '@/components/Skeleton';
 import { StateMessage } from '@/components/StateMessage';
 import { call } from '@/data/rpc';
+import { PATHS } from '@/lib/paths';
 import { AdminOnly } from './AdminOnly';
 import { adminErrorLine } from './adminMessages';
 import { Checkbox, FormError, PasswordField, ROLE_LABEL, RoleSelect, TextField } from './fields';
@@ -62,33 +74,33 @@ function UsersScreen() {
   }
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-6">
-      <h1 className="text-xl font-semibold">Users</h1>
-      <p className="mt-1 text-[var(--text-muted)]">
-        Open an account to change its role, reset its password or disable it.
-      </p>
-      <div className="mt-6 flex flex-wrap items-start gap-8">
-        <section aria-label="All accounts" className="min-w-0 flex-[1_1_36rem]">
-          <div className="flex flex-wrap items-center justify-between gap-x-4">
+    <main className="mx-auto w-full max-w-6xl px-4 py-8 lg:px-8">
+      <PageHeader
+        title="Users"
+        description="Open an account to change its role, reset its password or disable it."
+      />
+      <div className="mt-6 grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <Card as="section" aria-label="All accounts" className="min-w-0 p-0">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 border-b border-border px-5 py-1">
             <Checkbox
               label="Show disabled accounts"
               checked={showDisabled}
               onChange={setShowDisabled}
             />
             {load.status === 'ready' && (
-              <p className="text-sm text-[var(--text-muted)]">
+              <p className="text-sm text-text-muted">
                 {formatCount(load.users.length)} {load.users.length === 1 ? 'account' : 'accounts'}
               </p>
             )}
           </div>
           {load.status === 'loading' ? (
-            <div className="mt-4">
+            <div className="p-5">
               <Skeleton rows={6} rowHeight="3rem" label="Loading the users" />
             </div>
           ) : (
             <>
               {load.truncated && (
-                <p className="mt-2 text-sm text-[var(--text-muted)]">
+                <p className="px-5 pt-3 text-sm text-text-muted">
                   Showing the first {formatCount(MAX_LISTED_USERS)} accounts. The rest are on the
                   server but not listed here.
                 </p>
@@ -96,7 +108,7 @@ function UsersScreen() {
               <UsersTable users={load.users} />
             </>
           )}
-        </section>
+        </Card>
         <CreateUser onCreated={put} />
       </div>
     </main>
@@ -108,55 +120,41 @@ function UsersTable({ users }: { users: PublicUser[] }) {
   const open = (id: string) => (e: MouseEvent<HTMLTableRowElement>) => {
     // The name's own link already navigates; the row makes the rest of it a target too.
     if ((e.target as HTMLElement).closest('a')) return;
-    navigate(`/admin/users/${encodeURIComponent(id)}`);
+    navigate(`${PATHS.users}/${encodeURIComponent(id)}`);
   };
   return (
-    <div className="mt-2 overflow-x-auto">
-      <table className="w-full border-collapse text-left">
-        <thead>
-          <tr className="border-b border-[var(--border)] text-sm text-[var(--text-muted)]">
-            <th scope="col" className="py-2 pr-4 font-medium">
-              Full name
-            </th>
-            <th scope="col" className="py-2 pr-4 font-medium">
-              Username
-            </th>
-            <th scope="col" className="py-2 pr-4 font-medium">
-              Role
-            </th>
-            <th scope="col" className="py-2 font-medium">
-              Status
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {users.map((user) => (
-            <tr
-              key={user.id}
-              onClick={open(user.id)}
-              className="cursor-pointer border-b border-[var(--border)] hover:bg-[var(--surface)]"
-            >
-              <td className="pr-4">
-                <Link
-                  to={`/admin/users/${encodeURIComponent(user.id)}`}
-                  dir="auto"
-                  className="tap-target flex items-center font-medium"
-                >
-                  {user.full_name}
-                </Link>
-              </td>
-              <td className="pr-4" dir="auto">
-                {user.username}
-              </td>
-              <td className="pr-4">{ROLE_LABEL[user.role]}</td>
-              <td className={user.disabled_at ? 'text-[var(--text-muted)]' : undefined}>
-                {statusText(user)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead className="ps-5">Full name</TableHead>
+          <TableHead>Username</TableHead>
+          <TableHead>Role</TableHead>
+          <TableHead className="pe-5">Status</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {users.map((user) => (
+          <TableRow key={user.id} onClick={open(user.id)} className="cursor-pointer">
+            <TableCell className="py-0 ps-5">
+              <Link
+                to={`${PATHS.users}/${encodeURIComponent(user.id)}`}
+                dir="auto"
+                className="tap-target flex items-center font-medium"
+              >
+                {user.full_name}
+              </Link>
+            </TableCell>
+            <TableCell dir="auto">{user.username}</TableCell>
+            <TableCell>
+              <Badge>{ROLE_LABEL[user.role]}</Badge>
+            </TableCell>
+            <TableCell className="pe-5">
+              <Badge tone={user.disabled_at ? 'neutral' : 'success'}>{statusText(user)}</Badge>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 
@@ -192,13 +190,11 @@ type Created = {
   /** Shown once, here, and dropped with this component. Never written anywhere. */
   password: string;
   mustChange: boolean;
-  resetFailed: string | null;
 };
 
 /**
- * One small form (SPEC-FINAL 17.9). `createUser` cannot set `must_change_password`
- * (spec §5.4 item 3), so when the box is ticked the client resets the password to the same
- * value with `must_change: true` straight after — the workaround §5.4 names.
+ * One small form (SPEC-FINAL 17.9). `createUser` takes `must_change` directly (spec §5.4
+ * item 3), so ticking the box just sets it on the create call — no follow-up reset.
  */
 function CreateUser({ onCreated }: { onCreated: (user: PublicUser) => void }) {
   const titleId = useId();
@@ -225,23 +221,20 @@ function CreateUser({ onCreated }: { onCreated: (user: PublicUser) => void }) {
     setCreated(null);
     let user: PublicUser;
     try {
-      user = await call('createUser', { username, full_name: fullName, role, password });
+      user = await call('createUser', {
+        username,
+        full_name: fullName,
+        role,
+        password,
+        must_change: mustChange,
+      });
     } catch (err) {
       setProblem({ field: null, line: adminErrorLine(err) });
       setBusy(false);
       return;
     }
     onCreated(user);
-    let resetFailed: string | null = null;
-    if (mustChange) {
-      try {
-        user = await call('resetPassword', { user_id: user.id, password, must_change: true });
-        onCreated(user);
-      } catch (err) {
-        resetFailed = adminErrorLine(err);
-      }
-    }
-    setCreated({ user, password, mustChange: mustChange && resetFailed === null, resetFailed });
+    setCreated({ user, password, mustChange });
     setUsername('');
     setFullName('');
     setRole('scouter');
@@ -253,47 +246,30 @@ function CreateUser({ onCreated }: { onCreated: (user: PublicUser) => void }) {
   const invalid = (field: FieldKey) => problem?.field === field;
 
   return (
-    <section
-      aria-labelledby={titleId}
-      className="flex-[0_1_24rem] rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5"
-    >
-      <h2 id={titleId} className="text-lg font-semibold">
+    <Card as="section" aria-labelledby={titleId}>
+      <CardTitle id={titleId} className="text-lg">
         Add a user
-      </h2>
+      </CardTitle>
       {created && (
         <div
           role="status"
           aria-labelledby={createdId}
-          className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3"
+          className="enter-rise mt-4 rounded-lg border-s-4 border-s-status-played bg-bg p-3"
         >
           <p id={createdId} className="font-medium">
             Created <span dir="auto">{created.user.full_name}</span>.
           </p>
-          <p className="mt-2 text-sm text-[var(--text-muted)]">Their password</p>
+          <p className="mt-2 text-sm text-text-muted">Their password</p>
           <p className="font-mono text-lg" dir="ltr">
             {created.password}
           </p>
-          <p className="mt-2 text-sm text-[var(--text-muted)]">
+          <p className="mt-2 text-sm text-text-muted">
             Hand it over now. It is shown once and kept nowhere
-            {created.mustChange ? '; they choose their own at first sign-in.' : '.'}
+            {created.mustChange ? '; they choose their own at next sign-in.' : '.'}
           </p>
-          {created.resetFailed && (
-            <p
-              role="alert"
-              dir="auto"
-              className="mt-3 rounded-lg border-2 border-[var(--danger)] p-3 text-sm"
-            >
-              Account created, but the first-sign-in change could not be set. {created.resetFailed}{' '}
-              Reset their password from their page to try again.
-            </p>
-          )}
-          <button
-            type="button"
-            className={`${SECONDARY_BUTTON} mt-3`}
-            onClick={() => setCreated(null)}
-          >
+          <Button className="mt-3" onClick={() => setCreated(null)}>
             Done
-          </button>
+          </Button>
         </div>
       )}
       <form aria-labelledby={titleId} noValidate onSubmit={(e) => void submit(e)}>
@@ -322,15 +298,15 @@ function CreateUser({ onCreated }: { onCreated: (user: PublicUser) => void }) {
           errorId={errorId}
         />
         <Checkbox
-          label="Ask them to change it at first sign-in"
+          label="Ask them to change it at next sign-in"
           checked={mustChange}
           onChange={setMustChange}
         />
         <FormError id={errorId} message={problem?.line ?? null} />
-        <button type="submit" disabled={busy} className={`${PRIMARY_BUTTON} mt-6 w-full`}>
+        <Button type="submit" variant="primary" size="block" disabled={busy} className="mt-6">
           {busy ? 'Adding…' : 'Add user'}
-        </button>
+        </Button>
       </form>
-    </section>
+    </Card>
   );
 }

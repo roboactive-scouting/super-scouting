@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Soft Tablet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Figtree:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F3F3F5; --surface:#FFFFFF; --soft:#F7F7F9; --line:#E6E6EA; --line-2:#EFEFF2;
+  --ink:#1C1B22; --ink-2:#43414D; --muted:#706E7A; --faint:#A6A4AE;
+  --accent:#5B3A73; --accent-2:#8D74A0; --accent-tint:#F1ECF5;
+  --ok:#3D7F68; --ok-tint:#E7F2EE; --warn:#B26B1F; --warn-tint:#F8EEE2;
+  --red:#C24C45; --red-tint:#FAEBEA; --blue:#3563C9; --blue-tint:#EAF0FB;
+  --mono:'DM Mono',ui-monospace,monospace; --disp:'Bricolage Grotesque',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--ink);font-family:'Figtree',system-ui,sans-serif;font-size:14.5px;-webkit-font-smoothing:antialiased}
+.mono{font-family:var(--mono)}
+.app{width:1440px;height:900px;display:grid;grid-template-columns:244px 1fr;gap:16px;padding:16px;overflow:hidden}
+.side{background:var(--surface);border-radius:22px;padding:18px 14px;display:flex;flex-direction:column;border:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:12px;padding:2px 6px 18px}
+.brand .tile{width:44px;height:44px;border-radius:13px;background:#24222B;display:grid;place-items:center}
+.brand .tile img{width:28px}
+.brand b{font-family:var(--disp);font-weight:700;font-size:16px;display:block;letter-spacing:-.01em}
+.brand small{color:var(--muted);font-size:12.5px}
+.navh{font-size:12px;color:var(--faint);font-weight:600;padding:16px 12px 6px}
+.nav a{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;color:var(--ink-2);font-weight:600}
+.nav a svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.8}
+.nav a.on{background:var(--accent-tint);color:var(--accent)}
+.side .sync{margin-top:auto;background:var(--soft);border-radius:16px;padding:14px}
+.sync .row{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);margin-top:6px}
+.sync .row b{color:var(--ink);font-weight:600}
+.sync .bar{height:6px;border-radius:3px;background:var(--line);margin-top:10px;overflow:hidden}.sync .bar i{display:block;height:100%;width:92%;background:var(--ok);border-radius:3px}
+.me{display:flex;align-items:center;gap:10px;padding:14px 6px 0}
+.av{width:36px;height:36px;border-radius:50%;background:var(--accent-tint);color:var(--accent);display:grid;place-items:center;font-weight:700;font-size:13px}
+.me b{display:block;font-weight:600;font-size:13.5px}
+.me small{color:var(--muted);font-size:12px}
+.main{min-width:0;display:flex;flex-direction:column;gap:16px;padding:6px 6px 0 4px}
+.head{display:flex;align-items:flex-end;gap:12px}
+.head h1{font-family:var(--disp);font-weight:700;font-size:32px;letter-spacing:-.025em;line-height:1.05}
+.head p{color:var(--muted);margin-top:4px}
+.sp{flex:1}
+.pill{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 14px;border-radius:999px;background:var(--surface);border:1px solid var(--line);font-size:13px;font-weight:600;color:var(--ink-2)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}.dot.w{background:var(--warn)}
+.card{background:var(--surface);border-radius:20px;border:1px solid var(--line);padding:20px}
+.card h3{font-family:var(--disp);font-weight:650;font-size:17px;letter-spacing:-.01em;display:flex;align-items:center;gap:8px}
+.card h3 .aside{margin-left:auto;font-family:'Figtree';font-weight:500;font-size:12.5px;color:var(--muted)}
+.btn{display:inline-flex;align-items:center;gap:9px;height:46px;padding:0 20px;border-radius:14px;font-weight:700;font-size:14.5px;background:var(--soft);color:var(--ink);border:1px solid var(--line)}
+.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2}
+.chip{display:inline-flex;align-items:center;height:26px;padding:0 11px;border-radius:999px;font-size:12.5px;font-weight:700}
+.chip.r{background:var(--red-tint);color:var(--red)}.chip.b{background:var(--blue-tint);color:var(--blue)}
+.chip.ok{background:var(--ok-tint);color:var(--ok)}.chip.w{background:var(--warn-tint);color:var(--warn)}
+.chip.n{background:var(--soft);color:var(--ink-2);border:1px solid var(--line)}.chip.a{background:var(--accent-tint);color:var(--accent)}
+/* charts */
+.chart text{font-family:'Figtree';font-size:12.5px;fill:var(--ink-2)}
+.chart .val{font-family:var(--mono);font-size:12px;fill:var(--ink)}
+.columns .bar{fill:#E4E1EA}.columns .is-hl .bar{fill:var(--accent)}.columns .grid{stroke:none}.columns .axis{stroke:none}.columns .xl{fill:var(--muted);font-family:var(--mono);font-size:11px}
+.ring .track{stroke:var(--line-2)}.ring .arc{stroke:var(--accent)}
+.ring.ok .arc{stroke:var(--ok)}
+.timeline .tick{stroke:var(--line-2)}.timeline .axis{stroke:var(--line)}.timeline .xl{fill:var(--faint);font-family:var(--mono);font-size:11px}
+.timeline .ev rect{fill:#DCD9E2;rx:5}.timeline .ev-done rect{fill:#B5B1BE}.timeline .ev-live rect{fill:var(--accent)}
+.timeline .evl{font-size:12.5px;fill:var(--ink-2);font-weight:600}.timeline .ev-live .evl{fill:var(--accent);font-weight:700}
+.timeline .today{stroke:var(--accent);stroke-width:1.5;stroke-dasharray:2 4;stroke-linecap:round}
+/* home */
+.hg{display:grid;grid-template-columns:1.25fr 1fr 1fr;grid-template-rows:auto 1fr;gap:16px;flex:1;min-height:0}
+.up{grid-column:1 / span 2;display:grid;grid-template-columns:1fr auto;gap:20px;background:var(--accent);color:#fff;border:0}
+.up .k{font-size:13px;font-weight:600;opacity:.75}
+.up h2{font-family:var(--disp);font-weight:700;font-size:44px;letter-spacing:-.03em;line-height:1;margin-top:8px}
+.up h2 span{opacity:.6;font-weight:600}
+.up p{opacity:.78;margin-top:10px;max-width:440px;line-height:1.5}
+.up .acts{display:flex;gap:10px;margin-top:18px}
+.up .btn{background:#fff;color:var(--accent);border-color:#fff}
+.up .btn.ghost{background:transparent;color:#fff;border-color:rgba(255,255,255,.35)}
+.lineup{display:flex;flex-direction:column;gap:8px;justify-content:center}
+.lineup .row{display:flex;gap:6px;align-items:center}
+.lineup .row span{width:68px;height:44px;border-radius:12px;display:grid;place-items:center;font-family:var(--mono);font-weight:500;font-size:15px}
+.lineup .row.r span{background:rgba(255,255,255,.1);color:#F3D2CF}
+.lineup .row.b span{background:rgba(255,255,255,.1);color:#D2DCF5}
+.lineup .row span.me{background:#fff;color:var(--red);font-weight:600}
+.lineup em{font-style:normal;font-size:11.5px;font-weight:700;letter-spacing:.06em;width:40px;opacity:.7}
+.cov{display:flex;flex-direction:column}
+.cov .ringwrap{position:relative;width:130px;height:130px;margin:10px auto 12px}
+.cov .ringwrap .c{position:absolute;inset:0;display:grid;place-items:center;text-align:center}
+.cov .ringwrap b{font-family:var(--disp);font-size:28px;font-weight:700;letter-spacing:-.02em;display:block;line-height:1}
+.cov .ringwrap small{color:var(--muted);font-size:12.5px}
+.minis{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:auto}
+.minis div{background:var(--soft);border-radius:14px;padding:10px 12px}
+.minis small{color:var(--muted);font-size:12px;font-weight:600}
+.minis b{display:block;font-family:var(--disp);font-size:22px;font-weight:700;margin-top:2px}
+.dotsrow{display:grid;grid-template-columns:repeat(36,1fr);gap:6px;margin-top:16px}
+.dotsrow i{aspect-ratio:1;border-radius:50%;background:var(--line-2)}
+.dotsrow i.full{background:var(--accent)}
+.dotsrow i.gap{background:#C7B7D3}
+.dotsrow i.nx{background:#fff;box-shadow:inset 0 0 0 2px var(--ink)}
+.teams .t{display:grid;grid-template-columns:30px 1fr 64px 44px;gap:10px;align-items:center;padding:9px 0}
+.teams .rk{width:26px;height:26px;border-radius:8px;background:var(--soft);display:grid;place-items:center;font-family:var(--mono);font-size:12px;color:var(--muted)}
+.teams .t.mine .rk{background:var(--accent);color:#fff}
+.teams .nm b{font-family:var(--mono);font-weight:500;margin-right:6px}
+.teams .nm{color:var(--muted);font-size:14px;white-space:nowrap}
+.teams .t.mine .nm{color:var(--accent);font-weight:600}
+.teams .bar{height:8px;border-radius:4px;background:var(--line-2);overflow:hidden}.teams .bar i{display:block;height:100%;border-radius:4px;background:#C9C3D2}
+.teams .t.mine .bar i{background:var(--accent)}
+.teams .v{font-family:var(--mono);text-align:right;font-size:13.5px}
+/* manage */
+.tabs{display:inline-flex;gap:4px;background:var(--surface);border:1px solid var(--line);padding:4px;border-radius:14px}
+.tabs a{padding:8px 16px;border-radius:10px;font-weight:600;color:var(--muted)}
+.tabs a.on{background:var(--ink);color:#fff}
+.tabs a .c{font-family:var(--mono);font-size:11.5px;margin-left:6px;opacity:.6}
+.evs{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.ev{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:6px}
+.ev.sel{border:2px solid var(--accent);padding:15px}
+.ev h4{font-family:var(--disp);font-weight:650;font-size:16px;letter-spacing:-.01em;line-height:1.2;margin-top:6px}
+.ev .d{color:var(--muted);font-size:13px}
+.ev .foot{display:flex;align-items:center;gap:10px;margin-top:8px;padding-top:10px;border-top:1px solid var(--line-2)}
+.ev .foot b{font-family:var(--mono);font-weight:500;font-size:13px}
+.ev .foot small{display:block;color:var(--muted);font-size:12px}
+.mg{display:grid;grid-template-columns:1fr 400px;gap:16px;flex:1;min-height:0}
+.cl .it{display:grid;grid-template-columns:34px 1fr auto;gap:12px;align-items:center;padding:11px 0;border-top:1px solid var(--line-2)}
+.cl .it:first-of-type{border-top:0}
+.cl .ic{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;background:var(--ok-tint);color:var(--ok);font-weight:800}
+.cl .ic.w{background:var(--warn-tint);color:var(--warn)}
+.cl b{font-weight:600}
+.cl small{display:block;color:var(--muted);font-size:12.5px}
+.cl a{font-weight:700;color:var(--accent);font-size:13px}
+.heat{display:grid;grid-template-columns:44px repeat(12,1fr);gap:4px;margin-top:14px;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.heat span{height:40px;border-radius:9px;display:grid;place-items:center}
+.stack .seg-0{fill:var(--accent)}.stack .seg-1{fill:var(--warn)}.stack .seg-2{fill:#B5B1BE}.stack .seg-3{fill:var(--red)}
+.slegend{display:flex;gap:22px;margin-top:12px;font-size:13px;color:var(--muted);font-weight:600}.slegend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px}.slegend b{color:var(--ink);font-family:var(--mono);font-weight:500;margin-left:4px}
+/* entry */
+.stage{width:1440px;height:940px;background:#E9E8EE;display:flex;justify-content:center;align-items:center;gap:56px}
+.wrap{position:relative}
+.phone{width:375px;height:812px;border-radius:46px;background:var(--bg);box-shadow:0 0 0 9px #fff,0 0 0 10px #D9D7DF,0 30px 60px -30px rgba(40,30,60,.35);overflow:hidden;display:flex;flex-direction:column;position:relative}
+.caption{position:absolute;bottom:-46px;left:0;right:0;text-align:center;font-size:13.5px;color:var(--muted);font-weight:600}
+.sbar{height:46px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 28px;font-weight:700;font-size:14px}
+.eh{padding:2px 18px 12px}
+.eh .row{display:flex;justify-content:space-between;align-items:center}
+.eh .back{width:38px;height:38px;border-radius:12px;background:var(--surface);border:1px solid var(--line);display:grid;place-items:center;font-size:18px;color:var(--ink-2)}
+.eh h2{font-family:var(--disp);font-weight:700;font-size:28px;letter-spacing:-.025em;margin-top:12px;line-height:1.05}
+.eh h2 small{display:block;font-family:'Figtree';font-size:13.5px;font-weight:600;color:var(--muted);letter-spacing:0;margin-bottom:4px}
+.ebody{flex:1;padding:4px 16px;overflow:hidden}
+.stat4{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stat4 div{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:12px 14px;display:flex;align-items:center;gap:10px;font-weight:700;font-size:14px;color:var(--ink-2)}
+.stat4 div i{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-style:normal;font-size:13px}
+.stat4 div.on{border:2px solid var(--accent);padding:11px 13px;color:var(--ink)}
+.phs{display:flex;gap:6px;margin-top:14px;overflow:hidden}
+.phs span{padding:8px 14px;border-radius:999px;font-weight:700;font-size:13px;background:var(--surface);border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.phs span.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.phs span.d::before{content:'✓ ';color:var(--ok)}
+.cards{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+.cn{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:12px 12px 12px 16px;display:flex;align-items:center;justify-content:space-between}
+.cn .l b{font-weight:700;font-size:15px}
+.cn .l small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+.cn .ctl{display:flex;align-items:center;gap:4px;background:var(--soft);border-radius:14px;padding:4px}
+.cn .ctl b{width:46px;height:46px;border-radius:11px;display:grid;place-items:center;font-size:22px;font-weight:500;color:var(--ink-2)}
+.cn .ctl b.p{background:var(--accent);color:#fff}
+.cn .ctl span{width:40px;text-align:center;font-family:var(--disp);font-weight:700;font-size:24px}
+.sw{width:50px;height:30px;border-radius:999px;background:#DCDAE2;position:relative}
+.sw::after{content:'';position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.sw.on{background:var(--accent)}.sw.on::after{left:23px}
+.ebar{padding:12px 16px 28px;display:flex;gap:10px}
+.ebar .btn{height:54px;flex:1;justify-content:center;font-size:16px;border-radius:16px}
+.scrim{position:absolute;inset:0;background:rgba(28,27,34,.38)}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:28px 28px 0 0;padding:10px 18px 0;display:flex;flex-direction:column;max-height:660px}
+.sheet .grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 14px}
+.sheet h3{font-family:var(--disp);font-weight:700;font-size:22px;letter-spacing:-.02em}
+.sheet p{color:var(--muted);font-size:13.5px;margin-top:4px}
+.sumg{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+.sumg div{background:var(--soft);border-radius:14px;padding:10px 12px}
+.sumg small{font-size:12px;color:var(--muted);font-weight:600}
+.sumg b{display:block;font-family:var(--disp);font-size:22px;font-weight:700}
+.sl{margin-top:10px}
+.sl .r{display:flex;justify-content:space-between;padding:9px 2px;border-bottom:1px solid var(--line-2);font-size:14px}
+.sl .r span{color:var(--muted)}
+.sl .r b{font-weight:700}
+.sl h5{font-size:12px;font-weight:700;color:var(--faint);margin-top:10px;letter-spacing:.02em}
+.info{margin-top:14px;background:var(--accent-tint);border-radius:18px;padding:16px;color:var(--ink-2);line-height:1.5;font-size:14px}
+.info b{display:block;font-family:var(--disp);font-size:17px;color:var(--accent);margin-bottom:4px}
+.empty{margin-top:10px;border:2px dashed var(--line);border-radius:18px;padding:18px;display:flex;flex-direction:column;gap:12px}
+.empty div{display:flex;justify-content:space-between;color:var(--faint);font-weight:600;font-size:14px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-scout" viewBox="0 0 24 24"><path d="M9 4h6M9 4a1 1 0 0 0-1 1v1h8V5a1 1 0 0 0-1-1M8 6H6a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-2M9 13l2 2 4-4"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><path d="M3 9h18M8 3v4M16 3v4M4 5h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+</svg>
+<template id="side">
+  <aside class="side">
+    <div class="brand"><span class="tile"><img src="mark.png" alt=""></span><div><b>RobActive Scout</b><small>Team 2096</small></div></div>
+    <div class="navh">Competition</div>
+    <nav class="nav"><a data-n="home"><svg><use href="#i-home"/></svg>Home</a><a data-n="scout"><svg><use href="#i-scout"/></svg>Scout</a><a data-n="entries"><svg><use href="#i-list"/></svg>Entries</a></nav>
+    <div class="navh">Admin</div>
+    <nav class="nav"><a data-n="users"><svg><use href="#i-users"/></svg>Users</a><a data-n="manage"><svg><use href="#i-cal"/></svg>Manage</a></nav>
+    <div class="sync">
+      <div style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:13.5px"><span class="dot"></span>Online</div>
+      <div class="row"><span>Sent</span><b>38</b></div>
+      <div class="row"><span>Waiting to send</span><b>3</b></div>
+      <div class="bar"><i></i></div>
+    </div>
+    <div class="me"><span class="av">NL</span><div><b>Noa Levi</b><small>Scout lead · Switch</small></div></div>
+  </aside>
+</template>
+
+<!-- ================= HOME ================= -->
+<section data-screen="home">
+<div class="app">
+  <div data-side></div>
+  <div class="main">
+    <div class="head">
+      <div><h1>Good morning, Noa</h1><p>District #3 · Tel Aviv · Qualifications, day 2</p></div>
+      <span class="sp"></span>
+      <span class="pill"><span class="dot w"></span>3 entries waiting to send</span>
+    </div>
+    <div class="hg">
+      <div class="card up">
+        <div>
+          <div class="k">Up next for you · Qualification 39 · 11:42</div>
+          <h2>1690 <span>Orbit</span></h2>
+          <p>You are on Red 1. Everything you enter is saved on this device first and sent when there is a connection.</p>
+          <div class="acts"><a class="btn"><svg><use href="#i-scout"/></svg>Scout Q39</a><a class="btn ghost"><svg><use href="#i-list"/></svg>Review entries</a></div>
+        </div>
+        <div class="lineup">
+          <div class="row r"><em>RED</em><span class="me">1690</span><span>3075</span><span>6230</span></div>
+          <div class="row b"><em>BLUE</em><span>2231</span><span>5654</span><span>7039</span></div>
+        </div>
+      </div>
+
+      <div class="card cov">
+        <h3>Coverage<span class="aside">This event</span></h3>
+        <div class="ringwrap"><span data-kit="K.ring(223/228,{size:130,stroke:12})"></span><div class="c"><div><b>97.8%</b><small>223 / 228 robots</small></div></div></div>
+        <div class="minis"><div><small>Matches</small><b>38<span style="color:var(--faint);font-size:15px"> / 72</span></b></div><div><small>Scouts</small><b>14</b></div></div>
+      </div>
+
+      <div class="card" style="grid-column:1 / span 2;display:flex;flex-direction:column">
+        <h3>Schedule<span class="aside">Each dot is a qualification match</span></h3>
+        <div class="dotsrow" id="dotsrow"></div>
+        <div style="display:flex;gap:18px;margin-top:12px;font-size:12.5px;color:var(--muted);font-weight:600">
+          <span><i style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--accent);margin-right:6px"></i>All 6 robots</span>
+          <span><i style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#C7B7D3;margin-right:6px"></i>Missing a robot · 4</span>
+          <span><i style="display:inline-block;width:10px;height:10px;border-radius:50%;box-shadow:inset 0 0 0 2px var(--ink);margin-right:6px"></i>Up next</span>
+        </div>
+        <div style="margin-top:auto;padding-top:14px;border-top:1px solid var(--line-2)">
+          <div style="font-weight:700;font-size:14px;margin-bottom:8px">Entries per hour, today</div>
+          <div data-kit="K.columns(D.hourly, D.hours, {w:780,h:200,gap:16,highlight:3})"></div>
+        </div>
+      </div>
+
+      <div class="card teams">
+        <h3>Top teams<span class="aside">Avg. points</span></h3>
+        <div id="teams" style="margin-top:6px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ================= ENTRY ================= -->
+<section data-screen="entry">
+<div class="stage">
+  <div class="wrap"><div class="phone">
+    <div class="sbar"><span>11:43</span><span style="font-size:12px">● ● ●</span></div>
+    <div class="eh">
+      <div class="row"><span class="back">‹</span><span class="chip r">Red 1</span></div>
+      <h2><small>Qualification 39</small>1690 Orbit</h2>
+    </div>
+    <div class="ebody">
+      <div class="stat4">
+        <div class="on"><i style="background:var(--ok-tint);color:var(--ok)">✓</i>Played</div>
+        <div><i style="background:var(--warn-tint);color:var(--warn)">!</i>Broke down</div>
+        <div><i style="background:var(--soft);color:var(--muted)">–</i>Disabled</div>
+        <div><i style="background:var(--red-tint);color:var(--red)">×</i>No show</div>
+      </div>
+      <div class="phs"><span class="d">Auto</span><span class="on">Teleop</span><span>Endgame</span><span>Notes</span></div>
+      <div class="cards">
+        <div class="cn"><div class="l"><b>High goal</b><small>Scored</small></div><div class="ctl"><b>−</b><span>7</span><b class="p">+</b></div></div>
+        <div class="cn"><div class="l"><b>Low goal</b><small>Scored</small></div><div class="ctl"><b>−</b><span>4</span><b class="p">+</b></div></div>
+        <div class="cn"><div class="l"><b>Missed shots</b><small>Any goal</small></div><div class="ctl"><b>−</b><span>3</span><b class="p">+</b></div></div>
+        <div class="cn" style="padding:16px"><div class="l"><b>Played defense</b></div><span class="sw"></span></div>
+      </div>
+    </div>
+    <div class="ebar"><a class="btn primary">Review entry</a></div>
+  </div><div class="caption">Entry form · Teleop</div></div>
+
+  <div class="wrap"><div class="phone">
+    <div class="sbar"><span>11:45</span><span style="font-size:12px">● ● ●</span></div>
+    <div class="eh">
+      <div class="row"><span class="back">‹</span><span class="chip r">Red 1</span></div>
+      <h2><small>Qualification 39</small>1690 Orbit</h2>
+    </div>
+    <div class="scrim"></div>
+    <div class="sheet">
+      <div class="grab"></div>
+      <h3>Confirm this entry</h3>
+      <p>You can still edit it for 10 minutes after submitting.</p>
+      <div class="sumg"><div><small>Status</small><b>Played</b></div><div><small>Scored</small><b>13</b></div><div><small>Climb</small><b>Deep</b></div></div>
+      <div class="sl">
+        <h5>AUTONOMOUS</h5>
+        <div class="r"><span>Left start zone</span><b>Yes</b></div>
+        <div class="r"><span>High goal</span><b>2</b></div>
+        <h5>TELEOP</h5>
+        <div class="r"><span>High goal</span><b>7</b></div>
+        <div class="r"><span>Low goal</span><b>4</b></div>
+        <div class="r"><span>Missed shots</span><b>3</b></div>
+        <div class="r"><span>Played defense</span><b>No</b></div>
+      </div>
+      <div class="ebar" style="padding-left:0;padding-right:0;margin-top:auto"><a class="btn">Keep editing</a><a class="btn primary">Submit entry</a></div>
+    </div>
+  </div><div class="caption">Confirm sheet</div></div>
+
+  <div class="wrap"><div class="phone">
+    <div class="sbar"><span>11:51</span><span style="font-size:12px">● ● ●</span></div>
+    <div class="eh">
+      <div class="row"><span class="back">‹</span><span class="chip b">Blue 2</span></div>
+      <h2><small>Qualification 40</small>3316 D-Bug</h2>
+    </div>
+    <div class="ebody">
+      <div class="stat4">
+        <div><i style="background:var(--ok-tint);color:var(--ok)">✓</i>Played</div>
+        <div><i style="background:var(--warn-tint);color:var(--warn)">!</i>Broke down</div>
+        <div><i style="background:var(--soft);color:var(--muted)">–</i>Disabled</div>
+        <div class="on"><i style="background:var(--red-tint);color:var(--red)">×</i>No show</div>
+      </div>
+      <div class="info"><b>Status only</b>A no-show robot records no match fields, so its averages are never pulled down by zeros.</div>
+      <div class="empty"><div><span>Autonomous</span><span>Skipped</span></div><div><span>Teleop</span><span>Skipped</span></div><div><span>Endgame</span><span>Skipped</span></div></div>
+    </div>
+    <div class="ebar"><a class="btn primary">Review entry</a></div>
+  </div><div class="caption">No-show: status only, never zeros</div></div>
+</div>
+</section>
+
+<!-- ================= MANAGE ================= -->
+<section data-screen="manage">
+<div class="app">
+  <div data-side></div>
+  <div class="main">
+    <div class="head">
+      <div><h1>Seasons and events</h1><p>The default event is the one every device works on.</p></div>
+      <span class="sp"></span>
+      <a class="btn">Season 2026</a><a class="btn primary"><svg><use href="#i-plus"/></svg>New event</a>
+    </div>
+    <div><div class="tabs"><a>Seasons<span class="c">3</span></a><a class="on">Events<span class="c">5</span></a><a>Teams &amp; roster<span class="c">42</span></a><a>Matches<span class="c">72</span></a></div></div>
+
+    <div class="card" style="padding:16px 20px"><div data-kit="K.seasonTimeline({w:1110,h:92})"></div></div>
+
+    <div class="evs">
+      <div class="ev"><span class="chip n" style="align-self:flex-start">Finished</span><h4>District #1 · Haifa</h4><span class="d">Feb 24–26 · 38 teams</span><div class="foot"><span data-kit="K.ring(.99,{size:34,stroke:5})" class="okr"></span><div><b>99%</b><small>coverage</small></div></div></div>
+      <div class="ev"><span class="chip n" style="align-self:flex-start">Finished</span><h4>District #2 · Be’er Sheva</h4><span class="d">Mar 10–12 · 40 teams</span><div class="foot"><span data-kit="K.ring(.96,{size:34,stroke:5})"></span><div><b>96%</b><small>coverage</small></div></div></div>
+      <div class="ev sel"><span class="chip a" style="align-self:flex-start">Live · default</span><h4>District #3 · Tel Aviv</h4><span class="d">Mar 24–26 · 42 teams</span><div class="foot"><span data-kit="K.ring(.98,{size:34,stroke:5})"></span><div><b>98%</b><small>coverage so far</small></div></div></div>
+      <div class="ev"><span class="chip w" style="align-self:flex-start">Needs setup</span><h4>District #4 · Jerusalem</h4><span class="d">Apr 7–9 · 40 teams</span><div class="foot"><span data-kit="K.ring(.5,{size:34,stroke:5})"></span><div><b>2 of 4</b><small>setup steps</small></div></div></div>
+      <div class="ev"><span class="chip n" style="align-self:flex-start">Scheduled</span><h4>District Championship</h4><span class="d">Apr 28–May 1 · 60 teams</span><div class="foot"><span data-kit="K.ring(.25,{size:34,stroke:5})"></span><div><b>1 of 4</b><small>setup steps</small></div></div></div>
+    </div>
+
+    <div class="mg">
+      <div class="card">
+        <h3>Entries by hour · District #3<span class="aside">Darker = more entries received</span></h3>
+        <div class="heat" id="heat"></div>
+        <div style="margin-top:22px;padding-top:18px;border-top:1px solid var(--line-2)">
+          <h3 style="font-size:15px">Robot status, this event<span class="aside">223 entries</span></h3>
+          <div style="margin-top:12px" data-kit="K.stack(D.statusMix,{w:880,h:14,gap:4})"></div>
+          <div class="slegend"><span><i style="background:var(--accent)"></i>Played <b>204</b></span><span><i style="background:var(--warn)"></i>Broke down <b>11</b></span><span><i style="background:#B5B1BE"></i>Disabled <b>5</b></span><span><i style="background:var(--red)"></i>No show <b>3</b></span></div>
+        </div>
+      </div>
+      <div class="card cl">
+        <h3>Readiness · District #3<span class="aside">3 of 4</span></h3>
+        <div class="it" style="margin-top:6px"><span class="ic">✓</span><div><b>Roster imported</b><small>42 teams</small></div><a>Edit</a></div>
+        <div class="it"><span class="ic">✓</span><div><b>Match schedule</b><small>72 qualifications</small></div><a>Edit</a></div>
+        <div class="it"><span class="ic">✓</span><div><b>Scouting form</b><small>Version 3, locked</small></div><a>View</a></div>
+        <div class="it"><span class="ic w">!</span><div><b>Devices loaded</b><small>14 of 16 hold this event</small></div><a>List</a></div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<script src="kit.js"></script>
+<script>
+document.querySelectorAll('[data-side]').forEach(el=>el.replaceWith(document.getElementById('side').content.cloneNode(true)));
+const want=(location.hash||'#home').slice(1);
+document.querySelectorAll('[data-screen="'+want+'"] .nav a').forEach(a=>{if(a.dataset.n===want)a.classList.add('on')});
+const D=KIT.DATA;
+document.getElementById('dotsrow').innerHTML=D.coverage.map((c,i)=>{const n=i+1;let s='';if(c!==null)s=c===6?'full':'gap';if(n===D.current+1)s='nx';return `<i class="${s}"></i>`}).join('');
+const mx=Math.max(...D.topTeams.map(t=>t.epa));
+document.getElementById('teams').innerHTML=D.topTeams.map((t,i)=>`<div class="t${t.team===2096?' mine':''}"><span class="rk">${i+1}</span><span class="nm"><b>${t.team}</b>${t.name}</span><span class="bar"><i style="width:${t.epa/mx*100}%"></i></span><span class="v">${t.epa.toFixed(1)}</span></div>`).join('');
+// heat: 3 days x 12 hours (08..19)
+const days=[['Tue',[0,0,0,0,0,0,0,0,0,0,0,0]],['Wed',[6,22,31,35,28,0,30,36,33,24,12,0]],['Thu',[4,18,30,34,36,33,41,27,0,0,0,0]]];
+let h='<span></span>'+Array.from({length:12},(_,i)=>`<span>${String(8+i).padStart(2,'0')}</span>`).join('');
+days.forEach(([d,v],di)=>{h+=`<span style="justify-content:start">${d}</span>`+v.map((x,i)=>{const future=di===2&&i>7;const a=x/41;const bg=future?'#fff':x===0?'#F3F2F6':`rgba(91,58,115,${0.12+a*0.88})`;const bd=future?'border:1.5px dashed #E6E6EA;':'';return `<span style="background:${bg};${bd}color:${a>0.55?'#fff':'#706E7A'}">${x||''}</span>`}).join('')});
+document.getElementById('heat').innerHTML=h;
+KIT.boot();
+</script>
+</body>
+</html>

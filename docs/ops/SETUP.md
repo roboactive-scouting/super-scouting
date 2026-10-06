@@ -71,6 +71,10 @@ Then fill them in:
 - `apps/client/.env` — `VITE_API_BASE_URL=http://localhost:3000` and any
   `VITE_DEVICE_WIPE_CODE`. Leave `VITE_APP_VERSION` empty; the build fills it in.
 
+Start the server with `pnpm --filter @frc/server dev`. It reads `apps/server/.env`
+itself (Node's `--env-file`), so there is nothing to export first. Never `source` the
+file.
+
 **Local always points at the dev Supabase project. Never production.** Both `.env`
 files are matched by `.gitignore`'s `.env.*` rule and cannot be committed; the
 `.env.example` templates beside them are generated from `ENVIRONMENT.md` by
@@ -487,7 +491,7 @@ session. Three things break at once, and all three look like a broken API rather
 than an auth wall:
 
 - the CI smoke suite, which targets `SMOKE_API_BASE_URL` (the preview server);
-- the twice-weekly keep-alive, which GETs `HEALTHCHECK_DEV_URL`;
+- the daily keep-alive, which GETs `HEALTHCHECK_DEV_URL`;
 - the preview client calling the preview server.
 
 On **each** project: **Settings → Deployment Protection → Vercel Authentication →
@@ -553,7 +557,7 @@ so there is no production credential here to leak or to fire by accident.
 
 The last one is the single exception that names production, and it is a read-only
 `GET /health` against a public endpoint — it holds no credential and can change
-nothing. It exists because the twice-weekly keep-alive workflow has to keep *both*
+nothing. It exists because the daily keep-alive workflow has to keep *both*
 Supabase projects from hitting the free-tier idle pause.
 
 Tick each row in `ENVIRONMENT.md` §3 as you set it.
@@ -621,6 +625,10 @@ In this order. Steps 2 onward are done in the running app; step 1 is a commit.
    `apps/client/public/seasons/<year>/field.webp`, run `pnpm season:images`, and
    **redeploy the client**. The season cannot be created until that image is live —
    the app fails loudly rather than rendering a season with no field.
+   The server checks the path against the same generated list, bundled into
+   `apps/server/api/index.js`, so also run `pnpm --filter @frc/server build`, commit the
+   regenerated bundle with the image, and redeploy the server — CI's bundle-drift test
+   fails until you do.
 2. **Create the season**, pointing at that exact image path.
 3. **Create the events**, in competition order.
 4. **Build and publish both forms** — the `match` form and the `super` form.
@@ -648,7 +656,7 @@ to remember.
 - [ ] Open the Supabase free-tier usage page for both projects and look at database
       size and egress. The keep-alive workflow prevents the idle pause; it does not
       prevent running out of quota.
-- [ ] Confirm the twice-weekly keep-alive workflow has actually been running.
+- [ ] Confirm the daily keep-alive workflow has actually been running.
       GitHub disables scheduled workflows on a repository with no activity for 60
       days, silently.
 

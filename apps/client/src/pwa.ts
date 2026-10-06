@@ -26,3 +26,29 @@ export function browserAdapter(): PwaAdapter {
     reload: () => window.location.reload(),
   };
 }
+
+let updateWaiting = false;
+const updateListeners = new Set<() => void>();
+
+/**
+ * SPEC-FINAL 9.1 (task 1.22): "an update is ready", held once for the whole app.
+ * `main.tsx` registers the service worker exactly once and sets this from its callback;
+ * AppShell only subscribes — it remounts after every sign-in, and a second registration
+ * from there would be one per remount. Nothing here reloads.
+ */
+export const updateReady = {
+  get: (): boolean => updateWaiting,
+  set(): void {
+    if (updateWaiting) return;
+    updateWaiting = true;
+    for (const listener of updateListeners) listener();
+  },
+  subscribe(listener: () => void): () => void {
+    updateListeners.add(listener);
+    return () => updateListeners.delete(listener);
+  },
+  /** For tests: forget a reported update. */
+  reset(): void {
+    updateWaiting = false;
+  },
+};

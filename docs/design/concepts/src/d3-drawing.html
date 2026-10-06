@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Drawing Office</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&family=Martian+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#EEF1F3; --panel:#FFFFFF; --ink:#16222C; --ink-2:#3B4955; --muted:#6B7884; --faint:#A3ADB6;
+  --rule:#C9D1D7; --rule-2:#E1E6EA;
+  --accent:#0F5E6E; --accent-2:#5D98A4; --accent-tint:#E2EEF0;
+  --warn:#9A5B13; --warn-tint:#F5EBDD;
+  --red:#B8433A; --red-tint:#F6E6E4; --blue:#2D5DA8; --blue-tint:#E3EAF5;
+  --mono:'Martian Mono',ui-monospace,monospace; --cond:'Barlow Condensed',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--paper);color:var(--ink);font-family:'Barlow',system-ui,sans-serif;font-size:14.5px;-webkit-font-smoothing:antialiased}
+.mono{font-family:var(--mono);font-size:.82em;letter-spacing:-.02em}
+.cond{font-family:var(--cond)}
+.app{width:1440px;height:900px;display:flex;flex-direction:column;overflow:hidden}
+/* title block */
+.tb{display:grid;grid-template-columns:76px 220px 1fr 130px 150px 190px 170px;border-bottom:1.5px solid var(--ink);background:var(--panel);height:76px;flex:none}
+.tb > div{border-right:1px solid var(--rule);padding:10px 16px;display:flex;flex-direction:column;justify-content:center}
+.tb > div:last-child{border-right:0}
+.tb .logo{background:var(--ink);align-items:center;padding:0}
+.tb .logo img{width:42px}
+.tb small{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.tb b{font-family:var(--cond);font-weight:600;font-size:20px;letter-spacing:.01em;margin-top:2px;line-height:1.1}
+.tb b .d{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:7px;vertical-align:2px}
+.tb b .d.w{background:var(--warn)}
+.nav{display:flex;gap:0;padding:0 28px;border-bottom:1px solid var(--rule);background:var(--panel);flex:none}
+.nav a{padding:12px 16px;font-weight:600;color:var(--muted);font-size:14px;border-bottom:2px solid transparent;margin-bottom:-1px}
+.nav a.on{color:var(--ink);border-color:var(--accent)}
+.nav .sp{flex:1}
+.nav .grp{font-family:var(--mono);font-size:9.5px;color:var(--faint);letter-spacing:.06em;align-self:center;padding:0 10px 0 22px;text-transform:uppercase;border-left:1px solid var(--rule);margin-left:10px}
+.content{flex:1;padding:24px 28px;overflow:hidden}
+.sheet{background:var(--panel);border:1px solid var(--rule)}
+.sh{display:flex;align-items:baseline;gap:12px;padding:12px 18px;border-bottom:1px solid var(--rule-2)}
+.sh h3{font-family:var(--cond);font-weight:600;font-size:17px;letter-spacing:.02em;text-transform:uppercase}
+.sh .aside{margin-left:auto;font-size:12.5px;color:var(--muted)}
+.sb{padding:16px 18px}
+.btn{display:inline-flex;align-items:center;gap:8px;height:42px;padding:0 18px;border-radius:4px;font-weight:600;font-size:14px;border:1px solid var(--ink);background:var(--panel);color:var(--ink)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2}
+.tag{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:3px;font-size:12px;font-weight:600;border:1px solid}
+.tag.r{color:var(--red);border-color:#E3B7B2;background:var(--red-tint)}.tag.b{color:var(--blue);border-color:#B5C6E3;background:var(--blue-tint)}
+.tag.ok{color:var(--accent);border-color:#A9CBD1;background:var(--accent-tint)}.tag.w{color:var(--warn);border-color:#E4CBA8;background:var(--warn-tint)}
+.tag.n{color:var(--ink-2);border-color:var(--rule);background:#F5F7F8}
+/* charts */
+.chart text{font-family:'Barlow';font-size:12.5px;fill:var(--ink-2)}
+.chart .val{font-family:var(--mono);font-size:10.5px;fill:var(--ink)}
+.timeline .tick{stroke:var(--rule-2)}.timeline .axis{stroke:var(--ink)}.timeline .xl{fill:var(--muted);font-family:var(--mono);font-size:9.5px}
+.timeline .ev rect{fill:var(--rule)}.timeline .ev-done rect{fill:var(--ink-2)}.timeline .ev-live rect{fill:var(--accent)}
+.timeline .evl{font-size:12.5px;fill:var(--ink-2);font-weight:500}.timeline .ev-live .evl{font-weight:700;fill:var(--ink)}
+.timeline .today{stroke:var(--red);stroke-width:1.2}
+/* home */
+.hg{display:grid;grid-template-columns:430px 1fr;grid-template-rows:auto auto minmax(0,1fr);gap:18px;height:100%}
+.assign{grid-row:1 / span 2;display:flex;flex-direction:column}
+.assign .sb{flex:1;display:flex;flex-direction:column}
+.big{display:flex;align-items:flex-end;gap:14px;margin-top:4px}
+.big .n{font-family:var(--cond);font-weight:700;font-size:74px;line-height:.85;letter-spacing:-.01em}
+.big .nm{font-family:var(--cond);font-size:28px;font-weight:500;color:var(--muted);padding-bottom:6px}
+.callout{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--rule);margin-top:12px}
+.callout div{padding:6px 12px;border-right:1px solid var(--rule)}
+.callout div:last-child{border:0}
+.callout small{font-family:var(--mono);font-size:9px;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;display:block}
+.callout b{font-family:var(--cond);font-size:20px;font-weight:600}
+.line{display:grid;grid-template-columns:52px repeat(3,1fr);margin-top:12px;border:1px solid var(--rule)}
+.line + .line{margin-top:-1px}
+.line span{padding:7px 0;text-align:center;font-family:var(--mono);font-size:12.5px;border-right:1px solid var(--rule-2)}
+.line span:last-child{border-right:0}
+.line .s{font-family:var(--cond);font-weight:700;font-size:14px;letter-spacing:.05em;text-align:center}
+.line.r .s{color:var(--red);background:var(--red-tint)}.line.b .s{color:var(--blue);background:var(--blue-tint)}
+.line span.me{background:var(--ink);color:#fff}
+.assign p{color:var(--muted);line-height:1.45;margin-top:10px;font-size:13.5px}
+.assign .acts{display:flex;gap:10px;margin-top:auto;padding-top:12px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr)}
+.kpis div{padding:14px 18px;border-right:1px solid var(--rule-2)}
+.kpis div:last-child{border:0}
+.kpis small{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;color:var(--muted);text-transform:uppercase}
+.kpis b{display:block;font-family:var(--cond);font-weight:600;font-size:40px;line-height:1;margin-top:6px}
+.kpis b span{font-size:20px;color:var(--faint);font-weight:500}
+.kpis em{font-style:normal;color:var(--muted);font-size:12.5px}
+.ruler svg text{font-family:var(--mono);font-size:9.5px;fill:var(--muted)}
+.lower{grid-column:1 / span 2;display:grid;grid-template-columns:1fr 1fr;gap:18px;min-height:0}.lower .sb{padding:12px 18px}
+.dots svg text{font-family:'Barlow';font-size:12.5px;fill:var(--ink-2)}
+.dots svg .num{font-family:var(--mono);font-size:10.5px;fill:var(--ink)}
+/* manage */
+.mh{display:flex;align-items:flex-end;gap:14px}
+.mh h1{font-family:var(--cond);font-weight:600;font-size:34px;letter-spacing:.005em;line-height:1}
+.mh p{color:var(--muted);margin-top:6px}
+.sub-tabs{display:flex;margin-top:18px;border:1px solid var(--rule);background:var(--panel);width:max-content}
+.sub-tabs a{padding:9px 18px;font-weight:600;color:var(--muted);border-right:1px solid var(--rule);font-size:14px}
+.sub-tabs a:last-child{border:0}
+.sub-tabs a.on{background:var(--ink);color:#fff}
+.sub-tabs a .c{font-family:var(--mono);font-size:10px;margin-left:8px;opacity:.7}
+table{width:100%;border-collapse:collapse}
+th{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:400;color:var(--muted);text-align:left;padding:10px 16px;border-bottom:1px solid var(--ink)}
+td{padding:12px 16px;border-bottom:1px solid var(--rule-2);font-size:14px}
+td .sub{display:block;color:var(--muted);font-size:12.5px}
+tr.sel td{background:var(--accent-tint)}
+.gauge{display:flex;align-items:center;gap:10px}
+.gauge .g{width:110px;height:8px;border:1px solid var(--rule);position:relative;background:repeating-linear-gradient(90deg,transparent 0 10px,var(--rule-2) 10px 11px)}
+.gauge .g i{position:absolute;left:0;top:0;bottom:0;background:var(--accent)}
+.insp .row{display:grid;grid-template-columns:22px 1fr auto;gap:12px;padding:12px 0;border-bottom:1px solid var(--rule-2);align-items:center}
+.insp .row:last-child{border:0}
+.box{width:18px;height:18px;border:1.5px solid var(--ink);display:grid;place-items:center;font-size:12px;font-weight:700;color:var(--accent)}
+.box.w{border-color:var(--warn);color:var(--warn)}
+.insp b{font-weight:600}
+.insp small{display:block;color:var(--muted);font-size:12.5px}
+.insp a{font-weight:600;color:var(--accent);font-size:13px}
+/* entry */
+.stage{width:1440px;height:940px;background:#E4E8EB;display:flex;justify-content:center;align-items:center;gap:56px;background-image:linear-gradient(var(--rule-2) 1px,transparent 1px),linear-gradient(90deg,var(--rule-2) 1px,transparent 1px);background-size:24px 24px}
+.wrap{position:relative}
+.phone{width:375px;height:812px;border-radius:44px;background:var(--paper);box-shadow:0 0 0 10px var(--ink),0 24px 50px -24px rgba(22,34,44,.5);overflow:hidden;display:flex;flex-direction:column}
+.caption{position:absolute;bottom:-46px;left:0;right:0;text-align:center;font-family:var(--mono);font-size:10.5px;color:var(--ink-2);letter-spacing:.02em}
+.sbar{height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 28px;font-weight:600;font-size:14px;background:var(--panel)}
+.etb{display:grid;grid-template-columns:1fr 1fr 1fr;background:var(--panel);border-bottom:1.5px solid var(--ink);border-top:1px solid var(--rule)}
+.etb div{padding:8px 14px;border-right:1px solid var(--rule)}
+.etb div:last-child{border:0}
+.etb small{font-family:var(--mono);font-size:8.5px;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;display:block}
+.etb b{font-family:var(--cond);font-weight:700;font-size:24px;line-height:1.15}
+.etb .r b{color:var(--red)}.etb .bl b{color:var(--blue)}
+.ehead{background:var(--panel);padding:10px 16px 12px;display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--muted)}
+.ehead b{color:var(--ink);font-weight:600;font-size:15px}
+.ebody{flex:1;padding:14px 16px;overflow:hidden}
+.lbl{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;margin-bottom:8px}
+.st4{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--ink);background:var(--panel)}
+.st4 span{padding:12px 0;text-align:center;font-weight:600;font-size:13px;border-right:1px solid var(--rule);color:var(--ink-2)}
+.st4 span:last-child{border:0}
+.st4 span.on{background:var(--ink);color:#fff}
+.phases{display:flex;margin-top:16px;gap:6px}
+.phases span{flex:1;font-family:var(--cond);font-weight:600;font-size:15px;letter-spacing:.03em;text-transform:uppercase;color:var(--faint);padding-bottom:6px;border-bottom:2px solid var(--rule)}
+.phases span.d{color:var(--ink-2);border-color:var(--ink-2)}
+.phases span.on{color:var(--accent);border-color:var(--accent)}
+.cnt{background:var(--panel);border:1px solid var(--rule);margin-top:10px}
+.cnt .r{display:grid;grid-template-columns:52px 1fr 52px;align-items:center;border-bottom:1px solid var(--rule-2)}
+.cnt .r:last-child{border:0}
+.cnt .r b{height:64px;display:grid;place-items:center;font-size:24px;font-weight:500;color:var(--ink-2);background:#F6F8F9}
+.cnt .r b.p{background:var(--ink);color:#fff}
+.cnt .mid{text-align:center;padding:6px 0}
+.cnt .mid small{display:block;font-size:12.5px;color:var(--muted);font-weight:500}
+.cnt .mid strong{font-family:var(--cond);font-size:34px;font-weight:700;line-height:1}
+.cnt .tgl{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;font-weight:600}
+.yn{display:flex;border:1px solid var(--ink)}
+.yn span{padding:5px 12px;font-size:12.5px;font-weight:600}
+.yn span.on{background:var(--ink);color:#fff}
+.ebar{padding:12px 16px 26px;background:var(--panel);border-top:1px solid var(--rule);display:flex;gap:10px}
+.ebar .btn{height:52px;flex:1;justify-content:center;font-size:15.5px}
+.spec{background:var(--panel);border:1px solid var(--rule)}
+.spec .g{font-family:var(--cond);font-weight:600;letter-spacing:.04em;text-transform:uppercase;font-size:14px;padding:8px 14px;border-bottom:1px solid var(--ink);background:#F6F8F9}
+.spec .r{display:flex;justify-content:space-between;padding:9px 14px;border-bottom:1px solid var(--rule-2);font-size:14px}
+.spec .r span{color:var(--muted)}
+.spec .r b{font-family:var(--mono);font-size:12px;font-weight:500}
+.note{border:1.5px solid var(--ink);background:var(--panel);padding:14px;margin-top:14px;font-size:14px;line-height:1.5;color:var(--ink-2);position:relative}
+.note b{display:block;font-family:var(--cond);font-size:17px;letter-spacing:.03em;text-transform:uppercase;color:var(--ink);margin-bottom:4px}
+.hatch{margin-top:12px;border:1px solid var(--rule);height:300px;background:repeating-linear-gradient(-45deg,transparent 0 9px,var(--rule-2) 9px 10px);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+.hatch span{background:var(--paper);padding:6px 10px;border:1px solid var(--rule)}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-scout" viewBox="0 0 24 24"><path d="M9 4h6M9 4a1 1 0 0 0-1 1v1h8V5a1 1 0 0 0-1-1M8 6H6a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-2M9 13l2 2 4-4"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+</svg>
+<template id="tb">
+  <div class="tb">
+    <div class="logo"><img src="mark.png" alt=""></div>
+    <div><small>Scouting system</small><b>RobActive #2096</b></div>
+    <div><small>Event</small><b>ISR District #3 · Tel Aviv</b></div>
+    <div><small>Season</small><b>2026</b></div>
+    <div><small>Match</small><b>Q38 of 72</b></div>
+    <div><small>This device</small><b><span class="d w"></span>3 waiting to send</b></div>
+    <div><small>Signed in</small><b>Noa Levi</b></div>
+  </div>
+  <nav class="nav">
+    <a data-n="home">Home</a><a data-n="scout">Scout</a><a data-n="entries">Entries</a>
+    <span class="grp">Admin</span><a data-n="users">Users</a><a data-n="manage">Manage</a>
+    <span class="sp"></span><a style="font-weight:500">Switch scouter</a>
+  </nav>
+</template>
+
+<!-- ================= HOME ================= -->
+<section data-screen="home">
+<div class="app">
+  <div data-tb></div>
+  <div class="content">
+    <div class="hg">
+      <div class="sheet assign">
+        <div class="sh"><h3>Your next assignment</h3><span class="aside">Starts 11:42</span></div>
+        <div class="sb">
+          <div class="big"><span class="n">1690</span><span class="nm">Orbit</span></div>
+          <div class="callout"><div><small>Match</small><b>Qual 39</b></div><div><small>Station</small><b style="color:var(--red)">Red 1</b></div><div><small>In</small><b>4 min</b></div></div>
+          <div class="line r"><span class="s">RED</span><span class="me">1690</span><span>3075</span><span>6230</span></div>
+          <div class="line b"><span class="s">BLUE</span><span>2231</span><span>5654</span><span>7039</span></div>
+          <p>Everything you enter is saved on this device first and sent when there is a connection.</p>
+          <div class="acts"><a class="btn primary"><svg><use href="#i-scout"/></svg>Scout Q39</a><a class="btn"><svg><use href="#i-list"/></svg>Review entries</a></div>
+        </div>
+      </div>
+
+      <div class="sheet kpis">
+        <div><small>Matches played</small><b>38 <span>/ 72</span></b><em>Qualifications, day 2</em></div>
+        <div><small>Robots scouted</small><b>223 <span>/ 228</span></b><em>97.8% coverage</em></div>
+        <div><small>On this device</small><b>41</b><em>38 sent · 3 waiting</em></div>
+        <div><small>Scouts active</small><b>14</b><em>2 devices offline</em></div>
+      </div>
+
+      <div class="sheet ruler">
+        <div class="sh"><h3>Schedule coverage</h3><span class="aside">Robots scouted per qualification match, of 6</span></div>
+        <div class="sb" id="ruler"></div>
+      </div>
+
+      <div class="lower">
+        <div class="sheet dots">
+          <div class="sh"><h3>Top teams</h3><span class="aside">Range of last 5 matches · dot = average</span></div>
+          <div class="sb" id="dots"></div>
+        </div>
+        <div class="sheet">
+          <div class="sh"><h3>Entries per hour</h3><span class="aside">Today, all scouts</span></div>
+          <div class="sb" id="area"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ================= ENTRY ================= -->
+<section data-screen="entry">
+<div class="stage">
+  <div class="wrap"><div class="phone">
+    <div class="sbar"><span>11:43</span><span style="font-size:12px">● ● ●</span></div>
+    <div class="etb"><div><small>Match</small><b>Q39</b></div><div><small>Team</small><b>1690</b></div><div class="r"><small>Station</small><b>Red 1</b></div></div>
+    <div class="ehead"><span>‹ Scout</span><span><span style="color:var(--accent)">●</span> Draft saved on this device</span></div>
+    <div class="ebody">
+      <div class="lbl">Robot status</div>
+      <div class="st4"><span class="on">Played</span><span>Broke down</span><span>Disabled</span><span>No show</span></div>
+      <div class="phases"><span class="d">Auto</span><span class="on">Teleop</span><span>Endgame</span><span>Notes</span></div>
+      <div class="cnt">
+        <div class="r"><b>−</b><div class="mid"><small>High goal</small><strong>7</strong></div><b class="p">+</b></div>
+        <div class="r"><b>−</b><div class="mid"><small>Low goal</small><strong>4</strong></div><b class="p">+</b></div>
+        <div class="r"><b>−</b><div class="mid"><small>Missed shots</small><strong>3</strong></div><b class="p">+</b></div>
+        <div class="tgl">Played defense<span class="yn"><span>Yes</span><span class="on">No</span></span></div>
+      </div>
+    </div>
+    <div class="ebar"><a class="btn primary">Review entry</a></div>
+  </div><div class="caption">ENTRY FORM · TELEOP</div></div>
+
+  <div class="wrap"><div class="phone">
+    <div class="sbar"><span>11:45</span><span style="font-size:12px">● ● ●</span></div>
+    <div class="etb"><div><small>Match</small><b>Q39</b></div><div><small>Team</small><b>1690</b></div><div class="r"><small>Station</small><b>Red 1</b></div></div>
+    <div class="ehead"><b>Confirm this entry</b><span>Editable 10 min</span></div>
+    <div class="ebody">
+      <div class="spec">
+        <div class="r"><span>Status</span><b>PLAYED</b></div>
+        <div class="g">Autonomous</div>
+        <div class="r"><span>Left start zone</span><b>YES</b></div>
+        <div class="r"><span>High goal</span><b>2</b></div>
+        <div class="g">Teleop</div>
+        <div class="r"><span>High goal</span><b>7</b></div>
+        <div class="r"><span>Low goal</span><b>4</b></div>
+        <div class="r"><span>Missed shots</span><b>3</b></div>
+        <div class="r"><span>Played defense</span><b>NO</b></div>
+        <div class="g">Endgame</div>
+        <div class="r"><span>Climb</span><b>DEEP</b></div>
+      </div>
+    </div>
+    <div class="ebar"><a class="btn">Keep editing</a><a class="btn primary">Submit entry</a></div>
+  </div><div class="caption">CONFIRM SHEET</div></div>
+
+  <div class="wrap"><div class="phone">
+    <div class="sbar"><span>11:51</span><span style="font-size:12px">● ● ●</span></div>
+    <div class="etb"><div><small>Match</small><b>Q40</b></div><div><small>Team</small><b>3316</b></div><div class="bl"><small>Station</small><b>Blue 2</b></div></div>
+    <div class="ehead"><span>‹ Scout</span><span><span style="color:var(--accent)">●</span> Draft saved on this device</span></div>
+    <div class="ebody">
+      <div class="lbl">Robot status</div>
+      <div class="st4"><span>Played</span><span>Broke down</span><span>Disabled</span><span class="on">No show</span></div>
+      <div class="note"><b>Status only</b>A no-show robot records no match fields, so its averages are never pulled down by zeros.</div>
+      <div class="hatch"><span>No match fields for this robot</span></div>
+    </div>
+    <div class="ebar"><a class="btn primary">Review entry</a></div>
+  </div><div class="caption">NO-SHOW · STATUS ONLY, NEVER ZEROS</div></div>
+</div>
+</section>
+
+<!-- ================= MANAGE ================= -->
+<section data-screen="manage">
+<div class="app">
+  <div data-tb></div>
+  <div class="content">
+    <div class="mh">
+      <div><h1>Seasons and events</h1><p>The default event is the one every device works on.</p></div>
+      <span class="sp" style="flex:1"></span>
+      <a class="btn">Season 2026</a><a class="btn primary"><svg><use href="#i-plus"/></svg>New event</a>
+    </div>
+    <div class="sub-tabs"><a>Seasons<span class="c">3</span></a><a class="on">Events<span class="c">5</span></a><a>Teams &amp; roster<span class="c">42</span></a><a>Matches<span class="c">72</span></a></div>
+
+    <div class="sheet" style="margin-top:16px">
+      <div class="sh"><h3>2026 season</h3><span class="aside">Red line is today, Mar 25</span></div>
+      <div class="sb" data-kit="K.seasonTimeline({w:1346,h:92})"></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 400px;gap:18px;margin-top:18px">
+      <div class="sheet">
+        <table>
+          <thead><tr><th>Event</th><th>Dates</th><th>Teams</th><th>Matches</th><th>Scouting coverage</th><th>State</th></tr></thead>
+          <tbody>
+            <tr><td>District #1 · Haifa<span class="sub">Form v2</span></td><td class="mono">FEB 24–26</td><td class="mono">38</td><td class="mono">64</td><td><div class="gauge"><span class="g"><i style="width:99%"></i></span><span class="mono">99%</span></div></td><td><span class="tag n">Finished</span></td></tr>
+            <tr><td>District #2 · Be’er Sheva<span class="sub">Form v3</span></td><td class="mono">MAR 10–12</td><td class="mono">40</td><td class="mono">66</td><td><div class="gauge"><span class="g"><i style="width:96%"></i></span><span class="mono">96%</span></div></td><td><span class="tag n">Finished</span></td></tr>
+            <tr class="sel"><td><b>District #3 · Tel Aviv</b><span class="sub">Form v3 · default event</span></td><td class="mono">MAR 24–26</td><td class="mono">42</td><td class="mono">72</td><td><div class="gauge"><span class="g"><i style="width:98%"></i></span><span class="mono">98%</span></div></td><td><span class="tag ok">Live</span></td></tr>
+            <tr><td>District #4 · Jerusalem<span class="sub">No form yet</span></td><td class="mono">APR 7–9</td><td class="mono">40</td><td class="mono">—</td><td><span style="color:var(--muted)">Not started</span></td><td><span class="tag w">Needs setup</span></td></tr>
+            <tr><td>District Championship<span class="sub">No form yet</span></td><td class="mono">APR 28–MAY 1</td><td class="mono">60</td><td class="mono">—</td><td><span style="color:var(--muted)">Not started</span></td><td><span class="tag n">Scheduled</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="sheet">
+        <div class="sh"><h3>Readiness · District #3</h3><span class="aside">3 of 4</span></div>
+        <div class="sb insp">
+          <div class="row"><span class="box">✓</span><div><b>Roster imported</b><small>42 teams</small></div><a>Edit</a></div>
+          <div class="row"><span class="box">✓</span><div><b>Match schedule</b><small>72 qualifications</small></div><a>Edit</a></div>
+          <div class="row"><span class="box">✓</span><div><b>Scouting form</b><small>Version 3, locked</small></div><a>View</a></div>
+          <div class="row"><span class="box w">!</span><div><b>Devices loaded</b><small>14 of 16 hold this event</small></div><a>List</a></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<script src="kit.js"></script>
+<script>
+document.querySelectorAll('[data-tb]').forEach(el=>el.replaceWith(document.getElementById('tb').content.cloneNode(true)));
+const want=(location.hash||'#home').slice(1);
+document.querySelectorAll('[data-screen="'+want+'"] .nav a').forEach(a=>{if(a.dataset.n===want)a.classList.add('on')});
+const D=KIT.DATA;
+// ruler: one tick per match, bar height = robots scouted
+(()=>{const w=900,h=96,base=62,step=w/72;let s='';
+ for(let i=0;i<72;i++){const x=i*step+step/2,c=D.coverage[i],n=i+1;
+  const major=n%6===0||n===1;
+  s+=`<line x1="${x}" x2="${x}" y1="${base}" y2="${base+(major?10:5)}" stroke="#16222C" stroke-width="1"/>`;
+  if(major)s+=`<text x="${x}" y="${base+24}" text-anchor="middle">${n}</text>`;
+  if(c!==null){const bh=c/6*48;s+=`<rect x="${x-step*0.32}" y="${base-bh}" width="${step*0.64}" height="${bh}" fill="${c===6?'#0F5E6E':'#C9822E'}"/>`}
+  if(n===D.current+1){s+=`<rect x="${x-step*0.32}" y="${base-48}" width="${step*0.64}" height="48" fill="none" stroke="#16222C" stroke-dasharray="2 2"/>`}
+ }
+ const xd=38*step;
+ s+=`<line x1="0" x2="${w}" y1="${base}" y2="${base}" stroke="#16222C"/>`;
+ s+=`<line x1="0" x2="${xd}" y1="6" y2="6" stroke="#6B7884"/><line x1="0" x2="0" y1="1" y2="11" stroke="#6B7884"/><line x1="${xd}" x2="${xd}" y1="1" y2="11" stroke="#6B7884"/>`;
+ s+=`<rect x="${xd/2-80}" y="0" width="160" height="12" fill="#fff"/><text x="${xd/2}" y="10" text-anchor="middle">38 PLAYED · 4 SHORT</text>`;
+ s+=`<text x="${xd+(w-xd)/2}" y="10" text-anchor="middle">34 TO GO</text>`;
+ document.getElementById('ruler').innerHTML=`<svg viewBox="0 0 ${w} ${h}" width="100%">${s}</svg>`;})();
+// dot range plot
+(()=>{const w=600,rowH=24,l=150,r=50,min=30,max=62,sx=v=>l+(v-min)/(max-min)*(w-l-r);let s='';
+ [30,40,50,60].forEach(v=>{s+=`<line x1="${sx(v)}" x2="${sx(v)}" y1="0" y2="${rowH*8}" stroke="#E1E6EA"/><text class="num" x="${sx(v)}" y="${rowH*8+14}" text-anchor="middle" style="fill:#6B7884">${v}</text>`});
+ D.topTeams.forEach((t,i)=>{const y=i*rowH+rowH/2,lo=Math.min(...t.trend),hi=Math.max(...t.trend),me=t.team===2096;
+  s+=`<text x="0" y="${y+4}" style="${me?'font-weight:700;fill:#16222C':''}"><tspan class="num">${t.team}</tspan>  ${t.name}</text>`;
+  s+=`<line x1="${sx(lo)}" x2="${sx(hi)}" y1="${y}" y2="${y}" stroke="${me?'#0F5E6E':'#A3ADB6'}" stroke-width="2"/>`;
+  s+=`<line x1="${sx(lo)}" x2="${sx(lo)}" y1="${y-4}" y2="${y+4}" stroke="${me?'#0F5E6E':'#A3ADB6'}"/><line x1="${sx(hi)}" x2="${sx(hi)}" y1="${y-4}" y2="${y+4}" stroke="${me?'#0F5E6E':'#A3ADB6'}"/>`;
+  s+=`<circle cx="${sx(t.epa)}" cy="${y}" r="4.5" fill="${me?'#0F5E6E':'#16222C'}"/>`;
+  s+=`<text class="num" x="${w}" y="${y+4}" text-anchor="end">${t.epa.toFixed(1)}</text>`;});
+ document.getElementById('dots').innerHTML=`<svg viewBox="0 0 ${w} ${rowH*8+20}" width="100%">${s}</svg>`;})();
+// step area
+(()=>{const w=600,h=196,b=172,m=45,sx=i=>i*(w/8),sy=v=>b-v/m*(b-14);let d=`M0,${b}`;
+ D.hourly.forEach((v,i)=>{d+=`L${sx(i)},${sy(v)}L${sx(i+1)},${sy(v)}`});d+=`L${w},${b}Z`;
+ let s='';[10,20,30,40].forEach(v=>{s+=`<line x1="0" x2="${w}" y1="${sy(v)}" y2="${sy(v)}" stroke="#E1E6EA"/><text x="${w}" y="${sy(v)-4}" text-anchor="end" style="font-family:Martian Mono;font-size:9.5px;fill:#A3ADB6">${v}</text>`});
+ s+=`<path d="${d}" fill="#E2EEF0" stroke="#0F5E6E" stroke-width="1.5"/>`;
+ s+=`<line x1="0" x2="${w}" y1="${b}" y2="${b}" stroke="#16222C"/>`;
+ D.hours.forEach((hh,i)=>{s+=`<line x1="${sx(i)}" x2="${sx(i)}" y1="${b}" y2="${b+6}" stroke="#16222C"/><text x="${sx(i)+w/16}" y="${b+20}" text-anchor="middle" style="font-family:Martian Mono;font-size:9.5px;fill:#6B7884">${hh}:00</text>`});
+ s+=`<text x="${sx(6)+w/16}" y="${sy(41)-8}" text-anchor="middle" style="font-family:Martian Mono;font-size:10px;fill:#16222C">PEAK 41</text>`;
+ document.getElementById('area').innerHTML=`<svg viewBox="0 0 ${w} ${h}" width="100%" style="font-family:Barlow">${s}</svg>`;})();
+KIT.boot();
+</script>
+</body>
+</html>

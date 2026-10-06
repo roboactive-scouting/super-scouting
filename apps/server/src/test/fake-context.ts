@@ -1,8 +1,12 @@
-import type { FormFieldDefinition } from '@frc/shared';
+import { MATCH_TYPES, type FormFieldDefinition } from '@frc/shared';
 import type {
   Store,
+  StoredEvent,
   StoredFullUser,
+  StoredMatch,
   StoredRow,
+  StoredSeason,
+  StoredTeam,
   StoredUser,
   UseCaseContext,
 } from '../core/context.js';
@@ -11,7 +15,12 @@ import { stubsFor } from '../repos/store.js';
 
 export type FakeRow = Record<string, unknown> & { id: string; version: number };
 /** `matches` is not versioned: SPEC-FINAL 6.4 defines a bare match as event, type, number. */
-export type FakeMatchRow = Record<string, unknown> & { id: string };
+export type FakeMatchRow = Record<string, unknown> & {
+  id: string;
+  event_id: string;
+  match_type: string;
+  number: number;
+};
 
 /**
  * The columns of public.matches (migration 20260903090000_skeleton.sql). The fake
@@ -32,6 +41,51 @@ const MATCH_COLUMNS = new Set([
   'updated_at',
 ]);
 
+/**
+ * The columns of public.teams, public.event_teams and public.match_teams (migration
+ * 20260903090000_skeleton.sql), checked like matches. None has a `version`; only
+ * event_teams has a `deleted_at`.
+ */
+const TEAM_COLUMNS = new Set(['id', 'number', 'name', 'created_at', 'updated_at']);
+const EVENT_TEAM_COLUMNS = new Set([
+  'id',
+  'event_id',
+  'team_id',
+  'created_at',
+  'updated_at',
+  'deleted_at',
+]);
+const MATCH_TEAM_COLUMNS = new Set([
+  'id',
+  'match_id',
+  'alliance',
+  'station',
+  'team_id',
+  'created_at',
+  'updated_at',
+]);
+
+/** An `event_teams` row: one team on one event's roster, soft-deleted on removal. */
+export type FakeEventTeam = {
+  id: string;
+  event_id: string;
+  team_id: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+};
+
+/** A `match_teams` row, one filled slot. `ctx.matchTeams` keys it `<match>:<alliance>:<station>`. */
+export type FakeMatchTeam = {
+  id: string;
+  match_id: string;
+  alliance: 'red' | 'blue';
+  station: number;
+  team_id: string;
+  created_at: string;
+  updated_at: string;
+};
+
 /** The columns of public.users (migration 20260903091000_forms.sql), checked the same way. */
 const USER_COLUMNS = new Set([
   'id',
@@ -46,9 +100,36 @@ const USER_COLUMNS = new Set([
 ]);
 
 function checkUserColumns(row: Record<string, unknown>): void {
-  const unknown = Object.keys(row).find((column) => !USER_COLUMNS.has(column));
+  checkColumns('users', USER_COLUMNS, row);
+}
+
+/**
+ * The columns of public.seasons and public.events (migration 20260903090000_skeleton.sql).
+ * Neither has a `version`: they are not synced. Checked like matches and users, so a
+ * phantom column fails a unit test instead of a deployed write.
+ */
+const SEASON_COLUMNS = new Set([
+  'id',
+  'year',
+  'game_name',
+  'field_image_path',
+  'created_at',
+  'updated_at',
+]);
+const EVENT_COLUMNS = new Set([
+  'id',
+  'season_id',
+  'name',
+  'code',
+  'sort_order',
+  'created_at',
+  'updated_at',
+]);
+
+function checkColumns(table: string, columns: Set<string>, row: Record<string, unknown>): void {
+  const unknown = Object.keys(row).find((column) => !columns.has(column));
   if (unknown !== undefined) {
-    throw new Error(`Could not find the '${unknown}' column of 'users' in the schema cache`);
+    throw new Error(`Could not find the '${unknown}' column of '${table}' in the schema cache`);
   }
 }
 
@@ -189,6 +270,68 @@ class UsersByNameView extends Map<string, StoredFullUser> {
 }
 
 /**
+ * `ctx.roster`, as a view over `eventTeams` (task 1.19): ONE source of truth for the
+ * roster, the way `users` is a view over `usersById`. `set(eventId, teamIds)` writes
+ * live event_teams rows exactly as Store.setRoster does (removals tombstoned, a re-add
+ * revives its row) but checks no foreign key, so a fixture can name any id; `get`
+ * returns the event's live team ids, or undefined when it has none.
+ */
+class RosterView extends Map<string, string[]> {
+  constructor(
+    private readonly write: (eventId: string, teamIds: string[]) => void,
+    private readonly rows: Map<string, FakeEventTeam>,
+  ) {
+    super();
+  }
+  private snapshot(): Map<string, string[]> {
+    const byEvent = new Map<string, string[]>();
+    for (const row of this.rows.values()) {
+      if (row.deleted_at !== null) continue;
+      byEvent.set(row.event_id, [...(byEvent.get(row.event_id) ?? []), row.team_id]);
+    }
+    return byEvent;
+  }
+  override get(eventId: string): string[] | undefined {
+    return this.snapshot().get(eventId);
+  }
+  override set(eventId: string, teamIds: string[]): this {
+    this.write(eventId, teamIds);
+    return this;
+  }
+  override has(eventId: string): boolean {
+    return this.snapshot().has(eventId);
+  }
+  override delete(eventId: string): boolean {
+    const had = this.has(eventId);
+    this.write(eventId, []);
+    return had;
+  }
+  override clear(): void {
+    for (const eventId of this.snapshot().keys()) this.write(eventId, []);
+  }
+  override get size(): number {
+    return this.snapshot().size;
+  }
+  override keys() {
+    return this.snapshot().keys();
+  }
+  override values() {
+    return this.snapshot().values();
+  }
+  override entries() {
+    return this.snapshot().entries();
+  }
+  override [Symbol.iterator]() {
+    return this.snapshot()[Symbol.iterator]();
+  }
+  override forEach(
+    callback: (value: string[], key: string, map: Map<string, string[]>) => void,
+  ): void {
+    this.snapshot().forEach((value, key) => callback(value, key, this));
+  }
+}
+
+/**
  * Every map the phase-1 tests use, declared once. Later tasks add rows to these maps
  * and implement the Store methods that read them; none of them adds a field.
  */
@@ -197,13 +340,15 @@ export type FakeContext = UseCaseContext & {
   users: Map<string, StoredUser>;
   usersById: Map<string, StoredFullUser>;
   usersByName: Map<string, StoredFullUser>;
-  seasons: Map<string, FakeRow>;
-  events: Map<string, FakeRow>;
-  teams: Map<string, FakeRow>;
-  eventTeams: Map<string, FakeRow>;
+  seasons: Map<string, StoredSeason>;
+  events: Map<string, StoredEvent>;
+  teams: Map<string, StoredTeam>;
+  /** The roster's storage: every event_teams row, tombstones included. */
+  eventTeams: Map<string, FakeEventTeam>;
+  /** A view over `eventTeams` (see RosterView): event id → its live team ids. */
   roster: Map<string, string[]>;
   matches: Map<string, FakeMatchRow>;
-  matchTeams: Map<string, FakeRow>;
+  matchTeams: Map<string, FakeMatchTeam>;
   forms: Map<string, FakeRow>;
   formVersions: Map<string, FakeRow>;
   formFields: Map<string, FormFieldDefinition>;
@@ -295,6 +440,101 @@ export function makeFakeContext(): FakeContext {
   const appliedOrder: string[] = [];
   const pullRows = new Map<string, Record<string, unknown>[]>();
   const knownEvents = new Set(['ev-1']);
+  const seasons = new Map<string, StoredSeason>();
+  const events = new Map<string, StoredEvent>();
+  // The unique (season_id, name) constraint on events.
+  const assertEventNameFree = (event: StoredEvent): void => {
+    for (const other of events.values()) {
+      if (
+        other.id !== event.id &&
+        other.season_id === event.season_id &&
+        other.name === event.name
+      ) {
+        throw pgError('23505', 'events_season_id_name_key');
+      }
+    }
+  };
+  // Task 1.19. The teams, the roster (event_teams, with `roster` a view over it), the
+  // match slots, and the timestamps the database would put on a match. The timestamps are
+  // kept beside `rows.matches` rather than in it, so a test can assert on exactly the
+  // columns a use case WROTE (SPEC-FINAL 6.4: a bare match is event, type, number).
+  const teams = new Map<string, StoredTeam>();
+  const eventTeams = new Map<string, FakeEventTeam>();
+  const matchTeams = new Map<string, FakeMatchTeam>();
+  const matchStamps = new Map<string, { created_at: string; updated_at: string }>();
+  const eventIsReal = (eventId: string): boolean => events.has(eventId) || knownEvents.has(eventId);
+  // What Store.setRoster does once its foreign keys pass; the roster view uses it as is.
+  const writeRoster = (eventId: string, teamIds: string[], at: string): void => {
+    const current = [...eventTeams.values()].filter((r) => r.event_id === eventId);
+    const live = new Set(current.filter((r) => r.deleted_at === null).map((r) => r.team_id));
+    const wanted = new Set(teamIds);
+    for (const teamId of wanted) {
+      if (live.has(teamId)) continue;
+      const tombstone = current
+        .filter((r) => r.team_id === teamId)
+        .sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
+      if (tombstone) {
+        eventTeams.set(tombstone.id, { ...tombstone, deleted_at: null, updated_at: at });
+      } else {
+        const id = crypto.randomUUID();
+        eventTeams.set(id, {
+          id,
+          event_id: eventId,
+          team_id: teamId,
+          created_at: at,
+          updated_at: at,
+          deleted_at: null,
+        });
+      }
+    }
+    for (const row of current) {
+      if (row.deleted_at === null && !wanted.has(row.team_id)) {
+        eventTeams.set(row.id, { ...row, deleted_at: at, updated_at: at });
+      }
+    }
+  };
+  const roster = new RosterView(
+    (eventId, teamIds) => writeRoster(eventId, teamIds, fake.nowValue.toISOString()),
+    eventTeams,
+  );
+  const toStoredMatch = (row: FakeMatchRow): StoredMatch => {
+    const stamps = matchStamps.get(row.id);
+    return {
+      id: row.id,
+      event_id: row.event_id as string,
+      match_type: row.match_type as StoredMatch['match_type'],
+      number: row.number as number,
+      created_at:
+        (row.created_at as string | undefined) ?? stamps?.created_at ?? FIXTURE_CREATED_AT,
+      updated_at:
+        (row.updated_at as string | undefined) ?? stamps?.updated_at ?? FIXTURE_CREATED_AT,
+    };
+  };
+  // The unique (event_id, match_type, number) constraint on matches.
+  const assertMatchKeyFree = (match: FakeMatchRow): void => {
+    for (const other of rows.matches.values()) {
+      if (
+        other.id !== match.id &&
+        other.event_id === match.event_id &&
+        other.match_type === match.match_type &&
+        other.number === match.number
+      ) {
+        throw pgError('23505', 'matches_event_id_match_type_number_key');
+      }
+    }
+  };
+  const matchKeyRank = (m: { match_type: string; number: number }): [number, number] => [
+    (MATCH_TYPES as readonly string[]).indexOf(m.match_type),
+    m.number,
+  ];
+  const compareMatchKeys = (a: [number, number], b: [number, number]): number =>
+    a[0] !== b[0] ? a[0] - b[0] : a[1] - b[1];
+
+  // The app_settings singleton: both null on an empty install, as the migration leaves it.
+  let activeContext: { active_season_id: string | null; active_event_id: string | null } = {
+    active_season_id: null,
+    active_event_id: null,
+  };
 
   const fake = {
     // every map from the FakeContext type, constructed empty
@@ -302,13 +542,13 @@ export function makeFakeContext(): FakeContext {
     users,
     usersById,
     usersByName,
-    seasons: new Map(),
-    events: new Map(),
-    teams: new Map(),
-    eventTeams: new Map(),
-    roster: new Map(),
+    seasons,
+    events,
+    teams,
+    eventTeams,
+    roster,
     matches: rows.matches,
-    matchTeams: new Map(),
+    matchTeams,
     forms: new Map(),
     formVersions: new Map(),
     formFields: new Map(),
@@ -330,8 +570,11 @@ export function makeFakeContext(): FakeContext {
     seedRankingFixture: () => {
       throw new Error('seedRankingFixture lands with task 1.57');
     },
-    setActiveContext: () => {
-      throw new Error('setActiveContext lands with task 1.18');
+    // A fixture that writes the singleton directly, as a migration or an admin would. It is
+    // not Store.setActiveContext (task 1.18): it validates nothing, so a test can make the
+    // singleton name an event that does not exist.
+    setActiveContext: (seasonId: string | null, eventId: string | null) => {
+      activeContext = { active_season_id: seasonId, active_event_id: eventId };
     },
     softDelete: () => {
       throw new Error('softDelete lands with task 1.50');
@@ -439,8 +682,9 @@ export function makeFakeContext(): FakeContext {
     async getFormFields(_formVersionId) {
       return SKELETON_FIELDS;
     },
+    // `knownEvents` is the pull tests' shorthand; an event a use case created is real too.
     async eventExists(eventId) {
-      return knownEvents.has(eventId);
+      return knownEvents.has(eventId) || events.has(eventId);
     },
     async pullEntity(key, scope, since, offset, limit) {
       void scope;
@@ -452,6 +696,270 @@ export function makeFakeContext(): FakeContext {
     async resolveScope(eventId) {
       return { eventId, seasonId: 'se-1' };
     },
+    async getActiveContext() {
+      return { ...activeContext };
+    },
+    // Task 1.18. Both foreign keys checked, as Postgres does (23503); `knownEvents` counts
+    // as an event, so a pull test's shorthand id stays settable.
+    async setActiveContext(next) {
+      if (next.active_season_id !== null && !seasons.has(next.active_season_id)) {
+        throw pgError('23503', 'app_settings_active_season_id_fkey');
+      }
+      if (
+        next.active_event_id !== null &&
+        !events.has(next.active_event_id) &&
+        !knownEvents.has(next.active_event_id)
+      ) {
+        throw pgError('23503', 'app_settings_active_event_id_fkey');
+      }
+      activeContext = { ...next };
+      return { ...activeContext };
+    },
+    async getSeason(id) {
+      return seasons.get(id) ?? null;
+    },
+    async getSeasonByYear(year) {
+      return [...seasons.values()].find((s) => s.year === year) ?? null;
+    },
+    async insertSeason(row) {
+      checkColumns('seasons', SEASON_COLUMNS, row);
+      const at = fake.nowValue.toISOString();
+      const season = { created_at: at, updated_at: at, ...row } as StoredSeason;
+      if (seasons.has(season.id)) throw pgError('23505', 'seasons_pkey');
+      if ([...seasons.values()].some((s) => s.year === season.year)) {
+        throw pgError('23505', 'seasons_year_key');
+      }
+      seasons.set(season.id, season);
+      return season;
+    },
+    async updateSeason(id, patch) {
+      checkColumns('seasons', SEASON_COLUMNS, patch);
+      const existing = seasons.get(id);
+      if (!existing) throw pgError('PGRST116', 'no season with that id');
+      const next = { ...existing, ...patch, updated_at: fake.nowValue.toISOString() };
+      if ([...seasons.values()].some((s) => s.id !== id && s.year === next.year)) {
+        throw pgError('23505', 'seasons_year_key');
+      }
+      seasons.set(id, next);
+      return next;
+    },
+    // Newest year first; `year` is unique, so it alone is the keyset.
+    async listSeasons(limit, after) {
+      return [...seasons.values()]
+        .sort((a, b) => b.year - a.year)
+        .filter((s) => after === undefined || s.year < after.year)
+        .slice(0, limit);
+    },
+    async getEvent(id) {
+      return events.get(id) ?? null;
+    },
+    async insertEvent(row) {
+      checkColumns('events', EVENT_COLUMNS, row);
+      const at = fake.nowValue.toISOString();
+      const event = { code: null, created_at: at, updated_at: at, ...row } as StoredEvent;
+      if (!seasons.has(event.season_id)) throw pgError('23503', 'events_season_id_fkey');
+      if (events.has(event.id)) throw pgError('23505', 'events_pkey');
+      assertEventNameFree(event);
+      events.set(event.id, event);
+      return event;
+    },
+    async updateEvent(id, patch) {
+      checkColumns('events', EVENT_COLUMNS, patch);
+      const existing = events.get(id);
+      if (!existing) throw pgError('PGRST116', 'no event with that id');
+      const next = { ...existing, ...patch, updated_at: fake.nowValue.toISOString() };
+      if (!seasons.has(next.season_id)) throw pgError('23503', 'events_season_id_fkey');
+      assertEventNameFree(next);
+      events.set(id, next);
+      return next;
+    },
+    // By sort_order then id; sort_order is not unique, so the id is part of the keyset.
+    async listEvents(seasonId, limit, after) {
+      const key = (e: { sort_order: number; id: string }): [number, string] => [e.sort_order, e.id];
+      const cmp = (a: [number, string], b: [number, string]) =>
+        a[0] !== b[0] ? a[0] - b[0] : a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0;
+      return [...events.values()]
+        .filter((e) => e.season_id === seasonId)
+        .sort((a, b) => cmp(key(a), key(b)))
+        .filter((e) => after === undefined || cmp(key(e), key(after)) > 0)
+        .slice(0, limit);
+    },
+    async countEntriesBySeason(seasonId) {
+      return fake.entryCountsBySeason.get(seasonId) ?? 0;
+    },
+    // Task 1.19: teams, the roster, matches and their slots. Every write checks its
+    // columns and raises Postgres's own codes, like the season and event writes.
+    async getTeam(id) {
+      const team = teams.get(id);
+      return team ? { ...team } : null;
+    },
+    async getTeamByNumber(number) {
+      const team = [...teams.values()].find((t) => t.number === number);
+      return team ? { ...team } : null;
+    },
+    async insertTeam(row) {
+      checkColumns('teams', TEAM_COLUMNS, row);
+      const at = fake.nowValue.toISOString();
+      const team = { created_at: at, updated_at: at, ...row } as StoredTeam;
+      if (teams.has(team.id)) throw pgError('23505', 'teams_pkey');
+      if ([...teams.values()].some((t) => t.number === team.number)) {
+        throw pgError('23505', 'teams_number_key');
+      }
+      teams.set(team.id, team);
+      return { ...team };
+    },
+    async updateTeam(id, patch) {
+      checkColumns('teams', TEAM_COLUMNS, patch);
+      const existing = teams.get(id);
+      if (!existing) throw pgError('PGRST116', 'no team with that id');
+      const next = { ...existing, ...patch, updated_at: fake.nowValue.toISOString() };
+      if ([...teams.values()].some((t) => t.id !== id && t.number === next.number)) {
+        throw pgError('23505', 'teams_number_key');
+      }
+      teams.set(id, next);
+      return { ...next };
+    },
+    // By number. A query matches a number prefix or a case-insensitive name substring,
+    // every character literal: what the Supabase store's escaped ilike and prefix ranges
+    // compute. `seasonId` is unused, as it is there.
+    async listTeams({ query, limit, after }) {
+      const q = query?.toLowerCase();
+      return [...teams.values()]
+        .filter((t) => after === undefined || t.number > after.number)
+        .filter(
+          (t) =>
+            q === undefined ||
+            (/^\d+$/.test(q) && String(t.number).startsWith(q)) ||
+            t.name.toLowerCase().includes(q),
+        )
+        .sort((a, b) => a.number - b.number)
+        .slice(0, limit)
+        .map((t) => ({ ...t }));
+    },
+    async getRoster(eventId) {
+      return [...eventTeams.values()]
+        .filter((r) => r.event_id === eventId && r.deleted_at === null)
+        .map((r) => teams.get(r.team_id))
+        .filter((t): t is StoredTeam => t !== undefined)
+        .sort((a, b) => a.number - b.number)
+        .map((t) => ({ ...t }));
+    },
+    // Both foreign keys first (23503), so a refused write changes nothing; then exactly
+    // the view's write.
+    async setRoster(eventId, teamIds, at) {
+      if (!eventIsReal(eventId)) throw pgError('23503', 'event_teams_event_id_fkey');
+      if (teamIds.some((id) => !teams.has(id))) {
+        throw pgError('23503', 'event_teams_team_id_fkey');
+      }
+      checkColumns('event_teams', EVENT_TEAM_COLUMNS, { event_id: eventId, deleted_at: at });
+      writeRoster(eventId, teamIds, at);
+    },
+    async findMatch(eventId, matchType, number) {
+      const row = [...rows.matches.values()].find(
+        (m) => m.event_id === eventId && m.match_type === matchType && m.number === number,
+      );
+      return row ? toStoredMatch(row) : null;
+    },
+    async getMatch(id) {
+      const row = rows.matches.get(id);
+      return row ? toStoredMatch(row) : null;
+    },
+    // Stores exactly the columns written; the database's timestamps go beside them.
+    async insertMatch(row) {
+      checkColumns('matches', MATCH_COLUMNS, row);
+      const match = { ...row } as FakeMatchRow;
+      if (!eventIsReal(String(match.event_id))) throw pgError('23503', 'matches_event_id_fkey');
+      if (rows.matches.has(match.id)) throw pgError('23505', 'matches_pkey');
+      assertMatchKeyFree(match);
+      rows.matches.set(match.id, match);
+      const at = fake.nowValue.toISOString();
+      matchStamps.set(match.id, { created_at: at, updated_at: at });
+      appliedOrder.push(match.id);
+      return toStoredMatch(match);
+    },
+    async updateMatch(id, patch) {
+      checkColumns('matches', MATCH_COLUMNS, patch);
+      const existing = rows.matches.get(id);
+      if (!existing) throw pgError('PGRST116', 'no match with that id');
+      const next = { ...existing, ...patch } as FakeMatchRow;
+      if (!eventIsReal(String(next.event_id))) throw pgError('23503', 'matches_event_id_fkey');
+      assertMatchKeyFree(next);
+      rows.matches.set(id, next);
+      const created = matchStamps.get(id)?.created_at ?? FIXTURE_CREATED_AT;
+      matchStamps.set(id, { created_at: created, updated_at: fake.nowValue.toISOString() });
+      return toStoredMatch(next);
+    },
+    // Practice, qualification, playoff, then by number; (type, number) is the keyset.
+    async listMatches(eventId, limit, after) {
+      return [...rows.matches.values()]
+        .map(toStoredMatch)
+        .filter((m) => m.event_id === eventId)
+        .sort((a, b) => compareMatchKeys(matchKeyRank(a), matchKeyRank(b)))
+        .filter(
+          (m) => after === undefined || compareMatchKeys(matchKeyRank(m), matchKeyRank(after)) > 0,
+        )
+        .slice(0, limit);
+    },
+    async listMatchSlots(matchIds) {
+      const wanted = new Set(matchIds);
+      return [...matchTeams.values()]
+        .filter((s) => wanted.has(s.match_id))
+        .map((s) => ({
+          match_id: s.match_id,
+          alliance: s.alliance,
+          station: s.station,
+          team_id: s.team_id,
+        }));
+    },
+    // The foreign keys first; then a cleared slot is deleted, a changed one updated in
+    // place (same row id), a new one inserted, and an unchanged one left alone.
+    async setMatchTeams(matchId, slots) {
+      if (!rows.matches.has(matchId)) throw pgError('23503', 'match_teams_match_id_fkey');
+      if (slots.some((s) => !teams.has(s.team_id))) {
+        throw pgError('23503', 'match_teams_team_id_fkey');
+      }
+      for (const slot of slots) checkColumns('match_teams', MATCH_TEAM_COLUMNS, slot);
+      const at = fake.nowValue.toISOString();
+      const key = (s: { alliance: string; station: number }) =>
+        `${matchId}:${s.alliance}:${s.station}`;
+      const wanted = new Map(slots.map((s) => [key(s), s]));
+      for (const [k, row] of matchTeams) {
+        if (row.match_id === matchId && !wanted.has(k)) matchTeams.delete(k);
+      }
+      for (const [k, slot] of wanted) {
+        const existing = matchTeams.get(k);
+        if (existing && existing.team_id === slot.team_id) continue;
+        matchTeams.set(
+          k,
+          existing
+            ? { ...existing, team_id: slot.team_id, updated_at: at }
+            : {
+                id: crypto.randomUUID(),
+                match_id: matchId,
+                alliance: slot.alliance,
+                station: slot.station,
+                team_id: slot.team_id,
+                created_at: at,
+                updated_at: at,
+              },
+        );
+      }
+    },
+    async countEntriesByMatch(matchId) {
+      return fake.entryCountsByMatch.get(matchId) ?? 0;
+    },
+    // `entryCountsByMatch` stands for the entries: scouting_entries.match_id is
+    // `on delete restrict`, so any of them refuses the delete (23503). The slots cascade.
+    async deleteMatch(id) {
+      if ((fake.entryCountsByMatch.get(id) ?? 0) > 0) {
+        throw pgError('23503', 'scouting_entries_match_id_fkey');
+      }
+      rows.matches.delete(id);
+      matchStamps.delete(id);
+      for (const [k, row] of matchTeams) {
+        if (row.match_id === id) matchTeams.delete(k);
+      }
+    },
     // Everything else on the Store starts as a loud stub; each later task
     // replaces the two or three entries it needs.
     ...stubsFor([
@@ -461,31 +969,6 @@ export function makeFakeContext(): FakeContext {
       'listConflicts',
       'getConflict',
       'resolveConflictRow',
-      'getActiveContext',
-      'setActiveContext',
-      'getSeason',
-      'getSeasonByYear',
-      'insertSeason',
-      'updateSeason',
-      'listSeasons',
-      'getEvent',
-      'insertEvent',
-      'updateEvent',
-      'listEvents',
-      'getTeam',
-      'getTeamByNumber',
-      'insertTeam',
-      'updateTeam',
-      'listTeams',
-      'getRoster',
-      'setRoster',
-      'findMatch',
-      'insertMatch',
-      'listMatches',
-      'setMatchTeams',
-      'countEntriesByMatch',
-      'countEntriesBySeason',
-      'deleteMatch',
       'getForm',
       'getFormByKind',
       'insertForm',

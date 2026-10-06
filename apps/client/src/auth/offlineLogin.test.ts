@@ -8,8 +8,10 @@ import {
   NO_CACHED_ACCOUNTS_LINE,
   offlineLogin,
   OfflineLoginError,
+  signInErrorLine,
   signInWithFallback,
 } from './offlineLogin';
+import { SERVER_UNREACHABLE_LINE } from './messages';
 import { pendingCredential } from './pendingCredential';
 import { RpcError } from '@/data/rpc';
 
@@ -285,5 +287,72 @@ describe('which login outcomes fall back to the cached hash', () => {
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
     await expect(signInWithFallback('bob', 'other pass')).rejects.toThrow(/disabled/i);
     expect(await session.current()).toBeNull();
+  });
+});
+
+describe('an online device that cannot reach the server (task 1.17b)', () => {
+  let online = true;
+  beforeEach(async () => {
+    online = true;
+    vi.spyOn(navigator, 'onLine', 'get').mockImplementation(() => online);
+    await db.rows.clear(); // never hydrated: no cached accounts to fall back on
+  });
+
+  it('says the server cannot be reached, never "connect to the internet"', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch')); // CORS refusal looks the same
+    const error = await signInWithFallback('alice', 'correct horse').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    const line = signInErrorLine(error);
+    expect(line).toBe(SERVER_UNREACHABLE_LINE);
+    expect(SERVER_UNREACHABLE_LINE).toBe(
+      'Cannot reach the server. Check that this is the right address for the app, then try again.',
+    );
+    expect(line).not.toMatch(/connect to the internet/i);
+    expect(await session.current()).toBeNull();
+    expect(pendingCredential.get()).toBeNull();
+  });
+
+  it('says the same for a response that is not our server (a wrong address, a portal)', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response('<html>not the app</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+    const error = await signInWithFallback('alice', 'correct horse').catch((e: unknown) => e);
+    expect(signInErrorLine(error)).toBe(SERVER_UNREACHABLE_LINE);
+  });
+
+  it('keeps the "connect to the internet" line for a device that reports itself offline', async () => {
+    online = false;
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const error = await signInWithFallback('alice', 'correct horse').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(OfflineLoginError);
+    expect(signInErrorLine(error)).toBe(NO_CACHED_ACCOUNTS_LINE);
+  });
+
+  it('still says the server is in trouble on our own 5xx', async () => {
+    fetchMock.mockResolvedValueOnce(json(503, { error: { code: 'internal', message: 'x' } }));
+    const error = await signInWithFallback('alice', 'correct horse').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RpcError);
+    expect(signInErrorLine(error)).toMatch(/server is having trouble/i);
+  });
+
+  it('leaves the fallback alone when accounts are cached: online and unreachable signs in offline', async () => {
+    await db.rows.bulkPut([
+      {
+        entity: 'users',
+        id: ALICE_ID,
+        username: 'alice',
+        full_name: 'Alice',
+        role: 'lead',
+        must_change_password: false,
+        password_hash: aliceHash,
+        disabled_at: null,
+      },
+    ]);
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const result = await signInWithFallback('alice', 'correct horse');
+    expect(result.offline).toBe(true);
   });
 });

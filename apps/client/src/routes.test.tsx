@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,6 +7,8 @@ import { session } from '@/auth/session';
 import { db, setMeta } from '@/data/db';
 import type * as SyncModule from '@/data/sync';
 import { pending } from '@/data/outbox';
+import { sessionOverride } from '@/features/context/sessionOverride';
+import { NO_HYDRATION } from '@/features/shell/shellContext';
 import { routeTree } from './routes';
 
 const hydrate = vi.fn();
@@ -28,7 +30,7 @@ const user = {
 };
 
 function renderAt(path: string) {
-  const router = createMemoryRouter(routeTree('ev-1'), { initialEntries: [path] });
+  const router = createMemoryRouter(routeTree(), { initialEntries: [path] });
   render(<RouterProvider router={router} />);
   return router;
 }
@@ -41,6 +43,8 @@ beforeEach(async () => {
   await db.rows.bulkPut([
     { entity: 'teams', id: 't-1', number: 118, name: 'Robonauts' },
     { entity: 'event_teams', id: 'et-1', event_id: 'ev-1', team_id: 't-1', deleted_at: null },
+    // What a completed pull leaves: the singleton naming the event (task 1.17b).
+    { entity: 'app_settings', id: 'true', active_season_id: 'se-1', active_event_id: 'ev-1' },
   ]);
   await setMeta('sync.hydrated_event_id', 'ev-1');
 });
@@ -48,7 +52,7 @@ beforeEach(async () => {
 describe('the route tree and the session (task 1.15)', () => {
   it('attributes a locally authored operation to the signed-in user', async () => {
     await session.signIn(user, 'token-abc');
-    renderAt('/');
+    renderAt('/scout');
     const u = userEvent.setup();
     await u.type(await screen.findByLabelText(/match number/i), '42');
     await u.click(screen.getByRole('radio', { name: 'red' }));
@@ -61,7 +65,7 @@ describe('the route tree and the session (task 1.15)', () => {
     expect((await pending(10))[0]!.author_user_id).toBe('u-signed-in');
   });
 
-  it.each(['/', '/entries', '/change-password'])(
+  it.each(['/', '/scout', '/entries', '/change-password'])(
     'an expired session sends %s to the login screen',
     async (path) => {
       await session.signIn(user, 'token-abc');
@@ -84,7 +88,7 @@ describe('the route tree and the session (task 1.15)', () => {
   });
 
   it('no session sends every route to the login screen', async () => {
-    for (const path of ['/', '/entries', '/entry/m-1/t-1', '/change-password']) {
+    for (const path of ['/', '/scout', '/entries', '/entry/m-1/t-1', '/change-password']) {
       const router = renderAt(path);
       await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
     }
@@ -135,7 +139,7 @@ describe('switch scouter on a shared device (SPEC-FINAL 7.3, task 1.16)', () => 
 
   it('attributes what is entered after a switch to the new scouter, and never re-authors the old ops', async () => {
     await session.signIn(user, 'token-abc');
-    const router = renderAt('/');
+    const router = renderAt('/scout');
     const u = userEvent.setup();
 
     // Dana starts an entry (its bare match op is hers), then hands the device over.
@@ -152,7 +156,7 @@ describe('switch scouter on a shared device (SPEC-FINAL 7.3, task 1.16)', () => 
     );
     await u.type(screen.getByLabelText(/^Password for/), 'noa-pass');
     await u.click(screen.getByRole('button', { name: 'Switch scouter' }));
-    await waitFor(() => expect(router.state.location.pathname).toBe('/'));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/scout'));
     expect(await screen.findByText('Noa')).toBeInTheDocument(); // "Signed in as Noa"
 
     await startEntry(u, '43');
@@ -166,7 +170,6 @@ describe('switch scouter on a shared device (SPEC-FINAL 7.3, task 1.16)', () => 
     await db.rows.bulkPut([
       { entity: 'matches', id: 'm-1', event_id: 'ev-1', match_type: 'qualification', number: 21 },
       { entity: 'forms', id: 'f-1', kind: 'match', season_id: 'se-1', active_version_id: 'fv-1' },
-      { entity: 'app_settings', id: 'singleton', active_season_id: 'se-1' },
     ]);
     // Dana began this entry on the shared device; drafts are keyed by form, match and
     // team, not by scouter, so the draft survives the hand-over.
@@ -185,7 +188,7 @@ describe('switch scouter on a shared device (SPEC-FINAL 7.3, task 1.16)', () => 
     );
     await u.type(screen.getByLabelText(/^Password for/), 'noa-pass');
     await u.click(screen.getByRole('button', { name: 'Switch scouter' }));
-    await waitFor(() => expect(router.state.location.pathname).toBe('/'));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/scout'));
 
     await router.navigate('/entry/m-1/t-1?alliance=red');
     // Dana's draft is what Noa picks up.
@@ -200,5 +203,81 @@ describe('switch scouter on a shared device (SPEC-FINAL 7.3, task 1.16)', () => 
     expect(op!.author_user_id).toBe('u-noa');
     expect(op!.payload.scouter_id).toBe('u-noa');
     expect(await db.drafts.get('fv-1:m-1:t-1')).toBeUndefined();
+  });
+});
+
+describe('which routes wait for the event to load (task 1.17b)', () => {
+  it('marks exactly Home, Users, the user detail page, Manage, Switch scouter and the old context path as needing no event', () => {
+    const shell = routeTree().find((r) => r.path === '/');
+    const marked = (shell?.children ?? [])
+      .filter((r) => r.handle === NO_HYDRATION)
+      .map((r) => (r.index ? '(index)' : r.path));
+    expect(marked.sort()).toEqual([
+      '(index)',
+      'admin/manage',
+      'admin/users',
+      'admin/users/:id',
+      'context',
+      'switch-scouter',
+    ]);
+  });
+
+  it('leaves Scout, the entry screen and Entries gated', () => {
+    const shell = routeTree().find((r) => r.path === '/');
+    const gated = (shell?.children ?? [])
+      .filter((r) => r.handle !== NO_HYDRATION)
+      .map((r) => (r.index ? '(index)' : r.path));
+    expect(gated.sort()).toEqual(['entries', 'entry/:matchId/:teamId', 'scout']);
+  });
+});
+
+describe('no new entry while a session override is in effect (SPEC-FINAL 6.3, task 1.22)', () => {
+  const PAUSED = 'New entries are paused for this session';
+
+  beforeEach(async () => {
+    await db.rows.bulkPut([
+      { entity: 'events', id: 'ev-1', season_id: 'se-1', name: 'Week 1', sort_order: 1 },
+      { entity: 'matches', id: 'm-1', event_id: 'ev-1', match_type: 'qualification', number: 21 },
+      { entity: 'forms', id: 'f-1', kind: 'match', season_id: 'se-1', active_version_id: 'fv-1' },
+    ]);
+    await session.signIn(user, 'token-abc');
+    sessionOverride.set('ev-2', 'Week 3');
+  });
+
+  afterEach(() => {
+    sessionOverride.clear();
+  });
+
+  it('refuses the Scout picker, and gives it back when the override is cleared', async () => {
+    renderAt('/scout');
+    const heading = await screen.findByRole('heading', { name: PAUSED });
+    const notice = heading.closest('main') as HTMLElement;
+    await waitFor(() =>
+      expect(notice).toHaveTextContent(
+        'You are looking at Week 3 only for this session. New entries can only be made in Week 1.',
+      ),
+    );
+    expect(screen.queryByLabelText(/match number/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Choose a competition' })).toHaveAttribute('href', '/');
+
+    await userEvent.setup().click(within(notice).getByRole('button', { name: 'Back to Week 1' }));
+    expect(await screen.findByLabelText(/match number/i)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: PAUSED })).not.toBeInTheDocument();
+  });
+
+  it('refuses the entry screen too, and keeps its draft for when it opens again', async () => {
+    await db.drafts.put({
+      key: 'fv-1:m-1:t-1',
+      row_id: '',
+      payload: { robot_status: 'broke_down', breakdown_seconds: 30, data: {} },
+      updated_at: '2026-09-24T10:00:00.000Z',
+    });
+    renderAt('/entry/m-1/t-1?alliance=red');
+    expect(await screen.findByRole('heading', { name: PAUSED })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /broke down/i })).not.toBeInTheDocument();
+
+    sessionOverride.clear();
+    await waitFor(() => expect(screen.getByRole('radio', { name: /broke down/i })).toBeChecked());
+    expect(await db.drafts.get('fv-1:m-1:t-1')).toBeDefined();
   });
 });

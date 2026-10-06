@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { registerServiceWorker } from './pwa';
+import { registerServiceWorker, updateReady } from './pwa';
 
 describe('service worker registration (SPEC-FINAL 9.1)', () => {
   it('never reloads the tab; it only reports that an update is ready', async () => {
@@ -38,5 +38,20 @@ describe('service worker registration (SPEC-FINAL 9.1)', () => {
     expect(onUpdateReady).not.toHaveBeenCalled();
     notify();
     expect(onUpdateReady).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the update-ready store (SPEC-FINAL 9.1, task 1.22)', () => {
+  it('tells every subscriber once, and stays set', () => {
+    updateReady.reset();
+    const listener = vi.fn();
+    const unsubscribe = updateReady.subscribe(listener);
+    expect(updateReady.get()).toBe(false);
+    updateReady.set();
+    updateReady.set();
+    expect(updateReady.get()).toBe(true);
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+    updateReady.reset();
   });
 });

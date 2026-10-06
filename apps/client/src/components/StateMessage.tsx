@@ -9,7 +9,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { PRIMARY_BUTTON } from './buttonStyles';
+import { Button, buttonVariants } from './ui/button';
 
 /**
  * SPEC-FINAL 17.8's six variants, plus `not-permitted` (task 1.17): a role reaching a page
@@ -99,23 +99,28 @@ export function StateMessage({
   const line = variant === 'offline-needs-server' ? `${why} ${SAFE_ON_DEVICE}` : why;
 
   return (
-    <section className="mx-auto flex max-w-md flex-col items-center px-4 py-12 text-center">
-      <Glyph aria-hidden="true" className="size-8 text-[var(--text-muted)]" strokeWidth={1.5} />
-      <Heading className="mt-4 text-lg font-semibold" dir="auto">
+    <section className="enter-fade mx-auto flex max-w-md flex-col items-center px-4 py-16 text-center">
+      <span
+        aria-hidden="true"
+        className="flex size-12 items-center justify-center rounded-full border border-border bg-surface"
+      >
+        <Glyph className="size-6 text-text-muted" strokeWidth={1.5} />
+      </span>
+      <Heading className="mt-5 text-lg font-semibold" dir="auto">
         {title ?? copy.title}
       </Heading>
-      <p className="mt-2 text-[var(--text-muted)]" dir="auto">
+      <p className="mt-2 text-sm text-text-muted" dir="auto">
         {line}
       </p>
       <div className="mt-6">
         {'to' in action ? (
-          <Link to={action.to} className={PRIMARY_BUTTON}>
+          <Link to={action.to} className={buttonVariants({ variant: 'primary' })}>
             {action.label}
           </Link>
         ) : (
-          <button type="button" onClick={action.onClick} className={PRIMARY_BUTTON}>
+          <Button variant="primary" onClick={action.onClick}>
             {action.label}
-          </button>
+          </Button>
         )}
       </div>
     </section>

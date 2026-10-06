@@ -17,6 +17,8 @@
     "wait:deploy": "node scripts/wait-for-deploy.mjs",
     "env:example": "node scripts/gen-env-example.mjs",
     "env:example:check": "node scripts/gen-env-example.mjs --check",
+    "season:images": "node scripts/season-images.mjs",
+    "season:images:check": "node scripts/season-images.mjs --check",
     "docs:check": "node scripts/check-docs.mjs",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",

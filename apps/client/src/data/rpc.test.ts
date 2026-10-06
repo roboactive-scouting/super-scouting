@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { session } from '@/auth/session';
 import { db } from './db';
-import { call, rpc, RpcError } from './rpc';
+import { ADMIN_CALL_TIMEOUT_MS, adminRpc, call, rpc, RpcError } from './rpc';
 
 vi.mock('@/config', () => ({
   clientConfig: () => ({ apiBaseUrl: 'https://api.test', deviceWipeCode: 'w', appVersion: 't' }),
@@ -179,5 +179,33 @@ describe('the RPC client (SPEC-FINAL 16.1, 7.5)', () => {
     );
     const out = await call('login', { username: 'alice', password: 'pw' });
     expect(out.user).toEqual(user);
+  });
+});
+
+describe('the admin pages’ default rpc (manage page fix)', () => {
+  it('bounds every call to ADMIN_CALL_TIMEOUT_MS', async () => {
+    const transport = vi.spyOn(rpc, 'call').mockResolvedValue({ items: [], next_cursor: null });
+    await adminRpc.call('listSeasons', {});
+    expect(ADMIN_CALL_TIMEOUT_MS).toBe(15_000);
+    expect(transport).toHaveBeenCalledWith('listSeasons', {}, { timeoutMs: 15_000 });
+  });
+
+  it('still validates the input before any request, as call() does', async () => {
+    await expect(adminRpc.call('listEvents', { season_id: 'nope' })).rejects.toMatchObject({
+      code: 'invalid',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('reports an unanswered request as unreachable, so a panel shows its connection state', async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock.mockImplementation(() => new Promise(() => {}));
+      const outcome = adminRpc.call('listSeasons', {}).catch((e: unknown) => e);
+      await vi.advanceTimersByTimeAsync(ADMIN_CALL_TIMEOUT_MS + 1);
+      expect(await outcome).toMatchObject({ code: 'timeout', status: 0, answered: false });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

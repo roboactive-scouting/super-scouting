@@ -3,6 +3,7 @@
 @import '@fontsource/noto-sans-hebrew/600.css';
 @import 'tailwindcss';
 @import './tokens.css';
+@import './motion.css';
 
 @theme inline {
   --color-bg: var(--bg);
@@ -14,6 +15,18 @@
   --color-brand: var(--brand);
   --color-danger: var(--danger);
   --color-warning: var(--warning);
+  --color-brand-plate: var(--brand-plate);
+  --color-on-brand: var(--on-brand);
+  --color-focus: var(--focus);
+  --color-status-played: var(--status-played);
+  --color-status-broke-down: var(--status-broke-down);
+  --color-status-disabled: var(--status-disabled);
+  --color-status-no-show: var(--status-no-show);
+  --color-sync-offline: var(--sync-offline);
+  --color-sync-syncing: var(--sync-syncing);
+  --color-sync-online: var(--sync-online);
+  --color-alliance-red: var(--alliance-red);
+  --color-alliance-blue: var(--alliance-blue);
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-hebrew: 'Noto Sans Hebrew', 'Inter', system-ui, sans-serif;
 }
@@ -40,18 +53,24 @@ body {
   outline-offset: 2px;
 }
 
-/* SPEC-FINAL 17.7: the accessibility floor, applied to every tappable control. */
-.tap-target {
-  min-inline-size: 48px;
-  min-block-size: 48px;
-}
+/*
+ * Component classes sit in the components layer, so a Tailwind utility on the same element
+ * wins (redesign review): unlayered, .tap-target's 48 px floor overrode min-h-14 / min-h-16.
+ */
+@layer components {
+  /* SPEC-FINAL 17.7: the accessibility floor, applied to every tappable control. */
+  .tap-target {
+    min-inline-size: 48px;
+    min-block-size: 48px;
+  }
 
-.tap-row > * + * {
-  margin-inline-start: 8px;
-}
+  .tap-row > * + * {
+    margin-inline-start: 8px;
+  }
 
-/* SPEC-FINAL 17.4: brand yellow is legible only on a near-black plate. */
-.brand-plate {
-  background: var(--brand-plate);
-  color: var(--brand);
+  /* SPEC-FINAL 17.4: brand yellow is legible only on a near-black plate. */
+  .brand-plate {
+    background: var(--brand-plate);
+    color: var(--brand);
+  }
 }

@@ -1,7 +1,9 @@
 import { MAX_OPERATIONS_PER_PUSH, PULL_ENTITY_KEYS, type PullEntityKey } from '@frc/shared';
 import { session } from '@/auth/session';
+import { cachedRows } from './cache';
 import { db, getMeta, setMeta } from './db';
 import { ackResults, pending } from './outbox';
+import { call } from './rpc';
 import type { Api } from './api';
 
 export type SyncDeps = {
@@ -61,7 +63,14 @@ export async function syncNow(deps: SyncDeps): Promise<SyncOutcome> {
 
   let pulled = 0;
   try {
-    const since = await getMeta<string | null>(WATERMARK, null);
+    // The watermark is one device-wide value, and it belongs to the event whose pull last
+    // completed (task 1.22). Another event's watermark would make this a delta of rows
+    // updated since that pull — skipping every older match, roster row and form of an
+    // event this device has never loaded, while still marking it hydrated. So a pull for
+    // any other event starts from scratch.
+    const hydratedFor = await getMeta<string | null>(HYDRATED, null);
+    const since =
+      hydratedFor === deps.eventId ? await getMeta<string | null>(WATERMARK, null) : null;
     let cursor: string | undefined;
     let bestWatermark = since;
     let complete = false;
@@ -146,6 +155,59 @@ export async function hydrate(deps: SyncDeps): Promise<HydrationState> {
  * (expired, or an offline sign-in in task 1.16), where a pull could only answer 401.
  */
 export async function cachedHydration(eventId: string): Promise<'cached' | 'blocked'> {
-  const hydratedEventId = await getMeta<string | null>(HYDRATED, null);
-  return hydratedEventId === eventId ? 'cached' : 'blocked';
+  return (await lastHydratedEventId()) === eventId ? 'cached' : 'blocked';
+}
+
+/** The event whose pull last completed on this device, or null when none has. */
+export async function lastHydratedEventId(): Promise<string | null> {
+  return getMeta<string | null>(HYDRATED, null);
+}
+
+/**
+ * Which event the device should be working on, as the server sees it (task 1.17b).
+ *
+ * `no-event` is the server's own answer: no competition is set up (the `app_settings`
+ * singleton's `active_event_id` is null, or names an event that no longer exists).
+ * `unreachable` is every other outcome — no connection, a deadline, a portal's page, an
+ * error — where the device learned nothing and must not claim there is no competition.
+ */
+export type ActiveEvent =
+  { status: 'event'; eventId: string } | { status: 'no-event' } | { status: 'unreachable' };
+
+/**
+ * A dying venue connection hangs rather than fails. The shell waits on this call before it
+ * can show anything but its header, so it is abandoned (and read as no answer) after this.
+ */
+export const ACTIVE_CONTEXT_TIMEOUT_MS = 10_000;
+
+/**
+ * The chicken-and-egg breaker: the pull that carries `app_settings` needs an event id, so
+ * a device that holds none asks `getActiveContext` first.
+ */
+export async function activeEvent(): Promise<ActiveEvent> {
+  try {
+    const context = await call('getActiveContext', {}, { timeoutMs: ACTIVE_CONTEXT_TIMEOUT_MS });
+    return context.active_event_id
+      ? { status: 'event', eventId: context.active_event_id }
+      : { status: 'no-event' };
+  } catch {
+    return { status: 'unreachable' };
+  }
+}
+
+/** The active event the last completed pull cached, or null on a device that has none. */
+export async function cachedActiveEventId(): Promise<string | null> {
+  const rows = await cachedRows<{ active_event_id?: string | null }>('app_settings');
+  return rows[0]?.active_event_id ?? null;
+}
+
+/**
+ * The admin default as the last pull cached it (task 1.22) — `undefined` when the device
+ * holds no `app_settings` row at all, which is not the admin setting no event (`null`).
+ * The shell compares this after every sync to notice a changed default.
+ */
+export async function cachedDefaultEventId(): Promise<string | null | undefined> {
+  const rows = await cachedRows<{ active_event_id?: string | null }>('app_settings');
+  if (rows.length === 0) return undefined;
+  return rows[0]?.active_event_id ?? null;
 }

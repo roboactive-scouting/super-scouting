@@ -60,6 +60,9 @@ const fail = (status: number, code: string, message: string) =>
 function serve(name: string, input: Record<string, unknown>): Response {
   const find = (id: unknown) => users.find((u) => u.id === id);
   switch (name) {
+    // A fresh install: no season, no event (task 1.17b).
+    case 'getActiveContext':
+      return json({ active_season_id: null, active_event_id: null });
     case 'listUsers': {
       const all = users
         .filter((u) => input.include_disabled === true || u.disabled_at === null)
@@ -79,6 +82,7 @@ function serve(name: string, input: Record<string, unknown>): Response {
         username: String(input.username),
         full_name: String(input.full_name),
         role: input.role as Role,
+        must_change_password: input.must_change === true,
         created_at: '2026-09-24T12:00:00.000Z',
       });
       users.push(created);
@@ -102,6 +106,28 @@ function serve(name: string, input: Record<string, unknown>): Response {
       u.disabled_at ??= '2026-09-24T12:00:00.000Z';
       return json(u);
     }
+    case 'enableUser': {
+      const u = find(input.user_id);
+      if (!u) return fail(404, 'not-found', 'no such user');
+      u.disabled_at = null;
+      return json(u);
+    }
+    case 'renameUser': {
+      const u = find(input.user_id);
+      if (!u) return fail(404, 'not-found', 'no such user');
+      if (typeof input.username === 'string') {
+        const taken = users.some(
+          (other) =>
+            other.id !== u.id &&
+            other.username.toLowerCase() === String(input.username).toLowerCase(),
+        );
+        if (taken)
+          return fail(409, 'conflict', `the username '${String(input.username)}' is taken`);
+        u.username = String(input.username);
+      }
+      if (typeof input.full_name === 'string') u.full_name = String(input.full_name);
+      return json(u);
+    }
     default:
       return fail(404, 'not-found', `no use case ${name}`);
   }
@@ -119,7 +145,7 @@ function setWidth(px: number) {
 }
 
 function renderAt(path: string) {
-  const router = createMemoryRouter(routeTree('ev-1'), { initialEntries: [path] });
+  const router = createMemoryRouter(routeTree(), { initialEntries: [path] });
   render(<RouterProvider router={router} />);
   return router;
 }
@@ -207,11 +233,26 @@ describe('who reaches the user administration page (SPEC-FINAL 7.2, 7.4, 17.2)',
       expect(
         await screen.findByRole('heading', { name: 'Only an admin can manage users' }),
       ).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'Back to scouting' })).toHaveAttribute('href', '/');
+      expect(screen.getByRole('link', { name: 'Back to scouting' })).toHaveAttribute(
+        'href',
+        '/scout',
+      );
       expect(screen.queryByRole('table')).not.toBeInTheDocument();
       expect(named('listUsers')).toHaveLength(0);
     },
   );
+
+  it('reaches the users table on an install with no competition set up, while Scout says so (task 1.17b)', async () => {
+    await signInAs('admin');
+    const router = renderAt('/admin/users');
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(screen.queryByText(/no competition is set up yet/i)).not.toBeInTheDocument();
+    await act(() => router.navigate('/scout'));
+    expect(
+      await screen.findByRole('heading', { name: 'No competition is set up yet' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/internet connection is required/i)).not.toBeInTheDocument();
+  });
 
   it('is gated by DesktopOnly: a phone gets the needs-a-computer panel and no call', async () => {
     setWidth(640);
@@ -234,7 +275,7 @@ describe('the users table', () => {
     await signInAs('admin');
     const { container } = render(
       <RouterProvider
-        router={createMemoryRouter(routeTree('ev-1'), { initialEntries: ['/admin/users'] })}
+        router={createMemoryRouter(routeTree(), { initialEntries: ['/admin/users'] })}
       />,
     );
     const busy = await screen.findByRole('status', { name: 'Loading the users' });
@@ -298,7 +339,8 @@ describe('the users table', () => {
       await screen.findByText(`Showing the first ${MAX_LISTED_USERS} accounts.`, { exact: false }),
     ).toBeInTheDocument();
     expect(named('listUsers')).toHaveLength(MAX_LISTED_USERS / 200);
-  });
+    // A 1000-row render: ~1.5 s alone, past 5 s when the whole monorepo suite shares the CPU.
+  }, 15_000);
 
   it('a row opens the detail page, by click and by keyboard', async () => {
     await signInAs('admin');
@@ -350,12 +392,12 @@ describe('creating a user', () => {
     expect(within(form).getByLabelText('Initial password')).toHaveAttribute('type', 'text');
   });
 
-  it('posts createUser, then resetPassword with the same password to force a change', async () => {
+  it('posts createUser with must_change: true when the checkbox is ticked', async () => {
     await signInAs('admin');
     renderAt('/admin/users');
     const u = userEvent.setup();
     const { form, password } = await fillCreateForm(u);
-    expect(within(form).getByLabelText(/change it at first sign-in/i)).toBeChecked();
+    expect(within(form).getByLabelText(/change it at next sign-in/i)).toBeChecked();
     await u.click(within(form).getByRole('button', { name: 'Add user' }));
 
     expect(await screen.findByRole('row', { name: /נועה לוי/ })).toHaveTextContent('Lead');
@@ -365,45 +407,26 @@ describe('creating a user', () => {
       full_name: 'נועה לוי',
       role: 'lead',
       password,
-    });
-    expect(named('resetPassword')).toHaveLength(1);
-    expect(named('resetPassword')[0]!.input).toEqual({
-      user_id: users.at(-1)!.id, // the id the create returned
-      password,
       must_change: true,
     });
-    // The order matters: the reset needs the id the create returned.
-    expect(calls.findIndex((c) => c.name === 'createUser')).toBeLessThan(
-      calls.findIndex((c) => c.name === 'resetPassword'),
-    );
+    // No separate reset call: createUser sets must_change_password directly (spec §5.4 item 3).
+    expect(named('resetPassword')).toHaveLength(0);
     const done = screen.getByRole('status', { name: /created/i });
     expect(done).toHaveTextContent(password);
     expect(done).toHaveTextContent(/hand it over/i);
   });
 
-  it('does not reset when "change it at first sign-in" is unticked', async () => {
+  it('posts createUser with must_change: false when "change it at next sign-in" is unticked', async () => {
     await signInAs('admin');
     renderAt('/admin/users');
     const u = userEvent.setup();
     const { form } = await fillCreateForm(u);
-    await u.click(within(form).getByLabelText(/change it at first sign-in/i));
+    await u.click(within(form).getByLabelText(/change it at next sign-in/i));
     await u.click(within(form).getByRole('button', { name: 'Add user' }));
     expect(await screen.findByRole('row', { name: /נועה לוי/ })).toBeInTheDocument();
     expect(named('createUser')).toHaveLength(1);
+    expect(named('createUser')[0]!.input).toMatchObject({ must_change: false });
     expect(named('resetPassword')).toHaveLength(0);
-  });
-
-  it('a failed reset after a successful create says the account exists, not a generic failure', async () => {
-    overrides.resetPassword = () => fail(500, 'internal', 'boom');
-    await signInAs('admin');
-    renderAt('/admin/users');
-    const u = userEvent.setup();
-    const { form } = await fillCreateForm(u);
-    await u.click(within(form).getByRole('button', { name: 'Add user' }));
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent(/created, but the first-sign-in change could not be set/i);
-    expect(alert).not.toHaveTextContent(/boom|internal/);
-    expect(await screen.findByRole('row', { name: /נועה לוי/ })).toBeInTheDocument();
   });
 
   it("shows the server's sentence for a taken username, never the code", async () => {
@@ -539,8 +562,13 @@ describe('the detail page', () => {
     await u.click(screen.getByRole('button', { name: 'Disable דנה כהן' }));
     expect(named('disableUser')[0]!.input).toEqual({ user_id: 'u-dana' });
     expect(await screen.findByText(/This account is disabled/)).toBeInTheDocument();
-    expect(screen.getByText(/re-enabling .* is not available yet/i)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /enable/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/re-enabling .* is not available yet/i)).not.toBeInTheDocument();
+
+    // Task 1.17a: the account can be re-enabled from right here.
+    await u.click(screen.getByRole('button', { name: 'Enable account' }));
+    expect(named('enableUser')[0]!.input).toEqual({ user_id: 'u-dana' });
+    expect(await screen.findByRole('button', { name: 'Disable account' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Role')).toBeInTheDocument();
   });
 
   it('warns an admin who disables their own account', async () => {
@@ -553,15 +581,24 @@ describe('the detail page', () => {
     );
   });
 
-  it('a disabled account says so and offers no enable, role or reset', async () => {
+  it('a disabled account says so, offers Enable, but no role, rename or reset', async () => {
     await signInAs('admin');
     renderAt('/admin/users/u-gone');
     expect(await screen.findByText(/This account is disabled/)).toHaveTextContent(
       formatDate('2026-02-03T12:00:00.000Z'),
     );
-    expect(screen.queryByRole('button', { name: /enable/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Enable account' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Disable account' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Role')).not.toBeInTheDocument();
+    expect(screen.queryByRole('form', { name: 'Rename' })).not.toBeInTheDocument();
+  });
+
+  it('enabling does not touch the password: only disabled_at changes', async () => {
+    await signInAs('admin');
+    renderAt('/admin/users/u-gone');
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Enable account' }));
+    expect(named('enableUser')[0]!.input).toEqual({ user_id: 'u-gone' });
+    expect(await screen.findByRole('button', { name: 'Disable account' })).toBeInTheDocument();
   });
 
   it('an unknown id says there is no such user, with a way back', async () => {
@@ -569,6 +606,84 @@ describe('the detail page', () => {
     renderAt('/admin/users/u-nobody');
     expect(await screen.findByRole('heading', { name: /no user/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'All users' })).toHaveAttribute('href', '/admin/users');
+  });
+});
+
+describe('renaming an account (spec §5.4 item 3)', () => {
+  it('posts renameUser with the trimmed, lowercased username and the full name', async () => {
+    await signInAs('admin');
+    renderAt('/admin/users/u-dana');
+    const u = userEvent.setup();
+    const form = await screen.findByRole('form', { name: 'Rename' });
+    const usernameField = within(form).getByLabelText('Username');
+    await u.clear(usernameField);
+    await u.type(usernameField, ' NewDana ');
+    const fullNameField = within(form).getByLabelText('Full name');
+    await u.clear(fullNameField);
+    await u.type(fullNameField, 'New Dana');
+    await u.click(within(form).getByRole('button', { name: /save/i }));
+
+    expect(named('renameUser')[0]!.input).toEqual({
+      user_id: 'u-dana',
+      username: 'newdana',
+      full_name: 'New Dana',
+    });
+    expect(await screen.findByRole('heading', { name: 'New Dana' })).toBeInTheDocument();
+  });
+
+  it('mentions that a device holding the old name keeps using it offline until its next sync', async () => {
+    await signInAs('admin');
+    renderAt('/admin/users/u-dana');
+    const form = await screen.findByRole('form', { name: 'Rename' });
+    expect(form).toHaveTextContent(/offline/i);
+    expect(form).toHaveTextContent(/sync/i);
+  });
+
+  it("shows the server's sentence for a taken username, never the code", async () => {
+    await signInAs('admin');
+    renderAt('/admin/users/u-dana');
+    const u = userEvent.setup();
+    const form = await screen.findByRole('form', { name: 'Rename' });
+    const usernameField = within(form).getByLabelText('Username');
+    await u.clear(usernameField);
+    await u.type(usernameField, 'seed_lead');
+    await u.click(within(form).getByRole('button', { name: /save/i }));
+    const alert = await within(form).findByRole('alert');
+    expect(alert).toHaveTextContent("The username 'seed_lead' is taken.");
+    expect(alert).not.toHaveTextContent(/conflict|409/);
+  });
+
+  it('refuses neither field emptied: clearing both surfaces a field error, not a call', async () => {
+    await signInAs('admin');
+    renderAt('/admin/users/u-dana');
+    const u = userEvent.setup();
+    const form = await screen.findByRole('form', { name: 'Rename' });
+    await u.clear(within(form).getByLabelText('Username'));
+    await u.click(within(form).getByRole('button', { name: /save/i }));
+    expect(await within(form).findByRole('alert')).toHaveTextContent(/enter a username/i);
+    expect(named('renameUser')).toHaveLength(0);
+  });
+
+  it('renaming yourself updates the session at once, the way a role change already does', async () => {
+    await signInAs('admin');
+    renderAt('/admin/users/u-admin');
+    const u = userEvent.setup();
+    const form = await screen.findByRole('form', { name: 'Rename' });
+    const fullNameField = within(form).getByLabelText('Full name');
+    await u.clear(fullNameField);
+    await u.type(fullNameField, 'Admin Renamed');
+    const usernameField = within(form).getByLabelText('Username');
+    await u.clear(usernameField);
+    await u.type(usernameField, 'admin2');
+    await u.click(within(form).getByRole('button', { name: /save/i }));
+
+    await screen.findByRole('heading', { name: 'Admin Renamed' });
+    // The sidebar's "Signed in as ..." reads the session, so waiting for it flushes the
+    // session.updateUser() commit before asserting on session.current() below.
+    await screen.findByText('Admin Renamed', { selector: 'aside *' });
+    const current = await session.current();
+    expect(current?.user.full_name).toBe('Admin Renamed');
+    expect(current?.user.username).toBe('admin2');
   });
 });
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { connectionState, type ConnectionState } from '@/data/connection';
 import { unsyncedCount } from '@/data/outbox';
+import { cn } from '@/lib/utils';
 
 const TOKEN: Record<ConnectionState, string> = {
   online: 'var(--sync-online)',
@@ -13,7 +14,7 @@ const TOKEN: Record<ConnectionState, string> = {
  * plus the unsynced count — "offline · 4 unsynced". The count is of records, not of
  * queued operations: an entry for a brand-new match is one, not two.
  */
-export function ConnectionIndicator() {
+export function ConnectionIndicator({ compact = false }: { compact?: boolean } = {}) {
   const [state, setState] = useState<ConnectionState>(connectionState());
   const [unsynced, setUnsynced] = useState(0);
 
@@ -33,14 +34,23 @@ export function ConnectionIndicator() {
     };
   }, []);
 
+  const text = unsynced > 0 ? `${state} · ${unsynced} unsynced` : state;
   return (
     <span
       role="status"
-      className="tap-target inline-flex items-center gap-2 px-3 text-sm"
+      title={compact ? text : undefined}
+      className={cn(
+        'tap-target inline-flex items-center gap-2 rounded-lg px-3 text-sm font-medium',
+        compact && 'justify-center px-0',
+      )}
       style={{ color: TOKEN[state] }}
     >
-      <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: TOKEN[state] }} />
-      {unsynced > 0 ? `${state} · ${unsynced} unsynced` : state}
+      <span
+        aria-hidden
+        className="size-2 shrink-0 rounded-full"
+        style={{ background: TOKEN[state] }}
+      />
+      {compact ? <span className="sr-only">{text}</span> : text}
     </span>
   );
 }

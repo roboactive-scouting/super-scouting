@@ -21,6 +21,8 @@
   --sync-offline: #EF4444;
   --sync-syncing: #F97316;
   --sync-online: #22C55E;
+  --alliance-red: #EF4444;
+  --alliance-blue: #3B82F6;
 
   --shade-worst: #B91C1C;
   --shade-mid: #8A8060;
@@ -50,6 +52,8 @@
   --sync-offline: #B91C1C;
   --sync-syncing: #C2410C;
   --sync-online: #15803D;
+  --alliance-red: #B91C1C;
+  --alliance-blue: #1D4ED8;
 
   --shade-worst: #B91C1C;
   --shade-mid: #7C7455;

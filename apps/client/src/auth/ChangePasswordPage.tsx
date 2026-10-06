@@ -1,11 +1,14 @@
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { passwordSchema } from '@frc/shared';
+import { buttonVariants } from '@/components/ui/button';
 import { call, RpcError } from '@/data/rpc';
 import { AuthError, AuthField, AuthFrame, AuthSubmit } from './AuthFrame';
 import { accountErrorLine, sentence } from './messages';
 import { needsSignIn, session } from './session';
 import { useSession } from './useSession';
+import { PATHS } from '@/lib/paths';
+import { cn } from '@/lib/utils';
 
 /**
  * SPEC-FINAL 7.3: the one password action a non-admin has — changing their own, given the
@@ -53,7 +56,7 @@ export function ChangePasswordPage() {
         full_name: updated.full_name,
         role: updated.role,
       });
-      navigate('/', { replace: true });
+      navigate(PATHS.home, { replace: true });
     } catch (err) {
       // rpc has already expired the session on a 401; sign-in keeps the username.
       if (err instanceof RpcError && err.status === 401) {
@@ -69,7 +72,7 @@ export function ChangePasswordPage() {
   return (
     <AuthFrame title={forced ? 'Choose a new password' : 'Change your password'}>
       {forced && (
-        <p className="mt-2 text-sm text-[var(--text-muted)]">
+        <p className="mt-2 text-sm text-text-muted">
           An admin set a temporary password for this account. Choose your own to carry on.
         </p>
       )}
@@ -101,8 +104,8 @@ export function ChangePasswordPage() {
       </form>
       {!forced && (
         <Link
-          to="/"
-          className="tap-target mt-2 flex w-full items-center justify-center rounded-lg border border-[var(--border)]"
+          to={PATHS.scout}
+          className={cn(buttonVariants({ variant: 'ghost', size: 'block' }), 'mt-2')}
         >
           Back to scouting
         </Link>
