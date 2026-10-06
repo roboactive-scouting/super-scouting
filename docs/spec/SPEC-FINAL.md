@@ -1,6 +1,20 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.7 · **Date:** 2026-10-06 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.14 · **Date:** 2026-10-07 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.14 adds §17.9's Change password row. See the living spec's §21, 2026-10-07 (v0.62).*
+
+*v1.13 adds §17.9's User detail row. See the living spec's §21, 2026-10-07 (v0.61).*
+
+*v1.12 adds §17.9's Users row and amends its Home row (phone Go-to tiles). See the living spec's §21, 2026-10-07 (v0.60).*
+
+*v1.11 amends §6.4 and §17.2 (match management also works on a phone) and adds §17.9's Manage row. See the living spec's §21, 2026-10-07 (v0.59).*
+
+*v1.10 adds §17.9's Switch scouter row. See the living spec's §21, 2026-10-07 (v0.58).*
+
+*v1.9 adds §17.9's Entries row. See the living spec's §21, 2026-10-07 (v0.57).*
+
+*v1.8 adds §17.9's Sign-in row and puts the version string on the sign-in screen too (§9.1, §17.8). See the living spec's §21, 2026-10-06 (v0.56).*
 
 *v1.7 amends §17.9's Home row only: Home's content and order. See the living spec's §21, 2026-10-06 (v0.55).*
 
@@ -752,7 +766,7 @@ The app has **one app-wide active context**: a season and an event, held in the 
 
 ### 6.4 Admin management page
 
-One admin page, desktop-only, manages **seasons, events, the event roster, and matches**:
+One admin page manages **seasons, events, the event roster, and matches**. It is desktop-only **except matches**, which also work on a phone (§17.2; amended 2026-10-07, v1.11):
 
 - **Seasons** — create a season (`year`, `game_name`, and the `field_image_path` of the game image already committed to the repo, §16.7), edit those fields, set the active season, delete (hard cascade, §3.9). A season cannot be created without a game image path that resolves; the form validates that the asset exists.
 - **Events** — create, rename, reorder (`sort_order`), set the active default, delete (hard cascade).
@@ -928,7 +942,7 @@ Offline is the normal operating mode. The local database is the source of truth 
 - Installable to the home screen; **fully functional with the network off, including cold start** — the app shell is precached and no network request is required to boot.
 - **`vite-plugin-pwa`** precaches the app shell, the season game image and the fonts.
 - **A new version is never applied by auto-reload.** It activates on the **next cold start**. The running app shows a non-blocking "update ready" hint. A service worker that reloads the tab mid-match would destroy a scouter's screen at the one moment it matters.
-- **A version string is always visible** — in the footer of the context/landing page — for diagnosing "my tablet behaves differently".
+- **A version string is always visible** — in the footer of the context/landing page and on the sign-in screen — for diagnosing "my tablet behaves differently".
 
 ### 9.2 The local store
 
@@ -1818,6 +1832,7 @@ Plus one stored, unused column: **`include_in_ai_context`** per field.
 
 - **Alliance selection / pick-list editing** — the admin may be holding a phone in the stands.
 - **Conflict review** — it cannot wait for a laptop.
+- **Match management** (create, edit, set line-ups, delete; §6.4) — a schedule changes at the venue. On a phone the management page shows **only its matches**; seasons, events and the roster still need a computer. *(Added 2026-10-07, v1.11.)*
 
 **Device gating is not a permission** (§7.4).
 
@@ -1871,7 +1886,7 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 
 ### 17.8 Interaction conventions
 
-**PWA install identity.** Manifest name **"ROBACTIVE Scouting"**, short name **"Scouting"**, `display: standalone`, `theme_color` and `background_color` taken from the design's theme, orientation unlocked. Icons generated from `docs/brand/` at 192 and 512, plus a **maskable 512 with a 24% safe zone** and a 180 px Apple touch icon. **The icon is the trefoil mark alone, never the wordmark** — the wordmark is unreadable below ~96 px. Icons and manifest are precached with the app shell. The visible version string appears on the context/landing page.
+**PWA install identity.** Manifest name **"ROBACTIVE Scouting"**, short name **"Scouting"**, `display: standalone`, `theme_color` and `background_color` taken from the design's theme, orientation unlocked. Icons generated from `docs/brand/` at 192 and 512, plus a **maskable 512 with a 24% safe zone** and a 180 px Apple touch icon. **The icon is the trefoil mark alone, never the wordmark** — the wordmark is unreadable below ~96 px. Icons and manifest are precached with the app shell. The visible version string appears on the context/landing page and on the sign-in screen.
 
 **Number, date and time formatting** — identical on every surface, so two views can never disagree about the same value:
 
@@ -1903,7 +1918,14 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 
 | Surface | Layout and behaviour |
 |---|---|
-| Context / landing page (**Home, at `/`**) | The signed-in landing page (amended 2026-10-06, v1.7). The event this device works on, with **Scout as the one primary action** (Scout lives at `/scout`) and **Switch competition**, a sheet listing seasons then that season's events, most recent first — **never a header dropdown**; a session override shows a banner with "Back to …". Then: the scouter's **station**, **entries waiting to send** with the last sync time, and the scouter's **last entry** (opens it). **Go to** tiles for the app's places (Entries, Switch scouter; Manage and Users for admins only). **Schedule coverage**: one square per qualification match, marking matches missing a robot and naming them, as of the last sync. Once ranking (§13.5) exists, **our team's rank** card and a **top teams** list with a 5-match trend line; until then neither is shown. The version string is in the footer. |
+| Context / landing page (**Home, at `/`**) | The signed-in landing page (amended 2026-10-06, v1.7). The event this device works on, with **Scout as the one primary action** (Scout lives at `/scout`) and **Switch competition**, a sheet listing seasons then that season's events, most recent first — **never a header dropdown**; a session override shows a banner with "Back to …". Then: the scouter's **station**, **entries waiting to send** with the last sync time, and the scouter's **last entry** (opens it). **Go to** tiles for the app's places (Entries, Switch scouter; Manage and Users for admins only — on a phone, Manage reads **Matches** and opens the phone matches view, and **Users is not shown**, since it needs a computer; amended 2026-10-07, v1.12). **Schedule coverage**: one square per qualification match, marking matches missing a robot and naming them, as of the last sync. Once ranking (§13.5) exists, **our team's rank** card and a **top teams** list with a 5-match trend line; until then neither is shown. The version string is in the footer. |
+| Sign-in (`/login`) | Added 2026-10-06, v1.8. One job: sign in. Desktop: the brand lockup on a dark plate beside the form; phone: the lockup in a dark band above it — brand, not a hero, no tagline. Username, password with a **show / hide** button, the "ask an admin" hint, one primary button. The offline, expired-session and error lines keep their wording. The version string is at the foot, so a device that cannot sign in can still be identified. |
+| Entries (`/entries`) | Added 2026-10-07, v1.9. Everything this device holds for the active competition, **newest first**. Search by team, match or scouter; filter chips **All · Mine · Waiting to send · Needs a look** (refused, or "not in line-up"). Each row: match, station + team (+ the "not in line-up" flag), robot status, scouter, time with a mark when waiting to send, and the robot's **scouted points** (§4.1; "—" for no show / disabled) once the metric engine exists. A refused entry shows its reason on its own line. A row opens the **entry preview** (§13.4) as its own page. |
+| Switch scouter (`/switch-scouter`) | Added 2026-10-07, v1.10. A page, not a dialog. A **"Scouting now"** card names the current scouter; **Who's scouting next?** lists the device's cached accounts ("Full name · username", the current one marked); the chosen person's password with **show / hide**. Once someone is chosen, a note says what **stays on this device**: the current scouter's entries waiting to send (which still send under their own author, §7.5) and the remembered station. Works offline (§7.5). Success goes to Scout; Cancel to Home. |
+| Manage (`/admin/manage`) | Added 2026-10-07, v1.11. Desktop: three tabs with counts — **Competitions** (season chips; the season card with image, Make active, Edit; event cards with Make default, move up/down, rename), **Teams & roster** (one field adds a team, creating an unknown one in the same step; roster cards with rename and remove; registry teams not on the roster with add), **Matches** (one match-type select for both create actions; a problem summary naming matches missing robots and off-roster teams with "Add to roster"; a grid of typed team-number cells with roster suggestions). Phone: **matches only** — a list, an edit sheet with six typed stations, an add sheet, the delete confirmation (§17.2). |
+| Users (`/admin/users`) | Added 2026-10-07, v1.12. Desktop only. Search; filter chips **All · Scouters · Leads · Admins · Disabled** with counts; a table of name, username, role, status, **entries this season** and row quick actions (**Reset password**, **Disable** — Disable still confirms). A row opens the account. **Add a user** is a dialog: full name, a username suggested from it, the role as three described choices, an initial password with **Generate**, "ask them to change it"; after creating, the dialog shows the password once to hand over. Not offered on a phone at all. |
+| User detail (`/admin/users/:id`) | Added 2026-10-07, v1.13. Desktop only. One column: who it is (with "This is you" on your own account); **Role** as three described choices that **save on pick, with no Save button** ("Saving…", then a "Saved" line; a refusal shows the server's sentence and restores the role); Rename; Reset password with **Generate** and the one-time handover; **Disable** behind the destructive confirmation. A disabled account shows only **Enable account**. |
+| Change password (`/change-password`) | Added 2026-10-07, v1.14. The sign-in frame. Forced after sign-in ("Choose a new password", no way back) or by choice ("Change your password", Back to scouting). Current, new and confirm, each with **show / hide**; **live checks** for "at least 8 characters" and "both new passwords match"; offline is said first and the button is held. Reached by choice from the **account menu** (the sidebar's account corner: Switch scouter · Change password · Sign out; on a phone, the drawer's account section). |
 | Phone data entry | One job on screen. Primary actions stay thumb-reachable. Counters are a − / value / + triplet, never a text input. The sticky timer never fights the page scroll. |
 | Form builder | Three panes: palette → canvas → settings. Semantic metadata lives in the settings pane so it is filled *while* the field is created. A preview toggle renders the form at phone width. |
 | Team page | Sticky team header, horizontal tab strip, stat rows as label → value → inline bar. Readable in one thumb scroll. |

@@ -84,7 +84,7 @@ document.querySelectorAll('.top2').forEach(e=>e.innerHTML=TOP('Red 3','r','Q38',
 </script>
 <script src="../../01-entry/src/entry.js"></script><script src="../../02-scout/src/e-common.js"></script><script src="../src/home.js"></script><script src="../src/b2.js"></script><script src="../src/b3.js"></script><script src="../../shell.js"></script>
 <script>
-document.querySelectorAll('.adm').forEach(e=>e.innerHTML=B3.opts(true,true).replace('Seasons, events, teams and matches','Events, teams, matches'));
+document.querySelectorAll('.adm').forEach(e=>{e.innerHTML=B3.opts(true,true).replace('<b>Manage</b><small>Seasons, events, teams and matches</small>','<b>Matches</b><small>Create matches and line-ups</small>');e.querySelectorAll('.opt').forEach(o=>{if(o.querySelector('b').textContent==='Users')o.remove();});});
 document.querySelectorAll('.sc').forEach(e=>e.innerHTML=B3.opts(false,true));
 document.querySelectorAll('.teamslot').forEach(e=>e.innerHTML=B3.team(false));
 document.querySelectorAll('.seasons1').forEach(e=>e.innerHTML=H.seasons());

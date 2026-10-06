@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Renders page-round mockups to PNG with headless Chrome (2000x900 canvas at 2x).
+# Names with 'tall' render at 2000x1660 (two desktop views stacked).
 # Usage: bash render.sh 01-entry [a b c d]   — default: every .html in <page>/src
 #        bash render.sh 01-entry final        — renders <page>/final/*.html
 set -euo pipefail
@@ -16,7 +17,7 @@ if [ ${#names[@]} -eq 0 ]; then
 fi
 for n in "${names[@]}"; do
   w=2000; h=900
-  case "$n" in *desktop*) w=1440; h=900;; *phone*) w=2000; h=940;; esac
+  case "$n" in *desktop*) w=1440; h=900;; *phone*) w=2000; h=940;; *tall*) w=2000; h=1660;; esac
   "$chrome" --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=2 \
     --window-size=$w,$h --virtual-time-budget=6000 \
     --screenshot="$(cygpath -w "$out/$n.png")" "file:///$(cygpath -m "$src/$n.html")" >/dev/null 2>&1

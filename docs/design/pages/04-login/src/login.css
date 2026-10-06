@@ -1,0 +1,215 @@
+/* Login page round: shared pieces for the four variants. Colours only from theme.css. */
+svg {
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+}
+.desk .lg-page {
+  width: 100%;
+  height: 100%;
+}
+.lsb {
+  height: 44px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px;
+  font-weight: 600;
+  font-size: 14px;
+}
+.lsb.dark {
+  background: var(--rail);
+  color: #fff;
+}
+.lsb.light {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+/* form */
+.lg-h1 {
+  font-size: 28px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+.lg-sub {
+  font-size: 14px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.fld {
+  margin-top: 18px;
+}
+.fld label {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.inp {
+  height: 52px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  font-size: 16px;
+  color: var(--ink);
+  gap: 10px;
+}
+.inp .ph {
+  color: var(--muted);
+}
+.inp.focus {
+  border: 2px solid var(--accent);
+  padding: 0 13px;
+}
+.inp .caret {
+  display: inline-block;
+  width: 1.5px;
+  height: 20px;
+  background: var(--ink);
+  margin-left: -8px;
+}
+.inp .dots {
+  letter-spacing: 3px;
+  font-size: 18px;
+}
+.inp .eye {
+  margin-left: auto;
+  width: 40px;
+  height: 40px;
+  margin-right: -8px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.inp .eye.on {
+  color: var(--accent-ink);
+}
+.inp .eye svg {
+  width: 20px;
+  height: 20px;
+}
+.inp.ro {
+  background: var(--line-2);
+  border-color: var(--line);
+}
+.hint {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.caps {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--warn);
+  background: var(--warn-tint);
+  border-radius: var(--radius-tag);
+  padding: 4px 8px;
+}
+.sbtn {
+  margin-top: 22px;
+  height: 52px;
+  border-radius: var(--radius-control);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 650;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.sbtn.busy {
+  opacity: 0.7;
+}
+.spin {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2.5px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+}
+
+/* notices */
+.msg {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border-radius: var(--radius-control);
+  padding: 11px 12px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  margin-top: 16px;
+}
+.msg svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  margin-top: 1px;
+}
+.msg b {
+  font-weight: 700;
+}
+.msg.warn {
+  background: var(--warn-tint);
+  color: var(--ink);
+  border: 1px solid #ecd6ae;
+}
+.msg.warn svg {
+  color: var(--warn);
+}
+.msg.note {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--ink);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  color: var(--ink-2);
+}
+.msg.err {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--warn);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  color: var(--ink);
+  font-weight: 600;
+}
+.msg.err svg {
+  color: var(--warn);
+}
+
+/* connection chip + version */
+.conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+  background: var(--surface);
+}
+.conn .dot.off {
+  background: var(--muted);
+}
+.ver {
+  font-size: 12px;
+  color: var(--muted);
+}
+.ver .num {
+  font-size: 11.5px;
+}
+.new.on-dark {
+  background: #fff;
+  color: var(--rail);
+}

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Manage — final, desktop, Teams & roster</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../src/manage.css"><link rel="stylesheet" href="../src/d2.css">
+<style>body{background:var(--bg)}.desk.final{zoom:1;border-radius:0;box-shadow:none}</style>
+</head><body>
+<div class="desk final"><div data-desk-shell="manage" data-crumb="Admin / <b>Manage</b>">
+      <div class="mpad">
+        <div class="dhd"><div><div class="mh1">Season and event management</div><div class="msub">Working on <b style="color:var(--ink)">District #3 · Tel Aviv</b> (default) · 2026</div></div><span class="sp"></span><div class="sel" style="min-width:240px">District #3 · Tel Aviv<i data-i="chev"></i></div></div>
+        <div class="tabsL" style="margin-top:14px"><span>Competitions</span><span class="on">Teams &amp; roster <span class="c">22</span></span><span>Matches <span class="c">10</span></span></div>
+        <div class="card" style="margin-top:12px;position:relative">
+          <div class="radd">
+            <div class="f"><label>Add a team to the roster</label><div class="in mono ph" style="width:360px">Team number</div></div>
+            <span class="sp"></span>
+            <div class="f"><label>Filter</label><div class="in ph" style="width:220px;gap:8px"><i data-i="search"></i>Number or name</div></div>
+            
+          </div>
+          <div class="note2" style="margin:12px 16px 0">A team number is permanent. Only the name can change.</div>
+          <div class="rsec"><b>On this event's roster</b><small>22 teams · click a name to rename</small></div>
+          <div class="rgrid" id="r1"></div>
+          <div class="rsec"><b>In the registry, not on this roster</b><small>3 · + adds</small></div>
+          <div class="rgrid" id="r2" style="padding-bottom:16px"></div>
+        </div>
+      </div>
+    </div></div>
+<script src="../src/manage.js"></script>
+<script>
+const r1 = M.ROSTER.slice(0, 16).map(([n, nm]) => `<div class="rt"><b>${n}</b><span class="nm">${nm}</span><span class="x">${M.svg('x') || ''}</span></div>`).join('') +
+  `<div class="rt" style="justify-content:center;color:var(--muted);border-style:dashed">+ 6 more</div>`;
+document.getElementById('r1').innerHTML = r1;
+document.getElementById('r2').innerHTML = M.OFF.map(([n, nm]) => `<div class="rt off"><b>${n}</b><span class="nm">${nm}</span><span class="x">${M.svg('plus')}</span></div>`).join('');
+M.icons();
+</script>
+<script src="../../shell.js"></script>
+</body></html>

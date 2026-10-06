@@ -23,7 +23,7 @@ Chosen: **variant B, refined twice ("B3")**, with the user's phone order.
 3. **Our team** card.
 4. **Schedule coverage** (12 per row).
 5. **Top teams**.
-6. **Go to** tiles (2 columns; admin tiles for admins only).
+6. **Go to** tiles (2 columns; admin tiles for admins only). On a phone the admin **Manage** tile reads **"Matches · Create matches and line-ups"** and opens the matches-only phone view of Manage (amended 2026-10-07 with the Manage round; see `07-manage/final/`). The phone drawer's Admin group names it the same way. **Users is not offered on a phone** (no Go-to tile, no drawer item): it needs a computer, so a phone tile would only lead to "This needs a computer" (user, 2026-10-07).
 7. Version.
 
 ## States

@@ -119,12 +119,44 @@ Each page round adds a row here: what was picked, which page it came from, and t
 | Ranked list row | Rank in mono `--faint`, team number in mono plus name in `--muted`, a 60 px sparkline (`--faint`, last point dot), value in mono at the right. Our team: an `--accent-tint` row with an accent sparkline | Home, 2026-10-06 |
 | Season chips + event cards (switcher) | Season pills (selected: filled `--ink`). Event cards: white, name 15 px / 650, dates `--muted`. Current: `--accent-tint` with a 2 px `--accent` border and a "Current · default" tag | Home, 2026-10-06 |
 | Session banner | `--warn-tint` box, bold `--warn` lead, followed by a full-width secondary "Back to …" button | Home, 2026-10-06 |
+| Sign-in frame | Desktop: a 44% `--rail` plate with the full lockup (~300 px), the form alone on `--bg` at 380 px, version at the foot. Phone: a `--rail` band with the lockup (120 px; 84 px when a notice shows), then the form | Login, 2026-10-06 |
+| Password field | The text input with an eye button (40 px hit area, `--muted`) at the right. Showing: eye-off in `--accent-ink` | Login, 2026-10-06 |
+| Error line | White, `--line` border with a 3 px `--warn` left edge, warning icon in `--warn`, text `--ink` 600. Never red: red means the red alliance | Login, 2026-10-06 |
+| Warning notice | `--warn-tint` box with a light amber border and a `--warn` icon, text `--ink` (e.g. "Your sign-in expired") | Login, 2026-10-06 |
+| Robot status tag | 24 px tag, 12.5 px / 650, with a shape: **Played** `--line-2` / `--ink-2` with a green dot · **Broke down** `--warn-tint` / `--warn` with a diamond · **Disabled** white with a 1 px `--warn` outline and a hollow square · **No show** white with a 1 px `--control-border` outline and a dash. None is red | Entries, 2026-10-07 |
+| Filter chips | 34 px pills, `--control-border`, 13 px / 600 with a mono count. Selected: filled `--ink`, white text | Entries, 2026-10-07 |
+| Data table | White card, `--line` border. Header 12 px / 650 `--muted` (sorted column in `--ink` with an arrow), 46 px rows with `--line-2` dividers, numbers in mono, numeric columns right-aligned. A row note (e.g. refused) sits on its own line under the row | Entries, 2026-10-07 |
+| Waiting marker | A 14 px amber (`--warn`) ↑ beside the time; nothing for sent | Entries, 2026-10-07 |
+| Entry card (phone) | White card: match (mono `--muted`), team (mono 17 px), name; points at the right (mono 22 px, "pts" under it, "—" in `--muted` when none); a second line of station, status, first name, time | Entries, 2026-10-07 |
+| Empty state | White card, a 44 px `--line-2` icon square, title 17 px / 700, a `--muted` explanation, one primary action | Entries, 2026-10-07 |
+| Current-user card ("Scouting now") | White card, `--line` border: a 40 px initials circle (`--line-2`), a 12 px / 600 `--muted` label over the name 15.5 px / 650 | Switch scouter, 2026-10-07 |
+| Info note | The Note (white, 3 px `--ink` left edge) with an 18 px info icon and a bold lead ("Stays on this device:") | Switch scouter, 2026-10-07 |
+| Line-up grid (typed) | Rows per match: match label in mono, six 44 px cells under alliance-tinted headers (RED 1 … BLUE 3, 11.5 px / 750), each cell the team number in mono 14.5 px over its name 11 px `--muted`. Empty: dashed `--control-border` on `--bg`. Off roster: 2 px `--warn` on `--warn-tint`, "Not on roster". Focused: 2 px `--accent` with a 3 px `--accent-tint` halo and a suggestion list | Manage, 2026-10-07 |
+| Suggestion list | White, `--line` border, 10 px radius, soft shadow; rows of mono number + name, the highlighted row on `--accent-tint`; a "+ New …" row in `--accent-ink` | Manage, 2026-10-07 |
+| Problem bar | A strip on `--bg` under a toolbar: ⚠ items in `--warn` 650, an action link in `--accent-ink`, a muted hint at the right | Manage, 2026-10-07 |
+| Team card (roster) | 48 px white card: number in mono, name, × at the right. Not on the roster: dashed on `--bg` with + in `--accent-ink` | Manage, 2026-10-07 |
+| Event card | White card: name 15 px / 650, position "#n" in mono `--muted`, then "Make default" (or the Default badge) and ↑ ↓ ✎ icon buttons. The default event: `--accent-tint` with a 2 px `--accent` border. "+ New event": dashed | Manage, 2026-10-07 |
+| Match card (phone) | White card: match label in mono with a warn sub-line ("1 empty"), two rows of three 24 px alliance-tinted number pills (red, blue), › at the right | Manage, 2026-10-07 |
+| Desktop-only gate | The empty-state card with a monitor icon, "This needs a computer", today's explanation and a secondary "Back to scouting" | Manage, 2026-10-07 |
+| Role tag | 24 px tag: **Admin** filled `--rail` with white text · **Scout lead** white with a 1 px `--control-border` outline · **Scouter** `--line-2` / `--ink-2` | Users, 2026-10-07 |
+| Account status tag | "Active": `--accent-tint` / `--accent-ink` · "Disabled since …": `--line-2` / `--muted` | Users, 2026-10-07 |
+| Initials circle | 32 px circle on `--line-2`, 12 px / 700 initials in `--ink-2` (40 px in cards, `--accent` when it is the current or chosen person) | Users, 2026-10-07 |
+| Row quick actions | Secondary 32 px buttons with an icon, at the row's right end, shown on hover or keyboard focus; the hovered row is on `--bg` | Users, 2026-10-07 |
+| Dialog (desktop) | Centred, 16 px radius, white, `0 24px 60px -20px rgba(20,24,32,.45)` shadow over the sheet scrim; title 20 px / 750 with × at the right; actions right-aligned (secondary, then primary). The desktop twin of the bottom sheet | Users, 2026-10-07 |
+| Described choice | Equal-width 56 px option buttons with a 15 px / 650 label and an 11.5 px `--muted` description; selected = 2 px `--accent` on `--accent-tint` | Users, 2026-10-07 |
+| Handover box | `--accent-tint` with a light green border, a round `--accent` check and a bold first line; the secret in mono 22 px on a white field; the "shown once" line under it | Users, 2026-10-07 |
+| **Destructive button** | **Filled `--ink`** with white text and an icon (e.g. ⊘). Used for the action that starts a destructive flow and for the confirm button in its dialog. Never red (red is the red alliance), never the accent | User detail, 2026-10-07 |
+| Destructive confirmation | The desktop dialog: title as a question, the object's name in bold, the body, then **Cancel** (focused first) and the filled-ink confirm button naming the object ("Disable Yael Shapira"). Errors show inside. On a phone: the same content as a sheet | User detail, 2026-10-07 |
+| Danger section | A white section card with a 3 px `--ink` left edge holding a destructive action and its explanation | User detail, 2026-10-07 |
+| Saving state (described choice) | The picked option shows "Saving…" in `--accent-ink` in place of its description; the other options dim to 50 % and can't be picked; on success a green "Saved. …" line with a ✓ follows | User detail, 2026-10-07 |
+| Live checks | A list under a field: an 18 px circle then a 13 px / 600 rule. Not yet checked: empty `--control-border` circle, `--muted` text. Met: filled `--accent` with a white ✓, `--accent-ink` text. Not met: `--warn` circle with ✕, `--warn` text | Change password, 2026-10-07 |
+| Account menu | The sidebar's account corner opens a white menu above it (10 px radius, soft shadow): Switch scouter · Change password · a divider · Sign out, each with a 16 px icon; the hovered item on `--accent-tint`. The corner shows `--rail-raised` while open | Change password, 2026-10-07 |
 | Phone top bar | `--rail` background, menu icon, logo mark, page title, sync state at the right (**provisional**: confirmed when the phone shell is designed) | Entry, 2026-10-06 |
 
 ## Open: decide during the page rounds
 
 1. **The outdoor high-contrast theme's values.** It's required, and the light theme is close to it already.
 2. **A Hebrew font.** **[RAISED BY ME]** Schibsted Grotesk has no Hebrew glyphs, and SPEC-FINAL §17.6 requires a self-hosted face with Hebrew coverage for form content. A Hebrew face has to be paired with it.
-3. **Colours for robot status** (played, broke down, disabled, no show), including what "missing a robot" coverage looks like. No-show must not look like the red alliance.
+3. ~~**Colours for robot status**~~ **Decided 2026-10-07 (Entries):** see "Robot status tag" above. Coverage was decided with Home.
 4. **A colour-blind-safe chart palette** beyond grey plus accent, and the worst→best shading ramp.
 5. **The phone shell:** top bar, drawer and bottom bar.

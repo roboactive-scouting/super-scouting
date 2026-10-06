@@ -36,15 +36,17 @@ Pages go **one at a time**. At this stage that means only the pages that exist t
 | 1 | Entry | `/entry/:matchId/:teamId` | **Closed** 2026-10-06, variant B |
 | 2 | Scout (robot picker) | `/scout` | **Closed** 2026-10-06, variant E |
 | 3 | Home | `/` | **Closed** 2026-10-06, variant B3 |
-| 4 | Login | `/login` | Next |
-| 5 | Entries | `/entries` | |
-| 6 | Switch scouter | `/switch-scouter` | |
-| 7 | Manage | `/admin/manage` | |
-| 8 | Users | `/admin/users` | |
-| 9 | User detail | `/admin/users/:id` | |
-| 10 | Change password | `/change-password` | |
+| 4 | Login | `/login` | **Closed** 2026-10-06, variant A |
+| 5 | Entries | `/entries` | **Closed** 2026-10-07, variant A (simplified) |
+| 6 | Switch scouter | `/switch-scouter` | **Closed** 2026-10-07, variant A (+ C's note) |
+| 7 | Manage | `/admin/manage` | **Closed** 2026-10-07, variant D + matches on a phone |
+| 8 | Users | `/admin/users` | **Closed** 2026-10-07, variant C + B's dialog |
+| 9 | User detail | `/admin/users/:id` | **Closed** 2026-10-07, variant A |
+| 10 | Change password | `/change-password` | **Closed** 2026-10-07, variant C |
 
 `/context` is only a redirect to `/`. Update this table when a page closes.
+
+**All ten current pages are closed (2026-10-07).** **Planned pages, designed after these ten:** the **entry preview** (SPEC-FINAL §13.4; Entries rows open it, user 2026-10-07), Search, Ranking and the other pages in `IMPLEMENTATION-PLAN.md`.
 
 ## Making the images
 
@@ -54,7 +56,7 @@ Mockups are hand-written HTML: `pages/shell.css` + `pages/shell.js` (the D1 desk
 bash docs/design/pages/render.sh 02-scout final
 ```
 
-A file whose name contains `desktop` renders at 1440 × 900, one containing `phone` at 2000 × 940 (several phones side by side), anything else at 2000 × 900, all at 2× scale.
+A file whose name contains `desktop` renders at 1440 × 900, one containing `phone` at 2000 × 940 (several phones side by side), one containing `tall` at 2000 × 1660 (two desktop views stacked, for desktop-only pages), anything else at 2000 × 900, all at 2× scale.
 
 Pitfalls:
 - Generic class names (`.next`, `.n`, `.me`) have collided between a layout and a component before; use specific names.
