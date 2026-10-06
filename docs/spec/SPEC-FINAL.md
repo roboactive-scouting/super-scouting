@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.6 · **Date:** 2026-10-06 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.7 · **Date:** 2026-10-06 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.7 amends §17.9's Home row only: Home's content and order. See the living spec's §21, 2026-10-06 (v0.55).*
 
 *v1.6 amends §8.1 only: the robot picker marks the scouter's remembered station and allows a team outside the match's line-up, flagged for a lead. See the living spec's §21, 2026-10-06 (v0.54).*
 
@@ -1901,7 +1903,7 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 
 | Surface | Layout and behaviour |
 |---|---|
-| Context / landing page (**Home, at `/`**) | The signed-in landing page. Above the scope chooser, one summary names the event this device works on, with **Scout as the one primary action**; Scout lives at `/scout`. Scope is chosen from seasons, then that season's events, most recent first — **never a header dropdown**. The version string is in the footer. |
+| Context / landing page (**Home, at `/`**) | The signed-in landing page (amended 2026-10-06, v1.7). The event this device works on, with **Scout as the one primary action** (Scout lives at `/scout`) and **Switch competition**, a sheet listing seasons then that season's events, most recent first — **never a header dropdown**; a session override shows a banner with "Back to …". Then: the scouter's **station**, **entries waiting to send** with the last sync time, and the scouter's **last entry** (opens it). **Go to** tiles for the app's places (Entries, Switch scouter; Manage and Users for admins only). **Schedule coverage**: one square per qualification match, marking matches missing a robot and naming them, as of the last sync. Once ranking (§13.5) exists, **our team's rank** card and a **top teams** list with a 5-match trend line; until then neither is shown. The version string is in the footer. |
 | Phone data entry | One job on screen. Primary actions stay thumb-reachable. Counters are a − / value / + triplet, never a text input. The sticky timer never fights the page scroll. |
 | Form builder | Three panes: palette → canvas → settings. Semantic metadata lives in the settings pane so it is filled *while* the field is created. A preview toggle renders the form at phone width. |
 | Team page | Sticky team header, horizontal tab strip, stat rows as label → value → inline bar. Readable in one thumb scroll. |

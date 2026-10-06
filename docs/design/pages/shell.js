@@ -40,10 +40,11 @@
   document.querySelectorAll('[data-phone-shell]').forEach((el) => {
     const time = el.dataset.time || '11:43';
     const title = el.dataset.title || 'Scout';
+    const sync = el.dataset.sync || '<span class="dot w"></span>3 waiting';
     const inner = el.innerHTML;
     el.outerHTML = `<div class="sbar"><span>${time}</span><span style="font-size:11px">● ● ●</span></div>
       <div class="ptop"><span class="menu">${svg('menu')}</span><img src="../../../concepts/src/mark.png" alt=""><b>${title}</b>
-        <span class="sync"><span class="dot w"></span>3 waiting</span></div>
+        <span class="sync">${sync}</span></div>
       <div class="pbody">${inner}</div>`;
   });
 })();

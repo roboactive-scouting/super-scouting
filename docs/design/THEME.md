@@ -112,6 +112,13 @@ Each page round adds a row here: what was picked, which page it came from, and t
 | Selectable list row | ≥ 56 px card row: radio, team number (mono 20 px) and name. Selected: 2 px `--accent` border on `--accent-tint` with a filled radio | Scout, 2026-10-06 |
 | Success banner | `--accent-tint` with a light green border, a round `--accent` check and a bold `--accent-ink` first line | Scout, 2026-10-06 |
 | Warning flag | `--warn-tint` background, `--warn` text, `--radius-tag`, e.g. "Not in line-up" | Scout, 2026-10-06 |
+| Stat tile | White card, `--line` border. Label 12 px / 600 `--muted`, value JetBrains Mono 24 px (warning counts in `--warn`), note 12 px `--muted` | Home, 2026-10-06 |
+| Our-team card | `--rail` dark card with the logo mark, team in mono white, rank "#3 / 42" in mono 26 px, sub-line in `--rail-muted`. The only dark card in the content area | Home, 2026-10-06 |
+| Go-to tile | White card with a 36 px icon square (`--line-2`), title 15 px / 700 and a one-line description in `--muted`, › at the top right. Admin tiles: dark `--rail` icon square plus an "ADMIN" label instead of › | Home, 2026-10-06 |
+| Coverage grid | One rounded square per match: `--accent` = all robots, `#9CCBB8` = missing a robot, `--line-2` with a `--line` edge = not played. Legend below, then the missing matches named in mono | Home, 2026-10-06 |
+| Ranked list row | Rank in mono `--faint`, team number in mono plus name in `--muted`, a 60 px sparkline (`--faint`, last point dot), value in mono at the right. Our team: an `--accent-tint` row with an accent sparkline | Home, 2026-10-06 |
+| Season chips + event cards (switcher) | Season pills (selected: filled `--ink`). Event cards: white, name 15 px / 650, dates `--muted`. Current: `--accent-tint` with a 2 px `--accent` border and a "Current · default" tag | Home, 2026-10-06 |
+| Session banner | `--warn-tint` box, bold `--warn` lead, followed by a full-width secondary "Back to …" button | Home, 2026-10-06 |
 | Phone top bar | `--rail` background, menu icon, logo mark, page title, sync state at the right (**provisional**: confirmed when the phone shell is designed) | Entry, 2026-10-06 |
 
 ## Open: decide during the page rounds

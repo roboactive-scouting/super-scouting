@@ -35,8 +35,8 @@ Pages go **one at a time**. At this stage that means only the pages that exist t
 |---|---|---|---|
 | 1 | Entry | `/entry/:matchId/:teamId` | **Closed** 2026-10-06, variant B |
 | 2 | Scout (robot picker) | `/scout` | **Closed** 2026-10-06, variant E |
-| 3 | Home | `/` | Next |
-| 4 | Login | `/login` | |
+| 3 | Home | `/` | **Closed** 2026-10-06, variant B3 |
+| 4 | Login | `/login` | Next |
 | 5 | Entries | `/entries` | |
 | 6 | Switch scouter | `/switch-scouter` | |
 | 7 | Manage | `/admin/manage` | |
