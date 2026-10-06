@@ -1,0 +1,123 @@
+# THEME — D1 "Pit Wall"
+
+**Chosen 2026-10-06** from the four concepts in `docs/design/concepts/` (living spec §19.2, "Second redesign"). **Light only**, plus the outdoor high-contrast theme the spec requires (SPEC-FINAL §8.6, §17.4).
+
+This file and `theme.css` are the single source for colour, type and shape:
+
+- **Every mockup links `docs/design/theme.css` and defines no colour of its own.**
+- **Every component treatment the user picks during a page round is written into "Locked components" below at once.** Later pages reuse it, and later variants only vary what is still open.
+- When the build starts, the app's tokens are generated from these values. Nothing in the app is styled from memory or from an old screen.
+
+The concept file `docs/design/concepts/src/d1-pitwall.html` shows the look this theme came from. Where it and this file differ, this file wins.
+
+## Character
+
+A clean, light work tool, calm and readable:
+- neutral grey page, white cards with 1 px borders and no shadows
+- one dark charcoal sidebar that holds the logo
+- a single deep emerald accent for the primary action, "done" and "selected"
+- numbers in a monospace, so team and match numbers line up and read at a glance
+
+## Palette
+
+Contrast is measured against white `--surface` and grey `--bg`. WCAG AA needs 4.5:1 for text and 3:1 for control boundaries and large text.
+
+| Token | Value | Role | Contrast (surface / bg) |
+|---|---|---|---|
+| `--bg` | `#F4F6F8` | Page background | — |
+| `--surface` | `#FFFFFF` | Cards, panels, inputs | — |
+| `--line` | `#E3E7EC` | Card and table borders (decorative only) | 1.24 / — |
+| `--line-2` | `#EEF1F4` | Row dividers inside a card | — |
+| `--control-border` | `#808A96` | Borders of inputs, selects, toggles and other controls | 3.50 / 3.23 |
+| `--ink` | `#141820` | Primary text | 17.8 / 16.4 |
+| `--ink-2` | `#3A424E` | Secondary text, values | 10.2 / 9.4 |
+| `--muted` | `#5F6977` | Labels, captions, helper text | 5.56 / 5.14 |
+| `--faint` | `#9AA3AE` | Ticks, rank numbers, decoration. **Never text a user must read.** | 2.55 / 2.36 |
+| `--rail` | `#161A21` | Sidebar background | — |
+| `--rail-raised` | `#232933` | Current item in the sidebar | — |
+| `--rail-ink` | `#C9CFD8` | Sidebar text | 11.1 on rail |
+| `--rail-muted` | `#7D8693` | Sidebar group labels | 4.74 on rail |
+| `--accent` | `#12795B` | Primary button, "done", "selected", the highlighted series in a chart | 5.37 / 4.96 |
+| `--accent-ink` | `#0B5A43` | Accent text on `--accent-tint` | 7.13 on tint |
+| `--accent-tint` | `#E5F2EC` | Selected row, "you" row, success badge background | — |
+| `--on-accent` | `#FFFFFF` | Text on `--accent` | 5.37 |
+| `--warn` | `#94600F` | Warning text and marks | 5.33 / 4.92 |
+| `--warn-tint` | `#FBF1E1` | Warning badge background | — |
+| `--alliance-red` | `#B53A33` | Red alliance | 5.80 / 5.36 |
+| `--alliance-red-tint` | `#FBEAE8` | Red alliance background | — |
+| `--alliance-blue` | `#2F62C8` | Blue alliance | 5.67 / 5.24 |
+| `--alliance-blue-tint` | `#E8EEFB` | Blue alliance background | — |
+
+**Changed from the concept for accessibility:**
+- `--muted`, `--warn` and `--alliance-red` are slightly darker than in the D1 images, so they pass 4.5:1 on every surface and tint.
+- `--control-border` is new: the concept's `--line` is only 1.24:1, too faint for an input's edge.
+
+**Rules**
+- The logo's yellow appears **only in the logo**, and the logo sits **only on `--rail`** or another dark surface. No UI element uses the logo's colours.
+- Alliances are always red and blue. The accent is never red or blue, so "selected" can't be mistaken for an alliance.
+- Colour is never the only signal. Every status, alliance and chart mark also has a word, a number or a shape.
+
+## Type
+
+| Role | Face | Use |
+|---|---|---|
+| UI and headings | **Schibsted Grotesk** 400 / 500 / 600 / 700 / 800 | Everything except numbers |
+| Numbers | **JetBrains Mono** 400 / 500 / 600 | Team numbers, match numbers, counts, stats, times (`.num`) |
+
+Scale: 12 · 13 · 14 (body) · 15 · 17 · 22 · 26 · 30 px. Page titles are 24–30 px at weight 700–750 with a slight negative letter-spacing. Section titles are 13.5–17 px at weight 650.
+
+## Shape and space
+
+- **Radii:**
+  - 6 px: tags and badges
+  - 8 px: buttons and inputs
+  - 12 px: cards
+  - 999 px: switches and chips
+- **Borders, not shadows.** Cards and panels use a 1 px `--line` border. Only floating layers (a sheet, a menu, a dialog) get a shadow, and that shadow is decided when the first one is designed.
+- **Space:** 4 px base (4, 8, 12, 16, 20, 24, 32).
+- **Touch targets:** at least 48 px (`--tap-min`), per SPEC-FINAL §17.7.
+
+## Layout
+
+- **Desktop (≥ 1024 px):**
+  - a 232 px dark sidebar (logo mark and team name at the top, nav groups, the account at the foot)
+  - a 60 px white top bar (where you are, plus sync status chips)
+  - content on `--bg` with 32 px side padding
+- **Phone:** the shell is designed in the first page round (spec: drawer plus a bottom bar, hidden on the entry route).
+
+## Locked components
+
+Each page round adds a row here: what was picked, which page it came from, and the date. CSS reference: `pages/01-entry/src/entry.css` + `pages/01-entry/final/final.css`.
+
+| Component | Treatment | From page / date |
+|---|---|---|
+| Segmented control (e.g. robot status) | Grey `--line-2` track, 3 px inset. Segments are 46 px tall. The selected segment gets `--accent-tint`, `--accent-ink` text and a 2 px inset `--accent` ring | Entry, 2026-10-06 |
+| Tabs | Equal-width tabs in a white bar. The current tab is filled `--accent-tint` with a 3 px `--accent` underline; done tabs show a ✓ in `--accent`. Each tab is 44 px tall | Entry, 2026-10-06 |
+| Pane header | Title 18 px / 750, then "n of N" in `--muted`, then pager dots (current one is a 20 px `--accent` pill) | Entry, 2026-10-06 |
+| Counter | Label and hint on the left. On the right, − (white, `--control-border`), the value (JetBrains Mono 22 px) and + (filled `--ink`). Buttons are 50 px, `--radius-control` | Entry, 2026-10-06 |
+| Switch | 52 × 32 px. Off: white with a `--control-border` edge and a `--muted` knob. On: `--accent` with a white knob | Entry, 2026-10-06 |
+| Option buttons (single select) | Equal-width, 48 px, white with a `--control-border` edge. Selected: 2 px `--accent` border on `--accent-tint` | Entry, 2026-10-06 |
+| Text area / number input | White, `--control-border`, `--radius-control`, 48 px min height (input), unit shown in `--muted` | Entry, 2026-10-06 |
+| Primary action bar (phone) | White bar pinned to the bottom with a `--line` top border. A full-width 52 px `--accent` button | Entry, 2026-10-06 |
+| Bottom sheet | Dark scrim `rgba(20,24,32,.45)`, white sheet with 20 px top corners, a grab handle and an upward shadow. The first floating layer with a shadow | Entry, 2026-10-06 |
+| Summary list | White card, `--line` border. Group headings are 12 px `--muted`; rows show the label in `--muted` and the value in `--ink` 600 | Entry, 2026-10-06 |
+| Note (inline explanation) | White, `--line` border with a 3 px `--ink` left edge, 13.5 px text | Entry, 2026-10-06 |
+| Alliance tag | `--alliance-*-tint` background, `--alliance-*` text, `--radius-tag` | Entry, 2026-10-06 |
+| Station tile | Alliance tint (`--alliance-*-tint`), label "RED 1" 11 px / 700 in the alliance colour, team number in JetBrains Mono 19 px, name 12 px. Picked: `--accent-tint` with a 2 px inset `--accent` ring. Done: `--line-2` grey with ✓ or 🔒 at the top right. "YOUR STATION" tag: 10.5 px / 800 white on the alliance colour (on `--accent` when picked) | Scout, 2026-10-06 |
+| Station pill | 32 px pill in the alliance tint with a location-pin icon, e.g. "Blue 2" | Scout, 2026-10-06 |
+| Large number field | 56 px, `--control-border`, JetBrains Mono 26 px value with a muted prefix ("Q"). Focused: 2 px `--accent` border | Scout, 2026-10-06 |
+| Select (dropdown) | 56 px, white, `--control-border`, 15 px / 600 text, chevron in `--muted` | Scout, 2026-10-06 |
+| Alliance buttons | Two equal 52 px buttons with a small alliance square. Selected: 2 px alliance border on the alliance tint, text in the alliance colour | Scout, 2026-10-06 |
+| Search field | 46 px, white, `--control-border`, magnifier in `--muted` | Scout, 2026-10-06 |
+| Selectable list row | ≥ 56 px card row: radio, team number (mono 20 px) and name. Selected: 2 px `--accent` border on `--accent-tint` with a filled radio | Scout, 2026-10-06 |
+| Success banner | `--accent-tint` with a light green border, a round `--accent` check and a bold `--accent-ink` first line | Scout, 2026-10-06 |
+| Warning flag | `--warn-tint` background, `--warn` text, `--radius-tag`, e.g. "Not in line-up" | Scout, 2026-10-06 |
+| Phone top bar | `--rail` background, menu icon, logo mark, page title, sync state at the right (**provisional**: confirmed when the phone shell is designed) | Entry, 2026-10-06 |
+
+## Open: decide during the page rounds
+
+1. **The outdoor high-contrast theme's values.** It's required, and the light theme is close to it already.
+2. **A Hebrew font.** **[RAISED BY ME]** Schibsted Grotesk has no Hebrew glyphs, and SPEC-FINAL §17.6 requires a self-hosted face with Hebrew coverage for form content. A Hebrew face has to be paired with it.
+3. **Colours for robot status** (played, broke down, disabled, no show), including what "missing a robot" coverage looks like. No-show must not look like the red alliance.
+4. **A colour-blind-safe chart palette** beyond grey plus accent, and the worst→best shading ramp.
+5. **The phone shell:** top bar, drawer and bottom bar.

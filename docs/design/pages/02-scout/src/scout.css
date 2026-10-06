@@ -1,0 +1,351 @@
+/* Scout (robot picker) variants. Locked components come from ../../01-entry. */
+.pad {
+  padding: 14px 16px;
+}
+.h1 {
+  font-size: 22px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+.dh1 {
+  font-size: 28px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+.sub {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 4px;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
+.saved {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: var(--accent-tint);
+  border: 1px solid #bfdccd;
+  border-radius: var(--radius-card);
+  padding: 12px 14px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+.saved b {
+  color: var(--accent-ink);
+}
+.saved .ic {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.saved .ic svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 3;
+}
+/* number stepper for the match number */
+.mstep {
+  display: grid;
+  grid-template-columns: 56px 1fr 56px;
+  gap: 8px;
+  align-items: center;
+}
+.mstep b {
+  height: 56px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--control-border);
+  background: var(--surface);
+  display: grid;
+  place-items: center;
+  color: var(--ink-2);
+}
+.mstep b svg {
+  width: 22px;
+  height: 22px;
+}
+.mstep .val {
+  height: 56px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--control-border);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--font-num);
+  font-size: 26px;
+  font-weight: 600;
+}
+.mstep .val small {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+}
+/* alliance option buttons */
+.ally {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.ally span {
+  height: 52px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--control-border);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 650;
+  font-size: 15px;
+}
+.ally span i {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+.ally .r i {
+  background: var(--alliance-red);
+}
+.ally .b i {
+  background: var(--alliance-blue);
+}
+.ally .r.on {
+  border: 2px solid var(--alliance-red);
+  background: var(--alliance-red-tint);
+  color: var(--alliance-red);
+}
+.ally .b.on {
+  border: 2px solid var(--alliance-blue);
+  background: var(--alliance-blue-tint);
+  color: var(--alliance-blue);
+}
+/* robot cards */
+.robots {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.robot {
+  display: grid;
+  grid-template-columns: 54px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 64px;
+  padding: 10px 14px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--control-border);
+  background: var(--surface);
+}
+.robot .stn {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--alliance-red);
+  letter-spacing: 0.02em;
+}
+.robot .stn.bl {
+  color: var(--alliance-blue);
+}
+.robot .tn {
+  font-family: var(--font-num);
+  font-size: 20px;
+  font-weight: 600;
+}
+.robot .nm {
+  color: var(--muted);
+  font-size: 13px;
+}
+.robot.on {
+  border: 2px solid var(--accent);
+  background: var(--accent-tint);
+  padding: 9px 13px;
+}
+.robot.done {
+  background: var(--line-2);
+  border-color: var(--line);
+}
+.robot.done .tn,
+.robot.done .nm {
+  color: var(--muted);
+}
+.robot .state {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: right;
+}
+.robot .state.ok {
+  color: var(--accent-ink);
+}
+.radio {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--control-border);
+}
+.robot.on .radio {
+  border: 7px solid var(--accent);
+}
+/* schedule list */
+.mrow {
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 0;
+  border-top: 1px solid var(--line-2);
+}
+.mrow:first-child {
+  border-top: 0;
+}
+.mrow .mn {
+  font-family: var(--font-num);
+  font-weight: 600;
+  font-size: 15px;
+}
+.mrow .mn small {
+  display: block;
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.six {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+.tchip {
+  height: 40px;
+  border-radius: var(--radius-control);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-num);
+  font-weight: 600;
+  font-size: 14px;
+  position: relative;
+}
+.tchip.r {
+  background: var(--alliance-red-tint);
+  color: var(--alliance-red);
+}
+.tchip.b {
+  background: var(--alliance-blue-tint);
+  color: var(--alliance-blue);
+}
+.tchip.done {
+  background: var(--line-2);
+  color: var(--muted);
+}
+.tchip.done::after {
+  content: '✓';
+  position: absolute;
+  top: 2px;
+  right: 5px;
+  font-size: 10px;
+  color: var(--accent);
+  font-family: var(--font-ui);
+}
+.tchip.mine {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.search {
+  height: 46px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--control-border);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  color: var(--muted);
+  font-size: 14.5px;
+}
+.search svg {
+  width: 18px;
+  height: 18px;
+}
+.link {
+  color: var(--accent-ink);
+  font-weight: 600;
+  font-size: 13.5px;
+}
+/* field */
+.fieldbox {
+  position: relative;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  overflow: hidden;
+}
+.station {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-radius: var(--radius-control);
+  padding: 8px 10px;
+  min-height: 62px;
+  position: relative;
+}
+.station.r {
+  background: var(--alliance-red-tint);
+  color: var(--alliance-red);
+}
+.station.b {
+  background: var(--alliance-blue-tint);
+  color: var(--alliance-blue);
+}
+.station small {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.station .tn {
+  font-family: var(--font-num);
+  font-size: 19px;
+  font-weight: 600;
+}
+.station .nm {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.station.on {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  background: var(--accent-tint);
+  color: var(--accent-ink);
+}
+.station.done {
+  background: var(--line-2);
+  color: var(--muted);
+}
+.station .badge {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.kv {
+  display: flex;
+  justify-content: space-between;
+  padding: 9px 0;
+  border-top: 1px solid var(--line-2);
+  font-size: 13.5px;
+}
+.kv span {
+  color: var(--muted);
+}
+.kv b {
+  font-weight: 600;
+}

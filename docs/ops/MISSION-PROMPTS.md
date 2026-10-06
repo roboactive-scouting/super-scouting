@@ -138,10 +138,8 @@ produced, or anywhere the suite is not green.
    if docs changed.
 
    **For any part that builds or changes a screen, add "BUILD-CONTEXT §12 in full".**
-   Name the SPEC-FINAL §17.9 reference app for each of the part's screens in the
-   prompt, so the chat cannot skip the lookup. Ask for the screen list with the
-   checklist results in the report. The "your checks after" list for that part then
-   includes opening each screen on dev and comparing it with its reference app.
+   Ask for the screen list with the checklist results in the report. The "your checks
+   after" list for that part then includes opening each screen on dev.
 
    **Say that a subagent's claim is not evidence.** An orchestrator must read the diff
    and re-run the suite itself. In this project a subagent reported a green suite for a

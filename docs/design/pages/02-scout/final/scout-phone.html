@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Scout — final, phone</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../01-entry/src/entry.css"><link rel="stylesheet" href="../../01-entry/final/final.css"><link rel="stylesheet" href="../src/scout.css"><link rel="stylesheet" href="../src/e-station.css">
+<style>
+.canvas{height:940px}
+.frames{gap:10px}
+.phone{zoom:.78}
+.nothere{text-align:center;margin-top:10px;font-size:13.5px;color:var(--muted)}
+.flag{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:var(--radius-tag);background:var(--warn-tint);color:var(--warn);font-size:12.5px;font-weight:650}
+
+.stgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.stgrid span{height:56px;border-radius:var(--radius-control);display:grid;place-items:center;font-weight:700;font-size:14px}
+.stgrid .r{background:var(--alliance-red-tint);color:var(--alliance-red)}
+.stgrid .b{background:var(--alliance-blue-tint);color:var(--alliance-blue)}
+.stgrid .on{box-shadow:inset 0 0 0 2px var(--alliance-blue)}
+</style></head><body>
+<div class="canvas">
+  <div class="canvas-head"><b>Scout — final · phone</b><span>Set your station once. Type the match number; its six robots appear with your station marked and picked. Any robot can be chosen; a team outside the line-up is allowed and flagged.</span></div>
+  <div class="frames">
+
+    <figure class="frame"><div class="phone"><div data-phone-shell data-time="09:02">
+      <div class="pad"><div class="h1">Scout a match</div><div class="sub">Where are you sitting today?</div></div>
+      <div class="scrim"></div>
+      <div class="sheet"><div class="grab"></div>
+        <div style="font-size:20px;font-weight:750">Choose your station</div>
+        <div class="sub" style="margin-bottom:14px">Your station is picked for you in every match. You can still scout any robot, and change your station at any time.</div>
+        <div class="stgrid"><span class="r">Red 1</span><span class="r">Red 2</span><span class="r">Red 3</span><span class="b">Blue 1</span><span class="b on">Blue 2</span><span class="b">Blue 3</span></div>
+        <div style="display:flex;gap:10px;padding:18px 0 26px"><a class="btn" style="flex:1;height:52px">Not now</a><a class="btn primary" style="flex:1;height:52px">Use Blue 2</a></div>
+      </div>
+    </div></div><figcaption>1 · First visit: choose a station</figcaption></figure>
+
+    <figure class="frame"><div class="phone"><div data-phone-shell data-time="11:40">
+      <div class="pad">
+        <div class="sb"></div>
+        <div style="margin-top:12px" class="mi39"></div>
+        <div class="lbl" style="margin-top:14px">Q39 · tap the robot you are watching</div>
+        <div class="lu1"></div><div class="nothere">Team not here? <span class="link">Choose from the event's teams</span></div>
+      </div>
+      <div class="ebar"><a class="btn primary block">Start entry · 5654 Phoenix</a></div>
+    </div></div><figcaption>2 · Match typed: your station is picked</figcaption></figure>
+
+    <figure class="frame"><div class="phone"><div data-phone-shell data-time="11:41">
+      <div class="pad">
+        <div class="sb"></div>
+        <div style="margin-top:12px" class="mi39"></div>
+        <div class="lbl" style="margin-top:14px">Q39 · tap the robot you are watching</div>
+        <div class="lu2"></div>
+      </div>
+      <div class="scrim"></div>
+      <div class="sheet"><div class="grab"></div>
+        <div style="font-size:20px;font-weight:750">Scout Red 1 instead?</div>
+        <div class="sub" style="margin:6px 0 14px;line-height:1.5">Your station is <b style="color:var(--alliance-blue)">Blue 2</b>. This entry will be for <b style="color:var(--ink)">1690 Orbit</b> on <b style="color:var(--alliance-red)">Red 1</b>. Your station stays Blue 2.</div>
+        <div style="display:flex;gap:10px;padding:4px 0 26px"><a class="btn" style="flex:1;height:52px">Keep Blue 2</a><a class="btn primary" style="flex:1;height:52px">Scout Red 1</a></div>
+      </div>
+    </div></div><figcaption>3 · Another robot: asks first</figcaption></figure>
+
+    <figure class="frame"><div class="phone"><div data-phone-shell data-time="16:02">
+      <div class="pad">
+        <div class="sb"></div>
+        <div style="margin-top:12px" class="mi73"></div>
+        <div class="note" style="margin-top:12px">Q73 has no robots listed on this device. Choose the one you are watching — the match is created when you submit.</div>
+        <div class="lbl" style="margin-top:12px">Alliance</div>
+        <div class="ally"><span class="r"><i></i>Red</span><span class="b on"><i></i>Blue</span></div>
+        <div style="margin-top:10px" class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Find a team: number or name</div>
+        <div class="robots tlist" style="margin-top:8px"><div class="robot"><span class="radio"></span><div><div class="tn">1574</div><div class="nm">MisCar</div></div><span></span></div><div class="robot on"><span class="radio"></span><div><div class="tn">1657</div><div class="nm">Hamosad</div></div><span></span></div></div>
+      </div>
+      <div class="ebar"><a class="btn primary block">Start entry · 1657 Hamosad</a></div>
+    </div></div><figcaption>4 · A match with no robots listed</figcaption></figure>
+
+    <figure class="frame"><div class="phone"><div data-phone-shell data-time="11:46">
+      <div class="pad">
+        <div class="sb"></div>
+        <div style="margin-top:12px" class="mi39"></div>
+        <div class="lbl" style="margin-top:14px">Q39 · tap the robot you are watching</div>
+        <div class="lu3"></div><div class="nothere">Team not here? <span class="link">Choose from the event's teams</span></div>
+        <div class="note" style="margin-top:12px">5654 is already scouted in this match on this device. You can change that entry until 11:52; a second one cannot be started.</div>
+      </div>
+      <div class="ebar"><a class="btn primary block">Edit the existing entry</a></div>
+    </div></div><figcaption>5 · Your robot is already scouted</figcaption></figure>
+
+    <figure class="frame"><div class="phone"><div data-phone-shell data-time="11:44">
+      <div class="pad">
+        <div class="h1">Which team are you watching?</div>
+        <div class="sub">Qualification 39 · your station Blue 2</div>
+        <div class="lbl" style="margin-top:14px">Alliance</div>
+        <div class="ally"><span class="r"><i></i>Red</span><span class="b on"><i></i>Blue</span></div>
+        <div style="margin-top:10px" class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>16</div>
+        <div class="robots tlist" style="margin-top:8px"><div class="robot on"><span class="radio"></span><div><div class="tn">1657</div><div class="nm">Hamosad</div></div><span></span></div><div class="robot"><span class="radio"></span><div><div class="tn">1690</div><div class="nm">Orbit · in this match, Red 1</div></div><span></span></div></div>
+        <div class="note" style="margin-top:12px"><span class="flag">Not in line-up</span><br><span style="display:block;margin-top:6px">1657 isn't in Q39's line-up. The entry is saved with this mark so a lead can check it. The match itself doesn't change.</span></div>
+      </div>
+      <div class="ebar"><a class="btn primary block">Start entry · 1657 Hamosad</a></div>
+    </div></div><figcaption>6 · Team not here: any event team, flagged</figcaption></figure>
+
+  </div>
+</div>
+<script src="../../01-entry/src/entry.js"></script><script src="../src/e-common.js"></script><script src="../../shell.js"></script>
+<script>
+const set=(s,h)=>document.querySelectorAll(s).forEach(e=>e.innerHTML=h);
+set('.sb',S.stationBar());
+set('.mi39',S.matchInputs('39',false));
+set('.mi73',S.matchInputs('73',true));
+set('.lu1',S.lineup({mine:'blue-2',on:'blue-2',done:{'red-2':'edit'}}));
+set('.lu2',S.lineup({mine:'blue-2',on:'red-1',done:{'red-2':'edit'}}));
+set('.lu3',S.lineup({mine:'blue-2',on:'blue-2',done:{'blue-2':'edit','red-2':'edit'}}));
+</script>
+</body></html>

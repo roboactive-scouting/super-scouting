@@ -1,10 +1,12 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.4 · **Date:** 2026-10-05 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.6 · **Date:** 2026-10-06 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
 
-*v1.1 amends §17.9 only, adding the standing override for the `frontend-design` skill — craft yes, identity no. No requirement changed; see the living spec's §21 for the rationale.*
+*v1.6 amends §8.1 only: the robot picker marks the scouter's remembered station and allows a team outside the match's line-up, flagged for a lead. See the living spec's §21, 2026-10-06 (v0.54).*
 
-*v1.3 amends §17.4 (the alliance colours), §17.9 (navigation, Home at `/`, the motion rule) and nothing else. See the living spec's §21, 2026-10-01.*
+*v1.5 removes the previous design's styling decisions — colour values, palettes, named fonts, reference apps, motion style — from §12.6, §13, §17 and Appendix A, ahead of the from-scratch redesign. Structural requirements are unchanged. See the living spec's §21, 2026-10-06 (v0.52).*
+
+*v1.3 amends §17.9 (navigation, Home at `/`) and nothing else. See the living spec's §21, 2026-10-01.*
 
 *v1.4 amends §19.6 only: the keep-alive runs daily, not twice a week. See the living spec's §21, 2026-10-05.*
 
@@ -590,7 +592,7 @@ All of the following ship in v1.
 
 | Type | Behaviour |
 |---|---|
-| **Counter** | Wide − / value / + triplet. Big touch targets. Never a text input. The workhorse. |
+| **Counter** | − / value / + triplet. Big touch targets. Never a text input. The workhorse. |
 | **Number** | Free numeric with min / max / step. |
 | **Toggle** | Boolean. |
 | **Single select** | Radio / segmented control. |
@@ -857,7 +859,9 @@ This is where 95% of usage happens: a student in a loud arena, phone in one hand
 1. the **form** — implicitly, the active season's `match` form, resolved by kind (§3.3);
 2. the **match** — type + number, chosen from the active event's matches. If the number does not exist yet, the app **auto-creates the bare match row** (§6.4) and continues. This works offline.
 3. the **alliance** — red or blue. Required; it is what makes the spatial-field mirroring of §5.6 correct.
-4. the **team/robot** — from the event roster, pre-filtered to that match's `match_teams` rows for the chosen alliance when they exist, and the full roster when they do not.
+4. the **team/robot** — when the match has `match_teams` rows, its line-up is shown (red stations left, blue right), with the scouter's **remembered station** marked and picked by default; choosing any other robot in the line-up asks first. When it has none, the full event roster, searchable. **A team outside the line-up may still be chosen** ("Team not here?" → the full roster). The entry then carries a derived **"not in line-up"** flag a lead sees in Entries. The match's `match_teams` never change from the scouting screen; only an admin edits a line-up (§6.4). *(amended 2026-10-06, v1.6)*
+
+**The scouter's station** (Red 1–3, Blue 1–3) is chosen once and remembered on the device until changed. It only preselects; it is not an assignment system.
 
 **Super-scouting entry.** A separate entry point, because super records are one per (team, event), not per match:
 
@@ -921,7 +925,7 @@ Offline is the normal operating mode. The local database is the source of truth 
 
 - Installable to the home screen; **fully functional with the network off, including cold start** — the app shell is precached and no network request is required to boot.
 - **`vite-plugin-pwa`** precaches the app shell, the season game image and the fonts.
-- **A new version is never applied by auto-reload.** It activates on the **next cold start**. The running app shows a discreet "update ready" hint. A service worker that reloads the tab mid-match would destroy a scouter's screen at the one moment it matters.
+- **A new version is never applied by auto-reload.** It activates on the **next cold start**. The running app shows a non-blocking "update ready" hint. A service worker that reloads the tab mid-match would destroy a scouter's screen at the one moment it matters.
 - **A version string is always visible** — in the footer of the context/landing page — for diagnosing "my tablet behaves differently".
 
 ### 9.2 The local store
@@ -1265,7 +1269,7 @@ Rules:
 | `distribution` | Counts per distinct value, ordered by the field's option list for selects and ascending for numerics. **Renderable only by histogram, pie/donut and stacked bar**; the builder hides other chart types when this aggregation is chosen. | `{ value, count }[]` |
 | `stddev` | Population standard deviation. Requires ≥ 2 values; fewer yields null. | number |
 
-**Degenerate input.** Every aggregation returns **null** on an empty value set, and null renders as the grey "—" of §12.6, never as zero.
+**Degenerate input.** Every aggregation returns **null** on an empty value set, and null renders as the no-data "—" of §12.6, never as zero.
 - **Metrics are type-agnostic.** A metric works on any field type; the aggregation menu offers only the operations valid for that type (avg/median/min/max/stddev for numeric and time, rate/percentage for boolean, mode/distribution for nominal categorical, rank-index aggregations for ordinal selects).
 - **Minimum sample size is 1.** The engine guards only against empty input and division by zero. It does not flag or refuse a low-sample team.
 - **No cross-event percentile or z-score normalisation.** Percentile is an ordinary aggregation over a team's own entries.
@@ -1419,7 +1423,7 @@ Scope lives on the dashboard, not the chart.
 
 ### 12.6 Value shading
 
-Every numeric cell or mark carrying a metric value is **colour-scaled from light red (worst) to light green (best)**, so a table or heatmap reads at a glance. Scaling is **per column / per metric**, driven by the field's `direction` metadata.
+Every numeric cell or mark carrying a metric value is **colour-scaled from worst to best**, so a table or heatmap reads at a glance. Scaling is **per column / per metric**, driven by the field's `direction` metadata.
 
 | Metric kind | Colour domain |
 |---|---|
@@ -1430,13 +1434,13 @@ Every numeric cell or mark carrying a metric value is **colour-scaled from light
 | `direction: neutral` | **No scale** — a flat single colour. |
 | Operational meta-metrics | Observed min–max of the population shown; **higher is better** by default. |
 
-`direction: lower_is_better` **inverts** any scale, so green = low. That covers climb time, cycle time, fouls and tip-over rate.
+`direction: lower_is_better` **inverts** any scale, so the best end = low. That covers climb time, cycle time, fouls and tip-over rate.
 
 **Edge cases:**
 
-- **No data** — a cell with no value renders as a distinct grey **"—"** and is **excluded from the column's min/max domain**. Missing data must never look like a bad value.
+- **No data** — a cell with no value renders as a distinct **"—"** and is **excluded from the column's min/max domain**. Missing data must never look like a bad value.
 - **All-equal or single row** — when min == max, shading falls back to a **flat mid-colour**. Inferring "best" from one data point would be dishonest.
-- **Colourblindness** — the red→green ramp must vary **lightness monotonically**, so it degrades to a legible light→dark ramp, **and the numeric value is always printed in the cell**. Colour is a fast cue, never the only channel.
+- **Colourblindness** — the shading ramp must vary **lightness monotonically**, so it stays legible without hue, **and the numeric value is always printed in the cell**. Colour is a fast cue, never the only channel.
 
 ### 12.7 Operational (meta) statistics
 
@@ -1524,11 +1528,11 @@ Lists entries of the **active competition only**, **both `match` and `super` kin
 
 Searchable by **team name, team number, match number, scouter name**. Each row shows the entry's **scouted points**. A row opens the entry preview.
 
-Dense list rows, filters as chips, search that filters as you type. A row opens the preview **as a full page, not a drawer**.
+Filters as chips, search that filters as you type. A row opens the preview **as a full page, not a drawer**.
 
 ### 13.4 Entry preview page
 
-A read-only, nicely formatted rendering of a **single entry**: all field values laid out **by phase**, plus the entry's **scouted score**, team, match, alliance, robot status, scouter, form kind and timestamp.
+A read-only rendering of a **single entry**: all field values laid out **by phase**, plus the entry's **scouted score**, team, match, alliance, robot status, scouter, form kind and timestamp.
 
 ### 13.5 Ranking page
 
@@ -1538,7 +1542,7 @@ Layout: the **metrics table first**, then charts and other metrics below.
 
 - Only the table's built-in metrics drive **column-click reordering** and can be weighted.
 - **Reliability / availability is one of those selectable, sortable, weightable columns.**
-- Mechanics: column sort, column visibility, sticky header, **no pagination** for a 50-team event. A rank column, **medals on the top 3**, no zebra striping, numbers right-aligned and tabular.
+- Mechanics: column sort, column visibility, sticky header, **no pagination** for a 50-team event. A rank column and **medals on the top 3**.
 
 **Weighting mode** (a toggle):
 
@@ -1547,7 +1551,7 @@ Layout: the **metrics table first**, then charts and other metrics below.
 - For a `lower_is_better` metric the normalized value is inverted as **`1 − normalized`**, so higher is always better.
 - Each metric is given a **weight**; weights are auto-normalized and need not sum to 1.
 - Teams are ranked by the **weighted sum**, and a per-team **contribution breakdown** shows how much each metric added.
-- **A missing metric for a team** shows a grey "—" in the table and counts as **0.5** — the neutral midpoint — in the composite, so it neither sinks nor inflates the team.
+- **A missing metric for a team** shows a "—" in the table and counts as **0.5** — the neutral midpoint — in the composite, so it neither sinks nor inflates the team.
 
 **Weight presets:** an admin can save **named weight presets** (these seed the pick list, §14.3). A lead can adjust weights live but **session-only**. **Offline, weights can be changed but not saved.**
 
@@ -1557,8 +1561,8 @@ Layout: the **metrics table first**, then charts and other metrics below.
 
 Also the **compare built-in dashboard**. Compares **up to 6 teams** on an **admin-built compare metric set — one per season, edited in place, not versioned — computed over the active event**.
 
-- **2 teams:** a "final-score" **head-to-head scoreboard** — a big average-points headline per team, then per-metric rows in a **mirrored two-column layout** with a bar leaning toward the stronger side.
-- **3–6 teams:** **radar + table**, to a high visual standard.
+- **2 teams:** a "final-score" **head-to-head scoreboard** — an average-points headline per team, then per-metric rows in a **mirrored two-column layout** with a bar leaning toward the stronger side.
+- **3–6 teams:** **radar + table**.
 
 ### 13.7 Match preview page
 
@@ -1823,51 +1827,20 @@ Mobile-first; the width decides, never the user agent.
 |---|---|---|
 | phone | < 640 px | One column, single task per screen, thumb-zone actions. Data entry. |
 | tablet portrait | 640–1023 px | Two columns; side-by-side fields on a wider entry form. |
-| desktop | ≥ 1024 px | Dense tables, multi-panel layouts, hover detail, keyboard shortcuts. **Builders unlock here.** |
+| desktop | ≥ 1024 px | Full tables, multi-panel layouts, hover detail, keyboard shortcuts. **Builders unlock here.** |
 | wide | ≥ 1280 px | Multi-panel dashboards up to the 4-chart expand-to-stack cap. |
 
-### 17.4 Colour and theming
+### 17.4 Theming
 
-**Two themes, not three:** **dark (default)** — scouting happens in dim arenas and it saves battery — and the **high-contrast "outdoor" theme**, a light, maximum-contrast surface for sunlight legibility. That theme *is* the light theme.
+**A high-contrast "outdoor" theme for sunlight legibility is required** (§8.6). The rest of the theme set, and which theme is default, are design decisions.
 
-**The app is not a black-and-yellow app.** The UI is a **neutral dark palette with brand yellow as the single accent** — the logo, the primary action, the focus ring.
+**Every colour is a CSS variable token. Components never hard-code a colour value.**
 
-**Every colour is a CSS variable token. Components never hard-code a hex.**
-
-| Token | Dark (default) | Outdoor high-contrast |
-|---|---|---|
-| `--bg` | `#0A0A0B` | `#FFFFFF` |
-| `--surface` | `#18181B` | `#F4F4F5` |
-| `--surface-raised` | `#27272A` | `#E4E4E7` |
-| `--border` | `#71717A` | `#52525B` |
-| `--text` | `#FAFAFA` | `#09090B` |
-| `--text-muted` | `#A1A1AA` | `#3F3F46` |
-| `--brand` | `#FFEA07` | `#FFEA07` — **only on a `--brand-plate` background** |
-| `--brand-plate` | `#0A0A0B` | `#0A0A0B` |
-| `--on-brand` | `#0A0A0B` | `#0A0A0B` |
-| `--focus` | `#FFEA07` | `#09090B` |
-
-**`--border` is zinc-500 `#71717A`, not the zinc-700 `#3F3F46` the rest of the ramp would suggest.** Zinc-700 measures 1.89:1 on `--bg`, 1.70:1 on `--surface` and 1.43:1 on `--surface-raised` — all below §17.7's 3:1 floor for UI boundaries, which §17.7 calls a bug rather than a preference. Zinc-600 still fails; zinc-500 is the first step that clears it (4.09 / 3.67 / 3.08). The outdoor theme's `#52525B` already passes at 6.09:1 worst case and is unchanged. **Do not darken this token back.**
-
-**Brand yellow is never text or an icon on a light surface.** `#FFEA07` on white is 1.23:1 — illegible; on near-black it is 16:1. The logo therefore always sits on a near-black plate (`#0A0A0B`), **including in the outdoor theme**.
-
-**Functional colour is independent of branding.** Brand yellow **never appears in data ink**.
-
-| Meaning | Colour |
-|---|---|
-| `played` / success | green |
-| `broke_down` | orange |
-| `disabled` | deep orange |
-| `no_show` | neutral grey |
-| danger | red |
-| sync: offline / syncing / online | red / orange / green |
-| warnings | **orange**, not amber — kept separate from brand yellow |
-| red / blue alliance | `--alliance-red` / `--alliance-blue`: dark **#EF4444 / #3B82F6**, outdoor **#B91C1C / #1D4ED8**. Each ≥ 3:1 on `--bg`, `--surface` and `--surface-raised`, in both themes *(v1.3)* |
-| value shading ramp | red → **desaturated grey-amber** → green (the mid-tone is deliberately distinct from `#FFEA07`) |
+**Each of these meanings has its own distinct, consistently applied visual treatment:** robot status (`played`, `broke_down`, `disabled`, `no_show`); danger; warnings; sync state (offline / syncing / online); the value-shading ramp (§12.6); and the two alliances, **always identified as red and blue**. Each alliance colour meets ≥ 3:1 against every surface it sits on, in every theme.
 
 ### 17.5 Brand assets
 
-**ROBACTIVE, team #2096.** The logo is a distressed yellow radiation trefoil over the `ROB✕ACTIVE #2096` wordmark. **Brand yellow is `#FFEA07`.**
+**ROBACTIVE, team #2096.** The logo is a radiation-trefoil mark over the `ROB✕ACTIVE #2096` wordmark.
 
 `docs/brand/` is the source of truth; the build copies what it needs into the client's static assets.
 
@@ -1875,28 +1848,28 @@ Mobile-first; the width decides, never the user agent.
 |---|---|
 | `logo.pdf` | Original supplied artwork (A4, 300 dpi raster). Archive — never referenced by the app. |
 | `logo.png` | Full lockup (trefoil + wordmark), transparent, trimmed, 2320×2482. |
-| `logo-on-black.png` | The same lockup on `#0A0A0B`. |
+| `logo-on-black.png` | The same lockup on an opaque dark plate. |
 | `mark.png` | Trefoil only, transparent — the source for every icon. |
-| `icon-192.png`, `icon-512.png` | PWA manifest icons (mark on `#0A0A0B`, 12% padding). |
+| `icon-192.png`, `icon-512.png` | PWA manifest icons (mark on a solid background, 12% padding). |
 | `icon-512-maskable.png` | Maskable variant, 24% safe zone. |
 | `apple-touch-icon-180.png` | iOS home-screen icon. |
 
 The supplied logo is **raster, not vector**. It is large enough for every use in this app. If a vector version ever appears, dropping it in as `logo.svg` is the only change needed.
 
-### 17.6 Typography
+### 17.6 Fonts
 
-**Inter for app chrome, Noto Sans Hebrew for form content.** Both **self-hosted in the repo and subset — no Google Fonts CDN**, because a font fetch that fails at a venue is a broken app. Inter carries no Hebrew glyphs, so without an explicit Hebrew face every Hebrew label falls back to an arbitrary system font. The two faces are matched on x-height so a mixed line does not visibly step.
+**All fonts are self-hosted in the repo and subset — no font CDN**, because a font fetch that fails at a venue is a broken app. Hebrew form content must render in a self-hosted face with Hebrew glyph coverage, never an arbitrary system fallback.
 
 ### 17.7 Accessibility floor
 
 - **Minimum touch target 48 × 48 px**, with at least **8 px** between adjacent targets.
-- **WCAG AA: 4.5:1 for text, 3:1 for UI boundaries and chart strokes, in both themes.** A token pair that fails is a bug, not a preference.
+- **WCAG AA: 4.5:1 for text, 3:1 for UI boundaries and chart strokes, in every theme.** A token pair that fails is a bug, not a preference.
 - **OS text-size settings are respected** — all type in relative units. The in-app large-text option is a multiplier on top. **No layout may break at 200%.**
-- **A visible focus ring on every interactive element** — brand yellow on dark, near-black on the outdoor theme.
+- **A visible focus indicator on every interactive element**, in every theme.
 
 ### 17.8 Interaction conventions
 
-**PWA install identity.** Manifest name **"ROBACTIVE Scouting"**, short name **"Scouting"**, `display: standalone`, `theme_color` and `background_color` **`#0A0A0B`**, orientation unlocked. Icons generated from `docs/brand/` at 192 and 512, plus a **maskable 512 with a 24% safe zone** and a 180 px Apple touch icon. **The icon is the trefoil mark alone, never the wordmark** — the wordmark is unreadable below ~96 px. Icons and manifest are precached with the app shell. The visible version string appears on the context/landing page.
+**PWA install identity.** Manifest name **"ROBACTIVE Scouting"**, short name **"Scouting"**, `display: standalone`, `theme_color` and `background_color` taken from the design's theme, orientation unlocked. Icons generated from `docs/brand/` at 192 and 512, plus a **maskable 512 with a 24% safe zone** and a 180 px Apple touch icon. **The icon is the trefoil mark alone, never the wordmark** — the wordmark is unreadable below ~96 px. Icons and manifest are precached with the app shell. The visible version string appears on the context/landing page.
 
 **Number, date and time formatting** — identical on every surface, so two views can never disagree about the same value:
 
@@ -1914,7 +1887,7 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 
 - **Skeletons, not spinners**, for lists and tables. A spinner only for a genuinely indeterminate single action.
 - **One state component, six variants:** *no data yet* · *form not published* · *offline and this needs the server* · *something failed* · *no search results* · *conflicts waiting for review*.
-- Each is a centred glyph, one bold line of what happened, one muted line of why, and **exactly one primary action**. No dead ends, no stock illustrations, no raw error codes in front of a student.
+- Each states what happened and why, and offers **exactly one primary action**. No dead ends, no raw error codes in front of a student.
 - **The offline variant always says the data is safe on the device** — that is the sentence that stops someone re-entering a match.
 
 **Destructive actions — one pattern everywhere.**
@@ -1924,26 +1897,22 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 - **Undo instead of a dialog wherever undo is possible** — repeatable inputs, one-tap do-not-pick removal.
 - **An action that would orphan collected data is blocked, not confirmed.** Deleting a form version with entries bound to it fails with an explanation, and no confirmation text overrides it.
 
-### 17.9 Per-surface design references
+### 17.9 Per-surface layout and behaviour
 
-**System-wide baseline: Linear / Vercel.** Restrained dark chrome, low decoration, high information density, a tight type scale, muted 1-px borders instead of shadows, exactly one accent colour. This is shadcn/ui's default.
-
-**These are references for behaviour and layout, never for palette.** Colour comes from §17.4's tokens.
-
-| Surface | Reference | What we take |
-|---|---|---|
-| Context / landing page (**Home, at `/`**, v1.3) | **Figma file browser** + **Notion** | Scope chosen from a **card grid, most recent first** — seasons, then that season's events — never a header dropdown; cards big and unmissable. The page reads as a **calm document, not a control panel**. The version string sits quietly in the footer. **v1.3:** it is the signed-in landing page. Above the grid, one summary names the event this device works on, with **Scout as the one primary action**. Scout lives at `/scout`. |
-| Phone data entry | **Tally**, **Typeform**, **FotMob** | Pacing: one job on screen, generous spacing, no cramped rows. A dense sports UI staying thumb-reachable. Counters are a wide − / value / + triplet, never a text input. The sticky timer never fights the page scroll. |
-| Form builder | **Fillout**, **Tally** | Three panes: palette → canvas → settings. Semantic metadata lives in the settings pane so it is filled *while* the field is created. A preview toggle renders the form at phone width. |
-| Team page | **Sofascore** | Sticky team header, horizontal tab strip, stat rows as label → value → inline bar. Readable in one thumb scroll. |
-| Dashboards & builder | **Grafana Play**, **Metabase**, **Tremor** | Grafana for the panel grid and a pinned scope/filter bar; Metabase for a builder order a non-programmer can follow; Tremor for the visual language — small KPI tiles above the charts, sparse gridlines, no chart junk. |
-| Ranking table | **shadcn/ui data-table**, **TanStack Table**, **premierleague.com** | Column sort, column visibility, sticky header, no pagination for 50 teams. Rank column, medals on the top 3, no zebra striping, numbers right-aligned and tabular. |
-| Compare page | **Sofascore head-to-head** | 2 teams: mirrored two-column layout, one metric per row, a bar leaning toward the stronger side. 3–6: radar + table. |
-| Match preview | **op.gg** | Two alliances as mirrored columns, three team rows each, the summed-average prediction as a single bar across the top. |
-| Search & record detail | **Attio** | Dense list rows, filters as chips, search that filters as you type. A row opens the entry preview as a **full page, not a drawer**. |
-| Alliance selection | **Todoist** | Explicit drag handle, visible drop position, long-press to start a drag on touch. One-tap row actions with undo. |
-| Sync & conflict review | **Obsidian Sync** | The indicator names the state in words plus a count. There is a place to look listing what synced and what didn't. Conflicts are an explicit worklist you can finish. |
-| Admin: users, seasons, events | **Clerk** | Table → row opens a detail page; role is a select on that page; creation is one small form. Destructive rows follow the single pattern above. |
+| Surface | Layout and behaviour |
+|---|---|
+| Context / landing page (**Home, at `/`**) | The signed-in landing page. Above the scope chooser, one summary names the event this device works on, with **Scout as the one primary action**; Scout lives at `/scout`. Scope is chosen from seasons, then that season's events, most recent first — **never a header dropdown**. The version string is in the footer. |
+| Phone data entry | One job on screen. Primary actions stay thumb-reachable. Counters are a − / value / + triplet, never a text input. The sticky timer never fights the page scroll. |
+| Form builder | Three panes: palette → canvas → settings. Semantic metadata lives in the settings pane so it is filled *while* the field is created. A preview toggle renders the form at phone width. |
+| Team page | Sticky team header, horizontal tab strip, stat rows as label → value → inline bar. Readable in one thumb scroll. |
+| Dashboards & builder | A panel grid with a pinned scope/filter bar; a builder order a non-programmer can follow; KPI stat tiles above the charts. |
+| Ranking table | Column sort, column visibility, sticky header, no pagination for 50 teams. Rank column, medals on the top 3. |
+| Compare page | 2 teams: mirrored two-column layout, one metric per row, a bar leaning toward the stronger side. 3–6: radar + table. |
+| Match preview | Two alliances as mirrored columns, three team rows each, the summed-average prediction as a single bar across the top. |
+| Search & record detail | Filters as chips, search that filters as you type. A row opens the entry preview as a **full page, not a drawer**. |
+| Alliance selection | Explicit drag handle, visible drop position, long-press to start a drag on touch. One-tap row actions with undo. |
+| Sync & conflict review | The indicator names the state in words plus a count. There is a place to look listing what synced and what didn't. Conflicts are an explicit worklist you can finish. |
+| Admin: users, seasons, events | Table → row opens a detail page; role is a select on that page; creation is one small form. Destructive rows follow the single pattern above. |
 
 **Navigation (v1.3).**
 - **≥ 1024 px:** a collapsible **sidebar**, remembered per device.
@@ -1951,12 +1920,7 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 - **The bottom bar is hidden on the entry route.**
 - The context switcher is still never in the nav: the nav links to Home, which holds it.
 
-**Standing reference libraries for the build phase:** [mobbin.com](https://mobbin.com), [godly.website](https://godly.website), [ui.shadcn.com/blocks](https://ui.shadcn.com/blocks). When a screen has no rule above, look there before inventing one.
-
-**The `frontend-design` skill: craft yes, identity no.** Build chats invoke Anthropic's `frontend-design` skill on UI tasks. Use its **Restraint and self-critique** and **More on writing in design** sections in full — the second reinforces the six-variant state component of §17.8 — plus *Structure is information* and the two-pass plan-then-critique habit. **Ignore its *Ground it in the subject* and *Process* token-invention steps entirely**: they ask for a 4–6 value palette and two or more typefaces, which is precisely what §17.4 and §17.6 already fix. Do **not** use it to choose an identity: the palette is the ten tokens of §17.4 at exact hex in two themes, the typefaces are §17.6's Inter + Noto Sans Hebrew, and each surface's reference is the table above. Components read CSS variables and never hard-code a hex; brand yellow never appears in data ink and never sits on a light surface. **The motion rule (v1.3).** Motion uses **Material 3's easing and duration tokens** only, and every motion is off under reduced motion.
-- **Off the data-entry path:** the nav indicator, sidebar collapse, drawer / dialog / sheet / notice enter, a route fade, and hover and press state layers.
-- **On the data-entry path** (`/scout`, `/entry/*`, `/super`): **only motion that carries information a scouter must notice**, never ornament. That is the counter's value tick, press feedback, a chosen option's edge, and the review sheet sliding in. The primary surface is a phone held in one hand in a loud arena during 2:30 of match.
-- **Banned everywhere:** page-load sequences, scroll reveals, ambient or looping motion, and exit animations. **Where the skill and §17 disagree, §17 wins**, and the build chat names the line that disagreed rather than silently picking one.
+**Motion.** Every motion is off under reduced motion. **On the data-entry path** (`/scout`, `/entry/*`, `/super`) only motion that carries information a scouter must notice is allowed — the primary surface is a phone held in one hand in a loud arena during 2:30 of match.
 
 **Printing is out of scope.** There are no print stylesheets and no printable views.
 
@@ -2234,7 +2198,6 @@ Nothing on this list is built. It is here so the plan never re-adds an item by i
 
 - Printable views and print stylesheets.
 - Blank paper backup form.
-- Ordinary light theme (only dark + outdoor high-contrast ship).
 - Pit forms, human-player forms, any form kind beyond `match` and `super`.
 - Global search omnibox.
 - Custom domain.

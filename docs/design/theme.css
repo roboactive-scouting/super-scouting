@@ -1,0 +1,97 @@
+/*
+ * Theme D1 "Pit Wall": the single source of colour, type and shape for every mockup.
+ * Rules and rationale: THEME.md. A mockup links this file and defines no colours of its
+ * own. The app's tokens are generated from these values when the redesign is built.
+ *
+ * Mockups only: fonts load from Google Fonts here. The app self-hosts them (SPEC-FINAL §17.6).
+ */
+@import url('https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* Surfaces */
+  --bg: #f4f6f8;
+  --surface: #ffffff;
+  --line: #e3e7ec;
+  --line-2: #eef1f4;
+  --control-border: #808a96;
+
+  /* Text */
+  --ink: #141820;
+  --ink-2: #3a424e;
+  --muted: #5f6977;
+  --faint: #9aa3ae;
+
+  /* Sidebar (the only dark surface; the logo lives here) */
+  --rail: #161a21;
+  --rail-raised: #232933;
+  --rail-ink: #c9cfd8;
+  --rail-muted: #7d8693;
+  --rail-line: #262b34;
+
+  /* Accent */
+  --accent: #12795b;
+  --accent-ink: #0b5a43;
+  --accent-tint: #e5f2ec;
+  --on-accent: #ffffff;
+
+  /* Meaning */
+  --warn: #94600f;
+  --warn-tint: #fbf1e1;
+  --alliance-red: #b53a33;
+  --alliance-red-tint: #fbeae8;
+  --alliance-blue: #2f62c8;
+  --alliance-blue-tint: #e8eefb;
+
+  /* Type */
+  --font-ui: 'Schibsted Grotesk', system-ui, sans-serif;
+  --font-num: 'JetBrains Mono', ui-monospace, monospace;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 17px;
+  --text-xl: 22px;
+  --text-2xl: 26px;
+  --text-3xl: 30px;
+
+  /* Shape */
+  --radius-tag: 6px;
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-pill: 999px;
+
+  /* Space (4 px base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Layout */
+  --sidebar-w: 232px;
+  --topbar-h: 60px;
+  --tap-min: 48px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  -webkit-font-smoothing: antialiased;
+}
+
+.num {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}

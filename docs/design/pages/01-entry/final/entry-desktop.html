@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Entry — final, desktop</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../src/entry.css"><link rel="stylesheet" href="final.css">
+<style>
+body{background:var(--bg)}
+.desk.final{zoom:1;border-radius:0;box-shadow:none}
+.dwrap{display:grid;grid-template-columns:1fr 340px;gap:24px;padding:24px 32px;height:100%;max-width:1180px}
+.dhead{display:flex;justify-content:space-between;align-items:flex-end}
+.dhead h1{font-size:28px;font-weight:750;letter-spacing:-.02em}
+.dhead .meta{color:var(--muted);font-size:13px;margin-top:5px;display:flex;gap:8px;align-items:center}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-card);overflow:hidden}
+.pane{padding:0 20px 12px}
+</style></head><body>
+<div class="desk final"><div data-desk-shell="scout" data-crumb="Scout / <b>Q39 · 1690 Orbit</b>">
+  <div class="dwrap">
+    <div>
+      <div class="dhead"><div><h1><span class="num">Q39</span> · 1690 Orbit</h1><div class="meta"><span class="dot"></span>Draft saved on this device · 11:43</div></div><span class="tag red">Red alliance</span></div>
+      <div style="margin-top:20px" class="lbl">Robot status</div><div id="dS"></div>
+      <div class="card" style="margin-top:16px">
+        <div class="ptabs" id="tabs"></div>
+        <div class="pane"><div class="phead"><b>Teleop</b><span class="pos">Phase 2 of 4</span><span class="dots"><i class="done"></i><i class="on"></i><i></i><i></i></span></div><div id="dPane"></div></div>
+      </div>
+    </div>
+    <div class="live" style="align-self:start">
+      <h3>This entry</h3>
+      <div style="color:var(--muted);font-size:12.5px;margin:3px 0 12px">Select a phase to jump to it.</div>
+      <div class="lrow done"><span class="ic"></span><span>Status</span><b>Played</b></div>
+      <div class="lrow done"><span class="ic"></span><span>Autonomous</span><small>3 of 3</small></div>
+      <div class="lrow cur"><span class="ic"></span><span>Teleop</span><small>4 of 4</small></div>
+      <div class="lrow"><span class="ic"></span><span>Endgame</span><small>0 of 1</small></div>
+      <div class="lrow"><span class="ic"></span><span>Notes</span><small>0 of 1</small></div>
+      <a class="btn primary" style="width:100%;margin-top:14px;height:48px">Review entry</a>
+    </div>
+  </div>
+</div></div>
+<script src="../src/entry.js"></script><script src="../../shell.js"></script>
+<script>
+const tick='<svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>';
+document.querySelectorAll('.lrow.done .ic').forEach(e=>e.innerHTML=tick);
+document.getElementById('dS').innerHTML=E.status('seg');
+document.getElementById('tabs').innerHTML=`<span class="done">${tick}Auto</span><span class="on">Teleop</span><span>Endgame</span><span>Notes</span>`;
+document.getElementById('dPane').innerHTML=E.phase(E.PHASES[1],{counter:'row'});
+</script>
+</body></html>
