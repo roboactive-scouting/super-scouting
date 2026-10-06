@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.14 · **Date:** 2026-10-07 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.15 · **Date:** 2026-10-07 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.15 amends §17.9's navigation (the phone bottom bar). See the living spec's §21, 2026-10-07 (v0.63).*
 
 *v1.14 adds §17.9's Change password row. See the living spec's §21, 2026-10-07 (v0.62).*
 
@@ -1940,7 +1942,7 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 
 **Navigation (v1.3).**
 - **≥ 1024 px:** a collapsible **sidebar**, remembered per device.
-- **Below 1024 px:** a top bar whose menu opens the same destinations as a **drawer**, plus a **bottom bar** of at most four competition jobs. Today that is Home · Scout · Entries. Team search joins with the team search page, and Ranking joins with the ranking page, which returns Entries to the drawer.
+- **Below 1024 px:** a top bar whose menu opens the same destinations as a **drawer** (with the sync line and the account: Switch scouter · Change password · Sign out), plus a **bottom bar**: Home · **Scout, a raised button in the middle** · Entries (with the waiting-to-send count). Team search and Ranking join it with their pages as **Home · Teams · Scout · Ranking · Entries** — four tabs plus the raised Scout; Entries stays in the bar. *(Amended 2026-10-07, v1.15; was "at most four, Ranking returns Entries to the drawer".)*
 - **The bottom bar is hidden on the entry route.**
 - The context switcher is still never in the nav: the nav links to Home, which holds it.
 

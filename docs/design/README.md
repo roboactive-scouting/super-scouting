@@ -46,7 +46,7 @@ Pages go **one at a time**. At this stage that means only the pages that exist t
 
 `/context` is only a redirect to `/`. Update this table when a page closes.
 
-**All ten current pages are closed (2026-10-07).** **Planned pages, designed after these ten:** the **entry preview** (SPEC-FINAL §13.4; Entries rows open it, user 2026-10-07), Search, Ranking and the other pages in `IMPLEMENTATION-PLAN.md`.
+**All ten current pages are closed (2026-10-07), and so is the phone shell** (`pages/11-phone-shell/final/`: top bar, bottom bar, menu). **Planned pages, designed after these ten:** the **entry preview** (SPEC-FINAL §13.4; Entries rows open it, user 2026-10-07), Search, Ranking and the other pages in `IMPLEMENTATION-PLAN.md`.
 
 ## Making the images
 

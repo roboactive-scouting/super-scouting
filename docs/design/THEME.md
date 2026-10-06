@@ -83,7 +83,7 @@ Scale: 12 · 13 · 14 (body) · 15 · 17 · 22 · 26 · 30 px. Page titles are 2
   - a 232 px dark sidebar (logo mark and team name at the top, nav groups, the account at the foot)
   - a 60 px white top bar (where you are, plus sync status chips)
   - content on `--bg` with 32 px side padding
-- **Phone:** the shell is designed in the first page round (spec: drawer plus a bottom bar, hidden on the entry route).
+- **Phone (< 1024 px):** closed 2026-10-07, `pages/11-phone-shell/final/`. A `--rail` top bar, a `--rail` bottom bar with Scout raised in the middle (hidden on the entry route), and a narrow dark menu.
 
 ## Locked components
 
@@ -151,7 +151,9 @@ Each page round adds a row here: what was picked, which page it came from, and t
 | Saving state (described choice) | The picked option shows "Saving…" in `--accent-ink` in place of its description; the other options dim to 50 % and can't be picked; on success a green "Saved. …" line with a ✓ follows | User detail, 2026-10-07 |
 | Live checks | A list under a field: an 18 px circle then a 13 px / 600 rule. Not yet checked: empty `--control-border` circle, `--muted` text. Met: filled `--accent` with a white ✓, `--accent-ink` text. Not met: `--warn` circle with ✕, `--warn` text | Change password, 2026-10-07 |
 | Account menu | The sidebar's account corner opens a white menu above it (10 px radius, soft shadow): Switch scouter · Change password · a divider · Sign out, each with a 16 px icon; the hovered item on `--accent-tint`. The corner shows `--rail-raised` while open | Change password, 2026-10-07 |
-| Phone top bar | `--rail` background, menu icon, logo mark, page title, sync state at the right (**provisional**: confirmed when the phone shell is designed) | Entry, 2026-10-06 |
+| Phone top bar | `--rail`, 54 px: ☰ (44 px target), logo mark, page title 16 px / 650 white, and a sync pill on `--rail-raised` at the right ("● 3 waiting" amber · "● All sent" green · "● Offline" grey) | Entry 2026-10-06, confirmed with the phone shell 2026-10-07 |
+| Phone bottom bar | `--rail`. Side tabs: icon + 11.5 px label in `--rail-muted`; current = white with a `--rail-raised` pill behind the icon. **Scout** in the middle: a raised 58 px `--accent` square (18 px radius) with a `--rail` ring and its label below. Entries carries an amber mono count badge when something is waiting. Hidden on the entry route | Phone shell, 2026-10-07 |
+| Phone menu (drawer) | 252 px `--rail` panel from the left over the scrim: brand row with ✕, a sync line on `--rail-raised`, nav groups as in the sidebar (46 px rows, current on `--rail-raised`), the account at the foot (initials, name, role; Switch scouter · Change password · Sign out; version and team) | Phone shell, 2026-10-07 |
 
 ## Open: decide during the page rounds
 
@@ -159,4 +161,4 @@ Each page round adds a row here: what was picked, which page it came from, and t
 2. **A Hebrew font.** **[RAISED BY ME]** Schibsted Grotesk has no Hebrew glyphs, and SPEC-FINAL §17.6 requires a self-hosted face with Hebrew coverage for form content. A Hebrew face has to be paired with it.
 3. ~~**Colours for robot status**~~ **Decided 2026-10-07 (Entries):** see "Robot status tag" above. Coverage was decided with Home.
 4. **A colour-blind-safe chart palette** beyond grey plus accent, and the worst→best shading ramp.
-5. **The phone shell:** top bar, drawer and bottom bar.
+5. ~~**The phone shell**~~ **Decided 2026-10-07:** see "Phone top bar", "Phone bottom bar" and "Phone menu" above.
