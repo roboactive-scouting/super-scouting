@@ -8,6 +8,12 @@ const schema = z.object({
   VITE_API_BASE_URL: z.string().url(),
   VITE_DEVICE_WIPE_CODE: z.string().min(1),
   VITE_APP_VERSION: z.string().min(1).default('unknown'),
+  /** The build date, YYYY-MM-DD; empty or missing means "no date shown". */
+  VITE_APP_BUILT_AT: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .or(z.literal(''))
+    .default(''),
 });
 
 export type ClientConfig = {
@@ -15,6 +21,8 @@ export type ClientConfig = {
   /** Not a secret: it ships in the bundle and is an accident guard (SPEC-FINAL 9.9). */
   deviceWipeCode: string;
   appVersion: string;
+  /** YYYY-MM-DD the app was built, or '' when unknown. */
+  builtAt?: string;
 };
 
 export function loadClientConfig(env: Record<string, string | undefined>): ClientConfig {
@@ -29,6 +37,7 @@ export function loadClientConfig(env: Record<string, string | undefined>): Clien
     apiBaseUrl: parsed.data.VITE_API_BASE_URL.replace(/\/+$/, ''),
     deviceWipeCode: parsed.data.VITE_DEVICE_WIPE_CODE,
     appVersion: parsed.data.VITE_APP_VERSION,
+    builtAt: parsed.data.VITE_APP_BUILT_AT,
   };
 }
 

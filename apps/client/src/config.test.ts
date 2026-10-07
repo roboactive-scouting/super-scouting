@@ -34,4 +34,14 @@ describe('loadClientConfig', () => {
     });
     expect(config.appVersion).toBe('unknown');
   });
+
+  it('reads the optional build date, and shows none by default', () => {
+    expect(loadClientConfig(complete).builtAt).toBe('');
+    expect(loadClientConfig({ ...complete, VITE_APP_BUILT_AT: '2026-10-02' }).builtAt).toBe(
+      '2026-10-02',
+    );
+    expect(() => loadClientConfig({ ...complete, VITE_APP_BUILT_AT: 'yesterday' })).toThrowError(
+      /VITE_APP_BUILT_AT/,
+    );
+  });
 });

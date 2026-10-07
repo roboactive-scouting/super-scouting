@@ -56,6 +56,10 @@ export default defineConfig(() => ({
         process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ??
         gitShortSha(),
     ),
+    // The build date (UTC, YYYY-MM-DD) for the Home footer.
+    'import.meta.env.VITE_APP_BUILT_AT': JSON.stringify(
+      process.env.VITE_APP_BUILT_AT ?? new Date().toISOString().slice(0, 10),
+    ),
   },
   server: { port: 5173 },
 }));
