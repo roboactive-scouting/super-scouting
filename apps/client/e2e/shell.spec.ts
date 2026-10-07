@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { goOffline, signIn } from './api-mock';
 import { shoot } from './shoot';
+import { touchDrag } from './touch';
 
 /** The server takes nothing, so what is queued stays waiting to send. */
 const HOLD_PUSH = { overrides: { 'sync/push': { results: [] } } };
@@ -50,6 +51,23 @@ test('phone shell: bars, menu, and no Users on a phone', async ({ page }) => {
   const box = await menu.boundingBox();
   expect(box!.width).toBeLessThanOrEqual(252.5);
   await shoot(page, 'shell-menu', 'phone');
+});
+
+test('phone menu: a swipe left closes it; a swipe right or down does not (UF.4)', async ({
+  page,
+}) => {
+  await signIn(page, 'admin', HOLD_PUSH);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.getByRole('button', { name: 'Open the menu' }).click();
+  const menu = page.getByRole('dialog', { name: 'Menu' });
+  const sync = menu.getByText(/All sent|waiting to send|Syncing|Offline/).first();
+  await expect(sync).toBeVisible();
+  await touchDrag(page, sync, { dx: 80 });
+  await touchDrag(page, sync, { dy: 120 });
+  await expect(menu).toBeVisible();
+  await touchDrag(page, sync, { dx: -160 });
+  await expect(menu).toBeHidden();
+  await expect(page).toHaveURL(/\/$/);
 });
 
 test('desktop account menu', async ({ page }) => {

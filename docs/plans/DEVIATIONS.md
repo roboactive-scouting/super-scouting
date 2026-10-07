@@ -4826,3 +4826,42 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
 - An offline session on a device whose server is unreachable never expires, by design. Until a call reaches our server, the 1.16 prompt is the only nudge.
 - A dead venue connection waits up to 20 s (8 + 12) before the cached-hash sign-in.
 - A tab opened before this build (no channel) hears nothing until it reloads.
+
+## UF.4 — Sheets close on a drag down, the menu on a swipe left; ✕ on Switch competition
+
+**Plan said:** every bottom sheet shows the ✕ its final draws; the Switch competition sheet on a phone is missing it.
+
+**What was wrong:** no phone final draws a ✕ on any bottom sheet. `03-home/final/home-phone.html` image 3 (Switch competition) has only the grab handle, the title and a full-width Close button; the Entry, Scout and Manage phone sheets are the same. The ✕ the user saw is the desktop Dialog's (UI-FIX-NOTES Home "Computer": "the Switch competition sheet has its ✕").
+
+**What I did instead:** followed the user's note: the phone Switch competition sheet gets a ✕ at the title's end, the same 48 px button and placement as the desktop Dialog's × (THEME "Dialog (desktop)"), inside the drag-handle area. No other sheet gets one, because no final draws it. It is opt-in: `Sheet` gets `showClose` (default false) and `ResponsiveDialog` gets `sheetClose` (default false). Rejected: passing `DialogProps.showClose` through to the sheet, because it defaults to true and would have put a ✕ on every phone sheet (Confirm entry, Choose your station, Scout … instead?), which the finals don't draw.
+
+**Risk:** the Home phone final now differs from the code by one ✕. The final README/image were not updated, which is left for the user.
+
+**Plan said:** the sheet follows the finger and closes past a threshold or on a fast flick.
+
+**What was wrong:** nothing; these are choices the plan left open.
+
+**What I did instead:**
+- The numbers are pure functions in `components/ui/drag-dismiss.ts`: it closes at 30 % of the panel or 120 px, whichever is less, or on a flick of at least 0.5 px/ms over the last 100 ms. There is a 6 px slop, and upward the sheet gives a rubber band capped at 24 px.
+- `useDragDismiss` reacts to touch and pen only. A mouse keeps selecting text, as the prompt allowed.
+- It moves the panel with the CSS `translate` property, not `transform`. The entrance keyframes `sheet-up` and `drawer-in` (`both` fill) animate `transform`, and an animation beats an inline style.
+- It adds a native non-passive `touchmove` listener that calls `preventDefault` while a drag is engaged. React registers `touchmove` as passive, and without this listener Chrome takes the pan and sends `pointercancel`.
+- The handle and title area is `touch-none`, the panel is `overscroll-contain`, and the menu is `touch-pan-y`.
+- A drag never starts from a focused text field. An unfocused one is fine.
+- After a drag, a click within 400 ms is swallowed, so a drag that began on a button doesn't press it.
+- With motion allowed, a drag-close slides the rest of the way out (160 ms) and then calls the close path. Reduced motion closes at once and nothing follows the finger.
+- The drag is off while `dismissible` is false.
+
+**Risk:** the sheet still "goes at once" except after a drag, which plays a 160 ms exit. During that time the sheet stays mounted and interactive. Initial JS went from 201.3 to 202.6 KB gzip, which leaves 2.4 KB under the 205 KB budget.
+
+**Plan said:** tests and e2e shots.
+
+**What was wrong:** Playwright's `page.touchscreen` only taps, and `playwright.config.ts` runs every test with `reducedMotion: 'reduce'`. Separately, appending the component tests to `sheet.test.tsx` through a bash heredoc failed: `` /usr/bin/bash: -c: line 199: unexpected EOF while looking for matching `'' ``.
+
+**What I did instead:**
+- `e2e/touch.ts` `touchDrag()` drives Chrome's real touch input through CDP `Input.dispatchTouchEvent`. One `test.describe` in `home.spec.ts` sets `reducedMotion: 'no-preference'` to prove the follow and the spring back.
+- The component tests are in a new `sheet-drag.test.tsx`.
+- The refreshed `home-switch-phone` shot comes from the existing Home test. The new phone test doesn't shoot, so two parallel tests never write one file.
+- Mutation-checked: with the drag disabled, all three UF.4 e2e tests fail. Without the scrolled-content check, or without dropping a gesture that starts upward, the matching component test fails.
+
+**Risk:** none known.

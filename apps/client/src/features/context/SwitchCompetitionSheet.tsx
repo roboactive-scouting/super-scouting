@@ -124,6 +124,7 @@ export function SwitchCompetitionSheet({
     <ResponsiveDialog
       open={open}
       title="Switch competition"
+      sheetClose
       onClose={onClose}
       footer={
         <Button className="w-full lg:w-auto" onClick={onClose}>

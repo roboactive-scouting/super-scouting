@@ -95,6 +95,27 @@ describe('SwitchCompetitionSheet (SPEC-FINAL 6.3, Home README "States")', () => 
     renderSheet();
     expect(await screen.findByText(/server did not answer/i)).toBeInTheDocument();
   });
+
+  it('on a phone, the sheet has its ✕ at the title, and it closes (UI fix notes, Home 2)', async () => {
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    })) as unknown as typeof window.matchMedia;
+    try {
+      const { onClose } = renderSheet();
+      const dialog = await screen.findByRole('dialog', { name: 'Switch competition' });
+      expect(dialog).toHaveAttribute('data-surface', 'sheet');
+      const [x] = screen.getAllByRole('button', { name: 'Close' });
+      expect(x!.closest('[data-drag-handle]')).not.toBeNull();
+      await userEvent.click(x!);
+      expect(onClose).toHaveBeenCalledOnce();
+    } finally {
+      window.matchMedia = original;
+    }
+  });
 });
 
 describe('SwitchCompetitionSheet with a server (task-1.22 addendum A)', () => {

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './api-mock';
 import { shoot } from './shoot';
+import { touchDrag } from './touch';
 
 /** The server takes nothing, so what is queued stays waiting to send. */
 const HOLD_PUSH = { overrides: { 'sync/push': { results: [] } } };
@@ -72,6 +73,61 @@ test('home: a lead sees tiles and coverage at both widths; the switch-competitio
   // The same choice on a computer is the centred dialog (RB.19: shot for the review).
   await shoot(page, 'home-switch', 'desktop');
   await expect(page.getByRole('dialog', { name: 'Switch competition' })).toBeVisible();
+});
+
+test('home: on a phone the switch-competition sheet has its ✕, and a drag down closes it (UF.4)', async ({
+  page,
+}) => {
+  await setClock(page);
+  await signIn(page, 'lead', HOLD_PUSH);
+  await page.setViewportSize({ width: 375, height: 812 });
+  const open = async () => {
+    await page.getByRole('button', { name: 'Switch competition' }).click();
+    const sheet = page.getByRole('dialog', { name: 'Switch competition' });
+    await expect(sheet.getByRole('button', { name: /District #3 · Tel Aviv/ })).toBeVisible();
+    return sheet;
+  };
+  let sheet = await open();
+  await expect(
+    sheet.locator('[data-drag-handle]').getByRole('button', { name: 'Close' }),
+  ).toBeVisible();
+  // The ✕ closes it (the shot of this sheet is 'home-switch', in the test above).
+  await sheet.locator('[data-drag-handle]').getByRole('button', { name: 'Close' }).click();
+  await expect(sheet).toBeHidden();
+  // A slow drag down from the title closes it (this config runs with reduced motion).
+  sheet = await open();
+  await touchDrag(page, sheet.getByRole('heading', { name: 'Switch competition' }), { dy: 220 });
+  await expect(sheet).toBeHidden();
+  // So does a drag on the body while it is at the top; a drag up does not.
+  sheet = await open();
+  const body = sheet.getByText(/Only for this session/);
+  await touchDrag(page, body, { dy: -60 });
+  await expect(sheet).toBeVisible();
+  await touchDrag(page, body, { dy: 220 });
+  await expect(sheet).toBeHidden();
+});
+
+test.describe('with motion', () => {
+  test.use({ reducedMotion: 'no-preference' });
+
+  test('home: the phone sheet follows a drag, springs back from a short one, and leaves on a long one (UF.4)', async ({
+    page,
+  }) => {
+    await setClock(page);
+    await signIn(page, 'lead', HOLD_PUSH);
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.getByRole('button', { name: 'Switch competition' }).click();
+    const sheet = page.getByRole('dialog', { name: 'Switch competition' });
+    const title = sheet.getByRole('heading', { name: 'Switch competition' });
+    await expect(sheet.getByRole('button', { name: /District #3 · Tel Aviv/ })).toBeVisible();
+    await page.waitForTimeout(400); // the sheet's own slide in
+    const resting = (await sheet.boundingBox())!.y;
+    await touchDrag(page, title, { dy: 50 });
+    await expect(sheet).toBeVisible();
+    await expect.poll(async () => (await sheet.boundingBox())!.y).toBeCloseTo(resting, 0);
+    await touchDrag(page, title, { dy: 260 });
+    await expect(sheet).toBeHidden();
+  });
 });
 
 test('home: an admin on desktop sees the Manage and Users tiles', async ({ page }) => {
