@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import { validateEntryData, validateEntryShape } from '@frc/shared';
 import type { PullEntityKey, PullResponse } from '@frc/shared';
 
 /**
@@ -276,6 +277,7 @@ type FieldSeed = {
   unit: 'count' | 'boolean' | 'enum' | 'text';
   direction: 'higher_is_better' | 'neutral';
   description: string;
+  help?: string;
   config: Record<string, unknown>;
   expected_range: { min: number; max: number } | null;
   points: number | null;
@@ -355,6 +357,25 @@ const FIELD_SEEDS: FieldSeed[] = [
     points: null,
     option_points: null,
   },
+  // Appended, not placed in teleop's run, so every earlier field keeps its id and order.
+  ...[
+    ['teleop_coral_l4', 'Coral L4', 'Scored', 'Coral scored on level 4', 12],
+    ['teleop_coral_l1_3', 'Coral L1–L3', 'Scored', 'Coral scored on levels 1 to 3', 20],
+    ['teleop_algae_net', 'Algae in net', 'Scored', 'Algae scored in the net', 10],
+  ].map(([key, label, help, description, max]): FieldSeed => ({
+    key: key as string,
+    label: label as string,
+    type: 'counter',
+    phase: 'teleop',
+    unit: 'count',
+    direction: 'higher_is_better',
+    description: description as string,
+    help: help as string,
+    config: { min: 0, max, step: 1 },
+    expected_range: { min: 0, max: max as number },
+    points: null,
+    option_points: null,
+  })),
 ];
 
 const FORM_FIELDS = FIELD_SEEDS.map((f, i) => ({
@@ -362,7 +383,7 @@ const FORM_FIELDS = FIELD_SEEDS.map((f, i) => ({
   form_version_id: FORM_VERSION_ID,
   key: f.key,
   label: f.label,
-  help_text: null,
+  help_text: f.help ?? null,
   type: f.type,
   section: null,
   display_order: i + 1,
@@ -490,6 +511,73 @@ export const ENTRIES: FixtureEntry[] = ENTRY_SEEDS.map(
     };
   },
 );
+
+// Qualification matches Q1-Q34 scouted that morning (2026-03-17, Asia/Jerusalem), every
+// robot in the line-up by a rotating scouter, except the four matches below that miss one.
+// Q35-Q38 above keep their partial coverage; Q39 and Q40 have no entries.
+
+/** match → the station left unscouted. */
+const MISSING_ROBOT: Record<number, string> = { 7: 'R3', 19: 'B2', 26: 'R1', 31: 'B3' };
+const MORNING_SCOUTERS = [
+  'Amit Ben-David',
+  'Yael Shapira',
+  'Omer Katz',
+  'Itai Cohen',
+  'Maya Friedman',
+  'Lior Avraham',
+  'Noa Levi',
+  'Daniel Rosen',
+].map((name) => userByFullName(name).id);
+const FIRST_QUAL = 1;
+const LAST_MORNING_QUAL = 34;
+
+const MORNING_ENTRIES: FixtureEntry[] = [];
+for (let n = FIRST_QUAL; n <= LAST_MORNING_QUAL; n++) {
+  const match = MATCHES[n - 1]!;
+  match.slots.forEach((slot, k) => {
+    const station = `${slot.alliance === 'red' ? 'R' : 'B'}${slot.station}`;
+    if (MISSING_ROBOT[n] === station) return;
+    // 08:00 local (06:00 UTC) plus four minutes a match, and a little for each scouter
+    const minutes = 6 * 60 + (n - 1) * 4 + 3;
+    const at = new Date(Date.UTC(2026, 2, 17, 0, minutes, 20 * k)).toISOString();
+    const points = 10 + ((n * 13 + k * 29) % 46);
+    MORNING_ENTRIES.push({
+      id: uid(KIND.entry, 100 + MORNING_ENTRIES.length),
+      form_version_id: FORM_VERSION_ID,
+      form_kind: 'match',
+      event_id: EVENT_ID,
+      match_id: match.id,
+      team_id: slot.team_id,
+      alliance: slot.alliance,
+      scouter_id: MORNING_SCOUTERS[(n + k) % MORNING_SCOUTERS.length]!,
+      robot_status: 'played',
+      breakdown_seconds: null,
+      data: {
+        ...dataFor(points),
+        teleop_coral_l4: (n + k) % 6,
+        teleop_coral_l1_3: (n * 3 + k * 5) % 9,
+        teleop_algae_net: (n + 2 * k) % 4,
+      },
+      version: 1,
+      created_at: at,
+      updated_at: at,
+      client_created_at: at,
+      client_updated_at: at,
+      deleted_at: null,
+    });
+  });
+}
+ENTRIES.push(...MORNING_ENTRIES);
+
+// The shared schemas are the judge: a morning entry that the app would refuse is a fixture bug.
+// (Not the Q35-Q38 seeds, kept as designed: the disabled robot there carries data.)
+for (const e of MORNING_ENTRIES) {
+  const shape = validateEntryShape({ ...e, form_kind: 'match' });
+  const data = validateEntryData(FORM_FIELDS, e.robot_status, e.data);
+  if (shape.length > 0 || !data.ok) {
+    throw new Error(`fixture entry ${e.id} is invalid: ${JSON.stringify({ shape, data })}`);
+  }
+}
 
 // ---------------------------------------------------------------------------------------
 // The pull: what the device caches for District #3

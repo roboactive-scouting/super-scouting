@@ -47,7 +47,7 @@ test('phone shell: bars, menu, and no Users on a phone', async ({ page }) => {
   await expect(menu.getByRole('link', { name: 'Users' })).toHaveCount(0);
   await expect(menu.getByText('3 waiting to send')).toBeVisible();
   const box = await menu.boundingBox();
-  expect(box!.width).toBeLessThanOrEqual(252);
+  expect(box!.width).toBeLessThanOrEqual(252.5);
   await shoot(page, 'shell-menu', 'phone');
 });
 

@@ -1,4 +1,4 @@
-import { Check, Info, TriangleAlert, WifiOff } from 'lucide-react';
+import { Check, Info, TriangleAlert, WifiOff, type LucideIcon } from 'lucide-react';
 import type { ReactNode, Ref } from 'react';
 import { cn } from '@/lib/utils';
 
@@ -120,10 +120,12 @@ export function ErrorLine({
 export function WarningNotice({
   children,
   lead,
+  icon: Icon = TriangleAlert,
   className,
 }: {
   children: ReactNode;
   lead?: ReactNode;
+  icon?: LucideIcon;
   className?: string;
 }) {
   return (
@@ -133,7 +135,7 @@ export function WarningNotice({
         className,
       )}
     >
-      <TriangleAlert aria-hidden="true" className="mt-0.5 size-[18px] shrink-0 text-warn" />
+      <Icon aria-hidden="true" className="mt-0.5 size-[18px] shrink-0 text-warn" />
       <div dir="auto" className="min-w-0 flex-1">
         {lead ? <b className="font-bold text-warn">{lead} </b> : null}
         {children}

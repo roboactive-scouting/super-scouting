@@ -6,7 +6,7 @@ import {
   useSyncExternalStore,
   type TouchEvent,
 } from 'react';
-import { Link, matchPath, Navigate, Outlet, useLocation, useMatches } from 'react-router-dom';
+import { matchPath, Navigate, Outlet, useLocation, useMatches } from 'react-router-dom';
 import { DISABLED, OFFLINE_SIGNED_IN_LINE, SERVER_UNREACHABLE_LINE } from '@/auth/messages';
 import { PASSWORD_CHANGED_LINE, ReconnectPrompt } from '@/auth/ReconnectPrompt';
 import { exchangePendingCredential, installReconnect, reconnectPrompt } from '@/auth/reconnect';
@@ -515,26 +515,11 @@ export function AppShell() {
     </>
   );
 
-  const hasFooter =
-    (gate.eventId !== null && !current.expired && !onHome) || updateIsReady || !onHome;
-  const footer = hasFooter && (
-    <>
-      {/* SPEC-FINAL 6.3: a link to the page, naming the context — never the switcher. */}
-      {gate.eventId !== null && !current.expired && !onHome && (
-        <Link
-          className="tap-target state-layer inline-flex items-center rounded-lg px-2"
-          to={PATHS.home}
-        >
-          <span dir="auto">{override ? `Looking at ${lookingAt}` : `Working on ${workingOn}`}</span>
-          &nbsp;· Change
-        </Link>
-      )}
-      {/* SPEC-FINAL 9.1: said, never acted on — no reload button, because there is
-          nothing safe for it to do mid-match. */}
-      {updateIsReady && <span>{UPDATE_READY_LINE}</span>}
-      {!onHome && <span>version {clientConfig().appVersion}</span>}
-    </>
-  );
+  // The designs carry no footer: the version lives on Home, in the phone menu and on the
+  // sign-in frame. Only the quiet update hint remains, and only when an update is ready.
+  // SPEC-FINAL 9.1: said, never acted on — no reload button, because there is nothing
+  // safe for it to do mid-match.
+  const footer = updateIsReady && <span>{UPDATE_READY_LINE}</span>;
 
   return (
     <ShellLayout

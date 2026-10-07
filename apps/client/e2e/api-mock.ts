@@ -19,7 +19,12 @@ const CORS = {
 /** An override that is an Error-shaped object becomes an HTTP error with the client's error body. */
 export type MockError = { status: number; code: string; message: string };
 const isError = (v: unknown): v is MockError =>
-  typeof v === 'object' && v !== null && 'status' in v && 'code' in v;
+  typeof v === 'object' &&
+  v !== null &&
+  'status' in v &&
+  'code' in v &&
+  'message' in v &&
+  typeof (v as { message: unknown }).message === 'string';
 
 export type MockOptions = {
   role?: Role;
@@ -28,10 +33,20 @@ export type MockOptions = {
   overrides?: Record<string, unknown>;
 };
 
+/** Pages that went offline: a routed request is answered by the mock even offline, so it must refuse itself. */
+const offline = new WeakSet<Page>();
+
 /** Register once per test. Overrides are checked FIRST (also for 'sync/pull' and 'login'). */
 export async function mockApi(page: Page, opts: MockOptions = {}) {
   const role = opts.role ?? 'lead';
+  // No real network: anything that is not the app (localhost:4173) or the mocked API aborts.
+  // Registered first, so the api route below (registered later) is matched before it.
+  await page.route(
+    (url) => url.host !== 'localhost:4173' && url.host !== 'api.test' && url.protocol !== 'data:',
+    (route) => route.abort('blockedbyclient'),
+  );
   await page.route('http://api.test/**', async (route: Route) => {
+    if (offline.has(page)) return route.abort('internetdisconnected');
     if (route.request().method() === 'OPTIONS')
       return route.fulfill({ status: 204, headers: CORS });
     const url = new URL(route.request().url());
@@ -74,12 +89,21 @@ export async function mockApi(page: Page, opts: MockOptions = {}) {
   });
 }
 
-/** Go offline only AFTER a page has loaded (offline before goto fails the navigation). */
+/**
+ * Go offline after a page has loaded. The API refuses and the browser reports it
+ * (`navigator.onLine`, the `offline` event), but the app's own files stay reachable: a real
+ * device has them in the service worker cache, which these tests block, and an offline
+ * sign-in loads its bcrypt chunk on demand.
+ */
 export async function goOffline(page: Page) {
-  await page.context().setOffline(true);
-  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  offline.add(page);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false });
+    window.dispatchEvent(new Event('offline'));
+  });
 }
 
+/** Signs in through the login form and waits for '/'; for mustChange sign in manually (it lands on /change-password). */
 export async function signIn(
   page: Page,
   role: Role = 'lead',

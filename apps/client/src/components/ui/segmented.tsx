@@ -68,7 +68,7 @@ export function Segmented<K extends string>({
             onClick={() => onChange(option.key)}
             dir="auto"
             className={cn(
-              'state-layer motion-transition min-h-[2.875rem] min-w-12 rounded-tag px-2 text-[0.8125rem] font-semibold',
+              'state-layer motion-transition min-h-[2.875rem] min-w-12 whitespace-nowrap rounded-tag px-1 text-[12.5px] font-semibold lg:px-2 lg:text-[0.8125rem]',
               chosen
                 ? 'bg-accent-tint text-accent-ink shadow-[inset_0_0_0_2px_var(--accent)]'
                 : 'text-ink-2',

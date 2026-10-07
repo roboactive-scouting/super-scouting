@@ -38,6 +38,37 @@ export function usePageTitle(title: string | null): void {
   }, [title]);
 }
 
+type OwnedCrumb = { parts: readonly string[]; owner: object };
+let currentCrumb: OwnedCrumb | null = null;
+const crumbListeners = new Set<() => void>();
+
+function setCrumb(next: OwnedCrumb | null) {
+  currentCrumb = next;
+  for (const listener of [...crumbListeners]) listener();
+}
+
+function subscribeCrumb(listener: () => void) {
+  crumbListeners.add(listener);
+  return () => crumbListeners.delete(listener);
+}
+
+/**
+ * A page sets the DESKTOP crumb itself ("2026 / **District #3 · Tel Aviv**": parts joined
+ * with " / ", the last in bold ink). `null` hands the crumb back to the route's handle.
+ * Cleared when the page unmounts. The phone top bar's title is not affected.
+ */
+export function usePageCrumb(parts: string[] | null): void {
+  const key = parts === null ? null : JSON.stringify(parts);
+  useEffect(() => {
+    if (key === null) return;
+    const owner = {};
+    setCrumb({ parts: JSON.parse(key) as string[], owner });
+    return () => {
+      if (currentCrumb?.owner === owner) setCrumb(null);
+    };
+  }, [key]);
+}
+
 function handleOf(value: unknown): PageHandle {
   return typeof value === 'object' && value !== null ? (value as PageHandle) : {};
 }
@@ -69,7 +100,11 @@ export function useCurrentTitle(phone = true): string {
  */
 export function useCrumb(): { trail: readonly string[]; current: string } {
   const handle = useRouteHandle();
+  const ownCrumb = useSyncExternalStore(subscribeCrumb, () => currentCrumb);
   const current = useCurrentTitle(false);
+  if (ownCrumb && ownCrumb.parts.length > 0) {
+    return { trail: ownCrumb.parts.slice(0, -1), current: ownCrumb.parts.at(-1)! };
+  }
   const trail = handle.crumb ?? [];
   return { trail: trail.at(-1) === current ? trail.slice(0, -1) : trail, current };
 }

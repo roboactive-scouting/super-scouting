@@ -7,6 +7,7 @@ import { session } from '@/auth/session';
 import { db, setMeta } from '@/data/db';
 import type * as SyncModule from '@/data/sync';
 import { pending } from '@/data/outbox';
+import { setStation } from '@/data/station';
 import { sessionOverride } from '@/features/context/sessionOverride';
 import { needsNoHydration } from '@/features/shell/shellContext';
 import { routeTree } from './routes';
@@ -47,6 +48,8 @@ beforeEach(async () => {
     { entity: 'app_settings', id: 'true', active_season_id: 'se-1', active_event_id: 'ev-1' },
   ]);
   await setMeta('sync.hydrated_event_id', 'ev-1');
+  // A remembered station, so the first-run station sheet does not cover the picker.
+  await setStation('R1');
 });
 
 describe('the route tree and the session (task 1.15)', () => {
@@ -55,11 +58,8 @@ describe('the route tree and the session (task 1.15)', () => {
     renderAt('/scout');
     const u = userEvent.setup();
     await u.type(await screen.findByLabelText(/match number/i), '42');
-    await u.click(screen.getByRole('radio', { name: 'red' }));
-    await u.selectOptions(
-      screen.getByRole('combobox', { name: /robot/i }),
-      await screen.findByRole('option', { name: /118/ }),
-    );
+    await u.click(screen.getByRole('radio', { name: 'Red' }));
+    await u.click(await screen.findByRole('radio', { name: /118/ }));
     await u.click(screen.getByRole('button', { name: /start entry/i }));
     await waitFor(async () => expect(await pending(10)).toHaveLength(1));
     expect((await pending(10))[0]!.author_user_id).toBe('u-signed-in');
@@ -129,11 +129,8 @@ describe('switch scouter on a shared device (SPEC-FINAL 7.3, task 1.16)', () => 
 
   async function startEntry(u: ReturnType<typeof userEvent.setup>, matchNumber: string) {
     await u.type(await screen.findByLabelText(/match number/i), matchNumber);
-    await u.click(screen.getByRole('radio', { name: 'red' }));
-    await u.selectOptions(
-      screen.getByRole('combobox', { name: /robot/i }),
-      await screen.findByRole('option', { name: /118/ }),
-    );
+    await u.click(screen.getByRole('radio', { name: 'Red' }));
+    await u.click(await screen.findByRole('radio', { name: /118/ }));
     await u.click(screen.getByRole('button', { name: /start entry/i }));
   }
 
@@ -152,7 +149,7 @@ describe('switch scouter on a shared device (SPEC-FINAL 7.3, task 1.16)', () => 
     await u.click(await screen.findByRole('button', { name: /Dana/ })); // the account corner
     await u.click(screen.getByRole('menuitem', { name: 'Switch scouter' }));
     await u.selectOptions(
-      await screen.findByRole('combobox', { name: 'Scouter' }),
+      await screen.findByRole('combobox', { name: "Who's scouting next?" }),
       screen.getByRole('option', { name: /noa/ }),
     );
     await u.type(screen.getByLabelText(/^Password for/), 'noa-pass');
@@ -184,7 +181,7 @@ describe('switch scouter on a shared device (SPEC-FINAL 7.3, task 1.16)', () => 
     const router = renderAt('/switch-scouter');
     const u = userEvent.setup();
     await u.selectOptions(
-      await screen.findByRole('combobox', { name: 'Scouter' }),
+      await screen.findByRole('combobox', { name: "Who's scouting next?" }),
       screen.getByRole('option', { name: /noa/ }),
     );
     await u.type(screen.getByLabelText(/^Password for/), 'noa-pass');

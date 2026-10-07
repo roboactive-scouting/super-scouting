@@ -818,10 +818,7 @@ describe('AppShell and a changed default (task 1.22)', () => {
     await act(() => router.navigate('/scout'));
 
     // The shell is on B at once; B was never loaded here, and its sync waits behind A's.
-    expect(
-      await screen.findByRole('link', { name: /working on week 3 · change/i }),
-    ).toBeInTheDocument();
-    expect(screen.getByText(LOADING)).toBeInTheDocument();
+    expect(await screen.findByText(LOADING)).toBeInTheDocument();
 
     // A's answer arrives late, and is ignored: it never settles the shell back on A.
     await act(async () => hung.settle(OK));
@@ -873,10 +870,13 @@ describe('AppShell and a session override (SPEC-FINAL 6.3, task 1.22)', () => {
     await cacheEventNames();
   });
 
-  it('names the context in the footer, as a link to the context page', async () => {
-    renderShell();
-    const link = await screen.findByRole('link', { name: /working on week 1 · change/i });
-    expect(link).toHaveAttribute('href', '/');
+  it('has no shell footer: no "Working on … Change" line and no version line', async () => {
+    renderShell('/entries');
+    await screen.findByText('the entries list');
+    expect(screen.queryByRole('link', { name: /working on/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/working on week 1/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^version /)).not.toBeInTheDocument();
+    expect(document.querySelector('footer')).toBeNull();
   });
 
   it('disables Scout, and says so on every page, until the override is cleared', async () => {
@@ -886,9 +886,7 @@ describe('AppShell and a session override (SPEC-FINAL 6.3, task 1.22)', () => {
     const strip = line.closest('[role="status"]') as HTMLElement;
     expect(screen.queryByRole('link', { name: 'Scout' })).not.toBeInTheDocument();
     expect(screen.getByText('Scout')).toHaveAttribute('aria-disabled', 'true');
-    expect(
-      await screen.findByRole('link', { name: /looking at week 3 · change/i }),
-    ).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /looking at week 3/i })).not.toBeInTheDocument();
 
     await userEvent
       .setup()

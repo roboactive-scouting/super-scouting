@@ -98,7 +98,7 @@ describe('primitives I', () => {
     );
     expect(screen.getByRole('button', { name: 'Mine' })).toHaveAttribute('aria-pressed', 'true');
   });
-  it('filter chips keep a 34 px pill with a 48 px target', () => {
+  it('filter chips are 32 px pills on a phone and 34 px on desktop, both with a 48 px target', () => {
     render(
       <FilterChips
         label="Filter"
@@ -108,7 +108,16 @@ describe('primitives I', () => {
       />,
     );
     const chip = screen.getByRole('button', { name: 'All' });
-    expect(chip).toHaveClass('h-[34px]', 'min-w-12', 'after:absolute', 'after:-inset-y-[7px]');
+    expect(chip).toHaveClass(
+      'h-8',
+      'px-2.5',
+      'text-[12.5px]',
+      'lg:h-[34px]',
+      'min-w-12',
+      'after:absolute',
+      'after:-inset-y-2',
+      'lg:after:-inset-y-[7px]',
+    );
   });
   it('the password eye has a 48 px hit area around its 40 px button', () => {
     render(<PasswordInput aria-label="Password" />);

@@ -10,7 +10,7 @@ export type TabItem<K extends string> = {
 };
 
 /**
- * A row of equal-width tabs in a white bar (THEME "Tabs": 44 px tall; the current tab is
+ * A row of equal-width tabs in a white bar (THEME "Tabs": 48 px tall, the §17.7 touch floor over THEME's 44; the current tab is
  * accent-tint with a 3 px accent underline; done tabs show a ✓ in accent). The WAI-ARIA tabs
  * pattern with MANUAL activation: arrows and Home / End move focus, Enter or Space chooses,
  * only the chosen tab is in the Tab order. Manual, because choosing a tab unmounts the
@@ -76,10 +76,18 @@ export function Tabs<K extends string>({
             tabIndex={selected ? 0 : -1}
             onClick={() => onChange(tab.key)}
             className={cn(
-              'state-layer motion-transition relative flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-control px-2 text-sm font-semibold',
+              'state-layer motion-transition relative flex h-12 min-w-0 items-center justify-center gap-1.5 rounded-control px-2 text-sm font-semibold',
               selected ? 'bg-accent-tint text-accent-ink' : finished ? 'text-ink-2' : 'text-muted',
             )}
           >
+            {finished && (
+              <Check
+                aria-hidden="true"
+                data-done-mark=""
+                className="size-3.5 shrink-0 text-accent"
+                strokeWidth={3}
+              />
+            )}
             <span className="truncate" dir="auto">
               {tab.label}
             </span>
@@ -89,14 +97,6 @@ export function Tabs<K extends string>({
               <span id={`${doneId}-${tab.key}`} aria-hidden="true" className="sr-only">
                 Done
               </span>
-            )}
-            {finished && (
-              <Check
-                aria-hidden="true"
-                data-done-mark=""
-                className="size-3.5 shrink-0 text-accent"
-                strokeWidth={3}
-              />
             )}
             {selected && (
               <span

@@ -114,12 +114,17 @@ export function ShellLayout({
         />
       )}
       <div
-        className={cn('flex min-w-0 flex-1 flex-col', showBottomBar && 'pb-[var(--bottom-bar)]')}
+        className={cn(
+          'flex min-w-0 flex-1 flex-col',
+          showBottomBar && 'pb-[calc(var(--bottom-bar)+var(--raised-overhang)+1rem)]',
+        )}
         // Sticky page actions (StickyActionBar) sit on top of the fixed bottom bar, not under it.
         style={
           showBottomBar
             ? ({
                 '--bottom-bar': 'calc(4.125rem + env(safe-area-inset-bottom))',
+                // How far the raised Scout button rises above the bar (BottomBar's -mt-[1.375rem]).
+                '--raised-overhang': '1.375rem',
               } as CSSProperties)
             : undefined
         }

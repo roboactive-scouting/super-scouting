@@ -73,4 +73,24 @@ describe('Tabs (RB.3: done and count)', () => {
     expect(screen.getByRole('tab', { name: /Teleop/ })).toHaveTextContent('3');
     expect(screen.getByRole('tab', { name: /Teleop/ })).not.toHaveAttribute('aria-describedby');
   });
+
+  it('draws the ✓ before the label and keeps the tab at least 48 px tall', () => {
+    render(
+      <Tabs
+        label="Phases"
+        value="tele"
+        onChange={() => {}}
+        done={new Set(['auto'] as const)}
+        tabs={[
+          { key: 'auto', label: 'Auto' },
+          { key: 'tele', label: 'Teleop' },
+        ]}
+      />,
+    );
+    const tab = screen.getByRole('tab', { name: 'Auto' });
+    const mark = tab.querySelector('[data-done-mark]')!;
+    const label = screen.getByText('Auto');
+    expect(mark.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tab).toHaveClass('h-12');
+  });
 });

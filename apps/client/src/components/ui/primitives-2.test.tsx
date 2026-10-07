@@ -489,4 +489,13 @@ describe('moved controls', () => {
     );
     expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
   });
+
+  it('an action bar can stand in the page flow from a desktop width', () => {
+    render(
+      <ActionBar desktop="static">
+        <button type="button">Send</button>
+      </ActionBar>,
+    );
+    expect(screen.getByRole('button', { name: 'Send' }).parentElement).toHaveClass('lg:static');
+  });
 });
