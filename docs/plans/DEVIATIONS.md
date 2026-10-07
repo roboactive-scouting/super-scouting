@@ -4379,3 +4379,110 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
 - Unit tests that clicked the sidebar's "Sign out" / "Switch scouter" now open the account corner first (`AppShell.test.tsx`, `routes.test.tsx`); `routes.test.tsx` reads the handle with `needsNoHydration` because handles are no longer the bare `NO_HYDRATION` object.
 
 **Risk:** the desktop sidebar is taller than the design image (48 px rows, a 48 px collapse button), so a short laptop screen scrolls the nav sooner. The corner's dark initials circle is `--rail-raised` and would vanish into the open corner, so it carries a `ring-1 ring-rail-muted` instead of the mock's untokened `#2b323d`. The main chunk is still 613 kB (Vite's > 500 kB warning): lazy routes took out the admin and auth pages only.
+
+## Task RB.12 — Switch scouter
+
+**What the plan said:** the note test finds the sentence with `getByText(/Noa Levi's 3 entries waiting to send, which still send as Noa Levi's, and station Blue 2/)`; "{N} entries".
+
+**What I did instead:**
+- The final image bolds "Stays on this device:" and the station label, so the sentence is split across elements and `getByText` (own text nodes only) cannot match it whole. The test reads the note's `textContent` (`toHaveTextContent`) instead; the words are the plan's.
+- One waiting entry reads "1 entry", not "1 entries" (the README only gives the plural). Waiting but no station: "{Current}'s N entries waiting to send, which still send as {Current}'s." (README: "the station part is left out"). The name is wrapped in `<bdi>` so a Hebrew name does not scramble the sentence.
+- The note shows the signed-in scouter's name (the previous scouter, the one whose entries stay), taken from the session, in full ("Dana Levi's"); the final image's "Noa's" is the mock's shortened form, the plan's test says the full name.
+- The select's label changed from "Scouter" to "Who's scouting next?" (README); the existing tests were updated to the new accessible name. The page no longer uses `PageHeader`, `AuthField`, `AuthError` or `AuthSubmit` (RB.7 owns `AuthFrame`); it is built from the new primitives directly. The muted username inside an option (as drawn) is not possible in a native `<option>`, so it stays "Full name · username" in one colour.
+
+## Task RB.7 — Login and Change password (sign-in frame)
+
+**Plan said:** the e2e step signs in with `signIn(page, 'scouter', { mustChange: true })`; `AuthFrame.tsx` is rewritten for the sign-in frame; the expired-session notice uses the shared warning notice; both pages share the online hook.
+
+**What was wrong:**
+- `signIn` waits for `/` and a forced user lands on `/change-password`, so the helper call as written never resolves.
+- `AuthField` / `AuthError` / `AuthSubmit` are also imported by `SwitchScouter.tsx` and `ReconnectPrompt.tsx` (other tasks' files), so their props cannot change incompatibly.
+- The expired-session notice in the Login final has a clock icon; `WarningNotice` (RB.2) took no icon prop and always drew a triangle.
+
+**What I did instead:**
+- `e2e/auth.spec.ts` signs in by hand for the forced case and waits for `/change-password`.
+- The three helpers stay exported from `AuthFrame.tsx` with the same props (new optional ones only: `compact`, `inputRef`, `children`, `disabled`); password fields now carry the eye, so the other two screens get it too.
+- `WarningNotice` gained an optional `icon?: LucideIcon` (default `TriangleAlert`, so existing callers are unchanged); the expired notice passes `Clock` and is wrapped in `role="status"`.
+- Both pages import the existing `useOnline` from `@/lib/useOnline`; a duplicate `auth/useOnline.ts` was written first and deleted.
+- Change password always uses the small phone band (84 px), as the 10-password final shows; Login shrinks it only when a notice shows. Offline, the offline note sits above the forced explanatory line.
+
+**Risk:** none known; screenshots are compared by the orchestrator after the wave.
+
+## Task RB.11 — Entries
+
+**What the design said:** the Team cell shows the station ("Blue 2") for every entry, including one flagged "Not in line-up"; the page header differs by width; the refused entry is a separate row; the key under the table also explains "—" for no points.
+
+**What I did instead:**
+- An entry stores only its alliance, and the station comes from the match line-up, so a team outside the line-up has no station. Its Team cell shows the alliance tag ("Blue" / "Red") instead of "Blue 2". The mock invents a station for 3316 in Q37.
+- Waiting and refused never overlap: a refused entry stays in the outbox (parked), but is counted under Needs a look only, and it carries no amber arrow, so the chips partition as drawn (3 waiting, 1 refused).
+- Time is the entry's `client_created_at` (the sort key), falling back to `client_updated_at`; the old page showed the update time.
+- Two lines of copy the README does not give: a search or filter that matches nothing reuses `StateMessage` "no-results" ("Nothing matches" / "Try fewer words, or clear a filter."), with a "Show all" button that clears both. The key under the table is only "waiting to send": the "no points" half comes with the Points column (task 1.54).
+- The phone chips are the 34 px primitive (the mock's 32 px / 12.5 px version would need a size prop on `FilterChips`); they scroll sideways in a wrapper when they do not fit. The phone search is 48 px (floor), not 44.
+- Super entries (`form_kind: 'super'`) are not listed: they have no match, team or status.
+- `ErrorLine` carries `role="alert"`, so a page with several refused entries announces each on load.
+
+**Risk:** the desktop table is checked by unit test only; the orchestrator's Compare step is the first look at spacing against the final.
+
+## Task RB.10 — Home
+
+**What the design said:** a desktop crumb "2026 / District #3 · Tel Aviv"; event cards with dates ("Mar 24–26"); a station tile, a last-entry tile and a coverage card that always have something to show; the plan's test file renders Home without setting a width.
+
+**What I did instead:**
+- The desktop crumb is "2026 / District #3 · Tel Aviv" through `usePageCrumb` (season year and event name from the cached rows); it is left to the route handle ("Home") under a session override or when the device holds no season row. The phone title is unchanged.
+- Event cards show the name and one marker only: `events` rows have no dates.
+- Copy the README does not give: no station → "—" (screen readers: "None") with the same "Change it on Scout" note; no entry of yours yet → "—"; one waiting → "1 entry waiting to send"; one gap → "1 match is missing a robot"; the last-entry age is "N min ago" within the hour, "N h ago" within the day, else the date. "Sends when online" shows only while something waits. The coverage grid is one `role="img"` named from the legend words ("30 All 6 robots, 4 Missing a robot, …").
+- Coverage is hidden while there are no qualification matches, and under a session override (it describes the default competition, not the one being looked at). The header, banner and Scout rule under an override follow today's code; the banner reads "Looking at … for this session. You cannot create new entries here, and reopening the app returns to …" with "Back to …".
+- `coverage()` (RB.4) takes `type`; cached matches carry `match_type`, so Home maps it at the call site (`homeData.coverageCells`).
+- The Open link on the last entry goes to the entry route (`entryPath`), which applies the self-edit window itself; Entries rows open nothing yet.
+- The plan's tests: `renderHome` defaults to a 375 px phone (the "3 entries waiting to send" line is phone-only); "names the matches missing a robot" sets 1440 px, because the phone card's line reads "Missing a robot" (README).
+- `ContextPage.tsx` is gone (its tests moved to `SwitchCompetitionSheet.test.tsx`; the session-only notice test moved to Home's banner); `listAll` and the cache read live in `features/context/competitions.ts`. The sheet closes after a choice and has a Close button on both widths.
+- Desktop Go-to tiles keep `GoToTile`'s 88 px minimum (design 112 px); `GoToTile` takes no size prop.
+- Phone Go-to tiles (96 px, 12 px padding, 32 px icon square) are sized from Home with arbitrary-variant classes on the grid (`[&_a]:min-h-24` …) because `GoToTile` takes no size prop and is not this task's file.
+- The session banner follows THEME: the lead reads "Looking at {event} for this session." and a full-width secondary "Back to {default}" sits inside the box; the extra sentence about new entries is dropped (Scout is withheld, and the shell strip already says the rest).
+- The version footer shows " · YYYY-MM-DD" on a computer only, from a new optional `VITE_APP_BUILT_AT` (default empty = no date; `vite.config.ts` sets it to the UTC build date unless the variable is already set). `ClientConfig.builtAt` is optional so other tests that build a config by hand still type-check.
+
+**Risk:** the screenshots are compared by the orchestrator after the wave; Home's design has the Our-team card and Top teams, which are not built (README "What's built when").
+
+## Task RB.8 — Entry
+
+**What the design said:** a "Notes" tab for the post-match phase; "You can still edit it for 10 minutes after submitting" on the confirm; a confirm that starts with Status; a ✓ character on done tabs (the plan's test asserts the text "✓"); the plan's test reads "1 of N" with an unanchored pattern; the robot status shows with no wrapping group.
+
+**What I did instead:**
+- The `post_match` phase is called "Notes" everywhere on this page (tab, pane header, summary panel, confirm group); the code said "Post-match". The pane header and summary panel use the full name "Autonomous", the tab says "Auto" (as the finals show).
+- The edit-window line uses `SELF_EDIT_WINDOW_MS` (5 minutes), not the mock's 10. It is left out for a lead or admin, who edit any entry at any time (SPEC-FINAL 7.6), so it never promises a limit that does not apply.
+- The confirm starts with a "Q38 · 5951 Tiny Titans" line, so the scout sees which robot they are confirming (the old full-screen summary listed match and team; the phone design shows the page header behind the scrim).
+- `Tabs` (RB.3) draws the ✓ as an icon and reads "Done" as the tab's description, so the test checks `toHaveAccessibleDescription('Done')` and `[data-done-mark]` instead of the text "✓". The "1 of N" check is anchored (`/^1 of \d+$/`) because the pane header also reads "Phase 1 of 4".
+- Robot status is `Segmented` (a radiogroup) inside a `role="group"` named "Robot status" by its visible label, so today's tests that look for that group still pass.
+- Status only note: the final's copy ("Status only. No fields are recorded for a no-show robot, so its averages are never pulled down by zeros."), with "disabled" for a disabled robot.
+- The header tag: desktop shows the alliance tag ("Blue alliance"); the phone shows the station ("Blue 2", from the match line-up), or the alliance tag when the team is not in the line-up. The phone back link "‹ Scout" is 48 px tall, so the phone header is a little taller than the mock.
+- The phone foot line's phase names are buttons ("Previous phase: Auto"), so the phase can change without a swipe. The pane follows the finger at 40 % while a swipe is in progress, and the new phase slides in (phone only, none with reduced motion).
+- Field hints come from `help_text`; the fixture form has none, so the e2e shots show labels only.
+- Derivations live in a new `features/entry/phases.ts` (+ `phases.test.ts`): phase order and names, filled counts, done set, the 60 px swipe rule, confirm values.
+
+- Fix 1 (review): the edit-window line is also left out when the page re-edits an existing entry: that window runs from the entry's first save (`client_created_at`), so "for 5 minutes after submitting" would be wrong. It shows only for a scouter's new entry.
+- Fix 1: an untouched counter reads "0" and an untouched switch "No" in the confirm (what the controls show), not "—". They still do not count as filled: "filled" (the ✓, the "n of N") means touched, so a robot's untouched zeros are visible but not claimed as scouted. Text and choices still read "—".
+- Fix 1: the confirm's robot line also carries the alliance tag (desktop) or the station tag (phone, "Blue 2"), as the page header does; the summary panel's "n of N" for the current phase is bold ink.
+- Fix 1: the phone's "Review entry" bar sits in a sticky wrapper that is a direct child of `<main>` (not inside a bar-height `px-4` box, where sticky could never engage); the bar's own top margin is zeroed there so scrolled fields do not show above its border. The header (title, tag, back, saved line) moved to `EntryHeader.tsx`.
+
+**Risk:** the e2e opens Q39 · 2630 (Red 1, no entry in the fixture) by URL, not through Scout, signed in as the scouter, so the confirm shows the five-minute line; the shots show an empty entry that the run fills in.
+
+## Task RB.9 — Scout
+
+**What the design said:** the plan's tests click a sheet tile named `/BLUE 2/` and a button named exactly "Team not here?"; the desktop final's button reads "Start entry · Blue 2 · 5654 Phoenix"; "Team not here?" opens a full screen with no visible way back (phone frame 6); 🔒 for a locked tile; files under ~250 lines.
+
+**What I did instead:**
+- The station sheet writes "Blue 2" in mixed case (phone frame 1), and "Use Blue 2" also contains it, so the test clicks `{ name: 'Blue 2' }`. "Team not here? Choose from the event's teams" is one button (the whole line is the target), so the test uses `/Team not here\?/`.
+- The primary button follows the README ("Start entry · 5654 Phoenix") on both widths; it reads "Start entry" (disabled) until a robot is picked, and "Edit the existing entry" for a robot this device already scouted.
+- "Team not here?" replaces the picker with "Which team are you watching?" (heading, "Qualification 39 · your station Blue 2", alliance, roster) and adds a ghost "Cancel" back to the line-up. Picking a line-up team from the roster switches the alliance to its own side, so it is not flagged.
+- Copy the README does not give: no station chosen yet → the bar's link reads "Choose your station" and the sheet's primary reads "Choose your station" (disabled) until a tile is tapped; a known match with no robots → "Q6 has no robots listed on this device. Choose the one you are watching." (the README's clause "the match is created when you submit" is only true for an unknown match, which keeps today's "Match 9 is not on this device yet…" note); a lead's scouted tile reads "Scouted" (no window, SPEC-FINAL 7.6). The already-scouted note keeps today's text.
+- "Not now" closes the sheet for this visit only; the page asks again on the next visit while no station is set. On desktop the sheet and "Scout Red 1 instead?" are centred dialogs (ResponsiveDialog).
+- The locked tile shows lucide's Lock icon, not the 🔒 emoji. Tiles are radios that are each a tab stop (no arrow-key roving).
+- On a phone, "Scout a match" is visually hidden once a station is set (the frames show only the top bar's "Scout"); it is shown with "Where are you sitting today?" while none is set.
+- Two device reads: rows on `'rows'` and the station on `'meta'`, so a sync's two meta notifications never re-read every row (RB.4 note).
+- The primary action bar is the `ActionBar` primitive with a new `desktop="static"` option (RB.9 owns `action-bar.tsx` for it; EntryPage's use is unchanged): from `lg` the bar drops its chrome so the 52 px button sits under the picker (desktop final).
+- `SelectRobotPage.tsx` is split by job, every file under 250 lines (the ownership row named four files; the new ones sit in the same folder): `MatchFields.tsx` (type and number), `useScoutSelection.ts` (device reads, picks, derivations), `scoutChoice.ts` (pure chosen/selected/flagged derivations, tested without React), `bareMatch.ts` (the bare-match creation, SPEC-FINAL 6.4). `lineupTiles`/`rosterItems` stay beside their components.
+- Picks belong to the typed match: the alliance choice and the roster search reset when the match type or number changes, and the alliance and tile picks also reset when the station changes. Tapping the robot already switched to does not ask again. Start ignores a second tap while the first is still creating the bare match, so one tap makes one match and one outbox operation.
+- "Scouted · locked" is the copy for a locked tile and roster row (not in the README, which only draws the 🔒); "Scouted · edit until hh:mm" inside the window, "Scouted" for a lead.
+- `EntryRoute.test.tsx` (one line): it waited for the old native robot `option`; it now waits for the station sheet.
+
+**Risk:** the e2e `scout` shot uses fixture Q1, the design's own line-up; `scout-done` (lead, Q37: ✓ tiles) and `scout-locked` (scouter, Q37: lock icons) show the scouted states. The saved banner in `scout-done` is raised by pushing router state through `history.pushState` + `popstate`, not by a real submit, and was not run in this fix pass.
