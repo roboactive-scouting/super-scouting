@@ -1,4 +1,4 @@
-import { Ban, TriangleAlert } from 'lucide-react';
+import { Ban, TriangleAlert, type LucideIcon } from 'lucide-react';
 import { useId, useRef, useState, type ReactNode } from 'react';
 import { ResponsiveDialog } from './responsive-dialog';
 
@@ -15,6 +15,8 @@ export type DestructiveConfirmProps = {
   /** The destructive verb and its object: "Disable Dana Cohen". Never "OK". */
   confirmLabel: string;
   cancelLabel?: string;
+  /** The confirm button's icon: Ban unless given; `null` for none ("Leave anyway"). */
+  icon?: LucideIcon | null;
   /**
    * Type-to-confirm: the primary button waits until exactly this is typed. Only for
    * multi-record irreversibles — a season, a form version, wiping device data
@@ -51,6 +53,7 @@ function OpenConfirm({
   loss,
   confirmLabel,
   cancelLabel = 'Cancel',
+  icon: Icon = Ban,
   typeToConfirm,
   busy = false,
   error,
@@ -89,7 +92,7 @@ function OpenConfirm({
             onClick={busy || !armed ? undefined : onConfirm}
             className={`${BUTTON} border border-ink bg-ink text-surface`}
           >
-            <Ban aria-hidden="true" className="size-5 shrink-0" />
+            {Icon && <Icon aria-hidden="true" className="size-5 shrink-0" />}
             <span dir="auto">{confirmLabel}</span>
           </button>
         </>

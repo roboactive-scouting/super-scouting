@@ -1,10 +1,11 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LogOut } from 'lucide-react';
 import { ActionBar } from './action-bar';
 import { Counter } from './counter';
 import { DescribedChoice } from './described-choice';
-import { DestructiveConfirm } from './destructive-confirm';
+import { DestructiveConfirm, type DestructiveConfirmProps } from './destructive-confirm';
 import { Dialog } from './dialog';
 import { LiveChecks } from './live-checks';
 import { OptionButtons } from './option-buttons';
@@ -49,6 +50,30 @@ describe('primitives II', () => {
     );
     expect(screen.getByRole('dialog', { name: 'Disable this account?' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
+  });
+
+  it('destructive confirm shows Ban on the confirm button, another icon, or none', () => {
+    const confirmIcon = (icon?: DestructiveConfirmProps['icon']) => {
+      const { unmount } = render(
+        <DestructiveConfirm
+          open
+          title="Delete this match?"
+          objectName="Q10"
+          body="Gone."
+          confirmLabel="Delete"
+          {...(icon === undefined ? {} : { icon })}
+          onConfirm={() => {}}
+          onCancel={() => {}}
+        />,
+      );
+      const svg = screen.getByRole('button', { name: 'Delete' }).querySelector('svg');
+      const name = svg ? svg.getAttribute('class') : null;
+      unmount();
+      return name;
+    };
+    expect(confirmIcon()).toContain('lucide-ban');
+    expect(confirmIcon(LogOut)).toContain('lucide-log-out');
+    expect(confirmIcon(null)).toBeNull();
   });
 
   it('Escape cancels a destructive confirm', async () => {

@@ -30,8 +30,8 @@ const UsersPage = lazy(() =>
 const UserDetailPage = lazy(() =>
   import('@/features/admin/UserDetailPage').then((m) => ({ default: m.UserDetailPage })),
 );
-const ManagePage = lazy(() =>
-  import('@/features/admin/ManagePage').then((m) => ({ default: m.ManagePage })),
+const ManageRoute = lazy(() =>
+  import('@/features/admin/ManageRoute').then((m) => ({ default: m.ManageRoute })),
 );
 
 /** What a lazy page shows while its chunk loads: the same skeleton everywhere. */
@@ -173,12 +173,11 @@ export function routeTree(): RouteObject[] {
           path: 'admin/manage',
           // The phone does a different job here — the matches view — and says so.
           handle: named({ title: 'Manage', phoneTitle: 'Matches', crumb: ['Admin'] }, NO_HYDRATION),
+          // Desktop: the whole page; a phone: the matches view (SPEC-FINAL 17.2 exception).
           element: (
-            <DesktopOnly what="season, event, roster and match management">
-              <Loading>
-                <ManagePage />
-              </Loading>
-            </DesktopOnly>
+            <Loading>
+              <ManageRoute />
+            </Loading>
           ),
         },
       ],
