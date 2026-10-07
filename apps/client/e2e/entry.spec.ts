@@ -43,6 +43,11 @@ test('entry: phase tabs, swipe, no-show and the confirm', async ({ page }) => {
   await expect(page.getByText(/never pulled down by zeros/)).toBeVisible();
   await shoot(page, 'entry-noshow', 'phone');
 
+  // Broke down keeps the phases and adds the breakdown time (Entry final, phone frame 3).
+  await page.getByRole('radio', { name: 'Broke down' }).click();
+  await expect(page.getByLabel('Breakdown time (seconds from match start)')).toBeVisible();
+  await shoot(page, 'entry-brokedown', 'phone');
+
   // Back to Played, so the confirm lists every field by phase.
   await page.getByRole('radio', { name: 'Played' }).click();
   await page.getByRole('button', { name: 'Review entry' }).click();
