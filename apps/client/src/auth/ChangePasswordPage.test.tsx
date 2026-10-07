@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -38,7 +38,24 @@ beforeEach(async () => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  setOnline(true);
 });
+
+function setOnline(value: boolean) {
+  Object.defineProperty(navigator, 'onLine', { value, configurable: true });
+  window.dispatchEvent(new Event(value ? 'online' : 'offline'));
+}
+
+async function renderChangePassword({ mustChange }: { mustChange: boolean }) {
+  await session.signIn({ ...user, must_change_password: mustChange }, 'token-abc');
+  render(
+    <MemoryRouter initialEntries={['/change-password']}>
+      <Routes>
+        <Route path="/change-password" element={<ChangePasswordPage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
 
 function renderPage() {
   render(
@@ -136,5 +153,38 @@ describe('ChangePasswordPage (SPEC-FINAL 7.3)', () => {
     await fill('seedpass1', 'longenough1');
     expect(await screen.findByText('the login page')).toBeInTheDocument();
     expect((await session.current())?.expired).toBe(true);
+  });
+
+  it('ticks the rules as you type and catches a mismatch before submit', async () => {
+    await renderChangePassword({ mustChange: false });
+    await screen.findByLabelText('New password', { selector: 'input' });
+    const items = () => screen.getAllByRole('listitem').map((li) => li.getAttribute('data-state'));
+    expect(items()).toEqual(['idle', 'idle']);
+    await userEvent.type(
+      screen.getByLabelText('New password', { selector: 'input' }),
+      'orbit-cedar-42',
+    );
+    await userEvent.type(
+      screen.getByLabelText('Confirm new password', { selector: 'input' }),
+      'orbit-cedar',
+    );
+    expect(items()).toEqual(['ok', 'no']);
+  });
+
+  it('offline: says so first and holds the button', async () => {
+    setOnline(false);
+    await renderChangePassword({ mustChange: false });
+    expect(await screen.findByText(/Changing your password needs the server/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Change password' })).toBeDisabled();
+  });
+
+  it('forced: no way back; by choice: a way back to scouting', async () => {
+    await renderChangePassword({ mustChange: true });
+    expect(await screen.findByRole('heading', { name: 'Choose a new password' })).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'Back to scouting' })).not.toBeInTheDocument();
+    cleanup();
+    await renderChangePassword({ mustChange: false });
+    expect(await screen.findByRole('heading', { name: 'Change your password' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Back to scouting' })).toBeInTheDocument();
   });
 });
