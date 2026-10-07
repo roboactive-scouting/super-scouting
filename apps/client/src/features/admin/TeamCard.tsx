@@ -72,7 +72,7 @@ export function TeamCard({
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
           onBlur={() => finish(true)}
-          className="h-9 min-w-0 flex-1 rounded-[6px] border border-accent bg-surface px-2 text-[0.84375rem] text-ink"
+          className="own-focus h-9 min-w-0 flex-1 rounded-[6px] border border-accent bg-surface px-2 text-[0.84375rem] text-ink shadow-[inset_0_0_0_1px_var(--accent)]"
         />
       ) : onRename ? (
         <button

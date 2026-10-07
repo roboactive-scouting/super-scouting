@@ -157,6 +157,7 @@ export function ManagePage({ rpc = adminRpc }: { rpc?: Rpc }) {
       </div>
       <div className="mt-3.5 overflow-hidden rounded-card border border-line">
         <Tabs
+          flush
           label="Manage"
           value={tab}
           onChange={setTab}

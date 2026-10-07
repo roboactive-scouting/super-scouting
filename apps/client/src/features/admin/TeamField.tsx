@@ -142,8 +142,10 @@ export function TeamField({
       onKeyDown={onKeyDown}
       className={cn(
         'relative [&_input]:pb-3.5 [&_input]:text-[0.9375rem] [&_input]:leading-tight [&_input]:font-semibold',
-        empty &&
-          '[&_input:not(:focus)]:border-dashed [&_input:not(:focus)]:bg-bg [&_input]:placeholder:text-muted',
+        // The desktop grid draws an empty cell dashed on --bg; the phone sheet (alliance-labelled
+        // fields) keeps a white solid field showing "—" (07-manage phone final).
+        empty && '[&_input]:placeholder:text-muted',
+        empty && !alliance && '[&_input:not(:focus)]:border-dashed [&_input:not(:focus)]:bg-bg',
         warn && '[&_input:not(:focus)]:border-2 [&_input]:border-warn [&_input]:bg-warn-tint',
         alliance &&
           '[&_label]:text-[0.6875rem] [&_label]:font-[750] [&_label]:tracking-[0.04em] [&_label]:uppercase',

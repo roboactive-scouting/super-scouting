@@ -30,6 +30,15 @@ test('manage matches, desktop: toolbar, problem summary, typing into Q10', async
   await expect(page.getByRole('option', { name: /6230 Team Koi/ })).toBeVisible();
   await page.keyboard.press('ArrowDown');
   await shoot(page, 'manage', 'desktop');
+
+  // The ✎ on a row opens the match's edit dialog (Manage final; RB.19: shot for the review).
+  // Q10 Red 3 back to empty first: a half-typed "6" would be committed (and refused) on blur.
+  await red3.fill('');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Edit match 7 (qualification)' }).click();
+  const edit = page.getByRole('dialog', { name: 'Edit Q7' });
+  await expect(edit).toBeVisible();
+  await shoot(page, 'manage-edit', 'desktop');
 });
 
 test('manage matches, phone: list, edit sheet, add sheet', async ({ page }) => {

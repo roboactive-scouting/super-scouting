@@ -23,6 +23,7 @@ export function Tabs<K extends string>({
   value,
   onChange,
   done,
+  flush = false,
 }: {
   label: string;
   tabs: readonly TabItem<K>[];
@@ -30,6 +31,11 @@ export function Tabs<K extends string>({
   onChange: (key: K) => void;
   /** Keys of the tabs that are finished: each shows a ✓. */
   done?: ReadonlySet<K>;
+  /**
+   * Manage's page tabs (07-manage final): flush, full-height tabs with no inset, the inactive
+   * labels in `--ink-2` 650 and the counts in muted mono; the underline spans the tab.
+   */
+  flush?: boolean;
 }) {
   const list = useRef<HTMLDivElement>(null);
   const doneId = useId();
@@ -60,7 +66,10 @@ export function Tabs<K extends string>({
       role="tablist"
       aria-label={label}
       onKeyDown={onKeyDown}
-      className="grid auto-cols-fr grid-flow-col gap-1 border-b border-line bg-surface p-1.5"
+      className={cn(
+        'grid auto-cols-fr grid-flow-col bg-surface',
+        !flush && 'gap-1 border-b border-line p-1.5',
+      )}
     >
       {tabs.map((tab) => {
         const selected = tab.key === value;
@@ -78,6 +87,8 @@ export function Tabs<K extends string>({
             className={cn(
               'hover-veil motion-safe:transition relative flex h-12 min-w-0 items-center justify-center gap-1.5 rounded-control px-2 text-sm font-semibold',
               selected ? 'bg-accent-tint text-accent-ink' : finished ? 'text-ink-2' : 'text-muted',
+              flush && 'gap-2 rounded-none font-[650]',
+              flush && !selected && 'text-ink-2',
             )}
           >
             {finished && (
@@ -91,7 +102,11 @@ export function Tabs<K extends string>({
             <span className="truncate" dir="auto">
               {tab.label}
             </span>
-            {tab.count !== undefined && <span className="num text-[0.8125rem]">{tab.count}</span>}
+            {tab.count !== undefined && (
+              <span className={cn('num text-[0.8125rem]', flush && 'font-medium text-muted')}>
+                {tab.count}
+              </span>
+            )}
             {finished && (
               // aria-hidden keeps "Done" out of the tab's name; describedby still reads it.
               <span id={`${doneId}-${tab.key}`} aria-hidden="true" className="sr-only">
@@ -101,7 +116,10 @@ export function Tabs<K extends string>({
             {selected && (
               <span
                 aria-hidden="true"
-                className="absolute inset-x-3 bottom-0 h-[3px] rounded-sm bg-accent"
+                className={cn(
+                  'absolute bottom-0 h-[3px] bg-accent',
+                  flush ? 'inset-x-0' : 'inset-x-3 rounded-sm',
+                )}
               />
             )}
           </button>
