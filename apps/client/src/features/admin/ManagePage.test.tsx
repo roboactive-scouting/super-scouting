@@ -229,6 +229,43 @@ describe('ManagePage and a stale events answer', () => {
     expect(await screen.findByLabelText('Event')).toHaveValue('ey-1');
     expect(screen.queryByRole('option', { name: 'Week 1' })).not.toBeInTheDocument();
   });
+
+  it('drops a deleted event and season in place, and works on the default again (RB.20)', async () => {
+    const call = fullCall();
+    const listed = call.getMockImplementation()!;
+    call.mockImplementation(async (name, input) => {
+      if (name !== 'deleteEvent' && name !== 'deleteSeason') return listed(name, input);
+      const dryRun = (input as { dry_run?: boolean }).dry_run === true;
+      return { deleted: !dryRun, events: 1, matches: 0, entries: 0, forms: 0 };
+    });
+    const user = userEvent.setup();
+    renderWithCall('admin', call);
+    await user.click(await screen.findByRole('tab', { name: /Teams & roster/ }));
+    await user.selectOptions(await screen.findByLabelText('Event'), 'e-1');
+    await user.click(screen.getByRole('tab', { name: 'Competitions' }));
+    await user.click(screen.getByRole('button', { name: 'Rename District #1 · Haifa' }));
+    await user.click(screen.getByRole('button', { name: 'Delete District #1 · Haifa' }));
+    await user.type(await screen.findByLabelText(/Type District #1/), 'District #1 · Haifa');
+    await user.click(screen.getByRole('button', { name: 'Delete District #1 · Haifa for good' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.queryByRole('heading', { name: 'District #1 · Haifa' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /Teams & roster/ }));
+    expect(await screen.findByText(/Working on/)).toHaveTextContent(
+      'Working on District #3 · Tel Aviv (default) · 2026',
+    );
+
+    await user.click(screen.getByRole('tab', { name: 'Competitions' }));
+    await user.click(screen.getByRole('button', { name: /^2025/ }));
+    await user.click(screen.getByRole('button', { name: 'Edit season' }));
+    await user.click(screen.getByRole('button', { name: 'Delete 2025' }));
+    await user.type(await screen.findByLabelText(/Type 2025/), '2025');
+    await user.click(screen.getByRole('button', { name: 'Delete 2025 for good' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /^2025/ })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole('heading', { name: '2026 — REBUILT' })).toBeInTheDocument();
+    expect(call.mock.calls.filter(([n]) => n === 'listSeasons')).toHaveLength(1);
+  });
 });
 
 describe('ManagePage while offline', () => {

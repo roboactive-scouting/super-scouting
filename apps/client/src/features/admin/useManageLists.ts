@@ -162,9 +162,9 @@ export function useManageLists(rpc: Rpc, enabled: boolean) {
     [setUnsaved],
   );
 
-  /** Another season's card and events; its events load from scratch. */
+  /** Another season's card and events (or none); its events load from scratch. */
   const selectSeason = useCallback(
-    (id: string) => {
+    (id: string | null) => {
       if (id === seasonRef.current) return;
       setSeasonId(id);
       setEvents(null);
@@ -194,6 +194,22 @@ export function useManageLists(rpc: Rpc, enabled: boolean) {
     [],
   );
 
+  /** RB.20: a season was deleted. Drop it; if it was shown, show the active one (or none). */
+  function dropSeason(id: string) {
+    const rest = (seasons ?? []).filter((s) => s.id !== id);
+    setSeasons(rest);
+    const next = rest.find((s) => s.id === activeRef.current.active_season_id) ?? rest[0];
+    if (seasonRef.current === id) selectSeason(next?.id ?? null);
+  }
+
+  /** RB.20: an event was deleted. Drop it; if it was chosen, choose the default (or first). */
+  function dropEvent(forSeason: string, id: string) {
+    changeEvents(forSeason, (prev) => prev.filter((e) => e.id !== id));
+    const rest = (events ?? []).filter((e) => e.id !== id);
+    const next = rest.find((e) => e.id === activeRef.current.active_event_id) ?? rest[0];
+    if (eventRef.current === id) chooseEvent(next?.id ?? null);
+  }
+
   const loaded = eventData !== null && eventData.eventId === eventId;
   return {
     seasons,
@@ -208,6 +224,8 @@ export function useManageLists(rpc: Rpc, enabled: boolean) {
     eventsFailure,
     retryEvents: () => setEventsFailure(null),
     changeEvents,
+    dropSeason,
+    dropEvent,
     eventId,
     chooseEvent,
     roster,

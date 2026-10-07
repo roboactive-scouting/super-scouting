@@ -249,13 +249,25 @@ export type Store = {
   entriesForScope(scope: { eventIds: string[]; teamId?: string }): Promise<StoredRow[]>;
   listTeamEvents(teamId: string): Promise<StoredRow[]>;
 
-  // deletes (task 1.60)
+  // deletes (task 1.60; the season and event ones landed with RB.20)
+  /**
+   * Hard cascade deletes (SPEC-FINAL 3.9), each ONE SQL function so it is all or nothing:
+   * the entries go first, because `scouting_entries.match_id` is `on delete restrict`.
+   */
   deleteSeason(id: string): Promise<void>;
   deleteEvent(id: string): Promise<void>;
   deleteFormCascade(id: string): Promise<void>;
   deleteFormVersion(id: string): Promise<void>;
-  countDeleteImpact(kind: 'season' | 'event' | 'form', id: string): Promise<Record<string, number>>;
+  /**
+   * What a season or event delete removes, as counts: its events (1 for an event), their
+   * matches, their LIVE entries (a soft-deleted one is already gone to the user), and the
+   * season's forms (0 for an event). The form delete widens `kind` when it lands.
+   */
+  countDeleteImpact(kind: 'season' | 'event', id: string): Promise<DeleteImpact>;
 };
+
+/** The counts `countDeleteImpact` answers. */
+export type DeleteImpact = { events: number; matches: number; entries: number; forms: number };
 
 export type UseCaseContext = {
   store: Store;

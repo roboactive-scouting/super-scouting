@@ -4568,3 +4568,31 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
 - Header line per tab and roster section-count wording follow the final images, not the README — accepted by the user 2026-10-07.
 
 **Risk:** not yet seen in a browser — the orchestrator runs `e2e/manage.spec.ts` (`manage-competitions`, `manage-roster`, desktop) and the Compare step. The fixture's 40 matches show as "Matches 40", not the final's 10.
+
+## Task RB.20 — Delete a season or an event
+
+**Plan said:** (1) the migration verbatim; (2) `countDeleteImpact({ seasonId?, eventId? })` as a new store method; (3) the lead test `rejects.toThrow(/admin/i)`; (4) the client test `expect(confirm).toBeDisabled()` / `toBeEnabled()`; (5) the registry permission `manage_events`; (6) the confirm body "This deletes {N} events, {M} matches and {E} entries for good. It cannot be undone. Run `supabase db dump` first if you might need them."; (7) the zod inputs as written (not `.strict()`); (8) add `typeToConfirm` to `DestructiveConfirm` if missing; files to touch: CompetitionsPanel only on the client side.
+
+**What was wrong:**
+- (2) `Store` (`apps/server/src/core/context.ts`) already declared `deleteSeason(id)`, `deleteEvent(id)` and `countDeleteImpact(kind: 'season' | 'event' | 'form', id): Promise<Record<string, number>>` as task-1.60 stubs ("the shape is fixed now"). A second signature would have contradicted that rule.
+- (3) `assertCan` refuses with `not permitted: <capability>` (code `forbidden`), which does not contain "admin"; `/admin/i` could never match.
+- (4) `DestructiveConfirm` holds its confirm with `aria-disabled` (kept on purpose: busy/unarmed buttons stay focusable), so jest-dom's `toBeDisabled()` is false for it.
+- (5) The registry has no permission field; the check lives in the use case. SPEC-FINAL 7.2 has its own row "Delete a season, an event or a form — admin", which is the `delete_objects` capability.
+- (8) `typeToConfirm` already existed, with a test in `components/ui/primitives-2.test.tsx` and label "Type {name} to confirm".
+
+**What I did instead:**
+- (1) Migration `20261007120000_delete_cascade.sql` has the brief's two function bodies plus `set search_path = ''` (fully-qualified names already; Supabase's linter flags a mutable search_path) and `revoke execute ... from public, anon, authenticated` / `grant execute ... to service_role`: only the server may call them. The integration test proves the service role still can.
+- (2) Kept the declared names; tightened `countDeleteImpact(kind: 'season' | 'event', id): Promise<DeleteImpact>` (`{ events, matches, entries, forms }`). The form delete widens `kind` when it lands. Entries counted are LIVE ones (`deleted_at is null`): a soft-deleted entry is already gone to the admin, and the count must match what the Entries page shows. Matches are counted in full.
+- (3) The lead test asserts `toMatchObject({ code: 'forbidden' })`, as `matches.test.ts` does.
+- (4) The client test asserts `toHaveAttribute('aria-disabled', 'true')` and its absence.
+- (5) Both use cases `assertCan(caller, 'delete_objects')` (admin only, same roles as `manage_events`).
+- (6) Split across two lines in the dialog: the count sentence first, bold ("This deletes 3 matches and 17 entries for good."), then "It cannot be undone. Run `supabase db dump` first if you might need them." Counts are pluralised (1 match, 1 entry, 1 event). A season with forms adds ", … and {F} forms" (SPEC-FINAL 3.9 deletes its forms too; the brief's sentence did not name them).
+- (7) Both inputs are `.strict()`, like every other input in `api/context.ts`.
+- (8) No change to `destructive-confirm.tsx`.
+- Season delete is also refused when the singleton's default event belongs to that season (should the pair ever disagree), with the season sentence.
+- Client files beyond CompetitionsPanel: `SeasonFormDialog.tsx` and `EventFormDialog.tsx` (the Delete action lives in those dialogs, behind new optional `active`/`isDefault` and `onDeleted` props), `useManageLists.ts` (`dropSeason`, `dropEvent`; `selectSeason` now takes `null`), `ManagePage.tsx` (wiring), and tests in `CompetitionsPanel.test.tsx` and `ManagePage.test.tsx`. Two one-line object literals in CompetitionsPanel were collapsed to keep it under 250 lines.
+- The season button reads "Delete 2025" and its confirm "Delete 2025 for good" (typed: "2025"); titles "Delete this season?" / "Delete this event?", after today's "Delete this match?".
+- The confirm opens over the Edit dialog, so its key events are stopped from bubbling (React propagates through portals) — otherwise Escape would also close the Edit dialog and Tab would hit its trap. Tested.
+- Rejected: closing the Edit dialog and opening the confirm at panel level — the brief puts the action in the dialog, and the admin would lose the dialog on Cancel.
+
+**Risk:** the anon/authenticated revoke is not proven negatively (no anon key is held anywhere, by design). Production gets this migration only when the user runs the production push by hand. Nothing yet tells an offline device whose cached event was deleted beyond the existing parent-deleted path (SPEC-FINAL 9.7).

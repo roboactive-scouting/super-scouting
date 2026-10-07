@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { ErrorLine } from '@/components/ui/notice';
 import type { Rpc } from '@/data/rpc';
 import { FieldImage } from '@/season/FieldImage';
+import { DeleteCompetition } from './DeleteCompetition';
 import { TextField } from './fields';
 import { panelErrorLine } from './adminMessages';
 
@@ -17,6 +18,7 @@ export const IMAGE_PATH_HINT =
  * hint, and a live preview), in a dialog: "+ New season" creates, "Edit season" edits. An
  * edit sends only the fields that changed (SPEC-FINAL 6.4); `field_image_path` may be
  * refused once the season has entries, and that refusal is the use case's own sentence.
+ * Editing also offers "Delete …" (RB.20) when the page passes `onDeleted`.
  */
 export function SeasonFormDialog({
   open,
@@ -24,6 +26,8 @@ export function SeasonFormDialog({
   rpc,
   onSaved,
   onClose,
+  active = false,
+  onDeleted,
 }: {
   open: boolean;
   /** `null` creates a season. */
@@ -31,6 +35,9 @@ export function SeasonFormDialog({
   rpc: Rpc;
   onSaved: (row: SeasonRow) => void;
   onClose: () => void;
+  /** The season being edited is the active one: it cannot be deleted. */
+  active?: boolean;
+  onDeleted?: (seasonId: string) => void;
 }) {
   return (
     <Dialog open={open} title={season ? `Edit ${season.year}` : 'New season'} onClose={onClose}>
@@ -41,6 +48,20 @@ export function SeasonFormDialog({
         onSaved={onSaved}
         onClose={onClose}
       />
+      {season && onDeleted && (
+        <DeleteCompetition
+          key={season.id}
+          target={{
+            kind: 'season',
+            id: season.id,
+            name: String(season.year),
+            label: `${season.year} — ${season.game_name}`,
+            active,
+          }}
+          rpc={rpc}
+          onDeleted={onDeleted}
+        />
+      )}
     </Dialog>
   );
 }

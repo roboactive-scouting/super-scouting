@@ -4,12 +4,14 @@ import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { ErrorLine } from '@/components/ui/notice';
 import type { Rpc } from '@/data/rpc';
+import { DeleteCompetition } from './DeleteCompetition';
 import { TextField } from './fields';
 import { panelErrorLine } from './adminMessages';
 
 /**
  * Today's event form (a name only), in a dialog: "+ New event" creates it last in its
  * season (SPEC-FINAL 6.2), ✎ renames. The answer is the saved row, put in place by the page.
+ * Renaming also offers "Delete …" (RB.20) when the page passes `onDeleted`.
  */
 export function EventFormDialog({
   open,
@@ -18,6 +20,8 @@ export function EventFormDialog({
   rpc,
   onSaved,
   onClose,
+  isDefault = false,
+  onDeleted,
 }: {
   open: boolean;
   /** `null` creates an event. */
@@ -26,6 +30,9 @@ export function EventFormDialog({
   rpc: Rpc;
   onSaved: (row: EventRow) => void;
   onClose: () => void;
+  /** The event being renamed is the default one: it cannot be deleted. */
+  isDefault?: boolean;
+  onDeleted?: (eventId: string) => void;
 }) {
   return (
     <Dialog open={open} title={event ? `Rename ${event.name}` : 'New event'} onClose={onClose}>
@@ -37,6 +44,20 @@ export function EventFormDialog({
         onSaved={onSaved}
         onClose={onClose}
       />
+      {event && onDeleted && (
+        <DeleteCompetition
+          key={event.id}
+          target={{
+            kind: 'event',
+            id: event.id,
+            name: event.name,
+            label: event.name,
+            active: isDefault,
+          }}
+          rpc={rpc}
+          onDeleted={onDeleted}
+        />
+      )}
     </Dialog>
   );
 }

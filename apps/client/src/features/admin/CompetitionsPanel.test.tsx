@@ -67,6 +67,8 @@ function renderCompetitions({
         onEventsChange={(_season, update) =>
           setList((prev) => [...update(prev)].sort((a, b) => a.sort_order - b.sort_order))
         }
+        onSeasonDeleted={(id) => setRows((prev) => prev.filter((s) => s.id !== id))}
+        onEventDeleted={(_season, id) => setList((prev) => prev.filter((e) => e.id !== id))}
       />
     );
   }
@@ -97,6 +99,9 @@ function serverLike(fail?: { name: string; error: Error }): Call {
     }
     if (name === 'createEvent') {
       return { ...FIVE_EVENTS[0]!, id: 'e-6', name: body.name, sort_order: 6 };
+    }
+    if (name === 'deleteEvent' || name === 'deleteSeason') {
+      return { deleted: !body.dry_run, events: 1, matches: 3, entries: 17, forms: 0 };
     }
     if (name === 'updateEvent') {
       return { ...FIVE_EVENTS.find((e) => e.id === body.event_id)!, name: body.name };
@@ -214,6 +219,36 @@ describe('CompetitionsPanel — events', () => {
       expect(rpc).toHaveBeenCalledWith('updateEvent', { event_id: 'e-1', name: 'Haifa (renamed)' }),
     );
     expect(cards()[0]).toBe('Haifa (renamed)');
+  });
+
+  it('deletes an event from its ✎ dialog once the damage is named and the name typed', async () => {
+    const rpc = serverLike();
+    renderCompetitions({ rpc });
+    await userEvent.click(screen.getByRole('button', { name: 'Rename District #1 · Haifa' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Delete District #1 · Haifa' }));
+    const confirm = await screen.findByRole('dialog', { name: 'Delete this event?' });
+    expect(confirm).toHaveTextContent('This deletes 3 matches and 17 entries for good.');
+    await userEvent.type(within(confirm).getByLabelText(/Type District #1/), 'District #1 · Haifa');
+    await userEvent.click(
+      within(confirm).getByRole('button', { name: 'Delete District #1 · Haifa for good' }),
+    );
+    expect(rpc).toHaveBeenCalledWith('deleteEvent', {
+      event_id: 'e-1',
+      confirm_name: 'District #1 · Haifa',
+    });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(cards()).not.toContain('District #1 · Haifa');
+  });
+
+  it('offers Delete for the default event and the active season only as off, with why', async () => {
+    renderCompetitions({ rpc: serverLike() });
+    await userEvent.click(screen.getByRole('button', { name: 'Rename District #3 · Tel Aviv' }));
+    expect(screen.getByRole('button', { name: 'Delete District #3 · Tel Aviv' })).toBeDisabled();
+    expect(screen.getByText('Switch the default event first.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Edit season' }));
+    expect(screen.getByRole('button', { name: 'Delete 2026' })).toBeDisabled();
+    expect(screen.getByText('Switch the active season first.')).toBeInTheDocument();
   });
 
   it('disables "Make default" and "Make … active" offline, and says why', () => {

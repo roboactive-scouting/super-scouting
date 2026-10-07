@@ -185,6 +185,8 @@ export function ManagePage({ rpc = adminRpc }: { rpc?: Rpc }) {
               onSeasonSaved={lists.saveSeason}
               onActiveChange={lists.setActive}
               onEventsChange={lists.changeEvents}
+              onSeasonDeleted={lists.dropSeason}
+              onEventDeleted={lists.dropEvent}
             />
           ))}
         {tab === 'roster' &&

@@ -41,6 +41,7 @@ import {
   setEventRoster,
   updateTeam,
 } from '../core/commands/teams.js';
+import { deleteEvent, deleteSeason } from '../core/commands/deleteCompetition.js';
 import { getActiveContext } from '../core/queries/context.js';
 import { countEntriesByScouter } from '../core/queries/countEntriesByScouter.js';
 import { listUsers } from '../core/queries/listUsers.js';
@@ -320,6 +321,22 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     input: API.deleteMatch.input,
     output: API.deleteMatch.output,
     handler: deleteMatch,
+  },
+  deleteSeason: {
+    kind: 'command',
+    description:
+      'Admin only: hard-delete a season with its events, matches, entries and forms, irreversibly. dry_run answers the counts and deletes nothing; the real delete needs confirm_name equal to the year. The active season is refused.',
+    input: API.deleteSeason.input,
+    output: API.deleteSeason.output,
+    handler: deleteSeason,
+  },
+  deleteEvent: {
+    kind: 'command',
+    description:
+      'Admin only: hard-delete an event with its matches, entries, roster, pick lists and bracket, irreversibly. dry_run answers the counts and deletes nothing; the real delete needs confirm_name equal to the event name. The default event is refused.',
+    input: API.deleteEvent.input,
+    output: API.deleteEvent.output,
+    handler: deleteEvent,
   },
   listMatches: {
     kind: 'query',

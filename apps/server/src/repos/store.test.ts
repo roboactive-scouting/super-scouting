@@ -729,3 +729,93 @@ describe('supabaseStore matches and match slots (task 1.19)', () => {
     expect(chains[0]).toContainEqual(['eq', 'id', MATCH]);
   });
 });
+
+describe('supabaseStore hard deletes (RB.20, SPEC-FINAL 3.9)', () => {
+  const SEASON = '11111111-1111-4111-8111-111111111111';
+  const EVENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const EVENT_2 = 'aaaaaaaa-aaaa-4aaa-8aaa-000000000002';
+
+  /** Just `rpc`: what the two cascade deletes call. */
+  function rpcDb(error: { message: string; code?: string } | null) {
+    const calls: Call[] = [];
+    const db = {
+      rpc: (name: string, args: unknown) => {
+        calls.push(['rpc', name, args]);
+        return Promise.resolve({ data: null, error });
+      },
+    } as unknown as Db;
+    return { db, calls };
+  }
+
+  it('deleteEvent and deleteSeason each call their one cascade function', async () => {
+    const event = rpcDb(null);
+    await supabaseStore(event.db).deleteEvent(EVENT);
+    expect(event.calls).toEqual([['rpc', 'delete_event_cascade', { p_event_id: EVENT }]]);
+    const season = rpcDb(null);
+    await supabaseStore(season.db).deleteSeason(SEASON);
+    expect(season.calls).toEqual([['rpc', 'delete_season_cascade', { p_season_id: SEASON }]]);
+  });
+
+  it('a refused cascade throws with the Postgres code, never reads as deleted', async () => {
+    const { db } = rpcDb({ message: 'fk', code: '23503' });
+    await expect(supabaseStore(db).deleteEvent(EVENT)).rejects.toMatchObject({ code: '23503' });
+    await expect(supabaseStore(db).deleteSeason(SEASON)).rejects.toMatchObject({ code: '23503' });
+  });
+
+  it("countDeleteImpact('event') head-counts the event's matches and live entries", async () => {
+    const { db, chains } = scriptedDb([
+      { error: null, count: 3 },
+      { error: null, count: 17 },
+    ]);
+    expect(await supabaseStore(db).countDeleteImpact('event', EVENT)).toEqual({
+      events: 1,
+      matches: 3,
+      entries: 17,
+      forms: 0,
+    });
+    expect(chains[0]).toContainEqual(['from', 'matches']);
+    expect(chains[0]).toContainEqual(['in', 'event_id', [EVENT]]);
+    expect(chains[1]).toContainEqual(['from', 'scouting_entries']);
+    expect(chains[1]).toContainEqual(['select', 'id', { count: 'exact', head: true }]);
+    expect(chains[1]).toContainEqual(['is', 'deleted_at', null]);
+  });
+
+  it("countDeleteImpact('season') counts its events, their matches and entries, and its forms", async () => {
+    const { db, chains } = scriptedDb([
+      { data: [{ id: EVENT }, { id: EVENT_2 }], error: null },
+      { error: null, count: 2 },
+      { error: null, count: 40 },
+      { error: null, count: 300 },
+    ]);
+    expect(await supabaseStore(db).countDeleteImpact('season', SEASON)).toEqual({
+      events: 2,
+      matches: 40,
+      entries: 300,
+      forms: 2,
+    });
+    expect(chains[0]).toContainEqual(['eq', 'season_id', SEASON]);
+    expect(chains[1]).toContainEqual(['from', 'forms']);
+    expect(chains[2]).toContainEqual(['in', 'event_id', [EVENT, EVENT_2]]);
+  });
+
+  it('countDeleteImpact for a season with no events counts no matches or entries', async () => {
+    const { db, chains } = scriptedDb([
+      { data: [], error: null },
+      { error: null, count: 0 },
+    ]);
+    expect(await supabaseStore(db).countDeleteImpact('season', SEASON)).toEqual({
+      events: 0,
+      matches: 0,
+      entries: 0,
+      forms: 0,
+    });
+    expect(chains).toHaveLength(2);
+  });
+
+  it('countDeleteImpact throws on a database error instead of reading as "nothing to lose"', async () => {
+    const { db } = scriptedDb([{ error: { message: 'connection refused' } }]);
+    await expect(supabaseStore(db).countDeleteImpact('event', EVENT)).rejects.toThrow(
+      'connection refused',
+    );
+  });
+});

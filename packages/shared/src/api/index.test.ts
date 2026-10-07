@@ -5,6 +5,9 @@ import {
   activeContext,
   createEventInput,
   createSeasonInput,
+  deleteEventInput,
+  deleteImpactOutput,
+  deleteSeasonInput,
   eventRow,
   getActiveContextInput,
   listEventsInput,
@@ -65,7 +68,9 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
       'createSeason',
       'createTeam',
       'createUser',
+      'deleteEvent',
       'deleteMatch',
+      'deleteSeason',
       'disableUser',
       'enableUser',
       'ensureMatch',
@@ -118,6 +123,8 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
     expect(API.reorderEvents).toEqual({ input: reorderEventsInput, output: reorderEventsOutput });
     expect(API.setActiveEvent).toEqual({ input: setActiveEventInput, output: activeContext });
     expect(API.listEvents).toEqual({ input: listEventsInput, output: listEventsOutput });
+    expect(API.deleteSeason).toEqual({ input: deleteSeasonInput, output: deleteImpactOutput });
+    expect(API.deleteEvent).toEqual({ input: deleteEventInput, output: deleteImpactOutput });
     expect(API.createTeam).toEqual({ input: createTeamInput, output: teamRow });
     expect(API.updateTeam).toEqual({ input: updateTeamInput, output: teamRow });
     expect(API.listTeams).toEqual({ input: listTeamsInput, output: listTeamsOutput });

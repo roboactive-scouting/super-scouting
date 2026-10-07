@@ -28,7 +28,8 @@ const CHIP =
  * first; the active one filled ink, "+ New season" last), the chosen season's card, then
  * its events as cards in display order with "+ New event" last. Make active, make default
  * and reordering change in place at once and go back if the server refuses (today's
- * behaviour); the first two are off while offline. The page owns the lists.
+ * behaviour); the first two are off while offline. The page owns the lists. The Edit
+ * dialogs carry Delete (RB.20).
  */
 export function CompetitionsPanel({
   rpc,
@@ -41,6 +42,8 @@ export function CompetitionsPanel({
   onSeasonSaved,
   onActiveChange,
   onEventsChange,
+  onSeasonDeleted,
+  onEventDeleted,
 }: {
   rpc: Rpc;
   seasons: SeasonRow[];
@@ -53,6 +56,9 @@ export function CompetitionsPanel({
   onSeasonSaved: (row: SeasonRow) => void;
   onActiveChange: (context: ActiveContext) => void;
   onEventsChange: (seasonId: string, update: (prev: EventRow[]) => EventRow[]) => void;
+  /** A season or event was hard-deleted (RB.20): drop it from the page's lists. */
+  onSeasonDeleted: (seasonId: string) => void;
+  onEventDeleted: (seasonId: string, eventId: string) => void;
 }) {
   const online = useOnline();
   const [form, setForm] = useState<Form>({ kind: 'none' });
@@ -155,9 +161,7 @@ export function CompetitionsPanel({
                 season.id,
                 { ...active, active_season_id: season.id },
                 'setActiveSeason',
-                {
-                  season_id: season.id,
-                },
+                { season_id: season.id },
               )
             }
             onEdit={() => setForm({ kind: 'season', season })}
@@ -185,9 +189,7 @@ export function CompetitionsPanel({
                         event.id,
                         { ...active, active_event_id: event.id },
                         'setActiveEvent',
-                        {
-                          event_id: event.id,
-                        },
+                        { event_id: event.id },
                       )
                     }
                     onMove={(delta) => void move(events, index, delta)}
@@ -216,6 +218,11 @@ export function CompetitionsPanel({
           onSeasonSaved(row);
         }}
         onClose={close}
+        active={form.kind === 'season' && form.season?.id === active.active_season_id}
+        onDeleted={(id) => {
+          close();
+          onSeasonDeleted(id);
+        }}
       />
       {season && (
         <EventFormDialog
@@ -228,6 +235,11 @@ export function CompetitionsPanel({
             onEventsChange(season.id, (prev) => [...prev.filter((e) => e.id !== row.id), row]);
           }}
           onClose={close}
+          isDefault={form.kind === 'event' && form.event?.id === active.active_event_id}
+          onDeleted={(id) => {
+            close();
+            onEventDeleted(season.id, id);
+          }}
         />
       )}
     </div>

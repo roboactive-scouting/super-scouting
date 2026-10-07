@@ -43,3 +43,26 @@ test('manage: Teams & roster — the one-field add, roster cards and the registr
   ).toBeVisible();
   await shoot(page, 'manage-roster', 'desktop');
 });
+
+test('manage: delete an event — the counts, the name typed back, then it is gone', async ({
+  page,
+}) => {
+  await signIn(page, 'admin', {
+    overrides: { deleteEvent: { deleted: false, events: 1, matches: 10, entries: 64, forms: 0 } },
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/admin/manage');
+  await page.getByRole('button', { name: 'Rename District #1 · Haifa' }).click();
+  await page.getByRole('button', { name: 'Delete District #1 · Haifa' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Delete this event?' });
+  await expect(confirm).toContainText('This deletes 10 matches and 64 entries for good.');
+  await expect(confirm).toContainText('supabase db dump');
+  const go = confirm.getByRole('button', { name: 'Delete District #1 · Haifa for good' });
+  await expect(go).toHaveAttribute('aria-disabled', 'true');
+  await confirm.getByLabel(/Type District #1/).fill('District #1 · Haifa');
+  await expect(go).not.toHaveAttribute('aria-disabled');
+  await shoot(page, 'manage-delete', 'desktop');
+  await go.click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('article')).toHaveCount(4);
+});
