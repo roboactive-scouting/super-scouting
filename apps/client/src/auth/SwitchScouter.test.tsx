@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,6 +8,7 @@ import { db } from '@/data/db';
 import { pending } from '@/data/outbox';
 import { NO_CACHED_ACCOUNTS_LINE } from './offlineLogin';
 import { pendingCredential } from './pendingCredential';
+import { setStation } from '@/data/station';
 import { session } from './session';
 import { SwitchScouter } from './SwitchScouter';
 
@@ -110,7 +111,7 @@ function renderSwitch() {
 
 async function switchTo(name: RegExp, password: string) {
   const u = userEvent.setup();
-  const picker = await screen.findByRole('combobox', { name: 'Scouter' });
+  const picker = await screen.findByRole('combobox', { name: "Who's scouting next?" });
   await u.selectOptions(picker, screen.getByRole('option', { name }));
   await u.type(await screen.findByLabelText(/^Password for/), password);
   await u.click(screen.getByRole('button', { name: 'Switch scouter' }));
@@ -119,7 +120,7 @@ async function switchTo(name: RegExp, password: string) {
 describe('switch scouter (SPEC-FINAL 7.3, 7.5)', () => {
   it('lists every cached, non-disabled user by full name and username', async () => {
     renderSwitch();
-    const picker = await screen.findByRole('combobox', { name: 'Scouter' });
+    const picker = await screen.findByRole('combobox', { name: "Who's scouting next?" });
     const options = within(picker)
       .getAllByRole('option')
       .filter((o) => !(o as HTMLOptionElement).disabled);
@@ -140,7 +141,7 @@ describe('switch scouter (SPEC-FINAL 7.3, 7.5)', () => {
     const u = userEvent.setup();
     expect(screen.queryByLabelText(/^Password for/)).not.toBeInTheDocument();
     await u.selectOptions(
-      await screen.findByRole('combobox', { name: 'Scouter' }),
+      await screen.findByRole('combobox', { name: "Who's scouting next?" }),
       screen.getByRole('option', { name: /noa/ }),
     );
     const field = await screen.findByLabelText('Password for נועה כהן');
@@ -213,7 +214,7 @@ describe('switch scouter (SPEC-FINAL 7.3, 7.5)', () => {
     renderSwitch();
     const u = userEvent.setup();
     await u.selectOptions(
-      await screen.findByRole('combobox', { name: 'Scouter' }),
+      await screen.findByRole('combobox', { name: "Who's scouting next?" }),
       screen.getByRole('option', { name: /noa/ }),
     );
     await u.click(screen.getByRole('button', { name: 'Switch scouter' }));
@@ -234,5 +235,103 @@ describe('switch scouter (SPEC-FINAL 7.3, 7.5)', () => {
     await u.click(await screen.findByRole('link', { name: 'Cancel' }));
     expect(await screen.findByText('the home page')).toBeInTheDocument();
     await waitFor(async () => expect((await session.current())?.user.id).toBe(DANA));
+  });
+});
+
+describe('the redesigned page (RB.12)', () => {
+  async function choose(u: ReturnType<typeof userEvent.setup>, who: RegExp) {
+    await u.selectOptions(
+      await screen.findByRole('combobox', { name: "Who's scouting next?" }),
+      screen.getByRole('option', { name: who }),
+    );
+  }
+  async function noteText() {
+    return (await screen.findByText(/Stays on this device/)).parentElement!;
+  }
+
+  it('shows who is scouting now, and marks them in the list', async () => {
+    renderSwitch();
+    expect(await screen.findByText('Scouting now')).toBeInTheDocument();
+    expect(screen.getByText('Dana Levi', { selector: 'b' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /Dana Levi · dana · signed in now/ })).toBeVisible();
+    expect(screen.getByRole('option', { name: 'Choose who is scouting' })).toBeDisabled();
+  });
+
+  it('says what stays on the device, by name, once someone is chosen', async () => {
+    for (const n of [2, 3]) {
+      await db.outbox.put({ ...danaOp, op_id: `op-dana-${n}`, row_id: `row-dana-${n}`, seq: n });
+    }
+    await setStation('B2');
+    renderSwitch();
+    const u = userEvent.setup();
+    expect(screen.queryByText(/Stays on this device/)).toBeNull();
+    await screen.findByText('Scouting now');
+    await choose(u, /noa/);
+    await waitFor(async () =>
+      expect(await noteText()).toHaveTextContent(
+        "Stays on this device: Dana Levi's 3 entries waiting to send, which still send as Dana Levi's, and station Blue 2.",
+      ),
+    );
+  });
+
+  it('says only the station when nothing is waiting', async () => {
+    await db.outbox.clear();
+    await setStation('R3');
+    renderSwitch();
+    const u = userEvent.setup();
+    await screen.findByText('Scouting now');
+    await choose(u, /noa/);
+    await waitFor(async () =>
+      expect(await noteText()).toHaveTextContent('Stays on this device: Station Red 3.'),
+    );
+  });
+
+  it("leaves the note out with nothing waiting and no station, and uses 'entry' for one", async () => {
+    renderSwitch();
+    const u = userEvent.setup();
+    await screen.findByText('Scouting now');
+    await choose(u, /noa/);
+    await waitFor(async () =>
+      expect(await noteText()).toHaveTextContent(
+        "Dana Levi's 1 entry waiting to send, which still send as Dana Levi's.",
+      ),
+    );
+    cleanup();
+    await db.outbox.clear();
+    renderSwitch();
+    await screen.findByText('Scouting now');
+    await choose(userEvent.setup(), /noa/);
+    await screen.findByLabelText(/^Password for/);
+    expect(screen.queryByText(/Stays on this device/)).toBeNull();
+  });
+
+  it('leaves the note out when the chosen person is the one scouting now', async () => {
+    await setStation('B2');
+    renderSwitch();
+    const u = userEvent.setup();
+    await screen.findByText('Scouting now');
+    await choose(u, /dana/);
+    await screen.findByLabelText(/^Password for/);
+    expect(screen.queryByText(/Stays on this device/)).toBeNull();
+  });
+
+  it('focuses the password, shows and hides it, and keeps the focus after a wrong one', async () => {
+    renderSwitch();
+    const u = userEvent.setup();
+    await screen.findByText('Scouting now');
+    await choose(u, /noa/);
+    const field = await screen.findByLabelText(/^Password for/);
+    expect(field).toHaveFocus();
+    await u.type(field, 'not-hers');
+    await u.click(screen.getByRole('button', { name: 'Show password' }));
+    expect(field).toHaveAttribute('type', 'text');
+    await u.click(screen.getByRole('button', { name: 'Hide password' }));
+    expect(field).toHaveAttribute('type', 'password');
+    await u.click(screen.getByRole('button', { name: 'Switch scouter' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'That username and password do not match.',
+    );
+    await waitFor(() => expect(field).toHaveFocus());
+    expect(field).toHaveValue('');
   });
 });
