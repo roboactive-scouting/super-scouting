@@ -4259,3 +4259,94 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
 - Review fix: the `:focus-visible` rule stays unlayered (as before), not in `@layer base` as the plan has it, so a layered or unlayered outline utility cannot silently override the focus ring.
 
 **Risk:** until RB.18 deletes the aliases, old screens show brand text as green on the dark rail at 3.3:1, and `--status-disabled` / `--status-broke-down` / `--danger` all resolve to `--warn`, so those three states look alike on the old screens. `--radius-tag/control/card` are not emitted into the built CSS until a `rounded-tag` / `rounded-control` / `rounded-card` utility is used (Tailwind drops unused theme variables); `--font-ui` and `--font-num` are emitted today because `--font-sans` references `--font-ui`.
+
+## Task RB.4 — Device data: change bus, useDeviceQuery, station, derivations
+
+**Plan said:** `useDeviceQuery` carries `// eslint-disable-next-line react-hooks/exhaustive-deps` above its `deps` array; notify `'rows'` after a pull is applied and `'outbox'` in `enqueue`, `ackResults` and `retryRejected`.
+
+**What was wrong:** the repo's ESLint config does not load `eslint-plugin-react-hooks`, so the disable comment fails lint with "Definition for rule 'react-hooks/exhaustive-deps' was not found".
+
+**What I did instead:**
+- Dropped the disable comment; the hook is otherwise verbatim from the plan.
+- `notifyChanged('rows')` runs after each pulled page is written (not once at the end), so a pull that fails midway still tells the hooks about the pages it did apply. `wipeEvent` also notifies `'rows'`. `notifyChanged('outbox')` sits after the transaction in `enqueue`, not inside it, so a listener never reads before the commit.
+- Added `data/syncStatus.test.ts` and `data/changes.test.ts` (the plan lists tests only for the derivations, hook and station).
+
+**Risk:** `beginSync`/`endSync` now notify `'meta'` on every sync start and end, so every `useDeviceQuery` that lists `'meta'` re-reads twice per sync (about every 60 s). Cheap local reads, but a heavy query should list only the kinds it needs.
+
+## Task RB.13 — Server: countEntriesByScouter
+
+**Plan said:** the ownership row lists the shared schema, the use case and its test, `context.ts`, `store.ts`, the fake, the registry and `api/index.js`.
+
+**What was wrong:** three existing tests enumerate every use case by name (`apps/server/src/routes/rpc.test.ts`, `packages/shared/src/api/index.test.ts`) or script the Supabase chain (`apps/server/src/repos/store.test.ts`, whose `scriptedDb` had no `range` method). They fail the moment a use case is added, and the plan's row does not list them.
+
+**What I did instead:**
+- Added `'countEntriesByScouter'` to the two name lists, and `'range'` to `scriptedDb`'s chain methods, in those three test files.
+- Added three store tests (paging past 1000 rows, no events, database error) to `store.test.ts`, and four more use-case tests beside the plan's one (ordering, empty season, every caller kind, bad season id).
+- The shared schemas also export the `CountEntriesByScouterInput` / `CountEntriesByScouterOutput` types, as `listUsers` does.
+
+**Risk:** none known. SPEC-FINAL Appendix C does not list `countEntriesByScouter` yet; the orchestrator decides whether to add it there.
+
+## Task RB.5 — E2E harness: fixture size, CORS headers and settling
+
+**Plan said:** the fixture has "10 qualification matches with the line-ups of manage.js" and "14 entries of entries.js"; the mock's CORS headers are `access-control-allow-headers: *`; `shoot` takes the screenshot straight after the resize; `playwright.config.ts` has no `outputDir`.
+
+**What was wrong:**
+- The 14 entries sit on matches Q35 to Q38 (and the Entry tests scout Q39), so a 10-match schedule cannot hold them.
+- The client sends `Authorization` on every call. In a CORS preflight the wildcard `*` does not cover `Authorization`, so Chrome would refuse the real request; the headers must be named.
+- Playwright's default `test-results/` lands in `apps/client/`, but the plan's `e2e/.gitignore` only ignores `e2e/test-results/`. `shoot` also paints straight after `setViewportSize`, before the layout and fonts settle, and the app's entrance animations can be caught mid-way.
+
+**What I did instead:**
+- The schedule has 40 qualification matches: Q1 to Q10 are manage.js's line-ups verbatim (including the two with empty slots and Q8's off-roster 7845); Q35 to Q40 are written so the 14 entries match their stations, with 3316 at Blue 2 of Q37 deliberately NOT in that line-up (the "Not in line-up" flag); Q11 to Q34 rotate through the roster.
+- Fixture answers may be a function of the call's input (`listUsers` honours `include_disabled`, `listTeams` the search `query`, `listEvents`/`listEventRoster`/`listMatches`/`countEntriesByScouter` their event or season). The mock calls it, then validates with the shared output schema.
+- Entries carry `data` and the form has `scoring_rules`, chosen so the points add up to the Entries mock's figures; the pulled users carry a cost-4 bcrypt hash of the fixture password, so an offline sign-in works in a test.
+- CORS headers name `authorization, content-type` and the methods; `outputDir: './e2e/test-results'`; `webServer.timeout: 180_000` (the build runs inside it); `shoot` waits for fonts and two animation frames after each resize and screenshots with `animations: 'disabled'`; the screenshot path is resolved from the file, not the working directory.
+- Added `e2e/tsconfig.json` (type-check only: `tsc --noEmit -p e2e/tsconfig.json`). It is not a project reference, so `tsc -b` in `pnpm build` ignores e2e, and ESLint (`eslint src`) and vitest (`src/**` only) never see it.
+
+**Risk:** a fixed schedule of 40 matches differs from the Manage mock's 10, so the Manage page's "N matches missing a line-up" figure is 2 of 40, not 2 of 10. Older seasons reuse 2026's image path because only that file is committed. Axe results on the old screens are not known at the time of writing: the smoke spec asserts them, and the orchestrator marks it `test.fail()` if the first run finds serious violations.
+
+## Task RB.3 — Primitives II: overlays, choices, controls
+
+**Plan said:** `Dialog(open, title, onClose, children, footer?, width?)`, `Sheet(open, side, title, onClose, children, width?, tone?)`, `DestructiveConfirm` with the props `ConfirmDialog` has, `Tabs` "same API" plus an optional `done` set and `count`, the entry tests moved to their new paths.
+
+**What was wrong:**
+- A confirm that must not close by accident needs a few more switches than the interfaces list: `dismissible` (an action in flight holds Escape, the × and the scrim), `initialFocus` (Cancel first), `describedBy`, and `showClose` (the destructive confirm has no ×: Tab must wrap Cancel → confirm, as the old test requires).
+- The focus order of a dialog with a × in its header would put the × first; for a form that is the wrong first stop.
+- The tabs' "done" mark is colour plus a ✓, but a ✓ glyph has no name for a screen reader, and appending "(done)" to the tab's text would change its accessible name for every test that finds a tab by name.
+- A `DescribedChoice` / `Segmented` radiogroup of buttons has no roving tabindex in the plan.
+- The entry tests (`components/entry/entry.test.tsx`) are not in the plan's test list at a new path.
+
+**What I did instead:**
+- `Dialog` takes optional `initialFocus`, `dismissible`, `showClose`, `describedBy`; `ResponsiveDialog` takes the same props (it is `Parameters<typeof Dialog>[0]`) and hands them to the bottom `Sheet` (which has no ×). `Sheet` takes optional `initialFocus`, `dismissible`, `describedBy`; `side` stays optional (default `start`) and exactly one of `title` / `label` is required, so today's call sites compile.
+- `Dialog` focuses the first control in its body (children, then footer), and the × only when there is none. A tap on a `Dialog`'s scrim does not close it (a half-filled form survives a stray click); a `Sheet`'s scrim tap still closes, as today.
+- A bottom `Sheet` shows its `title` as a visible heading and names itself by it; a `start` sheet names itself with `aria-label` and shows no heading. `data-surface="dialog" | "sheet"` marks which one `ResponsiveDialog` chose.
+- `Tabs` takes `done?: ReadonlySet<K>` and `TabItem.count?: number`; a done tab carries `aria-description="Done"` instead of text. The sliding underline is gone: each tab draws its own 3 px underline.
+- `Segmented` and `DescribedChoice` are buttons with `role="radio"`, each in the Tab order (Enter / Space choose); no arrow-key roving. `DescribedChoice` treats the `saving` option as the chosen one while it saves.
+- `SuggestInput` also takes `hideLabel` and `placeholder`; nothing is highlighted until an arrow key, so Enter with no highlight still submits a surrounding form.
+- `DestructiveConfirm` uses plain classed buttons and its own error line (white, `--line` border, 3 px `--warn` edge), not `Button` / `Notice`, because RB.2 rewrites those at the same time. The confirm button carries a `Ban` icon, as THEME says. RB.18 may swap them for the shared ones.
+- The entry tests stay in `components/entry/entry.test.tsx`, importing the new paths, with one added test that the old paths still re-export.
+
+**Risk:** the `Counter` is only the − / value / + triplet, as before; THEME's label-and-hint-on-the-left sits in the page that uses it (RB.8). The `Segmented` segments are 46 px tall as THEME locks them, under the 48 px floor of SPEC-FINAL 17.7; RB.19 may raise them if the review wants. `aria-description` is ARIA 1.3: Chrome and Safari read it, older screen readers may not.
+
+## Task RB.2 — Primitives I: buttons, fields, notes, tags, chips, table, empty state
+
+**Plan said:** button sizes `sm|md|lg|block|icon` with every size keeping a 48 px hit area; `SearchField` 46 px; `Input` takes `size: 'md'|'lg'`; `Select` is the 56 px THEME select; `Notice` and `NativeSelect` stay "restyled, same props".
+
+**What was wrong:**
+- `features/shell/Sidebar.tsx` (not an RB.2 file) still passes the old size name `default`, so removing it breaks `pnpm typecheck` until RB.7 rewrites the shell.
+- A 36 px `sm` button and a 44 px `md` button cannot also be 48 px tall without ceasing to match THEME's heights.
+- THEME's search field is 46 px, below the 48 px floor of SPEC-FINAL 17.7. A 34 px filter chip has the same problem.
+- The old `Notice` tones `danger` and `warning` used `--danger` / `--warning`, which are aliases of `--warn`; "errors are never red" means the edge class is now `border-s-warn`, and `ui.test` / `notice.test` pinned the old class names.
+
+**What I did instead:**
+- `buttonVariants` keeps `size: 'default'` as an alias of `md` until RB.18 (documented in the code). No other part of the interface changed.
+- `sm`, `md` and the filter chips keep the drawn height THEME locks (36 / 44 / 34 px) and grow their tap area with an invisible `::after`, so the target is 48 px. `tap-target` stays in the class list of every button size; `min-h-9` / `min-h-11` override it for the drawn height only.
+- `SearchField` is 48 px (`tap-target`), not 46 px.
+- `Select` has `size: 'md'` (48 px, default) and `lg` (56 px, the THEME / Scout size); `NativeSelect` is now `export { Select as NativeSelect }`.
+- `Notice` tones map to `border-s-ink` / `-accent` / `-warn` / `-warn`; the class-pinning assertions in `ui.test.tsx` and `notice.test.tsx` were rewritten to the new tokens (the "no hex" and "48 px target on every variant" checks stay, with the new size names).
+- Not on the plan's interface list but added: `EmptyState.headingLevel` (so `StateMessage` keeps its `headingLevel`), `AllianceButtons.label`, `Note`/`ErrorLine`/`WarningNotice`/`SuccessBanner` `className`, `SearchField.className`, `stationLabel()` exported from `tag.tsx`, `initialsOf()` from `initials.tsx`, `inputLargeClass` from `input.tsx`.
+
+**Risk:** `Station` is declared locally in `tag.tsx` and `station-pill.tsx` until the wave's fix-forward pass switches them to `@/data/station`. The large number field has no "Q" prefix prop: the Scout page (RB.9) wraps `Input size="lg"` and draws the prefix itself. The `::after` hit-area trick can overlap a neighbouring control by up to 6 px on an `sm` button when two sit closer than 12 px.
+- `Select` and `SearchField` text is 16 px, not THEME's 15 px (select) / 14.5 px (search): iOS Safari zooms the page on focus below 16 px. The 16 px test now covers `searchbox` and `select`.
+- The password eye stays a 40 px drawn button but has a 48 px hit area through an invisible `after:-inset-1` (SPEC-FINAL 17.7).
+- `AllianceButtons` use a constant `border-2` (`--control-border` when unselected, alliance colour when selected) so picking a side never shifts the layout; THEME only specifies the selected 2 px border, so the unselected edge is 2 px instead of the 1 px of other controls. Added a roving tabindex with Arrow / Home / End keys (selection follows focus).
+- `Station` is now imported from `@/data/station` (the local declaration is gone); `Table` uses `text-start` / `text-end`; `Handover` has `role="status"`; the dead `focus-visible:outline-none` is removed from `input.tsx`.
