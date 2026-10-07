@@ -87,7 +87,7 @@ export function LineupTiles({
       >
         {SIDES.map((side) => (
           <div key={side.key} className="flex flex-col gap-2">
-            <div className={cn('text-[11.5px] font-bold tracking-[0.06em]', side.head)}>
+            <div className={cn('text-[0.71875rem] font-bold tracking-[0.06em]', side.head)}>
               {side.label}
             </div>
             {tiles
@@ -104,7 +104,7 @@ export function LineupTiles({
           </div>
         ))}
       </div>
-      <p className="mt-1 text-center text-[13.5px] text-muted">
+      <p className="mt-1 text-center text-[0.84375rem] text-muted">
         <button type="button" className="tap-target px-2" onClick={onNotHere}>
           Team not here?{' '}
           <span className="font-semibold text-accent-ink">Choose from the event's teams</span>
@@ -135,7 +135,7 @@ function StationTile({
       disabled={locked}
       onClick={onPick}
       className={cn(
-        'state-layer motion-transition relative flex min-h-[62px] flex-col justify-center rounded-control px-2.5 py-2 text-start lg:min-h-[70px]',
+        'hover-veil motion-safe:transition relative flex min-h-[62px] flex-col justify-center rounded-control px-2.5 py-2 text-start lg:min-h-[70px]',
         red ? 'bg-alliance-red-tint text-alliance-red' : 'bg-alliance-blue-tint text-alliance-blue',
         tile.done && 'bg-line-2 text-muted',
         on && 'bg-accent-tint text-accent-ink shadow-[inset_0_0_0_2px_var(--accent)]',
@@ -145,17 +145,17 @@ function StationTile({
             : 'outline-2 -outline-offset-2 outline-alliance-blue outline-dashed'),
       )}
     >
-      <span className="text-[11px] font-bold tracking-[0.04em]">
+      <span className="text-[0.6875rem] font-bold tracking-[0.04em]">
         {stationLabel(tile.station).toUpperCase()}
       </span>
-      <span className="font-num text-[19px] leading-tight font-semibold">{tile.number}</span>
+      <span className="font-num text-[1.1875rem] leading-tight font-semibold">{tile.number}</span>
       <span dir="auto" className={cn('text-xs', !tile.done && 'text-ink-2')}>
         {tileSubline(tile)}
       </span>
       {mine ? (
         <span
           className={cn(
-            'absolute end-2 top-1.5 rounded-[4px] px-1.5 py-0.5 text-[10.5px] font-extrabold tracking-[0.04em] text-on-accent',
+            'absolute end-2 top-1.5 rounded-[4px] px-1.5 py-0.5 text-[0.65625rem] font-extrabold tracking-[0.04em] text-on-accent',
             on ? 'bg-accent' : red ? 'bg-alliance-red' : 'bg-alliance-blue',
           )}
         >
@@ -164,7 +164,7 @@ function StationTile({
       ) : tile.done ? (
         <span
           aria-hidden="true"
-          className="absolute end-2 top-1.5 text-[11px] font-bold text-accent"
+          className="absolute end-2 top-1.5 text-[0.6875rem] font-bold text-accent"
         >
           {locked ? <Lock className="size-3.5 text-muted" /> : '✓'}
         </span>
@@ -194,7 +194,7 @@ export function OtherStationDialog({
     <ResponsiveDialog open={target !== null} title={`Scout ${there} instead?`} onClose={onKeep}>
       {target && (
         <>
-          <p className="text-[13.5px] leading-normal text-muted">
+          <p className="text-[0.84375rem] leading-normal text-muted">
             Your station is <b className={allianceText(mine)}>{home}</b>. This entry will be for{' '}
             <b className="text-ink" dir="auto">
               {target.number} {target.name}

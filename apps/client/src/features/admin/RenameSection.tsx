@@ -142,7 +142,7 @@ export function RenameSection({
             Save name
           </Button>
         </div>
-        <p id={`${id}-hint`} className="mt-2.5 text-[13px] leading-snug text-muted">
+        <p id={`${id}-hint`} className="mt-2.5 text-[0.8125rem] leading-snug text-muted">
           What they sign in with. A device that is offline under the old name keeps using it to sign
           in until its next sync.
         </p>
@@ -150,7 +150,7 @@ export function RenameSection({
         {saved && (
           <p
             role="status"
-            className="mt-2.5 flex items-center gap-1.5 text-[13px] font-[650] text-accent-ink"
+            className="mt-2.5 flex items-center gap-1.5 text-[0.8125rem] font-[650] text-accent-ink"
           >
             <Check aria-hidden="true" className="size-[15px] shrink-0" strokeWidth={2.6} />
             Saved.

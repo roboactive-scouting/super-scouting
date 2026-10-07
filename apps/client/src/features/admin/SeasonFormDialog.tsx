@@ -203,7 +203,7 @@ function SeasonForm({
           <option key={path} value={path} />
         ))}
       </datalist>
-      <p id={`${pathId}-hint`} className="mt-1.5 text-[13px] text-muted">
+      <p id={`${pathId}-hint`} className="mt-1.5 text-[0.8125rem] text-muted">
         {IMAGE_PATH_HINT}
       </p>
       {/* Task 1.23: preview the path as typed, so a typo fails loudly before saving. */}

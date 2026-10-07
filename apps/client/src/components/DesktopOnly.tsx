@@ -14,15 +14,15 @@ export function DesktopOnly({ what, children }: { what: string; children: ReactN
   if (wide) return <>{children}</>;
 
   return (
-    <div className="enter-fade mx-auto flex max-w-md flex-col items-center px-4 py-16 text-center">
+    <div className="motion-safe:animate-fade-in mx-auto flex max-w-md flex-col items-center px-4 py-16 text-center">
       <span
         aria-hidden="true"
-        className="flex size-12 items-center justify-center rounded-full border border-border bg-surface"
+        className="flex size-12 items-center justify-center rounded-full border border-line bg-surface"
       >
-        <Monitor className="size-6 text-text-muted" strokeWidth={1.5} />
+        <Monitor className="size-6 text-muted" strokeWidth={1.5} />
       </span>
       <h1 className="mt-5 text-lg font-semibold">This needs a computer</h1>
-      <p className="mt-2 text-sm text-text-muted">
+      <p className="mt-2 text-sm text-muted">
         Open {what} on a screen at least 1024 pixels wide. It is pre-competition work, done sitting
         down. Phones do the competition job — entering, browsing and reading — and this is not one
         of those.

@@ -7,10 +7,10 @@ import { cn } from '@/lib/utils';
  * `aria-invalid` turns the edge to `--warn` (errors are never red).
  */
 export const inputClass =
-  'tap-target motion-transition w-full min-w-0 rounded-control border border-control-border bg-surface px-3 text-base text-ink placeholder:text-muted focus-visible:border-accent focus-visible:shadow-[inset_0_0_0_1px_var(--accent)] disabled:cursor-not-allowed disabled:opacity-50 aria-[invalid=true]:border-warn';
+  'tap-target motion-safe:transition w-full min-w-0 rounded-control border border-control-border bg-surface px-3 text-base text-ink placeholder:text-muted focus-visible:border-accent focus-visible:shadow-[inset_0_0_0_1px_var(--accent)] disabled:cursor-not-allowed disabled:opacity-50 aria-[invalid=true]:border-warn';
 
 /** The "large number field" (THEME): 56 px, mono 26 px. */
-export const inputLargeClass = 'min-h-14 font-num text-[26px] font-semibold';
+export const inputLargeClass = 'min-h-14 font-num text-[1.625rem] font-semibold';
 
 export function Input({
   className,

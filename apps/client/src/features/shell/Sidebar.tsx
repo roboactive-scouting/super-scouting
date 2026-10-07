@@ -29,7 +29,7 @@ export function Sidebar({
     <aside
       aria-label="Sidebar"
       className={cn(
-        'motion-transition sticky top-0 z-30 flex h-dvh shrink-0 flex-col on-rail bg-rail px-3.5 py-5 text-rail-ink',
+        'motion-safe:transition-[width] sticky top-0 z-30 flex h-dvh shrink-0 flex-col on-rail bg-rail px-3.5 py-5 text-rail-ink',
         collapsed ? 'w-[4.75rem]' : 'w-[14.5rem]',
       )}
     >
@@ -52,7 +52,7 @@ export function Sidebar({
           aria-expanded={!collapsed}
           title={collapsed ? 'Expand the sidebar' : 'Collapse the sidebar'}
           onClick={onToggle}
-          className="motion-transition grid size-12 shrink-0 place-items-center rounded-lg text-rail-muted hover:bg-rail-raised hover:text-white"
+          className="motion-safe:transition grid size-12 shrink-0 place-items-center rounded-lg text-rail-muted hover:bg-rail-raised hover:text-surface"
         >
           <Toggle aria-hidden="true" className="size-4" />
         </button>

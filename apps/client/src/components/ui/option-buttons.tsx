@@ -52,7 +52,7 @@ export function OptionButtons<V extends string>({
             key={option.value}
             style={option.accent ? ({ '--opt': option.accent } as CSSProperties) : undefined}
             className={cn(
-              'tap-target state-layer press motion-transition flex min-h-12 cursor-pointer items-center gap-3 rounded-control border border-control-border bg-surface px-4 text-ink-2 has-[:checked]:border-2 has-[:checked]:px-[0.9375rem] has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent',
+              'tap-target hover-veil motion-safe:transition motion-safe:active:not-disabled:scale-[0.97] flex min-h-12 cursor-pointer items-center gap-3 rounded-control border border-control-border bg-surface px-4 text-ink-2 has-[:checked]:border-2 has-[:checked]:px-[0.9375rem] has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent',
               option.accent
                 ? 'has-[:checked]:border-[var(--opt)] has-[:checked]:bg-[color-mix(in_srgb,var(--opt)_12%,var(--surface))] has-[:checked]:text-ink'
                 : 'has-[:checked]:border-accent has-[:checked]:bg-accent-tint has-[:checked]:text-accent-ink',

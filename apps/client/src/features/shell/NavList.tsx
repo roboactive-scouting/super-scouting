@@ -8,8 +8,8 @@ export type NavListVariant = 'sidebar' | 'menu';
 
 const ITEM: Record<NavListVariant, string> = {
   sidebar:
-    'motion-transition relative z-10 flex items-center gap-[11px] min-h-12 rounded-[7px] px-2.5 leading-[1.2] font-medium',
-  menu: 'motion-transition relative z-10 flex min-h-12 items-center gap-3 rounded-lg px-2.5 text-[0.90625rem] font-[550]',
+    'motion-safe:transition relative z-10 flex items-center gap-[11px] min-h-12 rounded-[7px] px-2.5 leading-[1.2] font-medium',
+  menu: 'motion-safe:transition relative z-10 flex min-h-12 items-center gap-3 rounded-lg px-2.5 text-[0.90625rem] font-[550]',
 };
 const ICON: Record<NavListVariant, string> = {
   sidebar: 'size-[1.0625rem] shrink-0',
@@ -74,7 +74,7 @@ export function NavItemLink({
         cn(
           ITEM[variant],
           collapsed && 'justify-center px-0',
-          isActive ? 'text-white' : 'text-rail-ink hover:text-white',
+          isActive ? 'text-surface' : 'text-rail-ink hover:text-surface',
         )
       }
     >
@@ -91,7 +91,7 @@ export function NavItemLink({
 
 /**
  * One group's list. A single `--rail-raised` pill sits behind the current item and slides to
- * the next one on every navigation (the M3 navigation indicator): it says where the user is,
+ * the next one on every navigation (a navigation indicator): it says where the user is,
  * so it is informational motion. It jumps into place on first render and only moves after.
  */
 function NavGroupList({
@@ -141,7 +141,7 @@ function NavGroupList({
             className={cn(
               'pointer-events-none absolute inset-x-0 top-0 bg-rail-raised',
               variant === 'sidebar' ? 'rounded-[7px]' : 'rounded-lg',
-              placed.current && 'motion-transition',
+              placed.current && 'motion-safe:transition-[transform,height]',
             )}
             style={{ transform: `translateY(${pill.top}px)`, height: pill.height }}
           />

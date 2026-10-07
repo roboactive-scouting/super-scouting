@@ -4,11 +4,11 @@ const FOCUSABLE =
   'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
 
 /**
- * The focus rules of every modal surface — ConfirmDialog, Sheet and the entry review:
+ * The focus rules of every modal surface — Dialog, Sheet and all built on them:
  * first focus on `initial` (else the first focusable element), Tab and Shift+Tab kept
  * inside, Escape handed to `onEscape`, and focus handed back to what opened it on close.
  * Not a native <dialog>: jsdom has no `showModal`, and the tests must exercise the same
- * rules the app ships. Moved out of ConfirmDialog unchanged (redesign task R.3).
+ * rules the app ships. First written for the confirm dialog (redesign task R.3).
  *
  * The panel itself must carry `tabIndex={-1}` (redesign review): a click on text inside it
  * then focuses the panel, not <body>, so Escape and the Tab trap keep working.

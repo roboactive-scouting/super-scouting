@@ -13,7 +13,7 @@ function Harness({ onClose }: { onClose?: () => void }) {
       </button>
       <Sheet
         open={open}
-        label="Menu"
+        title="Menu"
         onClose={() => {
           onClose?.();
           setOpen(false);
@@ -76,19 +76,13 @@ describe('Sheet', () => {
 });
 
 describe('Sheet (RB.3)', () => {
-  it('takes `title` as its name, and `label` still works as an alias', () => {
-    const { rerender } = render(
+  it('takes `title` as its name', () => {
+    render(
       <Sheet open side="start" title="Menu" onClose={() => {}}>
         <button type="button">A</button>
       </Sheet>,
     );
     expect(screen.getByRole('dialog', { name: 'Menu' })).toBeInTheDocument();
-    rerender(
-      <Sheet open label="Old name" onClose={() => {}}>
-        <button type="button">A</button>
-      </Sheet>,
-    );
-    expect(screen.getByRole('dialog', { name: 'Old name' })).toBeInTheDocument();
   });
 
   it('a bottom sheet shows its title as the heading that names it', () => {

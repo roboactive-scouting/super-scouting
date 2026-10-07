@@ -3,8 +3,10 @@ import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { useModalFocus } from './useModalFocus';
 
-type SheetBase = {
+export type SheetProps = {
   open: boolean;
+  /** The sheet's accessible name, shown as its heading. */
+  title: string;
   onClose: () => void;
   /** `start`: the phone menu. `bottom`: a phone action sheet. */
   side?: 'start' | 'bottom';
@@ -21,16 +23,11 @@ type SheetBase = {
   describedBy?: string;
 };
 
-/** The sheet's accessible name: `title`, or `label` (today's name for it, until RB.18). */
-export type SheetProps = SheetBase &
-  ({ title: string; label?: never } | { label: string; title?: never });
-
 /**
  * A modal panel over a scrim, with useModalFocus's rules (focus trap, Escape, focus
  * returned to the opener). THEME "Bottom sheet": a dark scrim, white sheet with 20 px top
  * corners, a grab handle and an upward shadow; a `start` sheet is the phone menu. It slides
- * in (M3 emphasized-decelerate) and goes at once: an exit animation would keep a closed
- * sheet in the page, and M3 lets exits be quicker than entries.
+ * in and goes at once: an exit animation would keep a closed sheet in the page.
  */
 export function Sheet(props: SheetProps) {
   if (!props.open) return null;
@@ -46,10 +43,9 @@ function OpenSheet({
   initialFocus,
   dismissible = true,
   describedBy,
-  ...name
+  title,
 }: SheetProps) {
   const heading = useId();
-  const title = name.title ?? name.label;
   const close = () => {
     if (dismissible) onClose();
   };
@@ -61,7 +57,7 @@ function OpenSheet({
       <div
         aria-hidden="true"
         data-sheet-scrim=""
-        className="enter-fade absolute inset-0 bg-[var(--scrim)]"
+        className="motion-safe:animate-fade-in absolute inset-0 bg-[var(--scrim)]"
         onClick={close}
       />
       <div
@@ -77,9 +73,9 @@ function OpenSheet({
         className={cn(
           'absolute flex flex-col overflow-y-auto',
           bottom
-            ? 'enter-sheet-up inset-x-0 bottom-0 max-h-[86dvh] rounded-t-[20px] bg-surface px-4 pt-2.5 pb-[env(safe-area-inset-bottom)] text-ink shadow-[var(--shadow-sheet)]'
+            ? 'motion-safe:animate-sheet-up inset-x-0 bottom-0 max-h-[86dvh] rounded-t-[20px] bg-surface px-4 pt-2.5 pb-[env(safe-area-inset-bottom)] text-ink shadow-[var(--shadow-sheet)]'
             : cn(
-                'enter-drawer inset-y-0 start-0 border-e',
+                'motion-safe:animate-drawer-in inset-y-0 start-0 border-e',
                 tone === 'dark'
                   ? 'border-rail-line bg-rail text-rail-ink'
                   : 'border-line bg-surface text-ink',

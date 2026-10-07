@@ -41,7 +41,7 @@ function StationChoice({
   const [chosen, setChosen] = useState<Station | null>(current);
   return (
     <>
-      <p className="-mt-1 text-[13px] text-muted">
+      <p className="-mt-1 text-[0.8125rem] text-muted">
         Your station is picked for you in every match. You can still scout any robot, and change
         your station at any time.
       </p>
@@ -56,7 +56,7 @@ function StationChoice({
               aria-pressed={on}
               onClick={() => setChosen(s)}
               className={cn(
-                'tap-target state-layer press motion-transition grid min-h-14 place-items-center rounded-control text-sm font-bold',
+                'tap-target hover-veil motion-safe:transition motion-safe:active:not-disabled:scale-[0.97] grid min-h-14 place-items-center rounded-control text-sm font-bold',
                 red
                   ? 'bg-alliance-red-tint text-alliance-red'
                   : 'bg-alliance-blue-tint text-alliance-blue',
@@ -111,7 +111,7 @@ function StationBar({
       <Button
         variant="ghost"
         size="sm"
-        className="ms-auto px-2 text-accent-ink lg:text-[15px]"
+        className="ms-auto px-2 text-accent-ink lg:text-[0.9375rem]"
         onClick={onChange}
       >
         {station ? 'Change' : 'Choose your station'}
@@ -135,9 +135,11 @@ export function StationHeading({
   return (
     <div className="flex flex-wrap items-center gap-x-3.5 gap-y-3">
       <div className={cn(station !== null && 'max-lg:sr-only')}>
-        <h1 className="text-[22px] font-[750] tracking-[-0.02em] lg:text-[28px]">Scout a match</h1>
+        <h1 className="text-[1.375rem] font-[750] tracking-[-0.02em] lg:text-[1.75rem]">
+          Scout a match
+        </h1>
         {station === null && (
-          <p className="mt-1 text-[13px] text-muted">Where are you sitting today?</p>
+          <p className="mt-1 text-[0.8125rem] text-muted">Where are you sitting today?</p>
         )}
       </div>
       <StationBar

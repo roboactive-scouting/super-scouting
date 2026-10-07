@@ -109,7 +109,7 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
   }, [eventId, matchId, teamId]);
 
   if (!matchId || !teamId) {
-    return <p className="p-4 text-text-muted">No match selected.</p>;
+    return <p className="p-4 text-muted">No match selected.</p>;
   }
   if (blocked === 'not-cached') {
     return (
@@ -136,7 +136,7 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
   // Plain text, not a Skeleton: a role="status" here would be the first status the
   // other-event notice test finds (EntryRoute.test.tsx), and this lasts milliseconds.
   if (resolved === null) {
-    return <p className="mx-auto w-full max-w-xl px-4 pt-6 text-text-muted">Loading…</p>;
+    return <p className="mx-auto w-full max-w-xl px-4 pt-6 text-muted">Loading…</p>;
   }
 
   // SPEC-FINAL 6.3: no new entry outside the default competition, whatever URL got here.

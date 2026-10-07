@@ -113,14 +113,14 @@ export function AccountMenu({ account, collapsed }: { account: Account; collapse
         title={collapsed ? account.name : undefined}
         onClick={() => setOpen((was) => !was)}
         className={cn(
-          'motion-transition group flex min-h-12 w-full items-center gap-2.5 rounded-lg p-2 text-start hover:bg-rail-raised',
+          'motion-safe:transition group flex min-h-12 w-full items-center gap-2.5 rounded-lg p-2 text-start hover:bg-rail-raised',
           open && 'bg-rail-raised',
           collapsed && 'justify-center px-0',
         )}
       >
         <Initials name={account.name} tone="dark" />
         <span className={cn('min-w-0 leading-tight', collapsed && 'sr-only')}>
-          <span dir="auto" className="block truncate text-[0.8125rem] font-semibold text-white">
+          <span dir="auto" className="block truncate text-[0.8125rem] font-semibold text-surface">
             {account.name}
           </span>
           {/* --rail-muted reads 4.0:1 on --rail-raised: the open or hovered corner lifts it. */}

@@ -26,7 +26,7 @@ export function EmptyState({
   return (
     <section
       className={cn(
-        'enter-fade rounded-card border border-line bg-surface px-5 py-7 text-center',
+        'motion-safe:animate-fade-in rounded-card border border-line bg-surface px-5 py-7 text-center',
         className,
       )}
     >
@@ -36,10 +36,10 @@ export function EmptyState({
       >
         <Icon className="size-[22px]" strokeWidth={1.75} />
       </span>
-      <Heading className="text-[17px] font-bold" dir="auto">
+      <Heading className="text-[1.0625rem] font-bold" dir="auto">
         {title}
       </Heading>
-      <p className="mt-1.5 text-[13.5px] leading-normal text-muted" dir="auto">
+      <p className="mt-1.5 text-[0.84375rem] leading-normal text-muted" dir="auto">
         {detail}
       </p>
       {action ? <div className="mt-4 flex justify-center">{action}</div> : null}

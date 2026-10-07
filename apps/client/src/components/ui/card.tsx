@@ -34,9 +34,9 @@ export function CardTitle({
   ...props
 }: ComponentProps<'h2'> & { level?: 2 | 3 }) {
   const Heading = level === 2 ? 'h2' : 'h3';
-  return <Heading className={cn('text-[15.5px] font-[650]', className)} {...props} />;
+  return <Heading className={cn('text-[0.96875rem] font-[650]', className)} {...props} />;
 }
 
 export function CardDescription({ className, ...props }: ComponentProps<'p'>) {
-  return <p className={cn('mt-1 text-[13px] text-muted', className)} {...props} />;
+  return <p className={cn('mt-1 text-[0.8125rem] text-muted', className)} {...props} />;
 }

@@ -38,7 +38,7 @@ export function HomeNotReady({
   }
   const copy = NOT_READY[gate];
   return (
-    <section aria-labelledby="home-title" className="enter-rise">
+    <section aria-labelledby="home-title" className="motion-safe:animate-rise-in">
       <h1
         id="home-title"
         className="text-[1.375rem] font-[750] tracking-[-0.02em] lg:text-[1.75rem]"

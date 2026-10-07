@@ -73,7 +73,7 @@ function OpenDialog({
         aria-describedby={describedBy}
         onKeyDown={onKeyDown}
         style={{ width }}
-        className="enter-scale flex max-h-full max-w-full flex-col gap-3 overflow-y-auto rounded-2xl bg-surface px-6 py-[1.375rem] text-ink shadow-[var(--shadow-float)]"
+        className="motion-safe:animate-scale-in flex max-h-full max-w-full flex-col gap-3 overflow-y-auto rounded-2xl bg-surface px-6 py-[1.375rem] text-ink shadow-[var(--shadow-float)]"
       >
         <div className="flex items-center gap-3">
           <h2 id={heading} className="min-w-0 flex-1 text-xl font-[750]" dir="auto">
@@ -86,7 +86,7 @@ function OpenDialog({
               aria-label="Close"
               onClick={dismissible ? onClose : undefined}
               aria-disabled={!dismissible || undefined}
-              className="tap-target state-layer press motion-transition -me-2 flex shrink-0 items-center justify-center rounded-control text-muted aria-disabled:opacity-50"
+              className="tap-target hover-veil motion-safe:transition motion-safe:active:not-disabled:scale-[0.97] -me-2 flex shrink-0 items-center justify-center rounded-control text-muted aria-disabled:opacity-50"
             >
               <X aria-hidden="true" className="size-5" />
             </button>

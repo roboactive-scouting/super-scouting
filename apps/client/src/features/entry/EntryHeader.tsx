@@ -83,7 +83,7 @@ export function EntryHeader({
       <div className="flex items-center justify-between gap-2.5">
         <Link
           to={PATHS.scout}
-          className="state-layer -ms-2 flex min-h-12 items-center rounded-control px-2 text-[0.8125rem] font-medium text-muted"
+          className="hover-veil -ms-2 flex min-h-12 items-center rounded-control px-2 text-[0.8125rem] font-medium text-muted"
         >
           ‹ Scout
         </Link>

@@ -45,16 +45,19 @@ export function AuthFrame({
           compact ? 'pt-[18px]' : 'pt-6',
         )}
       >
-        <div className="enter-rise w-full max-w-[380px]">
+        <div className="motion-safe:animate-rise-in w-full max-w-[380px]">
           <section aria-labelledby="auth-title">
-            <h1 id="auth-title" className="text-[28px] font-[750] leading-tight tracking-[-0.02em]">
+            <h1
+              id="auth-title"
+              className="text-[1.75rem] font-[750] leading-tight tracking-[-0.02em]"
+            >
               {title}
             </h1>
             {children}
           </section>
         </div>
         <p className="mt-auto pt-6 text-center text-xs text-muted lg:absolute lg:inset-x-0 lg:bottom-6 lg:mt-0 lg:pt-0">
-          version <span className="num text-[11.5px]">{clientConfig().appVersion}</span>
+          version <span className="num text-[0.71875rem]">{clientConfig().appVersion}</span>
         </p>
       </div>
     </main>
@@ -92,12 +95,12 @@ export function AuthField(props: {
   } as const;
   return (
     <div className="mt-[18px]">
-      <Label htmlFor={id} className="mb-1.5 text-[13.5px] font-semibold text-ink">
+      <Label htmlFor={id} className="mb-1.5 text-[0.84375rem] font-semibold text-ink">
         {props.label}
       </Label>
       {props.type === 'password' ? <PasswordInput {...common} /> : <Input {...common} />}
       {props.hint && (
-        <p id={hintId} className="mt-1.5 text-[13px] text-muted">
+        <p id={hintId} className="mt-1.5 text-[0.8125rem] text-muted">
           {props.hint}
         </p>
       )}
@@ -134,7 +137,7 @@ export function AuthSubmit({
     >
       {busy ? (
         <>
-          <Loader2 aria-hidden="true" className="animate-spin motion-reduce:animate-none" />
+          <Loader2 aria-hidden="true" className="motion-safe:animate-spin" />
           {busyLabel}
         </>
       ) : (

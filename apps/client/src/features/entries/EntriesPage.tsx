@@ -38,8 +38,8 @@ export function EntriesPage({ eventId }: { eventId: string }) {
   return (
     <main className="mx-auto w-full px-4 pb-8 pt-5 lg:px-8 lg:pt-6">
       <header>
-        <h1 className="text-[22px] font-bold tracking-tight lg:text-[26px]">Entries</h1>
-        <p className="mt-0.5 text-[12.5px] text-muted lg:mt-1 lg:text-[13.5px]">
+        <h1 className="text-[1.375rem] font-bold tracking-tight lg:text-[1.625rem]">Entries</h1>
+        <p className="mt-0.5 text-[0.78125rem] text-muted lg:mt-1 lg:text-[0.84375rem]">
           {desktop
             ? 'Everything this device holds for the current competition, newest first.'
             : 'On this device · newest first'}

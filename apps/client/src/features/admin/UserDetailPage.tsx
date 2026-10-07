@@ -22,7 +22,7 @@ import { useAccount } from './useAccount';
 
 export { DISABLE_BODY, SELF_DISABLE_LINE } from './DisableSection';
 
-const TAG = 'inline-flex h-[22px] items-center rounded-tag px-2 text-xs font-bold';
+const TAG = 'inline-flex min-h-[22px] items-center rounded-tag px-2 text-xs font-bold';
 
 /**
  * One account (SPEC-FINAL 17.9, Clerk): a 680 px column of sections. The server enforces
@@ -109,7 +109,7 @@ function Account({
     <Column>
       <Link
         to={PATHS.users}
-        className="state-layer tap-target inline-flex w-fit items-center gap-1.5 rounded-control pe-2 text-[13.5px] font-semibold text-muted"
+        className="hover-veil tap-target inline-flex w-fit items-center gap-1.5 rounded-control pe-2 text-[0.84375rem] font-semibold text-muted"
       >
         <ChevronLeft aria-hidden="true" className="size-4" />
         All users
@@ -117,10 +117,10 @@ function Account({
       <header className="flex items-center gap-3.5">
         <Initials name={user.full_name} size={52} />
         <div className="min-w-0">
-          <h1 dir="auto" className="text-[26px] font-bold leading-tight tracking-[-0.02em]">
+          <h1 dir="auto" className="text-[1.625rem] font-bold leading-tight tracking-[-0.02em]">
             {user.full_name}
           </h1>
-          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[13.5px] text-muted">
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[0.84375rem] text-muted">
             <span dir="auto" className="num text-ink-2">
               {user.username}
             </span>

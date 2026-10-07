@@ -45,7 +45,7 @@ export function DescribedChoice<K extends string>({
               if (!busy) onChange(option.key);
             }}
             className={cn(
-              'state-layer press motion-transition flex min-h-14 min-w-0 flex-col items-start justify-center rounded-control border bg-surface px-3 text-start disabled:opacity-50',
+              'hover-veil motion-safe:transition motion-safe:active:not-disabled:scale-[0.97] flex min-h-14 min-w-0 flex-col items-start justify-center rounded-control border bg-surface px-3 text-start disabled:opacity-50',
               chosen
                 ? 'border-2 border-accent bg-accent-tint px-[0.6875rem]'
                 : 'border-control-border',

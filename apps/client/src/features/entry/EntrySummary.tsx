@@ -72,7 +72,7 @@ export function EntrySummary({
             onClick={() => onPick(phase.key)}
             className={cn(
               ROW,
-              'state-layer min-h-12 w-full text-start',
+              'hover-veil min-h-12 w-full text-start',
               state === 'current' ? 'font-[650] text-ink' : 'text-ink-2',
             )}
           >

@@ -83,8 +83,8 @@ export function PhoneMatchList({
         </p>
       )}
       <div>
-        <h1 className="text-[22px] font-[750] tracking-[-0.02em]">Matches</h1>
-        <p className="mt-0.5 text-[12.5px] text-muted" dir="auto">
+        <h1 className="text-[1.375rem] font-[750] tracking-[-0.02em]">Matches</h1>
+        <p className="mt-0.5 text-[0.78125rem] text-muted" dir="auto">
           {eventName}
         </p>
       </div>

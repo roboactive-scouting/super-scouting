@@ -139,7 +139,9 @@ export function SwitchScouter() {
 
   return (
     <main className="mx-auto w-full max-w-[460px] px-4 py-5 md:py-8">
-      <h1 className="text-[22px] font-bold tracking-tight md:text-[26px]">Switch scouter</h1>
+      <h1 className="text-[1.375rem] font-bold tracking-tight md:text-[1.625rem]">
+        Switch scouter
+      </h1>
       {users.length > 0 && (
         <p className="mt-1.5 text-sm leading-snug text-muted">
           Entries already on this device keep the scouter who made them.
@@ -156,7 +158,7 @@ export function SwitchScouter() {
               <Initials name={current.user.full_name} size={40} />
               <div className="min-w-0">
                 <small className="block text-xs font-semibold text-muted">Scouting now</small>
-                <b dir="auto" className="block truncate text-[15.5px] font-semibold text-ink">
+                <b dir="auto" className="block truncate text-[0.96875rem] font-semibold text-ink">
                   {current.user.full_name}
                 </b>
               </div>

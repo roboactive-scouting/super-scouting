@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { createMemoryRouter, RouterProvider, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PAGE_ENTER } from '@/lib/motion';
 import type { Account } from './account';
 import type { NavAudience } from './nav';
 import { ShellLayout } from './ShellLayout';
@@ -115,7 +114,7 @@ describe('the phone shell (redesign R.7)', () => {
     expect(animate).not.toHaveBeenCalled();
     await act(() => router.navigate('/entries'));
     expect(animate).toHaveBeenCalledTimes(1);
-    expect(animate.mock.calls[0]![0]).toEqual(PAGE_ENTER);
+    expect(animate.mock.calls[0]![0]).toEqual([{ opacity: 0 }, { opacity: 1 }]);
     await act(() => router.navigate('/scout'));
     await act(() => router.navigate('/entry/m-1/t-1'));
     expect(animate).toHaveBeenCalledTimes(1);

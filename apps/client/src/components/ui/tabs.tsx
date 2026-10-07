@@ -76,7 +76,7 @@ export function Tabs<K extends string>({
             tabIndex={selected ? 0 : -1}
             onClick={() => onChange(tab.key)}
             className={cn(
-              'state-layer motion-transition relative flex h-12 min-w-0 items-center justify-center gap-1.5 rounded-control px-2 text-sm font-semibold',
+              'hover-veil motion-safe:transition relative flex h-12 min-w-0 items-center justify-center gap-1.5 rounded-control px-2 text-sm font-semibold',
               selected ? 'bg-accent-tint text-accent-ink' : finished ? 'text-ink-2' : 'text-muted',
             )}
           >

@@ -4596,3 +4596,46 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
 - Rejected: closing the Edit dialog and opening the confirm at panel level — the brief puts the action in the dialog, and the admin would lose the dialog on Cancel.
 
 **Risk:** the anon/authenticated revoke is not proven negatively (no anon key is held anywhere, by design). Production gets this migration only when the user runs the production push by hand. Nothing yet tells an offline device whose cached event was deleted beyond the existing parent-deleted path (SPEC-FINAL 9.7).
+
+## Task RB.18 — Cleanup and performance budget
+
+**Plan said:** (1) delete `styles/motion.css`, `styles/motion.test.ts` and `lib/motion.ts`, and replace each Step 1 grep hit (`motion-transition`, `state-layer`, `enter-rise`, `usePlayOnChange`, …) "with the new token/primitive"; (2) delete `notice.tsx`'s legacy `Notice` and `native-select.tsx` once nothing imports them; (3) `pnpm build && pnpm bundle:check` → exits 0 at 180 KB gzip; if over, the report names the three biggest modules and the fix, not a raised budget; (4) Step 4 full gate + full e2e all PASS.
+
+**What was wrong:**
+- (1) The redesigned code still used the motion system: `state-layer press motion-transition` on Button, Counter, OptionButtons, DescribedChoice, DestructiveConfirm, Dialog, TeamCard, StationSheet, CompetitionsPanel; `enter-sheet-up` / `enter-drawer` / `enter-scale` / `enter-fade` on Sheet, Dialog, EmptyState; `indicator-in` on the phone bottom bar; and `lib/motion.ts`'s `play()` in PhaseTabs (the phone swipe slide, Entry README variant B) and `usePlayOnChange` in Counter (the value tick) and ShellLayout (the page fade, pinned by `ShellLayout.test.tsx` as SPEC-FINAL 17.9). Deleting the files outright would have removed every entrance, the hover/press feedback and three tested behaviours.
+- (2) `Notice` is still imported by `AppShell.tsx` (seven strips), `EntryRoute.tsx` and `season/FieldImage.tsx`. `native-select.tsx` was imported only by `features/admin/fields.tsx`'s `RoleSelect`, which nothing imported.
+- (3) `pnpm bundle:check` prints `initial JS 199.4 KB gzip` / `initial JS over 180 KB gzip` and exits 1. Measured from a source-map build: react-dom ≈ 63.7 KB gz, dexie ≈ 32.4 KB gz, react-router ≈ 31.7 KB gz (all app code in src/ ≈ 44.5 KB gz, zod ≈ 12.1 KB gz). All three sit on the competition path, which `routes.tsx` keeps in the main bundle on purpose ("the competition path never waits on a chunk"). Experiment (reverted): `EntryRoute` behind `lazy` → 191.7 KB gz, still over.
+- (4) The first full e2e run failed `auth.spec.ts` "login: offline says so…": `Error: expect(locator).toBeVisible() failed … getByText('No connection. Signing in will use the credentials') … element(s) not found`. `useOnline` read `navigator.onLine` at render and subscribed in an effect; an `offline` event between the two was lost.
+
+**What I did instead:**
+- (1) Motion now goes through Tailwind only. `styles/index.css` `@theme` defines `--animate-fade-in / rise-in / scale-in / drawer-in / sheet-up / indicator-in` (same keyframes, durations and curves as before) and the default transition (200 ms, the same curve); every use is `motion-safe:animate-*` / `motion-safe:transition` (`transition-[width]` on the sidebar, `transition-[transform,height]` on the nav pill). `press` became `motion-safe:active:not-disabled:scale-[0.97]`. The state layer is kept, renamed `.hover-veil` (components layer of `index.css`, the same CSS): it is hover/press feedback, not motion, and dropping it would leave filled buttons with no hover state. The three Web Animations uses moved to a two-function `lib/animate.ts` (`playOnce`, `prefersReducedMotion`), with its tests from `lib/motion.test.ts`; `usePlayOnChange` and the M3 token tables are gone. The counter now ticks in its tap handler when the value changes (no effect needed); ShellLayout's page fade is an inline effect on the pathname. `AuthFrame`'s spinner became `motion-safe:animate-spin`. New `styles/classes.test.ts` fails on `text-[<n>px]`, white/black/palette colour classes, any Step 1 legacy name, and any `animate-*`/`transition` class without `motion-safe:` (each rule mutation-checked).
+- (2) `Notice` kept (comment updated). `fields.tsx` trimmed to `TextField` (its only export in use), then `native-select.tsx` deleted. Also deleted as dead: `components/ui/badge.tsx` and `page-header.tsx` (no importers; built on the legacy aliases), `features/shell/ConnectionIndicator.tsx` + test (no importers; the shell uses SyncPill), Sheet's `label` alias and Button's `default` size (both "until RB.18", no callers). `ConfirmDialog.test.tsx` moved to `ui/destructive-confirm.test.tsx` and `components/entry/entry.test.tsx` to `ui/controls.test.tsx` (import paths and names updated; the "old import paths" case removed with the stubs).
+- (3) Budget left at 180 KB and not met; no route moved behind `lazy` — that reverses the routes.tsx decision and needs the user. Script is the brief's verbatim (Prettier-formatted, header comment added); the precache assertion passes for all 11 lazy chunks.
+- (4) `useOnline` calls its update once right after subscribing (as `useMediaQuery` already does); new `lib/useOnline.test.ts` covers it (mutation-checked). Two further full e2e runs: 32 passed each.
+- Also: `textarea.tsx` was still the old field (`rounded-lg border-border bg-bg`); it now matches `Input` and THEME "Text area" (`--control-border`, white, `--radius-control`, accent focus edge). px font sizes became arbitrary rem values (`text-[0.8125rem]`), never a Tailwind `text-*` step, because the steps also set line-height and would move layouts. `.brand-plate` is gone; `Logo` (no importers outside its test) sits on `bg-rail text-rail-ink`. Manifest `background_color` stays `#0A0A0B` (the brief named only `theme_color`).
+
+**Risk:** the bundle stays 19.4 KB gzip over budget until the user picks a fix; `pnpm bundle:check` exits 1 and must not go into CI yet. The counter no longer ticks when its value changes without a tap (undo/reset) — it never needed to. BUILD-CONTEXT §12.5 still lists `NativeSelect`, `Badge`, `PageHeader` and `components/entry/*` (RB.19 updates it).
+
+**Plan said (budget):** fail above 180 KB gzip; if over, name the three biggest modules and the fix, not a raised budget.
+
+**What was wrong:** `pnpm bundle:check` printed `initial JS 199.4 KB gzip` and `initial JS over 180 KB gzip`.
+
+**What I did instead:** bundle budget re-based from 180 KB to 205 KB gzip (measured 199.4 KB): react-dom, dexie and react-router (~128 KB) are needed at first paint on the offline competition path; the service worker fetches the app once before the venue. User decision 2026-10-07.
+
+**Risk:** 5.6 KB of headroom; the next large dependency on the competition path trips the check and needs the same conversation.
+
+**Plan said (fix 1: review follow-ups):** `build.manifest: true` in `vite.config.ts`; `check-bundle.mjs` asserts precache for the lazy entry chunks.
+
+**What was wrong:** the manifest in `dist/.vite/manifest.json` lists source paths and dependency versions and would ship with the deploy; the script ignored the shared chunks that lazy entries import, so a lazy route could be precached without the chunk it needs.
+
+**What I did instead:** `check-bundle.mjs` deletes the manifest (and the empty `.vite` dir) once read and now walks each lazy entry's `imports`, excluding the initial set, asserting each is in `sw.js`. `vite.config.ts` sets `manifest: !process.env.VERCEL`, because Vercel's build never runs the script and the deploy would otherwise carry the file. Rejected: an env flag set by `bundle:check`, since the script runs after the build and cannot turn the manifest on.
+
+**Risk:** `bundle:check` can run once per build (the manifest is gone afterwards); a second run fails with ENOENT until the client is rebuilt. It does not work on a Vercel build.
+
+**Plan said (manifest colours):** only `theme_color` → `#161a21` was named; `background_color` stayed `#0A0A0B`.
+
+**What was wrong:** the app is light by default, so the install splash flashed near-black before the first paint.
+
+**What I did instead:** `background_color` is now `#f4f6f8` (the light `--bg` token), pinned in `manifest.test.ts`. `theme_color` already matched `--rail` (`#161a21`). Fixed `h-[22px]`/`h-[34px]` pills (tag, UserDetail tag, filter chips, switch-competition chips) became `min-h-[…]` so they grow with the OS text size (SPEC-FINAL 17.7). Deleted the dead `components/Logo.tsx` and its test (no importers). `classes.test.ts` now also catches retired token utilities under any prefix, ignores `motion-reduce:transition-none` and `lg:motion-safe:transition`, and no longer matches palette names inside other words; each rule has self-tests.
+
+**Risk:** the splash colour is correct only for the light theme; the outdoor theme's splash will be light-grey, not white, until task 1.38 decides how a manifest follows the theme.

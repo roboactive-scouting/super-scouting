@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { ConfirmDialog } from './ConfirmDialog';
+import { DestructiveConfirm } from './destructive-confirm';
 
 function Harness(props: {
   onConfirm?: () => void;
@@ -16,7 +16,7 @@ function Harness(props: {
       <button type="button" onClick={() => setOpen(true)}>
         Open it
       </button>
-      <ConfirmDialog
+      <DestructiveConfirm
         open={open}
         title="Delete this season?"
         objectName="2026 Reefscape"
@@ -34,7 +34,7 @@ function Harness(props: {
   );
 }
 
-describe('ConfirmDialog (SPEC-FINAL 17.8: the single destructive pattern)', () => {
+describe('DestructiveConfirm (SPEC-FINAL 17.8: the single destructive pattern)', () => {
   it('names the object, states the loss as a count, and puts the verb on the primary button', async () => {
     render(<Harness loss="This deletes 4 entries." />);
     await userEvent.setup().click(screen.getByRole('button', { name: 'Open it' }));

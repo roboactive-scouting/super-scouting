@@ -11,7 +11,7 @@ function Badge({ count }: { count: number }) {
   return (
     <span
       aria-hidden="true"
-      className="num absolute start-[56%] top-0.5 grid h-[1.125rem] min-w-[1.125rem] place-items-center rounded-full bg-warn px-1 text-[0.65625rem] text-white"
+      className="num absolute start-[56%] top-0.5 grid h-[1.125rem] min-w-[1.125rem] place-items-center rounded-full bg-warn px-1 text-[0.65625rem] text-surface"
     >
       {count}
     </span>
@@ -35,11 +35,13 @@ function Tab({ item, who, waiting }: { item: NavItem; who: NavAudience; waiting:
       to={item.to}
       end={item.end}
       aria-label={badge ? `${item.label}, ${waiting} waiting to send` : undefined}
-      className={({ isActive }) => cn(TAB, isActive ? 'text-white' : 'text-rail-muted')}
+      className={({ isActive }) => cn(TAB, isActive ? 'text-surface' : 'text-rail-muted')}
     >
       {({ isActive }) => (
         <>
-          <span className={cn(PILL, isActive && 'indicator-in bg-rail-raised')}>{icon}</span>
+          <span className={cn(PILL, isActive && 'motion-safe:animate-indicator-in bg-rail-raised')}>
+            {icon}
+          </span>
           {item.label}
           {badge && <Badge count={waiting} />}
         </>
@@ -56,7 +58,7 @@ function Raised({ item, who }: { item: NavItem; who: NavAudience }) {
       <span className="grid size-[3.625rem] place-items-center rounded-[18px] border-4 border-rail bg-accent text-on-accent shadow-[0_8px_20px_-8px_color-mix(in_srgb,var(--accent)_60%,transparent)]">
         <Icon aria-hidden="true" strokeWidth={1.8} className="size-[1.625rem]" />
       </span>
-      <span className={on ? 'text-white' : 'text-rail-muted'}>{item.label}</span>
+      <span className={on ? 'text-surface' : 'text-rail-muted'}>{item.label}</span>
     </>
   );
   const shape =

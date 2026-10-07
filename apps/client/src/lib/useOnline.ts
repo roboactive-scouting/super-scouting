@@ -12,6 +12,8 @@ export function useOnline(): boolean {
     const update = () => setOnline(navigator.onLine);
     window.addEventListener('online', update);
     window.addEventListener('offline', update);
+    // A change between the first render and this subscription fires no event we hear.
+    update();
     return () => {
       window.removeEventListener('online', update);
       window.removeEventListener('offline', update);

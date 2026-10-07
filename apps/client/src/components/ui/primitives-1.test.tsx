@@ -109,10 +109,10 @@ describe('primitives I', () => {
     );
     const chip = screen.getByRole('button', { name: 'All' });
     expect(chip).toHaveClass(
-      'h-8',
+      'min-h-8',
       'px-2.5',
-      'text-[12.5px]',
-      'lg:h-[34px]',
+      'text-[0.78125rem]',
+      'lg:min-h-[34px]',
       'min-w-12',
       'after:absolute',
       'after:-inset-y-2',

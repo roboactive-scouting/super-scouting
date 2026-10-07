@@ -67,12 +67,12 @@ export function ReconnectPrompt({
   return (
     <section
       aria-labelledby={`${id}-title`}
-      className="enter-rise border-b border-s-4 border-border border-s-warning bg-surface px-4 py-3"
+      className="motion-safe:animate-rise-in border-b border-s-4 border-line border-s-warn bg-surface px-4 py-3"
     >
       <h2 id={`${id}-title`} className="text-sm font-semibold">
         {RECONNECT_TITLE}
       </h2>
-      <p className="mt-1 text-sm text-text-muted">
+      <p className="mt-1 text-sm text-muted">
         Enter the password for <span dir="auto">{name}</span> once to upload this device&apos;s
         entries. They are safe on this device until then.
       </p>

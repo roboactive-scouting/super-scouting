@@ -43,7 +43,7 @@ export function MatchFields({
         <div className="relative">
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute start-3.5 top-1/2 -translate-y-1/2 font-num text-[22px] font-semibold text-muted"
+            className="pointer-events-none absolute start-3.5 top-1/2 -translate-y-1/2 font-num text-[1.375rem] font-semibold text-muted"
           >
             {MATCH_TYPE_PREFIX[matchType as MatchType]}
           </span>

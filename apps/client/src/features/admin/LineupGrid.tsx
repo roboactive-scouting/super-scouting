@@ -53,7 +53,7 @@ export function LineupGrid({
           <span
             key={label}
             className={cn(
-              'rounded-[6px] px-2 py-1.5 text-[11.5px] font-[750] tracking-[0.04em] uppercase',
+              'rounded-[6px] px-2 py-1.5 text-[0.71875rem] font-[750] tracking-[0.04em] uppercase',
               alliance === 'red'
                 ? 'bg-alliance-red-tint text-alliance-red'
                 : 'bg-alliance-blue-tint text-alliance-blue',
@@ -81,7 +81,7 @@ export function LineupGrid({
               <span className="num ps-1.5 font-semibold">
                 {label}
                 {unsaved && (
-                  <small className="block font-ui text-[10.5px] leading-tight font-bold text-warn">
+                  <small className="block font-ui text-[0.65625rem] leading-tight font-bold text-warn">
                     Not saved
                   </small>
                 )}

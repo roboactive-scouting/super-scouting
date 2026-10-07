@@ -30,7 +30,7 @@ export function TopBar({
           <Menu aria-hidden="true" className="size-[1.375rem]" />
         </button>
         <img src="/brand/mark.png" alt="" className="w-[1.625rem] shrink-0" />
-        <p dir="auto" className="min-w-0 flex-1 truncate text-base font-[650] text-white">
+        <p dir="auto" className="min-w-0 flex-1 truncate text-base font-[650] text-surface">
           {title}
         </p>
         <SyncPill status={status} compact />

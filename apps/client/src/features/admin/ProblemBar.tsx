@@ -33,7 +33,7 @@ export function ProblemBar({
     return { id, number: null, line: `A team${where} is not on this event's roster` };
   });
   return (
-    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 border-b border-line-2 bg-bg px-3.5 py-1 text-[13px]">
+    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 border-b border-line-2 bg-bg px-3.5 py-1 text-[0.8125rem]">
       {missing && <Issue>{missing}</Issue>}
       {strangers.map((t) => (
         <span key={t.id} className="inline-flex flex-wrap items-center gap-x-2.5">
@@ -42,7 +42,7 @@ export function ProblemBar({
             <button
               type="button"
               onClick={() => onAddToRoster(t.id)}
-              className="tap-target state-layer rounded-control px-1 font-[650] text-accent-ink"
+              className="tap-target hover-veil rounded-control px-1 font-[650] text-accent-ink"
             >
               {`Add ${t.number} to the roster`}
             </button>

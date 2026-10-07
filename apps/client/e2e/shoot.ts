@@ -11,6 +11,35 @@ const screenPath = (file: string) =>
   fileURLToPath(new URL(`./__screens__/${file}.png`, import.meta.url));
 
 /**
+ * Waits for a still page: the fonts in, then every running animation and transition
+ * finished, re-checked after two frames because one that ends can start another (a page
+ * fading in, then its content rising). A page or sheet measured mid-fade fails axe colour
+ * contrast on text that is fine at rest (smoke-home's footer flaked on it). Endless
+ * animations (a skeleton's pulse) are not waited for, and the whole wait gives up after
+ * `timeout` ms rather than hang the test.
+ */
+async function settle(page: Page, timeout = 3_000) {
+  await page.evaluate(async (ms) => {
+    const frames = () =>
+      new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+    const deadline = performance.now() + ms;
+    await document.fonts.ready;
+    for (;;) {
+      await frames();
+      const running = document
+        .getAnimations()
+        .filter((a) => a.playState === 'running' && a.effect?.getTiming().iterations !== Infinity);
+      const left = deadline - performance.now();
+      if (running.length === 0 || left <= 0) return;
+      await Promise.race([
+        Promise.all(running.map((a) => a.finished.catch(() => undefined))),
+        new Promise((done) => setTimeout(done, left)),
+      ]);
+    }
+  }, timeout);
+}
+
+/**
  * One screen at both design widths: picture, no sideways scroll, no serious a11y problem.
  * The pictures are viewport-sized (phone 375x812, desktop 1440x900) like the design finals.
  * `opts.long` adds `<name>-phone-long.png`: the whole phone page, with fixed/sticky bars
@@ -26,16 +55,7 @@ export async function shoot(
     if (only && only !== label) continue;
     await page.setViewportSize(size);
     await page.waitForLoadState('networkidle');
-    // two frames after the resize, with the fonts in, so the picture is the settled layout
-    await page.evaluate(() =>
-      document.fonts.ready.then(
-        () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
-      ),
-    );
-    // a menu or sheet still sliding in would be measured half-faded (axe contrast flaked on it)
-    await page.evaluate(() =>
-      Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))),
-    );
+    await settle(page);
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - window.innerWidth,
     );

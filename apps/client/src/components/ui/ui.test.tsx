@@ -1,12 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { DESTRUCTIVE_BUTTON, FIELD, PRIMARY_BUTTON, SECONDARY_BUTTON } from '../buttonStyles';
-import { Badge } from './badge';
 import { Button, buttonVariants } from './button';
 import { Card, CardTitle } from './card';
 import { Input } from './input';
-import { NativeSelect } from './native-select';
-import { PageHeader } from './page-header';
 import { SearchField } from './search-field';
 import { Select } from './select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './table';
@@ -46,22 +42,10 @@ describe('design-system primitives (SPEC-FINAL 17.4, 17.7)', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toHaveAttribute('type', 'button');
   });
 
-  it('keeps the pre-redesign class constants, now drawn from the primitives', () => {
-    expect(PRIMARY_BUTTON).toBe(buttonVariants({ variant: 'primary' }));
-    expect(PRIMARY_BUTTON).toContain('bg-accent');
-    expect(PRIMARY_BUTTON).toContain('text-on-accent');
-    expect(SECONDARY_BUTTON).toBe(buttonVariants({ variant: 'secondary' }));
-    expect(DESTRUCTIVE_BUTTON).toContain('bg-ink');
-    expect(FIELD.split(' ')).toContain('tap-target');
-  });
-
   it('keeps inputs and selects native, on the floor, with 16 px text (no iOS zoom)', () => {
     render(
       <>
         <Input aria-label="Name" />
-        <NativeSelect aria-label="Role">
-          <option>Lead</option>
-        </NativeSelect>
         <SearchField value="" onChange={() => {}} placeholder="Search" label="Search" />
         <Select aria-label="Season">
           <option>2026</option>
@@ -69,14 +53,13 @@ describe('design-system primitives (SPEC-FINAL 17.4, 17.7)', () => {
       </>,
     );
     expect(screen.getByRole('textbox', { name: 'Name' })).toHaveClass('tap-target', 'text-base');
-    const select = screen.getByRole('combobox', { name: 'Role' });
-    expect(select.tagName).toBe('SELECT');
-    expect(select).toHaveClass('tap-target', 'text-base');
     expect(screen.getByRole('searchbox', { name: 'Search' })).toHaveClass(
       'tap-target',
       'text-base',
     );
-    expect(screen.getByRole('combobox', { name: 'Season' })).toHaveClass('tap-target', 'text-base');
+    const select = screen.getByRole('combobox', { name: 'Season' });
+    expect(select.tagName).toBe('SELECT');
+    expect(select).toHaveClass('tap-target', 'text-base');
   });
 
   it('end-aligns numeric table cells in mono figures, and scopes headers', () => {
@@ -100,13 +83,6 @@ describe('design-system primitives (SPEC-FINAL 17.4, 17.7)', () => {
     expect(screen.getByRole('cell', { name: '12' })).toHaveClass('text-end', 'num');
   });
 
-  it('keeps a badge label in --text and puts the tone on the edge and the dot only', () => {
-    render(<Badge tone="played">played</Badge>);
-    const badge = screen.getByText('played');
-    expect(badge).toHaveClass('text-text', 'border-status-played');
-    expect(badge.querySelector('[aria-hidden="true"]')).toHaveClass('bg-status-played');
-  });
-
   it('renders a card as a labelled section with its heading at the level asked', () => {
     render(
       <Card as="section" aria-labelledby="t">
@@ -117,11 +93,5 @@ describe('design-system primitives (SPEC-FINAL 17.4, 17.7)', () => {
     );
     expect(screen.getByRole('region', { name: 'Role' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: 'Role' })).toBeInTheDocument();
-  });
-
-  it('gives a page exactly one h1, from its header', () => {
-    render(<PageHeader title="Users" description="Every account." />);
-    expect(screen.getAllByRole('heading')).toHaveLength(1);
-    expect(screen.getByRole('heading', { level: 1, name: 'Users' })).toBeInTheDocument();
   });
 });

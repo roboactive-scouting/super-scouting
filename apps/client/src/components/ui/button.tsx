@@ -12,10 +12,10 @@ import { cn } from '@/lib/utils';
  */
 const HIT_AREA = "relative after:absolute after:inset-x-0 after:content-['']";
 
-const MD = `${HIT_AREA} min-h-11 px-[18px] text-[14.5px] after:-inset-y-0.5`;
+const MD = `${HIT_AREA} min-h-11 px-[18px] text-[0.90625rem] after:-inset-y-0.5`;
 
 export const buttonVariants = cva(
-  'tap-target state-layer press motion-transition inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-control border font-semibold disabled:pointer-events-none disabled:opacity-45 [&_svg]:size-[17px] [&_svg]:shrink-0',
+  'tap-target hover-veil motion-safe:transition motion-safe:active:not-disabled:scale-[0.97] inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-control border font-semibold disabled:pointer-events-none disabled:opacity-45 [&_svg]:size-[17px] [&_svg]:shrink-0',
   {
     variants: {
       variant: {
@@ -23,16 +23,14 @@ export const buttonVariants = cva(
         primary: 'border-accent bg-accent text-on-accent',
         /** Everything that is not the primary action. */
         secondary: 'border-control-border bg-surface text-ink',
-        /** Navigation and low-emphasis actions: no edge, only the state layer. */
+        /** Navigation and low-emphasis actions: no edge, only the hover veil. */
         ghost: 'border-transparent bg-transparent text-ink-2',
         /** The action that starts a destructive flow, and its confirm. Filled ink, never red. */
-        destructive: 'border-ink bg-ink text-white',
+        destructive: 'border-ink bg-ink text-surface',
       },
       size: {
-        sm: `${HIT_AREA} min-h-9 px-3 text-[13.5px] after:-inset-y-1.5`,
+        sm: `${HIT_AREA} min-h-9 px-3 text-[0.84375rem] after:-inset-y-1.5`,
         md: MD,
-        /** Legacy name of `md` (features/shell/Sidebar.tsx passes it); deleted with RB.18. */
-        default: MD,
         lg: 'min-h-[52px] px-6 text-base',
         block: 'min-h-[52px] w-full px-4 text-base',
         icon: 'px-0',

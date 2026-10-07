@@ -23,9 +23,9 @@ describe('Notice', () => {
 
   it('rises in once by default, and stands still when asked', () => {
     const { rerender } = render(<Notice>Saved</Notice>);
-    expect(screen.getByText('Saved').parentElement).toHaveClass('enter-rise');
+    expect(screen.getByText('Saved').parentElement).toHaveClass('motion-safe:animate-rise-in');
     rerender(<Notice still>Saved</Notice>);
-    expect(screen.getByText('Saved').parentElement).not.toHaveClass('enter-rise');
+    expect(screen.getByText('Saved').parentElement).not.toHaveClass('motion-safe:animate-rise-in');
   });
 
   it('keeps text that may hold Hebrew direction-neutral', () => {

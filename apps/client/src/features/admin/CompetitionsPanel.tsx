@@ -21,7 +21,7 @@ type Form =
 
 /** A 36 px pill with the 48 px target grown by its ::after. */
 const CHIP =
-  'tap-target state-layer press motion-transition relative inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3.5 text-[0.84375rem] font-[650] after:absolute after:inset-x-0 after:-inset-y-1.5 after:content-[""]';
+  'tap-target hover-veil motion-safe:transition motion-safe:active:not-disabled:scale-[0.97] relative inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3.5 text-[0.84375rem] font-[650] after:absolute after:inset-x-0 after:-inset-y-1.5 after:content-[""]';
 
 /**
  * The Competitions tab (07-manage final): Seasons and Events merged. Season chips (newest
@@ -199,7 +199,7 @@ export function CompetitionsPanel({
                 <button
                   type="button"
                   onClick={() => setForm({ kind: 'event', event: null })}
-                  className="state-layer motion-transition min-h-[110px] rounded-card border border-dashed border-control-border font-[650] text-accent-ink"
+                  className="hover-veil motion-safe:transition min-h-[110px] rounded-card border border-dashed border-control-border font-[650] text-accent-ink"
                 >
                   + New event
                 </button>

@@ -19,9 +19,9 @@ export const SERVER_SILENT_LINE =
   'The server did not answer, so only the default competition is shown.';
 
 const CHIP =
-  "motion-transition relative inline-flex h-[34px] items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-[0.84375rem] font-semibold after:absolute after:inset-x-0 after:-inset-y-[7px] after:content-[''] disabled:opacity-50";
+  "motion-safe:transition relative inline-flex min-h-[34px] items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-[0.84375rem] font-semibold after:absolute after:inset-x-0 after:-inset-y-[7px] after:content-[''] disabled:opacity-50";
 const CARD =
-  'tap-target state-layer motion-transition flex min-h-[84px] w-full flex-col items-start gap-1.5 rounded-card border border-line bg-surface px-4 py-3.5 text-start disabled:cursor-not-allowed disabled:opacity-50';
+  'tap-target hover-veil motion-safe:transition flex min-h-[84px] w-full flex-col items-start gap-1.5 rounded-card border border-line bg-surface px-4 py-3.5 text-start disabled:cursor-not-allowed disabled:opacity-50';
 
 /**
  * SPEC-FINAL 6.3, 17.9; Home README "States": the deliberate way to look at another season
@@ -147,7 +147,9 @@ export function SwitchCompetitionSheet({
               onClick={() => setChosen(s.id)}
               className={cn(
                 CHIP,
-                on ? 'border-ink bg-ink text-white' : 'border-control-border bg-surface text-ink-2',
+                on
+                  ? 'border-ink bg-ink text-surface'
+                  : 'border-control-border bg-surface text-ink-2',
               )}
             >
               <span className="num">{s.year}</span>

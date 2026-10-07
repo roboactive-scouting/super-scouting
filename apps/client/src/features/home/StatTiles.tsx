@@ -66,7 +66,7 @@ export function StatTiles({
         value={
           lastEntry ? (
             <span className="text-xl">
-              <span className="text-[13px] font-medium text-muted">{lastEntry.match}</span> ·{' '}
+              <span className="text-[0.8125rem] font-medium text-muted">{lastEntry.match}</span> ·{' '}
               {formatCount(lastEntry.teamNumber)}
             </span>
           ) : (

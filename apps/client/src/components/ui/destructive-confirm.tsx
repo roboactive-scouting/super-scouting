@@ -44,7 +44,7 @@ export function DestructiveConfirm(props: DestructiveConfirmProps) {
 }
 
 const BUTTON =
-  'tap-target state-layer press motion-transition inline-flex items-center justify-center gap-2 rounded-control px-4 font-semibold aria-disabled:pointer-events-none aria-disabled:opacity-50';
+  'tap-target hover-veil motion-safe:transition motion-safe:active:not-disabled:scale-[0.97] inline-flex items-center justify-center gap-2 rounded-control px-4 font-semibold aria-disabled:pointer-events-none aria-disabled:opacity-50';
 
 function OpenConfirm({
   title,

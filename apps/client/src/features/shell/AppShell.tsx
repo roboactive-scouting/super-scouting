@@ -86,7 +86,7 @@ function HydrationGate({
   if (state === 'loading') {
     return (
       <ShellState glyph={CloudDownload} title="Loading the competition onto this device" busy>
-        <p className="mt-2 text-sm text-text-muted" dir="auto">
+        <p className="mt-2 text-sm text-muted" dir="auto">
           This happens once, and takes a few seconds. The matches and robots appear as soon as it is
           done.
         </p>
@@ -99,7 +99,7 @@ function HydrationGate({
   // server did not answer, so nobody goes hunting for Wi-Fi that will not help.
   return (
     <ShellState glyph={CloudOff} title="This device has not loaded the competition yet">
-      <p className="mt-2 text-sm text-text-muted">
+      <p className="mt-2 text-sm text-muted">
         {online
           ? SERVER_UNREACHABLE_LINE
           : 'An internet connection is required once, to load the event and its form. After that the app works with no network at all.'}
@@ -538,7 +538,7 @@ export function AppShell() {
       {showPage ? (
         <Outlet context={context} />
       ) : moving ? (
-        <p className="p-8 text-center text-text-muted">Moving to the new default competition…</p>
+        <p className="p-8 text-center text-muted">Moving to the new default competition…</p>
       ) : (
         <HydrationGate
           state={gate.state}

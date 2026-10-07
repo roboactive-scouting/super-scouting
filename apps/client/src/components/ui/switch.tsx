@@ -30,9 +30,9 @@ export function Switch({
       />
       <span
         aria-hidden="true"
-        className="motion-transition relative inline-flex h-8 w-13 shrink-0 items-center rounded-full border border-control-border bg-surface group-has-[:checked]/toggle:border-accent group-has-[:checked]/toggle:bg-accent group-has-[:focus-visible]/toggle:outline-2 group-has-[:focus-visible]/toggle:outline-offset-2 group-has-[:focus-visible]/toggle:outline-accent"
+        className="motion-safe:transition relative inline-flex h-8 w-13 shrink-0 items-center rounded-full border border-control-border bg-surface group-has-[:checked]/toggle:border-accent group-has-[:checked]/toggle:bg-accent group-has-[:focus-visible]/toggle:outline-2 group-has-[:focus-visible]/toggle:outline-offset-2 group-has-[:focus-visible]/toggle:outline-accent"
       >
-        <span className="motion-transition absolute start-[0.1875rem] size-6 rounded-full bg-muted group-has-[:checked]/toggle:translate-x-5 group-has-[:checked]/toggle:bg-on-accent rtl:group-has-[:checked]/toggle:-translate-x-5" />
+        <span className="motion-safe:transition absolute start-[0.1875rem] size-6 rounded-full bg-muted group-has-[:checked]/toggle:translate-x-5 group-has-[:checked]/toggle:bg-on-accent rtl:group-has-[:checked]/toggle:-translate-x-5" />
       </span>
     </label>
   );

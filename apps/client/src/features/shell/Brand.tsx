@@ -17,7 +17,7 @@ export function Brand({ compact = false, small = false }: { compact?: boolean; s
         <div className="min-w-0 leading-tight">
           <p
             className={cn(
-              'truncate font-bold text-white',
+              'truncate font-bold text-surface',
               small ? 'text-[0.875rem]' : 'text-[0.9375rem]',
             )}
           >

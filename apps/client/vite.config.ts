@@ -25,8 +25,8 @@ export default defineConfig(() => ({
         short_name: 'Scouting',
         display: 'standalone',
         orientation: 'any',
-        theme_color: '#0A0A0B',
-        background_color: '#0A0A0B',
+        theme_color: '#161a21',
+        background_color: '#f4f6f8',
         start_url: '/',
         icons: [
           { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
@@ -48,7 +48,9 @@ export default defineConfig(() => ({
   ],
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   // SPEC-FINAL 18.1: Android Chrome from the last ~2 years, iOS Safari 16+.
-  build: { target: ['chrome111', 'safari16'] },
+  // The manifest feeds scripts/check-bundle.mjs, which deletes it after reading; Vercel's deploy
+  // build never runs that script, so it skips the manifest and nothing readable ships in dist.
+  build: { target: ['chrome111', 'safari16'], manifest: !process.env.VERCEL },
   define: {
     // VITE_APP_VERSION is injected at build time, never typed by hand (ENVIRONMENT.md §1).
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(

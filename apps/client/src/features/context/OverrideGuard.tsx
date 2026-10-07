@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { PRIMARY_BUTTON, SECONDARY_BUTTON } from '@/components/buttonStyles';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { sessionOverride, useSessionOverride } from './sessionOverride';
 import { useEventName } from './useEventName';
 import { PATHS } from '@/lib/paths';
@@ -32,10 +32,10 @@ export function OverrideGuard({
         entries can only be made in {defaultName}.
       </p>
       <div className="mt-6 flex flex-wrap gap-2">
-        <button type="button" className={PRIMARY_BUTTON} onClick={() => sessionOverride.clear()}>
+        <Button variant="primary" onClick={() => sessionOverride.clear()}>
           <span dir="auto">Back to {defaultName}</span>
-        </button>
-        <Link to={PATHS.home} className={SECONDARY_BUTTON}>
+        </Button>
+        <Link to={PATHS.home} className={buttonVariants({ variant: 'secondary' })}>
           Choose a competition
         </Link>
       </div>

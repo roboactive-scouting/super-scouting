@@ -74,7 +74,7 @@ export function HomePage({ rpc }: { rpc?: Rpc }) {
   const cover = !override && <CoverageCard cells={tiles.cells} desktop={desktop} />;
 
   return (
-    <main aria-labelledby="home-title" className={cn(page, 'enter-rise')}>
+    <main aria-labelledby="home-title" className={cn(page, 'motion-safe:animate-rise-in')}>
       <HomeHeader
         name={name}
         override={override}

@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 import type { Account } from './account';
 
 const ACTION =
-  'flex min-h-12 w-full items-center gap-3 rounded-lg px-2.5 text-start text-[0.90625rem] font-[550] text-rail-ink hover:bg-rail-raised hover:text-white';
+  'flex min-h-12 w-full items-center gap-3 rounded-lg px-2.5 text-start text-[0.90625rem] font-[550] text-rail-ink hover:bg-rail-raised hover:text-surface';
 const ICON = 'size-[1.1875rem] shrink-0';
 
 /**
@@ -28,7 +28,7 @@ export function AccountBlock({
       <div className="flex items-center gap-2.5 px-2.5 pt-1 pb-2">
         <Initials name={account.name} tone="dark" size={40} />
         <div className="min-w-0 leading-tight">
-          <p dir="auto" className="truncate text-sm font-[650] text-white">
+          <p dir="auto" className="truncate text-sm font-[650] text-surface">
             {account.name}
           </p>
           <p className="truncate text-xs text-rail-muted">{roleLabel(account.role)}</p>

@@ -5,7 +5,7 @@ const SIZE = { 32: 'size-8 text-xs', 40: 'size-10 text-sm', 52: 'size-[52px] tex
 const TONE = {
   neutral: 'bg-line-2 text-ink-2',
   accent: 'bg-accent text-on-accent',
-  dark: 'bg-rail-raised text-white ring-1 ring-rail-muted',
+  dark: 'bg-rail-raised text-surface ring-1 ring-rail-muted',
 } as const;
 
 /** The first letter of up to two words. Counts code points, so Hebrew and emoji are whole. */

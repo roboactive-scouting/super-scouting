@@ -42,10 +42,10 @@ export function RosterHeading({ sub, onCancel }: { sub: string; onCancel: () => 
   return (
     <div className="flex items-start gap-3">
       <div className="min-w-0 flex-1">
-        <h1 className="text-[22px] font-[750] tracking-[-0.02em] lg:text-[28px]">
+        <h1 className="text-[1.375rem] font-[750] tracking-[-0.02em] lg:text-[1.75rem]">
           Which team are you watching?
         </h1>
-        <p className="mt-1 text-[13px] text-muted">{sub}</p>
+        <p className="mt-1 text-[0.8125rem] text-muted">{sub}</p>
       </div>
       <Button variant="ghost" size="sm" onClick={onCancel}>
         Cancel
@@ -102,7 +102,7 @@ export function RosterList({
               disabled={t.locked}
               onClick={() => onChange(t.id)}
               className={cn(
-                'state-layer motion-transition grid min-h-14 grid-cols-[22px_1fr] items-center gap-3 rounded-card border bg-surface px-3.5 py-2.5 text-start disabled:bg-line-2',
+                'hover-veil motion-safe:transition grid min-h-14 grid-cols-[22px_1fr] items-center gap-3 rounded-card border bg-surface px-3.5 py-2.5 text-start disabled:bg-line-2',
                 on
                   ? 'border-2 border-accent bg-accent-tint px-[13px] py-[9px]'
                   : 'border-control-border',
@@ -121,7 +121,7 @@ export function RosterList({
                 >
                   {t.number}
                 </span>
-                <span dir="auto" className="block truncate text-[13px] text-muted">
+                <span dir="auto" className="block truncate text-[0.8125rem] text-muted">
                   {t.detail}
                 </span>
               </span>

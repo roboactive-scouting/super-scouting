@@ -42,7 +42,7 @@ export function SyncPill({ status, compact = false }: { status: SyncStatus; comp
     return (
       <span
         role="status"
-        className="inline-flex h-[1.875rem] shrink-0 items-center gap-1.5 rounded-full bg-rail-raised px-2.5 text-[0.78125rem] font-semibold whitespace-nowrap text-white"
+        className="inline-flex h-[1.875rem] shrink-0 items-center gap-1.5 rounded-full bg-rail-raised px-2.5 text-[0.78125rem] font-semibold whitespace-nowrap text-surface"
       >
         <SyncDot tone={tone} />
         {text}

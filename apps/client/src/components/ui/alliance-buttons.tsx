@@ -80,7 +80,7 @@ export function AllianceButtons({
             tabIndex={i === tabStop ? 0 : -1}
             onClick={() => onChange(side.key)}
             className={cn(
-              'motion-transition flex min-h-[52px] items-center justify-center gap-2 rounded-control border-2 text-[15px] font-[650]',
+              'motion-safe:transition flex min-h-[52px] items-center justify-center gap-2 rounded-control border-2 text-[0.9375rem] font-[650]',
               on ? side.on : 'border-control-border bg-surface text-ink',
             )}
           >

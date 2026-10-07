@@ -84,7 +84,7 @@ export function RoleSection({
       {line?.ok && (
         <p
           role="status"
-          className="mt-2.5 flex items-center gap-1.5 text-[13px] font-[650] text-accent-ink"
+          className="mt-2.5 flex items-center gap-1.5 text-[0.8125rem] font-[650] text-accent-ink"
         >
           <Check aria-hidden="true" className="size-[15px] shrink-0" strokeWidth={2.6} />
           <span dir="auto">{line.text}</span>

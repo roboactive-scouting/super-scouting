@@ -8,7 +8,7 @@ import {
 } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useSyncStatus } from '@/data/syncStatus';
-import { DURATION, EASING, PAGE_ENTER, usePlayOnChange } from '@/lib/motion';
+import { playOnce } from '@/lib/animate';
 import { isEntryPath } from '@/lib/paths';
 import { cn } from '@/lib/utils';
 import type { Account } from './account';
@@ -20,7 +20,8 @@ import { TopBar } from './TopBar';
 import { bottomBar, menuItemsFor, type NavAudience } from './nav';
 
 const COLLAPSED_KEY = 'shell.sidebar.collapsed';
-const ROUTE_MOTION = { duration: DURATION.medium1, easing: EASING.emphasizedDecelerate };
+/** A new page fading in: opacity only — a transform would re-anchor every fixed descendant. */
+const PAGE_ENTER: Keyframe[] = [{ opacity: 0 }, { opacity: 1 }];
 
 /** A remembered per-device convenience, never state that matters: storage may refuse. */
 function readCollapsed(): boolean {
@@ -81,8 +82,14 @@ export function ShellLayout({
   // One read of the sending state for every piece of chrome; it re-reads on a change, never polls.
   const status = useSyncStatus();
 
-  // SPEC-FINAL 17.9: a new page fades in; nothing plays into the data-entry path.
-  usePlayOnChange(content, pathname, PAGE_ENTER, ROUTE_MOTION, !isEntryPath(pathname));
+  // SPEC-FINAL 17.9: a new page fades in — never on the first render, never into the
+  // data-entry path. The content is never remounted: AppShell must not key its Outlet.
+  const shownPath = useRef(pathname);
+  useEffect(() => {
+    if (shownPath.current === pathname) return;
+    shownPath.current = pathname;
+    if (!isEntryPath(pathname)) playOnce(content.current, PAGE_ENTER, 250);
+  }, [pathname]);
 
   // A destination chosen in the drawer closes it, and so does any other navigation.
   useEffect(() => setMenuOpen(false), [pathname]);
@@ -118,7 +125,7 @@ export function ShellLayout({
           'flex min-w-0 flex-1 flex-col',
           showBottomBar && 'pb-[calc(var(--bottom-bar)+var(--raised-overhang)+1rem)]',
         )}
-        // Sticky page actions (StickyActionBar) sit on top of the fixed bottom bar, not under it.
+        // Sticky page actions (ActionBar) sit on top of the fixed bottom bar, not under it.
         style={
           showBottomBar
             ? ({
@@ -139,7 +146,7 @@ export function ShellLayout({
           {children}
         </div>
         {footer && (
-          <footer className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 border-t border-border px-4 py-3 text-xs text-text-muted">
+          <footer className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 border-t border-line px-4 py-3 text-xs text-muted">
             {footer}
           </footer>
         )}

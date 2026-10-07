@@ -52,7 +52,7 @@ export function EntriesTable({ rows }: { rows: EntryRow[] }) {
                 </TableCell>
                 <TableCell>{row.status ? <RobotStatusTag status={row.status} /> : null}</TableCell>
                 <TableCell dir="auto">{row.scouter}</TableCell>
-                <TableCell className="num pe-5 text-[13px] text-ink-2">
+                <TableCell className="num pe-5 text-[0.8125rem] text-ink-2">
                   <span className="inline-flex items-center gap-1.5">
                     {row.time}
                     {row.waiting ? <WaitingMark /> : null}
@@ -62,7 +62,7 @@ export function EntriesTable({ rows }: { rows: EntryRow[] }) {
               {row.refused ? (
                 <TableRow>
                   <TableCell colSpan={5} className="h-auto px-5 pb-2.5 pt-0">
-                    <ErrorLine className="text-[13px] font-normal">
+                    <ErrorLine className="text-[0.8125rem] font-normal">
                       {refusedText(row.refused)}
                     </ErrorLine>
                   </TableCell>
@@ -72,7 +72,7 @@ export function EntriesTable({ rows }: { rows: EntryRow[] }) {
           ))}
         </TableBody>
       </Table>
-      <p className="mt-2.5 flex items-center gap-1 text-[12.5px] text-muted">
+      <p className="mt-2.5 flex items-center gap-1 text-[0.78125rem] text-muted">
         <ArrowUp aria-hidden="true" className="size-3.5 text-warn" strokeWidth={2.6} />
         waiting to send
       </p>

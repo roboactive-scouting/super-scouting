@@ -23,21 +23,21 @@ export function GoToTile({
   return (
     <Link
       to={to}
-      className="state-layer motion-transition relative flex min-h-[88px] flex-col gap-1 rounded-card border border-line bg-surface p-3.5"
+      className="hover-veil motion-safe:transition relative flex min-h-[88px] flex-col gap-1 rounded-card border border-line bg-surface p-3.5"
     >
       <span
         aria-hidden="true"
         className={cn(
           'mb-1.5 grid size-9 place-items-center rounded-[10px]',
-          admin ? 'bg-rail text-white' : 'bg-line-2 text-ink-2',
+          admin ? 'bg-rail text-surface' : 'bg-line-2 text-ink-2',
         )}
       >
         <Icon className="size-[19px]" strokeWidth={2} />
       </span>
-      <b className="text-[15px] font-bold">{title}</b>
-      <small className="text-[12.5px] leading-snug text-muted">{description}</small>
+      <b className="text-[0.9375rem] font-bold">{title}</b>
+      <small className="text-[0.78125rem] leading-snug text-muted">{description}</small>
       {admin ? (
-        <span className="absolute end-3 top-3.5 text-[10.5px] font-bold tracking-[0.04em] text-muted">
+        <span className="absolute end-3 top-3.5 text-[0.65625rem] font-bold tracking-[0.04em] text-muted">
           ADMIN
         </span>
       ) : (

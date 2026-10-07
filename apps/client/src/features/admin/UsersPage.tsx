@@ -71,8 +71,8 @@ function UsersScreen({ rpc }: { rpc: Rpc }) {
     <main className="w-full px-8 pb-8 pt-6">
       <header className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-[26px] font-bold tracking-tight">Users</h1>
-          <p className="mt-1 text-[13.5px] text-muted">
+          <h1 className="text-[1.625rem] font-bold tracking-tight">Users</h1>
+          <p className="mt-1 text-[0.84375rem] text-muted">
             Open an account to change its role, reset its password or disable it.
           </p>
         </div>

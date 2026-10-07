@@ -2,10 +2,10 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { OptionButtons as ChoiceGroup } from '../ui/option-buttons';
-import { Counter as CounterControl } from '../ui/counter';
-import toggleSource from '../ui/switch.tsx?raw';
-import { Switch as ToggleField } from '../ui/switch';
+import { OptionButtons } from './option-buttons';
+import { Counter } from './counter';
+import toggleSource from './switch.tsx?raw';
+import { Switch } from './switch';
 
 const original = window.matchMedia;
 afterEach(() => {
@@ -14,16 +14,16 @@ afterEach(() => {
   delete HTMLElement.prototype.animate;
 });
 
-function Counter() {
+function CountingHarness() {
   const [value, setValue] = useState(0);
-  return <CounterControl label="Auto notes" value={value} onChange={setValue} />;
+  return <Counter label="Auto notes" value={value} onChange={setValue} />;
 }
 
-describe('ChoiceGroup', () => {
+describe('OptionButtons', () => {
   it('is a labelled group of native radios, named by aria-label or by their card', async () => {
     const onChange = vi.fn();
     render(
-      <ChoiceGroup
+      <OptionButtons
         legend="Alliance"
         name="alliance"
         value={null}
@@ -41,13 +41,13 @@ describe('ChoiceGroup', () => {
 
   it('marks only the chosen card, with a check as well as colour (SPEC-FINAL 17.7)', () => {
     const { container } = render(
-      <ChoiceGroup
+      <OptionButtons
         legend="Robot status"
         value="no_show"
         onChange={vi.fn()}
         options={[
-          { value: 'played', label: 'Played', accent: 'var(--status-played)' },
-          { value: 'no_show', label: 'No show', accent: 'var(--status-no-show)' },
+          { value: 'played', label: 'Played', accent: 'var(--accent)' },
+          { value: 'no_show', label: 'No show', accent: 'var(--muted)' },
         ]}
       />,
     );
@@ -60,7 +60,7 @@ describe('ChoiceGroup', () => {
 
   it('shows the chosen value as checked', () => {
     render(
-      <ChoiceGroup
+      <OptionButtons
         legend="Robot status"
         value="played"
         onChange={vi.fn()}
@@ -75,9 +75,9 @@ describe('ChoiceGroup', () => {
   });
 });
 
-describe('CounterControl (SPEC-FINAL 17.9: a wide − / value / + triplet)', () => {
+describe('Counter (SPEC-FINAL 17.9: a wide − / value / + triplet)', () => {
   it('counts up and down, never below zero, with no text input', async () => {
-    render(<Counter />);
+    render(<CountingHarness />);
     const u = userEvent.setup();
     await u.click(screen.getByRole('button', { name: 'Auto notes minus one' }));
     expect(screen.getByLabelText('Auto notes value')).toHaveTextContent('0');
@@ -96,14 +96,14 @@ describe('CounterControl (SPEC-FINAL 17.9: a wide − / value / + triplet)', () 
     })) as unknown as typeof window.matchMedia;
     const animate = vi.fn();
     Object.defineProperty(HTMLElement.prototype, 'animate', { value: animate, configurable: true });
-    render(<Counter />);
+    render(<CountingHarness />);
     expect(animate).not.toHaveBeenCalled();
     await userEvent.setup().click(screen.getByRole('button', { name: 'Auto notes plus one' }));
     expect(animate).toHaveBeenCalledOnce();
   });
 });
 
-describe('ToggleField', () => {
+describe('Switch', () => {
   it('reads its own checkbox only: a named group, never a bare group-has- that an ancestor .group (a phase card) would match', () => {
     expect(toggleSource).toMatch(/group\/toggle/);
     expect(toggleSource).not.toMatch(/group-has-\[[^\]]+\]:/);
@@ -111,25 +111,8 @@ describe('ToggleField', () => {
 
   it('is a native checkbox with role switch, named by its label', async () => {
     const onChange = vi.fn();
-    render(<ToggleField label="Left the start line" checked={false} onChange={onChange} />);
+    render(<Switch label="Left the start line" checked={false} onChange={onChange} />);
     await userEvent.setup().click(screen.getByRole('switch', { name: 'Left the start line' }));
     expect(onChange).toHaveBeenCalledWith(true);
-  });
-});
-
-describe('old import paths (kept until RB.18)', () => {
-  it('re-export the moved controls', async () => {
-    const old = await Promise.all([
-      import('./ChoiceGroup'),
-      import('./CounterControl'),
-      import('./StickyActionBar'),
-      import('./ToggleField'),
-      import('../ConfirmDialog'),
-    ]);
-    expect(old[0].ChoiceGroup).toBe(ChoiceGroup);
-    expect(old[1].CounterControl).toBe(CounterControl);
-    expect(old[2].StickyActionBar).toBeTypeOf('function');
-    expect(old[3].ToggleField).toBe(ToggleField);
-    expect(old[4].ConfirmDialog).toBeTypeOf('function');
   });
 });

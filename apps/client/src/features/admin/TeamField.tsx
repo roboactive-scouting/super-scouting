@@ -141,12 +141,12 @@ export function TeamField({
       onBlur={commitText}
       onKeyDown={onKeyDown}
       className={cn(
-        'relative [&_input]:pb-3.5 [&_input]:text-[15px] [&_input]:leading-tight [&_input]:font-semibold',
+        'relative [&_input]:pb-3.5 [&_input]:text-[0.9375rem] [&_input]:leading-tight [&_input]:font-semibold',
         empty &&
           '[&_input:not(:focus)]:border-dashed [&_input:not(:focus)]:bg-bg [&_input]:placeholder:text-muted',
         warn && '[&_input:not(:focus)]:border-2 [&_input]:border-warn [&_input]:bg-warn-tint',
         alliance &&
-          '[&_label]:text-[11px] [&_label]:font-[750] [&_label]:tracking-[0.04em] [&_label]:uppercase',
+          '[&_label]:text-[0.6875rem] [&_label]:font-[750] [&_label]:tracking-[0.04em] [&_label]:uppercase',
         alliance === 'red' && '[&_label]:text-alliance-red',
         alliance === 'blue' && '[&_label]:text-alliance-blue',
       )}
@@ -174,7 +174,7 @@ export function TeamField({
         <span
           dir="auto"
           className={cn(
-            'pointer-events-none absolute start-3 end-2 bottom-1 truncate text-[11px] leading-tight',
+            'pointer-events-none absolute start-3 end-2 bottom-1 truncate text-[0.6875rem] leading-tight',
             warn ? 'font-[650] text-warn' : 'text-muted',
           )}
         >

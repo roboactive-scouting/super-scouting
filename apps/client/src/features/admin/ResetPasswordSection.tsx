@@ -69,7 +69,7 @@ export function ResetPasswordSection({
           out of devices already signed in — to cut access, disable the account.
         </CardDescription>
         {shown && (
-          <div className="enter-rise mt-3">
+          <div className="motion-safe:animate-rise-in mt-3">
             <Handover
               title={
                 <>

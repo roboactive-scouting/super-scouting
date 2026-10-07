@@ -27,8 +27,8 @@ export function FilterChips<K extends string>({
             aria-pressed={on}
             onClick={() => onChange(o.key)}
             className={cn(
-              "motion-transition relative inline-flex h-8 min-w-12 justify-center items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 text-[12.5px] font-semibold after:absolute after:inset-x-0 after:-inset-y-2 lg:h-[34px] lg:px-3.5 lg:text-[13px] lg:after:-inset-y-[7px] after:content-['']",
-              on ? 'border-ink bg-ink text-white' : 'border-control-border bg-surface text-ink-2',
+              "motion-safe:transition relative inline-flex min-h-8 min-w-12 justify-center items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 text-[0.78125rem] font-semibold after:absolute after:inset-x-0 after:-inset-y-2 lg:min-h-[34px] lg:px-3.5 lg:text-[0.8125rem] lg:after:-inset-y-[7px] after:content-['']",
+              on ? 'border-ink bg-ink text-surface' : 'border-control-border bg-surface text-ink-2',
             )}
           >
             <span dir="auto">{o.label}</span>

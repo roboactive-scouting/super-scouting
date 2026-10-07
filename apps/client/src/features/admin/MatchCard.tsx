@@ -36,7 +36,7 @@ export function MatchCard({
           <span
             key={label}
             className={cn(
-              'num grid h-6 place-items-center rounded-[5px] text-[12.5px] font-semibold',
+              'num grid h-6 place-items-center rounded-[5px] text-[0.78125rem] font-semibold',
               !teamId
                 ? 'border border-dashed border-control-border bg-bg text-muted'
                 : !rosterIds.has(teamId)
@@ -56,12 +56,12 @@ export function MatchCard({
     <button
       type="button"
       onClick={onOpen}
-      className="state-layer grid w-full grid-cols-[2.75rem_1fr_1rem] items-center gap-2 rounded-card border border-line bg-surface px-2.5 py-2.5 text-start"
+      className="hover-veil grid w-full grid-cols-[2.75rem_1fr_1rem] items-center gap-2 rounded-card border border-line bg-surface px-2.5 py-2.5 text-start"
     >
-      <span className="num text-[15px] font-semibold">
+      <span className="num text-[0.9375rem] font-semibold">
         {matchLabel(match)}
         {note && (
-          <small className="mt-0.5 block font-ui text-[10.5px] leading-tight font-bold text-warn">
+          <small className="mt-0.5 block font-ui text-[0.65625rem] leading-tight font-bold text-warn">
             {note}
           </small>
         )}

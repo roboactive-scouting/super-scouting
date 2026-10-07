@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils';
 import type { EntryCounts } from './useUsers';
 import { entriesOf } from './usersView';
 
-const ACTION = 'min-h-8 px-2.5 text-[12.5px] after:-inset-y-2 [&_svg]:size-[15px]';
+const ACTION = 'min-h-8 px-2.5 text-[0.78125rem] after:-inset-y-2 [&_svg]:size-[15px]';
 
 /**
  * THEME "Data table" over the accounts (design 08-users, variant C). A row opens the account

@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 
 /** The card's ×/+ : 30 px drawn, the 48 px target grown by its ::after. */
 const ACTION =
-  'tap-target state-layer press motion-transition relative grid size-[30px] min-h-0 min-w-0 shrink-0 place-items-center rounded-[6px] after:absolute after:-inset-[9px] after:content-[""] disabled:opacity-45 [&_svg]:size-3.5';
+  'tap-target hover-veil motion-safe:transition motion-safe:active:not-disabled:scale-[0.97] relative grid size-[30px] min-h-0 min-w-0 shrink-0 place-items-center rounded-[6px] after:absolute after:-inset-[9px] after:content-[""] disabled:opacity-45 [&_svg]:size-3.5';
 
 /**
  * One team as a card (07-manage final, Teams & roster): number in mono and name. On the

@@ -18,7 +18,7 @@ function SyncLine({ status }: { status: SyncStatus }) {
         ? 'All sent'
         : 'Offline';
   return (
-    <p className="mx-1.5 mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-[10px] bg-rail-raised px-2.5 py-[9px] text-[0.78125rem] text-white">
+    <p className="mx-1.5 mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-[10px] bg-rail-raised px-2.5 py-[9px] text-[0.78125rem] text-surface">
       <SyncDot tone={tone} />
       {text}
       {status.lastSyncAt && (
@@ -63,7 +63,7 @@ export function NavDrawer({
             type="button"
             aria-label="Close the menu"
             onClick={onClose}
-            className="-me-1 grid size-12 shrink-0 place-items-center rounded-lg text-rail-ink hover:bg-rail-raised hover:text-white"
+            className="-me-1 grid size-12 shrink-0 place-items-center rounded-lg text-rail-ink hover:bg-rail-raised hover:text-surface"
           >
             <X aria-hidden="true" className="size-5" />
           </button>

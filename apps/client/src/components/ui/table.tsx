@@ -42,7 +42,7 @@ export function TableBody({ className, ...props }: ComponentProps<'tbody'>) {
 export function TableRow({ className, ...props }: ComponentProps<'tr'>) {
   return (
     <tr
-      className={cn('motion-transition border-b border-line-2 hover:bg-bg', className)}
+      className={cn('motion-safe:transition border-b border-line-2 hover:bg-bg', className)}
       {...props}
     />
   );

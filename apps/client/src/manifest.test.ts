@@ -11,10 +11,12 @@ describe('PWA install identity (SPEC-FINAL 17.8)', () => {
     expect(viteConfig).toContain("short_name: 'Scouting'");
   });
 
-  it('is standalone, near-black, and orientation-unlocked', () => {
+  it('is standalone, rail-coloured, and orientation-unlocked', () => {
     expect(viteConfig).toContain("display: 'standalone'");
-    expect(viteConfig).toContain("theme_color: '#0A0A0B'");
-    expect(viteConfig).toContain("background_color: '#0A0A0B'");
+    expect(viteConfig).toContain("theme_color: '#161a21'");
+    // the same colour as the page's own theme-color meta (the --rail token), so the bar never flips
+    expect(readFileSync(join(root, 'index.html'), 'utf8')).toContain('content="#161a21"');
+    expect(viteConfig).toContain("background_color: '#f4f6f8'");
     expect(viteConfig).toContain("orientation: 'any'");
   });
 

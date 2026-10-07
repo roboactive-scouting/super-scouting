@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
  */
 
 const TAG =
-  'inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-tag px-[9px] text-[12.5px] font-[650]';
+  'inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-tag px-[9px] text-[0.78125rem] font-[650]';
 
 const ALLIANCE = {
   red: 'bg-alliance-red-tint text-alliance-red',
@@ -38,7 +38,7 @@ export function StationTag({ station }: { station: Station }) {
   return (
     <span
       className={cn(
-        'inline-flex h-[22px] items-center whitespace-nowrap rounded-tag px-[7px] text-xs font-[650]',
+        'inline-flex min-h-[22px] items-center whitespace-nowrap rounded-tag px-[7px] text-xs font-[650]',
         ALLIANCE[station[0] === 'R' ? 'red' : 'blue'],
       )}
     >
@@ -86,7 +86,7 @@ export function RobotStatusTag({ status }: { status: RobotStatus }) {
 }
 
 const ROLE: Record<Role, { label: string; tag: string }> = {
-  admin: { label: 'Admin', tag: 'bg-rail text-white' },
+  admin: { label: 'Admin', tag: 'bg-rail text-surface' },
   lead: { label: 'Scout lead', tag: 'bg-surface text-ink ring-1 ring-inset ring-control-border' },
   scouter: { label: 'Scouter', tag: 'bg-line-2 text-ink-2' },
 };
@@ -113,7 +113,7 @@ export function AccountStatusTag({ disabledAt }: { disabledAt: string | null }) 
 /** A flag on a record that needs a look, e.g. "Not in line-up": `--warn-tint` on `--warn`. */
 export function WarningFlag({ children }: { children: ReactNode }) {
   return (
-    <span className="inline-flex h-[22px] items-center gap-1.5 whitespace-nowrap rounded-tag bg-warn-tint px-[7px] text-xs font-[650] text-warn">
+    <span className="inline-flex min-h-[22px] items-center gap-1.5 whitespace-nowrap rounded-tag bg-warn-tint px-[7px] text-xs font-[650] text-warn">
       <TriangleAlert aria-hidden="true" className="size-[13px]" />
       {children}
     </span>

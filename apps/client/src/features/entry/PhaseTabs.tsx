@@ -1,7 +1,7 @@
 import { useEffect, useRef, type PointerEvent, type ReactNode } from 'react';
 import type { FieldPhase } from '@frc/shared';
 import { Tabs } from '@/components/ui/tabs';
-import { DURATION, EASING, play, prefersReducedMotion } from '@/lib/motion';
+import { playOnce, prefersReducedMotion } from '@/lib/animate';
 import { cn } from '@/lib/utils';
 import { PHASE_NAME, PHASE_TAB, swipeStep, type Phase } from './phases';
 
@@ -46,13 +46,13 @@ export function PhaseTabs({
     shown.current = index;
     if (!phone || from === index) return;
     const side = index > from ? 1 : -1;
-    play(
+    playOnce(
       pane.current,
       [
         { transform: `translateX(${side * 32}px)`, opacity: 0.4 },
         { transform: 'none', opacity: 1 },
       ],
-      { duration: DURATION.medium1, easing: EASING.emphasizedDecelerate },
+      250,
     );
   }, [index, phone]);
 
@@ -152,7 +152,7 @@ function PagerLink({
       onClick={() => onChange(phase.key)}
       aria-label={`${back ? 'Previous' : 'Next'} phase: ${PHASE_TAB[phase.key]}`}
       className={cn(
-        'state-layer flex min-h-12 min-w-12 items-center gap-1 rounded-control',
+        'hover-veil flex min-h-12 min-w-12 items-center gap-1 rounded-control',
         back ? '-ms-2 ps-2 pe-2' : '-me-2 ps-2 pe-2',
       )}
     >

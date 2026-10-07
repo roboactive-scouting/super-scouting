@@ -8,13 +8,13 @@ export function EntryCard({ row }: { row: EntryRow }) {
   return (
     <li className="grid gap-1.5 rounded-card border border-line bg-surface px-3 py-2.5">
       <div className="flex min-w-0 items-baseline gap-2">
-        <span className="num text-[13px] font-semibold text-muted">{row.matchLabel}</span>
-        <span className="num text-[17px] font-semibold">{row.teamNumber}</span>
+        <span className="num text-[0.8125rem] font-semibold text-muted">{row.matchLabel}</span>
+        <span className="num text-[1.0625rem] font-semibold">{row.teamNumber}</span>
         <span dir="auto" className="min-w-0 truncate text-sm text-ink-2">
           {row.teamName}
         </span>
       </div>
-      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-muted">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[0.78125rem] text-muted">
         <EntryStation row={row} />
         {row.status ? <RobotStatusTag status={row.status} /> : null}
         <span dir="auto" className="whitespace-nowrap">
@@ -28,7 +28,7 @@ export function EntryCard({ row }: { row: EntryRow }) {
         </div>
       ) : null}
       {row.refused ? (
-        <ErrorLine className="text-[12.5px] font-normal">{refusedText(row.refused)}</ErrorLine>
+        <ErrorLine className="text-[0.78125rem] font-normal">{refusedText(row.refused)}</ErrorLine>
       ) : null}
     </li>
   );

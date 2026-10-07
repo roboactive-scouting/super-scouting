@@ -5,7 +5,8 @@ import { cn } from '@/lib/utils';
 /*
  * THEME "Locked components": Note (3 px ink edge), Error line (3 px warn edge, never red),
  * Warning notice (warn tint), Success banner (accent tint). `Notice` is the pre-redesign
- * component, kept with the same props until RB.18; it now draws the same edges.
+ * component, kept with the same props for the shell's strips, the entry route and the field
+ * image; it draws the same edges.
  */
 
 const TONE = {
@@ -48,9 +49,9 @@ export function Notice({
       ref={ref}
       role={role}
       className={cn(
-        'flex flex-wrap items-center gap-x-3 gap-y-2 rounded-control border border-s-[3px] border-line bg-surface px-3.5 py-2.5 text-[13.5px] text-ink',
+        'flex flex-wrap items-center gap-x-3 gap-y-2 rounded-control border border-s-[3px] border-line bg-surface px-3.5 py-2.5 text-[0.84375rem] text-ink',
         TONE[tone],
-        !still && 'enter-rise',
+        !still && 'motion-safe:animate-rise-in',
         className,
       )}
       {...rest}
@@ -77,7 +78,7 @@ export function Note({
   return (
     <div
       className={cn(
-        'flex items-start gap-2 rounded-control border border-s-[3px] border-line border-s-ink bg-surface px-3.5 py-3 text-[13.5px] leading-normal text-ink-2',
+        'flex items-start gap-2 rounded-control border border-s-[3px] border-line border-s-ink bg-surface px-3.5 py-3 text-[0.84375rem] leading-normal text-ink-2',
         className,
       )}
     >
@@ -131,7 +132,7 @@ export function WarningNotice({
   return (
     <div
       className={cn(
-        'flex items-start gap-2.5 rounded-card border border-warn/25 bg-warn-tint px-3.5 py-3 text-[13.5px] leading-normal text-ink',
+        'flex items-start gap-2.5 rounded-card border border-warn/25 bg-warn-tint px-3.5 py-3 text-[0.84375rem] leading-normal text-ink',
         className,
       )}
     >
@@ -167,7 +168,7 @@ export function SuccessBanner({
       >
         <Check className="size-3.5" strokeWidth={3} />
       </span>
-      <div dir="auto" className="min-w-0 flex-1 text-[13.5px] text-ink-2">
+      <div dir="auto" className="min-w-0 flex-1 text-[0.84375rem] text-ink-2">
         <b className="block font-bold text-accent-ink">{title}</b>
         {children}
       </div>
