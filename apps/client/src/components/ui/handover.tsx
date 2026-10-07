@@ -39,7 +39,7 @@ export function Handover({
       >
         {secret}
       </p>
-      <p className="mt-2.5 text-xs font-semibold text-muted">{note}</p>
+      <p className="mt-2.5 text-[0.8125rem] text-ink-2">{note}</p>
       {actions ? <div className="mt-3 flex flex-wrap gap-2">{actions}</div> : null}
     </div>
   );

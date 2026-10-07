@@ -109,7 +109,9 @@ function Account({
     <Column>
       <Link
         to={PATHS.users}
-        className="hover-veil tap-target inline-flex w-fit items-center gap-1.5 rounded-control pe-2 text-[0.84375rem] font-semibold text-muted"
+        // Pulled into the page's top padding and onto the header: its 48 px hit area is taller
+        // than the drawn link, and the final sets the name 24 px under it (RB.19 rhythm).
+        className="hover-veil tap-target -mt-4 -mb-2 inline-flex w-fit items-center gap-1.5 rounded-control pe-2 text-[0.84375rem] font-semibold text-muted"
       >
         <ChevronLeft aria-hidden="true" className="size-4" />
         All users

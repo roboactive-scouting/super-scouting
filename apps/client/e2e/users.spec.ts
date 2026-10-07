@@ -54,4 +54,7 @@ test('users: a phone gets the needs-a-computer panel', async ({ page }) => {
   await page.goto('/admin/users');
   await expect(page.getByRole('heading', { name: /needs a computer/i })).toBeVisible();
   await shoot(page, 'users-gate', 'phone');
+  // Never a dead end: Back to scouting goes to Scout.
+  await page.getByRole('link', { name: 'Back to scouting' }).click();
+  await page.waitForURL('/scout');
 });
