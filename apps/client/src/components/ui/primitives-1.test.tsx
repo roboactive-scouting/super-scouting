@@ -248,6 +248,19 @@ describe('primitives I: the rest', () => {
     render(<AllianceButtons value={null} onChange={() => {}} />);
     expect(screen.getByRole('radio', { name: 'Red' })).toHaveAttribute('tabindex', '0');
   });
+  it('the handover shows an optional label before the secret', () => {
+    const { rerender } = render(
+      <Handover title="Created" label="Their password" secret="Tiger-4821" note="Shown once." />,
+    );
+    const label = screen.getByText('Their password');
+    expect(label).toHaveClass('text-xs', 'font-semibold', 'text-muted');
+    expect(
+      label.compareDocumentPosition(screen.getByText('Tiger-4821')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    rerender(<Handover title="Created" secret="Tiger-4821" note="Shown once." />);
+    expect(screen.queryByText('Their password')).not.toBeInTheDocument();
+  });
   it('the handover is a status region', () => {
     render(<Handover title="Account created" secret="Tiger-4821" note="Shown once." />);
     expect(screen.getByRole('status')).toHaveTextContent('Tiger-4821');

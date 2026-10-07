@@ -1,13 +1,13 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { createMemoryRouter, RouterProvider } from 'react-router-dom';
+import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatDate, type PublicUser, type Role } from '@frc/shared';
 import { session } from '@/auth/session';
 import { db, setMeta } from '@/data/db';
 import type * as SyncModule from '@/data/sync';
 import { routeTree } from '@/routes';
-import { PASSWORD_ALPHABET } from './password';
+import { UsersPage } from './UsersPage';
 import { MAX_LISTED_USERS } from './useUsers';
 
 const hydrate = vi.fn();
@@ -73,6 +73,8 @@ function serve(name: string, input: Record<string, unknown>): Response {
       const next = start + limit < all.length ? String(start + limit) : null;
       return json({ items, next_cursor: next });
     }
+    case 'countEntriesByScouter':
+      return json({ items: [] });
     case 'createUser': {
       if (users.some((u) => u.username === input.username)) {
         return fail(409, 'conflict', `the username '${String(input.username)}' is taken`);
@@ -299,17 +301,27 @@ describe('the users table', () => {
     expect(calls.every((c) => c.authorization === 'Bearer tok-admin')).toBe(true);
   });
 
-  it('hides disabled accounts until "Show disabled accounts" is ticked', async () => {
+  it('loads every account once, disabled too; the Disabled chip shows them', async () => {
     await signInAs('admin');
     renderAt('/admin/users');
     const table = await screen.findByRole('table');
     expect(within(table).queryByText('Gone Person')).not.toBeInTheDocument();
-    expect(named('listUsers')[0]!.input.include_disabled).toBe(false);
+    expect(named('listUsers')).toHaveLength(1);
+    expect(named('listUsers')[0]!.input.include_disabled).toBe(true);
 
-    await userEvent.setup().click(screen.getByLabelText('Show disabled accounts'));
+    await userEvent.setup().click(screen.getByRole('button', { name: /^Disabled 1/ }));
     const row = await screen.findByRole('row', { name: /Gone Person/ });
     expect(row).toHaveTextContent(`Disabled since ${formatDate('2026-02-03T12:00:00.000Z')}`);
-    expect(named('listUsers').at(-1)!.input.include_disabled).toBe(true);
+    expect(within(row).queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument();
+    expect(named('listUsers')).toHaveLength(1);
+  });
+
+  it('asks for the season counts only when a season is active', async () => {
+    await signInAs('admin');
+    renderAt('/admin/users');
+    await screen.findByRole('table');
+    expect(named('getActiveContext').length).toBeGreaterThan(0);
+    expect(named('countEntriesByScouter')).toHaveLength(0);
   });
 
   it('follows next_cursor until every page is loaded', async () => {
@@ -347,7 +359,7 @@ describe('the users table', () => {
     const router = renderAt('/admin/users');
     const u = userEvent.setup();
     const row = await screen.findByRole('row', { name: /Seed Lead/ });
-    await u.click(within(row).getByText('Lead'));
+    await u.click(within(row).getByText('seed_lead'));
     await waitFor(() => expect(router.state.location.pathname).toBe('/admin/users/u-lead'));
     expect(await screen.findByRole('heading', { name: 'Seed Lead' })).toBeInTheDocument();
 
@@ -374,22 +386,25 @@ describe('the users table', () => {
 
 describe('creating a user', () => {
   async function fillCreateForm(u: ReturnType<typeof userEvent.setup>) {
-    const form = await screen.findByRole('form', { name: 'Add a user' });
-    await u.type(within(form).getByLabelText('Username'), 'noa');
+    await u.click(await screen.findByRole('button', { name: 'Add a user' }));
+    const form = screen.getByRole('dialog', { name: 'Add a user' });
     await u.type(within(form).getByLabelText('Full name'), 'נועה לוי');
-    await u.selectOptions(within(form).getByLabelText('Role'), 'lead');
+    const username = within(form).getByLabelText('Username');
+    await u.clear(username);
+    await u.type(username, 'noa');
+    await u.click(within(form).getByRole('radio', { name: /Scout lead/ }));
     await u.click(within(form).getByRole('button', { name: 'Generate' }));
     const password = (within(form).getByLabelText('Initial password') as HTMLInputElement).value;
     return { form, password };
   }
 
-  it('generates a 12-character password shown in clear', async () => {
+  it('generates a word-word-digits password shown in clear', async () => {
     await signInAs('admin');
     renderAt('/admin/users');
     const u = userEvent.setup();
     const { form, password } = await fillCreateForm(u);
-    expect(password).toMatch(new RegExp(`^[${PASSWORD_ALPHABET}]{12}$`));
-    expect(within(form).getByLabelText('Initial password')).toHaveAttribute('type', 'text');
+    expect(password).toMatch(/^[a-z]+-[a-z]+-\d{2}$/);
+    expect(within(form).getByLabelText('Initial password')).not.toHaveAttribute('type', 'password');
   });
 
   it('posts createUser with must_change: true when the checkbox is ticked', async () => {
@@ -400,7 +415,7 @@ describe('creating a user', () => {
     expect(within(form).getByLabelText(/change it at next sign-in/i)).toBeChecked();
     await u.click(within(form).getByRole('button', { name: 'Add user' }));
 
-    expect(await screen.findByRole('row', { name: /נועה לוי/ })).toHaveTextContent('Lead');
+    expect(await screen.findByRole('row', { name: /נועה לוי/ })).toHaveTextContent('Scout lead');
     expect(named('createUser')).toHaveLength(1);
     expect(named('createUser')[0]!.input).toEqual({
       username: 'noa',
@@ -411,9 +426,12 @@ describe('creating a user', () => {
     });
     // No separate reset call: createUser sets must_change_password directly (spec §5.4 item 3).
     expect(named('resetPassword')).toHaveLength(0);
-    const done = screen.getByRole('status', { name: /created/i });
+    // The new row comes from the answer: the list is not fetched again.
+    expect(named('listUsers')).toHaveLength(1);
+    const done = within(form).getByRole('status');
     expect(done).toHaveTextContent(password);
     expect(done).toHaveTextContent(/hand it over/i);
+    expect(within(form).getByRole('button', { name: 'Done' })).toHaveFocus();
   });
 
   it('posts createUser with must_change: false when "change it at next sign-in" is unticked', async () => {
@@ -424,38 +442,108 @@ describe('creating a user', () => {
     await u.click(within(form).getByLabelText(/change it at next sign-in/i));
     await u.click(within(form).getByRole('button', { name: 'Add user' }));
     expect(await screen.findByRole('row', { name: /נועה לוי/ })).toBeInTheDocument();
-    expect(named('createUser')).toHaveLength(1);
     expect(named('createUser')[0]!.input).toMatchObject({ must_change: false });
-    expect(named('resetPassword')).toHaveLength(0);
+    expect(within(form).getByRole('status')).not.toHaveTextContent(/next sign-in/);
+  });
+
+  it('Add another empties the form; Done drops the password', async () => {
+    await signInAs('admin');
+    renderAt('/admin/users');
+    const u = userEvent.setup();
+    const { form, password } = await fillCreateForm(u);
+    await u.click(within(form).getByRole('button', { name: 'Add user' }));
+    await u.click(await within(form).findByRole('button', { name: 'Add another' }));
+    expect(within(form).getByLabelText('Full name')).toHaveValue('');
+    expect(within(form).getByLabelText('Full name')).toHaveFocus();
+    expect(within(form).getByLabelText('Initial password')).toHaveValue('');
+    expect(within(form).getByRole('radio', { name: /Scouter/ })).toBeChecked();
+    await u.click(within(form).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(password);
   });
 
   it("shows the server's sentence for a taken username, never the code", async () => {
     await signInAs('admin');
     renderAt('/admin/users');
     const u = userEvent.setup();
-    const form = await screen.findByRole('form', { name: 'Add a user' });
-    await u.type(within(form).getByLabelText('Username'), 'dana');
+    await u.click(await screen.findByRole('button', { name: 'Add a user' }));
+    const form = screen.getByRole('dialog', { name: 'Add a user' });
     await u.type(within(form).getByLabelText('Full name'), 'Another Dana');
+    const username = within(form).getByLabelText('Username');
+    await u.clear(username);
+    await u.type(username, 'dana');
     await u.type(within(form).getByLabelText('Initial password'), 'long-enough');
     await u.click(within(form).getByRole('button', { name: 'Add user' }));
     const alert = await within(form).findByRole('alert');
     expect(alert).toHaveTextContent("The username 'dana' is taken.");
     expect(alert).not.toHaveTextContent(/conflict|409/);
-    expect(named('resetPassword')).toHaveLength(0);
+  });
+
+  it('flags a username already loaded (any case) on the field, before any call', async () => {
+    await signInAs('admin');
+    renderAt('/admin/users');
+    const u = userEvent.setup();
+    await u.click(await screen.findByRole('button', { name: 'Add a user' }));
+    const form = screen.getByRole('dialog', { name: 'Add a user' });
+    await u.type(within(form).getByLabelText('Full name'), 'Another Dana');
+    const username = within(form).getByLabelText('Username');
+    await u.clear(username);
+    await u.type(username, 'DANA');
+    await u.type(within(form).getByLabelText('Initial password'), 'long-enough');
+    await u.click(within(form).getByRole('button', { name: 'Add user' }));
+    expect(await within(form).findByRole('alert')).toHaveTextContent(
+      "The username 'DANA' is taken.",
+    );
+    expect(username).toHaveAttribute('aria-invalid', 'true');
+    expect(named('createUser')).toHaveLength(0);
+  });
+
+  it("still shows the server's sentence when the name was taken after the list loaded", async () => {
+    await signInAs('admin');
+    renderAt('/admin/users');
+    const u = userEvent.setup();
+    await u.click(await screen.findByRole('button', { name: 'Add a user' }));
+    const form = screen.getByRole('dialog', { name: 'Add a user' });
+    await u.type(within(form).getByLabelText('Full name'), 'Late Bird');
+    const username = within(form).getByLabelText('Username');
+    await u.clear(username);
+    await u.type(username, 'latebird');
+    users.push(stored({ id: 'u-late', username: 'latebird' }));
+    await u.type(within(form).getByLabelText('Initial password'), 'long-enough');
+    await u.click(within(form).getByRole('button', { name: 'Add user' }));
+    expect(await within(form).findByRole('alert')).toHaveTextContent(
+      "The username 'latebird' is taken.",
+    );
+    expect(named('createUser')).toHaveLength(1);
+  });
+
+  it('suggests a username nobody has, and keeps an edited one', async () => {
+    await signInAs('admin');
+    renderAt('/admin/users');
+    const u = userEvent.setup();
+    await u.click(await screen.findByRole('button', { name: 'Add a user' }));
+    const form = screen.getByRole('dialog', { name: 'Add a user' });
+    await u.type(within(form).getByLabelText('Full name'), 'Dana');
+    expect(within(form).getByLabelText('Username')).toHaveValue('dana2');
+    expect(within(form).getByText('Suggested from the name')).toBeInTheDocument();
+    await u.type(within(form).getByLabelText('Username'), 'x');
+    await u.type(within(form).getByLabelText('Full name'), ' Cohen');
+    expect(within(form).getByLabelText('Username')).toHaveValue('dana2x');
   });
 
   it('checks the fields before calling, with the shared rules', async () => {
     await signInAs('admin');
     renderAt('/admin/users');
     const u = userEvent.setup();
-    const form = await screen.findByRole('form', { name: 'Add a user' });
-    await u.type(within(form).getByLabelText('Username'), 'noa');
+    await u.click(await screen.findByRole('button', { name: 'Add a user' }));
+    const form = screen.getByRole('dialog', { name: 'Add a user' });
     await u.type(within(form).getByLabelText('Full name'), 'Noa');
     await u.type(within(form).getByLabelText('Initial password'), 'short');
     await u.click(within(form).getByRole('button', { name: 'Add user' }));
     expect(await within(form).findByRole('alert')).toHaveTextContent(
       'For the password, use at least 8 characters.',
     );
+    expect(within(form).getByLabelText('Initial password')).toHaveAttribute('aria-invalid', 'true');
     expect(named('createUser')).toHaveLength(0);
   });
 
@@ -472,240 +560,78 @@ describe('creating a user', () => {
     const current = await session.current();
     expect(current?.token).toBe('tok-admin');
     expect(current?.expired).toBe(false);
-    expect(screen.getByRole('heading', { name: 'Users' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Users', level: 1 })).toBeInTheDocument();
   });
 });
 
-describe('the detail page', () => {
-  it('changes the role with a select, and confirms it in a line', async () => {
+describe('row quick actions', () => {
+  it('resets a password from the row and shows it once', async () => {
     await signInAs('admin');
-    renderAt('/admin/users/u-dana');
+    renderAt('/admin/users');
     const u = userEvent.setup();
-    expect(await screen.findByRole('heading', { name: 'דנה כהן' })).toHaveAttribute('dir', 'auto');
-    await u.selectOptions(screen.getByLabelText('Role'), 'lead');
-    expect(await screen.findByText(/^Saved\./)).toBeInTheDocument();
-    expect(named('setUserRole')[0]!.input).toEqual({ user_id: 'u-dana', role: 'lead' });
-    expect(screen.getByLabelText('Role')).toHaveValue('lead');
-  });
-
-  it("surfaces the server's last-admin refusal as a sentence and keeps the old role", async () => {
-    overrides.setUserRole = () =>
-      fail(400, 'invalid', 'this is the last enabled admin; make another admin first');
-    await signInAs('admin');
-    renderAt('/admin/users/u-admin');
-    const u = userEvent.setup();
-    await screen.findByRole('heading', { name: 'Seed Admin' });
-    await u.selectOptions(screen.getByLabelText('Role'), 'scouter');
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'This is the last enabled admin; make another admin first.',
-    );
-    expect(screen.getByLabelText('Role')).toHaveValue('admin');
-  });
-
-  it('a 403 on a role change leaves the session intact', async () => {
-    overrides.setUserRole = () => fail(403, 'forbidden', 'not permitted: manage_users');
-    await signInAs('admin');
-    renderAt('/admin/users/u-dana');
-    const u = userEvent.setup();
-    await screen.findByRole('heading', { name: 'דנה כהן' });
-    await u.selectOptions(screen.getByLabelText('Role'), 'lead');
-    expect(await screen.findByRole('alert')).toHaveTextContent(/only an admin/i);
-    const current = await session.current();
-    expect(current?.token).toBe('tok-admin');
-    expect(current?.expired).toBe(false);
-  });
-
-  it('resets a password, shows it once, and forgets it on leaving the page', async () => {
-    await signInAs('admin');
-    const router = renderAt('/admin/users/u-dana');
-    const u = userEvent.setup();
-    const reset = await screen.findByRole('form', { name: 'Reset password' });
-    await u.click(within(reset).getByRole('button', { name: 'Generate' }));
-    const password = (within(reset).getByLabelText('New password') as HTMLInputElement).value;
-    expect(password).toHaveLength(12);
-    expect(within(reset).getByLabelText(/change it at next sign-in/i)).toBeChecked();
-    await u.click(within(reset).getByRole('button', { name: 'Reset password' }));
-
-    const shown = await screen.findByRole('status', { name: /new password/i });
-    expect(shown).toHaveTextContent(password);
+    const row = await screen.findByRole('row', { name: /דנה כהן/ });
+    await u.click(within(row).getByRole('button', { name: 'Reset password' }));
+    const dlg = screen.getByRole('dialog', { name: 'Reset password' });
+    const password = (within(dlg).getByLabelText('New password') as HTMLInputElement).value;
+    expect(password).toMatch(/^[a-z]+-[a-z]+-\d{2}$/);
+    await u.click(within(dlg).getByRole('button', { name: 'Reset password' }));
+    expect(await within(dlg).findByRole('status')).toHaveTextContent(password);
     expect(named('resetPassword')[0]!.input).toEqual({
       user_id: 'u-dana',
       password,
       must_change: true,
     });
-    // Shown once: it is not left in the field either.
-    expect(within(reset).getByLabelText('New password')).toHaveValue('');
-
-    await act(() => router.navigate('/admin/users'));
-    await screen.findByRole('table');
-    await act(() => router.navigate('/admin/users/u-dana'));
-    await screen.findByRole('heading', { name: 'דנה כהן' });
+    await u.click(within(dlg).getByRole('button', { name: 'Done' }));
     expect(document.body.textContent).not.toContain(password);
   });
 
-  it('disabling asks a plain confirm naming the person, and says it is not a delete', async () => {
+  it('disables from the row after the confirm, and the row moves to Disabled', async () => {
     await signInAs('admin');
-    renderAt('/admin/users/u-dana');
+    renderAt('/admin/users');
     const u = userEvent.setup();
-    await u.click(await screen.findByRole('button', { name: 'Disable account' }));
-    const dialog = screen.getByRole('dialog');
-    expect(dialog).toHaveTextContent('דנה כהן');
+    const row = await screen.findByRole('row', { name: /דנה כהן/ });
+    await u.click(within(row).getByRole('button', { name: 'Disable' }));
+    const dialog = screen.getByRole('dialog', { name: 'Disable this account?' });
     expect(dialog).toHaveTextContent(DISABLE_BODY);
-    expect(within(dialog).queryByRole('textbox')).not.toBeInTheDocument(); // plain confirm
     expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus();
-
-    await u.keyboard('{Escape}');
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(named('disableUser')).toHaveLength(0);
-
-    await u.click(screen.getByRole('button', { name: 'Disable account' }));
-    await u.click(screen.getByRole('button', { name: 'Disable דנה כהן' }));
+    await u.click(within(dialog).getByRole('button', { name: 'Disable דנה כהן' }));
     expect(named('disableUser')[0]!.input).toEqual({ user_id: 'u-dana' });
-    expect(await screen.findByText(/This account is disabled/)).toBeInTheDocument();
-    expect(screen.queryByText(/re-enabling .* is not available yet/i)).not.toBeInTheDocument();
-
-    // Task 1.17a: the account can be re-enabled from right here.
-    await u.click(screen.getByRole('button', { name: 'Enable account' }));
-    expect(named('enableUser')[0]!.input).toEqual({ user_id: 'u-dana' });
-    expect(await screen.findByRole('button', { name: 'Disable account' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Role')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.queryByRole('row', { name: /דנה כהן/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Disabled 2/ })).toBeInTheDocument();
   });
 
   it('warns an admin who disables their own account', async () => {
     await signInAs('admin');
-    renderAt('/admin/users/u-admin');
+    renderAt('/admin/users');
     const u = userEvent.setup();
-    await u.click(await screen.findByRole('button', { name: 'Disable account' }));
+    const row = await screen.findByRole('row', { name: /Seed Admin/ });
+    await u.click(within(row).getByRole('button', { name: 'Disable' }));
     expect(screen.getByRole('dialog')).toHaveTextContent(
       'You will be signed out on your next request.',
     );
-  });
-
-  it('a disabled account says so, offers Enable, but no role, rename or reset', async () => {
-    await signInAs('admin');
-    renderAt('/admin/users/u-gone');
-    expect(await screen.findByText(/This account is disabled/)).toHaveTextContent(
-      formatDate('2026-02-03T12:00:00.000Z'),
-    );
-    expect(screen.getByRole('button', { name: 'Enable account' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Disable account' })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Role')).not.toBeInTheDocument();
-    expect(screen.queryByRole('form', { name: 'Rename' })).not.toBeInTheDocument();
-  });
-
-  it('enabling does not touch the password: only disabled_at changes', async () => {
-    await signInAs('admin');
-    renderAt('/admin/users/u-gone');
-    await userEvent.setup().click(await screen.findByRole('button', { name: 'Enable account' }));
-    expect(named('enableUser')[0]!.input).toEqual({ user_id: 'u-gone' });
-    expect(await screen.findByRole('button', { name: 'Disable account' })).toBeInTheDocument();
-  });
-
-  it('an unknown id says there is no such user, with a way back', async () => {
-    await signInAs('admin');
-    renderAt('/admin/users/u-nobody');
-    expect(await screen.findByRole('heading', { name: /no user/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'All users' })).toHaveAttribute('href', '/admin/users');
-  });
-});
-
-describe('renaming an account (spec §5.4 item 3)', () => {
-  it('posts renameUser with the trimmed, lowercased username and the full name', async () => {
-    await signInAs('admin');
-    renderAt('/admin/users/u-dana');
-    const u = userEvent.setup();
-    const form = await screen.findByRole('form', { name: 'Rename' });
-    const usernameField = within(form).getByLabelText('Username');
-    await u.clear(usernameField);
-    await u.type(usernameField, ' NewDana ');
-    const fullNameField = within(form).getByLabelText('Full name');
-    await u.clear(fullNameField);
-    await u.type(fullNameField, 'New Dana');
-    await u.click(within(form).getByRole('button', { name: /save/i }));
-
-    expect(named('renameUser')[0]!.input).toEqual({
-      user_id: 'u-dana',
-      username: 'newdana',
-      full_name: 'New Dana',
-    });
-    expect(await screen.findByRole('heading', { name: 'New Dana' })).toBeInTheDocument();
-  });
-
-  it('mentions that a device holding the old name keeps using it offline until its next sync', async () => {
-    await signInAs('admin');
-    renderAt('/admin/users/u-dana');
-    const form = await screen.findByRole('form', { name: 'Rename' });
-    expect(form).toHaveTextContent(/offline/i);
-    expect(form).toHaveTextContent(/sync/i);
-  });
-
-  it("shows the server's sentence for a taken username, never the code", async () => {
-    await signInAs('admin');
-    renderAt('/admin/users/u-dana');
-    const u = userEvent.setup();
-    const form = await screen.findByRole('form', { name: 'Rename' });
-    const usernameField = within(form).getByLabelText('Username');
-    await u.clear(usernameField);
-    await u.type(usernameField, 'seed_lead');
-    await u.click(within(form).getByRole('button', { name: /save/i }));
-    const alert = await within(form).findByRole('alert');
-    expect(alert).toHaveTextContent("The username 'seed_lead' is taken.");
-    expect(alert).not.toHaveTextContent(/conflict|409/);
-  });
-
-  it('refuses neither field emptied: clearing both surfaces a field error, not a call', async () => {
-    await signInAs('admin');
-    renderAt('/admin/users/u-dana');
-    const u = userEvent.setup();
-    const form = await screen.findByRole('form', { name: 'Rename' });
-    await u.clear(within(form).getByLabelText('Username'));
-    await u.click(within(form).getByRole('button', { name: /save/i }));
-    expect(await within(form).findByRole('alert')).toHaveTextContent(/enter a username/i);
-    expect(named('renameUser')).toHaveLength(0);
-  });
-
-  it('renaming yourself updates the session at once, the way a role change already does', async () => {
-    await signInAs('admin');
-    renderAt('/admin/users/u-admin');
-    const u = userEvent.setup();
-    const form = await screen.findByRole('form', { name: 'Rename' });
-    const fullNameField = within(form).getByLabelText('Full name');
-    await u.clear(fullNameField);
-    await u.type(fullNameField, 'Admin Renamed');
-    const usernameField = within(form).getByLabelText('Username');
-    await u.clear(usernameField);
-    await u.type(usernameField, 'admin2');
-    await u.click(within(form).getByRole('button', { name: /save/i }));
-
-    await screen.findByRole('heading', { name: 'Admin Renamed' });
-    // The sidebar's "Signed in as ..." reads the session, so waiting for it flushes the
-    // session.updateUser() commit before asserting on session.current() below.
-    await screen.findByText('Admin Renamed', { selector: 'aside *' });
-    const current = await session.current();
-    expect(current?.user.full_name).toBe('Admin Renamed');
-    expect(current?.user.username).toBe('admin2');
   });
 });
 
 describe('a generated password is never stored', () => {
   it('lands in no Dexie table, localStorage or sessionStorage after create and reset', async () => {
     await signInAs('admin');
-    const router = renderAt('/admin/users');
+    renderAt('/admin/users');
     const u = userEvent.setup();
-    const form = await screen.findByRole('form', { name: 'Add a user' });
-    await u.type(within(form).getByLabelText('Username'), 'noa');
+    await u.click(await screen.findByRole('button', { name: 'Add a user' }));
+    const form = screen.getByRole('dialog', { name: 'Add a user' });
     await u.type(within(form).getByLabelText('Full name'), 'Noa');
     await u.click(within(form).getByRole('button', { name: 'Generate' }));
     const created = (within(form).getByLabelText('Initial password') as HTMLInputElement).value;
     await u.click(within(form).getByRole('button', { name: 'Add user' }));
-    await screen.findByRole('row', { name: /Noa/ });
+    await u.click(await within(form).findByRole('button', { name: 'Done' }));
 
-    await act(() => router.navigate('/admin/users/u-dana'));
-    const reset = await screen.findByRole('form', { name: 'Reset password' });
-    await u.click(within(reset).getByRole('button', { name: 'Generate' }));
+    const row = await screen.findByRole('row', { name: /דנה כהן/ });
+    await u.click(within(row).getByRole('button', { name: 'Reset password' }));
+    const reset = screen.getByRole('dialog', { name: 'Reset password' });
     const resetTo = (within(reset).getByLabelText('New password') as HTMLInputElement).value;
     await u.click(within(reset).getByRole('button', { name: 'Reset password' }));
-    await screen.findByRole('status', { name: /new password/i });
+    await within(reset).findByRole('status');
 
     const dump = await everythingStored();
     expect(dump).not.toContain(created);
@@ -719,5 +645,168 @@ describe('a generated password is never stored', () => {
     for (const marker of ['marker-in-dexie', 'marker-in-local', 'marker-in-session']) {
       expect(probed).toContain(marker);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// The page alone, with an injected rpc (as ManagePage's tests do): the design's twelve.
+
+const ID = {
+  tamar: 'u-01',
+  eldad: 'u-02',
+  noa: 'u-03',
+  daniel: 'u-04',
+  amit: 'u-05',
+  yael: 'u-06',
+} as const;
+
+const USERS_12: PublicUser[] = (
+  [
+    [ID.tamar, 'Tamar Mizrahi', 'tamar.m', 'admin'],
+    [ID.eldad, 'Eldad Gross', 'eldad.g', 'admin'],
+    [ID.noa, 'Noa Levi', 'noa.levi', 'lead'],
+    [ID.daniel, 'Daniel Rosen', 'daniel.r', 'lead'],
+    [ID.amit, 'Amit Ben-David', 'amit.bd', 'scouter'],
+    [ID.yael, 'Yael Shapira', 'yael.s', 'scouter'],
+    ['u-07', 'Omer Katz', 'omer.k', 'scouter'],
+    ['u-08', 'Itai Cohen', 'itai.c', 'scouter'],
+    ['u-09', 'Maya Friedman', 'maya.f', 'scouter'],
+    ['u-10', 'Lior Avraham', 'lior.a', 'scouter'],
+    ['u-11', 'Shira Peretz', 'shira.p', 'scouter'],
+    ['u-12', 'Roni Gal', 'roni.g', 'scouter', '2026-09-14T08:00:00.000Z'],
+  ] as const
+).map(([id, full_name, username, role, off]) =>
+  stored({ id, full_name, username, role, disabled_at: off ?? null }),
+);
+
+function renderUsers({
+  users: list,
+  counts,
+  failCount = false,
+}: {
+  users: PublicUser[];
+  counts: { scouter_id: string; count: number }[];
+  failCount?: boolean;
+}) {
+  const rows = [...list];
+  const rpc = vi.fn(async (name: string, input?: unknown) => {
+    const body = (input ?? {}) as Record<string, unknown>;
+    if (name === 'listUsers') return { items: rows, next_cursor: null };
+    if (name === 'getActiveContext') return { active_season_id: 's-2026', active_event_id: null };
+    if (name === 'countEntriesByScouter') {
+      if (failCount) throw new Error('count failed');
+      return { items: counts };
+    }
+    if (name === 'createUser') {
+      return stored({
+        id: 'u-new',
+        username: String(body.username),
+        full_name: String(body.full_name),
+        role: body.role as Role,
+      });
+    }
+    throw new Error(`no answer for ${name}`);
+  });
+  const user = { ...admin, id: ID.tamar };
+  const router = createMemoryRouter([
+    {
+      path: '/',
+      element: <Outlet context={{ user, expired: false, eventId: null }} />,
+      children: [{ index: true, element: <UsersPage rpc={{ call: rpc }} /> }],
+    },
+  ]);
+  render(<RouterProvider router={router} />);
+  return rpc;
+}
+
+describe('the Users page with an injected rpc (RB.14)', () => {
+  it('filters by role chip and shows entries this season', async () => {
+    renderUsers({ users: USERS_12, counts: [{ scouter_id: ID.yael, count: 52 }] });
+    await userEvent.click(await screen.findByRole('button', { name: /^Leads 2/ }));
+    expect(screen.getAllByRole('row')).toHaveLength(1 + 2);
+    await userEvent.click(screen.getByRole('button', { name: /^All/ }));
+    expect(
+      within(screen.getByRole('row', { name: /Yael Shapira/ })).getByText('52'),
+    ).toBeInTheDocument();
+  });
+
+  it('counts active accounts per chip, and Disabled apart', async () => {
+    renderUsers({ users: USERS_12, counts: [] });
+    expect(await screen.findByRole('button', { name: 'All 11' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: 'Scouters 7' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Admins 2' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Disabled 1' })).toBeInTheDocument();
+  });
+
+  it('shows 0 in warn for someone with no entries, and searches name or username', async () => {
+    renderUsers({ users: USERS_12, counts: [{ scouter_id: ID.yael, count: 52 }] });
+    const shira = await screen.findByRole('row', { name: /Shira Peretz/ });
+    expect(within(shira).getByText('0')).toHaveClass('text-warn');
+    await userEvent.type(screen.getByRole('searchbox', { name: /Search/ }), 'NOA.');
+    expect(screen.getAllByRole('row')).toHaveLength(1 + 1);
+    expect(screen.getByRole('row', { name: /Noa Levi/ })).toBeInTheDocument();
+    await userEvent.clear(screen.getByRole('searchbox', { name: /Search/ }));
+    await userEvent.type(screen.getByRole('searchbox', { name: /Search/ }), 'shapira');
+    expect(screen.getByRole('row', { name: /Yael Shapira/ })).toBeInTheDocument();
+  });
+
+  it('loads the list and the season counts once each', async () => {
+    const rpc = renderUsers({ users: USERS_12, counts: [] });
+    await screen.findByRole('table');
+    expect(rpc).toHaveBeenCalledWith(
+      'listUsers',
+      expect.objectContaining({ include_disabled: true }),
+    );
+    expect(rpc).toHaveBeenCalledWith('countEntriesByScouter', { season_id: 's-2026' });
+    expect(rpc.mock.calls.filter(([name]) => name === 'listUsers')).toHaveLength(1);
+  });
+
+  it('adds a user in a dialog and hands the password over once', async () => {
+    const rpc = renderUsers({ users: USERS_12, counts: [] });
+    await userEvent.click(await screen.findByRole('button', { name: 'Add a user' }));
+    const dlg = screen.getByRole('dialog', { name: 'Add a user' });
+    await userEvent.type(within(dlg).getByLabelText('Full name'), 'Gal Levy');
+    expect(within(dlg).getByLabelText('Username')).toHaveValue('gal.l');
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Generate' }));
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Add user' }));
+    expect(rpc).toHaveBeenCalledWith(
+      'createUser',
+      expect.objectContaining({ username: 'gal.l', role: 'scouter', must_change: true }),
+    );
+    expect(await within(dlg).findByText(/Created Gal Levy · gal.l/)).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: /Gal Levy/ })).toBeInTheDocument();
+  });
+
+  it('a failing entry count does not fail the page: the cell shows a dash', async () => {
+    const rpc = renderUsers({
+      users: USERS_12,
+      counts: [],
+      failCount: true,
+    });
+    const yael = await screen.findByRole('row', { name: /Yael Shapira/ });
+    expect(rpc).toHaveBeenCalledWith('countEntriesByScouter', { season_id: 's-2026' });
+    expect(within(yael).getByText('–')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /needs the server/i })).not.toBeInTheDocument();
+  });
+
+  it('the created handover labels the password', async () => {
+    renderUsers({ users: USERS_12, counts: [] });
+    await userEvent.click(await screen.findByRole('button', { name: 'Add a user' }));
+    const dlg = screen.getByRole('dialog', { name: 'Add a user' });
+    await userEvent.type(within(dlg).getByLabelText('Full name'), 'Gal Levy');
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Generate' }));
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Add user' }));
+    expect(await within(dlg).findByText('Their password')).toBeInTheDocument();
+  });
+
+  it('disable from the row asks first', async () => {
+    renderUsers({ users: USERS_12, counts: [] });
+    const row = await screen.findByRole('row', { name: /Yael Shapira/ });
+    await userEvent.hover(row);
+    await userEvent.click(within(row).getByRole('button', { name: 'Disable' }));
+    expect(screen.getByRole('dialog', { name: 'Disable this account?' })).toBeInTheDocument();
   });
 });

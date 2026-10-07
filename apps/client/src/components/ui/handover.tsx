@@ -9,11 +9,14 @@ import type { ReactNode } from 'react';
  */
 export function Handover({
   title,
+  label,
   secret,
   note,
   actions,
 }: {
   title: ReactNode;
+  /** A small line naming the secret ("Their password"), before it. */
+  label?: ReactNode;
   secret: string;
   note: ReactNode;
   actions?: ReactNode;
@@ -29,6 +32,7 @@ export function Handover({
         </span>
         {title}
       </p>
+      {label ? <p className="mt-2.5 text-xs font-semibold text-muted">{label}</p> : null}
       <p
         dir="ltr"
         className="num mt-2 select-all break-all rounded-control border border-line bg-surface px-3 py-2 text-[22px] font-semibold tracking-[0.04em]"

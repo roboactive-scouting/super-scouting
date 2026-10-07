@@ -71,6 +71,19 @@ test('home: a lead sees tiles and coverage at both widths; the switch-competitio
   await shoot(page, 'home-switch', 'phone');
 });
 
+test('home: an admin on desktop sees the Manage and Users tiles', async ({ page }) => {
+  await setClock(page);
+  await signIn(page, 'admin', HOLD_PUSH);
+  await seedDevice(page, 'B2');
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'District #3 · Tel Aviv' }),
+  ).toBeVisible();
+  const goTo = page.getByRole('region', { name: 'Go to' });
+  await expect(goTo.getByRole('link', { name: /^Manage/ })).toBeVisible();
+  await expect(goTo.getByRole('link', { name: /^Users/ })).toBeVisible();
+  await shoot(page, 'home-admin', 'desktop');
+});
+
 test('home: an admin on a phone sees Matches and no Users tile', async ({ page }) => {
   await setClock(page);
   await signIn(page, 'admin', HOLD_PUSH);
