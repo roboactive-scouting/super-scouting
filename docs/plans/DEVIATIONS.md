@@ -4677,3 +4677,42 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
 - User detail rhythm: the top offset is tightened (the All users link is pulled 16 px up, the name 8 px closer); the remaining ~40 px comes from the 48 px field and checkbox rows (SPEC-FINAL 17.7, already logged), so Disable account is still just below the 900 px fold.
 - Entries phone status tags stay 24 px: the final's source (`entries.css` `.st`) draws them at 24 px; only the station tag is smaller on the card (`.pc2 .stn`, 20 px / 11 px), which is now matched. The review measured them off a scaled image.
 - The "Not in line-up" flag now uses a flag glyph everywhere (`WarningFlag`), including Scout, whose final draws the flag without an icon.
+
+## Redesign build RB.1 – RB.20 — summary of the deviations (RB.19, Step 4)
+
+**Plan said:** `docs/plans/REDESIGN-BUILD-PLAN.md`, tasks RB.1 – RB.20, built in waves A to F on `feat/redesign-build`, each page to match its final images.
+
+**What was wrong:** nothing as one error. Each task's section above holds its real error text and its alternatives. The most important departure of each, by task heading:
+
+- **Task RB.1 — Theme layer:** the `:focus-visible` rule stays unlayered (the plan put it in `@layer base`), so no utility can silently override the focus ring; `.brand-plate` was 3.3:1 until RB.18 removed it.
+- **Task RB.2 — Primitives I:** buttons and chips keep THEME's heights but carry a 48 px hit area (SPEC-FINAL 17.7); errors use the `--warn` edge, never red.
+- **Task RB.3 — Primitives II:** dialogs got `dismissible`, `initialFocus`, `describedBy` and `showClose` so a confirm cannot close by accident; radiogroups got roving tabindex.
+- **Task RB.4 — Device data:** `notifyChanged('rows')` runs after each pulled page, not once at the end, so a pull that fails midway still refreshes what it applied.
+- **Task RB.5 — E2E harness:** the fixture holds 40 qualification matches (not 10) and the mock names `Authorization` in its CORS headers, because `*` does not cover it.
+- **Task RB.13 — countEntriesByScouter:** also test-list changes (`range` on `scriptedDb`) and three store tests for paging past 1000 rows.
+- **Task RB.6 — Shell:** rows and buttons below 48 px in the finals were raised to 48 px on desktop (user decision, below); one `<Suspense>` per lazy route inside the shell, so a loading admin page does not blank it.
+- **Task RB.7 — Login and Change password:** the plan's `signIn(..., { mustChange: true })` e2e helper call could never resolve; the forced case signs in by hand and waits for `/change-password`.
+- **Task RB.8 — Entry:** the self-edit line uses `SELF_EDIT_WINDOW_MS` (5 minutes), not the mock's 10, and is hidden for a lead or admin.
+- **Task RB.9 — Scout:** the remembered station, the "Not in line-up" flag and the "Team not here?" roster replace today's form; copy the README does not give is listed in the section.
+- **Task RB.10 — Home:** rank and top-teams cards are not built (no ranking yet); coverage is hidden under a session override.
+- **Task RB.11 — Entries:** a team outside the line-up shows the alliance tag instead of a station; waiting and refused never overlap (RB.19 later aligned the chip with the shell's count).
+- **Task RB.12 — Switch scouter:** the note names the signed-in scouter in full and is hidden when the chosen person is the current one.
+- **Task RB.14 — Users:** the entries-this-season count is asked beside `listUsers`; a failed count shows "–" and does not fail the page.
+- **Task RB.15 — User detail:** the page loads its one account itself (`useAccount.ts`) so it does not depend on RB.14's `useUsers` signature.
+- **Task RB.16 — Manage, Competitions and roster:** the header line per tab and the roster section counts follow the images, not the README (user decision 2026-10-07).
+- **Task RB.17 — Manage, Matches:** saves are a per-event queue with an explicit "Try again", and unsaved cells are guarded on leaving the page (three review rounds).
+- **Task RB.20 — Delete a season or an event:** the `Store` stubs from task 1.60 were reused; the permission is `delete_objects` checked in the use case, not `manage_events`.
+- **Task RB.18 — Cleanup:** the initial-JS budget was re-based from 180 KB to 205 KB gzip (measured 199.4 KB; user decision 2026-10-07); `bundle:check` deletes the build manifest.
+- **Task RB.19 — Whole-app review:** the phone action bar is pinned with `data-pinned-foot`; one focus edge replaces the double ring; the top bar and the Waiting chip now count the same.
+
+**What I did instead:** each of the above, in its own section. Three user decisions of 2026-10-07 are folded in: contiguous 48 px full-width desktop rows satisfy the 8 px spacing rule (SPEC-FINAL 17.7 note); the RB.16 header line and counts follow the images; the 205 KB bundle budget.
+
+**Open items for later (none blocks the merge):**
+- **Dialog placement.** THEME "Dialog (desktop)" says centred; the finals draw the Users and Disable dialogs near the top. The code follows THEME. Pending the user: change THEME or the dialogs.
+- **User detail height.** On desktop the page still runs below the 900 px fold at 48 px fields; tightened by 24 px in RB.19, the rest is the 48 px rows.
+- **Release order for the delete migration.** `20261007120000_delete_cascade` is applied to the dev project only. Push it to production before the server with RB.20 is deployed (IMPLEMENTATION-PLAN release note), by hand (BUILD-CONTEXT section 4).
+- **Large server files.** Split `apps/server/src/repos/store.ts` (about 800 lines) and `apps/server/src/test/fake-context.ts` (about 1050 lines) in a cleanup task.
+- **`text-surface` on dark fills.** There is no on-dark token, so a future dark theme needs one (THEME.md palette rules).
+- **RB.20 minors:** the SQL guard against an `active_event_id` race, returning real deleted counts, soft-deleted entries not counted, and focus after an event delete.
+
+**Risk:** the summary restates the sections above; where the two differ, the task's own section is the record. The delete migration is the only item that can break production if the order is wrong.

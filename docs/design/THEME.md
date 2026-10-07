@@ -56,6 +56,8 @@ Contrast is measured against white `--surface` and grey `--bg`. WCAG AA needs 4.
 - The logo's yellow appears **only in the logo**, and the logo sits **only on `--rail`** or another dark surface. No UI element uses the logo's colours.
 - Alliances are always red and blue. The accent is never red or blue, so "selected" can't be mistaken for an alliance.
 - Colour is never the only signal. Every status, alliance and chart mark also has a word, a number or a shape.
+- The lock mark (a locked entry, §6.2) is an icon, not the 🔒 emoji, so it takes the text colour and the OS never swaps its look.
+- Text on `--ink` or `--rail` fills uses `text-surface`. There is **no on-dark token**: a future dark theme must add one (it would also replace `--rail-ink` on the rail), or `text-surface` turns dark on dark.
 
 ## Type
 
@@ -157,8 +159,8 @@ Each page round adds a row here: what was picked, which page it came from, and t
 
 ## Open: decide during the page rounds
 
-1. **The outdoor high-contrast theme's values.** It's required, and the light theme is close to it already.
-2. **A Hebrew font.** **[RAISED BY ME]** Schibsted Grotesk has no Hebrew glyphs, and SPEC-FINAL §17.6 requires a self-hosted face with Hebrew coverage for form content. A Hebrew face has to be paired with it.
+1. ~~**The outdoor high-contrast theme's values.**~~ **Decided 2026-10-07 (RB.1):** `[data-theme='outdoor']` in `theme.css` (black ink on white, darker accent, warn and alliances), proved by `contrast.test.ts`. The theme *switch* stays task 1.38.
+2. ~~**A Hebrew font.**~~ **Decided 2026-10-07 (RB.1):** **Noto Sans Hebrew**, self-hosted through fontsource, is the fallback after Schibsted Grotesk (`--font-ui`).
 3. ~~**Colours for robot status**~~ **Decided 2026-10-07 (Entries):** see "Robot status tag" above. Coverage was decided with Home.
 4. **A colour-blind-safe chart palette** beyond grey plus accent, and the worst→best shading ramp.
 5. ~~**The phone shell**~~ **Decided 2026-10-07:** see "Phone top bar", "Phone bottom bar" and "Phone menu" above.

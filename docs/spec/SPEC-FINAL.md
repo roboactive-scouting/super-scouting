@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.15 · **Date:** 2026-10-07 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.16 · **Date:** 2026-10-07 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.16 adds a note to §17.7 (contiguous 48 px rows) and the `countEntriesByScouter` row, with `deleteSeason` / `deleteEvent` and their permission, to Appendix C. See the living spec's §21, 2026-10-07 (v0.64).*
 
 *v1.15 amends §17.9's navigation (the phone bottom bar). See the living spec's §21, 2026-10-07 (v0.63).*
 
@@ -1881,7 +1883,7 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 
 ### 17.7 Accessibility floor
 
-- **Minimum touch target 48 × 48 px**, with at least **8 px** between adjacent targets.
+- **Minimum touch target 48 × 48 px**, with at least **8 px** between adjacent targets. Contiguous 48 px full-width rows (desktop lists) satisfy the 8 px spacing rule — user decision 2026-10-07.
 - **WCAG AA: 4.5:1 for text, 3:1 for UI boundaries and chart strokes, in every theme.** A token pair that fails is a bug, not a preference.
 - **OS text-size settings are respected** — all type in relative units. The in-app large-text option is a multiplier on top. **No layout may break at 200%.**
 - **A visible focus indicator on every interactive element**, in every theme.
@@ -2323,6 +2325,7 @@ The starting registry for phase 1. Every entry carries a Zod input schema, a Zod
 | `syncPull` | Delta or full dataset for one event since a watermark, including tombstones. Paged (§9.3). |
 | `listSeasons` / `listEvents` / `listTeams` / `listMatches` / `listEventRoster` | Bounded, paginated. |
 | `listUsers` | Users for the picker, the admin table and the offline cache. Excludes disabled users unless asked. Never returns `password_hash` except on the `syncPull` path. |
+| `countEntriesByScouter` | Live entries per scouter across all events of one season (soft-deleted entries never count). Feeds the Users page's "entries this season". Any authenticated caller, `service` included; no permission gate. |
 | `searchTeams` | Season-wide team search with active-event rank badges. |
 | `listTeamEvents` | The events a team has entries at — powers the cross-event jump of §13.2. |
 | `queryEntries` | Entry search for one event, filtered and paginated. |
@@ -2347,8 +2350,9 @@ The starting registry for phase 1. Every entry carries a Zod input schema, a Zod
 | `login` / `refreshToken` | **No caller** — these produce one (§16.5). Rate-limited by username. |
 | `changeOwnPassword` | any authenticated user, own account only |
 | `createUser` / `setUserRole` / `resetPassword` / `disableUser` | admin |
-| `createSeason` / `updateSeason` / `setActiveSeason` / `deleteSeason` | admin |
-| `createEvent` / `updateEvent` / `reorderEvents` / `setActiveEvent` / `deleteEvent` | admin |
+| `createSeason` / `updateSeason` / `setActiveSeason` | admin |
+| `createEvent` / `updateEvent` / `reorderEvents` / `setActiveEvent` | admin |
+| `deleteSeason` / `deleteEvent` | admin (`delete_objects`) — hard cascade, irreversible; `dry_run` returns the counts and deletes nothing, the real delete needs `confirm_name` (§3.9); the active season and the default event are refused |
 | `createTeam` / `updateTeam` / `setEventRoster` | admin |
 | `createMatch` / `updateMatch` / `setMatchTeams` / `deleteMatch` | admin |
 | **`ensureMatch`** | **any authenticated user** — the bare auto-creation of §6.4. Creates event + type + number only; a no-op if the match exists. |

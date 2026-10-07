@@ -290,16 +290,17 @@ This section applies to every client task that adds or changes a screen, whether
 
 1. **Build from shadcn/ui components, not hand-styled elements.** When a task needs a button, input, select, checkbox, dialog, table, tabs, badge or card, it uses the component in `apps/client/src/components/ui/`, adding it the first time. A task that changes an existing screen moves that screen's elements onto these components. It does not restyle screens outside its scope.
 2. **No marketing-tone copy and no placeholder text** on any screen.
-3. **Prove it with screenshots.** Before reporting, screenshot every new or changed screen in the browser pane at 375 px and 1280 px (a desktop-only builder needs 1280 px only), in every theme the app offers, with realistic dev-seed data, never an empty screen unless the empty state is the screen being built. Check each against the task's requirements. §1's browser-pane rules apply: confirm the tab, and never type a credential.
+3. **Prove it with screenshots.** Run `pnpm --filter @frc/client e2e` (Playwright, `channel: 'chrome'`, the API mocked at `http://api.test`; helpers `e2e/api-mock.ts` and `e2e/shoot.ts`). `shoot(page, name, only?, {long?})` writes a 1440 × 900 desktop shot and a 375 × 812 viewport phone shot to `e2e/__screens__`, runs axe and an overflow check, waits for fonts and animations, and moves the mouse away. Every new or changed screen gets a shot at both widths (a desktop-only builder needs 1440 px only), in every theme the app offers, with realistic fixture data, never an empty screen unless the empty state is the screen being built. A flow that touches the server is also checked in the browser pane against dev seed data. §1's browser-pane rules apply: confirm the tab, and never type a credential.
 4. **Report it so the user can review it.** List each screen with its route, the result
    of checking it against the task's requirements, and anything that fell short and
    why. The user checks these screens on dev at the end of the part. The report is the
    list they work from.
-5. **Build on the shared component system** *(added 2026-10-01)*. The redesign (tasks R.1–R.14; see the "The redesign system" table in `docs/plans/IMPLEMENTATION-PLAN.md`) put these in place, and every later task uses them rather than inventing its own:
-   - `components/ui/*`: Button, Input, NativeSelect, Label, Card, Badge, Table, PageHeader, Tabs, Sheet and Notice.
-   - `components/entry/*`: ChoiceGroup, CounterControl, ToggleField and StickyActionBar.
+5. **Build on the shared component system** *(redesign build RB.1–RB.20, 2026-10-07)*. Every later task uses these rather than inventing its own:
+   - `components/ui/*`: `action-bar`, `alliance-buttons`, `button`, `card`, `counter`, `described-choice`, `destructive-confirm`, `dialog`, `empty-state`, `filter-chips`, `goto-tile`, `handover`, `initials`, `input`, `label`, `live-checks`, `notice`, `option-buttons`, `password-input`, `responsive-dialog`, `search-field`, `segmented`, `select`, `sheet`, `stat-tile`, `station-pill`, `suggest-input`, `switch`, `table`, `tabs`, `tag`, `textarea` (plus the `useModalFocus` hook). Beside them: `StateMessage`, `Skeleton`, `DesktopOnly`.
    - `lib/paths.ts`: every path, written once.
    - `features/shell/nav.ts`: one row per nav destination. Never hand-write a shell link.
    - Anything that moves respects `prefers-reduced-motion`: reduced motion gets still screens.
+   - **Guards:** `pnpm bundle:check` (run after `pnpm build`; initial JS at most 205 KB gzip; it deletes the build manifest) and the `styles/classes.test.ts` test (no palette colours, retired tokens or unguarded motion classes).
+   - **Pinned foot:** a page with an `ActionBar` marks its `<main>` with `data-pinned-foot` and `flex flex-1 flex-col`, so a short page still has the bar at the bottom.
 
    **One copy of each nav destination is in the DOM at a time.** jsdom has no `matchMedia`, so the shell renders its desktop layout under test.

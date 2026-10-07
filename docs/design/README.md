@@ -31,20 +31,20 @@ Pages go **one at a time**. At this stage that means only the pages that exist t
 
 ## Page order (most important first)
 
-| # | Page | Route | Status |
-|---|---|---|---|
-| 1 | Entry | `/entry/:matchId/:teamId` | **Closed** 2026-10-06, variant B |
-| 2 | Scout (robot picker) | `/scout` | **Closed** 2026-10-06, variant E |
-| 3 | Home | `/` | **Closed** 2026-10-06, variant B3 |
-| 4 | Login | `/login` | **Closed** 2026-10-06, variant A |
-| 5 | Entries | `/entries` | **Closed** 2026-10-07, variant A (simplified) |
-| 6 | Switch scouter | `/switch-scouter` | **Closed** 2026-10-07, variant A (+ C's note) |
-| 7 | Manage | `/admin/manage` | **Closed** 2026-10-07, variant D + matches on a phone |
-| 8 | Users | `/admin/users` | **Closed** 2026-10-07, variant C + B's dialog |
-| 9 | User detail | `/admin/users/:id` | **Closed** 2026-10-07, variant A |
-| 10 | Change password | `/change-password` | **Closed** 2026-10-07, variant C |
+| # | Page | Route | Status | Coded |
+|---|---|---|---|---|
+| 1 | Entry | `/entry/:matchId/:teamId` | **Closed** 2026-10-06, variant B | RB.8 |
+| 2 | Scout (robot picker) | `/scout` | **Closed** 2026-10-06, variant E | RB.9 |
+| 3 | Home | `/` | **Closed** 2026-10-06, variant B3 | RB.10 |
+| 4 | Login | `/login` | **Closed** 2026-10-06, variant A | RB.7 |
+| 5 | Entries | `/entries` | **Closed** 2026-10-07, variant A (simplified) | RB.11 |
+| 6 | Switch scouter | `/switch-scouter` | **Closed** 2026-10-07, variant A (+ C's note) | RB.12 |
+| 7 | Manage | `/admin/manage` | **Closed** 2026-10-07, variant D + matches on a phone | RB.16, RB.17, RB.20 |
+| 8 | Users | `/admin/users` | **Closed** 2026-10-07, variant C + B's dialog | RB.14 |
+| 9 | User detail | `/admin/users/:id` | **Closed** 2026-10-07, variant A | RB.15 |
+| 10 | Change password | `/change-password` | **Closed** 2026-10-07, variant C | RB.7 |
 
-`/context` is only a redirect to `/`. Update this table when a page closes.
+The phone shell (`pages/11-phone-shell/final/`, not a numbered route) is coded in RB.6. All were built in the redesign build (`docs/plans/REDESIGN-BUILD-PLAN.md`, RB.1–RB.20), and RB.19 reviewed each against its final images. `/context` is only a redirect to `/`. Update this table when a page closes.
 
 **All ten current pages are closed (2026-10-07), and so is the phone shell** (`pages/11-phone-shell/final/`: top bar, bottom bar, menu). **Planned pages, designed after these ten:** the **entry preview** (SPEC-FINAL §13.4; Entries rows open it, user 2026-10-07), Search, Ranking and the other pages in `IMPLEMENTATION-PLAN.md`.
 

@@ -1,6 +1,7 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.3 · **Date:** 2026-10-06 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.4 · **Date:** 2026-10-07 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.4 (2026-10-07): the redesign build RB.1 – RB.20 (`REDESIGN-BUILD-PLAN.md`) is coded; the execution-order note and the visual-reference banner point at it, and a release note records that the delete-cascade migration goes to production before the server.*
 *v1.3 (2026-10-06): the previous design's styling — colours, fonts, reference apps, motion style — is removed from the global constraints, "The redesign system", the unfinished tasks (1.24 on, phase 2) and the appendix, ahead of the from-scratch redesign (spec v0.52). Finished tasks are untouched and carry a banner. Structural requirements are unchanged.*
 *v1.2 (2026-10-01): the redesign runs now. It is the redesign tasks R.1–R.14 (executed 2026-10-01; their plan file was deleted 2026-10-06 and is in git history), after task 1.23 and before 1.24. Every UI task from 1.29 on carries a "Design (redesign system)" block, and the new section "The redesign system" binds them all.*
 **Scope of this document:** phase 0 and phase 1 in full task detail; phase 2 as headings only (SPEC-FINAL §20.8).
@@ -145,6 +146,10 @@ So the execution order is: … 1.49, **1.54, 1.55, 1.56**, 1.50, 1.51, 1.52, **1
 
 **The redesign runs between phase 1C and 1D** *(added 2026-10-01)*: … 1.22, 1.23, **R.1 – R.14** (executed; plan file in git history), 1.24 …
 
+**RB.1 – RB.20 redesign build** (`REDESIGN-BUILD-PLAN.md`) runs before 1.24 *(added 2026-10-07)*: it codes the ten closed pages and the phone shell to their final images, adds `countEntriesByScouter` (RB.13) and the season / event delete cascade (RB.20), and is built on `feat/redesign-build`.
+
+**Release note — delete cascade.** Migration `20261007120000_delete_cascade` must be pushed to **production before the server containing RB.20 is deployed** (by hand, one deliberate command, BUILD-CONTEXT §4). A server that calls the new cascade function before the migration exists fails every season / event delete.
+
 If you would rather the file read in execution order, renumber it once before the first build chat and never again — but do not renumber halfway through, because the commit messages and the branch names will stop matching.
 
 ---
@@ -157,7 +162,7 @@ Tasks 0.1 – 0.7 need no account, no secret and no network beyond the npm regis
 
 ---
 
-> **Finished tasks (0.1–1.23, R.1–R.14) are executed history.** Their code samples show the previous design's look — colours, fonts, class strings, motion — which was superseded on 2026-10-06 (spec v0.52, SPEC-FINAL v1.5). Never use them as a visual reference; the new look comes from `docs/design/THEME.md` once it exists.
+> **Finished tasks (0.1–1.23, R.1–R.14) are executed history.** Their code samples show the previous design's look — colours, fonts, class strings, motion — which was superseded on 2026-10-06 (spec v0.52, SPEC-FINAL v1.5). Never use them as a visual reference; the look is now built (RB.1 – RB.20, `REDESIGN-BUILD-PLAN.md`): take it from `docs/design/THEME.md`, `apps/client/src/styles/theme.css`, `apps/client/src/components/ui/*` and the final images in `docs/design/pages/*/final/`.
 
 ## Task 0.1: Monorepo scaffold
 
