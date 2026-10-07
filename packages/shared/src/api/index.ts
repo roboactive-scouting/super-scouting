@@ -42,6 +42,8 @@ import {
 } from './teams';
 import {
   changeOwnPasswordInput,
+  countEntriesByScouterInput,
+  countEntriesByScouterOutput,
   createUserInput,
   disableUserInput,
   enableUserInput,
@@ -73,6 +75,7 @@ export const API = {
   enableUser: { input: enableUserInput, output: publicUser },
   renameUser: { input: renameUserInput, output: publicUser },
   listUsers: { input: listUsersInput, output: listUsersOutput },
+  countEntriesByScouter: { input: countEntriesByScouterInput, output: countEntriesByScouterOutput },
   getActiveContext: { input: getActiveContextInput, output: activeContext },
   createSeason: { input: createSeasonInput, output: seasonRow },
   updateSeason: { input: updateSeasonInput, output: seasonRow },

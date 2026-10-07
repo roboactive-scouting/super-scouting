@@ -42,6 +42,7 @@ import {
   updateTeam,
 } from '../core/commands/teams.js';
 import { getActiveContext } from '../core/queries/context.js';
+import { countEntriesByScouter } from '../core/queries/countEntriesByScouter.js';
 import { listUsers } from '../core/queries/listUsers.js';
 
 type EntryMeta = {
@@ -161,6 +162,14 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     input: API.listUsers.input,
     output: API.listUsers.output,
     handler: listUsers,
+  },
+  countEntriesByScouter: {
+    kind: 'query',
+    description:
+      "Entries per scouter across a season's events, live entries only. Feeds the Users page.",
+    input: API.countEntriesByScouter.input,
+    output: API.countEntriesByScouter.output,
+    handler: countEntriesByScouter,
   },
   getActiveContext: {
     kind: 'query',

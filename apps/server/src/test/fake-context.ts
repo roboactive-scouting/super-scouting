@@ -787,6 +787,19 @@ export function makeFakeContext(): FakeContext {
     async countEntriesBySeason(seasonId) {
       return fake.entryCountsBySeason.get(seasonId) ?? 0;
     },
+    // RB.13: live entries per scouter over the season's events, read from `rows` and `events`.
+    async countEntriesByScouterForSeason(seasonId) {
+      const eventIds = new Set(
+        [...events.values()].filter((e) => e.season_id === seasonId).map((e) => e.id),
+      );
+      const counts = new Map<string, number>();
+      for (const row of rows.scouting_entries.values()) {
+        if (!eventIds.has(row.event_id as string) || row.deleted_at != null) continue;
+        const scouter = row.scouter_id as string;
+        counts.set(scouter, (counts.get(scouter) ?? 0) + 1);
+      }
+      return [...counts].map(([scouter_id, count]) => ({ scouter_id, count }));
+    },
     // Task 1.19: teams, the roster, matches and their slots. Every write checks its
     // columns and raises Postgres's own codes, like the season and event writes.
     async getTeam(id) {

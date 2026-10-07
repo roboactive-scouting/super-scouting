@@ -215,6 +215,10 @@ export type Store = {
   countEntriesByMatch(matchId: string): Promise<number>;
   /** Every entry of every event in the season, soft-deleted ones included (task 1.18). */
   countEntriesBySeason(seasonId: string): Promise<number>;
+  /** Live (not soft-deleted) entries per scouter across the season's events (RB.13). */
+  countEntriesByScouterForSeason(
+    seasonId: string,
+  ): Promise<{ scouter_id: string; count: number }[]>;
   /** A hard delete; its match_teams go with it (`on delete cascade`). '23503' on entries. */
   deleteMatch(id: string): Promise<void>;
 

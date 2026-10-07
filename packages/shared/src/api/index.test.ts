@@ -59,6 +59,7 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
   it('names every registry use case', () => {
     expect(Object.keys(API).sort()).toEqual([
       'changeOwnPassword',
+      'countEntriesByScouter',
       'createEvent',
       'createMatch',
       'createSeason',

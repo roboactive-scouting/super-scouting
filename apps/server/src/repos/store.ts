@@ -389,6 +389,33 @@ export function supabaseStore(db: Db): Store {
       if (countError) throw dbError(countError);
       return count ?? 0;
     },
+    // RB.13: live entries per scouter across the season, for the Users page. Two reads, no
+    // join, like countEntriesBySeason. PostgREST caps a read at max_rows = 1000
+    // (packages/db/supabase/config.toml), so the entries are paged, ordered by id.
+    async countEntriesByScouterForSeason(seasonId: string) {
+      const { data: events, error } = await db
+        .from('events')
+        .select('id')
+        .eq('season_id', seasonId);
+      if (error) throw dbError(error);
+      const eventIds = (events ?? []).map((e) => e.id);
+      if (eventIds.length === 0) return [];
+      const PAGE = 1000;
+      const counts = new Map<string, number>();
+      for (let from = 0; ; from += PAGE) {
+        const { data, error: readError } = await db
+          .from('scouting_entries')
+          .select('scouter_id')
+          .in('event_id', eventIds)
+          .is('deleted_at', null)
+          .order('id')
+          .range(from, from + PAGE - 1);
+        if (readError) throw dbError(readError);
+        for (const r of data ?? []) counts.set(r.scouter_id, (counts.get(r.scouter_id) ?? 0) + 1);
+        if ((data ?? []).length < PAGE) break;
+      }
+      return [...counts].map(([scouter_id, count]) => ({ scouter_id, count }));
+    },
     // Task 1.19: teams, the roster, matches and their slots. Every method THROWS on a
     // database error, keeping Postgres's code (dbError), as the season and event methods
     // do: a swallowed blip would read as "no such team" or "empty roster".

@@ -390,6 +390,43 @@ describe('supabaseStore seasons, events and the active context (task 1.18)', () 
       'connection refused',
     );
   });
+
+  it('countEntriesByScouterForSeason counts live entries per scouter, paging past 1000 rows', async () => {
+    const page = (scouter: string, n: number) =>
+      Array.from({ length: n }, () => ({ scouter_id: scouter }));
+    const { db, chains } = scriptedDb([
+      { data: [{ id: EVENT }], error: null },
+      { data: [...page('u1', 600), ...page('u2', 400)], error: null },
+      { data: page('u1', 5), error: null },
+    ]);
+    const out = await supabaseStore(db).countEntriesByScouterForSeason(SEASON);
+    expect(out).toEqual([
+      { scouter_id: 'u1', count: 605 },
+      { scouter_id: 'u2', count: 400 },
+    ]);
+    expect(chains).toHaveLength(3);
+    expect(chains[1]).toContainEqual(['in', 'event_id', [EVENT]]);
+    expect(chains[1]).toContainEqual(['is', 'deleted_at', null]);
+    expect(chains[1]).toContainEqual(['order', 'id']);
+    expect(chains[1]).toContainEqual(['range', 0, 999]);
+    expect(chains[2]).toContainEqual(['range', 1000, 1999]);
+  });
+
+  it('countEntriesByScouterForSeason is empty for a season with no events, without reading entries', async () => {
+    const { db, chains } = scriptedDb([{ data: [], error: null }]);
+    expect(await supabaseStore(db).countEntriesByScouterForSeason(SEASON)).toEqual([]);
+    expect(chains).toHaveLength(1);
+  });
+
+  it('countEntriesByScouterForSeason throws on a database error instead of reading as "no entries"', async () => {
+    const { db } = scriptedDb([
+      { data: [{ id: EVENT }], error: null },
+      { data: null, error: { message: 'connection refused' } },
+    ]);
+    await expect(supabaseStore(db).countEntriesByScouterForSeason(SEASON)).rejects.toThrow(
+      'connection refused',
+    );
+  });
 });
 
 type Result = {
@@ -426,6 +463,7 @@ function scriptedDb(results: Result[]): { db: Db; chains: Call[][] } {
         'ilike',
         'order',
         'limit',
+        'range',
         'single',
         'maybeSingle',
       ]) {

@@ -70,6 +70,10 @@ var listUsersOutput = z.object({
   items: z.array(publicUser),
   next_cursor: z.string().nullable()
 });
+var countEntriesByScouterInput = z.object({ season_id: z.string().uuid() });
+var countEntriesByScouterOutput = z.object({
+  items: z.array(z.object({ scouter_id: z.string().uuid(), count: z.number().int().min(0) }))
+});
 
 // ../../packages/shared/src/api/auth.ts
 var loginInput = z2.object({
@@ -297,6 +301,7 @@ var API = {
   enableUser: { input: enableUserInput, output: publicUser },
   renameUser: { input: renameUserInput, output: publicUser },
   listUsers: { input: listUsersInput, output: listUsersOutput },
+  countEntriesByScouter: { input: countEntriesByScouterInput, output: countEntriesByScouterOutput },
   getActiveContext: { input: getActiveContextInput, output: activeContext },
   createSeason: { input: createSeasonInput, output: seasonRow },
   updateSeason: { input: updateSeasonInput, output: seasonRow },
@@ -1096,6 +1101,24 @@ function supabaseStore(db) {
       const { count, error: countError } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).in("event_id", eventIds);
       if (countError) throw dbError(countError);
       return count ?? 0;
+    },
+    // RB.13: live entries per scouter across the season, for the Users page. Two reads, no
+    // join, like countEntriesBySeason. PostgREST caps a read at max_rows = 1000
+    // (packages/db/supabase/config.toml), so the entries are paged, ordered by id.
+    async countEntriesByScouterForSeason(seasonId) {
+      const { data: events, error } = await db.from("events").select("id").eq("season_id", seasonId);
+      if (error) throw dbError(error);
+      const eventIds = (events ?? []).map((e) => e.id);
+      if (eventIds.length === 0) return [];
+      const PAGE = 1e3;
+      const counts = /* @__PURE__ */ new Map();
+      for (let from = 0; ; from += PAGE) {
+        const { data, error: readError } = await db.from("scouting_entries").select("scouter_id").in("event_id", eventIds).is("deleted_at", null).order("id").range(from, from + PAGE - 1);
+        if (readError) throw dbError(readError);
+        for (const r of data ?? []) counts.set(r.scouter_id, (counts.get(r.scouter_id) ?? 0) + 1);
+        if ((data ?? []).length < PAGE) break;
+      }
+      return [...counts].map(([scouter_id, count]) => ({ scouter_id, count }));
     },
     // Task 1.19: teams, the roster, matches and their slots. Every method THROWS on a
     // database error, keeping Postgres's code (dbError), as the season and event methods
@@ -2283,6 +2306,14 @@ async function getActiveContext(caller, input, ctx) {
   };
 }
 
+// src/core/queries/countEntriesByScouter.ts
+async function countEntriesByScouter(caller, input, ctx) {
+  void caller;
+  const { season_id } = parseInput(countEntriesByScouterInput, input);
+  const rows = await ctx.store.countEntriesByScouterForSeason(season_id);
+  return { items: [...rows].sort((a, b) => b.count - a.count) };
+}
+
 // src/core/queries/listUsers.ts
 var encodeCursor2 = (c) => Buffer.from(JSON.stringify({ u: c.username, i: c.id }), "utf8").toString("base64url");
 var decodeCursor2 = (raw) => {
@@ -2385,6 +2416,13 @@ var REGISTRY = {
     input: API.listUsers.input,
     output: API.listUsers.output,
     handler: listUsers
+  },
+  countEntriesByScouter: {
+    kind: "query",
+    description: "Entries per scouter across a season's events, live entries only. Feeds the Users page.",
+    input: API.countEntriesByScouter.input,
+    output: API.countEntriesByScouter.output,
+    handler: countEntriesByScouter
   },
   getActiveContext: {
     kind: "query",

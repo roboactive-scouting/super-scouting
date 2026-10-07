@@ -70,6 +70,7 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
   it('holds exactly the entries registered so far', () => {
     expect(Object.keys(REGISTRY).sort()).toEqual([
       'changeOwnPassword',
+      'countEntriesByScouter',
       'createEvent',
       'createMatch',
       'createSeason',
