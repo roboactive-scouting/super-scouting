@@ -1,6 +1,8 @@
 import type { z } from 'zod';
 import { API, UNAUTHENTICATED_USE_CASES, type Api, type ApiName } from '@frc/shared';
+import { ensureToken } from '@/auth/ensureToken';
 import { session } from '@/auth/session';
+import { recordTokenLoss } from '@/auth/tokenLoss';
 import { clientConfig } from '@/config';
 import { deadline } from './deadline';
 
@@ -111,11 +113,16 @@ class DeadlineExceeded extends Error {}
  * expired (token dropped, user kept) and the call still throws. A 401 from `login` or
  * `refreshToken` means wrong credentials or a bad token offered as INPUT, and never
  * touches the session. A 403 is "not allowed" and never signs anyone out.
+ *
+ * UF.2: an authenticated call from an offline sign-in on an online device first tries to
+ * get a token (`ensureToken`). When our server answers a call sent with no bearer 401, it
+ * tries again and, if no token can be had, expires the session — rather than failing
+ * silently call after call.
  */
 export const rpc: Rpc = {
   async call(name: string, input: unknown = {}, options: CallOptions = {}): Promise<unknown> {
     const open = OPEN.has(name);
-    const bearer = open ? null : await session.token();
+    const bearer = open ? null : ((await session.token()) ?? (await ensureToken({ path: name })));
     const limit = deadline(options.timeoutMs, () => new DeadlineExceeded());
     try {
       let res: Response;
@@ -144,9 +151,12 @@ export const rpc: Rpc = {
       // A body that never finishes arriving counts as no body: `{}`.
       const body: unknown = await limit.race(res.json()).catch(() => ({}));
       if (!res.ok) {
-        if (res.status === 401 && !open && bearer) await session.expire(bearer);
         const error = (body as { error?: { code?: unknown; message?: unknown } } | null)?.error;
         const answered = typeof error?.code === 'string';
+        if (res.status === 401 && !open) {
+          if (!bearer) await ensureToken({ path: name, serverAnswered401: answered });
+          else if (await session.expire(bearer)) await recordTokenLoss('401', name);
+        }
         throw new RpcError(
           answered ? (error.code as string) : 'invalid',
           typeof error?.message === 'string' ? error.message : 'that did not work',

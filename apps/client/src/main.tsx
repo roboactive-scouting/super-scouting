@@ -1,8 +1,12 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from '@/App';
+import { syncSessionAcrossTabs } from '@/auth/session';
 import { browserAdapter, registerServiceWorker, updateReady } from '@/pwa';
 import '@/styles/index.css';
+
+// UF.2: a sign-out, sign-in or expiry in one tab shows in every other tab at once.
+syncSessionAcrossTabs();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('#root is missing from index.html');

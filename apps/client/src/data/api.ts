@@ -1,5 +1,7 @@
 import type { PullRequest, PullResponse, PushRequest, PushResponse } from '@frc/shared';
+import { ensureToken } from '@/auth/ensureToken';
 import { session } from '@/auth/session';
+import { recordTokenLoss } from '@/auth/tokenLoss';
 import type { ClientConfig } from '@/config';
 import { deadline } from './deadline';
 
@@ -50,7 +52,9 @@ export function apiClient(
   timeoutMs: number = SYNC_REQUEST_TIMEOUT_MS,
 ): Api {
   async function request<T>(path: string, init: RequestInit): Promise<T> {
-    const bearer = await auth.token();
+    const route = path.split('?')[0] ?? path;
+    // UF.2: an offline sign-in on an online device gets a token first, as rpc.ts does.
+    const bearer = (await auth.token()) ?? (await ensureToken({ path: route }));
     const limit = deadline(timeoutMs, () => new Error('the server did not answer in time'));
     try {
       const res = await limit.race(
@@ -70,9 +74,14 @@ export function apiClient(
       // A body that never finishes arriving is also bound by the same deadline.
       const body: unknown = await limit.race(res.json()).catch(() => ({}));
       if (!res.ok) {
-        // A 401 to a request that carried no token says nothing about any token.
-        if (res.status === 401 && bearer) await auth.expire(bearer);
+        // A 401 to a request that carried no token says nothing about any token — but an
+        // offline sign-in on an online device must not keep sending it (UF.2).
         const error = (body as { error?: { code?: string; message?: string } }).error;
+        if (res.status === 401) {
+          const answered = typeof error?.code === 'string'; // our server, not a portal
+          if (!bearer) await ensureToken({ path: route, serverAnswered401: answered });
+          else if (await auth.expire(bearer)) await recordTokenLoss('401', route);
+        }
         throw new ApiError(error?.code ?? 'unknown', error?.message ?? res.statusText, res.status);
       }
       return body as T;

@@ -25,7 +25,8 @@ const home = (user: SessionUser) => (user.must_change_password ? PATHS.changePas
 /**
  * `offlineSignIn` is how the cached-hash path is reached (task 1.16): the server is tried
  * first, and on any outcome that is not its definitive answer — no connection, the
- * 8-second deadline, a 5xx, a captive portal — the credentials are checked on the device
+ * deadline (8 s, then one 12 s retry when the device says it is online), a 5xx, a captive
+ * portal — the credentials are checked on the device
  * (`offlineLogin` by default; tests may inject their own).
  */
 export function LoginPage({

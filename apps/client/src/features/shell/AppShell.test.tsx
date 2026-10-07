@@ -7,7 +7,7 @@ import { OFFLINE_SIGNED_IN_LINE, SERVER_UNREACHABLE_LINE } from '@/auth/messages
 import { pendingCredential } from '@/auth/pendingCredential';
 import { PASSWORD_CHANGED_LINE, RECONNECT_TITLE } from '@/auth/ReconnectPrompt';
 import { reconnectPrompt } from '@/auth/reconnect';
-import { session } from '@/auth/session';
+import { session, syncSessionAcrossTabs, type SessionChannel } from '@/auth/session';
 import { db, setMeta } from '@/data/db';
 import type * as SyncModule from '@/data/sync';
 import type { SyncDeps, SyncOutcome } from '@/data/sync';
@@ -602,6 +602,49 @@ describe('AppShell and the session (SPEC-FINAL 7.5, task 1.15)', () => {
   });
 });
 
+describe('AppShell and a session change in another tab (UF.2)', () => {
+  /** This tab's end of the channel; the test plays the other tab. */
+  function fakeChannel() {
+    const channel: SessionChannel = { postMessage: vi.fn(), onmessage: null, close: vi.fn() };
+    const disconnect = syncSessionAcrossTabs(() => channel);
+    const otherTabChanged = () => channel.onmessage?.(new MessageEvent('message'));
+    return { otherTabChanged, disconnect };
+  }
+
+  it('goes to sign-in at once when another tab signs out', async () => {
+    const { otherTabChanged, disconnect } = fakeChannel();
+    try {
+      await hydratedFor(EVENT);
+      renderShell('/scout');
+      expect(await screen.findByText(CHILD)).toBeInTheDocument();
+      await db.meta.put({ key: 'auth.session', value: null }); // the other tab's sign-out
+      act(() => otherTabChanged());
+      expect(await screen.findByText('the login page')).toBeInTheDocument();
+    } finally {
+      disconnect();
+    }
+  });
+
+  it('shows the "Sign in again" strip on an entry when another tab’s request expired the session', async () => {
+    const { otherTabChanged, disconnect } = fakeChannel();
+    try {
+      await hydratedFor(EVENT);
+      renderShell('/entry/m-1/t-1');
+      expect(await screen.findByText(ENTRY_CHILD)).toBeInTheDocument();
+      await db.meta.put({
+        key: 'auth.session',
+        value: { user, token: null, offline: false, expired: true },
+      });
+      act(() => otherTabChanged());
+      expect(
+        await screen.findByText('Sign in again to sync — this entry is saved on this device'),
+      ).toBeInTheDocument();
+    } finally {
+      disconnect();
+    }
+  });
+});
+
 describe('AppShell and an offline sign-in (SPEC-FINAL 7.5, task 1.16)', () => {
   const loginOk = () => json({ token: 'tok-minted', user: loginUser });
   const loginUser = { ...user, id: '00000000-0000-4000-8000-000000000001' };
@@ -668,6 +711,8 @@ describe('AppShell and an offline sign-in (SPEC-FINAL 7.5, task 1.16)', () => {
     // It never takes focus from whatever the scout is doing.
     expect(within(prompt).getByLabelText('Password')).not.toHaveFocus();
     expect(screen.getByText(CHILD)).toBeInTheDocument();
+    // UF.2 venue rule: `navigator.onLine` is no proof the server is there. Never expired here.
+    expect((await session.current())?.expired).toBe(false);
 
     await userEvent.setup().click(within(prompt).getByRole('button', { name: 'Not now' }));
     expect(screen.queryByRole('region', { name: RECONNECT_TITLE })).not.toBeInTheDocument();
@@ -699,6 +744,7 @@ describe('AppShell and an offline sign-in (SPEC-FINAL 7.5, task 1.16)', () => {
     expect(within(prompt).getByRole('alert')).toHaveTextContent(PASSWORD_CHANGED_LINE);
     expect(pendingCredential.get()).toBeNull();
     expect(await session.token()).toBeNull();
+    expect((await session.current())?.expired).toBe(false);
     expect(syncNow).not.toHaveBeenCalled();
   });
 

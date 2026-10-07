@@ -89,3 +89,21 @@ test('login: an expired session keeps the name and says nothing is lost', async 
   await expect(page.getByLabel('Username')).toHaveValue(SCOUTER);
   await shoot(page, 'login-expired');
 });
+
+test('session: a sign-out in another tab sends this tab to sign-in at once (UF.2)', async ({
+  page,
+  context,
+}) => {
+  await signIn(page, 'lead');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const other = await context.newPage();
+  await mockApi(other, { role: 'lead' });
+  await other.setViewportSize({ width: 1440, height: 900 });
+  await other.goto('/');
+  await other.getByRole('button', { name: /Noa Levi/ }).click();
+  await other.getByRole('menuitem', { name: 'Sign out' }).click();
+  await other.waitForURL('/login');
+  // No reload and no request here: the first tab hears the change over BroadcastChannel.
+  await page.waitForURL('/login', { timeout: 5_000 });
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+});

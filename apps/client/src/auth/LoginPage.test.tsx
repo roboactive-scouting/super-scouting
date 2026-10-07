@@ -158,7 +158,10 @@ describe('LoginPage (SPEC-FINAL 7.3, 7.5)', () => {
     [429, 'rate-limited', 'Too many attempts. Wait a few minutes and try again.'],
     [500, 'invalid', 'The server is having trouble. Try again in a minute.'],
   ])('maps HTTP %i to a sentence, never the code', async (status, code, line) => {
-    fetchMock.mockResolvedValueOnce(json(status, { error: { code, message: 'raw server text' } }));
+    // Both tries: a 5xx is not definitive, so an online device retries once (UF.2).
+    fetchMock.mockImplementation(async () =>
+      json(status, { error: { code, message: 'raw server text' } }),
+    );
     renderLogin();
     await signInWith('seed_scouter', 'seedpass1');
     expect(await screen.findByRole('alert')).toHaveTextContent(line);

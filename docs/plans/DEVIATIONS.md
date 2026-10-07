@@ -4780,3 +4780,49 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
 **What I did instead:** when the rebuild is impossible the existing behaviour stays (parked, with the reason shown on the sync line) — the orchestrator's instruction. The rebuilt bare match takes the entry's `seq` and the entry moves behind it with a fresh `nextSeq()`. Loop guards: only the "match" detail rebuilds; a bare match already queued for that row is never queued twice, and if that one was itself refused (parked) the entry parks too; each op is sent once per sync. Rejected: re-sending the entry in the same sync (it needs a second "sent" exemption and its own loop guard, for a saving of one 45-second tick).
 
 **Risk:** if the server kept answering "the match no longer exists" for a match it then accepted, each sync would queue one bare match (acked as noop) and retry the entry, without parking. That needs a server bug; nothing in the current code produces it.
+
+## UF.2 — Session: no silent tokenless session
+
+**Plan said:** (step 2) on app start, on `online` and before any authenticated request, run the exchange; with no pending credential (or a refused one), mark the session expired.
+
+**What was wrong:** the shell already ran the exchange on start, on `online` and on every tick (`AppShell.run` → `reconnect()`), but on `no-credential`, `refused` and `disabled` it showed the one-field `ReconnectPrompt` (task 1.16) instead of expiring. Expiring makes `offlineSession` false, so that prompt can no longer appear on an online device, and offline the shell never runs the exchange.
+
+**What I did instead:** `AppShell`'s `reconnect()` and the prompt wiring (state, render, the `PASSWORD_CHANGED_LINE` / `DISABLED` imports, `reconnectPrompt.claim`) are replaced by one `ensureToken()` call; the three AppShell tests of the prompt became tests of the expiry (sign-in shows on Scout, the "Sign in again" strip on an entry in progress, offline nothing happens until `online`, a refused held password expires). `ReconnectPrompt.tsx`, `signInAgain` and `reconnectPrompt` are left in place with their own tests, now unused by the app. `disabled` (a 403 to the exchange's LOGIN) also expires: no token can be had, and the sign-in screen then names the disabled account. "A 403 never expires anything" is kept for authenticated calls. Rejected: keeping the prompt for `no-credential` (the orchestrator's instruction is the expiry).
+
+**Risk:** SPEC-FINAL 7.5 says the user "is prompted for the password once when connectivity returns"; the prompt is now the sign-in screen (username pre-filled, "Your sign-in expired… saved on this device"), not a dismissible strip. `navigator.onLine` is true on venue Wi-Fi with no internet, so an offline session reopened there is sent to sign-in as soon as the shell starts. Entries are safe (the entry route stays open with the strip), and signing in falls back to the cached hash, but it is an extra screen at a venue.
+
+**Plan said:** (step 2) the exchange before any authenticated RPC, de-duplicated.
+
+**What was wrong:** nothing; choices the plan left open.
+
+**What I did instead:** `ensureToken()` in `auth/ensureToken.ts`, single-flight over the whole recovery (concurrent callers share one exchange and one diagnostic write). `rpc.ts` and `api.ts` call it only when `session.token()` is null, so a session with a token pays nothing. `unreachable` leaves the offline session and the held password alone (no expiry): every later request tries again. The tokenless expiry is a new `session.expireOffline(userId)`, guarded so a session that got a token or changed hands meanwhile is left alone; `session.expire` now returns whether it changed anything (so a stale-token 401 records no diagnostic). The request is still sent when no token could be had, so the caller gets the server's 401 as before. A 401 that did get a token through the step-3 exchange is NOT retried: the call still throws, the next one carries the token. Rejected: retrying the call (it would change every caller's error path for a single click).
+
+**Risk:** the pre-request exchange uses the login's 8 s deadline before the call's own deadline starts, so the first admin call from a recovering session can take up to 8 s longer.
+
+**Plan said:** (step 1) retry once with 20 s when online.
+
+**What was wrong:** nothing; `signInWithFallback`'s existing tests mocked one fetch answer (`mockResolvedValueOnce`), and the retry made the second call read `undefined`.
+
+**What I did instead:** `LOGIN_RETRY_TIMEOUT_MS = 20_000` and a `retryTimeoutMs` option (for tests). The retry also applies to Switch scouter, which uses the same function. Tests that meant "every attempt fails" now mock every attempt with a fresh `Response` per call (a `Response` body reads once).
+
+**Risk:** an online-reporting device with a dead connection now waits up to 28 s (8 + 20) before the cached-hash sign-in, where it waited 8 s.
+
+## UF.2 (rework) — venue rule, a 12 s login retry, the session across tabs
+
+**Plan said:** (orchestrator's rework of the entry above) expire a tokenless offline session only when our server has actually answered a tokenless authenticated request with 401 and the exchange then cannot produce a token. Shorten the login retry to 12 s. Sync the session across tabs with a BroadcastChannel.
+
+**What was wrong:** the first pass expired an offline session on app start and on `online` whenever no password was held. `navigator.onLine` is true on venue Wi-Fi with no internet, so a scout reopening the app there was sent to sign-in. The first pass also left listeners per tab, so a sign-out or expiry in one tab never reached another.
+
+**What I did instead:**
+- `AppShell.tsx` and `AppShell.test.tsx` are back to `HEAD`: the 1.16 `ReconnectPrompt` again handles `no-credential`, `refused` and `disabled` on start, on `online` and on every tick. That supersedes the first entry's removal of the prompt; nothing in the prompt is replaced any more.
+- `ensureToken({ path, serverAnswered401 })` is called only by `rpc.ts` and `api.ts`. Before a call it only tries the exchange when a password is held. After a tokenless call, it expires the session only when `serverAnswered401` is true (the 401 came in our `{ error: { code } }` shape; a portal's 401 never counts) and the exchange returns `no-credential`, `refused` or `disabled`.
+- The wrapper single-flight is dropped. `exchangePendingCredential` is already single-flight, and a shared wrapper would have let a 401's call join a pre-call check that never expires. Only the first `expireOffline` changes anything, so the diagnostic is still written once.
+- `reconnect-failed` is now written by the exchange itself on `refused` or `disabled` (path `login`). `401` is written when a 401 expires a session, by either path.
+- `LOGIN_RETRY_TIMEOUT_MS = 12_000`.
+- `syncSessionAcrossTabs(open?)` in `session.ts` is called once from `main.tsx`. Every change goes through `update()` and is announced as `'changed'` on `BroadcastChannel('auth.session')`. A tab that hears it re-reads IndexedDB and notifies its own listeners, unless it changed the session itself meanwhile. Where `BroadcastChannel` is missing it is a no-op. Expiry listeners are not fired across tabs, so a tab never runs another tab's exchange.
+- Tests use a fake channel. A Playwright test in `e2e/auth.spec.ts` uses two real tabs and proves the real channel. Rejected: a unit test over Node's `BroadcastChannel`, because under jsdom it throws `TypeError: The "event" argument must be an instance of Event. Received an instance of MessageEvent` and delivers nothing.
+
+**Risk:**
+- An offline session on a device whose server is unreachable never expires, by design. Until a call reaches our server, the 1.16 prompt is the only nudge.
+- A dead venue connection waits up to 20 s (8 + 12) before the cached-hash sign-in.
+- A tab opened before this build (no channel) hears nothing until it reloads.

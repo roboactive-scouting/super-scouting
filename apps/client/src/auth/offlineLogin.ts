@@ -4,12 +4,21 @@ import { call, RpcError } from '@/data/rpc';
 import { DISABLED, loginErrorLine, MISMATCH, SERVER_UNREACHABLE_LINE } from './messages';
 import { pendingCredential } from './pendingCredential';
 import { session, type SessionUser } from './session';
+import { recordTokenLoss } from './tokenLoss';
 
 /**
  * A dying venue connection hangs rather than fails. After this long the login request is
  * abandoned and the device signs in against its cached hashes instead.
  */
 export const LOGIN_TIMEOUT_MS = 8_000;
+
+/**
+ * UF.2: a device that says it is online gets one more try, this long, before the cached
+ * hash. A cold-start server plus bcrypt can outlast the first deadline, and falling back
+ * then left an online device signed in with no token. 8 + 12 s keeps a dead venue
+ * connection (which `navigator.onLine` still calls online) under 20 s.
+ */
+export const LOGIN_RETRY_TIMEOUT_MS = 12_000;
 
 export const NO_CACHED_ACCOUNTS_LINE =
   "This device has not loaded the team's accounts yet. Connect to the internet once to sign in.";
@@ -107,7 +116,7 @@ export function isDefinitive(e: unknown): boolean {
   return e instanceof RpcError && e.answered && [400, 401, 403, 429].includes(e.status);
 }
 
-export type LoginOptions = { timeoutMs?: number };
+export type LoginOptions = { timeoutMs?: number; retryTimeoutMs?: number };
 
 /** `POST /api/login` with the login deadline. Throws RpcError. */
 export async function loginOnline(
@@ -130,22 +139,37 @@ export type SignInResult = { user: SessionUser; offline: boolean };
  * The sign-in used by the login screen and switch scouter. The server first; on any
  * outcome that is not its definitive answer — no connection, the deadline, a 5xx, a
  * response that is not ours (a captive portal) — the cached hash. A definitive answer
- * is final and is thrown as it came.
+ * is final and is thrown as it came. On a device that says it is online, the server gets
+ * one more try with a longer deadline first (UF.2); offline, the cached hash at once.
  */
 export async function signInWithFallback(
   username: string,
   password: string,
   options: LoginOptions & { offline?: OfflineSignIn } = {},
 ): Promise<SignInResult> {
-  try {
-    const { token, user } = await loginOnline(username, password, options);
+  const online = async (timeoutMs: number | undefined): Promise<SignInResult> => {
+    const { token, user } = await loginOnline(username, password, { timeoutMs });
     await session.signIn(user, token);
     pendingCredential.clear(); // a token is held: nothing is left to exchange
     return { user, offline: false };
-  } catch (err) {
-    if (isDefinitive(err)) throw err;
+  };
+  try {
+    return await online(options.timeoutMs);
+  } catch (first) {
+    if (isDefinitive(first)) throw first;
+    let last = first;
+    if (navigator.onLine) {
+      try {
+        return await online(options.retryTimeoutMs ?? LOGIN_RETRY_TIMEOUT_MS);
+      } catch (second) {
+        if (isDefinitive(second)) throw second;
+        last = second;
+      }
+    }
+    const err = last; // the latest non-definitive failure decides the line below
     try {
       const user = await (options.offline ?? offlineLogin)(username, password);
+      if (navigator.onLine) await recordTokenLoss('offline-fallback', 'login');
       return { user, offline: true };
     } catch (offlineErr) {
       if (offlineErr instanceof OfflineLoginError && offlineErr.reason === 'no-accounts') {

@@ -1,7 +1,14 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { db } from '@/data/db';
 import { enqueue } from '@/data/outbox';
-import { needsSignIn, onSessionExpired, session, type Session } from './session';
+import {
+  needsSignIn,
+  onSessionExpired,
+  session,
+  syncSessionAcrossTabs,
+  type Session,
+  type SessionChannel,
+} from './session';
 
 const user = {
   id: 'u-1',
@@ -135,6 +142,42 @@ describe('session.expire — a 401 on an authenticated call', () => {
   });
 });
 
+describe('session.expireOffline — a tokenless session that cannot get a token (UF.2)', () => {
+  it('expires the named user’s offline session, keeping the user, and says so', async () => {
+    const heard: Session[] = [];
+    const stop = onSessionExpired((s) => heard.push(s));
+    await session.signIn(user, null, true);
+    expect(await session.expireOffline('u-1')).toBe(true);
+    stop();
+    expect(await session.current()).toMatchObject({
+      user,
+      token: null,
+      offline: false,
+      expired: true,
+    });
+    expect(heard).toHaveLength(1);
+  });
+
+  it('leaves a session that holds a token alone', async () => {
+    await session.signIn(user, 'token-abc');
+    expect(await session.expireOffline('u-1')).toBe(false);
+    expect(await session.token()).toBe('token-abc');
+  });
+
+  it('leaves another user’s session alone', async () => {
+    await session.signIn({ ...user, id: 'u-2' }, null, true);
+    expect(await session.expireOffline('u-1')).toBe(false);
+    expect((await session.current())?.expired).toBe(false);
+  });
+
+  it('reports whether expire changed anything', async () => {
+    await session.signIn(user, 'token-abc');
+    expect(await session.expire('stale')).toBe(false);
+    expect(await session.expire('token-abc')).toBe(true);
+    expect(await session.expire('token-abc')).toBe(false); // already expired
+  });
+});
+
 describe('session.replaceToken guards', () => {
   it('never revives an expired session', async () => {
     await session.signIn(user, 'token-abc');
@@ -191,5 +234,62 @@ describe('session.subscribe', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     stop();
     expect(seen.at(-1)).toBe('u-1');
+  });
+});
+
+describe('the session across tabs (UF.2)', () => {
+  function fakeChannel() {
+    const channel: SessionChannel = { postMessage: vi.fn(), onmessage: null, close: vi.fn() };
+    return { channel, disconnect: syncSessionAcrossTabs(() => channel) };
+  }
+
+  it('announces every change to the other tabs', async () => {
+    const { channel, disconnect } = fakeChannel();
+    try {
+      await session.signIn(user, 'token-abc');
+      await session.replaceToken('token-def');
+      await session.expire();
+      await session.signIn(user, null, true);
+      await session.expireOffline('u-1');
+      await session.signOut();
+      expect(channel.postMessage).toHaveBeenCalledTimes(6);
+      // A call that changes nothing announces nothing.
+      await session.expire();
+      expect(channel.postMessage).toHaveBeenCalledTimes(6);
+    } finally {
+      disconnect();
+    }
+  });
+
+  it('re-reads the session when another tab changes it, and tells this tab’s listeners', async () => {
+    const { channel, disconnect } = fakeChannel();
+    await session.signIn(user, 'token-abc');
+    const seen: (Session | null)[] = [];
+    const stop = session.subscribe((s) => seen.push(s));
+    try {
+      await vi.waitFor(() => expect(seen).toHaveLength(1));
+      // Another tab signs out: it writes IndexedDB, which this tab shares.
+      await db.meta.put({ key: 'auth.session', value: null });
+      channel.onmessage?.(new MessageEvent('message'));
+      await vi.waitFor(() => expect(seen.at(-1)).toBeNull());
+    } finally {
+      stop();
+      disconnect();
+    }
+  });
+
+  it('is a no-op without a BroadcastChannel', async () => {
+    const disconnect = syncSessionAcrossTabs(() => null);
+    await session.signIn(user, 'token-abc');
+    expect(await session.token()).toBe('token-abc');
+    disconnect();
+  });
+
+  it('closes the channel on disconnect, and announces nothing after', async () => {
+    const { channel, disconnect } = fakeChannel();
+    disconnect();
+    expect(channel.close).toHaveBeenCalled();
+    await session.signIn(user, 'token-abc');
+    expect(channel.postMessage).not.toHaveBeenCalled();
   });
 });
