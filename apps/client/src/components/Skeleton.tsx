@@ -1,3 +1,5 @@
+import { cn } from '@/lib/utils';
+
 /**
  * SPEC-FINAL 17.8: skeletons, not spinners, for lists and tables. Grey bars at the row
  * height they are about to fill, so the page does not jump when the data lands. A spinner
@@ -28,7 +30,7 @@ export function Skeleton({
           key={i}
           data-skeleton-bar=""
           aria-hidden="true"
-          className={`rounded-md bg-[var(--surface-raised)]${shimmer ? ' motion-safe:animate-pulse' : ''}`}
+          className={cn('rounded-control bg-line-2', shimmer && 'motion-safe:animate-pulse')}
           style={{ blockSize: rowHeight }}
         />
       ))}

@@ -3,42 +3,73 @@ import type { ComponentProps } from 'react';
 import { cn } from '@/lib/utils';
 
 /*
- * SPEC-FINAL 17.7 asks 3:1 of a UI boundary. A `--brand-plate` fill on `--surface` has no
- * boundary to speak of (about 1.1:1), so the primary button carries a 1 px `--border` edge:
- * 3.67:1 on `--surface` and 4.09:1 on `--bg` in the dark theme, 7.03:1 and 7.73:1 in the
- * outdoor theme. The destructive button is an outline in `--danger`: 4.71:1 on `--surface`
- * (dark) and 5.89:1 (outdoor); its label stays `--text`.
+ * THEME "Locked components": primary is filled --accent, secondary is white with a
+ * --control-border edge, ghost is bare, destructive is FILLED --ink (never red: red means
+ * the red alliance). Heights are 36 / 44 / 52 / 52 (full width). The two smaller sizes keep
+ * the SPEC-FINAL 17.7 48 px hit area with an invisible ::after that grows the target, so the
+ * drawn button stays at the designed size. `tap-target` stays on every size; `min-h-9` and
+ * `min-h-11` win over it (utilities layer over components layer) for the drawn height only.
  */
+const HIT_AREA = "relative after:absolute after:inset-x-0 after:content-['']";
+
+const MD = `${HIT_AREA} min-h-11 px-[18px] text-[14.5px] after:-inset-y-0.5`;
+
 export const buttonVariants = cva(
-  'tap-target state-layer press motion-transition inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-5 [&_svg]:shrink-0',
+  'tap-target state-layer press motion-transition inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-control border font-semibold disabled:pointer-events-none disabled:opacity-45 [&_svg]:size-[17px] [&_svg]:shrink-0',
   {
     variants: {
       variant: {
-        /** The one primary action: the brand plate with the yellow label (SPEC-FINAL 17.4). */
-        primary: 'border border-border bg-brand-plate font-semibold text-brand',
+        /** The one primary action. */
+        primary: 'border-accent bg-accent text-on-accent',
         /** Everything that is not the primary action. */
-        secondary: 'border border-border bg-surface text-text',
-        /** A destructive verb (SPEC-FINAL 17.8). Outline only: no fill clears 4.5:1 in both themes. */
-        destructive: 'border-2 border-danger font-semibold text-text',
+        secondary: 'border-control-border bg-surface text-ink',
         /** Navigation and low-emphasis actions: no edge, only the state layer. */
-        ghost: 'text-text',
+        ghost: 'border-transparent bg-transparent text-ink-2',
+        /** The action that starts a destructive flow, and its confirm. Filled ink, never red. */
+        destructive: 'border-ink bg-ink text-white',
       },
       size: {
-        default: 'px-4 text-sm',
-        lg: 'px-6 text-base',
+        sm: `${HIT_AREA} min-h-9 px-3 text-[13.5px] after:-inset-y-1.5`,
+        md: MD,
+        /** Legacy name of `md` (features/shell/Sidebar.tsx passes it); deleted with RB.18. */
+        default: MD,
+        lg: 'min-h-[52px] px-6 text-base',
+        block: 'min-h-[52px] w-full px-4 text-base',
         icon: 'px-0',
-        block: 'w-full px-4 text-base',
       },
     },
-    defaultVariants: { variant: 'secondary', size: 'default' },
+    defaultVariants: { variant: 'secondary', size: 'md' },
   },
 );
 
-export type ButtonProps = ComponentProps<'button'> & VariantProps<typeof buttonVariants>;
+export type ButtonProps = ComponentProps<'button'> &
+  VariantProps<typeof buttonVariants> & {
+    /** Disables the button and shows `busyLabel` (or the children) while work is in flight. */
+    busy?: boolean;
+    busyLabel?: string;
+  };
 
 /** A native button in one of four variants. `type` defaults to "button", never "submit". */
-export function Button({ className, variant, size, type = 'button', ...props }: ButtonProps) {
+export function Button({
+  className,
+  variant,
+  size,
+  type = 'button',
+  busy = false,
+  busyLabel,
+  disabled,
+  children,
+  ...props
+}: ButtonProps) {
   return (
-    <button type={type} className={cn(buttonVariants({ variant, size }), className)} {...props} />
+    <button
+      type={type}
+      className={cn(buttonVariants({ variant, size }), className)}
+      disabled={disabled || busy}
+      aria-busy={busy || undefined}
+      {...props}
+    >
+      {busy && busyLabel ? busyLabel : children}
+    </button>
   );
 }

@@ -7,6 +7,8 @@ import { Card, CardTitle } from './card';
 import { Input } from './input';
 import { NativeSelect } from './native-select';
 import { PageHeader } from './page-header';
+import { SearchField } from './search-field';
+import { Select } from './select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './table';
 
 const sources = import.meta.glob('./*.tsx', {
@@ -24,10 +26,19 @@ describe('design-system primitives (SPEC-FINAL 17.4, 17.7)', () => {
 
   it('puts every button variant and size on the 48 px floor', () => {
     for (const variant of ['primary', 'secondary', 'destructive', 'ghost'] as const) {
-      for (const size of ['default', 'lg', 'icon', 'block'] as const) {
+      for (const size of ['sm', 'md', 'lg', 'icon', 'block'] as const) {
         expect(buttonVariants({ variant, size }).split(' ')).toContain('tap-target');
       }
     }
+  });
+
+  it('grows the 36 px and 44 px buttons to 48 px with an ::after inset', () => {
+    const sm = buttonVariants({ size: 'sm' }).split(' ');
+    expect(sm).toEqual(expect.arrayContaining(['min-h-9', 'after:absolute', 'after:-inset-y-1.5']));
+    const md = buttonVariants({ size: 'md' }).split(' ');
+    expect(md).toEqual(
+      expect.arrayContaining(['min-h-11', 'after:absolute', 'after:-inset-y-0.5']),
+    );
   });
 
   it('defaults a Button to type="button", never an accidental submit', () => {
@@ -37,10 +48,10 @@ describe('design-system primitives (SPEC-FINAL 17.4, 17.7)', () => {
 
   it('keeps the pre-redesign class constants, now drawn from the primitives', () => {
     expect(PRIMARY_BUTTON).toBe(buttonVariants({ variant: 'primary' }));
-    expect(PRIMARY_BUTTON).toContain('bg-brand-plate');
-    expect(PRIMARY_BUTTON).toContain('text-brand');
+    expect(PRIMARY_BUTTON).toContain('bg-accent');
+    expect(PRIMARY_BUTTON).toContain('text-on-accent');
     expect(SECONDARY_BUTTON).toBe(buttonVariants({ variant: 'secondary' }));
-    expect(DESTRUCTIVE_BUTTON).toContain('border-danger');
+    expect(DESTRUCTIVE_BUTTON).toContain('bg-ink');
     expect(FIELD.split(' ')).toContain('tap-target');
   });
 
@@ -51,15 +62,24 @@ describe('design-system primitives (SPEC-FINAL 17.4, 17.7)', () => {
         <NativeSelect aria-label="Role">
           <option>Lead</option>
         </NativeSelect>
+        <SearchField value="" onChange={() => {}} placeholder="Search" label="Search" />
+        <Select aria-label="Season">
+          <option>2026</option>
+        </Select>
       </>,
     );
     expect(screen.getByRole('textbox', { name: 'Name' })).toHaveClass('tap-target', 'text-base');
     const select = screen.getByRole('combobox', { name: 'Role' });
     expect(select.tagName).toBe('SELECT');
-    expect(select).toHaveClass('tap-target');
+    expect(select).toHaveClass('tap-target', 'text-base');
+    expect(screen.getByRole('searchbox', { name: 'Search' })).toHaveClass(
+      'tap-target',
+      'text-base',
+    );
+    expect(screen.getByRole('combobox', { name: 'Season' })).toHaveClass('tap-target', 'text-base');
   });
 
-  it('right-aligns numeric table cells with tabular figures, and scopes headers', () => {
+  it('end-aligns numeric table cells in mono figures, and scopes headers', () => {
     render(
       <Table>
         <TableHeader>
@@ -75,9 +95,9 @@ describe('design-system primitives (SPEC-FINAL 17.4, 17.7)', () => {
       </Table>,
     );
     const header = screen.getByRole('columnheader', { name: 'Match' });
-    expect(header).toHaveClass('text-right');
+    expect(header).toHaveClass('text-end');
     expect(header).toHaveAttribute('scope', 'col');
-    expect(screen.getByRole('cell', { name: '12' })).toHaveClass('text-right', 'tabular-nums');
+    expect(screen.getByRole('cell', { name: '12' })).toHaveClass('text-end', 'num');
   });
 
   it('keeps a badge label in --text and puts the tone on the edge and the dot only', () => {

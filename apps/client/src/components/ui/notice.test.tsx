@@ -14,11 +14,11 @@ describe('Notice', () => {
     expect(notice).toContainElement(screen.getByRole('button', { name: 'Back to Week 1' }));
   });
 
-  it('puts the tone on the start edge only and the text on --text', () => {
+  it('puts the tone on the start edge only and the text on --ink (a failure is warn, never red)', () => {
     render(<Notice tone="danger">Not saved.</Notice>);
     const notice = screen.getByText('Not saved.').parentElement as HTMLElement;
-    expect(notice).toHaveClass('border-s-danger');
-    expect(notice.className).not.toMatch(/text-danger/);
+    expect(notice).toHaveClass('border-s-warn');
+    expect(notice.className).not.toMatch(/text-warn/);
   });
 
   it('rises in once by default, and stands still when asked', () => {
