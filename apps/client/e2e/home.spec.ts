@@ -69,6 +69,9 @@ test('home: a lead sees tiles and coverage at both widths; the switch-competitio
     'Current · default',
   );
   await shoot(page, 'home-switch', 'phone');
+  // The same choice on a computer is the centred dialog (RB.19: shot for the review).
+  await shoot(page, 'home-switch', 'desktop');
+  await expect(page.getByRole('dialog', { name: 'Switch competition' })).toBeVisible();
 });
 
 test('home: an admin on desktop sees the Manage and Users tiles', async ({ page }) => {

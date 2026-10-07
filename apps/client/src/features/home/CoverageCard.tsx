@@ -13,7 +13,8 @@ const SWATCH = 'inline-block size-2.5 rounded-[3px] me-1.5 align-[-1px]';
 /**
  * Schedule coverage (README): one rounded square per qualification match, as of the last
  * sync — every slotted robot scouted, a robot missing, or not played yet — then the
- * matches missing a robot, by name. 24 per row on a computer, 12 on a phone.
+ * matches missing a robot, by name. On a computer the squares keep their size and as many as
+ * fit share a row (the card spans the width while Top teams is deferred); 12 per row on a phone.
  */
 export function CoverageCard({ cells, desktop }: { cells: CoverageCell[]; desktop: boolean }) {
   if (cells.length === 0) return null;
@@ -53,7 +54,10 @@ export function CoverageCard({ cells, desktop }: { cells: CoverageCell[]; deskto
       <div
         role="img"
         aria-label={summary}
-        className={cn('mt-3 grid gap-[3px]', desktop ? 'grid-cols-24' : 'grid-cols-12')}
+        className={cn(
+          'mt-3 grid gap-[3px]',
+          desktop ? 'grid-cols-[repeat(auto-fill,1.1875rem)]' : 'grid-cols-12',
+        )}
       >
         {cells.map((c) => (
           <i key={c.matchId} title={c.label} className={cn('h-[18px] rounded', CELL[c.state])} />
@@ -69,10 +73,10 @@ export function CoverageCard({ cells, desktop }: { cells: CoverageCell[]; deskto
       </p>
       {missing.length > 0 && (
         <p className="mt-3 flex justify-between gap-2.5 border-t border-line-2 pt-3 text-[0.84375rem]">
-          <b className="font-semibold">
+          <b className="shrink-0 font-semibold whitespace-nowrap">
             {desktop ? missingLine(missing.length) : 'Missing a robot'}
           </b>
-          <span className="num text-[0.8125rem] text-ink-2">
+          <span className="num text-end text-[0.8125rem] text-ink-2">
             {missing.map((c) => c.label).join(' · ')}
           </span>
         </p>

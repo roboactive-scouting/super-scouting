@@ -21,7 +21,7 @@ export const SERVER_SILENT_LINE =
 const CHIP =
   "motion-safe:transition relative inline-flex min-h-[34px] items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-[0.84375rem] font-semibold after:absolute after:inset-x-0 after:-inset-y-[7px] after:content-[''] disabled:opacity-50";
 const CARD =
-  'tap-target hover-veil motion-safe:transition flex min-h-[84px] w-full flex-col items-start gap-1.5 rounded-card border border-line bg-surface px-4 py-3.5 text-start disabled:cursor-not-allowed disabled:opacity-50';
+  'tap-target hover-veil motion-safe:transition flex min-h-14 w-full flex-col items-start justify-center gap-1 rounded-card border border-line bg-surface px-4 py-3 text-start disabled:cursor-not-allowed disabled:opacity-50';
 
 /**
  * SPEC-FINAL 6.3, 17.9; Home README "States": the deliberate way to look at another season
@@ -188,7 +188,7 @@ export function SwitchCompetitionSheet({
                 onClick={() => void choose(e)}
                 className={cn(
                   CARD,
-                  current && 'border-2 border-accent bg-accent-tint px-[15px] py-[13px]',
+                  current && 'border-2 border-accent bg-accent-tint px-[15px] py-[11px]',
                 )}
               >
                 <span dir="auto" className="text-[0.9375rem] font-[650]">
