@@ -40,16 +40,18 @@ export function rosterItems(
 /** "Team not here?": the roster view's own heading, with a way back to the line-up. */
 export function RosterHeading({ sub, onCancel }: { sub: string; onCancel: () => void }) {
   return (
-    <div className="flex items-start gap-3">
-      <div className="min-w-0 flex-1">
-        <h1 className="text-[1.375rem] font-[750] tracking-[-0.02em] lg:text-[1.75rem]">
-          Which team are you watching?
-        </h1>
-        <p className="mt-1 text-[0.8125rem] text-muted">{sub}</p>
+    // The title has the full width (one line at 375 px, as the final); Cancel sits on the
+    // line under it, beside the match and station.
+    <div>
+      <h1 className="text-[1.375rem] font-[750] tracking-[-0.02em] lg:text-[1.75rem]">
+        Which team are you watching?
+      </h1>
+      <div className="flex items-center gap-3">
+        <p className="min-w-0 flex-1 text-[0.8125rem] text-muted">{sub}</p>
+        <Button variant="ghost" size="sm" className="-me-3" onClick={onCancel}>
+          Cancel
+        </Button>
       </div>
-      <Button variant="ghost" size="sm" onClick={onCancel}>
-        Cancel
-      </Button>
     </div>
   );
 }

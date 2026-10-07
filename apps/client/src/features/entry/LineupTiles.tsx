@@ -83,7 +83,7 @@ export function LineupTiles({
       <div
         role="radiogroup"
         aria-labelledby={label}
-        className="grid grid-cols-2 gap-2 rounded-card border border-line bg-surface p-3.5"
+        className="grid grid-cols-2 gap-2 rounded-card border border-line bg-surface p-3 lg:p-3.5"
       >
         {SIDES.map((side) => (
           <div key={side.key} className="flex flex-col gap-2">
@@ -135,7 +135,7 @@ function StationTile({
       disabled={locked}
       onClick={onPick}
       className={cn(
-        'hover-veil motion-safe:transition relative flex min-h-[62px] flex-col justify-center rounded-control px-2.5 py-2 text-start lg:min-h-[70px]',
+        'hover-veil motion-safe:transition relative flex min-h-[62px] flex-col justify-center rounded-control px-2 py-2 text-start lg:min-h-[70px] lg:px-2.5',
         red ? 'bg-alliance-red-tint text-alliance-red' : 'bg-alliance-blue-tint text-alliance-blue',
         tile.done && 'bg-line-2 text-muted',
         on && 'bg-accent-tint text-accent-ink shadow-[inset_0_0_0_2px_var(--accent)]',
@@ -145,23 +145,33 @@ function StationTile({
             : 'outline-2 -outline-offset-2 outline-alliance-blue outline-dashed'),
       )}
     >
-      <span className="text-[0.6875rem] font-bold tracking-[0.04em]">
-        {stationLabel(tile.station).toUpperCase()}
+      {/* The label and the YOUR STATION tag share one row and never overlap: when they do not
+          fit side by side (a narrow tile, a large OS text size) the tag wraps under the label. */}
+      <span
+        className={cn(
+          'flex flex-wrap items-center gap-x-1 gap-y-0.5',
+          !mine && tile.done && 'pe-4',
+        )}
+      >
+        <span className="text-[0.6875rem] font-bold tracking-[0.04em]">
+          {stationLabel(tile.station).toUpperCase()}
+        </span>
+        {mine && (
+          <span
+            className={cn(
+              'ms-auto rounded-[4px] px-1 py-px text-[0.65625rem] leading-[1.35] font-extrabold tracking-[0.02em] whitespace-nowrap text-on-accent',
+              on ? 'bg-accent' : red ? 'bg-alliance-red' : 'bg-alliance-blue',
+            )}
+          >
+            YOUR STATION
+          </span>
+        )}
       </span>
       <span className="font-num text-[1.1875rem] leading-tight font-semibold">{tile.number}</span>
       <span dir="auto" className={cn('text-xs', !tile.done && 'text-ink-2')}>
         {tileSubline(tile)}
       </span>
-      {mine ? (
-        <span
-          className={cn(
-            'absolute end-2 top-1.5 rounded-[4px] px-1.5 py-0.5 text-[0.65625rem] font-extrabold tracking-[0.04em] text-on-accent',
-            on ? 'bg-accent' : red ? 'bg-alliance-red' : 'bg-alliance-blue',
-          )}
-        >
-          YOUR STATION
-        </span>
-      ) : tile.done ? (
+      {!mine && tile.done ? (
         <span
           aria-hidden="true"
           className="absolute end-2 top-1.5 text-[0.6875rem] font-bold text-accent"

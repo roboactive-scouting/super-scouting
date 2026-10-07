@@ -19,6 +19,31 @@ async function useStation(page: Page, role: Role) {
   await expect(sheet).toBeHidden();
 }
 
+/** The picked tile's "BLUE 2" and its YOUR STATION tag never overlap (RB.19). */
+async function expectTagBesideLabel(page: Page) {
+  const tile = page.getByRole('radio', { name: /YOUR STATION/ });
+  const label = await tile.getByText('BLUE 2', { exact: true }).boundingBox();
+  const tag = await tile.getByText('YOUR STATION', { exact: true }).boundingBox();
+  if (!label || !tag) throw new Error('tile label or tag not laid out');
+  const apart =
+    label.x + label.width <= tag.x + 0.5 ||
+    tag.x + tag.width <= label.x + 0.5 ||
+    label.y + label.height <= tag.y + 0.5 ||
+    tag.y + tag.height <= label.y + 0.5;
+  expect(apart, `label ${JSON.stringify(label)} overlaps tag ${JSON.stringify(tag)}`).toBe(true);
+}
+
+/** On a short page the action bar still sits on the bottom bar, with no gap (THEME). */
+async function expectBarFlushOnNav(page: Page) {
+  const bar = await page
+    .getByRole('button', { name: /^Start entry/ })
+    .locator('..')
+    .boundingBox();
+  const nav = await page.locator('nav[aria-label="Main"]').last().boundingBox();
+  if (!bar || !nav) throw new Error('action bar or bottom bar not laid out');
+  expect(Math.abs(bar.y + bar.height - nav.y)).toBeLessThanOrEqual(1);
+}
+
 test('scout: choose a station, the line-up, and a team not in it', async ({ page }) => {
   await signIn(page, 'lead');
   await page.setViewportSize({ width: 375, height: 812 });
@@ -37,6 +62,12 @@ test('scout: choose a station, the line-up, and a team not in it', async ({ page
   await expect(page.getByRole('radio', { name: /YOUR STATION/ })).toContainText('4590');
   await expect(page.getByRole('button', { name: /^Start entry · 4590/ })).toBeEnabled();
   await shoot(page, 'scout');
+  await expectTagBesideLabel(page);
+  await expectBarFlushOnNav(page);
+  // A larger OS text size: the tag wraps under the label rather than covering it.
+  const bigText = await page.addStyleTag({ content: 'html{font-size:125%}' });
+  await expectTagBesideLabel(page);
+  await bigText.evaluate((el) => (el as Element).remove());
 
   // Another robot asks first.
   await page.setViewportSize({ width: 375, height: 812 });
@@ -53,6 +84,7 @@ test('scout: choose a station, the line-up, and a team not in it', async ({ page
   await expect(page.getByText('Not in line-up')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Start entry · 1574/ })).toBeEnabled();
   await shoot(page, 'scout-roster', 'phone');
+  await expectBarFlushOnNav(page);
 });
 
 test('scout: robots already scouted on this device, and the saved banner', async ({ page }) => {
