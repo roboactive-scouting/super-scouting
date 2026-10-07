@@ -1,0 +1,225 @@
+import { Lock } from 'lucide-react';
+import { useId } from 'react';
+import { Button } from '@/components/ui/button';
+import { ResponsiveDialog } from '@/components/ui/responsive-dialog';
+import { stationLabel } from '@/components/ui/tag';
+import type { Station } from '@/data/station';
+import { stationOf, type LineupSlot } from '@/lib/derive/entries';
+import { cn } from '@/lib/utils';
+
+/** One robot of the typed match's line-up, as a driver-station tile (Scout README 3, 7). */
+export type Tile = {
+  station: Station;
+  teamId: string;
+  number: number;
+  name: string;
+  /** Already scouted on this device: locked, or open until `until` (null: a lead, no window). */
+  done: null | { locked: boolean; until: string | null };
+};
+
+/** The line under the team number: its name, or what this device already holds for it. */
+export function tileSubline(tile: Pick<Tile, 'name' | 'done'>): string {
+  if (!tile.done) return tile.name;
+  if (tile.done.locked) return 'Scouted · locked';
+  return tile.done.until ? `Scouted · edit until ${tile.done.until}` : 'Scouted';
+}
+
+const SIDES = [
+  { key: 'R', label: 'Red', head: 'text-alliance-red' },
+  { key: 'B', label: 'Blue', head: 'text-alliance-blue' },
+] as const;
+
+/** The typed match's line-up as tiles, by station; empty when it has none on this device. */
+export function lineupTiles(
+  slots: LineupSlot[],
+  matchId: string | undefined,
+  teamById: Map<string, { id: string; number: number; name: string }>,
+  doneOf: (teamId: string) => Tile['done'],
+): Tile[] {
+  if (!matchId) return [];
+  return slots
+    .filter((s) => s.match_id === matchId)
+    .flatMap((s) => {
+      const team = teamById.get(s.team_id);
+      const station = stationOf([s], matchId, s.team_id);
+      if (!team || !station) return [];
+      const { id: teamId, number, name } = team;
+      return [{ station, teamId, number, name, done: doneOf(teamId) }];
+    })
+    .sort((a, b) => a.station.localeCompare(b.station));
+}
+
+/**
+ * The six robots, Red 1–3 on the left and Blue 1–3 on the right (THEME "Station tile"),
+ * under "Q39 · tap the robot you are watching" and over "Team not here?". A radio group:
+ * the remembered station is marked YOUR STATION and picked by default; the page decides
+ * whether picking another tile asks first.
+ */
+export function LineupTiles({
+  tiles,
+  mine,
+  selected,
+  onPick,
+  shortMatch,
+  longMatch,
+  onNotHere,
+}: {
+  tiles: Tile[];
+  mine: Station | null;
+  selected: Station | null;
+  onPick: (tile: Tile) => void;
+  /** "Q39" on a phone, "Qualification 39" on a desktop. */
+  shortMatch: string;
+  longMatch: string;
+  onNotHere: () => void;
+}) {
+  const label = useId();
+  return (
+    <section className="mt-3.5 lg:mt-5">
+      <p id={label} className="mb-2 text-xs font-semibold text-muted">
+        <span className="lg:hidden">{shortMatch}</span>
+        <span className="max-lg:hidden">{longMatch}</span> · tap the robot you are watching
+      </p>
+      <div
+        role="radiogroup"
+        aria-labelledby={label}
+        className="grid grid-cols-2 gap-2 rounded-card border border-line bg-surface p-3.5"
+      >
+        {SIDES.map((side) => (
+          <div key={side.key} className="flex flex-col gap-2">
+            <div className={cn('text-[11.5px] font-bold tracking-[0.06em]', side.head)}>
+              {side.label}
+            </div>
+            {tiles
+              .filter((t) => t.station[0] === side.key)
+              .map((t) => (
+                <StationTile
+                  key={t.station}
+                  tile={t}
+                  mine={t.station === mine}
+                  on={t.station === selected}
+                  onPick={() => onPick(t)}
+                />
+              ))}
+          </div>
+        ))}
+      </div>
+      <p className="mt-1 text-center text-[13.5px] text-muted">
+        <button type="button" className="tap-target px-2" onClick={onNotHere}>
+          Team not here?{' '}
+          <span className="font-semibold text-accent-ink">Choose from the event's teams</span>
+        </button>
+      </p>
+    </section>
+  );
+}
+
+function StationTile({
+  tile,
+  mine,
+  on,
+  onPick,
+}: {
+  tile: Tile;
+  mine: boolean;
+  on: boolean;
+  onPick: () => void;
+}) {
+  const red = tile.station[0] === 'R';
+  const locked = tile.done?.locked === true;
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={on}
+      disabled={locked}
+      onClick={onPick}
+      className={cn(
+        'state-layer motion-transition relative flex min-h-[62px] flex-col justify-center rounded-control px-2.5 py-2 text-start lg:min-h-[70px]',
+        red ? 'bg-alliance-red-tint text-alliance-red' : 'bg-alliance-blue-tint text-alliance-blue',
+        tile.done && 'bg-line-2 text-muted',
+        on && 'bg-accent-tint text-accent-ink shadow-[inset_0_0_0_2px_var(--accent)]',
+        mine &&
+          (red
+            ? 'outline-2 -outline-offset-2 outline-alliance-red outline-dashed'
+            : 'outline-2 -outline-offset-2 outline-alliance-blue outline-dashed'),
+      )}
+    >
+      <span className="text-[11px] font-bold tracking-[0.04em]">
+        {stationLabel(tile.station).toUpperCase()}
+      </span>
+      <span className="font-num text-[19px] leading-tight font-semibold">{tile.number}</span>
+      <span dir="auto" className={cn('text-xs', !tile.done && 'text-ink-2')}>
+        {tileSubline(tile)}
+      </span>
+      {mine ? (
+        <span
+          className={cn(
+            'absolute end-2 top-1.5 rounded-[4px] px-1.5 py-0.5 text-[10.5px] font-extrabold tracking-[0.04em] text-on-accent',
+            on ? 'bg-accent' : red ? 'bg-alliance-red' : 'bg-alliance-blue',
+          )}
+        >
+          YOUR STATION
+        </span>
+      ) : tile.done ? (
+        <span
+          aria-hidden="true"
+          className="absolute end-2 top-1.5 text-[11px] font-bold text-accent"
+        >
+          {locked ? <Lock className="size-3.5 text-muted" /> : '✓'}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+/**
+ * Scout README 4: tapping a robot that is not your station asks first. The station itself
+ * never changes from here.
+ */
+export function OtherStationDialog({
+  mine,
+  target,
+  onKeep,
+  onScout,
+}: {
+  mine: Station;
+  target: Tile | null;
+  onKeep: () => void;
+  onScout: (tile: Tile) => void;
+}) {
+  const there = target ? stationLabel(target.station) : '';
+  const home = stationLabel(mine);
+  return (
+    <ResponsiveDialog open={target !== null} title={`Scout ${there} instead?`} onClose={onKeep}>
+      {target && (
+        <>
+          <p className="text-[13.5px] leading-normal text-muted">
+            Your station is <b className={allianceText(mine)}>{home}</b>. This entry will be for{' '}
+            <b className="text-ink" dir="auto">
+              {target.number} {target.name}
+            </b>{' '}
+            on <b className={allianceText(target.station)}>{there}</b>. Your station stays {home}.
+          </p>
+          <div className="mt-1 flex gap-2.5">
+            <Button size="lg" className="flex-1 px-3" onClick={onKeep}>
+              Keep {home}
+            </Button>
+            <Button
+              variant="primary"
+              size="lg"
+              className="flex-1 px-3"
+              onClick={() => onScout(target)}
+            >
+              Scout {there}
+            </Button>
+          </div>
+        </>
+      )}
+    </ResponsiveDialog>
+  );
+}
+
+function allianceText(station: Station): string {
+  return station[0] === 'R' ? 'text-alliance-red' : 'text-alliance-blue';
+}
