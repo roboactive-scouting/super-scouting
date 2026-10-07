@@ -95,14 +95,21 @@ export function ErrorLine({
   children,
   id,
   className,
+  ref,
+  focusable = false,
 }: {
   children: ReactNode;
   id?: string;
   className?: string;
+  ref?: Ref<HTMLDivElement>;
+  /** The line takes focus by script (tabIndex -1), e.g. a failed submit's reason. */
+  focusable?: boolean;
 }) {
   return (
     <div
+      ref={ref}
       id={id}
+      tabIndex={focusable ? -1 : undefined}
       role="alert"
       className={cn(
         'flex items-start gap-2 rounded-control border border-s-[3px] border-line border-s-warn bg-surface px-3.5 py-2.5 text-sm font-semibold text-ink',

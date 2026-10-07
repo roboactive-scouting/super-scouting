@@ -1,6 +1,7 @@
 import { useRef, type ReactNode, type RefObject } from 'react';
 import { NO_VALUE, SELF_EDIT_WINDOW_MS, type RobotStatus } from '@frc/shared';
 import { Button } from '@/components/ui/button';
+import { ErrorLine } from '@/components/ui/notice';
 import { ResponsiveDialog } from '@/components/ui/responsive-dialog';
 import { displayValue, PHASE_NAME, STATUS_LABEL, type Phase } from './phases';
 
@@ -29,7 +30,9 @@ export function ConfirmEntry(props: {
    */
   windowApplies: boolean;
   error: string | null;
-  errorRef: RefObject<HTMLParagraphElement | null>;
+  errorRef: RefObject<HTMLDivElement | null>;
+  /** A submit is in flight: Submit is disabled so a second tap cannot write a second entry. */
+  submitting?: boolean;
   onBack: () => void;
   onSubmit: () => void;
 }) {
@@ -89,16 +92,9 @@ export function ConfirmEntry(props: {
           the button just pressed (EntryPage.test.tsx asserts the parent). */}
       <div className="sticky bottom-0 flex flex-col gap-3 bg-surface pt-2">
         {props.error && (
-          <p
-            ref={props.errorRef}
-            role="alert"
-            tabIndex={-1}
-            dir="auto"
-            className="rounded-control border border-s-[3px] border-line border-s-warn bg-surface px-3.5 py-2.5 text-sm text-ink"
-          >
-            <span className="font-semibold">Not saved. </span>
-            {props.error}
-          </p>
+          <ErrorLine ref={props.errorRef} focusable>
+            Not saved. {props.error}
+          </ErrorLine>
         )}
         <div className="flex gap-2.5">
           <Button
@@ -110,7 +106,13 @@ export function ConfirmEntry(props: {
           >
             Keep editing
           </Button>
-          <Button variant="primary" size="lg" className="flex-1" onClick={props.onSubmit}>
+          <Button
+            variant="primary"
+            size="lg"
+            className="flex-1"
+            busy={props.submitting}
+            onClick={props.onSubmit}
+          >
             Submit entry
           </Button>
         </div>

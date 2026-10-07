@@ -1,7 +1,8 @@
-import { Ban, TriangleAlert, type LucideIcon } from 'lucide-react';
+import { Ban, type LucideIcon } from 'lucide-react';
 import { useId, useRef, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { inputClass } from './input';
+import { ErrorLine } from './notice';
 import { ResponsiveDialog } from './responsive-dialog';
 
 export type DestructiveConfirmProps = {
@@ -124,15 +125,7 @@ function OpenConfirm({
           />
         </div>
       )}
-      {error && (
-        <div
-          role="alert"
-          className="flex items-start gap-2 rounded-control border border-line border-s-[3px] border-s-warn bg-surface p-3 text-sm font-semibold text-ink"
-        >
-          <TriangleAlert aria-hidden="true" className="mt-0.5 size-4.5 shrink-0 text-warn" />
-          <span dir="auto">{error}</span>
-        </div>
-      )}
+      {error && <ErrorLine>{error}</ErrorLine>}
     </ResponsiveDialog>
   );
 }

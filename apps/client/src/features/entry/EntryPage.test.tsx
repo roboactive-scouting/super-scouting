@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { CachedRow } from '@/data/db';
@@ -284,6 +284,21 @@ describe('EntryPage', () => {
     expect(await pending(10)).toHaveLength(0);
     await user.click(screen.getByRole('button', { name: /submit entry/i }));
     await waitFor(async () => expect(await pending(10)).toHaveLength(1));
+  });
+
+  it('writes one entry however fast the second tap on Submit comes', async () => {
+    const user = userEvent.setup();
+    render(<EntryPage {...props} />);
+    await user.click(await screen.findByRole('radio', { name: /played/i }));
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    const submit = await screen.findByRole('button', { name: /submit entry/i });
+    fireEvent.click(submit);
+    fireEvent.click(submit);
+    await waitFor(async () => expect(await pending(10)).toHaveLength(1));
+    // Give a second, unguarded submit every chance to land before counting again.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(await pending(10)).toHaveLength(1);
+    expect(await db.rows.where('entity').equals('scouting_entries').count()).toBe(1);
   });
 
   it('blocks submission and names the field when a value is outside its expected range', async () => {

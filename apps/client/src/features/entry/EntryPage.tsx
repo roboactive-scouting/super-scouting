@@ -45,7 +45,9 @@ export function EntryPage(props: EntryPageProps) {
   const [phase, setPhase] = useState<FieldPhase>('auto');
   const [reviewing, setReviewing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const errorRef = useRef<HTMLParagraphElement>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const inFlight = useRef(false);
+  const errorRef = useRef<HTMLDivElement>(null);
   // "Q38 · 5951": the team's number is the label's first word ("5951 Tiny Titans").
   usePageTitle(`${props.matchLabel} · ${props.teamLabel.split(' ')[0] ?? ''}`);
   // The desktop crumb keeps the team's name: "Scout / Q39 · 1690 Orbit" (Entry final).
@@ -97,13 +99,17 @@ export function EntryPage(props: EntryPageProps) {
     save({ robot_status: nextStatus, data: nextData, breakdown_seconds: nextSeconds });
   }
 
+  /** One tap, one entry and one outbox operation, however fast the second tap comes. */
   async function commit() {
+    if (inFlight.current) return;
     setError(null);
     if (props.existing && !canSelfEdit(props.existing, props.author, new Date())) {
       // SPEC-FINAL 7.6: the window closed while the scout was on this screen.
       setError('This entry is locked — ask a lead to change it.');
       return;
     }
+    inFlight.current = true;
+    setSubmitting(true);
     try {
       const { row_id } = await submitEntry({
         fields,
@@ -124,6 +130,9 @@ export function EntryPage(props: EntryPageProps) {
       props.onSubmitted?.(row_id);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'could not submit');
+    } finally {
+      inFlight.current = false;
+      setSubmitting(false);
     }
   }
 
@@ -172,6 +181,7 @@ export function EntryPage(props: EntryPageProps) {
       windowApplies={!editsAnyTime(props.author) && !props.existing}
       error={error}
       errorRef={errorRef}
+      submitting={submitting}
       onBack={() => setReviewing(false)}
       onSubmit={() => void commit()}
     />
