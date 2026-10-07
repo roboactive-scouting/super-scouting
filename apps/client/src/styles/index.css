@@ -1,23 +1,48 @@
-@import '@fontsource-variable/inter/index.css';
+@import '@fontsource-variable/schibsted-grotesk/index.css';
+@import '@fontsource-variable/jetbrains-mono/index.css';
 @import '@fontsource/noto-sans-hebrew/400.css';
 @import '@fontsource/noto-sans-hebrew/600.css';
 @import 'tailwindcss';
-@import './tokens.css';
+@import './theme.css';
 @import './motion.css';
 
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
-  --color-surface-raised: var(--surface-raised);
-  --color-border: var(--border);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-control-border: var(--control-border);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-rail: var(--rail);
+  --color-rail-raised: var(--rail-raised);
+  --color-rail-ink: var(--rail-ink);
+  --color-rail-muted: var(--rail-muted);
+  --color-rail-line: var(--rail-line);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-tint: var(--accent-tint);
+  --color-on-accent: var(--on-accent);
+  --color-warn: var(--warn);
+  --color-warn-tint: var(--warn-tint);
+  --color-alliance-red: var(--alliance-red);
+  --color-alliance-red-tint: var(--alliance-red-tint);
+  --color-alliance-blue: var(--alliance-blue);
+  --color-alliance-blue-tint: var(--alliance-blue-tint);
+  --color-coverage-gap: var(--coverage-gap);
+  /* legacy aliases — removed in RB.18 */
   --color-text: var(--text);
   --color-text-muted: var(--text-muted);
+  --color-border: var(--border);
+  --color-surface-raised: var(--surface-raised);
   --color-brand: var(--brand);
-  --color-danger: var(--danger);
-  --color-warning: var(--warning);
   --color-brand-plate: var(--brand-plate);
   --color-on-brand: var(--on-brand);
   --color-focus: var(--focus);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
   --color-status-played: var(--status-played);
   --color-status-broke-down: var(--status-broke-down);
   --color-status-disabled: var(--status-disabled);
@@ -25,31 +50,34 @@
   --color-sync-offline: var(--sync-offline);
   --color-sync-syncing: var(--sync-syncing);
   --color-sync-online: var(--sync-online);
-  --color-alliance-red: var(--alliance-red);
-  --color-alliance-blue: var(--alliance-blue);
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-hebrew: 'Noto Sans Hebrew', 'Inter', system-ui, sans-serif;
+
+  --font-ui: 'Schibsted Grotesk Variable', 'Noto Sans Hebrew', system-ui, sans-serif;
+  --font-sans: var(--font-ui);
+  --font-num: 'JetBrains Mono Variable', ui-monospace, monospace;
+  --radius-tag: 6px;
+  --radius-control: 8px;
+  --radius-card: 12px;
 }
 
-html {
-  font-size: calc(100% * var(--text-scale));
-  color-scheme: dark;
+@layer base {
+  html {
+    font-size: calc(100% * var(--text-scale));
+    color-scheme: light;
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-ui);
+    font-size: 0.875rem;
+    -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+  }
 }
 
-[data-theme='outdoor'] {
-  color-scheme: light;
-}
-
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font-sans);
-  -webkit-text-size-adjust: 100%;
-}
-
-:where(button, a, input, select, textarea, [tabindex]):focus-visible {
-  outline: 2px solid var(--focus);
+/* Unlayered on purpose: a layered outline utility must not override the focus ring. */
+:focus-visible {
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -68,9 +96,14 @@ body {
     margin-inline-start: 8px;
   }
 
-  /* SPEC-FINAL 17.4: brand yellow is legible only on a near-black plate. */
   .brand-plate {
-    background: var(--brand-plate);
+    background: var(--rail);
     color: var(--brand);
+  }
+
+  .num {
+    font-family: var(--font-num);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
   }
 }

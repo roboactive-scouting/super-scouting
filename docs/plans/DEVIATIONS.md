@@ -4243,3 +4243,19 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
 **What I did instead:** appended this entry rather than editing the old ones. `docs/plans/REDESIGN-PLAN.md` (R.1–R.14, executed 2026-10-01) is deleted; it stays in git history, and the shared component system it built is listed in IMPLEMENTATION-PLAN's "The redesign system" table and BUILD-CONTEXT §12. IMPLEMENTATION-PLAN's finished tasks (0.1–1.23) are left as written under a banner saying their code samples show the old look. The code deliberately keeps the old look until the new theme is built, so `develop` stays usable: `apps/client/src/styles/tokens.css`, `index.css`, `motion.css`, `lib/motion.ts`, the component classes and `tokens.test.ts`, and the `docs/brand/` images, which have `#0A0A0B` baked in. They change in the redesign build tasks.
 
 **Risk:** until those build tasks land, the running app and its tests still assert the old palette and motion, and a reader can mistake them for the current design. The banner and this entry are the guard; the new look comes only from `docs/design/THEME.md` once it exists.
+
+## Task RB.1 — Theme layer: D1 tokens, fonts, outdoor values
+
+**Plan said:** replace `tokens.css` with `theme.css`, replace the head of `index.css` and keep its `@layer` blocks, change `.brand-plate` to `background: var(--rail)`.
+
+**What was wrong:** `index.css` had no `@layer base` block — `html`, `body` and the focus rule were unlayered — and the plan's head replacement defines them in `@layer base`. The old `--shade-worst/mid/best` and `--font-hebrew` had no users, and `[data-theme='outdoor'] { color-scheme: light }` is redundant once the light theme is the default.
+
+**What I did instead:**
+- Followed the plan's `@theme inline` head and `@layer base` verbatim, and added `margin: 0` and `-webkit-text-size-adjust: 100%` to the base `body` (both were in the old unlayered `body` rule) so nothing regresses. The old `:where(button, a, …):focus-visible` rule became the plan's plain `:focus-visible` in the base layer.
+- Dropped `--shade-*`, `--font-hebrew` and the outdoor `color-scheme` override with `tokens.css` (grep found no users).
+- `.num` is declared in `@layer components` next to the existing component classes.
+- `.brand-plate` is now `background: var(--rail)` with `color: var(--brand)`, which aliases to `--accent`: about 3.3:1 on the rail, under the 4.5:1 text floor. It is a legacy class that RB.18 deletes, so I did not add a new colour for it.
+- The contrast and theme tests are the plan's, reformatted by Prettier.
+- Review fix: the `:focus-visible` rule stays unlayered (as before), not in `@layer base` as the plan has it, so a layered or unlayered outline utility cannot silently override the focus ring.
+
+**Risk:** until RB.18 deletes the aliases, old screens show brand text as green on the dark rail at 3.3:1, and `--status-disabled` / `--status-broke-down` / `--danger` all resolve to `--warn`, so those three states look alike on the old screens. `--radius-tag/control/card` are not emitted into the built CSS until a `rounded-tag` / `rounded-control` / `rounded-card` utility is used (Tailwind drops unused theme variables); `--font-ui` and `--font-num` are emitted today because `--font-sans` references `--font-ui`.
