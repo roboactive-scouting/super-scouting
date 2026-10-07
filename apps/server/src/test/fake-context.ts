@@ -356,7 +356,16 @@ export type FakeContext = UseCaseContext & {
   conflicts: Map<string, FakeRow>;
   pullRows: Map<string, Record<string, unknown>[]>;
   knownEvents: Set<string>;
+  /**
+   * Ids `missingParent` reports as gone. A test adds an event, match or team id here; a
+   * match is also gone once `matchDeletions` holds it.
+   */
   missingParents: Set<string>;
+  /**
+   * The `match_deletions` tombstones (UF.1): written by deleteMatch and by an event
+   * delete's cascade, cleared when insertMatch creates the id again, as the two triggers do.
+   */
+  matchDeletions: Map<string, { event_id: string; deleted_at: string }>;
   entryCountsByMatch: Map<string, number>;
   entryCountsBySeason: Map<string, number>;
   entryCountsByVersion: Map<string, number>;
@@ -557,6 +566,7 @@ export function makeFakeContext(): FakeContext {
     pullRows,
     knownEvents,
     missingParents: new Set<string>(),
+    matchDeletions: new Map(),
     entryCountsByMatch: new Map(),
     entryCountsBySeason: new Map(),
     entryCountsByVersion: new Map(),
@@ -587,6 +597,14 @@ export function makeFakeContext(): FakeContext {
     },
   } as unknown as FakeContext;
 
+  // UF.1: the AFTER DELETE trigger on matches (migration 20261008090000_match_deletions.sql).
+  const recordMatchDeletion = (matchId: string, eventId: string): void => {
+    fake.matchDeletions.set(matchId, {
+      event_id: eventId,
+      deleted_at: fake.nowValue.toISOString(),
+    });
+  };
+
   // RB.20: what delete_event_cascade leaves behind (Store.deleteEvent, and each event of
   // Store.deleteSeason). Entries first, then the event with everything that cascades from it.
   const dropEvent = (id: string): void => {
@@ -596,7 +614,10 @@ export function makeFakeContext(): FakeContext {
     for (const [k, row] of rows.scouting_entries) {
       if (row.event_id === id) rows.scouting_entries.delete(k);
     }
-    for (const matchId of matchIds) rows.matches.delete(matchId);
+    for (const matchId of matchIds) {
+      rows.matches.delete(matchId);
+      recordMatchDeletion(matchId, id);
+    }
     for (const [k, row] of matchTeams) if (matchIds.has(row.match_id)) matchTeams.delete(k);
     for (const [k, row] of eventTeams) if (row.event_id === id) eventTeams.delete(k);
     events.delete(id);
@@ -711,6 +732,25 @@ export function makeFakeContext(): FakeContext {
     },
     async resolveScope(eventId) {
       return { eventId, seasonId: 'se-1' };
+    },
+    // UF.1. The entry fixtures name ids no map holds ('m-1', 't-1'), so a parent exists
+    // unless a test says otherwise: by `missingParents`, an unknown event, or a tombstone.
+    async missingParent({ event_id, match_id, team_id }) {
+      if (fake.missingParents.has(event_id) || !eventIsReal(event_id)) return 'event';
+      if (
+        match_id !== null &&
+        (fake.missingParents.has(match_id) || fake.matchDeletions.has(match_id))
+      ) {
+        return 'match';
+      }
+      if (fake.missingParents.has(team_id)) return 'team';
+      return null;
+    },
+    async listMatchDeletions(eventId, since) {
+      return [...fake.matchDeletions]
+        .filter(([, d]) => d.event_id === eventId && d.deleted_at > since)
+        .sort(([a, x], [b, y]) => x.deleted_at.localeCompare(y.deleted_at) || a.localeCompare(b))
+        .map(([match_id, d]) => ({ match_id, deleted_at: d.deleted_at }));
     },
     async getActiveContext() {
       return { ...activeContext };
@@ -901,6 +941,8 @@ export function makeFakeContext(): FakeContext {
       if (rows.matches.has(match.id)) throw pgError('23505', 'matches_pkey');
       assertMatchKeyFree(match);
       rows.matches.set(match.id, match);
+      // The AFTER INSERT trigger: a match created again under its old id is live again.
+      fake.matchDeletions.delete(match.id);
       const at = fake.nowValue.toISOString();
       matchStamps.set(match.id, { created_at: at, updated_at: at });
       appliedOrder.push(match.id);
@@ -983,8 +1025,10 @@ export function makeFakeContext(): FakeContext {
       if ((fake.entryCountsByMatch.get(id) ?? 0) > 0) {
         throw pgError('23503', 'scouting_entries_match_id_fkey');
       }
+      const gone = rows.matches.get(id);
       rows.matches.delete(id);
       matchStamps.delete(id);
+      if (gone) recordMatchDeletion(id, String(gone.event_id));
       for (const [k, row] of matchTeams) {
         if (row.match_id === id) matchTeams.delete(k);
       }

@@ -837,3 +837,92 @@ describe('supabaseStore hard deletes (RB.20, SPEC-FINAL 3.9)', () => {
     );
   });
 });
+
+describe('supabaseStore missing parents and match deletions (UF.1, SPEC-FINAL 9.3, 9.3.1)', () => {
+  const EVENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const MATCH = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const TEAM = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const parents = { event_id: EVENT, match_id: MATCH, team_id: TEAM };
+  const found = (id: string) => ({ data: { id }, error: null });
+  const none = { data: null, error: null };
+
+  it('missingParent reads the event, the match and the team by id, and answers null when all exist', async () => {
+    const { db, chains } = scriptedDb([found(EVENT), found(MATCH), found(TEAM)]);
+    expect(await supabaseStore(db).missingParent(parents)).toBeNull();
+    expect(chains.map((c) => c[0])).toEqual([
+      ['from', 'events'],
+      ['from', 'matches'],
+      ['from', 'teams'],
+    ]);
+    expect(chains[1]).toContainEqual(['eq', 'id', MATCH]);
+  });
+
+  it('missingParent names the first parent that is gone: event, then match, then team', async () => {
+    const answer = (results: Result[]) =>
+      supabaseStore(scriptedDb(results).db).missingParent(parents);
+    expect(await answer([none, none, none])).toBe('event');
+    expect(await answer([found(EVENT), none, found(TEAM)])).toBe('match');
+    expect(await answer([found(EVENT), found(MATCH), none])).toBe('team');
+  });
+
+  it('missingParent skips the match of a super entry, and reads a non-uuid id as missing without a query', async () => {
+    const { db, chains } = scriptedDb([found(EVENT), found(TEAM)]);
+    expect(await supabaseStore(db).missingParent({ ...parents, match_id: null })).toBeNull();
+    expect(chains.map((c) => c[0])).toEqual([
+      ['from', 'events'],
+      ['from', 'teams'],
+    ]);
+    const quiet = scriptedDb([]);
+    expect(await supabaseStore(quiet.db).missingParent({ ...parents, match_id: 'm-1' })).toBe(
+      'match',
+    );
+    expect(quiet.chains).toEqual([]);
+  });
+
+  it('missingParent throws on a database error instead of reading it as a deleted parent', async () => {
+    const { db } = scriptedDb([
+      found(EVENT),
+      { data: null, error: { message: 'connection refused' } },
+      found(TEAM),
+    ]);
+    await expect(supabaseStore(db).missingParent(parents)).rejects.toThrow('connection refused');
+  });
+
+  it('putRow keeps the Postgres code, so a foreign-key failure reaches syncPush as 23503', async () => {
+    const { db } = scriptedDb([{ error: { message: 'fk', code: '23503' } }]);
+    await expect(
+      supabaseStore(db).putRow('scouting_entry', 'e-1', { match_id: MATCH }),
+    ).rejects.toMatchObject({ code: '23503' });
+  });
+
+  it('listMatchDeletions reads the event’s tombstones after `since`, oldest first', async () => {
+    const since = '2026-11-14T09:00:00.000Z';
+    const rows = [{ match_id: MATCH, deleted_at: '2026-11-14T09:30:00.000Z' }];
+    const { db, chains } = scriptedDb([{ data: rows, error: null }]);
+    expect(await supabaseStore(db).listMatchDeletions(EVENT, since)).toEqual(rows);
+    expect(chains[0]).toContainEqual(['from', 'match_deletions']);
+    expect(chains[0]).toContainEqual(['eq', 'event_id', EVENT]);
+    expect(chains[0]).toContainEqual(['gt', 'deleted_at', since]);
+    expect(chains[0]).toContainEqual(['order', 'deleted_at', { ascending: true }]);
+  });
+
+  it('listMatchDeletions pages past the 1000-row cap rather than truncating', async () => {
+    const page = Array.from({ length: 1000 }, (_, i) => ({
+      match_id: `m-${i}`,
+      deleted_at: '2026-11-14T09:30:00.000Z',
+    }));
+    const { db, chains } = scriptedDb([
+      { data: page, error: null },
+      { data: [{ match_id: 'm-last', deleted_at: '2026-11-14T09:31:00.000Z' }], error: null },
+    ]);
+    expect(await supabaseStore(db).listMatchDeletions(EVENT, 'x')).toHaveLength(1001);
+    expect(chains[1]).toContainEqual(['range', 1000, 1999]);
+  });
+
+  it('listMatchDeletions throws on a database error', async () => {
+    const { db } = scriptedDb([{ data: null, error: { message: 'connection refused' } }]);
+    await expect(supabaseStore(db).listMatchDeletions(EVENT, 'x')).rejects.toThrow(
+      'connection refused',
+    );
+  });
+});

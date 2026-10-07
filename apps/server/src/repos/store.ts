@@ -210,7 +210,28 @@ export function supabaseStore(db: Db): Store {
       // is a distinct literal shape, so it cannot be checked structurally here — the
       // same Record<string, unknown>-vs-Json gap noted in DEVIATIONS.md for task 0.14.
       const { error } = await db.from(TABLE[entity]).upsert({ ...row, id } as never);
-      if (error) throw new Error(error.message);
+      // dbError keeps the code: a foreign-key failure ('23503') is syncPush's parent-deleted.
+      if (error) throw dbError(error);
+    },
+    // Three reads, together; the order of the answer is the order of the checks. An event
+    // delete cascades to its matches, so a gone event is reported as the event.
+    async missingParent(parents) {
+      // A non-uuid id names no row, and Postgres would refuse the filter (22P02).
+      if (!UUID.test(parents.event_id)) return 'event';
+      if (parents.match_id !== null && !UUID.test(parents.match_id)) return 'match';
+      if (!UUID.test(parents.team_id)) return 'team';
+      const [event, match, team] = await Promise.all([
+        db.from('events').select('id').eq('id', parents.event_id).maybeSingle(),
+        parents.match_id === null
+          ? Promise.resolve({ data: { id: null }, error: null })
+          : db.from('matches').select('id').eq('id', parents.match_id).maybeSingle(),
+        db.from('teams').select('id').eq('id', parents.team_id).maybeSingle(),
+      ]);
+      for (const result of [event, match, team]) if (result.error) throw dbError(result.error);
+      if (event.data === null) return 'event';
+      if (match.data === null) return 'match';
+      if (team.data === null) return 'team';
+      return null;
     },
     async getFormFields(formVersionId: string): Promise<FormFieldDefinition[]> {
       const { data, error } = await db
@@ -237,6 +258,26 @@ export function supabaseStore(db: Db): Store {
       return { eventId: data.id, seasonId: data.season_id };
     },
     pullEntity,
+    // UF.1. Paged by deleted_at: PostgREST caps a read at max_rows = 1000
+    // (packages/db/supabase/config.toml), and a truncated list would leave matches behind.
+    async listMatchDeletions(eventId: string, since: string) {
+      const PAGE = 1000;
+      const out: { match_id: string; deleted_at: string }[] = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await db
+          .from('match_deletions')
+          .select('match_id, deleted_at')
+          .eq('event_id', eventId)
+          .gt('deleted_at', since)
+          .order('deleted_at', { ascending: true })
+          .order('match_id', { ascending: true })
+          .range(from, from + PAGE - 1);
+        if (error) throw dbError(error);
+        out.push(...(data ?? []));
+        if ((data ?? []).length < PAGE) break;
+      }
+      return out;
+    },
     // Task 1.17b, ahead of the rest of 1.18. The singleton row is created by the skeleton
     // migration on every project; a missing one reads as nothing set up. THROWS on a
     // database error: swallowed, a blip would tell every device no competition exists.

@@ -4738,3 +4738,45 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
 **Risk:** a small visual change on the Entry confirm sheet's failure state, which no final draws.
 
 - **Dialogs stay centred** (THEME "Centred"), not pinned near the top as some finals draw them. User decision 2026-10-07.
+
+## UF.1 — Sync: a deleted match never strands an entry
+
+**Plan said:** (step 4) "Existing canonical-id remapping for bare matches must also rewrite the entry's `match_id`."
+
+**What was wrong:** there was no remapping on the client to extend. The server has always answered a bare match that lost the race with `noop` and the canonical `row_id` (`syncPush.applyBareMatch`), but `outbox.ackResults` only deleted the op and marked the old row acked. `grep -rn "noop\|remap\|canonical" apps/client/src` found nothing outside a test. So an entry recorded on a match another device created first was pushed with the losing id, hit the foreign key, and was answered "unexpected server error" — the same stuck queue as the deleted-match bug.
+
+**What I did instead:** `remapMatch` in `apps/client/src/data/outbox.ts`, run from `ackResults` when a bare match is acked with another id: it rewrites the queued entries' `payload.match_id`, the cached entries' `match_id`, moves the cached match row to the canonical id (keeping an already-cached canonical row), and records the pair in `meta['outbox.match_remap']`, so an entry submitted later from a screen still open on the old id is moved when its push is refused. An entry the same batch sent with the old id is left pending, not parked. Rejected: keeping the old cached match row beside the canonical one (the picker's `find` would pick the stale copy and the entries filter by its id).
+
+**Risk:** an Entry page reloaded on the old match id after the remap shows "This match or team is not on this device" and its draft (keyed by the old id) is no longer reachable from the picker. Rare: it needs two devices to create the same match offline and a reload mid-entry.
+
+**Plan said:** (step 1) check `match_id`, `team_id` and `event_id` before the write. The orchestrator: "via the store; add store methods if needed".
+
+**What was wrong:** the Store already declares a stub for this, `parentsExist({ event_id, match_id, form_version_id }): Promise<boolean>`, owned by task 1.40. It has no `team_id` and answers only a boolean, so it cannot say which parent is gone, and the client needs to know it was the match.
+
+**What I did instead:** two new Store methods, in both stores: `missingParent({ event_id, match_id, team_id }): Promise<'event' | 'match' | 'team' | null>` (event first, then match, then team; a non-uuid id reads as missing without a query) and `listMatchDeletions(eventId, since)`. `parentsExist` stays a stub for 1.40. The detail strings are one shared constant, `PARENT_DELETED_DETAIL` in `packages/shared/src/sync/protocol.ts`, and the client rebuilds only on `PARENT_DELETED_DETAIL.match` — the same "key on the detail" pattern as `TRANSIENT_REJECTION_DETAIL`. A bare match whose event is gone now answers `PARENT_DELETED_DETAIL.event` instead of ensureMatch's own message. The fake store treats a parent as present unless `missingParents` names it, the event is unknown, or `matchDeletions` holds the match (the entry fixtures use ids like `m-1` / `t-1` that no map holds). `putRow` now throws `dbError` (it threw a bare `Error` and lost the code, so the `23503` mapping could never have fired).
+
+**Risk:** three extra parallel reads per entry operation in a push. A 200-op push is 200 sequential rounds of them, on top of the ~5 reads each op already made.
+
+**Plan said:** (step 2) the table, filled by an `AFTER DELETE` trigger on `matches`.
+
+**What was wrong:** the client's rebuild re-creates the match under its OLD id (step 4). With only the delete trigger, the tombstone would outlive the re-created match, and every other device's next delta pull would drop a match that exists.
+
+**What I did instead:** a second trigger, `AFTER INSERT` on `matches`, deletes the id's tombstone. Both functions are `security invoker`, `search_path = ''`, `execute` revoked from public/anon/authenticated (trigger functions only). An index on `(event_id, deleted_at)` for the delta read. No foreign keys: an event delete cascades to its matches and the trigger writes a tombstone for each (proved in `matchDeletions.itest.ts`). Applied to dev with `npx -y supabase@latest db push --linked --yes` after checking `supabase/.temp/project-ref` printed `oqvoqddoizhhwvjwejtm`; no password was needed (the CLI's login role). `database.types.ts` was regenerated with the workspace CLI (`pnpm exec supabase gen types typescript --linked --schema public`, v2.117.0) because that is what `types-drift.itest.ts` compares against; the diff is the one new table. `deleteCascade.itest.ts`'s cleanup now also removes its matches' tombstones. The production release note is added to `IMPLEMENTATION-PLAN.md` beside the delete-cascade one.
+
+**Risk:** deletions made before this migration (the 2026-10-08 `pnpm db:clean`) have no tombstone, so a device that cached those matches keeps them. Their stuck entries recover through the rebuild; a stale match with no entry on the device stays in its cache until a full re-hydration.
+
+**Plan said:** (step 3) a delta pull returns `deleted_matches` for that event.
+
+**What was wrong:** nothing; two choices the plan left open.
+
+**What I did instead:** `deleted_matches` is returned on the FIRST page of a delta pull only (no `cursor`), so a later page cannot drop a match row an earlier page of the same pull delivered; a full pull returns `[]`. A tombstone's `deleted_at` counts toward the watermark like a row's `updated_at`. `PullResponse` is a TypeScript type, not a zod schema, so "optional" is `deleted_matches?: string[]` and the client reads `?? []`. The client's prune (`pruneDeletedMatches` in `sync.ts`) also drops the matches' cached `match_teams` slots, never drops a match the same response delivered as a row, and — beyond the plan — keeps a match an entry draft is open on (draft key `${formVersionId}:${matchId}:${teamId}`), because an entry submitted from that draft could not be rebuilt without the cached row.
+
+**Risk:** an abandoned draft keeps a deleted match in the picker on that device; scouting it again re-creates it on the server through the rebuild.
+
+**Plan said:** (step 4) "re-queue a bare match create … un-park the entry, and let the next sync send both. … Otherwise follow §9.7 as written (discard with notice)."
+
+**What was wrong:** §9.7's discard-with-notice is not implemented in the client: a `parent-deleted` rejection parks the op like every other reason (the `ackResults` comment said so, "until task 1.40"). Also, `syncNow` sends each op_id at most once per sync, but the rebuilt bare match has a new op_id, so it is pushed in the SAME sync; only the entry waits for the next one.
+
+**What I did instead:** when the rebuild is impossible the existing behaviour stays (parked, with the reason shown on the sync line) — the orchestrator's instruction. The rebuilt bare match takes the entry's `seq` and the entry moves behind it with a fresh `nextSeq()`. Loop guards: only the "match" detail rebuilds; a bare match already queued for that row is never queued twice, and if that one was itself refused (parked) the entry parks too; each op is sent once per sync. Rejected: re-sending the entry in the same sync (it needs a second "sent" exemption and its own loop guard, for a saving of one 45-second tick).
+
+**Risk:** if the server kept answering "the match no longer exists" for a match it then accepted, each sync would queue one bare match (acked as noop) and retry the entry, without parking. That needs a server bug; nothing in the current code produces it.

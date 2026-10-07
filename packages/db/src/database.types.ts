@@ -594,6 +594,24 @@ export type Database = {
           },
         ]
       }
+      match_deletions: {
+        Row: {
+          deleted_at: string
+          event_id: string
+          match_id: string
+        }
+        Insert: {
+          deleted_at?: string
+          event_id: string
+          match_id: string
+        }
+        Update: {
+          deleted_at?: string
+          event_id?: string
+          match_id?: string
+        }
+        Relationships: []
+      }
       match_teams: {
         Row: {
           alliance: string

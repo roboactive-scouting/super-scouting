@@ -596,6 +596,13 @@ var pushRequestSchema = z7.object({
   device_id: z7.string().uuid(),
   operations: z7.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
 });
+var PARENT_DELETED_DETAIL = {
+  event: "the event no longer exists",
+  match: "the match no longer exists",
+  team: "the team no longer exists",
+  form_version: "the form version no longer exists",
+  other: "a record this one belongs to no longer exists"
+};
 var PULL_ENTITY_KEYS = [
   "app_settings",
   "seasons",
@@ -1007,7 +1014,24 @@ function supabaseStore(db) {
     },
     async putRow(entity, id, row) {
       const { error } = await db.from(TABLE[entity]).upsert({ ...row, id });
-      if (error) throw new Error(error.message);
+      if (error) throw dbError(error);
+    },
+    // Three reads, together; the order of the answer is the order of the checks. An event
+    // delete cascades to its matches, so a gone event is reported as the event.
+    async missingParent(parents) {
+      if (!UUID.test(parents.event_id)) return "event";
+      if (parents.match_id !== null && !UUID.test(parents.match_id)) return "match";
+      if (!UUID.test(parents.team_id)) return "team";
+      const [event, match, team] = await Promise.all([
+        db.from("events").select("id").eq("id", parents.event_id).maybeSingle(),
+        parents.match_id === null ? Promise.resolve({ data: { id: null }, error: null }) : db.from("matches").select("id").eq("id", parents.match_id).maybeSingle(),
+        db.from("teams").select("id").eq("id", parents.team_id).maybeSingle()
+      ]);
+      for (const result of [event, match, team]) if (result.error) throw dbError(result.error);
+      if (event.data === null) return "event";
+      if (match.data === null) return "match";
+      if (team.data === null) return "team";
+      return null;
     },
     async getFormFields(formVersionId) {
       const { data, error } = await db.from("form_fields").select("*").eq("form_version_id", formVersionId);
@@ -1026,6 +1050,19 @@ function supabaseStore(db) {
       return { eventId: data.id, seasonId: data.season_id };
     },
     pullEntity,
+    // UF.1. Paged by deleted_at: PostgREST caps a read at max_rows = 1000
+    // (packages/db/supabase/config.toml), and a truncated list would leave matches behind.
+    async listMatchDeletions(eventId, since) {
+      const PAGE = 1e3;
+      const out = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await db.from("match_deletions").select("match_id, deleted_at").eq("event_id", eventId).gt("deleted_at", since).order("deleted_at", { ascending: true }).order("match_id", { ascending: true }).range(from, from + PAGE - 1);
+        if (error) throw dbError(error);
+        out.push(...data ?? []);
+        if ((data ?? []).length < PAGE) break;
+      }
+      return out;
+    },
     // Task 1.17b, ahead of the rest of 1.18. The singleton row is created by the skeleton
     // migration on every project; a missing one reads as nothing set up. THROWS on a
     // database error: swallowed, a blip would tell every device no competition exists.
@@ -2740,6 +2777,10 @@ var SERVER_OWNED_KEYS = /* @__PURE__ */ new Set([
   "client_created_at",
   "client_updated_at"
 ]);
+function foreignKeyDetail(message) {
+  const column = /_(event|match|team|form_version)_id_fkey/.exec(message)?.[1];
+  return column ? PARENT_DELETED_DETAIL[column] : PARENT_DELETED_DETAIL.other;
+}
 var withoutServerOwnedKeys = (payload) => Object.fromEntries(Object.entries(payload).filter(([key2]) => !SERVER_OWNED_KEYS.has(key2)));
 var callerOf = (author) => ({
   kind: "user",
@@ -2755,7 +2796,9 @@ async function syncPush(caller, input, ctx) {
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       console.error(`syncPush: op ${op.op_id} (${op.entity} ${op.action}) failed: ${message}`);
-      results.push(rejected(op.op_id, "invalid", "unexpected server error"));
+      results.push(
+        pgCode(e) === "23503" ? rejected(op.op_id, "parent-deleted", foreignKeyDetail(message)) : rejected(op.op_id, "invalid", "unexpected server error")
+      );
     }
   }
   return { results };
@@ -2809,7 +2852,9 @@ async function applyBareMatch(op, author, ctx) {
     result = await ensureMatch(callerOf(author), bareMatchInput(op), ctx);
   } catch (e) {
     if (!(e instanceof AppError)) throw e;
-    return rejected(op.op_id, REASON_FOR[e.code] ?? "invalid", e.message);
+    const reason = REASON_FOR[e.code] ?? "invalid";
+    const detail = reason === "parent-deleted" ? PARENT_DELETED_DETAIL.event : e.message;
+    return rejected(op.op_id, reason, detail);
   }
   await ctx.store.markApplied(op.op_id);
   return {
@@ -2869,6 +2914,18 @@ async function applyEntry(op, author, ctx) {
     breakdown_seconds: payload.breakdown_seconds ?? null
   });
   if (shapeIssues.length > 0) return rejected(op.op_id, "invalid", shapeIssues.join("; "));
+  const { event_id: eventId, match_id: matchId, team_id: teamId } = payload;
+  if (typeof eventId !== "string") return rejected(op.op_id, "invalid", "event_id is required");
+  if (typeof teamId !== "string") return rejected(op.op_id, "invalid", "team_id is required");
+  if (matchId != null && typeof matchId !== "string") {
+    return rejected(op.op_id, "invalid", "match_id must be an id or null");
+  }
+  const gone = await ctx.store.missingParent({
+    event_id: eventId,
+    match_id: matchId ?? null,
+    team_id: teamId
+  });
+  if (gone !== null) return rejected(op.op_id, "parent-deleted", PARENT_DELETED_DETAIL[gone]);
   const fields = await ctx.store.getFormFields(formVersionId);
   const status = payload.robot_status ?? "played";
   const data = payload.data ?? {};
@@ -2939,8 +2996,21 @@ async function syncPull(caller, input, ctx) {
     }
     if (nextCursor !== null) break;
   }
+  const deletedMatches = [];
+  if (input.since !== void 0 && input.cursor === void 0) {
+    for (const deletion of await ctx.store.listMatchDeletions(input.event_id, input.since)) {
+      deletedMatches.push(deletion.match_id);
+      if (deletion.deleted_at > newest) newest = deletion.deleted_at;
+    }
+  }
   const watermark = newest === "" ? input.since ?? new Date(ctx.now().getTime() - WATERMARK_OVERLAP_MS).toISOString() : new Date(new Date(newest).getTime() - WATERMARK_OVERLAP_MS).toISOString();
-  return { watermark, next_cursor: nextCursor, complete: nextCursor === null, entities };
+  return {
+    watermark,
+    next_cursor: nextCursor,
+    complete: nextCursor === null,
+    entities,
+    deleted_matches: deletedMatches
+  };
 }
 
 // src/routes/sync.ts

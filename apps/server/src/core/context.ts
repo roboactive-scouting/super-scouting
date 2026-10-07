@@ -109,11 +109,28 @@ export type Store = {
   listConflicts(eventId: string, limit: number, cursor?: string): Promise<StoredRow[]>;
   getConflict(id: string): Promise<StoredRow | null>;
   resolveConflictRow(id: string, resolvedBy: string, at: string): Promise<void>;
+  /**
+   * UF.1 (SPEC-FINAL 9.3.1, v1.18): which of an entry's parents is gone, checked in this
+   * order — event, then match (skipped when null), then team — or null when all exist. An
+   * id that is not a uuid cannot name a row, so it reads as missing. THROWS on a database
+   * error: swallowed, a blip would read as a deleted parent.
+   */
+  missingParent(parents: {
+    event_id: string;
+    match_id: string | null;
+    team_id: string;
+  }): Promise<MissingParent | null>;
 
   // pull (task 1.4)
   eventExists(eventId: string): Promise<boolean>;
   resolveScope(eventId: string): Promise<PullScope>;
   pullEntity: PullEntitySource;
+  /**
+   * UF.1 (SPEC-FINAL 9.3, v1.18): the event's matches hard-deleted after `since`, from the
+   * `match_deletions` tombstones the delete trigger writes. A match created again under the
+   * same id has no tombstone. THROWS on a database error.
+   */
+  listMatchDeletions(eventId: string, since: string): Promise<MatchDeletion[]>;
 
   // users (tasks 1.3, 1.11, 1.12, 1.13)
   getUser(id: string): Promise<StoredUser | null>;
@@ -265,6 +282,12 @@ export type Store = {
    */
   countDeleteImpact(kind: 'season' | 'event', id: string): Promise<DeleteImpact>;
 };
+
+/** The parent `missingParent` found gone. */
+export type MissingParent = 'event' | 'match' | 'team';
+
+/** One `match_deletions` row (migration 20261008090000_match_deletions.sql). */
+export type MatchDeletion = { match_id: string; deleted_at: string };
 
 /** The counts `countDeleteImpact` answers. */
 export type DeleteImpact = { events: number; matches: number; entries: number; forms: number };

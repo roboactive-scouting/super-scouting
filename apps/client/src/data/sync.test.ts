@@ -1,12 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PullResponse, PushRequest, PushResponse } from '@frc/shared';
-import { PULL_ENTITY_KEYS } from '@frc/shared';
+import { PARENT_DELETED_DETAIL, PULL_ENTITY_KEYS } from '@frc/shared';
 import { session } from '@/auth/session';
 import { apiClient } from './api';
 import { onChanged } from './changes';
 import { db, getMeta } from './db';
 import { enqueue, pending } from './outbox';
-import { activeEvent, cachedActiveEventId, cachedDefaultEventId, hydrate, syncNow } from './sync';
+import {
+  activeEvent,
+  cachedActiveEventId,
+  cachedDefaultEventId,
+  hydrate,
+  pruneDeletedMatches,
+  syncNow,
+} from './sync';
 
 vi.mock('@/config', () => ({
   clientConfig: () => ({ apiBaseUrl: 'https://api.test', deviceWipeCode: 'w', appVersion: 't' }),
@@ -524,5 +531,180 @@ describe('syncNow change notifications', () => {
     await syncNow({ api: { push: vi.fn(), pull: some }, eventId: 'ev-1', deviceId: 'd-1' });
     off();
     expect(seen).toContain('rows');
+  });
+});
+
+describe('deleted matches leave the cache (UF.1, SPEC-FINAL 9.3 v1.18)', () => {
+  const EVENT = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+  const id = (n: number) => `bbbbbbbb-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const NEEDED_BY_ENTRY = id(1);
+  const NEEDED_BY_BARE = id(2);
+  const GONE = id(3);
+  const BACK = id(4);
+  const KEPT = id(5);
+
+  const match = (matchId: string, number: number) => ({
+    entity: 'matches' as const,
+    id: matchId,
+    event_id: EVENT,
+    match_type: 'qualification',
+    number,
+  });
+
+  const pullWith =
+    (extra: Partial<PullResponse>): (() => Promise<PullResponse>) =>
+    async () => ({
+      watermark: '2026-11-14T09:00:55.000Z',
+      next_cursor: null,
+      complete: true,
+      entities: emptyEntities,
+      ...extra,
+    });
+
+  const noPush = async (): Promise<PushResponse> => ({ results: [] });
+
+  beforeEach(async () => {
+    await db.rows.bulkPut([
+      match(NEEDED_BY_ENTRY, 1),
+      match(NEEDED_BY_BARE, 2),
+      match(GONE, 3),
+      match(BACK, 4),
+      match(KEPT, 5),
+      { entity: 'match_teams', id: 'slot-gone', match_id: GONE, team_id: 't-1' },
+      { entity: 'match_teams', id: 'slot-kept', match_id: KEPT, team_id: 't-1' },
+    ]);
+  });
+
+  it('drops the named matches and their slots, but keeps any the outbox still needs or the pull sent back', async () => {
+    // A parked entry still needs its match: the rebuild works from the cached row.
+    await enqueue({
+      ...op('entry-1'),
+      payload: { event_id: EVENT, match_id: NEEDED_BY_ENTRY, data: {} },
+    });
+    await enqueue({
+      ...op(NEEDED_BY_BARE),
+      entity: 'match',
+      payload: { event_id: EVENT, match_type: 'qualification', number: 2 },
+    });
+    // Neither op is acked by this push, so both stay queued.
+    const outcome = await syncNow({
+      api: {
+        push: noPush,
+        pull: pullWith({
+          deleted_matches: [NEEDED_BY_ENTRY, NEEDED_BY_BARE, GONE, BACK],
+          entities: {
+            ...emptyEntities,
+            matches: [{ id: BACK, event_id: EVENT, match_type: 'qualification', number: 4 }],
+          },
+        }),
+      },
+      eventId: EVENT,
+      deviceId: 'd-1',
+    });
+
+    expect(outcome.status).toBe('ok');
+    const left = (await db.rows.where('entity').equals('matches').toArray()).map((r) => r.id);
+    expect(left.sort()).toEqual([NEEDED_BY_ENTRY, NEEDED_BY_BARE, BACK, KEPT].sort());
+    expect(await db.rows.get(['match_teams', 'slot-gone'])).toBeUndefined();
+    expect(await db.rows.get(['match_teams', 'slot-kept'])).toBeDefined();
+  });
+
+  it('keeps a match an entry draft is open on, so the entry submitted from it can rebuild it', async () => {
+    await db.drafts.put({
+      key: `fv-1:${GONE}:t-1`,
+      row_id: '',
+      payload: { data: {} },
+      updated_at: '2026-11-14T09:00:00.000Z',
+    });
+    expect(await pruneDeletedMatches([GONE, KEPT], [])).toBe(1);
+    expect(await db.rows.get(['matches', GONE])).toBeDefined();
+    expect(await db.rows.get(['matches', KEPT])).toBeUndefined();
+  });
+
+  it('drops nothing when an older server sends no deleted_matches at all', async () => {
+    await syncNow({ api: { push: noPush, pull: pullWith({}) }, eventId: EVENT, deviceId: 'd-1' });
+    expect(await db.rows.where('entity').equals('matches').count()).toBe(5);
+  });
+
+  it('tells the screens the rows changed when it drops one', async () => {
+    const seen: string[] = [];
+    const off = onChanged((kind) => seen.push(kind));
+    await syncNow({
+      api: { push: noPush, pull: pullWith({ deleted_matches: [GONE] }) },
+      eventId: EVENT,
+      deviceId: 'd-1',
+    });
+    off();
+    expect(seen).toContain('rows');
+  });
+
+  it('pruneDeletedMatches answers how many it dropped', async () => {
+    expect(await pruneDeletedMatches([GONE, 'not-cached'], [])).toBe(1);
+    expect(await pruneDeletedMatches([], [])).toBe(0);
+  });
+});
+
+describe('an entry on a deleted match lands without anyone acting (UF.1, SPEC-FINAL 9.7 v1.18)', () => {
+  const EVENT = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+  const MATCH = 'bbbbbbbb-0000-4000-8000-000000000080';
+
+  it('rebuilds the match after a parent-deleted push, and the next sync sends both, match first', async () => {
+    await db.rows.bulkPut([
+      { entity: 'events', id: EVENT, name: 'Event' },
+      { entity: 'matches', id: MATCH, event_id: EVENT, match_type: 'qualification', number: 80 },
+    ]);
+    // On the server the match is gone (2026-10-08: pnpm db:clean, or an admin's delete).
+    let serverHasMatch = false;
+    const batches: { entity: string; row_id: string }[][] = [];
+    const push = vi.fn(async (req: PushRequest): Promise<PushResponse> => {
+      batches.push(req.operations.map((o) => ({ entity: o.entity, row_id: o.row_id })));
+      return {
+        results: [...req.operations]
+          .sort((a, b) => a.seq - b.seq)
+          .map((o) => {
+            if (o.entity === 'match') {
+              serverHasMatch = true;
+              return { op_id: o.op_id, status: 'applied', row_id: o.row_id, new_version: 1 };
+            }
+            return serverHasMatch
+              ? { op_id: o.op_id, status: 'applied', row_id: o.row_id, new_version: 1 }
+              : {
+                  op_id: o.op_id,
+                  status: 'rejected',
+                  reason: 'parent-deleted',
+                  detail: PARENT_DELETED_DETAIL.match,
+                };
+          }),
+      };
+    });
+    const pull = async (): Promise<PullResponse> => ({
+      watermark: '2026-11-14T09:00:55.000Z',
+      next_cursor: null,
+      complete: true,
+      entities: emptyEntities,
+      // Tombstoned on the server until the rebuild; the queued entry keeps it cached.
+      deleted_matches: serverHasMatch ? [] : [MATCH],
+    });
+    await enqueue({
+      ...op('entry-80'),
+      seq: 1,
+      payload: { event_id: EVENT, match_id: MATCH, team_id: 't-1', data: {} },
+    });
+
+    await syncNow({ api: { push, pull }, eventId: EVENT, deviceId: 'd-1' });
+    expect(await db.rows.get(['matches', MATCH])).toBeDefined();
+    await syncNow({ api: { push, pull }, eventId: EVENT, deviceId: 'd-1' });
+
+    expect(await pending(50)).toEqual([]);
+    expect(await db.outbox.count()).toBe(0);
+    expect((await db.syncState.get('entry-80'))?.sync_state).toBe('acked');
+    // Refused once; then its match is rebuilt and pushed in the same sync, and the entry
+    // goes again on the next one, behind it.
+    expect(batches.flat().map((o) => o.entity)).toEqual([
+      'scouting_entry',
+      'match',
+      'scouting_entry',
+    ]);
+    expect(batches.flat()[1]!.row_id).toBe(MATCH);
   });
 });

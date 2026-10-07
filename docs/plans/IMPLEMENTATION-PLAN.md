@@ -150,6 +150,8 @@ So the execution order is: … 1.49, **1.54, 1.55, 1.56**, 1.50, 1.51, 1.52, **1
 
 **Release note — delete cascade.** Migration `20261007120000_delete_cascade` must be pushed to **production before the server containing RB.20 is deployed** (by hand, one deliberate command, BUILD-CONTEXT §4). A server that calls the new cascade function before the migration exists fails every season / event delete.
 
+**Release note — match deletions (UF.1).** Migration `20261008090000_match_deletions` must be pushed to **production before the server containing UF.1 is deployed**, the same way (by hand, BUILD-CONTEXT §4). That server's delta pull reads `match_deletions`; without the table every delta pull fails, so no device can sync.
+
 If you would rather the file read in execution order, renumber it once before the first build chat and never again — but do not renumber halfway through, because the commit messages and the branch names will stop matching.
 
 ---

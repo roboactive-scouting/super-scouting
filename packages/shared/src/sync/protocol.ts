@@ -19,6 +19,20 @@ export const REJECTION_REASONS = [
 ] as const;
 export type RejectionReason = (typeof REJECTION_REASONS)[number];
 
+/**
+ * The `detail` of a `parent-deleted` rejection, naming the parent that is gone (SPEC-FINAL
+ * 9.3.1, amended v1.18). The client keys on it: a missing MATCH is rebuilt from its cached
+ * row and pushed again (9.7); any other missing parent follows 9.7 as written. `other` is a
+ * foreign-key failure the server cannot attribute to one of these.
+ */
+export const PARENT_DELETED_DETAIL = {
+  event: 'the event no longer exists',
+  match: 'the match no longer exists',
+  team: 'the team no longer exists',
+  form_version: 'the form version no longer exists',
+  other: 'a record this one belongs to no longer exists',
+} as const;
+
 export type PushStatus = 'applied' | 'noop' | 'divergence' | 'duplicate' | 'rejected';
 
 export type PushResult =
@@ -93,4 +107,11 @@ export type PullResponse = {
   next_cursor: string | null;
   complete: boolean;
   entities: Record<PullEntityKey, Record<string, unknown>[]>;
+  /**
+   * SPEC-FINAL 9.3 (amended v1.18): a match has no deleted_at, so a delta pull also names
+   * the event's matches hard-deleted since `since`. Always `[]` on a full pull, whose
+   * dataset already leaves them out. Optional so a client still reads a server that
+   * predates it: read it as `deleted_matches ?? []`.
+   */
+  deleted_matches?: string[];
 };

@@ -97,6 +97,8 @@ afterAll(async () => {
   await db.from('seasons').delete().eq('id', ids.season);
   await db.from('users').delete().eq('id', ids.user);
   await db.from('teams').delete().eq('id', ids.team);
+  // The matches' tombstones (migration 20261008090000_match_deletions.sql, UF.1).
+  await db.from('match_deletions').delete().in('match_id', [ids.match, ids.match2]);
 });
 
 describe('hard cascade deletes (SPEC-FINAL 3.9)', () => {
