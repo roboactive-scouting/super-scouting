@@ -1,6 +1,10 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.16 · **Date:** 2026-10-07 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.18 · **Date:** 2026-10-08 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.18 amends §9.3 (a delta pull also carries deleted matches), §9.3.1 (a missing parent is `parent-deleted`, never a transient error) and §9.7 (a deleted match is rebuilt, not discarded). See the living spec's §21, 2026-10-08 (v0.66).*
+
+*v1.17 amends §8.1 (after a new entry, Scout offers the next match number) and §17.9's Home row (the station opens the station picker). See the living spec's §21, 2026-10-08 (v0.65).*
 
 *v1.16 adds a note to §17.7 (contiguous 48 px rows) and the `countEntriesByScouter` row, with `deleteSeason` / `deleteEvent` and their permission, to Appendix C. See the living spec's §21, 2026-10-07 (v0.64).*
 
@@ -872,7 +876,7 @@ This is where 95% of usage happens: a student in a loud arena, phone in one hand
 
 ### 8.1 Match and robot selection
 
-**Manual selection in v1.** There is no assignment system. Submit returns to a fresh manual selection.
+**Manual selection in v1.** There is no assignment system. Submit returns to a fresh manual selection, except that after a **new** entry the match type is kept and the match number is pre-filled with the **next number** (still editable; nothing is picked). After an edit of an existing entry the number stays empty (amended 2026-10-08, v1.17).
 
 **Match entry.** The scouter picks:
 
@@ -1014,6 +1018,7 @@ It holds exactly the entities the delta pull returns, plus device-local state:
 - **Every subsequent pull is a delta**: rows with `updated_at > since`. The server returns `watermark = max(updated_at) − 5 seconds`, an overlap that guarantees no row committed inside the same instant is skipped. Overlapping rows arrive twice and are idempotently upserted locally.
 - A delta pull runs on **app open, screen entry, pull-to-refresh, manual refresh, reconnect, and the 45-second auto-refresh** (§10).
 - If the server reports the event no longer exists (hard-deleted, §3.9), the client **wipes that event's cache** and shows a notice naming the event.
+- **A hard-deleted match reaches devices too** (amended 2026-10-08, v1.18). A match has no `deleted_at`, so a delta pull also returns the ids of the event's matches deleted since `since`, and the client drops them from its cache. Without this a device keeps offering a match the server no longer has, and every entry recorded against it fails to push.
 
 ### 9.3.1 The push protocol
 
@@ -1041,6 +1046,7 @@ It holds exactly the entities the delta pull returns, plus device-local state:
 
 - Operations are applied **in `seq` order**, each in its own transaction. A rejection does not stop the batch.
 - **`applied`, `noop`, `divergence` and `duplicate` all count as a cloud ack** for that `row_id`: the data is on the server. The client marks the record `acked` and prunes the operation.
+- **A missing parent is always `parent-deleted`** (amended 2026-10-08, v1.18). That includes a foreign-key failure on the entry's match, team or event. It is never the generic "unexpected server error", which the client retries silently for ever. Only a genuinely transient failure may use that.
 - **`rejected` is never an ack.** `parent-deleted` triggers §9.7. Every other rejection reason leaves the record local and surfaces it on the sync page for a human to look at; the operation is not retried automatically.
 - **`op_id` is the idempotency key.** Replaying a batch is safe; a previously applied `op_id` returns `noop`.
 - **Authorization is per operation, against the operation's `author_user_id`** (§7.5), not against the bearer.
@@ -1135,6 +1141,8 @@ All of them ride the same outbox.
 Offline statistics naturally reflect only the entries the device currently holds; they become complete once it has gathered the others by sync or QR.
 
 ### 9.7 Parent-deleted records
+
+**A deleted match is the exception: it is rebuilt, not discarded** (amended 2026-10-08, v1.18). A match is only event + type + number (§6.4), so when an entry's only missing parent is its match, the client queues the bare match create again, ahead of the entry, from its cached row, and pushes both. The scout's work lands and no one acts. The steps below apply only when the rebuild is impossible (the event, season or form version is gone too).
 
 When the server rejects an operation with `parent-deleted` — the season, event or form version it belongs to has been hard-deleted:
 
@@ -1922,7 +1930,7 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 
 | Surface | Layout and behaviour |
 |---|---|
-| Context / landing page (**Home, at `/`**) | The signed-in landing page (amended 2026-10-06, v1.7). The event this device works on, with **Scout as the one primary action** (Scout lives at `/scout`) and **Switch competition**, a sheet listing seasons then that season's events, most recent first — **never a header dropdown**; a session override shows a banner with "Back to …". Then: the scouter's **station**, **entries waiting to send** with the last sync time, and the scouter's **last entry** (opens it). **Go to** tiles for the app's places (Entries, Switch scouter; Manage and Users for admins only — on a phone, Manage reads **Matches** and opens the phone matches view, and **Users is not shown**, since it needs a computer; amended 2026-10-07, v1.12). **Schedule coverage**: one square per qualification match, marking matches missing a robot and naming them, as of the last sync. Once ranking (§13.5) exists, **our team's rank** card and a **top teams** list with a 5-match trend line; until then neither is shown. The version string is in the footer. |
+| Context / landing page (**Home, at `/`**) | The signed-in landing page (amended 2026-10-06, v1.7). The event this device works on, with **Scout as the one primary action** (Scout lives at `/scout`) and **Switch competition**, a sheet listing seasons then that season's events, most recent first — **never a header dropdown**; a session override shows a banner with "Back to …". Then: the scouter's **station** (tapping it opens the same station picker as Scout; amended 2026-10-08, v1.17), **entries waiting to send** with the last sync time, and the scouter's **last entry** (opens it). **Go to** tiles for the app's places (Entries, Switch scouter; Manage and Users for admins only — on a phone, Manage reads **Matches** and opens the phone matches view, and **Users is not shown**, since it needs a computer; amended 2026-10-07, v1.12). **Schedule coverage**: one square per qualification match, marking matches missing a robot and naming them, as of the last sync. Once ranking (§13.5) exists, **our team's rank** card and a **top teams** list with a 5-match trend line; until then neither is shown. The version string is in the footer. |
 | Sign-in (`/login`) | Added 2026-10-06, v1.8. One job: sign in. Desktop: the brand lockup on a dark plate beside the form; phone: the lockup in a dark band above it — brand, not a hero, no tagline. Username, password with a **show / hide** button, the "ask an admin" hint, one primary button. The offline, expired-session and error lines keep their wording. The version string is at the foot, so a device that cannot sign in can still be identified. |
 | Entries (`/entries`) | Added 2026-10-07, v1.9. Everything this device holds for the active competition, **newest first**. Search by team, match or scouter; filter chips **All · Mine · Waiting to send · Needs a look** (refused, or "not in line-up"). Each row: match, station + team (+ the "not in line-up" flag), robot status, scouter, time with a mark when waiting to send, and the robot's **scouted points** (§4.1; "—" for no show / disabled) once the metric engine exists. A refused entry shows its reason on its own line. A row opens the **entry preview** (§13.4) as its own page. |
 | Switch scouter (`/switch-scouter`) | Added 2026-10-07, v1.10. A page, not a dialog. A **"Scouting now"** card names the current scouter; **Who's scouting next?** lists the device's cached accounts ("Full name · username", the current one marked); the chosen person's password with **show / hide**. Once someone is chosen, a note says what **stays on this device**: the current scouter's entries waiting to send (which still send under their own author, §7.5) and the remembered station. Works offline (§7.5). Success goes to Scout; Cancel to Home. |

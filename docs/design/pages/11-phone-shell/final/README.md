@@ -1,4 +1,4 @@
-# Phone shell (every page below 1024 px) — closed 2026-10-07
+# Phone shell (every page below 1024 px) — closed 2026-10-07, amended 2026-10-08
 
 **The code must look like `shell-phone.png`.** The `.html` file next to it is the source, and `bash docs/design/pages/render.sh 11-phone-shell final` re-renders it. Spec: SPEC-FINAL v1.15 §17.9 (navigation); living spec v0.63.
 
@@ -16,15 +16,15 @@ It replaces the provisional phone top bar.
 
 ## Bottom bar (`--rail`)
 
-- **Home** and **Entries** are tabs: an icon plus an 11.5 px label in `--rail-muted`. The current tab is white, with a `--rail-raised` pill behind the icon.
-- **Entries** carries the waiting-to-send count as a small amber badge (mono). There is no badge when nothing is waiting.
-- **Scout** is a raised 58 px `--accent` button in the middle, with a `--rail` ring and its label below. It's the one primary job, always under the thumb.
+- **Home**, **Scout** and **Entries** sit in that order (Scout in the middle). A tab that isn't the current page is flat: an icon plus an 11.5 px label in `--rail-muted`.
+- **Entries** carries the waiting-to-send count, flat or raised, as a small amber badge (mono). There is no badge when nothing is waiting.
+- **The current page is the raised button** *(amended 2026-10-08, UI fix round)*: a raised 58 px `--accent` (green) square with a `--rail` ring, its icon, and a white label below. **It moves with the page:** Home raised on Home (image 1), Scout on Scout (image 7), Entries on Entries (image 3, the badge stays on it). On any other page nothing is raised or green (image 6). The user wanted the green mark and the bigger icon to show where you are. Before this, Scout was always the raised green button, so it read as the current page everywhere.
 - **Hidden on the Entry page** (unchanged rule): the entry's own bottom action bar takes the space.
 - **Later:** with Team search and Ranking, the bar becomes Home · Teams · **Scout** · Ranking · Entries: two tabs either side of the raised Scout (image 5). **[RAISED BY ME]** This amends the "at most four, Entries returns to the drawer" rule: four tabs plus the raised Scout, and Entries stays in the bar.
 
 ## Menu (☰): a narrow dark drawer, 252 px
 
-From the left edge, over a scrim, full height under the status bar. Top to bottom:
+From the left edge, over a scrim, full height under the status bar. It closes with ✕, a tap on the scrim, or **a swipe left** that the drawer follows under the finger *(added 2026-10-08)*. Top to bottom:
 1. Logo mark, "RobActive Scout" and "Team 2096", then ✕.
 2. **Sync line** on `--rail-raised`: "● 3 waiting to send", then "last sync 09:08" under it.
 3. **Competition:** Home · Scout · Entries (the current one on `--rail-raised`).
