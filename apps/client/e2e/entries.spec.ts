@@ -74,7 +74,9 @@ test('entries: newest first, waiting arrows, the refused line', async ({ page })
   const rows = page.getByRole('row');
   await expect(rows.nth(1)).toContainText('Q38');
   await expect(page.getByRole('button', { name: /^All \d+/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Waiting to send 3/ })).toBeVisible();
+  // The refused entry is still in the outbox: the chip says 4, like the top bar (RB.19).
+  await expect(page.getByRole('button', { name: /^Waiting to send 4/ })).toBeVisible();
+  await expect(page.getByRole('banner').getByText('4 waiting')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Needs a look 2/ })).toBeVisible();
   await expect(page.getByText('Not synced:')).toBeVisible();
   await expect(page.getByLabel('waiting to send')).toHaveCount(3);

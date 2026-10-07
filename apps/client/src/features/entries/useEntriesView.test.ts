@@ -72,6 +72,7 @@ describe('buildEntryRows', () => {
       status: 'played',
       scouter: 'Noa Levi',
       waiting: false,
+      unsent: false,
       refused: null,
       notInLineup: false,
       look: false,
@@ -91,9 +92,10 @@ describe('buildEntryRows', () => {
       }),
     );
     const by = Object.fromEntries(rows.map((r) => [r.id, r]));
-    expect(by.w).toMatchObject({ waiting: true, refused: null, look: false });
+    expect(by.w).toMatchObject({ waiting: true, unsent: true, refused: null, look: false });
     expect(by.r).toMatchObject({
       waiting: false,
+      unsent: true,
       refused: 'This entry is locked — ask a lead',
       look: true,
     });
@@ -153,6 +155,17 @@ describe('search, filter and counts', () => {
     expect(filterRows(rows, 'mine', 'u-noa').map((r) => r.id)).toEqual(['a']);
     expect(filterRows(rows, 'waiting', 'u-noa').map((r) => r.id)).toEqual(['a']);
     expect(filterRows(rows, 'look', 'u-noa').map((r) => r.id)).toEqual(['b']);
+  });
+
+  it('a refused entry still in the outbox counts as waiting to send, like the shell (RB.19)', () => {
+    const withRefused = buildEntryRows(
+      source({
+        entries: [entry('w'), entry('r', { client_created_at: '2026-03-17T09:40:00.000Z' })],
+        outboxIds: new Set(['w', 'r']),
+        refusals: new Map([['r', 'This entry is locked — ask a lead']]),
+      }),
+    );
+    expect(chipCounts(withRefused, 'u-noa')).toMatchObject({ waiting: 2, look: 1 });
   });
 
   it('counts follow the search', () => {

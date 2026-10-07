@@ -15,7 +15,7 @@ export function EntryCard({ row }: { row: EntryRow }) {
         </span>
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[0.78125rem] text-muted">
-        <EntryStation row={row} />
+        <EntryStation row={row} compact />
         {row.status ? <RobotStatusTag status={row.status} /> : null}
         <span dir="auto" className="whitespace-nowrap">
           {row.scouter.split(' ')[0]} · <span className="num">{row.time}</span>

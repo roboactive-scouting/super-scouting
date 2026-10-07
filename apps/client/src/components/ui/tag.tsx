@@ -1,4 +1,4 @@
-import { TriangleAlert } from 'lucide-react';
+import { Flag } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { formatDate, type Role } from '@frc/shared';
 import type { Station } from '@/data/station';
@@ -26,20 +26,28 @@ export function stationLabel(station: Station): string {
 export function AllianceTag({
   alliance,
   children,
+  compact = false,
 }: {
   alliance: 'red' | 'blue';
   children: ReactNode;
+  compact?: boolean;
 }) {
-  return <span className={cn(TAG, ALLIANCE[alliance])}>{children}</span>;
+  return (
+    <span className={cn(TAG, ALLIANCE[alliance], compact && cn('h-5', COMPACT))}>{children}</span>
+  );
 }
 
+/** The phone entry card's smaller station tag: 20 px, 11 px (Entries final, `.pc2 .stn`). */
+const COMPACT = 'min-h-5 px-1.5 text-[0.6875rem]';
+
 /** One of the six driver stations, in words: "Red 1". 22 px, in the alliance tint. */
-export function StationTag({ station }: { station: Station }) {
+export function StationTag({ station, compact = false }: { station: Station; compact?: boolean }) {
   return (
     <span
       className={cn(
         'inline-flex min-h-[22px] items-center whitespace-nowrap rounded-tag px-[7px] text-xs font-[650]',
         ALLIANCE[station[0] === 'R' ? 'red' : 'blue'],
+        compact && COMPACT,
       )}
     >
       {stationLabel(station)}
@@ -110,11 +118,14 @@ export function AccountStatusTag({ disabledAt }: { disabledAt: string | null }) 
   );
 }
 
-/** A flag on a record that needs a look, e.g. "Not in line-up": `--warn-tint` on `--warn`. */
+/**
+ * A flag on a record that needs a look, e.g. "Not in line-up": `--warn-tint` on `--warn`, with
+ * a flag glyph (Entries final ⚑).
+ */
 export function WarningFlag({ children }: { children: ReactNode }) {
   return (
     <span className="inline-flex min-h-[22px] items-center gap-1.5 whitespace-nowrap rounded-tag bg-warn-tint px-[7px] text-xs font-[650] text-warn">
-      <TriangleAlert aria-hidden="true" className="size-[13px]" />
+      <Flag aria-hidden="true" className="size-[13px]" />
       {children}
     </span>
   );

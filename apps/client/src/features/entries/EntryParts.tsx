@@ -3,11 +3,20 @@ import { AllianceTag, StationTag } from '@/components/ui/tag';
 import type { EntryRow } from './useEntriesView';
 
 /** "Blue 2" from the line-up; just "Blue" when the team is not in it (the entry knows its side only). */
-export function EntryStation({ row }: { row: Pick<EntryRow, 'station' | 'alliance'> }) {
+export function EntryStation({
+  row,
+  compact = false,
+}: {
+  row: Pick<EntryRow, 'station' | 'alliance'>;
+  /** The phone card's 20 px tag. */
+  compact?: boolean;
+}) {
   return row.station ? (
-    <StationTag station={row.station} />
+    <StationTag station={row.station} compact={compact} />
   ) : (
-    <AllianceTag alliance={row.alliance}>{row.alliance === 'red' ? 'Red' : 'Blue'}</AllianceTag>
+    <AllianceTag alliance={row.alliance} compact={compact}>
+      {row.alliance === 'red' ? 'Red' : 'Blue'}
+    </AllianceTag>
   );
 }
 

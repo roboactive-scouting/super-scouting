@@ -33,8 +33,14 @@ export type EntryRow = {
   scouterId: string;
   /** Time only when the entry is from today, else the date and the time. */
   time: string;
-  /** Still in the outbox and not refused: it will be sent. */
+  /** Still in the outbox and not refused: it will be sent (the amber ↑ beside the time). */
   waiting: boolean;
+  /**
+   * Still in the outbox, refused or not: the "Waiting to send" chip (README: "still in the
+   * outbox"), so the chip agrees with the shell's waiting count (SPEC-FINAL 9.10 keeps a
+   * refused record in the unsynced count until it is fixed). RB.19.
+   */
+  unsent: boolean;
   /** Why the server refused it ("This entry is locked — ask a lead"), or null. */
   refused: string | null;
   notInLineup: boolean;
@@ -105,6 +111,7 @@ export function buildEntryRows(src: EntriesSource): EntryRow[] {
       scouterId: String(e.scouter_id),
       time: timeLabel(client_created_at, src.now),
       waiting: src.outboxIds.has(id) && refusal === null,
+      unsent: src.outboxIds.has(id),
       refused: refusal,
       notInLineup: notInLineup(src.slots, matchId, teamId, alliance),
       look: needsLook(
@@ -125,7 +132,7 @@ export function searchRows(rows: EntryRow[], query: string): EntryRow[] {
 const PICK: Record<EntriesFilter, (r: EntryRow, me: string) => boolean> = {
   all: () => true,
   mine: (r, me) => r.scouterId === me,
-  waiting: (r) => r.waiting,
+  waiting: (r) => r.unsent,
   look: (r) => r.look,
 };
 
