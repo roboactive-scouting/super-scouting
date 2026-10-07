@@ -1,148 +1,109 @@
-import { Fragment, useEffect, useState } from 'react';
-import { formatCount, formatDate, formatTime } from '@frc/shared';
-import { cachedRows } from '@/data/cache';
-import { rejectedRows } from '@/data/outbox';
-import { rejectionMessage } from '@/data/rejections';
+import { Search } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { Skeleton } from '@/components/Skeleton';
 import { StateMessage } from '@/components/StateMessage';
-import { Badge, type BadgeTone } from '@/components/ui/badge';
-import { Notice } from '@/components/ui/notice';
-import { PageHeader } from '@/components/ui/page-header';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { buttonVariants } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { FilterChips } from '@/components/ui/filter-chips';
+import { SearchField } from '@/components/ui/search-field';
+import { useEventName } from '@/features/context/useEventName';
+import { useShellContext, useSignedInUser } from '@/features/shell/shellContext';
+import { usePageCrumb } from '@/lib/pageTitle';
+import { useIsDesktop } from '@/lib/useMediaQuery';
 import { PATHS } from '@/lib/paths';
+import { EntriesTable } from './EntriesTable';
+import { EntryCard } from './EntryCard';
+import { useEntriesView, type EntriesFilter } from './useEntriesView';
 
-type Row = {
-  id: string;
-  match: string;
-  team: string;
-  status: string;
-  scouter: string;
-  when: string;
-  /** Why the server refused this entry's last push; it is still queued and retried. */
-  rejection: string | null;
-};
-
-const STATUS_TONE: Record<string, BadgeTone> = {
-  played: 'played',
-  broke_down: 'broke_down',
-  disabled: 'disabled',
-  no_show: 'no_show',
-};
-
-const TITLE = 'Entries';
-const DESCRIPTION = 'Everything this device holds for the current competition, by match.';
-
+/**
+ * `/entries` (design 05-entries): everything this device holds for the current competition,
+ * newest first, read from the device alone. A table on a laptop, cards on a phone. Rows do
+ * not open anything yet: the entry preview is a later page (SPEC-FINAL 13.4).
+ */
 export function EntriesPage({ eventId }: { eventId: string }) {
-  const [rows, setRows] = useState<Row[] | null>(null);
+  const me = useSignedInUser().id;
+  const desktop = useIsDesktop();
+  const view = useEntriesView(eventId, me);
+  const eventName = useEventName(eventId, useShellContext().gate);
+  // The desktop crumb: "District #3 · Tel Aviv / Entries".
+  usePageCrumb(eventName ? [eventName, 'Entries'] : null);
 
-  useEffect(() => {
-    void (async () => {
-      const [entries, matches, teams, users, rejected] = await Promise.all([
-        cachedRows('scouting_entries'),
-        cachedRows('matches'),
-        cachedRows('teams'),
-        cachedRows('users'),
-        rejectedRows(),
-      ]);
-      const rejectionById = new Map(
-        rejected.flatMap((s) => (s.rejection ? [[s.row_id, rejectionMessage(s.rejection)]] : [])),
-      );
-      const matchById = new Map(matches.map((m) => [String(m.id), m]));
-      const teamById = new Map(teams.map((t) => [String(t.id), t]));
-      const userById = new Map(users.map((u) => [String(u.id), u]));
-
-      setRows(
-        entries
-          .filter((e) => e.event_id === eventId && e.deleted_at == null)
-          .map((e) => ({
-            id: String(e.id),
-            match: formatCount(Number(matchById.get(String(e.match_id))?.number ?? NaN)),
-            team: `${formatCount(Number(teamById.get(String(e.team_id))?.number ?? NaN))} ${
-              teamById.get(String(e.team_id))?.name ?? ''
-            }`,
-            status: String(e.robot_status ?? ''),
-            scouter: String(userById.get(String(e.scouter_id))?.full_name ?? ''),
-            when: `${formatDate(String(e.client_updated_at))} ${formatTime(String(e.client_updated_at))}`,
-            rejection: rejectionById.get(String(e.id)) ?? null,
-          }))
-          .sort((a, b) => Number(a.match) - Number(b.match)),
-      );
-    })();
-  }, [eventId]);
-
-  if (rows === null) {
-    return (
-      <main className="mx-auto w-full max-w-6xl px-4 py-8 lg:px-8">
-        <PageHeader title={TITLE} description={DESCRIPTION} />
-        <div className="mt-6">
-          <Skeleton rows={6} label="Loading the entries" />
-        </div>
-      </main>
-    );
-  }
-
-  if (rows.length === 0) {
-    return (
-      <main className="mx-auto w-full max-w-6xl px-4 py-8 lg:px-8">
-        <PageHeader title={TITLE} description={DESCRIPTION} />
-        <StateMessage
-          variant="no-data"
-          title="No entries yet"
-          detail="Entries appear here as soon as a device syncs. Nothing is lost while a device is offline."
-          action={{ label: 'Scout a match', to: PATHS.scout }}
-        />
-      </main>
-    );
-  }
+  const chips: { key: EntriesFilter; label: string; count: number }[] = [
+    { key: 'all', label: 'All', count: view.counts.all },
+    { key: 'mine', label: 'Mine', count: view.counts.mine },
+    { key: 'waiting', label: desktop ? 'Waiting to send' : 'Waiting', count: view.counts.waiting },
+    { key: 'look', label: 'Needs a look', count: view.counts.look },
+  ];
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-8 lg:px-8">
-      <PageHeader title={TITLE} description={DESCRIPTION} />
-      <Table containerClassName="mt-6 max-h-[70vh] overflow-auto rounded-xl border border-border bg-surface">
-        <TableHeader sticky>
-          <TableRow>
-            <TableHead numeric>Match</TableHead>
-            <TableHead>Team</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Scouter</TableHead>
-            <TableHead>Recorded</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row) => (
-            <Fragment key={row.id}>
-              <TableRow className={row.rejection ? 'border-b-0' : undefined}>
-                <TableCell numeric>{row.match}</TableCell>
-                <TableCell dir="auto">{row.team}</TableCell>
-                <TableCell>
-                  {row.status && (
-                    <Badge tone={STATUS_TONE[row.status] ?? 'neutral'}>{row.status}</Badge>
-                  )}
-                </TableCell>
-                <TableCell dir="auto">{row.scouter}</TableCell>
-                <TableCell className="tabular-nums">{row.when}</TableCell>
-              </TableRow>
-              {row.rejection && (
-                <TableRow>
-                  <TableCell colSpan={5} className="pt-0">
-                    <Notice tone="warning" still>
-                      <span className="font-semibold">Not synced: </span>
-                      {row.rejection}
-                    </Notice>
-                  </TableCell>
-                </TableRow>
-              )}
-            </Fragment>
-          ))}
-        </TableBody>
-      </Table>
+    <main className="mx-auto w-full px-4 pb-8 pt-5 lg:px-8 lg:pt-6">
+      <header>
+        <h1 className="text-[22px] font-bold tracking-tight lg:text-[26px]">Entries</h1>
+        <p className="mt-0.5 text-[12.5px] text-muted lg:mt-1 lg:text-[13.5px]">
+          {desktop
+            ? 'Everything this device holds for the current competition, newest first.'
+            : 'On this device · newest first'}
+        </p>
+      </header>
+
+      {view.loading ? (
+        <div className="mt-5">
+          <Skeleton rows={6} label="Loading the entries" />
+        </div>
+      ) : view.total === 0 ? (
+        <EmptyState
+          icon={Search}
+          title="No entries yet"
+          detail="Entries appear here as soon as a device syncs. Nothing is lost while a device is offline."
+          className="mx-auto mt-6 max-w-md"
+          action={
+            <Link to={PATHS.scout} className={buttonVariants({ variant: 'primary' })}>
+              Scout a match
+            </Link>
+          }
+        />
+      ) : (
+        <>
+          <div className="mt-4 flex flex-col gap-2.5 lg:mb-3 lg:mt-[18px] lg:flex-row lg:items-center lg:gap-2.5">
+            <SearchField
+              value={view.query}
+              onChange={view.setQuery}
+              placeholder="Team, match or scouter"
+              label="Search entries"
+              className="lg:w-[300px]"
+            />
+            <div className="-my-2 overflow-x-auto py-2 lg:overflow-visible [&_button]:shrink-0 [&>[role=group]]:flex-nowrap lg:[&>[role=group]]:flex-wrap">
+              <FilterChips
+                label="Show entries"
+                options={chips}
+                value={view.filter}
+                onChange={view.setFilter}
+              />
+            </div>
+          </div>
+
+          {view.rows.length === 0 ? (
+            <StateMessage
+              variant="no-results"
+              action={{
+                label: 'Show all',
+                onClick: () => {
+                  view.setQuery('');
+                  view.setFilter('all');
+                },
+              }}
+            />
+          ) : desktop ? (
+            <EntriesTable rows={view.rows} />
+          ) : (
+            <ul className="mt-3 flex flex-col gap-2">
+              {view.rows.map((row) => (
+                <EntryCard key={row.id} row={row} />
+              ))}
+            </ul>
+          )}
+        </>
+      )}
     </main>
   );
 }
