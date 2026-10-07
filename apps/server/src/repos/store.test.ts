@@ -390,6 +390,61 @@ describe('supabaseStore seasons, events and the active context (task 1.18)', () 
       'connection refused',
     );
   });
+
+  it('countEntriesByScouterForSeason counts live entries per scouter, paging past 1000 rows', async () => {
+    const page = (scouter: string, n: number) =>
+      Array.from({ length: n }, () => ({ scouter_id: scouter }));
+    const { db, chains } = scriptedDb([
+      { data: [{ id: EVENT }], error: null },
+      { data: [...page('u1', 600), ...page('u2', 400)], error: null },
+      { data: page('u1', 5), error: null },
+    ]);
+    const out = await supabaseStore(db).countEntriesByScouterForSeason(SEASON);
+    expect(out).toEqual([
+      { scouter_id: 'u1', count: 605 },
+      { scouter_id: 'u2', count: 400 },
+    ]);
+    expect(chains).toHaveLength(3);
+    expect(chains[1]).toContainEqual(['in', 'event_id', [EVENT]]);
+    expect(chains[1]).toContainEqual(['is', 'deleted_at', null]);
+    expect(chains[1]).toContainEqual(['order', 'id']);
+    expect(chains[1]).toContainEqual(['range', 0, 999]);
+    expect(chains[2]).toContainEqual(['range', 1000, 1999]);
+  });
+
+  it('countEntriesByScouterForSeason sends the event ids in chunks, like every `in` filter', async () => {
+    const events = Array.from({ length: 101 }, (_, i) => ({ id: `ev-${i}` }));
+    const { db, chains } = scriptedDb([
+      { data: events, error: null },
+      { data: [{ scouter_id: 'u1' }, { scouter_id: 'u2' }], error: null },
+      { data: [{ scouter_id: 'u1' }], error: null },
+    ]);
+    const out = await supabaseStore(db).countEntriesByScouterForSeason(SEASON);
+    expect(out).toEqual([
+      { scouter_id: 'u1', count: 2 },
+      { scouter_id: 'u2', count: 1 },
+    ]);
+    expect(chains).toHaveLength(3);
+    const ids = (chain: unknown[][]) => chain.find((c) => c[0] === 'in')?.[2] as string[];
+    expect(ids(chains[1]!)).toHaveLength(100);
+    expect(ids(chains[2]!)).toEqual(['ev-100']);
+  });
+
+  it('countEntriesByScouterForSeason is empty for a season with no events, without reading entries', async () => {
+    const { db, chains } = scriptedDb([{ data: [], error: null }]);
+    expect(await supabaseStore(db).countEntriesByScouterForSeason(SEASON)).toEqual([]);
+    expect(chains).toHaveLength(1);
+  });
+
+  it('countEntriesByScouterForSeason throws on a database error instead of reading as "no entries"', async () => {
+    const { db } = scriptedDb([
+      { data: [{ id: EVENT }], error: null },
+      { data: null, error: { message: 'connection refused' } },
+    ]);
+    await expect(supabaseStore(db).countEntriesByScouterForSeason(SEASON)).rejects.toThrow(
+      'connection refused',
+    );
+  });
 });
 
 type Result = {
@@ -426,6 +481,7 @@ function scriptedDb(results: Result[]): { db: Db; chains: Call[][] } {
         'ilike',
         'order',
         'limit',
+        'range',
         'single',
         'maybeSingle',
       ]) {
@@ -689,5 +745,95 @@ describe('supabaseStore matches and match slots (task 1.19)', () => {
     await expect(supabaseStore(db).deleteMatch(MATCH)).rejects.toMatchObject({ code: '23503' });
     expect(chains[0]).toContainEqual(['delete']);
     expect(chains[0]).toContainEqual(['eq', 'id', MATCH]);
+  });
+});
+
+describe('supabaseStore hard deletes (RB.20, SPEC-FINAL 3.9)', () => {
+  const SEASON = '11111111-1111-4111-8111-111111111111';
+  const EVENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const EVENT_2 = 'aaaaaaaa-aaaa-4aaa-8aaa-000000000002';
+
+  /** Just `rpc`: what the two cascade deletes call. */
+  function rpcDb(error: { message: string; code?: string } | null) {
+    const calls: Call[] = [];
+    const db = {
+      rpc: (name: string, args: unknown) => {
+        calls.push(['rpc', name, args]);
+        return Promise.resolve({ data: null, error });
+      },
+    } as unknown as Db;
+    return { db, calls };
+  }
+
+  it('deleteEvent and deleteSeason each call their one cascade function', async () => {
+    const event = rpcDb(null);
+    await supabaseStore(event.db).deleteEvent(EVENT);
+    expect(event.calls).toEqual([['rpc', 'delete_event_cascade', { p_event_id: EVENT }]]);
+    const season = rpcDb(null);
+    await supabaseStore(season.db).deleteSeason(SEASON);
+    expect(season.calls).toEqual([['rpc', 'delete_season_cascade', { p_season_id: SEASON }]]);
+  });
+
+  it('a refused cascade throws with the Postgres code, never reads as deleted', async () => {
+    const { db } = rpcDb({ message: 'fk', code: '23503' });
+    await expect(supabaseStore(db).deleteEvent(EVENT)).rejects.toMatchObject({ code: '23503' });
+    await expect(supabaseStore(db).deleteSeason(SEASON)).rejects.toMatchObject({ code: '23503' });
+  });
+
+  it("countDeleteImpact('event') head-counts the event's matches and live entries", async () => {
+    const { db, chains } = scriptedDb([
+      { error: null, count: 3 },
+      { error: null, count: 17 },
+    ]);
+    expect(await supabaseStore(db).countDeleteImpact('event', EVENT)).toEqual({
+      events: 1,
+      matches: 3,
+      entries: 17,
+      forms: 0,
+    });
+    expect(chains[0]).toContainEqual(['from', 'matches']);
+    expect(chains[0]).toContainEqual(['in', 'event_id', [EVENT]]);
+    expect(chains[1]).toContainEqual(['from', 'scouting_entries']);
+    expect(chains[1]).toContainEqual(['select', 'id', { count: 'exact', head: true }]);
+    expect(chains[1]).toContainEqual(['is', 'deleted_at', null]);
+  });
+
+  it("countDeleteImpact('season') counts its events, their matches and entries, and its forms", async () => {
+    const { db, chains } = scriptedDb([
+      { data: [{ id: EVENT }, { id: EVENT_2 }], error: null },
+      { error: null, count: 2 },
+      { error: null, count: 40 },
+      { error: null, count: 300 },
+    ]);
+    expect(await supabaseStore(db).countDeleteImpact('season', SEASON)).toEqual({
+      events: 2,
+      matches: 40,
+      entries: 300,
+      forms: 2,
+    });
+    expect(chains[0]).toContainEqual(['eq', 'season_id', SEASON]);
+    expect(chains[1]).toContainEqual(['from', 'forms']);
+    expect(chains[2]).toContainEqual(['in', 'event_id', [EVENT, EVENT_2]]);
+  });
+
+  it('countDeleteImpact for a season with no events counts no matches or entries', async () => {
+    const { db, chains } = scriptedDb([
+      { data: [], error: null },
+      { error: null, count: 0 },
+    ]);
+    expect(await supabaseStore(db).countDeleteImpact('season', SEASON)).toEqual({
+      events: 0,
+      matches: 0,
+      entries: 0,
+      forms: 0,
+    });
+    expect(chains).toHaveLength(2);
+  });
+
+  it('countDeleteImpact throws on a database error instead of reading as "nothing to lose"', async () => {
+    const { db } = scriptedDb([{ error: { message: 'connection refused' } }]);
+    await expect(supabaseStore(db).countDeleteImpact('event', EVENT)).rejects.toThrow(
+      'connection refused',
+    );
   });
 });

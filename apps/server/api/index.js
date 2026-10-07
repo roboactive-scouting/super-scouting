@@ -70,6 +70,10 @@ var listUsersOutput = z.object({
   items: z.array(publicUser),
   next_cursor: z.string().nullable()
 });
+var countEntriesByScouterInput = z.object({ season_id: z.string().uuid() });
+var countEntriesByScouterOutput = z.object({
+  items: z.array(z.object({ scouter_id: z.string().uuid(), count: z.number().int().min(0) }))
+});
 
 // ../../packages/shared/src/api/auth.ts
 var loginInput = z2.object({
@@ -159,6 +163,25 @@ var listEventsInput = z3.object({
 var listEventsOutput = z3.object({
   items: z3.array(eventRow),
   next_cursor: z3.string().nullable()
+});
+var deleteSeasonInput = z3.object({
+  season_id: uuid,
+  dry_run: z3.boolean().default(false),
+  confirm_name: z3.string().optional()
+}).strict();
+var deleteEventInput = z3.object({
+  event_id: uuid,
+  dry_run: z3.boolean().default(false),
+  confirm_name: z3.string().optional()
+}).strict();
+var SWITCH_SEASON_FIRST = "Switch the active season first.";
+var SWITCH_EVENT_FIRST = "Switch the default event first.";
+var deleteImpactOutput = z3.object({
+  deleted: z3.boolean(),
+  events: z3.number().int(),
+  matches: z3.number().int(),
+  entries: z3.number().int(),
+  forms: z3.number().int()
 });
 
 // ../../packages/shared/src/api/matches.ts
@@ -297,15 +320,18 @@ var API = {
   enableUser: { input: enableUserInput, output: publicUser },
   renameUser: { input: renameUserInput, output: publicUser },
   listUsers: { input: listUsersInput, output: listUsersOutput },
+  countEntriesByScouter: { input: countEntriesByScouterInput, output: countEntriesByScouterOutput },
   getActiveContext: { input: getActiveContextInput, output: activeContext },
   createSeason: { input: createSeasonInput, output: seasonRow },
   updateSeason: { input: updateSeasonInput, output: seasonRow },
   setActiveSeason: { input: setActiveSeasonInput, output: activeContext },
+  deleteSeason: { input: deleteSeasonInput, output: deleteImpactOutput },
   listSeasons: { input: listSeasonsInput, output: listSeasonsOutput },
   createEvent: { input: createEventInput, output: eventRow },
   updateEvent: { input: updateEventInput, output: eventRow },
   reorderEvents: { input: reorderEventsInput, output: reorderEventsOutput },
   setActiveEvent: { input: setActiveEventInput, output: activeContext },
+  deleteEvent: { input: deleteEventInput, output: deleteImpactOutput },
   listEvents: { input: listEventsInput, output: listEventsOutput },
   createTeam: { input: createTeamInput, output: teamRow },
   updateTeam: { input: updateTeamInput, output: teamRow },
@@ -1097,6 +1123,26 @@ function supabaseStore(db) {
       if (countError) throw dbError(countError);
       return count ?? 0;
     },
+    // RB.13: live entries per scouter across the season, for the Users page. Two reads, no
+    // join, like countEntriesBySeason. PostgREST caps a read at max_rows = 1000
+    // (packages/db/supabase/config.toml), so the entries are paged, ordered by id.
+    async countEntriesByScouterForSeason(seasonId) {
+      const { data: events, error } = await db.from("events").select("id").eq("season_id", seasonId);
+      if (error) throw dbError(error);
+      const eventIds = (events ?? []).map((e) => e.id);
+      if (eventIds.length === 0) return [];
+      const PAGE = 1e3;
+      const counts = /* @__PURE__ */ new Map();
+      for (const chunk of chunks(eventIds)) {
+        for (let from = 0; ; from += PAGE) {
+          const { data, error: readError } = await db.from("scouting_entries").select("scouter_id").in("event_id", chunk).is("deleted_at", null).order("id").range(from, from + PAGE - 1);
+          if (readError) throw dbError(readError);
+          for (const r of data ?? []) counts.set(r.scouter_id, (counts.get(r.scouter_id) ?? 0) + 1);
+          if ((data ?? []).length < PAGE) break;
+        }
+      }
+      return [...counts].map(([scouter_id, count]) => ({ scouter_id, count }));
+    },
     // Task 1.19: teams, the roster, matches and their slots. Every method THROWS on a
     // database error, keeping Postgres's code (dbError), as the season and event methods
     // do: a swallowed blip would read as "no such team" or "empty roster".
@@ -1287,6 +1333,41 @@ function supabaseStore(db) {
       const { error } = await db.from("matches").delete().eq("id", id);
       if (error) throw dbError(error);
     },
+    // RB.20: the hard cascade deletes (SPEC-FINAL 3.9). One SQL function each (migration
+    // 20261007120000_delete_cascade.sql): the entries go first, then the parent, all or nothing.
+    async deleteSeason(id) {
+      const { error } = await db.rpc("delete_season_cascade", { p_season_id: id });
+      if (error) throw dbError(error);
+    },
+    async deleteEvent(id) {
+      const { error } = await db.rpc("delete_event_cascade", { p_event_id: id });
+      if (error) throw dbError(error);
+    },
+    // Head counts only, no rows read. Live entries: a soft-deleted one is already gone to
+    // the admin. The event ids go out in chunks, like every `in` filter here.
+    async countDeleteImpact(kind, id) {
+      let eventIds = [id];
+      let forms = 0;
+      if (kind === "season") {
+        const { data, error } = await db.from("events").select("id").eq("season_id", id);
+        if (error) throw dbError(error);
+        eventIds = (data ?? []).map((e) => e.id);
+        const counted = await db.from("forms").select("id", { count: "exact", head: true }).eq("season_id", id);
+        if (counted.error) throw dbError(counted.error);
+        forms = counted.count ?? 0;
+      }
+      let matches = 0;
+      let entries = 0;
+      for (const chunk of chunks(eventIds)) {
+        const m = await db.from("matches").select("id", { count: "exact", head: true }).in("event_id", chunk);
+        if (m.error) throw dbError(m.error);
+        const e = await db.from("scouting_entries").select("id", { count: "exact", head: true }).in("event_id", chunk).is("deleted_at", null);
+        if (e.error) throw dbError(e.error);
+        matches += m.count ?? 0;
+        entries += e.count ?? 0;
+      }
+      return { events: eventIds.length, matches, entries, forms };
+    },
     // The remaining methods start as loud stubs, exactly as the fake does. Each later
     // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
     // without these the file does not compile at all.
@@ -1313,11 +1394,8 @@ function supabaseStore(db) {
       "queryEntries",
       "entriesForScope",
       "listTeamEvents",
-      "deleteSeason",
-      "deleteEvent",
       "deleteFormCascade",
-      "deleteFormVersion",
-      "countDeleteImpact"
+      "deleteFormVersion"
     ])
     // The spread above only carries an index signature (its keys come from a plain
     // string[]), so TS can't see that it supplies the remaining named Store methods;
@@ -2270,6 +2348,48 @@ async function setEventRoster(caller, input, ctx) {
   return { items: (await ctx.store.getRoster(event.id)).map(toRosterRow) };
 }
 
+// src/core/commands/deleteCompetition.ts
+var TYPE_NAME_EXACTLY = "Type the name exactly to delete.";
+function refuseActive(message, details) {
+  return new AppError("conflict", message, details);
+}
+function assertConfirmed(typed, name) {
+  if (typed !== name) throw new AppError("invalid", TYPE_NAME_EXACTLY);
+}
+async function deleteSeason(caller, input, ctx) {
+  assertCan(caller, "delete_objects");
+  const parsed = parseInput(deleteSeasonInput, input);
+  const season = await seasonOrNotFound(ctx, parsed.season_id);
+  const active = await ctx.store.getActiveContext();
+  let holdsDefault = false;
+  if (active.active_event_id !== null) {
+    const event = await ctx.store.getEvent(active.active_event_id);
+    holdsDefault = event?.season_id === season.id;
+  }
+  if (active.active_season_id === season.id || holdsDefault) {
+    throw refuseActive(SWITCH_SEASON_FIRST, { season_id: season.id });
+  }
+  const impact = await ctx.store.countDeleteImpact("season", season.id);
+  if (parsed.dry_run) return { deleted: false, ...impact };
+  assertConfirmed(parsed.confirm_name, String(season.year));
+  await ctx.store.deleteSeason(season.id);
+  return { deleted: true, ...impact };
+}
+async function deleteEvent(caller, input, ctx) {
+  assertCan(caller, "delete_objects");
+  const parsed = parseInput(deleteEventInput, input);
+  const event = await eventOrNotFound(ctx, parsed.event_id);
+  const active = await ctx.store.getActiveContext();
+  if (active.active_event_id === event.id) {
+    throw refuseActive(SWITCH_EVENT_FIRST, { event_id: event.id });
+  }
+  const impact = await ctx.store.countDeleteImpact("event", event.id);
+  if (parsed.dry_run) return { deleted: false, ...impact };
+  assertConfirmed(parsed.confirm_name, event.name);
+  await ctx.store.deleteEvent(event.id);
+  return { deleted: true, ...impact };
+}
+
 // src/core/queries/context.ts
 async function getActiveContext(caller, input, ctx) {
   void caller;
@@ -2281,6 +2401,14 @@ async function getActiveContext(caller, input, ctx) {
     active_season_id: current.active_season_id,
     active_event_id: eventLives ? eventId : null
   };
+}
+
+// src/core/queries/countEntriesByScouter.ts
+async function countEntriesByScouter(caller, input, ctx) {
+  void caller;
+  const { season_id } = parseInput(countEntriesByScouterInput, input);
+  const rows = await ctx.store.countEntriesByScouterForSeason(season_id);
+  return { items: [...rows].sort((a, b) => b.count - a.count) };
 }
 
 // src/core/queries/listUsers.ts
@@ -2385,6 +2513,13 @@ var REGISTRY = {
     input: API.listUsers.input,
     output: API.listUsers.output,
     handler: listUsers
+  },
+  countEntriesByScouter: {
+    kind: "query",
+    description: "Entries per scouter across a season's events, live entries only. Feeds the Users page.",
+    input: API.countEntriesByScouter.input,
+    output: API.countEntriesByScouter.output,
+    handler: countEntriesByScouter
   },
   getActiveContext: {
     kind: "query",
@@ -2518,6 +2653,20 @@ var REGISTRY = {
     input: API.deleteMatch.input,
     output: API.deleteMatch.output,
     handler: deleteMatch
+  },
+  deleteSeason: {
+    kind: "command",
+    description: "Admin only: hard-delete a season with its events, matches, entries and forms, irreversibly. dry_run answers the counts and deletes nothing; the real delete needs confirm_name equal to the year. The active season is refused.",
+    input: API.deleteSeason.input,
+    output: API.deleteSeason.output,
+    handler: deleteSeason
+  },
+  deleteEvent: {
+    kind: "command",
+    description: "Admin only: hard-delete an event with its matches, entries, roster, pick lists and bracket, irreversibly. dry_run answers the counts and deletes nothing; the real delete needs confirm_name equal to the event name. The default event is refused.",
+    input: API.deleteEvent.input,
+    output: API.deleteEvent.output,
+    handler: deleteEvent
   },
   listMatches: {
     kind: "query",

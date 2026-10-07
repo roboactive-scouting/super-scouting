@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Entries — final, desktop</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../src/entries.css"><link rel="stylesheet" href="../src/a2.css">
+<style>body{background:var(--bg)}.desk.final{zoom:1;border-radius:0;box-shadow:none}</style>
+</head><body>
+<div class="desk final"><div data-desk-shell="entries" data-crumb="District #3 · Tel Aviv / <b>Entries</b>">
+  <div class="epad">
+    <div class="ehd"><div><h1>Entries</h1><p>Everything this device holds for the current competition, newest first.</p></div></div>
+    <div class="fbar">
+      <div class="srch"><i data-i="search"></i>Team, match or scouter</div>
+      <span class="fchip on">All <span class="c">14</span></span>
+      <span class="fchip">Mine <span class="c">4</span></span>
+      <span class="fchip">Waiting to send <span class="c">3</span></span>
+      <span class="fchip">Needs a look <span class="c">2</span></span>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th><span class="sa">Match ↓</span></th><th>Team</th><th>Status</th><th>Scouter</th><th>Time</th><th class="r">Points</th></tr></thead>
+      <tbody id="ta"></tbody>
+    </table></div>
+    <div class="key"><span><span class="wt"><i data-i="up"></i></span>waiting to send</span><span>— no points: the robot didn't play or was disabled</span></div>
+  </div>
+</div></div>
+<script src="../src/entries.js"></script><script src="../src/a2.js"></script>
+<script>
+document.getElementById('ta').innerHTML = E.rows({ n: 12 }).map(EF.tr).join('');
+E.icons();
+</script>
+<script src="../../shell.js"></script>
+</body></html>

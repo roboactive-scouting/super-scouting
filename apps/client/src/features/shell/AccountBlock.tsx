@@ -1,83 +1,59 @@
-import { ArrowLeftRight, KeyRound, LogOut } from 'lucide-react';
+import { ArrowRightLeft, Lock, LogOut } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import type { Role } from '@frc/shared';
-import { Badge } from '@/components/ui/badge';
-import { buttonVariants } from '@/components/ui/button';
-import { ROLE_LABEL } from '@/features/admin/fields';
+import { Initials } from '@/components/ui/initials';
+import { roleLabel } from '@/components/ui/tag';
 import { PATHS } from '@/lib/paths';
 import { cn } from '@/lib/utils';
+import type { Account } from './account';
 
-const ACTION = cn(
-  buttonVariants({ variant: 'ghost', size: 'block' }),
-  'justify-start gap-3 text-sm text-text-muted hover:text-text',
-);
+const ACTION =
+  'flex min-h-12 w-full items-center gap-3 rounded-lg px-2.5 text-start text-[0.90625rem] font-[550] text-rail-ink hover:bg-rail-raised hover:text-surface';
+const ICON = 'size-[1.1875rem] shrink-0';
 
 /**
- * Who is signed in, and the three things they can do about it. Moved from the old footer
- * (SPEC-FINAL 7.3, 7.5): Switch scouter only while the session is live, Change password
- * only with a token (it needs the server), Sign out always.
+ * The phone menu's foot (THEME "Phone menu"): who is signed in, the three account actions
+ * under the same conditions as the desktop account menu, then the version and the team.
  */
 export function AccountBlock({
-  name,
-  role,
-  canSwitch,
-  canChangePassword,
-  onSignOut,
-  collapsed = false,
+  account,
+  version,
+  onNavigate,
 }: {
-  name: string;
-  role: Role;
-  canSwitch: boolean;
-  canChangePassword: boolean;
-  onSignOut: () => void;
-  collapsed?: boolean;
+  account: Account;
+  version: string;
+  onNavigate: () => void;
 }) {
-  const label = (text: string) => (collapsed ? <span className="sr-only">{text}</span> : text);
   return (
-    <div className="flex flex-col gap-0.5">
-      <p
-        className={cn(
-          'flex flex-wrap items-center gap-2 px-3 pb-2 text-sm text-text-muted',
-          collapsed && 'sr-only',
-        )}
-      >
-        <span>
-          Signed in as{' '}
-          <span dir="auto" className="font-medium text-text">
-            {name}
-          </span>
-        </span>
-        <Badge>{ROLE_LABEL[role]}</Badge>
-      </p>
-      {canSwitch && (
-        <Link
-          to={PATHS.switchScouter}
-          className={ACTION}
-          title={collapsed ? 'Switch scouter' : undefined}
-        >
-          <ArrowLeftRight aria-hidden="true" />
-          {label('Switch scouter')}
+    <div className="mt-auto border-t border-rail-line pt-3">
+      <div className="flex items-center gap-2.5 px-2.5 pt-1 pb-2">
+        <Initials name={account.name} tone="dark" size={40} />
+        <div className="min-w-0 leading-tight">
+          <p dir="auto" className="truncate text-sm font-[650] text-surface">
+            {account.name}
+          </p>
+          <p className="truncate text-xs text-rail-muted">{roleLabel(account.role)}</p>
+        </div>
+      </div>
+      {account.canSwitch && (
+        <Link to={PATHS.switchScouter} className={ACTION} onClick={onNavigate}>
+          <ArrowRightLeft aria-hidden="true" strokeWidth={1.8} className={ICON} />
+          Switch scouter
         </Link>
       )}
-      {canChangePassword && (
-        <Link
-          to={PATHS.changePassword}
-          className={ACTION}
-          title={collapsed ? 'Change password' : undefined}
-        >
-          <KeyRound aria-hidden="true" />
-          {label('Change password')}
+      {account.canChangePassword && (
+        <Link to={PATHS.changePassword} className={ACTION} onClick={onNavigate}>
+          <Lock aria-hidden="true" strokeWidth={1.8} className={ICON} />
+          Change password
         </Link>
       )}
-      <button
-        type="button"
-        className={ACTION}
-        title={collapsed ? 'Sign out' : undefined}
-        onClick={onSignOut}
-      >
-        <LogOut aria-hidden="true" />
-        {label('Sign out')}
+      <button type="button" className={ACTION} onClick={account.onSignOut}>
+        <LogOut aria-hidden="true" strokeWidth={1.8} className={cn(ICON, '-scale-x-100')} />
+        Sign out
       </button>
+      <p className="flex justify-between px-2.5 pt-2 text-[0.71875rem] text-rail-muted">
+        <span>version {version}</span>
+        <span>Team 2096</span>
+      </p>
     </div>
   );
 }

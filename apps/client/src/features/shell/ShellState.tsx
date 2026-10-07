@@ -20,13 +20,13 @@ export function ShellState({
   return (
     <div
       aria-busy={busy || undefined}
-      className="enter-fade mx-auto flex max-w-md flex-col items-center px-4 py-16 text-center"
+      className="motion-safe:animate-fade-in mx-auto flex max-w-md flex-col items-center px-4 py-16 text-center"
     >
       <span
         aria-hidden="true"
-        className="flex size-12 items-center justify-center rounded-full border border-border bg-surface"
+        className="flex size-12 items-center justify-center rounded-full border border-line bg-surface"
       >
-        <Glyph className="size-6 text-text-muted" strokeWidth={1.5} />
+        <Glyph className="size-6 text-muted" strokeWidth={1.5} />
       </span>
       <h1 className="mt-5 text-lg font-semibold" dir="auto">
         {title}

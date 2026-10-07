@@ -129,3 +129,12 @@ export const listUsersOutput = z.object({
   next_cursor: z.string().nullable(),
 });
 export type ListUsersOutput = z.infer<typeof listUsersOutput>;
+
+/** Entries per scouter across one season's events: feeds the Users page (RB.13). */
+export const countEntriesByScouterInput = z.object({ season_id: z.string().uuid() });
+export type CountEntriesByScouterInput = z.input<typeof countEntriesByScouterInput>;
+
+export const countEntriesByScouterOutput = z.object({
+  items: z.array(z.object({ scouter_id: z.string().uuid(), count: z.number().int().min(0) })),
+});
+export type CountEntriesByScouterOutput = z.infer<typeof countEntriesByScouterOutput>;

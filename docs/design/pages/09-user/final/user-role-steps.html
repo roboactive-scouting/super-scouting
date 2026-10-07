@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>User detail — changing the role</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../07-manage/src/manage.css"><link rel="stylesheet" href="../../08-users/src/users.css"><link rel="stylesheet" href="../../08-users/src/b.css"><link rel="stylesheet" href="../src/ud.css">
+<style>.steps3 .stepcard .sec{min-height:178px} .err2{margin-top:10px}</style>
+</head><body>
+<div class="canvas">
+  <div class="canvas-head"><b>User detail — changing the role</b><span>No Save button: picking a role saves it at once. Promoting to Admin works the same way. The change applies from the person's next request.</span></div>
+  <div class="steps3" style="flex-wrap:wrap;row-gap:22px">
+    <div class="stepcard"><div class="lab2">1 · Before</div><div id="s1"></div></div>
+    <div class="stepcard"><div class="lab2">2 · Picked "Scout lead": saving (the other choices wait)</div><div id="s2"></div></div>
+    <div class="stepcard"><div class="lab2">3 · Saved: a confirmation line</div><div id="s3"></div></div>
+    <div class="stepcard"><div class="lab2">4 · Refused: the server's sentence, the role stays as it was</div><div id="s4"></div></div>
+    <div class="stepcard"><div class="lab2">5 · Your own account: a warning before you pick</div><div id="s5"></div></div>
+  </div>
+</div>
+<script src="../../08-users/src/users.js"></script><script src="../src/common.js"></script>
+<script>
+document.getElementById('s1').innerHTML = UD.roleSec({});
+document.getElementById('s2').innerHTML = UD.roleSec({ on: '', busy: 'lead' });
+document.getElementById('s3').innerHTML = UD.roleSec({ on: 'lead', saved: 1 });
+document.getElementById('s4').innerHTML = UD.roleSec({ on: 'admin' }).replace(/<\/div>$/, '<div class="msg err err2" style="display:flex;gap:8px;align-items:center;border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:0 8px 8px 0;padding:9px 12px;font-size:13.5px;font-weight:600">' + '<svg viewBox="0 0 24 24" style="width:16px;height:16px;color:var(--warn)"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>' + 'The last enabled admin must stay an admin.</div></div>');
+document.getElementById('s5').innerHTML = UD.roleSec({ self: 1, on: 'admin' });
+U.icons();
+</script>
+</body></html>

@@ -1,5 +1,6 @@
 import { can, isAck, type Operation, type PushResult, type Role } from '@frc/shared';
 import { session } from '@/auth/session';
+import { notifyChanged } from './changes';
 import { db, getMeta, setMeta, type SyncStateRecord } from './db';
 
 /** The detail syncPush gives an operation that failed for a reason not the client's. */
@@ -87,6 +88,7 @@ export async function enqueue(op: Operation, origin: 'local' | 'qr' = 'local'): 
       origin,
     });
   });
+  notifyChanged('outbox');
 }
 
 /**
@@ -119,6 +121,7 @@ export async function retryRejected(rowId: string): Promise<void> {
     if (state?.rejection == null) return;
     await db.syncState.put({ ...state, rejection: null });
   });
+  notifyChanged('outbox');
 }
 
 /** `invalid` + exactly this detail is a transient server failure: retried, never parked. */
@@ -185,4 +188,5 @@ export async function ackResults(results: PushResult[]): Promise<void> {
       });
     }
   });
+  notifyChanged('outbox');
 }

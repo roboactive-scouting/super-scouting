@@ -587,6 +587,22 @@ export function makeFakeContext(): FakeContext {
     },
   } as unknown as FakeContext;
 
+  // RB.20: what delete_event_cascade leaves behind (Store.deleteEvent, and each event of
+  // Store.deleteSeason). Entries first, then the event with everything that cascades from it.
+  const dropEvent = (id: string): void => {
+    const matchIds = new Set(
+      [...rows.matches.values()].filter((m) => m.event_id === id).map((m) => m.id),
+    );
+    for (const [k, row] of rows.scouting_entries) {
+      if (row.event_id === id) rows.scouting_entries.delete(k);
+    }
+    for (const matchId of matchIds) rows.matches.delete(matchId);
+    for (const [k, row] of matchTeams) if (matchIds.has(row.match_id)) matchTeams.delete(k);
+    for (const [k, row] of eventTeams) if (row.event_id === id) eventTeams.delete(k);
+    events.delete(id);
+    if (activeContext.active_event_id === id) activeContext.active_event_id = null;
+  };
+
   // Typed separately, rather than inline in the Object.assign below: Object.assign's
   // generic inference does not flow FakeContext's `store: Store` field back in as a
   // contextual type for a nested object literal, which left every method parameter
@@ -787,6 +803,19 @@ export function makeFakeContext(): FakeContext {
     async countEntriesBySeason(seasonId) {
       return fake.entryCountsBySeason.get(seasonId) ?? 0;
     },
+    // RB.13: live entries per scouter over the season's events, read from `rows` and `events`.
+    async countEntriesByScouterForSeason(seasonId) {
+      const eventIds = new Set(
+        [...events.values()].filter((e) => e.season_id === seasonId).map((e) => e.id),
+      );
+      const counts = new Map<string, number>();
+      for (const row of rows.scouting_entries.values()) {
+        if (!eventIds.has(row.event_id as string) || row.deleted_at != null) continue;
+        const scouter = row.scouter_id as string;
+        counts.set(scouter, (counts.get(scouter) ?? 0) + 1);
+      }
+      return [...counts].map(([scouter_id, count]) => ({ scouter_id, count }));
+    },
     // Task 1.19: teams, the roster, matches and their slots. Every write checks its
     // columns and raises Postgres's own codes, like the season and event writes.
     async getTeam(id) {
@@ -960,6 +989,36 @@ export function makeFakeContext(): FakeContext {
         if (row.match_id === id) matchTeams.delete(k);
       }
     },
+    // RB.20: the two cascade functions (see dropEvent). A season's forms cascade with it;
+    // the singleton's ids are ON DELETE SET NULL.
+    async deleteEvent(id) {
+      dropEvent(id);
+    },
+    async deleteSeason(id) {
+      for (const event of [...events.values()]) {
+        if (event.season_id === id) dropEvent(event.id);
+      }
+      for (const [k, form] of fake.forms) if (form.season_id === id) fake.forms.delete(k);
+      seasons.delete(id);
+      if (activeContext.active_season_id === id) activeContext.active_season_id = null;
+    },
+    async countDeleteImpact(kind, id) {
+      const eventIds = new Set(
+        kind === 'event'
+          ? [id]
+          : [...events.values()].filter((e) => e.season_id === id).map((e) => e.id),
+      );
+      const inScope = (row: Record<string, unknown>) => eventIds.has(row.event_id as string);
+      return {
+        events: eventIds.size,
+        matches: [...rows.matches.values()].filter(inScope).length,
+        entries: [...rows.scouting_entries.values()].filter(
+          (row) => inScope(row) && row.deleted_at == null,
+        ).length,
+        forms:
+          kind === 'season' ? [...fake.forms.values()].filter((f) => f.season_id === id).length : 0,
+      };
+    },
     // Everything else on the Store starts as a loud stub; each later task
     // replaces the two or three entries it needs.
     ...stubsFor([
@@ -985,11 +1044,8 @@ export function makeFakeContext(): FakeContext {
       'queryEntries',
       'entriesForScope',
       'listTeamEvents',
-      'deleteSeason',
-      'deleteEvent',
       'deleteFormCascade',
       'deleteFormVersion',
-      'countDeleteImpact',
     ]),
   } as Store;
 

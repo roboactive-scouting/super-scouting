@@ -23,7 +23,7 @@ export function FieldImage({
     return (
       <Notice role="alert" tone="danger" still>
         <p className="font-semibold">This season's game image is missing.</p>
-        <p className="mt-1 text-text-muted">
+        <p className="mt-1 text-muted">
           The season points at <code>{path}</code>, which is not in this build. Commit it and
           redeploy the client. Field-position and cycle-path fields cannot be recorded until then.
         </p>

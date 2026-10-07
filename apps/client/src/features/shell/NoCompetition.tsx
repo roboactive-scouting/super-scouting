@@ -16,7 +16,7 @@ import { PATHS } from '@/lib/paths';
 export function NoCompetition({ canSetUp }: { canSetUp: boolean }) {
   return (
     <ShellState glyph={CalendarX2} title="No competition is set up yet">
-      <p className="mt-2 text-sm text-text-muted" dir="auto">
+      <p className="mt-2 text-sm text-muted" dir="auto">
         An admin sets up the season and competition. This device loads it the next time it is
         online.
       </p>

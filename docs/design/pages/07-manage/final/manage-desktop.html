@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Manage — final, desktop, Matches</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../src/manage.css"><link rel="stylesheet" href="../src/d.css">
+<style>body{background:var(--bg)}.desk.final{zoom:1;border-radius:0;box-shadow:none}</style>
+</head><body>
+<div class="desk final"><div data-desk-shell="manage" data-crumb="Admin / <b>Manage</b>">
+      <div class="mpad">
+        <div class="dhd"><div><div class="mh1">Season and event management</div><div class="msub">Working on <b style="color:var(--ink)">District #3 · Tel Aviv</b> (default) · 2026</div></div><span class="sp"></span><div class="sel" style="min-width:240px">District #3 · Tel Aviv<i data-i="chev"></i></div></div>
+        <div class="tabsL" style="margin-top:14px"><span>Competitions</span><span>Teams &amp; roster <span class="c">22</span></span><span class="on">Matches <span class="c">10</span></span></div>
+        <div class="card" style="margin-top:12px;overflow:visible;position:relative">
+          <div class="toolrow"><div class="sel" style="min-width:150px;height:40px">Qualification<i data-i="chev"></i></div>
+            <div class="f" style="flex-direction:row;align-items:center;gap:8px"><div class="in mono" style="width:80px;height:40px">72</div><span class="btn sm primary">Create matches</span></div>
+            <div class="f" style="flex-direction:row;align-items:center;gap:8px"><div class="in mono ph" style="width:80px;height:40px">73</div><span class="btn sm">Create match</span></div>
+            </div>
+          <div class="vbar" style="border-top:0;border-bottom:1px solid var(--line-2)"><span class="iss"><i data-i="alert"></i>Q7 and Q10 are missing robots</span><span class="iss"><i data-i="alert"></i>7845 is not on this event's roster</span><span class="link">Add 7845 to the roster</span><span class="sp"></span><span style="color:var(--muted)">Type a number · Tab moves on · saved per cell</span></div>
+          <div class="lgrid" id="dg"></div>
+        </div>
+      </div>
+    </div></div>
+<script src="../src/manage.js"></script>
+<script>
+let g = `<span></span><span class="h r">RED 1</span><span class="h r">RED 2</span><span class="h r">RED 3</span><span class="h b">BLUE 1</span><span class="h b">BLUE 2</span><span class="h b">BLUE 3</span><span></span>`;
+M.Q.forEach((r, i) => {
+  g += `<span class="mn">${M.label(i)}</span>`;
+  r.forEach((n, j) => {
+    if (i === 9 && j === 2) g += `<span style="position:relative"><span class="ct focus"><b class="num">60<span class="caret"></span></b><small>2 matches</small></span><div class="ac2"><div class="on"><b>6030</b>Rogue Gears</div><div><b>6230</b>Team Koi</div></div></span>`;
+    else g += M.cellTyped(n).replace('is not', '');
+  });
+  g += `<span class="acts2"><span class="ibtn">${M.svg('pen')}</span><span class="ibtn">${M.svg('trash')}</span></span>`;
+});
+document.getElementById('dg').innerHTML = g.replace(/<span class="ct bad"><b class="num">7845<\/b><small>[^<]*<\/small>/, '<span class="ct bad"><b class="num">7845</b><small>Not on roster</small>');
+M.icons();
+</script>
+<script src="../../shell.js"></script>
+</body></html>

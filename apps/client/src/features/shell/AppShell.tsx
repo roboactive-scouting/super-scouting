@@ -6,7 +6,7 @@ import {
   useSyncExternalStore,
   type TouchEvent,
 } from 'react';
-import { Link, matchPath, Navigate, Outlet, useLocation, useMatches } from 'react-router-dom';
+import { matchPath, Navigate, Outlet, useLocation, useMatches } from 'react-router-dom';
 import { DISABLED, OFFLINE_SIGNED_IN_LINE, SERVER_UNREACHABLE_LINE } from '@/auth/messages';
 import { PASSWORD_CHANGED_LINE, ReconnectPrompt } from '@/auth/ReconnectPrompt';
 import { exchangePendingCredential, installReconnect, reconnectPrompt } from '@/auth/reconnect';
@@ -34,9 +34,8 @@ import { CloudDownload, CloudOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Notice } from '@/components/ui/notice';
 import { useIsDesktop } from '@/lib/useMediaQuery';
-import { AccountBlock } from './AccountBlock';
-import { ConnectionIndicator } from './ConnectionIndicator';
-import { bottomBarItems, navItemsFor, type NavAudience } from './nav';
+import type { Account } from './account';
+import type { NavAudience } from './nav';
 import { ShellLayout } from './ShellLayout';
 import { ShellState } from './ShellState';
 import { NoCompetition } from './NoCompetition';
@@ -87,7 +86,7 @@ function HydrationGate({
   if (state === 'loading') {
     return (
       <ShellState glyph={CloudDownload} title="Loading the competition onto this device" busy>
-        <p className="mt-2 text-sm text-text-muted" dir="auto">
+        <p className="mt-2 text-sm text-muted" dir="auto">
           This happens once, and takes a few seconds. The matches and robots appear as soon as it is
           done.
         </p>
@@ -100,7 +99,7 @@ function HydrationGate({
   // server did not answer, so nobody goes hunting for Wi-Fi that will not help.
   return (
     <ShellState glyph={CloudOff} title="This device has not loaded the competition yet">
-      <p className="mt-2 text-sm text-text-muted">
+      <p className="mt-2 text-sm text-muted">
         {online
           ? SERVER_UNREACHABLE_LINE
           : 'An internet connection is required once, to load the event and its form. After that the app works with no network at all.'}
@@ -447,6 +446,13 @@ export function AppShell() {
     expired: current.expired,
     override: override !== null,
   };
+  const account: Account = {
+    name: current.user.full_name,
+    role: current.user.role,
+    canSwitch: !current.expired,
+    canChangePassword: current.token !== null,
+    onSignOut: () => void session.signOut(),
+  };
 
   const notices = (
     <>
@@ -509,45 +515,19 @@ export function AppShell() {
     </>
   );
 
-  const hasFooter =
-    (gate.eventId !== null && !current.expired && !onHome) || updateIsReady || !onHome;
-  const footer = hasFooter && (
-    <>
-      {/* SPEC-FINAL 6.3: a link to the page, naming the context — never the switcher. */}
-      {gate.eventId !== null && !current.expired && !onHome && (
-        <Link
-          className="tap-target state-layer inline-flex items-center rounded-lg px-2"
-          to={PATHS.home}
-        >
-          <span dir="auto">{override ? `Looking at ${lookingAt}` : `Working on ${workingOn}`}</span>
-          &nbsp;· Change
-        </Link>
-      )}
-      {/* SPEC-FINAL 9.1: said, never acted on — no reload button, because there is
-          nothing safe for it to do mid-match. */}
-      {updateIsReady && <span>{UPDATE_READY_LINE}</span>}
-      {!onHome && <span>version {clientConfig().appVersion}</span>}
-    </>
-  );
+  // The designs carry no footer: the version lives on Home, in the phone menu and on the
+  // sign-in frame. Only the quiet update hint remains, and only when an update is ready.
+  // SPEC-FINAL 9.1: said, never acted on — no reload button, because there is nothing
+  // safe for it to do mid-match.
+  const footer = updateIsReady && <span>{UPDATE_READY_LINE}</span>;
 
   return (
     <ShellLayout
       desktop={desktop}
-      items={navItemsFor(who)}
-      bottomItems={bottomBarItems(who)}
       hideBottomBar={onEntryRoute}
       who={who}
-      status={(collapsed) => <ConnectionIndicator compact={collapsed} />}
-      account={(collapsed) => (
-        <AccountBlock
-          name={current.user.full_name}
-          role={current.user.role}
-          canSwitch={!current.expired}
-          canChangePassword={current.token !== null}
-          onSignOut={() => void session.signOut()}
-          collapsed={collapsed}
-        />
-      )}
+      account={account}
+      version={clientConfig().appVersion}
       notices={notices}
       footer={footer}
       onTouchStart={onTouchStart}
@@ -558,7 +538,7 @@ export function AppShell() {
       {showPage ? (
         <Outlet context={context} />
       ) : moving ? (
-        <p className="p-8 text-center text-text-muted">Moving to the new default competition…</p>
+        <p className="p-8 text-center text-muted">Moving to the new default competition…</p>
       ) : (
         <HydrationGate
           state={gate.state}

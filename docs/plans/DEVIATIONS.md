@@ -4231,3 +4231,510 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
 **What I did instead:** the gate is now `!online && seasons === null`: offline before the first successful load shows the message, makes no request and loads by itself on `online`. Once loaded, going offline keeps the page and every open form; a muted line "No connection — changes cannot be saved until it returns." shows at the top, the panels' own offline behaviour (switch actions disabled, a failed write in the unreachable line) covers the rest, and the page makes no new request while offline. The events reset moved to its own effect (keyed on the season, not on `online`) so a blink does not blank events already on screen. A new ManagePage test types into the New season form, goes offline and back, and checks the form and its value stay.
 
 **Risk:** a write attempted offline waits up to `ADMIN_CALL_TIMEOUT_MS` (15 s) before it reports the unreachable line.
+
+## Spec v0.52 — the previous design's styling superseded
+
+**Plan said:** on 2026-10-06 (spec v0.52, SPEC-FINAL v1.5, IMPLEMENTATION-PLAN v1.3) every styling decision of the previous design (colour values, palettes, brand-yellow and brand-plate rules, token values, named fonts, reference apps, motion tokens and the `frontend-design` "craft not identity" rule) was removed from the spec and the plans ahead of a from-scratch redesign. Structural decisions stay. This log is append-only (BUILD-CONTEXT §11), so the earlier entries are not edited; this entry marks what in them no longer binds.
+
+**What was wrong:** these earlier entries record styling that is now superseded and must not be used as a reference for the new design:
+- In full: "Task 0.4 — Prettier lowercases CSS hex, and the token test asserts uppercase"; "Task 0.4 — `[RAISED BY ME]` `--border` fails the SPEC-FINAL 17.7 contrast floor in the dark theme"; "Task 0.4 — what the `frontend-design` skill was and was not used for"; "Task 0.5 — `frontend-design` again, and what was deliberately not added"; "Task 1.17 — Skeleton has no shimmer by default" (its reduced-motion behaviour stands); "Tasks R.8 and R.9 — layout fixes found in the screenshots" (the `hasFooter` rule stands); "Task R.12 — the Users page layout".
+- Only the styling clause: "Task 0.5 — the build output list differs from the plan's prediction" (the manifest's `#0A0A0B` colours); "Task B — the robot picker is a native `<select>`" (the brand-plate button style); "Task D — submit returns to the scout page and says what was saved" (the `--danger` border, the colour reasoning, the entrance-animation note and the `frontend-design` sentence); "Task 1.17 — ConfirmDialog is not a native `<dialog>`" (the `--danger` outline); "Task 1.17 — extra files" (the button contrast table). The behaviour in each of these stands.
+
+**What I did instead:** appended this entry rather than editing the old ones. `docs/plans/REDESIGN-PLAN.md` (R.1–R.14, executed 2026-10-01) is deleted; it stays in git history, and the shared component system it built is listed in IMPLEMENTATION-PLAN's "The redesign system" table and BUILD-CONTEXT §12. IMPLEMENTATION-PLAN's finished tasks (0.1–1.23) are left as written under a banner saying their code samples show the old look. The code deliberately keeps the old look until the new theme is built, so `develop` stays usable: `apps/client/src/styles/tokens.css`, `index.css`, `motion.css`, `lib/motion.ts`, the component classes and `tokens.test.ts`, and the `docs/brand/` images, which have `#0A0A0B` baked in. They change in the redesign build tasks.
+
+**Risk:** until those build tasks land, the running app and its tests still assert the old palette and motion, and a reader can mistake them for the current design. The banner and this entry are the guard; the new look comes only from `docs/design/THEME.md` once it exists.
+
+## Task RB.1 — Theme layer: D1 tokens, fonts, outdoor values
+
+**Plan said:** replace `tokens.css` with `theme.css`, replace the head of `index.css` and keep its `@layer` blocks, change `.brand-plate` to `background: var(--rail)`.
+
+**What was wrong:** `index.css` had no `@layer base` block — `html`, `body` and the focus rule were unlayered — and the plan's head replacement defines them in `@layer base`. The old `--shade-worst/mid/best` and `--font-hebrew` had no users, and `[data-theme='outdoor'] { color-scheme: light }` is redundant once the light theme is the default.
+
+**What I did instead:**
+- Followed the plan's `@theme inline` head and `@layer base` verbatim, and added `margin: 0` and `-webkit-text-size-adjust: 100%` to the base `body` (both were in the old unlayered `body` rule) so nothing regresses. The old `:where(button, a, …):focus-visible` rule became the plan's plain `:focus-visible` in the base layer.
+- Dropped `--shade-*`, `--font-hebrew` and the outdoor `color-scheme` override with `tokens.css` (grep found no users).
+- `.num` is declared in `@layer components` next to the existing component classes.
+- `.brand-plate` is now `background: var(--rail)` with `color: var(--brand)`, which aliases to `--accent`: about 3.3:1 on the rail, under the 4.5:1 text floor. It is a legacy class that RB.18 deletes, so I did not add a new colour for it.
+- The contrast and theme tests are the plan's, reformatted by Prettier.
+- Review fix: the `:focus-visible` rule stays unlayered (as before), not in `@layer base` as the plan has it, so a layered or unlayered outline utility cannot silently override the focus ring.
+
+**Risk:** until RB.18 deletes the aliases, old screens show brand text as green on the dark rail at 3.3:1, and `--status-disabled` / `--status-broke-down` / `--danger` all resolve to `--warn`, so those three states look alike on the old screens. `--radius-tag/control/card` are not emitted into the built CSS until a `rounded-tag` / `rounded-control` / `rounded-card` utility is used (Tailwind drops unused theme variables); `--font-ui` and `--font-num` are emitted today because `--font-sans` references `--font-ui`.
+
+## Task RB.4 — Device data: change bus, useDeviceQuery, station, derivations
+
+**Plan said:** `useDeviceQuery` carries `// eslint-disable-next-line react-hooks/exhaustive-deps` above its `deps` array; notify `'rows'` after a pull is applied and `'outbox'` in `enqueue`, `ackResults` and `retryRejected`.
+
+**What was wrong:** the repo's ESLint config does not load `eslint-plugin-react-hooks`, so the disable comment fails lint with "Definition for rule 'react-hooks/exhaustive-deps' was not found".
+
+**What I did instead:**
+- Dropped the disable comment; the hook is otherwise verbatim from the plan.
+- `notifyChanged('rows')` runs after each pulled page is written (not once at the end), so a pull that fails midway still tells the hooks about the pages it did apply. `wipeEvent` also notifies `'rows'`. `notifyChanged('outbox')` sits after the transaction in `enqueue`, not inside it, so a listener never reads before the commit.
+- Added `data/syncStatus.test.ts` and `data/changes.test.ts` (the plan lists tests only for the derivations, hook and station).
+
+**Risk:** `beginSync`/`endSync` now notify `'meta'` on every sync start and end, so every `useDeviceQuery` that lists `'meta'` re-reads twice per sync (about every 60 s). Cheap local reads, but a heavy query should list only the kinds it needs.
+
+## Task RB.13 — Server: countEntriesByScouter
+
+**Plan said:** the ownership row lists the shared schema, the use case and its test, `context.ts`, `store.ts`, the fake, the registry and `api/index.js`.
+
+**What was wrong:** three existing tests enumerate every use case by name (`apps/server/src/routes/rpc.test.ts`, `packages/shared/src/api/index.test.ts`) or script the Supabase chain (`apps/server/src/repos/store.test.ts`, whose `scriptedDb` had no `range` method). They fail the moment a use case is added, and the plan's row does not list them.
+
+**What I did instead:**
+- Added `'countEntriesByScouter'` to the two name lists, and `'range'` to `scriptedDb`'s chain methods, in those three test files.
+- Added three store tests (paging past 1000 rows, no events, database error) to `store.test.ts`, and four more use-case tests beside the plan's one (ordering, empty season, every caller kind, bad season id).
+- The shared schemas also export the `CountEntriesByScouterInput` / `CountEntriesByScouterOutput` types, as `listUsers` does.
+
+**Risk:** none known. SPEC-FINAL Appendix C does not list `countEntriesByScouter` yet; the orchestrator decides whether to add it there.
+
+## Task RB.5 — E2E harness: fixture size, CORS headers and settling
+
+**Plan said:** the fixture has "10 qualification matches with the line-ups of manage.js" and "14 entries of entries.js"; the mock's CORS headers are `access-control-allow-headers: *`; `shoot` takes the screenshot straight after the resize; `playwright.config.ts` has no `outputDir`.
+
+**What was wrong:**
+- The 14 entries sit on matches Q35 to Q38 (and the Entry tests scout Q39), so a 10-match schedule cannot hold them.
+- The client sends `Authorization` on every call. In a CORS preflight the wildcard `*` does not cover `Authorization`, so Chrome would refuse the real request; the headers must be named.
+- Playwright's default `test-results/` lands in `apps/client/`, but the plan's `e2e/.gitignore` only ignores `e2e/test-results/`. `shoot` also paints straight after `setViewportSize`, before the layout and fonts settle, and the app's entrance animations can be caught mid-way.
+
+**What I did instead:**
+- The schedule has 40 qualification matches: Q1 to Q10 are manage.js's line-ups verbatim (including the two with empty slots and Q8's off-roster 7845); Q35 to Q40 are written so the 14 entries match their stations, with 3316 at Blue 2 of Q37 deliberately NOT in that line-up (the "Not in line-up" flag); Q11 to Q34 rotate through the roster.
+- Fixture answers may be a function of the call's input (`listUsers` honours `include_disabled`, `listTeams` the search `query`, `listEvents`/`listEventRoster`/`listMatches`/`countEntriesByScouter` their event or season). The mock calls it, then validates with the shared output schema.
+- Entries carry `data` and the form has `scoring_rules`, chosen so the points add up to the Entries mock's figures; the pulled users carry a cost-4 bcrypt hash of the fixture password, so an offline sign-in works in a test.
+- CORS headers name `authorization, content-type` and the methods; `outputDir: './e2e/test-results'`; `webServer.timeout: 180_000` (the build runs inside it); `shoot` waits for fonts and two animation frames after each resize and screenshots with `animations: 'disabled'`; the screenshot path is resolved from the file, not the working directory.
+- Added `e2e/tsconfig.json` (type-check only: `tsc --noEmit -p e2e/tsconfig.json`). It is not a project reference, so `tsc -b` in `pnpm build` ignores e2e, and ESLint (`eslint src`) and vitest (`src/**` only) never see it.
+
+**Risk:** a fixed schedule of 40 matches differs from the Manage mock's 10, so the Manage page's "N matches missing a line-up" figure is 2 of 40, not 2 of 10. Older seasons reuse 2026's image path because only that file is committed. Axe results on the old screens are not known at the time of writing: the smoke spec asserts them, and the orchestrator marks it `test.fail()` if the first run finds serious violations.
+
+## Task RB.3 — Primitives II: overlays, choices, controls
+
+**Plan said:** `Dialog(open, title, onClose, children, footer?, width?)`, `Sheet(open, side, title, onClose, children, width?, tone?)`, `DestructiveConfirm` with the props `ConfirmDialog` has, `Tabs` "same API" plus an optional `done` set and `count`, the entry tests moved to their new paths.
+
+**What was wrong:**
+- A confirm that must not close by accident needs a few more switches than the interfaces list: `dismissible` (an action in flight holds Escape, the × and the scrim), `initialFocus` (Cancel first), `describedBy`, and `showClose` (the destructive confirm has no ×: Tab must wrap Cancel → confirm, as the old test requires).
+- The focus order of a dialog with a × in its header would put the × first; for a form that is the wrong first stop.
+- The tabs' "done" mark is colour plus a ✓, but a ✓ glyph has no name for a screen reader, and appending "(done)" to the tab's text would change its accessible name for every test that finds a tab by name.
+- A `DescribedChoice` / `Segmented` radiogroup of buttons has no roving tabindex in the plan.
+- The entry tests (`components/entry/entry.test.tsx`) are not in the plan's test list at a new path.
+
+**What I did instead:**
+- `Dialog` takes optional `initialFocus`, `dismissible`, `showClose`, `describedBy`; `ResponsiveDialog` takes the same props (it is `Parameters<typeof Dialog>[0]`) and hands them to the bottom `Sheet` (which has no ×). `Sheet` takes optional `initialFocus`, `dismissible`, `describedBy`; `side` stays optional (default `start`) and exactly one of `title` / `label` is required, so today's call sites compile.
+- `Dialog` focuses the first control in its body (children, then footer), and the × only when there is none. A tap on a `Dialog`'s scrim does not close it (a half-filled form survives a stray click); a `Sheet`'s scrim tap still closes, as today.
+- A bottom `Sheet` shows its `title` as a visible heading and names itself by it; a `start` sheet names itself with `aria-label` and shows no heading. `data-surface="dialog" | "sheet"` marks which one `ResponsiveDialog` chose.
+- `Tabs` takes `done?: ReadonlySet<K>` and `TabItem.count?: number`; a done tab carries `aria-description="Done"` instead of text. The sliding underline is gone: each tab draws its own 3 px underline.
+- `Segmented` and `DescribedChoice` are buttons with `role="radio"`, each in the Tab order (Enter / Space choose); no arrow-key roving. `DescribedChoice` treats the `saving` option as the chosen one while it saves.
+- `SuggestInput` also takes `hideLabel` and `placeholder`; nothing is highlighted until an arrow key, so Enter with no highlight still submits a surrounding form.
+- `DestructiveConfirm` uses plain classed buttons and its own error line (white, `--line` border, 3 px `--warn` edge), not `Button` / `Notice`, because RB.2 rewrites those at the same time. The confirm button carries a `Ban` icon, as THEME says. RB.18 may swap them for the shared ones.
+- The entry tests stay in `components/entry/entry.test.tsx`, importing the new paths, with one added test that the old paths still re-export.
+
+**Risk:** the `Counter` is only the − / value / + triplet, as before; THEME's label-and-hint-on-the-left sits in the page that uses it (RB.8). The `Segmented` segments are 46 px tall as THEME locks them, under the 48 px floor of SPEC-FINAL 17.7; RB.19 may raise them if the review wants. `aria-description` is ARIA 1.3: Chrome and Safari read it, older screen readers may not.
+
+## Task RB.2 — Primitives I: buttons, fields, notes, tags, chips, table, empty state
+
+**Plan said:** button sizes `sm|md|lg|block|icon` with every size keeping a 48 px hit area; `SearchField` 46 px; `Input` takes `size: 'md'|'lg'`; `Select` is the 56 px THEME select; `Notice` and `NativeSelect` stay "restyled, same props".
+
+**What was wrong:**
+- `features/shell/Sidebar.tsx` (not an RB.2 file) still passes the old size name `default`, so removing it breaks `pnpm typecheck` until RB.7 rewrites the shell.
+- A 36 px `sm` button and a 44 px `md` button cannot also be 48 px tall without ceasing to match THEME's heights.
+- THEME's search field is 46 px, below the 48 px floor of SPEC-FINAL 17.7. A 34 px filter chip has the same problem.
+- The old `Notice` tones `danger` and `warning` used `--danger` / `--warning`, which are aliases of `--warn`; "errors are never red" means the edge class is now `border-s-warn`, and `ui.test` / `notice.test` pinned the old class names.
+
+**What I did instead:**
+- `buttonVariants` keeps `size: 'default'` as an alias of `md` until RB.18 (documented in the code). No other part of the interface changed.
+- `sm`, `md` and the filter chips keep the drawn height THEME locks (36 / 44 / 34 px) and grow their tap area with an invisible `::after`, so the target is 48 px. `tap-target` stays in the class list of every button size; `min-h-9` / `min-h-11` override it for the drawn height only.
+- `SearchField` is 48 px (`tap-target`), not 46 px.
+- `Select` has `size: 'md'` (48 px, default) and `lg` (56 px, the THEME / Scout size); `NativeSelect` is now `export { Select as NativeSelect }`.
+- `Notice` tones map to `border-s-ink` / `-accent` / `-warn` / `-warn`; the class-pinning assertions in `ui.test.tsx` and `notice.test.tsx` were rewritten to the new tokens (the "no hex" and "48 px target on every variant" checks stay, with the new size names).
+- Not on the plan's interface list but added: `EmptyState.headingLevel` (so `StateMessage` keeps its `headingLevel`), `AllianceButtons.label`, `Note`/`ErrorLine`/`WarningNotice`/`SuccessBanner` `className`, `SearchField.className`, `stationLabel()` exported from `tag.tsx`, `initialsOf()` from `initials.tsx`, `inputLargeClass` from `input.tsx`.
+
+**Risk:** `Station` is declared locally in `tag.tsx` and `station-pill.tsx` until the wave's fix-forward pass switches them to `@/data/station`. The large number field has no "Q" prefix prop: the Scout page (RB.9) wraps `Input size="lg"` and draws the prefix itself. The `::after` hit-area trick can overlap a neighbouring control by up to 6 px on an `sm` button when two sit closer than 12 px.
+- `Select` and `SearchField` text is 16 px, not THEME's 15 px (select) / 14.5 px (search): iOS Safari zooms the page on focus below 16 px. The 16 px test now covers `searchbox` and `select`.
+- The password eye stays a 40 px drawn button but has a 48 px hit area through an invisible `after:-inset-1` (SPEC-FINAL 17.7).
+- `AllianceButtons` use a constant `border-2` (`--control-border` when unselected, alliance colour when selected) so picking a side never shifts the layout; THEME only specifies the selected 2 px border, so the unselected edge is 2 px instead of the 1 px of other controls. Added a roving tabindex with Arrow / Home / End keys (selection follows focus).
+- `Station` is now imported from `@/data/station` (the local declaration is gone); `Table` uses `text-start` / `text-end`; `Handover` has `role="status"`; the dead `focus-visible:outline-none` is removed from `input.tsx`.
+
+## Task RB.6 — Shell: sidebar + account menu, dark phone bars, narrow menu, lazy routes
+
+**Plan said:** route handles `{ title: 'Home' | 'Scout' | 'Entries' | 'Switch scouter' | 'Users' | 'Matches' … }`; a desktop crumb from handle `crumb` "default the title"; the six lazy pages "inside one `<Suspense>`"; sidebar items 9×10 padding; phone ☰ 44 px, menu rows 46 px; `useCurrentTitle(): string`; ShellLayout keeps its props; the foot shows "initials, name, role".
+
+**What was wrong:**
+- Manage is "Manage" in the sidebar and the desktop crumb ("Admin / Manage") but "Matches" in the phone top bar (11-phone-shell README); one `title` cannot be both. The finals' crumbs are trails ("Admin / Users", "Scout / Q39 · 1690 Orbit"), not one string.
+- One `<Suspense>` for routes on both sides of AppShell would sit above AppShell, so a lazy admin page loading would blank the whole shell; Login and Change password sit outside AppShell.
+- The design's rows and buttons are under the 48 px floor (SPEC-FINAL 17.7): sidebar rows ≈ 35 px, ☰ 44 px, ✕ 40 px, menu rows 46 px, account-menu items ≈ 33 px.
+- The finals' foot says "Scout lead · Switch". The corner opens the account menu, not Switch scouter, and "Scout lead" lives only in `components/ui/tag.tsx`'s private role map (`ROLE_LABEL` in admin/fields says "Lead").
+- The finals have no collapse control; the plan says to keep the collapse behaviour. Inside the brand row it truncated "RobActive Scout".
+- `--rail-muted` on `--rail-raised` is 4.0:1 (axe failed the open corner's role line).
+- `clientConfig()` throws without env in unit tests, so the menu foot's version cannot read it itself.
+
+**What I did instead:**
+- `lib/pageTitle.ts` exports `PageHandle = { title?, phoneTitle?, crumb?: string[] }`; Manage is `{ title: 'Manage', phoneTitle: 'Matches', crumb: ['Admin'] }`. `useCurrentTitle(phone = true)` (no argument = the phone top bar, as the plan's signature), plus `useCrumb()` for the desktop bar; a crumb trail that ends in the current name is not repeated. Handles are merged with `named(handle, NO_HYDRATION)`. Extra titles: `/login` "Sign in", `/change-password` "Change password", the entry route "Entry" with crumb `['Scout']` (the entry page replaces it with usePageTitle).
+- One `Loading` wrapper in routes.tsx (one fallback, `Skeleton rows={4} label="Loading"`) around each lazy element, inside DesktopOnly — so the shell stays while a chunk loads. Build output shows the six chunks, all in the service worker's precache list.
+- Every tappable shell control is 48 px (SPEC-FINAL 17.7 beats the design images, per the plan's precedence rule): ☰ and ✕, the phone menu's rows and account actions, and on desktop the sidebar rows (`min-h-12`, vertical padding dropped), the account-menu items, the account corner and the collapse button (`size-12`, 16 px icon). The desktop sidebar therefore looks slightly taller than the design image (rows ≈ 35 px there).
+- Focus on the dark rail uses `--rail-ink` (the accent ring is 1.6:1 on `--rail`): an unlayered `.on-rail :focus-visible` rule in `index.css`, with `on-rail` on the sidebar, phone top bar, bottom bar and menu; the white account menu opts back to the accent ring with `off-rail`. `--rail-ink` on `--rail` and on `--rail-raised` (3:1) are in `contrast.test.ts`.
+- The phone menu's "ADMIN" marker is `--rail-ink` on the active row (`--rail-muted` is 4.0:1 on `--rail-raised`); its nav landmark is named "Places", not a second "Main".
+- The foot shows initials, name and the role as RoleTag says it, without "· Switch". Added `roleLabel(role)` to `components/ui/tag.tsx` (outside this task's file list) so the text has one source.
+- The collapse button is an icon-only control just above the account corner.
+- The corner's role line turns `--rail-ink` while the corner is open or hovered.
+- `ShellLayout` takes `who`, `account: Account` (new `features/shell/account.ts`) and `version`, and works out the sidebar, menu and bottom-bar items itself; the old `items` / `bottomItems` / `status` / `account(collapsed)` render props are gone. It calls `useSyncStatus()` once and hands the result to every bar.
+- Icons: Scout `ClipboardCheck`, Entries `List`, Manage/Matches `Calendar`, Sign out `LogOut` mirrored, to match the mock-up drawings.
+- `ConnectionIndicator` reads `useSyncStatus()` (no 2 s poll) but the shell no longer mounts it; `SyncPill` replaces it. Left for RB.18 to delete with its test.
+- Unit tests that clicked the sidebar's "Sign out" / "Switch scouter" now open the account corner first (`AppShell.test.tsx`, `routes.test.tsx`); `routes.test.tsx` reads the handle with `needsNoHydration` because handles are no longer the bare `NO_HYDRATION` object.
+
+**Risk:** the desktop sidebar is taller than the design image (48 px rows, a 48 px collapse button), so a short laptop screen scrolls the nav sooner. The corner's dark initials circle is `--rail-raised` and would vanish into the open corner, so it carries a `ring-1 ring-rail-muted` instead of the mock's untokened `#2b323d`. The main chunk is still 613 kB (Vite's > 500 kB warning): lazy routes took out the admin and auth pages only.
+
+## Task RB.12 — Switch scouter
+
+**What the plan said:** the note test finds the sentence with `getByText(/Noa Levi's 3 entries waiting to send, which still send as Noa Levi's, and station Blue 2/)`; "{N} entries".
+
+**What I did instead:**
+- The final image bolds "Stays on this device:" and the station label, so the sentence is split across elements and `getByText` (own text nodes only) cannot match it whole. The test reads the note's `textContent` (`toHaveTextContent`) instead; the words are the plan's.
+- One waiting entry reads "1 entry", not "1 entries" (the README only gives the plural). Waiting but no station: "{Current}'s N entries waiting to send, which still send as {Current}'s." (README: "the station part is left out"). The name is wrapped in `<bdi>` so a Hebrew name does not scramble the sentence.
+- The note shows the signed-in scouter's name (the previous scouter, the one whose entries stay), taken from the session, in full ("Dana Levi's"); the final image's "Noa's" is the mock's shortened form, the plan's test says the full name.
+- The select's label changed from "Scouter" to "Who's scouting next?" (README); the existing tests were updated to the new accessible name. The page no longer uses `PageHeader`, `AuthField`, `AuthError` or `AuthSubmit` (RB.7 owns `AuthFrame`); it is built from the new primitives directly. The muted username inside an option (as drawn) is not possible in a native `<option>`, so it stays "Full name · username" in one colour.
+
+## Task RB.7 — Login and Change password (sign-in frame)
+
+**Plan said:** the e2e step signs in with `signIn(page, 'scouter', { mustChange: true })`; `AuthFrame.tsx` is rewritten for the sign-in frame; the expired-session notice uses the shared warning notice; both pages share the online hook.
+
+**What was wrong:**
+- `signIn` waits for `/` and a forced user lands on `/change-password`, so the helper call as written never resolves.
+- `AuthField` / `AuthError` / `AuthSubmit` are also imported by `SwitchScouter.tsx` and `ReconnectPrompt.tsx` (other tasks' files), so their props cannot change incompatibly.
+- The expired-session notice in the Login final has a clock icon; `WarningNotice` (RB.2) took no icon prop and always drew a triangle.
+
+**What I did instead:**
+- `e2e/auth.spec.ts` signs in by hand for the forced case and waits for `/change-password`.
+- The three helpers stay exported from `AuthFrame.tsx` with the same props (new optional ones only: `compact`, `inputRef`, `children`, `disabled`); password fields now carry the eye, so the other two screens get it too.
+- `WarningNotice` gained an optional `icon?: LucideIcon` (default `TriangleAlert`, so existing callers are unchanged); the expired notice passes `Clock` and is wrapped in `role="status"`.
+- Both pages import the existing `useOnline` from `@/lib/useOnline`; a duplicate `auth/useOnline.ts` was written first and deleted.
+- Change password always uses the small phone band (84 px), as the 10-password final shows; Login shrinks it only when a notice shows. Offline, the offline note sits above the forced explanatory line.
+
+**Risk:** none known; screenshots are compared by the orchestrator after the wave.
+
+## Task RB.11 — Entries
+
+**What the design said:** the Team cell shows the station ("Blue 2") for every entry, including one flagged "Not in line-up"; the page header differs by width; the refused entry is a separate row; the key under the table also explains "—" for no points.
+
+**What I did instead:**
+- An entry stores only its alliance, and the station comes from the match line-up, so a team outside the line-up has no station. Its Team cell shows the alliance tag ("Blue" / "Red") instead of "Blue 2". The mock invents a station for 3316 in Q37.
+- Waiting and refused never overlap: a refused entry stays in the outbox (parked), but is counted under Needs a look only, and it carries no amber arrow, so the chips partition as drawn (3 waiting, 1 refused).
+- Time is the entry's `client_created_at` (the sort key), falling back to `client_updated_at`; the old page showed the update time.
+- Two lines of copy the README does not give: a search or filter that matches nothing reuses `StateMessage` "no-results" ("Nothing matches" / "Try fewer words, or clear a filter."), with a "Show all" button that clears both. The key under the table is only "waiting to send": the "no points" half comes with the Points column (task 1.54).
+- The phone chips are the 34 px primitive (the mock's 32 px / 12.5 px version would need a size prop on `FilterChips`); they scroll sideways in a wrapper when they do not fit. The phone search is 48 px (floor), not 44.
+- Super entries (`form_kind: 'super'`) are not listed: they have no match, team or status.
+- `ErrorLine` carries `role="alert"`, so a page with several refused entries announces each on load.
+
+**Risk:** the desktop table is checked by unit test only; the orchestrator's Compare step is the first look at spacing against the final.
+
+## Task RB.10 — Home
+
+**What the design said:** a desktop crumb "2026 / District #3 · Tel Aviv"; event cards with dates ("Mar 24–26"); a station tile, a last-entry tile and a coverage card that always have something to show; the plan's test file renders Home without setting a width.
+
+**What I did instead:**
+- The desktop crumb is "2026 / District #3 · Tel Aviv" through `usePageCrumb` (season year and event name from the cached rows); it is left to the route handle ("Home") under a session override or when the device holds no season row. The phone title is unchanged.
+- Event cards show the name and one marker only: `events` rows have no dates.
+- Copy the README does not give: no station → "—" (screen readers: "None") with the same "Change it on Scout" note; no entry of yours yet → "—"; one waiting → "1 entry waiting to send"; one gap → "1 match is missing a robot"; the last-entry age is "N min ago" within the hour, "N h ago" within the day, else the date. "Sends when online" shows only while something waits. The coverage grid is one `role="img"` named from the legend words ("30 All 6 robots, 4 Missing a robot, …").
+- Coverage is hidden while there are no qualification matches, and under a session override (it describes the default competition, not the one being looked at). The header, banner and Scout rule under an override follow today's code; the banner reads "Looking at … for this session. You cannot create new entries here, and reopening the app returns to …" with "Back to …".
+- `coverage()` (RB.4) takes `type`; cached matches carry `match_type`, so Home maps it at the call site (`homeData.coverageCells`).
+- The Open link on the last entry goes to the entry route (`entryPath`), which applies the self-edit window itself; Entries rows open nothing yet.
+- The plan's tests: `renderHome` defaults to a 375 px phone (the "3 entries waiting to send" line is phone-only); "names the matches missing a robot" sets 1440 px, because the phone card's line reads "Missing a robot" (README).
+- `ContextPage.tsx` is gone (its tests moved to `SwitchCompetitionSheet.test.tsx`; the session-only notice test moved to Home's banner); `listAll` and the cache read live in `features/context/competitions.ts`. The sheet closes after a choice and has a Close button on both widths.
+- Desktop Go-to tiles keep `GoToTile`'s 88 px minimum (design 112 px); `GoToTile` takes no size prop.
+- Phone Go-to tiles (96 px, 12 px padding, 32 px icon square) are sized from Home with arbitrary-variant classes on the grid (`[&_a]:min-h-24` …) because `GoToTile` takes no size prop and is not this task's file.
+- The session banner follows THEME: the lead reads "Looking at {event} for this session." and a full-width secondary "Back to {default}" sits inside the box; the extra sentence about new entries is dropped (Scout is withheld, and the shell strip already says the rest).
+- The version footer shows " · YYYY-MM-DD" on a computer only, from a new optional `VITE_APP_BUILT_AT` (default empty = no date; `vite.config.ts` sets it to the UTC build date unless the variable is already set). `ClientConfig.builtAt` is optional so other tests that build a config by hand still type-check.
+
+**Risk:** the screenshots are compared by the orchestrator after the wave; Home's design has the Our-team card and Top teams, which are not built (README "What's built when").
+
+## Task RB.8 — Entry
+
+**What the design said:** a "Notes" tab for the post-match phase; "You can still edit it for 10 minutes after submitting" on the confirm; a confirm that starts with Status; a ✓ character on done tabs (the plan's test asserts the text "✓"); the plan's test reads "1 of N" with an unanchored pattern; the robot status shows with no wrapping group.
+
+**What I did instead:**
+- The `post_match` phase is called "Notes" everywhere on this page (tab, pane header, summary panel, confirm group); the code said "Post-match". The pane header and summary panel use the full name "Autonomous", the tab says "Auto" (as the finals show).
+- The edit-window line uses `SELF_EDIT_WINDOW_MS` (5 minutes), not the mock's 10. It is left out for a lead or admin, who edit any entry at any time (SPEC-FINAL 7.6), so it never promises a limit that does not apply.
+- The confirm starts with a "Q38 · 5951 Tiny Titans" line, so the scout sees which robot they are confirming (the old full-screen summary listed match and team; the phone design shows the page header behind the scrim).
+- `Tabs` (RB.3) draws the ✓ as an icon and reads "Done" as the tab's description, so the test checks `toHaveAccessibleDescription('Done')` and `[data-done-mark]` instead of the text "✓". The "1 of N" check is anchored (`/^1 of \d+$/`) because the pane header also reads "Phase 1 of 4".
+- Robot status is `Segmented` (a radiogroup) inside a `role="group"` named "Robot status" by its visible label, so today's tests that look for that group still pass.
+- Status only note: the final's copy ("Status only. No fields are recorded for a no-show robot, so its averages are never pulled down by zeros."), with "disabled" for a disabled robot.
+- The header tag: desktop shows the alliance tag ("Blue alliance"); the phone shows the station ("Blue 2", from the match line-up), or the alliance tag when the team is not in the line-up. The phone back link "‹ Scout" is 48 px tall, so the phone header is a little taller than the mock.
+- The phone foot line's phase names are buttons ("Previous phase: Auto"), so the phase can change without a swipe. The pane follows the finger at 40 % while a swipe is in progress, and the new phase slides in (phone only, none with reduced motion).
+- Field hints come from `help_text`; the fixture form has none, so the e2e shots show labels only.
+- Derivations live in a new `features/entry/phases.ts` (+ `phases.test.ts`): phase order and names, filled counts, done set, the 60 px swipe rule, confirm values.
+
+- Fix 1 (review): the edit-window line is also left out when the page re-edits an existing entry: that window runs from the entry's first save (`client_created_at`), so "for 5 minutes after submitting" would be wrong. It shows only for a scouter's new entry.
+- Fix 1: an untouched counter reads "0" and an untouched switch "No" in the confirm (what the controls show), not "—". They still do not count as filled: "filled" (the ✓, the "n of N") means touched, so a robot's untouched zeros are visible but not claimed as scouted. Text and choices still read "—".
+- Fix 1: the confirm's robot line also carries the alliance tag (desktop) or the station tag (phone, "Blue 2"), as the page header does; the summary panel's "n of N" for the current phase is bold ink.
+- Fix 1: the phone's "Review entry" bar sits in a sticky wrapper that is a direct child of `<main>` (not inside a bar-height `px-4` box, where sticky could never engage); the bar's own top margin is zeroed there so scrolled fields do not show above its border. The header (title, tag, back, saved line) moved to `EntryHeader.tsx`.
+
+**Risk:** the e2e opens Q39 · 2630 (Red 1, no entry in the fixture) by URL, not through Scout, signed in as the scouter, so the confirm shows the five-minute line; the shots show an empty entry that the run fills in.
+
+## Task RB.9 — Scout
+
+**What the design said:** the plan's tests click a sheet tile named `/BLUE 2/` and a button named exactly "Team not here?"; the desktop final's button reads "Start entry · Blue 2 · 5654 Phoenix"; "Team not here?" opens a full screen with no visible way back (phone frame 6); 🔒 for a locked tile; files under ~250 lines.
+
+**What I did instead:**
+- The station sheet writes "Blue 2" in mixed case (phone frame 1), and "Use Blue 2" also contains it, so the test clicks `{ name: 'Blue 2' }`. "Team not here? Choose from the event's teams" is one button (the whole line is the target), so the test uses `/Team not here\?/`.
+- The primary button follows the README ("Start entry · 5654 Phoenix") on both widths; it reads "Start entry" (disabled) until a robot is picked, and "Edit the existing entry" for a robot this device already scouted.
+- "Team not here?" replaces the picker with "Which team are you watching?" (heading, "Qualification 39 · your station Blue 2", alliance, roster) and adds a ghost "Cancel" back to the line-up. Picking a line-up team from the roster switches the alliance to its own side, so it is not flagged.
+- Copy the README does not give: no station chosen yet → the bar's link reads "Choose your station" and the sheet's primary reads "Choose your station" (disabled) until a tile is tapped; a known match with no robots → "Q6 has no robots listed on this device. Choose the one you are watching." (the README's clause "the match is created when you submit" is only true for an unknown match, which keeps today's "Match 9 is not on this device yet…" note); a lead's scouted tile reads "Scouted" (no window, SPEC-FINAL 7.6). The already-scouted note keeps today's text.
+- "Not now" closes the sheet for this visit only; the page asks again on the next visit while no station is set. On desktop the sheet and "Scout Red 1 instead?" are centred dialogs (ResponsiveDialog).
+- The locked tile shows lucide's Lock icon, not the 🔒 emoji. Tiles are radios that are each a tab stop (no arrow-key roving).
+- On a phone, "Scout a match" is visually hidden once a station is set (the frames show only the top bar's "Scout"); it is shown with "Where are you sitting today?" while none is set.
+- Two device reads: rows on `'rows'` and the station on `'meta'`, so a sync's two meta notifications never re-read every row (RB.4 note).
+- The primary action bar is the `ActionBar` primitive with a new `desktop="static"` option (RB.9 owns `action-bar.tsx` for it; EntryPage's use is unchanged): from `lg` the bar drops its chrome so the 52 px button sits under the picker (desktop final).
+- `SelectRobotPage.tsx` is split by job, every file under 250 lines (the ownership row named four files; the new ones sit in the same folder): `MatchFields.tsx` (type and number), `useScoutSelection.ts` (device reads, picks, derivations), `scoutChoice.ts` (pure chosen/selected/flagged derivations, tested without React), `bareMatch.ts` (the bare-match creation, SPEC-FINAL 6.4). `lineupTiles`/`rosterItems` stay beside their components.
+- Picks belong to the typed match: the alliance choice and the roster search reset when the match type or number changes, and the alliance and tile picks also reset when the station changes. Tapping the robot already switched to does not ask again. Start ignores a second tap while the first is still creating the bare match, so one tap makes one match and one outbox operation.
+- "Scouted · locked" is the copy for a locked tile and roster row (not in the README, which only draws the 🔒); "Scouted · edit until hh:mm" inside the window, "Scouted" for a lead.
+- `EntryRoute.test.tsx` (one line): it waited for the old native robot `option`; it now waits for the station sheet.
+
+**Risk:** the e2e `scout` shot uses fixture Q1, the design's own line-up; `scout-done` (lead, Q37: ✓ tiles) and `scout-locked` (scouter, Q37: lock icons) show the scouted states. The saved banner in `scout-done` is raised by pushing router state through `history.pushState` + `popstate`, not by a real submit, and was not run in this fix pass.
+
+## Task RB.15 — User detail
+
+**What the design said:** the brief says use `generatePasswordWith(fill)` for Generate; `UserDetailPage` gains `rpc = adminRpc` and `useUsers` takes it (RB.14); the old hints under the password field ("At least 8 characters. Shown in clear so you can hand it over.") and the role field ("Scouters enter data. Leads also fix entries…") exist in today's code; the page is `UserDetailPage.tsx` plus a possible `RoleSection.tsx`.
+
+**What I did instead:**
+- Generate calls `generatePassword()` (no argument) from `./password`: `generatePasswordWith` does not exist until RB.14 lands, and `generatePassword` exists before and after. The test mocks `./password`, so it does not depend on RB.14's generator.
+- The page loads its one account with its own `useAccount.ts` (pages `listUsers` with `include_disabled` until the id is found, through the injected `rpc.call(name, input)`, two arguments) instead of `useUsers`, so it does not depend on RB.14's new `useUsers` signature. Writes answer through the same `rpc`.
+- The password field shows the placeholder "At least 8 characters" (as in the final image) and no hint line; the role hint is the README's two lines ("Saves as soon as you pick…" / the own-account warning). The old long role sentence is gone (the described choices carry it).
+- The page is split by section: `RoleSection.tsx` (exports `ROLE_OPTIONS`), `RenameSection.tsx`, `ResetPasswordSection.tsx`, `DisableSection.tsx` (owns `DISABLE_BODY` / `SELF_DISABLE_LINE`, re-exported from `UserDetailPage.tsx`), `useAccount.ts`. The page names itself with `usePageTitle` so the crumb reads "Admin / Users / {name}".
+- The Generate icon is lucide's `Dices` (the image's glyph is a plain rounded square).
+- The detail tests (`describe('the detail page')`, `describe('renaming an account')` and the reset half of `a generated password is never stored`) that lived in `UsersPage.test.tsx` are ported to `UserDetailPage.test.tsx`; they are obsolete in the old file (select-based role, `status` named "new password") and belong to RB.14's file to drop.
+- Wave E join — a refused rename shows as the form's ErrorLine with neither field marked `aria-invalid` (was: the username field marked). After a saved role or rename, the signed-in admin's own session follow-up (`session.updateUser`) has its own try: if this device cannot store it, the save still reads "Saved" and the next pull brings it.
+
+**Risk:** layout is unverified against the finals until the orchestrator runs `e2e/user.spec.ts` and the Compare step; the "Saved" line in the e2e is asserted, not shot (the five role steps are covered by unit tests).
+
+## Task RB.14 — Users
+
+**What the design said:** `08-users/final/` README: the handover reads "Created {name} · {username}", then "Their password" in large mono, then today's line; the plan names the files `UsersPage`, `UsersTable`, `AddUserDialog`, `password`, `useUsers`; Reset password from the row opens "a small Dialog"; the README gives no row order and no copy for a search with no match.
+
+**What I did instead:**
+- The handover's "Their password" line is a new optional `label` prop on the `Handover` primitive (`components/ui/handover.tsx`, 12 px semibold muted, before the secret); `AddUserDialog` passes it (review fix 1).
+- Extra files beside the plan's four, all in `features/admin/`, each under 250 lines: `CreatedHandover.tsx` (the post-create handover), `ResetPasswordDialog.tsx` (the row's reset), `DisableUserConfirm.tsx` (the page-9 `DestructiveConfirm`, `DISABLE_BODY` + `SELF_DISABLE_LINE` imported from `UserDetailPage.tsx`), `usersView.ts` (chips, counts, search, order — plain functions, `usersView.test.ts`), `checkNewUser.ts` (today's field rules, in the dialog's field order: Full name, Username, Password; it also refuses an edited username already among the loaded users, case-insensitively, with the server's sentence, so the field is marked before the round trip).
+- Row order follows the final image: admins, leads, scouters; most entries first inside a role, then name; disabled accounts last. "All" counts active accounts (the image's "All 11" beside "Disabled 1").
+- `useUsers(rpc = adminRpc)` always lists disabled accounts too (the Disabled chip filters in memory) and loads `getActiveContext` → `countEntriesByScouter` beside `listUsers` (`Promise.all`). With no active season the column shows "–" and no count is asked for. A failed count does not fail the page: it reads as no season, so the column shows "–"; only a failed list gives "Try again".
+- The reset dialog opens with a generated password already in the field (Generate draws another), today's reset text, "New password" field, must-change box, Cancel · Reset password ("Resetting…"), then the `Handover` "New password for {name}" with Done. Copy from today's detail page.
+- The username hint reads "Suggested from the name" while the suggestion is untouched, and today's "What they sign in with. Letters, digits, dots, underscores or hyphens." once it is edited by hand; an edited username no longer follows the name.
+- A search or chip with no match shows the existing `StateMessage` "no-results" with "Show all" (Entries' copy).
+- `generatePasswordWith(fill)` keeps today's byte-source signature but returns the new "word-word-dd" form (one generator for the whole app).
+- The old detail-page tests in `UsersPage.test.tsx` (`the detail page`, `renaming an account`, the reset half of `never stored`) are dropped; RB.15 ported them to `UserDetailPage.test.tsx`. The "never stored" test now resets from the row dialog.
+
+**Risk:** layout unverified against the finals until the orchestrator runs `e2e/users.spec.ts` and the Compare step (hover-revealed actions, dialog spacing, the unlabelled handover).
+
+## Task RB.17 — Manage: Matches grid, problem bar, matches on a phone
+
+**What the design said:** the ownership row names `MatchesPanel`, `LineupGrid`, `ProblemBar`, `ManagePhone`, `ManageRoute` and `adminMessages.ts`; cells save "with per-match busy as today" (today: the row's selects are disabled while its save is out); the ProblemBar test renders `<ProblemBar matches rosterIds onAddToRoster />`; the desktop image shows 44 px cells with a `--line` border and "2 matches" under the typing, the phone image "2 on the roster"; the phone delete frame titles "Delete Q10?".
+
+**What I did instead:**
+- Extra files in `features/admin/`, each under 250 lines: `TeamField.tsx` (the typed station, shared by the grid and the phone sheet), `MatchesToolbar.tsx`, `EditMatchDialog.tsx` (✎: type + number in a desktop `Dialog`, title "Edit Q10"), `MatchCard.tsx`, `EditMatchSheet.tsx`, `AddMatchesSheet.tsx`, `PhoneMatchList.tsx`, `matchOps.ts` (plain derivations, tested without React), `useMatchEditing.ts` (every match call, shared by desktop and phone), `useOffRosterTeams.ts`, `usePhoneMatches.ts`, `MatchErrors.tsx` (the panel's error lines + Try again, shared by desktop and phone), `matchFixtures.ts` (test data).
+- "Per-match busy" is a queue, not a lock: a cell's save is applied at once and sent in order, one request per match at a time, each carrying the match's whole slot set as it stands when sent; the row carries `aria-busy`. Disabling the row would drop focus from the cell Tab just moved to (README: "Tab moves on"). The stale-set bug the lock prevented (task 1.21, finding 3) cannot happen: the second request reads the set after the first answered.
+- Offline (README "saving waits for the connection"; admin calls are online-only, so no hidden retry): an unreachable save keeps the typed value and marks that match "Not saved" (under the number in the grid row, which gets `aria-invalid`; in the phone card's note). While any match is marked, the panel keeps `MANAGE_UNREACHABLE` with a **Try again** button that re-sends the marked matches' current line-ups, in match order, through the same per-match queue; nothing is sent on the browser's `online` event. A refused save shows the server's line and re-reads that match (today's).
+- Leaving a station (Tab, a tap elsewhere, Enter) with a partial number takes the highlighted suggestion, else the only one. A typed number that is still not on the roster is not sent (the server refuses it, SPEC-FINAL 6.4): in the grid the cell reverts and the line "{n} is not on this event's roster" shows; in the phone sheet the station keeps the text, flagged "Not on roster", and Save changes stops with that line until it is fixed (or Escape puts the old team back). A team already in the slot that has left the roster stays.
+- `ProblemBar` takes an extra `teams` lookup (slots carry only `team_id`; the number for "Add 7845 to the roster" comes from the roster + registry). Until that number is known (registry read pending or failed) it reads "A team in Q8 is not on this event's roster" with no add link; a failed read is tried again after the next successful save or when the connection returns. More than four matches missing robots reads "Q1, Q2, Q3 and 69 more are missing robots" (the README gives only the two-match form).
+- Cells are 48 px with a `--control-border` edge (SPEC-FINAL 17.7: 48 px targets, 3:1 control contrast) instead of the image's 44 px `--line` edge.
+- The phone delete keeps today's text (README "today's text"): title "Delete this match?", object "Q10", body, Cancel · Delete — not the frame's "Delete Q10?".
+- The phone view works on the default (active) event; with none it shows "Create an event first" + "Seasons, events and the roster need a computer." The create-one field's placeholder is the next free number of the chosen type ("73" in the image), and Create match with the field empty creates that number.
+- `panelErrorLine` now answers an unreachable server with `MANAGE_UNREACHABLE` for every Manage panel.
+- `routes.tsx`: `admin/manage` renders the lazy `ManageRoute` (which lazily loads `ManagePage` at ≥ 1024 px and `ManagePhone` below), no `DesktopOnly`; the handle (title / phoneTitle "Matches" / crumb / NO_HYDRATION) is unchanged.
+- Fix 2 — "Not saved" belongs to the page: the set of unsaved match ids lives next to `matches` (`useManageLists` on desktop, `usePhoneMatches` on the phone) and reaches `useMatchEditing` as `unsaved` + `onUnsavedChange`, so a tab change keeps the mark, `MANAGE_UNREACHABLE` and Try again. Only ids of the shown event's matches count; the set is cleared when an event's lists load from the server and when a match is deleted. Rejected: keeping it in the panel (lost on every tab change, the re-review's finding).
+- Fix 2 — choosing another event (picker) or season (Competitions) while any line-up is "Not saved" asks first: `UnsavedConfirm` (`DestructiveConfirm`, title "Leave without saving?", the match labels, "{n} match line-up(s) was/were not saved. Switching competition drops them.", **Stay** (first focus) · **Switch anyway**). Creating a season (which selects it) is not asked.
+- Fix 2 — the app uses a data router (`RouterProvider` + `buildRouter`), so leaving `/admin/manage` in-app with unsaved line-ups is held by `useBlocker` (`LeaveGuard`, same confirm: "Leaving this page drops them.", **Leave anyway**). A reload or closed tab is not caught (no `beforeunload`). Crossing the 1024 px desktop/phone swap in `ManageRoute` unmounts the page and drops the unsaved line-ups without asking — accepted (a window resize mid-event is rare).
+- Fix 2 — Try again re-sends the local full slot set without re-reading the match first, so it can overwrite a change another admin made to that match's other stations meanwhile. Behaviour unchanged: the full-set `setMatchTeams` API has the same property for every save; accepted for v1.
+- Fix 2 — phone: a "Not saved" match stays on the list, marked, whatever type is shown; the Add matches sheet's number field shows the next free number as its placeholder and an empty field creates it (as the desktop toolbar); Save changes commits every station's typed text itself instead of relying on the field's blur arriving before the tap (iOS Safari).
+- Fix 2 — extra files: `UnsavedConfirm.tsx`, `LeaveGuard.tsx`, and `LoadFailure.tsx` (moved unchanged out of `ManagePage.tsx` to keep it under 250 lines). `useMatchEditing`'s field check and set toggle moved to `matchOps.ts` (`checkCreateField`, `toggled`) to keep the hook under 250 lines.
+- Fix 3 — the line-up saves' per-match queue, "being sent" marks and "Not saved" marks are the page's (new `useMatchSaves.ts`, called by `useManageLists` and `usePhoneMatches`) and reach `useMatchEditing` as one `saves` prop, replacing fix 2's `unsaved` + `onUnsavedChange`. A save keeps its place in the one queue across a tab change, and every answer (line-up save, create, edit, delete, roster add) is applied only while the page still shows the event it was sent for. Choosing another event — or a season, which leaves no event chosen — clears the old event's matches, roster and marks at once and loads the new one from scratch. `useManageLists` imports `sortMatches` / `loadAllMatches` from `matchOps.ts` (its own copies were identical). Rejected: a queue per panel mount (the re-review's finding: after a tab change two queues sent the same match out of order, and an answer arriving after an event switch wrote the old event's list over the new one).
+- Fix 3 — "Leave without saving?" (event or season switch, leaving the page) also counts line-ups still being sent; its bold line falls back to "{n} match(es)" when none of the ids is in the list; its confirm button has no icon (`DestructiveConfirm` gains an optional `icon`: Ban unless given, `null` for none).
+- Fix 3 — corrects fix 2's "A reload or closed tab is not caught (no `beforeunload`)": `LeaveGuard` now holds a `beforeunload` listener (`preventDefault` + the legacy `returnValue`) only while a line-up is "Not saved" or still being sent, on desktop and phone; the browser shows its own "Leave site?" text.
+- Fix 3 — on session expiry or sign-out, AppShell swaps the outlet for `<Navigate to="/login">`, which unmounts the page and releases the blocker first, so "Not saved" line-ups are dropped without a dialog — accepted.
+- Wave E join — extends fix 2's "Creating a season (which selects it) is not asked": creating a season leaves no event chosen, so it drops line-ups still being sent (their answers are ignored) as well as "Not saved" rows, without asking.
+- Wave E join — the per-match queue moved into `useMatchSaves.ts` (`enqueue(matchId, send)`, `isLast(matchId)`); its maps and the busy setter are private there. `adopt` does nothing when the answered match is no longer in the list (deleted meanwhile). `useManageLists` no longer re-sorts `loadAllMatches`'s already sorted answer.
+
+**Risk:** layout is unverified against the finals until the orchestrator runs `e2e/manage-matches.spec.ts` and the Compare step (the name line under the typed number is an overlay positioned over SuggestInput's input; the phone sheet's suggestion list is the field's width, not the image's double width). The e2e spec cuts `listMatches` to Q1–Q10 with an override so the grid matches the final.
+
+## Task RB.16 — Manage: Competitions, Teams & roster, tab counts
+
+**What the design said:** header "Working on {event} (default) · {year}" + event select; Competitions = season chips, season card, event cards; Teams & roster = one-field add (`listTeams({ q })`, 200 ms), filter, roster cards, registry cards; the plan's file row names only `ManagePage`, `CompetitionsPanel`, `RosterPanel`; README writes the section titles as "On this event's roster ({n})" / "In the registry, not on this roster ({n})".
+
+**What I did instead:**
+- The header line follows the three finals: on Competitions it is today's description ("Seasons, events, rosters and matches. The default event is the one every device works on."), as `manage-desktop-competitions.png` draws it; on Teams & roster and Matches it is "Working on **{event}** (default) · {year}" with the event select (more than one event). "(default)" shows only when the event worked on is the default event.
+- The season chip the admin is looking at is `aria-pressed`; the active season is filled ink with "· Active" (README). A chosen season that is not the active one is outlined in accent (the finals only draw the active one chosen).
+- `listTeams` takes `query`, not `q` (shared `listTeamsInput`). The "+ New team {n} — enter its name" row is offered only once the registry has answered for exactly that text and no team (registry, answer or roster) has that number.
+- The section counts use the image's wording ("22 teams · click a name to rename", "3 · + adds") — the README's "({n})" is the same count.
+- "Make default" keeps its visible name and is described by the event's name (aria-describedby) instead of today's "Make {name} the default"; ↑ ↓ ✎ are named "Move {name} up/down" and "Rename {name}". Make default is now optimistic like reorder (reverted on refusal), as the plan's behaviour line asks. Make active is optimistic too and adopts the server's answer (which may change the default event).
+- Creates and edits no longer re-list: the page puts the answered row in place (a created season is chosen at once). Every list loads once per visit at page level (`useManageLists.ts`), so tab switches send nothing.
+- Gate copy names the merged tab: "Add one on the Competitions tab" (was "Seasons tab" / "Events tab"); the gates' button reads "Competitions".
+- Split by job to stay under ~250 lines (new files beside the owned ones): `SeasonCard.tsx`, `EventCard.tsx`, `SeasonFormDialog.tsx`, `EventFormDialog.tsx`, `RosterAdd.tsx`, `TeamCard.tsx`, `useManageLists.ts`, `manageError.ts` (re-exports RB.17's `MANAGE_UNREACHABLE`).
+- `defaultRpc.test.tsx` keeps only the ManagePage case: the deleted panels had their own default `rpc`; the tabs now take the page's.
+- Icon buttons on event cards and chips are drawn at 36 px (design 34) with the 48 px target grown by `::after`; neighbouring targets overlap by 6 px (open "8 px between targets" question).
+- Registry teams are renamed only from roster cards (click the name); the old TeamsPanel renamed any registry team. Matches the 07-manage design, which has no rename on the dashed registry cards.
+- Header line per tab and roster section-count wording follow the final images, not the README — accepted by the user 2026-10-07.
+
+**Risk:** not yet seen in a browser — the orchestrator runs `e2e/manage.spec.ts` (`manage-competitions`, `manage-roster`, desktop) and the Compare step. The fixture's 40 matches show as "Matches 40", not the final's 10.
+
+## Task RB.20 — Delete a season or an event
+
+**Plan said:** (1) the migration verbatim; (2) `countDeleteImpact({ seasonId?, eventId? })` as a new store method; (3) the lead test `rejects.toThrow(/admin/i)`; (4) the client test `expect(confirm).toBeDisabled()` / `toBeEnabled()`; (5) the registry permission `manage_events`; (6) the confirm body "This deletes {N} events, {M} matches and {E} entries for good. It cannot be undone. Run `supabase db dump` first if you might need them."; (7) the zod inputs as written (not `.strict()`); (8) add `typeToConfirm` to `DestructiveConfirm` if missing; files to touch: CompetitionsPanel only on the client side.
+
+**What was wrong:**
+- (2) `Store` (`apps/server/src/core/context.ts`) already declared `deleteSeason(id)`, `deleteEvent(id)` and `countDeleteImpact(kind: 'season' | 'event' | 'form', id): Promise<Record<string, number>>` as task-1.60 stubs ("the shape is fixed now"). A second signature would have contradicted that rule.
+- (3) `assertCan` refuses with `not permitted: <capability>` (code `forbidden`), which does not contain "admin"; `/admin/i` could never match.
+- (4) `DestructiveConfirm` holds its confirm with `aria-disabled` (kept on purpose: busy/unarmed buttons stay focusable), so jest-dom's `toBeDisabled()` is false for it.
+- (5) The registry has no permission field; the check lives in the use case. SPEC-FINAL 7.2 has its own row "Delete a season, an event or a form — admin", which is the `delete_objects` capability.
+- (8) `typeToConfirm` already existed, with a test in `components/ui/primitives-2.test.tsx` and label "Type {name} to confirm".
+
+**What I did instead:**
+- (1) Migration `20261007120000_delete_cascade.sql` has the brief's two function bodies plus `set search_path = ''` (fully-qualified names already; Supabase's linter flags a mutable search_path) and `revoke execute ... from public, anon, authenticated` / `grant execute ... to service_role`: only the server may call them. The integration test proves the service role still can.
+- (2) Kept the declared names; tightened `countDeleteImpact(kind: 'season' | 'event', id): Promise<DeleteImpact>` (`{ events, matches, entries, forms }`). The form delete widens `kind` when it lands. Entries counted are LIVE ones (`deleted_at is null`): a soft-deleted entry is already gone to the admin, and the count must match what the Entries page shows. Matches are counted in full.
+- (3) The lead test asserts `toMatchObject({ code: 'forbidden' })`, as `matches.test.ts` does.
+- (4) The client test asserts `toHaveAttribute('aria-disabled', 'true')` and its absence.
+- (5) Both use cases `assertCan(caller, 'delete_objects')` (admin only, same roles as `manage_events`).
+- (6) Split across two lines in the dialog: the count sentence first, bold ("This deletes 3 matches and 17 entries for good."), then "It cannot be undone. Run `supabase db dump` first if you might need them." Counts are pluralised (1 match, 1 entry, 1 event). A season with forms adds ", … and {F} forms" (SPEC-FINAL 3.9 deletes its forms too; the brief's sentence did not name them).
+- (7) Both inputs are `.strict()`, like every other input in `api/context.ts`.
+- (8) No change to `destructive-confirm.tsx`.
+- Season delete is also refused when the singleton's default event belongs to that season (should the pair ever disagree), with the season sentence.
+- Client files beyond CompetitionsPanel: `SeasonFormDialog.tsx` and `EventFormDialog.tsx` (the Delete action lives in those dialogs, behind new optional `active`/`isDefault` and `onDeleted` props), `useManageLists.ts` (`dropSeason`, `dropEvent`; `selectSeason` now takes `null`), `ManagePage.tsx` (wiring), and tests in `CompetitionsPanel.test.tsx` and `ManagePage.test.tsx`. Two one-line object literals in CompetitionsPanel were collapsed to keep it under 250 lines.
+- The season button reads "Delete 2025" and its confirm "Delete 2025 for good" (typed: "2025"); titles "Delete this season?" / "Delete this event?", after today's "Delete this match?".
+- The confirm opens over the Edit dialog, so its key events are stopped from bubbling (React propagates through portals) — otherwise Escape would also close the Edit dialog and Tab would hit its trap. Tested.
+- Rejected: closing the Edit dialog and opening the confirm at panel level — the brief puts the action in the dialog, and the admin would lose the dialog on Cancel.
+
+**Risk:** the anon/authenticated revoke is not proven negatively (no anon key is held anywhere, by design). Production gets this migration only when the user runs the production push by hand. Nothing yet tells an offline device whose cached event was deleted beyond the existing parent-deleted path (SPEC-FINAL 9.7).
+
+## Task RB.18 — Cleanup and performance budget
+
+**Plan said:** (1) delete `styles/motion.css`, `styles/motion.test.ts` and `lib/motion.ts`, and replace each Step 1 grep hit (`motion-transition`, `state-layer`, `enter-rise`, `usePlayOnChange`, …) "with the new token/primitive"; (2) delete `notice.tsx`'s legacy `Notice` and `native-select.tsx` once nothing imports them; (3) `pnpm build && pnpm bundle:check` → exits 0 at 180 KB gzip; if over, the report names the three biggest modules and the fix, not a raised budget; (4) Step 4 full gate + full e2e all PASS.
+
+**What was wrong:**
+- (1) The redesigned code still used the motion system: `state-layer press motion-transition` on Button, Counter, OptionButtons, DescribedChoice, DestructiveConfirm, Dialog, TeamCard, StationSheet, CompetitionsPanel; `enter-sheet-up` / `enter-drawer` / `enter-scale` / `enter-fade` on Sheet, Dialog, EmptyState; `indicator-in` on the phone bottom bar; and `lib/motion.ts`'s `play()` in PhaseTabs (the phone swipe slide, Entry README variant B) and `usePlayOnChange` in Counter (the value tick) and ShellLayout (the page fade, pinned by `ShellLayout.test.tsx` as SPEC-FINAL 17.9). Deleting the files outright would have removed every entrance, the hover/press feedback and three tested behaviours.
+- (2) `Notice` is still imported by `AppShell.tsx` (seven strips), `EntryRoute.tsx` and `season/FieldImage.tsx`. `native-select.tsx` was imported only by `features/admin/fields.tsx`'s `RoleSelect`, which nothing imported.
+- (3) `pnpm bundle:check` prints `initial JS 199.4 KB gzip` / `initial JS over 180 KB gzip` and exits 1. Measured from a source-map build: react-dom ≈ 63.7 KB gz, dexie ≈ 32.4 KB gz, react-router ≈ 31.7 KB gz (all app code in src/ ≈ 44.5 KB gz, zod ≈ 12.1 KB gz). All three sit on the competition path, which `routes.tsx` keeps in the main bundle on purpose ("the competition path never waits on a chunk"). Experiment (reverted): `EntryRoute` behind `lazy` → 191.7 KB gz, still over.
+- (4) The first full e2e run failed `auth.spec.ts` "login: offline says so…": `Error: expect(locator).toBeVisible() failed … getByText('No connection. Signing in will use the credentials') … element(s) not found`. `useOnline` read `navigator.onLine` at render and subscribed in an effect; an `offline` event between the two was lost.
+
+**What I did instead:**
+- (1) Motion now goes through Tailwind only. `styles/index.css` `@theme` defines `--animate-fade-in / rise-in / scale-in / drawer-in / sheet-up / indicator-in` (same keyframes, durations and curves as before) and the default transition (200 ms, the same curve); every use is `motion-safe:animate-*` / `motion-safe:transition` (`transition-[width]` on the sidebar, `transition-[transform,height]` on the nav pill). `press` became `motion-safe:active:not-disabled:scale-[0.97]`. The state layer is kept, renamed `.hover-veil` (components layer of `index.css`, the same CSS): it is hover/press feedback, not motion, and dropping it would leave filled buttons with no hover state. The three Web Animations uses moved to a two-function `lib/animate.ts` (`playOnce`, `prefersReducedMotion`), with its tests from `lib/motion.test.ts`; `usePlayOnChange` and the M3 token tables are gone. The counter now ticks in its tap handler when the value changes (no effect needed); ShellLayout's page fade is an inline effect on the pathname. `AuthFrame`'s spinner became `motion-safe:animate-spin`. New `styles/classes.test.ts` fails on `text-[<n>px]`, white/black/palette colour classes, any Step 1 legacy name, and any `animate-*`/`transition` class without `motion-safe:` (each rule mutation-checked).
+- (2) `Notice` kept (comment updated). `fields.tsx` trimmed to `TextField` (its only export in use), then `native-select.tsx` deleted. Also deleted as dead: `components/ui/badge.tsx` and `page-header.tsx` (no importers; built on the legacy aliases), `features/shell/ConnectionIndicator.tsx` + test (no importers; the shell uses SyncPill), Sheet's `label` alias and Button's `default` size (both "until RB.18", no callers). `ConfirmDialog.test.tsx` moved to `ui/destructive-confirm.test.tsx` and `components/entry/entry.test.tsx` to `ui/controls.test.tsx` (import paths and names updated; the "old import paths" case removed with the stubs).
+- (3) Budget left at 180 KB and not met; no route moved behind `lazy` — that reverses the routes.tsx decision and needs the user. Script is the brief's verbatim (Prettier-formatted, header comment added); the precache assertion passes for all 11 lazy chunks.
+- (4) `useOnline` calls its update once right after subscribing (as `useMediaQuery` already does); new `lib/useOnline.test.ts` covers it (mutation-checked). Two further full e2e runs: 32 passed each.
+- Also: `textarea.tsx` was still the old field (`rounded-lg border-border bg-bg`); it now matches `Input` and THEME "Text area" (`--control-border`, white, `--radius-control`, accent focus edge). px font sizes became arbitrary rem values (`text-[0.8125rem]`), never a Tailwind `text-*` step, because the steps also set line-height and would move layouts. `.brand-plate` is gone; `Logo` (no importers outside its test) sits on `bg-rail text-rail-ink`. Manifest `background_color` stays `#0A0A0B` (the brief named only `theme_color`).
+
+**Risk:** the bundle stays 19.4 KB gzip over budget until the user picks a fix; `pnpm bundle:check` exits 1 and must not go into CI yet. The counter no longer ticks when its value changes without a tap (undo/reset) — it never needed to. BUILD-CONTEXT §12.5 still lists `NativeSelect`, `Badge`, `PageHeader` and `components/entry/*` (RB.19 updates it).
+
+**Plan said (budget):** fail above 180 KB gzip; if over, name the three biggest modules and the fix, not a raised budget.
+
+**What was wrong:** `pnpm bundle:check` printed `initial JS 199.4 KB gzip` and `initial JS over 180 KB gzip`.
+
+**What I did instead:** bundle budget re-based from 180 KB to 205 KB gzip (measured 199.4 KB): react-dom, dexie and react-router (~128 KB) are needed at first paint on the offline competition path; the service worker fetches the app once before the venue. User decision 2026-10-07.
+
+**Risk:** 5.6 KB of headroom; the next large dependency on the competition path trips the check and needs the same conversation.
+
+**Plan said (fix 1: review follow-ups):** `build.manifest: true` in `vite.config.ts`; `check-bundle.mjs` asserts precache for the lazy entry chunks.
+
+**What was wrong:** the manifest in `dist/.vite/manifest.json` lists source paths and dependency versions and would ship with the deploy; the script ignored the shared chunks that lazy entries import, so a lazy route could be precached without the chunk it needs.
+
+**What I did instead:** `check-bundle.mjs` deletes the manifest (and the empty `.vite` dir) once read and now walks each lazy entry's `imports`, excluding the initial set, asserting each is in `sw.js`. `vite.config.ts` sets `manifest: !process.env.VERCEL`, because Vercel's build never runs the script and the deploy would otherwise carry the file. Rejected: an env flag set by `bundle:check`, since the script runs after the build and cannot turn the manifest on.
+
+**Risk:** `bundle:check` can run once per build (the manifest is gone afterwards); a second run fails with ENOENT until the client is rebuilt. It does not work on a Vercel build.
+
+**Plan said (manifest colours):** only `theme_color` → `#161a21` was named; `background_color` stayed `#0A0A0B`.
+
+**What was wrong:** the app is light by default, so the install splash flashed near-black before the first paint.
+
+**What I did instead:** `background_color` is now `#f4f6f8` (the light `--bg` token), pinned in `manifest.test.ts`. `theme_color` already matched `--rail` (`#161a21`). Fixed `h-[22px]`/`h-[34px]` pills (tag, UserDetail tag, filter chips, switch-competition chips) became `min-h-[…]` so they grow with the OS text size (SPEC-FINAL 17.7). Deleted the dead `components/Logo.tsx` and its test (no importers). `classes.test.ts` now also catches retired token utilities under any prefix, ignores `motion-reduce:transition-none` and `lg:motion-safe:transition`, and no longer matches palette names inside other words; each rule has self-tests.
+
+**Risk:** the splash colour is correct only for the light theme; the outdoor theme's splash will be light-grey, not white, until task 1.38 decides how a manifest follows the theme.
+
+
+## Task RB.19 — whole-app visual review fixes
+
+**Plan said (waiting count):** RB.11 logged the Entries chips as a partition: "Waiting and refused never overlap … so the chips partition as drawn (3 waiting, 1 refused)". The review sheet found the top bar and the Entries badge saying **4** while the "Waiting to send" chip said **3** on the same screen.
+
+**What was wrong:** SPEC-FINAL 9.10 keeps a refused record in the unsynced count ("A record the server rejected stays in the list, marked as rejected"), and the Entries README defines **Waiting to send = still in the outbox**. A refused entry is parked in the outbox, so the shell's 4 was right and the chip's 3 was not.
+
+**What I did instead:** `EntryRow` gained `unsent` (in the outbox, refused or not); the "Waiting to send" chip filters on it, so it now reads 4 like the shell. The amber ↑ beside the time still marks only entries that will be sent (`waiting`: in the outbox and not refused); the refused one keeps its "Not synced:" line and stays under Needs a look too. Rejected: subtracting refused records from the shell count — that breaks 9.10's "same number of items as the indicator's count". The count still counts every non-match outbox record (team or roster writes by an admin would show in the shell but not in Entries); none exist on the competition path today.
+
+**Risk:** a refused entry is counted in two chips (Waiting to send and Needs a look). That is deliberate: it is both unsent and needs a look.
+
+**Plan said (focus):** THEME draws one 2 px `--accent` edge on a focused field (plus a 3 px `--accent-tint` halo on the grid cell); the global unlayered `:focus-visible` outline added a second, offset ring.
+
+**What I did instead:** a new unlayered `.own-focus:focus-visible { outline-color: transparent }` in `index.css`, applied to `inputClass` (Input, Select, SearchField), `textareaClass`, `SuggestInput`, the type-to-confirm field (now `inputClass`) and the roster rename field (now a 2 px edge). The outline stays (transparent) so forced-colours mode still paints a system ring. `aria-invalid` now yields to focus (`aria-[invalid=true]:not-focus-visible:border-warn`), so the Switch wrong-password field shows one accent edge while focused and the warn edge at rest. Buttons, links, tabs, chips and tiles keep the global ring.
+
+**Risk:** a future field that draws no focus edge of its own must not take `own-focus`, or it loses its indicator (SPEC-FINAL 17.7). The class is only in the shared field primitives.
+
+**Plan said (phone action bar):** THEME "Primary action bar (phone)": pinned to the bottom, flush with the bar below.
+
+**What was wrong:** `ActionBar` was sticky only; on a short page it sat in the flow with a 45–130 px grey band above the bottom bar, and at the end of any scroll it stopped `--raised-overhang + 1rem` above the bar. `--bottom-bar` (66 px) was also 4.25 px shorter than the real bottom bar (70.25 px).
+
+**What I did instead:** a page with an action bar marks its `<main>` `data-pinned-foot`; on a phone ShellLayout's content wrapper becomes a flex column for it (`[&:has(>[data-pinned-foot])]`), the page fills the height and grows the content above the bar. The bar reaches down through the raised-button room (`-mb` by the new `--below-content`) and pads its own foot by `--raised-overhang`, so the raised Scout never covers the button. `--bottom-bar` is now the bottom bar's exact height (6 px + a fixed 56 px row + max(8 px, safe area)). Scout, Entry and Manage-phone use it. Rejected: making the content wrapper a flex column for every page — pages that rely on block layout (`mx-auto` without `w-full`) would shrink to their content.
+
+**Risk:** a new page with an `ActionBar` must add `data-pinned-foot` and `flex flex-1 flex-col` to its `<main>`, or a short page floats the bar again (the e2e `expectBarFlushOnNav` check covers Scout only).
+
+**Plan said (Scout station tile):** the "YOUR STATION" tag sat absolutely at the tile's top-right and covered the "2" of "BLUE 2" at 375 px.
+
+**What I did instead:** the label and the tag share one wrapping row (the tag `ms-auto`, so it stays at the right like the final); the phone tile's padding is 8 px and the line-up card's 12 px so both fit side by side at 375 px; at a larger OS text size the tag wraps under the label instead of overlapping (e2e checks both at 100 % and 125 %).
+
+**Risk:** none known; the tag is THEME's 10.5 px / 800 with 0.02 em tracking instead of 0.04 em.
+
+**Accepted, not fixed (Low rows):**
+- Dialog placement (Users add / handover, Disable confirmation): THEME "Dialog (desktop)" says **Centred**; the finals' images place them near the top. THEME's text wins over the image; changing every dialog is a theme decision for the user.
+- Disable confirmation's Cancel shows no ring when the dialog was opened with the mouse: Cancel does get first focus, but Chromium's `:focus-visible` heuristic hides the ring after a pointer interaction. Keyboard users see it. Forcing a ring on pointer use would break the global focus rule.
+- User detail rhythm: the top offset is tightened (the All users link is pulled 16 px up, the name 8 px closer); the remaining ~40 px comes from the 48 px field and checkbox rows (SPEC-FINAL 17.7, already logged), so Disable account is still just below the 900 px fold.
+- Entries phone status tags stay 24 px: the final's source (`entries.css` `.st`) draws them at 24 px; only the station tag is smaller on the card (`.pc2 .stn`, 20 px / 11 px), which is now matched. The review measured them off a scaled image.
+- The "Not in line-up" flag now uses a flag glyph everywhere (`WarningFlag`), including Scout, whose final draws the flag without an icon.
+
+## Redesign build RB.1 – RB.20 — summary of the deviations (RB.19, Step 4)
+
+**Plan said:** `docs/plans/REDESIGN-BUILD-PLAN.md`, tasks RB.1 – RB.20, built in waves A to F on `feat/redesign-build`, each page to match its final images.
+
+**What was wrong:** nothing as one error. Each task's section above holds its real error text and its alternatives. The most important departure of each, by task heading:
+
+- **Task RB.1 — Theme layer:** the `:focus-visible` rule stays unlayered (the plan put it in `@layer base`), so no utility can silently override the focus ring; `.brand-plate` was 3.3:1 until RB.18 removed it.
+- **Task RB.2 — Primitives I:** buttons and chips keep THEME's heights but carry a 48 px hit area (SPEC-FINAL 17.7); errors use the `--warn` edge, never red.
+- **Task RB.3 — Primitives II:** dialogs got `dismissible`, `initialFocus`, `describedBy` and `showClose` so a confirm cannot close by accident; radiogroups got roving tabindex.
+- **Task RB.4 — Device data:** `notifyChanged('rows')` runs after each pulled page, not once at the end, so a pull that fails midway still refreshes what it applied.
+- **Task RB.5 — E2E harness:** the fixture holds 40 qualification matches (not 10) and the mock names `Authorization` in its CORS headers, because `*` does not cover it.
+- **Task RB.13 — countEntriesByScouter:** also test-list changes (`range` on `scriptedDb`) and three store tests for paging past 1000 rows.
+- **Task RB.6 — Shell:** rows and buttons below 48 px in the finals were raised to 48 px on desktop (user decision, below); one `<Suspense>` per lazy route inside the shell, so a loading admin page does not blank it.
+- **Task RB.7 — Login and Change password:** the plan's `signIn(..., { mustChange: true })` e2e helper call could never resolve; the forced case signs in by hand and waits for `/change-password`.
+- **Task RB.8 — Entry:** the self-edit line uses `SELF_EDIT_WINDOW_MS` (5 minutes), not the mock's 10, and is hidden for a lead or admin.
+- **Task RB.9 — Scout:** the remembered station, the "Not in line-up" flag and the "Team not here?" roster replace today's form; copy the README does not give is listed in the section.
+- **Task RB.10 — Home:** rank and top-teams cards are not built (no ranking yet); coverage is hidden under a session override.
+- **Task RB.11 — Entries:** a team outside the line-up shows the alliance tag instead of a station; waiting and refused never overlap (RB.19 later aligned the chip with the shell's count).
+- **Task RB.12 — Switch scouter:** the note names the signed-in scouter in full and is hidden when the chosen person is the current one.
+- **Task RB.14 — Users:** the entries-this-season count is asked beside `listUsers`; a failed count shows "–" and does not fail the page.
+- **Task RB.15 — User detail:** the page loads its one account itself (`useAccount.ts`) so it does not depend on RB.14's `useUsers` signature.
+- **Task RB.16 — Manage, Competitions and roster:** the header line per tab and the roster section counts follow the images, not the README (user decision 2026-10-07).
+- **Task RB.17 — Manage, Matches:** saves are a per-event queue with an explicit "Try again", and unsaved cells are guarded on leaving the page (three review rounds).
+- **Task RB.20 — Delete a season or an event:** the `Store` stubs from task 1.60 were reused; the permission is `delete_objects` checked in the use case, not `manage_events`.
+- **Task RB.18 — Cleanup:** the initial-JS budget was re-based from 180 KB to 205 KB gzip (measured 199.4 KB; user decision 2026-10-07); `bundle:check` deletes the build manifest.
+- **Task RB.19 — Whole-app review:** the phone action bar is pinned with `data-pinned-foot`; one focus edge replaces the double ring; the top bar and the Waiting chip now count the same.
+
+**What I did instead:** each of the above, in its own section. Three user decisions of 2026-10-07 are folded in: contiguous 48 px full-width desktop rows satisfy the 8 px spacing rule (SPEC-FINAL 17.7 note); the RB.16 header line and counts follow the images; the 205 KB bundle budget.
+
+**Open items for later (none blocks the merge):**
+- **Dialog placement.** THEME "Dialog (desktop)" says centred; the finals draw the Users and Disable dialogs near the top. The code follows THEME. Pending the user: change THEME or the dialogs.
+- **User detail height.** On desktop the page still runs below the 900 px fold at 48 px fields; tightened by 24 px in RB.19, the rest is the 48 px rows.
+- **Release order for the delete migration.** `20261007120000_delete_cascade` is applied to the dev project only. Push it to production before the server with RB.20 is deployed (IMPLEMENTATION-PLAN release note), by hand (BUILD-CONTEXT section 4).
+- **Large server files.** Split `apps/server/src/repos/store.ts` (about 800 lines) and `apps/server/src/test/fake-context.ts` (about 1050 lines) in a cleanup task.
+- **`text-surface` on dark fills.** There is no on-dark token, so a future dark theme needs one (THEME.md palette rules).
+- **RB.20 minors:** the SQL guard against an `active_event_id` race, returning real deleted counts, soft-deleted entries not counted, and focus after an event delete.
+
+**Risk:** the summary restates the sections above; where the two differ, the task's own section is the record. The delete migration is the only item that can break production if the order is wrong.
+
+## Final review — the sync indicator's syncing state and copy (I1)
+
+**Plan said:** THEME "Phone top bar" and the phone-shell final README draw the sync pill in three states only: "● 3 waiting" (amber), "● All sent" (green), "● Offline" (grey). The desktop chips read "Online" / "Offline", and the menu's sync line "3 waiting to send" / "All sent" / "Offline".
+
+**What was wrong:** SPEC-FINAL 9.10 requires three named states, online / syncing / offline, plus the unsynced count ("offline · 4 unsynced"). The final-review finding I1: "`useSyncStatus()` computes `syncing`, but nothing reads it", and the phone pill dropped the count when offline. The finals have no syncing copy. SPEC-FINAL wins over a README, with this entry.
+
+**What I did instead:** one rule in `SyncPill.tsx` (`compactSync` for the pill, `syncLine` for the menu), offline first, then syncing, then waiting, then all sent. Phone pill: "● Syncing…", "● Syncing · 3", "● Offline · 4" (the count kept), with "● 3 waiting" and "● All sent" unchanged. Desktop connection chip: "Online" / "Syncing…" / "Offline", beside the unchanged "3 waiting to send" chip. Menu line: "Syncing…", "Syncing · 3 waiting to send", "Offline · 3 waiting to send". The syncing dot is `--accent` and pulses under `motion-safe:` only; reduced motion gets a still dot. Rejected: a spinner icon (wider than the pill's room beside the page title on a 375 px phone), and accepting the two-state pill (needs a user decision against SPEC-FINAL).
+
+**Risk:** the pill reads "Syncing…" for the length of every 45 s sync, so it changes briefly on each tick; that is what 9.10 asks for. The copy is new and has not been through a design round: the user should confirm it at the visual sign-off.
+
+## Final review — the confirm sheet's failure line is the shared ErrorLine (M6)
+
+**Plan said:** M6: "use `ErrorLine` everywhere, and give it a `ref` for ConfirmEntry's focus."
+
+**What was wrong:** `ErrorLine` sets the whole message in semibold, while ConfirmEntry's hand-made line set only "Not saved." in semibold. `RosterAdd.tsx`'s error is a field-level message tied to the input by `aria-describedby`, shown as plain `text-warn` text under the field (no final draws it), not a boxed line.
+
+**What I did instead:** `ErrorLine` takes `ref` and `focusable`; `DestructiveConfirm` and `ConfirmEntry` use it, so the confirm sheet's reason now carries the warning icon and is semibold throughout. `RosterAdd.tsx` is left as it is: a field message, not an error line.
+
+**Risk:** a small visual change on the Entry confirm sheet's failure state, which no final draws.
+
+- **Dialogs stay centred** (THEME "Centred"), not pinned near the top as some finals draw them. User decision 2026-10-07.

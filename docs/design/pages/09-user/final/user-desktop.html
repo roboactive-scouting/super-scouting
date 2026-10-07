@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>User detail — final, desktop</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../07-manage/src/manage.css"><link rel="stylesheet" href="../../08-users/src/users.css"><link rel="stylesheet" href="../../08-users/src/b.css"><link rel="stylesheet" href="../src/ud.css">
+<style>body{background:var(--bg)}.desk.final{zoom:1;border-radius:0;box-shadow:none}</style>
+</head><body>
+<div class="desk final"><div data-desk-shell="users" data-crumb="Admin / Users / <b>Yael Shapira</b>">
+  <div class="mpad" style="padding-top:16px"><div class="ucol" id="pg"></div></div>
+</div></div>
+<script src="../../08-users/src/users.js"></script><script src="../src/common.js"></script>
+<script>
+document.getElementById('pg').innerHTML = UD.back + UD.head() + UD.roleSec({}) + UD.renameSec() + UD.resetSec() + UD.disableSec('dz-ink');
+U.icons();
+</script>
+<script src="../../shell.js"></script>
+</body></html>

@@ -1,0 +1,136 @@
+/* Scout variant E: my station + driver stations + typed match number. */
+.stbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 10px 12px;
+}
+.stbar .lab {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.stpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  font-weight: 700;
+  font-size: 13.5px;
+}
+.stpill.b {
+  background: var(--alliance-blue-tint);
+  color: var(--alliance-blue);
+}
+.stpill.r {
+  background: var(--alliance-red-tint);
+  color: var(--alliance-red);
+}
+.stpill svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.4;
+}
+.mnum {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 8px;
+}
+.numfield {
+  height: 56px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--control-border);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 8px;
+}
+.numfield .pre {
+  font-family: var(--font-num);
+  color: var(--muted);
+  font-size: 22px;
+  font-weight: 600;
+}
+.numfield .v {
+  font-family: var(--font-num);
+  font-size: 26px;
+  font-weight: 600;
+}
+.numfield .caret {
+  width: 2px;
+  height: 28px;
+  background: var(--accent);
+}
+.numfield.focus {
+  border: 2px solid var(--accent);
+  padding: 0 13px;
+}
+.typesel {
+  height: 56px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--control-border);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  font-weight: 600;
+  font-size: 15px;
+}
+.typesel svg {
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
+}
+.grid6 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.station.mine {
+  outline: 2px dashed var(--alliance-blue);
+  outline-offset: -2px;
+}
+.station .you {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  background: var(--alliance-blue);
+  color: #fff;
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+.station.on .you {
+  background: var(--accent);
+}
+.station.r.mine {
+  outline-color: var(--alliance-red);
+}
+.cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.cols .ch {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin-bottom: 2px;
+}
+.cols .stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tlist .robot {
+  min-height: 56px;
+}

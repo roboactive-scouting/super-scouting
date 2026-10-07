@@ -18,7 +18,7 @@ export const REQUIRED = {
     '9. How a build chat runs',
     '10. Verification standard',
     '11. `DEVIATIONS.md`',
-    '12. The visual standard for every client task',
+    '12. The UI standard for every client task',
   ],
   'docs/ops/SETUP.md': [
     'Accounts to create',

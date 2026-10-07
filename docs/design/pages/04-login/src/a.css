@@ -1,0 +1,60 @@
+/* Login variant A ("Split plate"), the closed design. Colours only from theme.css. */
+.a-desk {
+  display: grid;
+  grid-template-columns: 44% 1fr;
+  height: 100%;
+}
+.a-plate {
+  background: var(--rail);
+  display: grid;
+  place-items: center;
+}
+.a-plate img {
+  width: 300px;
+}
+.a-form {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+}
+.a-form .w {
+  width: 380px;
+}
+.a-foot {
+  position: absolute;
+  bottom: 24px;
+  left: 0;
+  right: 0;
+  text-align: center;
+}
+.a-band {
+  background: var(--rail);
+  display: grid;
+  place-items: center;
+  padding: 22px 0 26px;
+  flex: none;
+}
+.a-band img {
+  width: 120px;
+}
+.a-band.small {
+  padding: 14px 0 16px;
+}
+.a-band.small img {
+  width: 84px;
+}
+.a-pbody {
+  padding: 24px 20px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.a-band.small + .a-pbody {
+  padding-top: 18px;
+}
+.a-pbody .ver {
+  margin-top: auto;
+  text-align: center;
+}

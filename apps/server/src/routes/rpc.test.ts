@@ -30,7 +30,7 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
     }
   });
 
-  it('has twenty-two authenticated commands for that loop to check, so it is not vacuous', () => {
+  it('has twenty-four authenticated commands for that loop to check, so it is not vacuous', () => {
     const commands = Object.entries(REGISTRY).filter(
       ([, e]) => e.kind === 'command' && !e.unauthenticated,
     );
@@ -41,7 +41,9 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
       'createSeason',
       'createTeam',
       'createUser',
+      'deleteEvent',
       'deleteMatch',
+      'deleteSeason',
       'disableUser',
       'enableUser',
       'ensureMatch',
@@ -70,12 +72,15 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
   it('holds exactly the entries registered so far', () => {
     expect(Object.keys(REGISTRY).sort()).toEqual([
       'changeOwnPassword',
+      'countEntriesByScouter',
       'createEvent',
       'createMatch',
       'createSeason',
       'createTeam',
       'createUser',
+      'deleteEvent',
       'deleteMatch',
+      'deleteSeason',
       'disableUser',
       'enableUser',
       'ensureMatch',

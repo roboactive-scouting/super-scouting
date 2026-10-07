@@ -170,3 +170,42 @@ export const listEventsOutput = z.object({
   next_cursor: z.string().nullable(),
 });
 export type ListEventsOutput = z.infer<typeof listEventsOutput>;
+
+// ---------------------------------------------------------------------------------------
+// Hard delete of a season or an event (SPEC-FINAL 3.9, 17.8; task RB.20). Admin only,
+// irreversible. `dry_run: true` answers the damage as counts and deletes nothing; the real
+// delete needs `confirm_name` to equal the season's year or the event's name exactly. The
+// active season and the default event are refused either way.
+// ---------------------------------------------------------------------------------------
+
+export const deleteSeasonInput = z
+  .object({
+    season_id: uuid,
+    dry_run: z.boolean().default(false),
+    confirm_name: z.string().optional(),
+  })
+  .strict();
+export type DeleteSeasonInput = z.input<typeof deleteSeasonInput>;
+
+export const deleteEventInput = z
+  .object({
+    event_id: uuid,
+    dry_run: z.boolean().default(false),
+    confirm_name: z.string().optional(),
+  })
+  .strict();
+export type DeleteEventInput = z.input<typeof deleteEventInput>;
+
+/** The refusals for the active season and the default event, word for word on both sides. */
+export const SWITCH_SEASON_FIRST = 'Switch the active season first.';
+export const SWITCH_EVENT_FIRST = 'Switch the default event first.';
+
+/** What is (or would be) deleted. An event's answer has `events: 1` and `forms: 0`. */
+export const deleteImpactOutput = z.object({
+  deleted: z.boolean(),
+  events: z.number().int(),
+  matches: z.number().int(),
+  entries: z.number().int(),
+  forms: z.number().int(),
+});
+export type DeleteImpactOutput = z.infer<typeof deleteImpactOutput>;

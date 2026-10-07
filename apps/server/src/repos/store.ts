@@ -389,6 +389,36 @@ export function supabaseStore(db: Db): Store {
       if (countError) throw dbError(countError);
       return count ?? 0;
     },
+    // RB.13: live entries per scouter across the season, for the Users page. Two reads, no
+    // join, like countEntriesBySeason. PostgREST caps a read at max_rows = 1000
+    // (packages/db/supabase/config.toml), so the entries are paged, ordered by id.
+    async countEntriesByScouterForSeason(seasonId: string) {
+      const { data: events, error } = await db
+        .from('events')
+        .select('id')
+        .eq('season_id', seasonId);
+      if (error) throw dbError(error);
+      const eventIds = (events ?? []).map((e) => e.id);
+      if (eventIds.length === 0) return [];
+      const PAGE = 1000;
+      const counts = new Map<string, number>();
+      // The event ids go out in chunks, like every other `in` filter here.
+      for (const chunk of chunks(eventIds)) {
+        for (let from = 0; ; from += PAGE) {
+          const { data, error: readError } = await db
+            .from('scouting_entries')
+            .select('scouter_id')
+            .in('event_id', chunk)
+            .is('deleted_at', null)
+            .order('id')
+            .range(from, from + PAGE - 1);
+          if (readError) throw dbError(readError);
+          for (const r of data ?? []) counts.set(r.scouter_id, (counts.get(r.scouter_id) ?? 0) + 1);
+          if ((data ?? []).length < PAGE) break;
+        }
+      }
+      return [...counts].map(([scouter_id, count]) => ({ scouter_id, count }));
+    },
     // Task 1.19: teams, the roster, matches and their slots. Every method THROWS on a
     // database error, keeping Postgres's code (dbError), as the season and event methods
     // do: a swallowed blip would read as "no such team" or "empty roster".
@@ -664,6 +694,51 @@ export function supabaseStore(db: Db): Store {
       const { error } = await db.from('matches').delete().eq('id', id);
       if (error) throw dbError(error);
     },
+    // RB.20: the hard cascade deletes (SPEC-FINAL 3.9). One SQL function each (migration
+    // 20261007120000_delete_cascade.sql): the entries go first, then the parent, all or nothing.
+    async deleteSeason(id: string): Promise<void> {
+      const { error } = await db.rpc('delete_season_cascade', { p_season_id: id });
+      if (error) throw dbError(error);
+    },
+    async deleteEvent(id: string): Promise<void> {
+      const { error } = await db.rpc('delete_event_cascade', { p_event_id: id });
+      if (error) throw dbError(error);
+    },
+    // Head counts only, no rows read. Live entries: a soft-deleted one is already gone to
+    // the admin. The event ids go out in chunks, like every `in` filter here.
+    async countDeleteImpact(kind: 'season' | 'event', id: string) {
+      let eventIds = [id];
+      let forms = 0;
+      if (kind === 'season') {
+        const { data, error } = await db.from('events').select('id').eq('season_id', id);
+        if (error) throw dbError(error);
+        eventIds = (data ?? []).map((e) => e.id);
+        const counted = await db
+          .from('forms')
+          .select('id', { count: 'exact', head: true })
+          .eq('season_id', id);
+        if (counted.error) throw dbError(counted.error);
+        forms = counted.count ?? 0;
+      }
+      let matches = 0;
+      let entries = 0;
+      for (const chunk of chunks(eventIds)) {
+        const m = await db
+          .from('matches')
+          .select('id', { count: 'exact', head: true })
+          .in('event_id', chunk);
+        if (m.error) throw dbError(m.error);
+        const e = await db
+          .from('scouting_entries')
+          .select('id', { count: 'exact', head: true })
+          .in('event_id', chunk)
+          .is('deleted_at', null);
+        if (e.error) throw dbError(e.error);
+        matches += m.count ?? 0;
+        entries += e.count ?? 0;
+      }
+      return { events: eventIds.length, matches, entries, forms };
+    },
     // The remaining methods start as loud stubs, exactly as the fake does. Each later
     // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
     // without these the file does not compile at all.
@@ -690,11 +765,8 @@ export function supabaseStore(db: Db): Store {
       'queryEntries',
       'entriesForScope',
       'listTeamEvents',
-      'deleteSeason',
-      'deleteEvent',
       'deleteFormCascade',
       'deleteFormVersion',
-      'countDeleteImpact',
     ]),
     // The spread above only carries an index signature (its keys come from a plain
     // string[]), so TS can't see that it supplies the remaining named Store methods;

@@ -3,6 +3,9 @@ import {
   activeContext,
   createEventInput,
   createSeasonInput,
+  deleteEventInput,
+  deleteImpactOutput,
+  deleteSeasonInput,
   eventRow,
   getActiveContextInput,
   listEventsInput,
@@ -121,5 +124,30 @@ describe('the season and event wire schemas (SPEC-FINAL 6.2, 6.4; task 1.18)', (
         updated_at: at,
       }).success,
     ).toBe(true);
+  });
+});
+
+describe('the delete schemas (SPEC-FINAL 3.9; task RB.20)', () => {
+  it('defaults dry_run to false and takes an optional confirm_name', () => {
+    expect(deleteSeasonInput.parse({ season_id: SEASON })).toEqual({
+      season_id: SEASON,
+      dry_run: false,
+    });
+    expect(deleteEventInput.parse({ event_id: EVENT, confirm_name: 'Week 1' })).toEqual({
+      event_id: EVENT,
+      dry_run: false,
+      confirm_name: 'Week 1',
+    });
+  });
+
+  it('refuses a field it does not take, and a non-uuid id', () => {
+    expect(deleteEventInput.safeParse({ event_id: EVENT, season_id: SEASON }).success).toBe(false);
+    expect(deleteSeasonInput.safeParse({ season_id: 'x' }).success).toBe(false);
+  });
+
+  it('answers whole counts', () => {
+    const out = { deleted: false, events: 1, matches: 3, entries: 17, forms: 0 };
+    expect(deleteImpactOutput.parse(out)).toEqual(out);
+    expect(deleteImpactOutput.safeParse({ ...out, entries: 1.5 }).success).toBe(false);
   });
 });

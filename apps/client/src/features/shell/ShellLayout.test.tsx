@@ -3,11 +3,18 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { createMemoryRouter, RouterProvider, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PAGE_ENTER } from '@/lib/motion';
-import { bottomBarItems, navItemsFor, type NavAudience } from './nav';
+import type { Account } from './account';
+import type { NavAudience } from './nav';
 import { ShellLayout } from './ShellLayout';
 
 const who: NavAudience = { user: { id: 'u-1', role: 'scouter' }, expired: false, override: false };
+const account: Account = {
+  name: 'Yael Shapira',
+  role: 'scouter',
+  canSwitch: true,
+  canChangePassword: true,
+  onSignOut: () => undefined,
+};
 
 function Harness() {
   const [desktop, setDesktop] = useState(false);
@@ -15,12 +22,10 @@ function Harness() {
   return (
     <ShellLayout
       desktop={desktop}
-      items={navItemsFor(who)}
-      bottomItems={bottomBarItems(who)}
       hideBottomBar={pathname.startsWith('/entry/')}
       who={who}
-      status={() => <span>online</span>}
-      account={() => <p>the account</p>}
+      account={account}
+      version="1.4.0"
       notices={null}
       footer={null}
     >
@@ -60,7 +65,7 @@ describe('the phone shell (redesign R.7)', () => {
   it('shows the menu button, a bottom bar with Home, Scout and Entries, and no sidebar', () => {
     renderAt('/entries');
     expect(screen.getByRole('button', { name: 'Open the menu' })).toBeInTheDocument();
-    const quick = screen.getByRole('navigation', { name: 'Quick' });
+    const quick = screen.getByRole('navigation', { name: 'Main' });
     for (const name of ['Home', 'Scout', 'Entries']) {
       expect(within(quick).getByRole('link', { name })).toBeInTheDocument();
     }
@@ -79,7 +84,7 @@ describe('the phone shell (redesign R.7)', () => {
 
   it('hides the bottom bar on the entry route', () => {
     renderAt('/entry/m-1/t-1');
-    expect(screen.queryByRole('navigation', { name: 'Quick' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Main' })).not.toBeInTheDocument();
   });
 
   it('opens the drawer with every destination and the account, and closes it on a choice', async () => {
@@ -87,7 +92,8 @@ describe('the phone shell (redesign R.7)', () => {
     const u = userEvent.setup();
     await u.click(screen.getByRole('button', { name: 'Open the menu' }));
     const drawer = screen.getByRole('dialog', { name: 'Menu' });
-    expect(within(drawer).getByText('the account')).toBeInTheDocument();
+    expect(within(drawer).getByText('Yael Shapira')).toBeInTheDocument();
+    expect(within(drawer).getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
     await u.click(within(drawer).getByRole('link', { name: 'Entries' }));
     expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/entries');
@@ -108,7 +114,7 @@ describe('the phone shell (redesign R.7)', () => {
     expect(animate).not.toHaveBeenCalled();
     await act(() => router.navigate('/entries'));
     expect(animate).toHaveBeenCalledTimes(1);
-    expect(animate.mock.calls[0]![0]).toEqual(PAGE_ENTER);
+    expect(animate.mock.calls[0]![0]).toEqual([{ opacity: 0 }, { opacity: 1 }]);
     await act(() => router.navigate('/scout'));
     await act(() => router.navigate('/entry/m-1/t-1'));
     expect(animate).toHaveBeenCalledTimes(1);

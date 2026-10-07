@@ -1,6 +1,7 @@
 import { MAX_OPERATIONS_PER_PUSH, PULL_ENTITY_KEYS, type PullEntityKey } from '@frc/shared';
 import { session } from '@/auth/session';
 import { cachedRows } from './cache';
+import { notifyChanged } from './changes';
 import { db, getMeta, setMeta } from './db';
 import { ackResults, pending } from './outbox';
 import { call } from './rpc';
@@ -82,7 +83,9 @@ export async function syncNow(deps: SyncDeps): Promise<SyncOutcome> {
         ...(since ? { since } : {}),
         ...(cursor ? { cursor } : {}),
       });
-      pulled += await upsertEntities(response.entities);
+      const applied = await upsertEntities(response.entities);
+      pulled += applied;
+      if (applied > 0) notifyChanged('rows');
       if (bestWatermark === null || response.watermark > bestWatermark)
         bestWatermark = response.watermark;
       if (response.complete) {
@@ -100,6 +103,7 @@ export async function syncNow(deps: SyncDeps): Promise<SyncOutcome> {
       await setMeta(WATERMARK, bestWatermark);
       await setMeta(HYDRATED, deps.eventId);
       await setMeta('sync.last_success_at', new Date().toISOString());
+      notifyChanged('meta');
     }
     // SPEC-FINAL 7.5: the database is authoritative for role, on the client too.
     await session.refreshFromCache();
@@ -131,6 +135,7 @@ async function wipeEvent(eventId: string): Promise<SyncOutcome> {
   await db.rows.where('event_id').equals(eventId).delete();
   await setMeta(WATERMARK, null);
   await setMeta(HYDRATED, null);
+  notifyChanged('rows');
   return { status: 'event-gone' };
 }
 

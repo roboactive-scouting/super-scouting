@@ -533,6 +533,28 @@ describe('AppShell and the session (SPEC-FINAL 7.5, task 1.15)', () => {
     expect(syncNow).not.toHaveBeenCalled();
   });
 
+  it('offers no Switch scouter in the phone menu once the session has expired', async () => {
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    })) as unknown as typeof window.matchMedia;
+    try {
+      await hydratedFor(EVENT);
+      await session.expire();
+      renderShell('/entry/m/t');
+      expect(await screen.findByText(ENTRY_CHILD)).toBeInTheDocument();
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Open the menu' }));
+      const menu = await screen.findByRole('dialog', { name: 'Menu' });
+      expect(within(menu).getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
+      expect(within(menu).queryByText('Switch scouter')).toBeNull();
+    } finally {
+      window.matchMedia = original;
+    }
+  });
+
   it('sends an expired session on the entry route to sign-in when the event never loaded', async () => {
     await session.expire();
     renderShell('/entry/m-1/t-1');
@@ -572,8 +594,8 @@ describe('AppShell and the session (SPEC-FINAL 7.5, task 1.15)', () => {
       seq: 1,
     });
     renderShell('/scout');
-    expect(await screen.findByText('Seed Scouter')).toBeInTheDocument();
-    screen.getByRole('button', { name: 'Sign out' }).click();
+    await userEvent.setup().click(await screen.findByRole('button', { name: /Seed Scouter/ }));
+    screen.getByRole('menuitem', { name: 'Sign out' }).click();
     expect(await screen.findByText('the login page')).toBeInTheDocument();
     await waitFor(async () => expect(await session.current()).toBeNull());
     expect(await db.outbox.count()).toBe(1);
@@ -598,17 +620,24 @@ describe('AppShell and an offline sign-in (SPEC-FINAL 7.5, task 1.16)', () => {
     renderShell('/scout');
     expect(await screen.findByText(OFFLINE_SIGNED_IN_LINE)).toBeInTheDocument();
     expect(await screen.findByText(CHILD)).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Change password' })).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: /Seed Scouter/ }));
+    const menu = screen.getByRole('menu');
+    expect(within(menu).getByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument();
+    expect(within(menu).queryByRole('menuitem', { name: 'Change password' })).toBeNull();
     expect(syncNow).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('offers switch scouter from the header as one 48 px action', async () => {
+  it('offers switch scouter from the account menu, and no password change', async () => {
     online = false;
     renderShell('/scout');
-    const link = await screen.findByRole('link', { name: 'Switch scouter' });
-    expect(link).toHaveAttribute('href', '/switch-scouter');
-    expect(link).toHaveClass('tap-target');
+    await userEvent.setup().click(await screen.findByRole('button', { name: /Seed Scouter/ }));
+    const menu = screen.getByRole('menu');
+    expect(within(menu).getByRole('menuitem', { name: 'Switch scouter' })).toHaveAttribute(
+      'href',
+      '/switch-scouter',
+    );
+    expect(within(menu).queryByRole('menuitem', { name: 'Change password' })).toBeNull();
   });
 
   it('exchanges the held password for a token when the connection returns, then syncs at once', async () => {
@@ -789,10 +818,7 @@ describe('AppShell and a changed default (task 1.22)', () => {
     await act(() => router.navigate('/scout'));
 
     // The shell is on B at once; B was never loaded here, and its sync waits behind A's.
-    expect(
-      await screen.findByRole('link', { name: /working on week 3 · change/i }),
-    ).toBeInTheDocument();
-    expect(screen.getByText(LOADING)).toBeInTheDocument();
+    expect(await screen.findByText(LOADING)).toBeInTheDocument();
 
     // A's answer arrives late, and is ignored: it never settles the shell back on A.
     await act(async () => hung.settle(OK));
@@ -844,10 +870,13 @@ describe('AppShell and a session override (SPEC-FINAL 6.3, task 1.22)', () => {
     await cacheEventNames();
   });
 
-  it('names the context in the footer, as a link to the context page', async () => {
-    renderShell();
-    const link = await screen.findByRole('link', { name: /working on week 1 · change/i });
-    expect(link).toHaveAttribute('href', '/');
+  it('has no shell footer: no "Working on … Change" line and no version line', async () => {
+    renderShell('/entries');
+    await screen.findByText('the entries list');
+    expect(screen.queryByRole('link', { name: /working on/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/working on week 1/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^version /)).not.toBeInTheDocument();
+    expect(document.querySelector('footer')).toBeNull();
   });
 
   it('disables Scout, and says so on every page, until the override is cleared', async () => {
@@ -857,9 +886,7 @@ describe('AppShell and a session override (SPEC-FINAL 6.3, task 1.22)', () => {
     const strip = line.closest('[role="status"]') as HTMLElement;
     expect(screen.queryByRole('link', { name: 'Scout' })).not.toBeInTheDocument();
     expect(screen.getByText('Scout')).toHaveAttribute('aria-disabled', 'true');
-    expect(
-      await screen.findByRole('link', { name: /looking at week 3 · change/i }),
-    ).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /looking at week 3/i })).not.toBeInTheDocument();
 
     await userEvent
       .setup()

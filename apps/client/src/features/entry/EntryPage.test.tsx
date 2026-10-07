@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { CachedRow } from '@/data/db';
@@ -56,7 +56,167 @@ const props = {
   matchLabel: 'Q12',
 };
 
+/**
+ * A published form with a field in each of the four phases (auto and post_match come from
+ * beforeEach), mounted like the route mounts it. `draftSavedAt` leaves an unsent draft
+ * saved at that time.
+ */
+async function renderEntry(opts: { draftSavedAt?: string } = {}) {
+  await db.rows.bulkPut([
+    field({
+      id: 'f3',
+      key: 'teleop_notes',
+      label: 'Teleop notes',
+      type: 'counter',
+      display_order: 3,
+      phase: 'teleop',
+      unit: 'count',
+      direction: 'higher_is_better',
+      config: { min: 0, max: 40, step: 1 },
+    }),
+    field({
+      id: 'f4',
+      key: 'parked',
+      label: 'Parked',
+      type: 'toggle',
+      display_order: 4,
+      phase: 'endgame',
+      unit: 'boolean',
+      direction: 'higher_is_better',
+    }),
+  ]);
+  if (opts.draftSavedAt) {
+    await db.drafts.put({
+      key: `${props.formVersionId}:${props.matchId}:${props.teamId}`,
+      row_id: '',
+      payload: { robot_status: null, data: {}, breakdown_seconds: 0 },
+      updated_at: opts.draftSavedAt,
+    });
+  }
+  render(<EntryPage {...props} />);
+  await screen.findByRole('group', { name: /robot status/i });
+}
+
 describe('EntryPage', () => {
+  it('shows phases as tabs and marks a phase done once a field in it is set', async () => {
+    await renderEntry();
+    await userEvent.click(screen.getByRole('radio', { name: 'Played' }));
+    const tab = () => screen.getByRole('tab', { name: /Auto/ });
+    expect(tab()).toHaveAttribute('aria-selected', 'true');
+    // The Tabs primitive draws the ✓ as an icon and reads it as the tab's description.
+    expect(tab()).not.toHaveAccessibleDescription('Done');
+    await userEvent.click(screen.getAllByRole('button', { name: /plus one/ })[0]!);
+    expect(tab()).toHaveAccessibleDescription('Done');
+    expect(tab().querySelector('[data-done-mark]')).not.toBeNull();
+    // The summary panel's count; anchored, so "Phase 1 of 4" in the pane header is not it.
+    expect(screen.getByText(/^1 of \d+$/)).toBeInTheDocument();
+  });
+
+  it('a no-show hides every field and never records zeros', async () => {
+    await renderEntry();
+    await userEvent.click(screen.getByRole('radio', { name: 'No show' }));
+    expect(screen.queryByRole('tab')).toBeNull();
+    expect(screen.getByText(/never/i)).toBeInTheDocument();
+    // no field of any kind: no counter button, no number box, no switch
+    expect(screen.queryByRole('button', { name: /plus one|minus one/ })).toBeNull();
+    expect(screen.queryByRole('spinbutton')).toBeNull();
+    expect(screen.queryByRole('switch')).toBeNull();
+  });
+
+  it('says when the draft was saved', async () => {
+    await renderEntry({ draftSavedAt: '2026-10-06T08:41:00Z' });
+    expect(await screen.findByText(/Draft saved on this device · \d\d:\d\d/)).toBeInTheDocument();
+  });
+
+  it('opens a phase from its tab and from the summary panel', async () => {
+    await renderEntry();
+    await userEvent.click(screen.getByRole('radio', { name: 'Played' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Teleop' }));
+    expect(screen.getByRole('heading', { name: 'Teleop' })).toBeInTheDocument();
+    expect(screen.getByText('Phase 2 of 4')).toBeInTheDocument();
+    expect(screen.getByLabelText('Teleop notes value')).toBeInTheDocument();
+    expect(screen.queryByText('Auto notes')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Endgame/ }));
+    expect(screen.getByRole('tab', { name: 'Endgame' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('switch', { name: 'Parked' })).toBeInTheDocument();
+  });
+
+  it('lists every field by phase on the confirm, with the edit window', async () => {
+    await renderEntry();
+    await userEvent.click(screen.getByRole('radio', { name: 'Played' }));
+    await userEvent.click(screen.getByRole('button', { name: /review entry/i }));
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm this entry' });
+    expect(dialog).toHaveTextContent('You can still edit it for 5 minutes after submitting.');
+    for (const heading of ['Autonomous', 'Teleop', 'Endgame', 'Notes'])
+      expect(within(dialog).getByRole('heading', { name: heading })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /keep editing/i })).toHaveFocus();
+  });
+
+  it('prints an untouched counter as 0 and an untouched switch as No, like the controls', async () => {
+    await renderEntry();
+    await userEvent.click(screen.getByRole('radio', { name: 'Played' }));
+    await userEvent.click(screen.getByRole('button', { name: /review entry/i }));
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm this entry' });
+    const valueOf = (label: string) =>
+      within(dialog).getByText(label, { selector: 'dt' }).nextElementSibling;
+    expect(valueOf('Auto notes')).toHaveTextContent(/^0$/);
+    expect(valueOf('Parked')).toHaveTextContent(/^No$/);
+    expect(valueOf('Notes')).toHaveTextContent(/^—$/);
+  });
+
+  it('names the robot and its alliance on the confirm', async () => {
+    await renderEntry();
+    await userEvent.click(screen.getByRole('radio', { name: 'Played' }));
+    await userEvent.click(screen.getByRole('button', { name: /review entry/i }));
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm this entry' });
+    expect(dialog).toHaveTextContent('Q12 · 2096 ROBACTIVE');
+    expect(within(dialog).getByText(/Red alliance|Red \d/)).toBeInTheDocument();
+  });
+
+  describe('the edit-window line on the confirm', () => {
+    const LINE = /You can still edit it for 5 minutes/;
+    async function openConfirm(extra: Partial<Parameters<typeof EntryPage>[0]> = {}) {
+      const user = userEvent.setup();
+      render(<EntryPage {...props} {...extra} />);
+      await user.click(await screen.findByRole('radio', { name: /played/i }));
+      await user.click(screen.getByRole('button', { name: /review entry/i }));
+      return screen.findByRole('dialog', { name: 'Confirm this entry' });
+    }
+
+    it("is shown for a scouter's new entry", async () => {
+      expect(await openConfirm()).toHaveTextContent(LINE);
+    });
+
+    it.each(['lead', 'admin'] as const)(
+      'is hidden for a %s, who edit at any time',
+      async (role) => {
+        const dialog = await openConfirm({ author: { id: 'u-2', role } });
+        expect(dialog).not.toHaveTextContent(LINE);
+      },
+    );
+
+    it('is hidden when re-editing an existing entry: its window runs from the first save', async () => {
+      const dialog = await openConfirm({
+        existing: {
+          id: 'e-1',
+          event_id: 'ev-1',
+          form_kind: 'match',
+          form_version_id: 'fv-1',
+          match_id: 'm-1',
+          team_id: 't-1',
+          alliance: 'red',
+          scouter_id: 'u-1',
+          robot_status: 'played',
+          breakdown_seconds: null,
+          data: { auto_notes: 3 },
+          client_created_at: new Date(Date.now() - 60_000).toISOString(),
+          deleted_at: null,
+        },
+      });
+      expect(dialog).not.toHaveTextContent(LINE);
+    });
+  });
+
   it('asks for robot status before it shows any scoring field', async () => {
     render(<EntryPage {...props} />);
     expect(await screen.findByRole('group', { name: /robot status/i })).toBeInTheDocument();
@@ -124,6 +284,21 @@ describe('EntryPage', () => {
     expect(await pending(10)).toHaveLength(0);
     await user.click(screen.getByRole('button', { name: /submit entry/i }));
     await waitFor(async () => expect(await pending(10)).toHaveLength(1));
+  });
+
+  it('writes one entry however fast the second tap on Submit comes', async () => {
+    const user = userEvent.setup();
+    render(<EntryPage {...props} />);
+    await user.click(await screen.findByRole('radio', { name: /played/i }));
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    const submit = await screen.findByRole('button', { name: /submit entry/i });
+    fireEvent.click(submit);
+    fireEvent.click(submit);
+    await waitFor(async () => expect(await pending(10)).toHaveLength(1));
+    // Give a second, unguarded submit every chance to land before counting again.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(await pending(10)).toHaveLength(1);
+    expect(await db.rows.where('entity').equals('scouting_entries').count()).toBe(1);
   });
 
   it('blocks submission and names the field when a value is outside its expected range', async () => {

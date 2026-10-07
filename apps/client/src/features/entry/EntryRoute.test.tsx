@@ -70,8 +70,8 @@ describe('EntryRoute on submit (SPEC-FINAL 8.1)', () => {
     expect(notice).toHaveTextContent('Entry saved on this device');
     expect(notice).toHaveTextContent('Q21 · 118 Robonauts');
     expect(screen.getByLabelText(/match number/i)).toHaveValue(null);
-    // The scout page's cache read has finished once the roster is on the select.
-    expect(await screen.findByRole('option', { name: /118/ })).toBeInTheDocument();
+    // The scout page's device read has finished once it asks for a station (none is set).
+    expect(await screen.findByRole('dialog', { name: 'Choose your station' })).toBeInTheDocument();
     await waitFor(async () => expect(await pending(10)).toHaveLength(1));
   });
 });

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Clock } from 'lucide-react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { Notice } from '@/components/ui/notice';
+import { Note, WarningNotice } from '@/components/ui/notice';
 import { AuthError, AuthField, AuthFrame, AuthSubmit } from './AuthFrame';
 import { OFFLINE_SIGN_IN_LINE } from './messages';
 import {
@@ -12,25 +13,12 @@ import {
 import type { SessionUser } from './session';
 import { useSession } from './useSession';
 import { PATHS } from '@/lib/paths';
+import { useOnline } from '@/lib/useOnline';
 
 export const EXPIRED_LINE =
   'Your sign-in expired. Everything you entered is saved on this device and will sync after you sign in.';
 
 export type { OfflineSignIn };
-
-function useOnline(): boolean {
-  const [online, setOnline] = useState(() => navigator.onLine);
-  useEffect(() => {
-    const update = () => setOnline(navigator.onLine);
-    window.addEventListener('online', update);
-    window.addEventListener('offline', update);
-    return () => {
-      window.removeEventListener('online', update);
-      window.removeEventListener('offline', update);
-    };
-  }, []);
-  return online;
-}
 
 const home = (user: SessionUser) => (user.must_change_password ? PATHS.changePassword : PATHS.home);
 
@@ -51,12 +39,14 @@ export function LoginPage({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const prefilled = useRef(false);
+  const passwordRef = useRef<HTMLInputElement>(null);
 
   // An expired session keeps its user: offer the same name back (SPEC-FINAL 7.5).
   useEffect(() => {
     if (prefilled.current || !current?.expired) return;
     prefilled.current = true;
     setUsername(current.user.username);
+    passwordRef.current?.focus();
   }, [current]);
 
   if (current === undefined) return null;
@@ -87,16 +77,16 @@ export function LoginPage({
   }
 
   return (
-    <AuthFrame title="Sign in">
+    <AuthFrame title="Sign in" compact={Boolean(current?.expired) || !online}>
       {current?.expired && (
-        <Notice role="status" tone="warning" className="mt-4">
-          {EXPIRED_LINE}
-        </Notice>
+        <div role="status" className="mt-4">
+          <WarningNotice icon={Clock}>{EXPIRED_LINE}</WarningNotice>
+        </div>
       )}
       {!online && (
-        <Notice role="status" className="mt-4">
-          {OFFLINE_SIGN_IN_LINE}
-        </Notice>
+        <div role="status" className="mt-4">
+          <Note icon="offline">{OFFLINE_SIGN_IN_LINE}</Note>
+        </div>
       )}
       <form noValidate onSubmit={(e) => void submit(e)}>
         <AuthField
@@ -113,6 +103,7 @@ export function LoginPage({
           autoComplete="current-password"
           onChange={setPassword}
           hint="Forgot it? Ask an admin to reset it."
+          inputRef={passwordRef}
         />
         <AuthError message={error} />
         <AuthSubmit busy={busy} label="Sign in" busyLabel="Signing in…" />

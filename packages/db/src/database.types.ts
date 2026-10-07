@@ -1185,7 +1185,11 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      delete_event_cascade: { Args: { p_event_id: string }; Returns: undefined }
+      delete_season_cascade: {
+        Args: { p_season_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never

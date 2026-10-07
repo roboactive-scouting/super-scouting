@@ -1,0 +1,41 @@
+/* Manage, closed variant D: matches grid and Competitions tab. Colours only from theme.css. */
+.dhd{display:flex;align-items:flex-end;gap:12px}
+.lgrid{display:grid;grid-template-columns:64px repeat(6,1fr) 76px;gap:4px;padding:10px 12px}
+.lgrid .h{font-size:11.5px;font-weight:750;letter-spacing:.04em;padding:6px 8px;border-radius:6px}
+.lgrid .h.r{background:var(--alliance-red-tint);color:var(--alliance-red)}
+.lgrid .h.b{background:var(--alliance-blue-tint);color:var(--alliance-blue)}
+.lgrid .h.m{color:var(--muted)}
+.lgrid .mn{display:flex;align-items:center;font-family:var(--font-num);font-weight:600;padding-left:6px}
+.ct{height:44px;border:1px solid var(--line);border-radius:8px;background:var(--surface);display:flex;flex-direction:column;justify-content:center;padding:0 9px;line-height:1.15}
+.ct b{font-size:14.5px}
+.ct small{font-size:11px;color:var(--muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.ct.empty{border:1px dashed var(--control-border);background:var(--bg)}
+.ct.bad{border:2px solid var(--warn);background:var(--warn-tint)}
+.ct.bad small{color:var(--warn);font-weight:650}
+.ct.focus{border:2px solid var(--accent);box-shadow:0 0 0 3px var(--accent-tint)}
+.ct .caret{display:inline-block;width:1.5px;height:16px;background:var(--ink);vertical-align:-3px;margin-left:1px}
+.acts2{display:flex;align-items:center;gap:4px;justify-content:flex-end}
+.ac2{position:absolute;margin-top:4px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 30px -12px rgba(20,24,32,.35);width:230px;z-index:2;padding:4px}
+.ac2 div{display:flex;gap:8px;padding:8px 10px;border-radius:6px;font-size:13px}
+.ac2 div b{font-family:var(--font-num);font-weight:600}
+.ac2 div.on{background:var(--accent-tint)}
+.vbar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--line);background:var(--bg);font-size:13px}
+.vbar .iss{display:inline-flex;align-items:center;gap:6px;color:var(--warn);font-weight:650}
+.vbar .iss svg{width:14px;height:14px}
+.toolrow{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line-2)}
+.seasonchips{display:flex;gap:8px;margin-top:16px}
+.schip{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 14px;border-radius:999px;border:1px solid var(--control-border);background:var(--surface);font-weight:650;font-size:13.5px}
+.schip.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.schip .mono{font-family:var(--font-num)}
+.ecards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+.ec{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-card);padding:14px;display:flex;flex-direction:column;gap:10px}
+.ec.cur{border:2px solid var(--accent);background:var(--accent-tint);padding:13px}
+.ec .t{display:flex;align-items:center;gap:8px}
+.ec .t b{font-size:15px;font-weight:650}
+.ec .t .ord{margin-left:auto;font-family:var(--font-num);color:var(--muted);font-size:12px}
+.ec .r2{display:flex;gap:6px;align-items:center}
+.ec .r2 .sp{flex:1}
+.ec.add{border:1px dashed var(--control-border);background:transparent;align-items:center;justify-content:center;color:var(--accent-ink);font-weight:650;min-height:110px}
+.seasoncard{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-card);padding:14px 16px;display:flex;align-items:center;gap:18px;margin-top:12px}
+.seasoncard .mono{font-family:var(--font-num)}
+.seasoncard .img{width:120px;height:64px;border-radius:8px;background:repeating-linear-gradient(45deg,var(--line-2) 0 8px,var(--bg) 8px 16px)}

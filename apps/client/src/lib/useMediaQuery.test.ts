@@ -30,6 +30,18 @@ describe('useMediaQuery', () => {
     expect(renderHook(() => useMediaQuery(DESKTOP_QUERY, false)).result.current).toBe(false);
   });
 
+  it('reads matchMedia synchronously on the first render (no flash of the desktop layout)', () => {
+    controllableMedia(false);
+    const seen: boolean[] = [];
+    renderHook(() => {
+      const value = useMediaQuery(DESKTOP_QUERY, true);
+      seen.push(value);
+      return value;
+    });
+    expect(seen[0]).toBe(false);
+    expect(seen).not.toContain(true);
+  });
+
   it('follows the query as it changes', () => {
     const media = controllableMedia(false);
     const { result } = renderHook(() => useIsDesktop());

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Login — final, phone</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../src/login.css"><link rel="stylesheet" href="../src/a.css">
+<style>.canvas{height:940px}.frames{gap:22px}</style>
+</head><body>
+<div class="canvas">
+  <div class="canvas-head"><b>Login — final · phone</b><span>Empty, then offline with a wrong password, an expired session (name kept), and signing in with the password shown.</span></div>
+  <div class="frames">
+    <figure class="frame"><div class="phone">
+      <div class="lsb dark"><span>08:41</span><span style="font-size:11px">● ● ●</span></div>
+      <div class="a-band"><img src="../../../../brand/logo.png" alt=""></div>
+      <div class="a-pbody">
+        <div class="lg-h1">Sign in</div>
+        <div class="fld"><label>Username</label><div class="inp"></div></div>
+        <div class="fld"><label>Password</label><div class="inp"><span class="eye"><i data-i="eye"></i></span></div>
+          <div class="hint">Forgot it? Ask an admin to reset it.</div></div>
+        <div class="sbtn">Sign in</div>
+        <div class="ver">version <span class="num">1.4.0</span></div>
+      </div>
+    </div><figcaption>1 · Empty</figcaption></figure>
+
+    <figure class="frame"><div class="phone">
+      <div class="lsb dark"><span>08:42</span><span style="font-size:11px">● ● ●</span></div>
+      <div class="a-band small"><img src="../../../../brand/logo.png" alt=""></div>
+      <div class="a-pbody">
+        <div class="lg-h1">Sign in</div>
+        <div class="msg note"><i data-i="off"></i><span>No connection. Signing in will use the credentials cached on this device.</span></div>
+        <div class="fld"><label>Username</label><div class="inp">noa.levi</div></div>
+        <div class="fld"><label>Password</label><div class="inp focus"><span class="dots">•••••••</span><span class="caret" style="margin-left:0"></span><span class="eye"><i data-i="eye"></i></span></div>
+          <div class="hint">Forgot it? Ask an admin to reset it.</div></div>
+        <div class="msg err" role="alert"><i data-i="alert"></i><span>That username and password do not match.</span></div>
+        <div class="sbtn">Sign in</div>
+      </div>
+    </div><figcaption>2 · Offline, wrong password</figcaption></figure>
+
+    <figure class="frame"><div class="phone">
+      <div class="lsb dark"><span>14:05</span><span style="font-size:11px">● ● ●</span></div>
+      <div class="a-band small"><img src="../../../../brand/logo.png" alt=""></div>
+      <div class="a-pbody">
+        <div class="lg-h1">Sign in</div>
+        <div class="msg warn"><i data-i="clock"></i><span>Your sign-in expired. Everything you entered is saved on this device and will sync after you sign in.</span></div>
+        <div class="fld"><label>Username</label><div class="inp">noa.levi</div></div>
+        <div class="fld"><label>Password</label><div class="inp focus"><span class="caret" style="margin-left:0"></span><span class="eye"><i data-i="eye"></i></span></div>
+          <div class="hint">Forgot it? Ask an admin to reset it.</div></div>
+        <div class="sbtn">Sign in</div>
+      </div>
+    </div><figcaption>3 · Session expired, name kept</figcaption></figure>
+
+    <figure class="frame"><div class="phone">
+      <div class="lsb dark"><span>08:43</span><span style="font-size:11px">● ● ●</span></div>
+      <div class="a-band"><img src="../../../../brand/logo.png" alt=""></div>
+      <div class="a-pbody">
+        <div class="lg-h1">Sign in</div>
+        <div class="fld"><label>Username</label><div class="inp">noa.levi</div></div>
+        <div class="fld"><label>Password</label><div class="inp">robactive26<span class="eye on"><i data-i="eyeoff"></i></span></div>
+          <div class="hint">Forgot it? Ask an admin to reset it.</div></div>
+        <div class="sbtn busy"><span class="spin"></span>Signing in…</div>
+        <div class="ver">version <span class="num">1.4.0</span></div>
+      </div>
+    </div><figcaption>4 · Password shown, signing in</figcaption></figure>
+  </div>
+</div>
+<script src="../src/login.js"></script>
+</body></html>

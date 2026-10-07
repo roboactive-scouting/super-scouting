@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Manage — final, phone (matches only)</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../src/manage.css"><link rel="stylesheet" href="../src/d2.css">
+<style>.canvas{height:940px}</style>
+</head><body>
+<div class="canvas">
+  <div class="canvas-head"><b>Manage — final · phone</b><span>On a phone, Manage is matches only: the list, editing one match, adding matches, and the delete confirmation. Seasons, events and the roster stay on a computer.</span></div>
+  <div class="phones">
+    <figure class="frame"><div class="phone"><div data-phone-shell data-time="08:12" data-title="Matches">
+      <div class="pm">
+        <div class="pmh"><div><h1>Matches</h1><p>District #3 · Tel Aviv</p></div></div>
+        <div class="seg3"><span>Practice</span><span class="on">Qualification</span><span>Playoff</span></div>
+        <div id="pl1" style="display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+      <div class="pbar3"><span class="btn primary">Add matches</span><div class="pnote">Seasons, events and the roster need a computer.</div></div>
+    </div></div><figcaption>1 · Match list (phone)</figcaption></figure>
+
+    <figure class="frame"><div class="phone"><div data-phone-shell data-time="08:13" data-title="Matches">
+      <div class="pm"><div class="pmh"><div><h1>Matches</h1><p>District #3 · Tel Aviv</p></div></div><div id="pl2" style="display:flex;flex-direction:column;gap:8px"></div></div>
+      <div class="scrim3"></div>
+      <div class="sh"><div class="grab"></div>
+        <h3>Edit <span class="num">Q10</span></h3>
+        <div class="sl">Line-up · type a team number</div>
+        <div class="six">
+          <div class="tf r"><label>RED 1</label><div class="in2"><b>5951</b><small>Tiny Titans</small></div></div>
+          <div class="tf b"><label>BLUE 1</label><div class="in2 e">—</div></div>
+          <div class="tf r"><label>RED 2</label><div class="in2"><b>1937</b><small>Elysium</small></div></div>
+          <div class="tf b"><label>BLUE 2</label><div class="in2 e">—</div></div>
+          <div class="tf r"><label>RED 3</label><div class="in2 f"><b>62<span class="caret"></span></b><small>2 on the roster</small></div><div class="ac4"><div class="on"><b>6230</b>Team Koi</div><div><b>6238</b>Iron Eagles</div></div></div>
+          <div class="tf b"><label>BLUE 3</label><div class="in2 e">—</div></div>
+        </div>
+        <div class="sl">Match</div>
+        <div class="row3"><div class="f"><div class="sel" style="min-width:0;height:46px">Qualification<i data-i="chev"></i></div></div><div class="f"><div class="in mono">10</div></div></div>
+        <div class="sbtnL">Save changes</div>
+        <div class="delL"><i data-i="trash"></i>Delete match</div>
+      </div>
+    </div></div><figcaption>2 · Edit a match (sheet)</figcaption></figure>
+
+    <figure class="frame"><div class="phone"><div data-phone-shell data-time="08:15" data-title="Matches">
+      <div class="pm"><div class="pmh"><div><h1>Matches</h1><p>District #3 · Tel Aviv</p></div></div><div id="pl3" style="display:flex;flex-direction:column;gap:8px"></div></div>
+      <div class="scrim3"></div>
+      <div class="sh"><div class="grab"></div>
+        <h3>Add matches</h3>
+        <div class="sl">Match type</div>
+        <div class="seg3"><span>Practice</span><span class="on">Qualification</span><span>Playoff</span></div>
+        <div class="sl">How many qualification matches?</div>
+        <div class="row3"><div class="f"><div class="in mono">72</div></div></div>
+        <div class="sbtnL">Create 72 matches</div>
+        <div class="orl">or one match</div>
+        <div class="row3" style="margin-top:10px;align-items:flex-end"><div class="f"><div class="in mono ph">Match number</div></div><span class="btn" style="height:46px">Create match</span></div>
+      </div>
+    </div></div><figcaption>3 · Add matches (sheet)</figcaption></figure>
+
+    <figure class="frame"><div class="phone"><div data-phone-shell data-time="08:16" data-title="Matches">
+      <div class="pm">
+        <div class="pmh"><div><h1>Delete <span class="num">Q10</span>?</h1></div></div>
+        <div class="card" style="padding:16px;font-size:14px;line-height:1.5;color:var(--ink-2)">This removes the match. It is refused when the match already has entries recorded — correct the match instead.</div>
+        <div style="display:flex;gap:8px;margin-top:6px"><span class="btn" style="flex:1;height:50px">Cancel</span><span class="btn" style="flex:1;height:50px;border-color:var(--ink);background:var(--ink);color:#fff">Delete</span></div>
+        
+      </div>
+    </div></div><figcaption>4 · Delete confirmation</figcaption></figure>
+  </div>
+</div>
+<script src="../src/manage.js"></script>
+<script>
+const card = (r, i) => {
+  const cell = (n) => n === 0 ? '<span class="e">—</span>' : `<span class="${M.onRoster(n) ? '' : 'w'}">${n}</span>`;
+  const miss = r.filter((n) => !n).length;
+  return `<div class="mc"><span class="q">${M.label(i)}${miss ? `<small>${miss} empty</small>` : r.some((n) => n && !M.onRoster(n)) ? '<small>off roster</small>' : ''}</span>
+    <div class="als"><div class="al r">${r.slice(0, 3).map(cell).join('')}</div><div class="al b">${r.slice(3).map(cell).join('')}</div></div>${M.svg('right')}</div>`;
+};
+const list = M.Q.map(card);
+document.getElementById('pl1').innerHTML = list.slice(4).join('');
+document.getElementById('pl2').innerHTML = list.slice(6).join('');
+document.getElementById('pl3').innerHTML = list.slice(6).join('');
+M.icons();
+</script>
+<script src="../../shell.js"></script>
+</body></html>

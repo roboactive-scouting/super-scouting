@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Phone shell — final</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../src/ps.css"><link rel="stylesheet" href="../src/d.css">
+<style>.canvas{height:940px}.frames{gap:18px}.phone{zoom:.8}.bb.five>span{font-size:10.5px}</style>
+</head><body>
+<div class="canvas">
+  <div class="canvas-head"><b>Phone shell — final (D)</b><span>Dark top and bottom bars; Scout raised in the middle; the waiting count on Entries; ☰ opens a narrow dark menu with the sync line, the places and the account. Hidden on the Entry page.</span></div>
+  <div class="frames" id="f"></div>
+</div>
+<script src="../src/ps.js"></script>
+<script>
+const P = (inner, cap) => `<figure class="frame"><div class="phone"><div class="scr">${inner}</div></div><figcaption>${cap}</figcaption></figure>`;
+const tab = (k, l, on, extra = '') => `<span class="${on ? 'on' : ''}"><span class="ic">${PS.svg(k)}</span>${l}${extra}</span>`;
+const fab = (on) => `<span class="center"><span class="fab">${PS.svg('scout')}</span><span class="lbl" style="color:${on ? '#fff' : 'var(--rail-muted)'}">Scout</span></span>`;
+const badge = '<span class="badge2">3</span>';
+const bar = (on) => `<div class="bb dark">${tab('home', 'Home', on === 'home')}${fab(on === 'scout')}${tab('entries', 'Entries', on === 'entries', badge)}</div>`;
+const S = '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>';
+const R = '<svg viewBox="0 0 24 24"><path d="M6 20V10M12 20V4M18 20v-7"/></svg>';
+const later = `<div class="bb dark five">${tab('home', 'Home', true)}<span><span class="ic">${S}</span>Teams</span>${fab(false)}<span><span class="ic">${R}</span>Ranking</span>${tab('entries', 'Entries', false, badge)}</div>`;
+const drawer = (admin) => `<div class="scrim6"></div><div class="drw dark narrow" style="top:44px"><div class="br"><img src="${PS.mark}" alt=""><div><b>RobActive Scout</b><small>Team 2096</small></div><span class="x">${PS.svg('x')}</span></div>
+  <div class="syncrow"><span class="dot2"></span>3 waiting to send<small>last sync 09:08</small></div>${PS.navItems('home', { admin })}${PS.account()}</div>`;
+const entries = '<div class="body2"><h2 style="margin-top:0">Entries</h2><div class="crd" style="height:44px"></div><div class="crd" style="height:70px"></div><div class="crd" style="height:70px"></div><div class="crd" style="height:70px"></div></div>';
+document.getElementById('f').innerHTML =
+  P(PS.sbar('dark') + PS.top('dark', 'Home') + PS.home() + bar('home'), '1 · Home') +
+  P(PS.sbar('dark') + PS.top('dark', 'Home') + PS.home() + bar('home') + drawer(1), '2 · ☰ menu (an admin)') +
+  P(PS.sbar('dark') + PS.top('dark', 'Entries', '<span class="dot2 off"></span>Offline') + entries + bar('entries'), '3 · Entries, offline') +
+  P(PS.sbar('dark') + PS.top('dark', 'Q38 · 5951') + '<div class="body2"><div class="crd" style="height:44px"></div><div class="crd" style="height:330px"></div></div><div style="flex:none;background:var(--surface);border-top:1px solid var(--line);padding:12px 14px 22px"><div style="height:52px;border-radius:8px;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:650">Next</div></div>', '4 · Entry page: no bottom bar') +
+  P(PS.sbar('dark') + PS.top('dark', 'Home') + PS.home() + later, '5 · Later: with Teams and Ranking');
+</script>
+</body></html>

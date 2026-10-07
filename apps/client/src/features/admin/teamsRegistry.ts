@@ -2,12 +2,12 @@ import type { TeamRow } from '@frc/shared';
 import type { Rpc } from '@/data/rpc';
 
 /**
- * The global team registry, shared by `TeamsPanel` (the roster editor) and `MatchesPanel`
- * (which needs it to label a slot whose team has since left the event roster — task 1.21).
+ * The global team registry, shared by Manage's roster (`useManageLists`, for the roster add
+ * field's suggestions) and its matches (`useOffRosterTeams`, to label a slot whose team has
+ * since left the event roster — task 1.21).
  *
  * Teams are returned by number (task-1.21 addendum), so pages are concatenated in wire
- * order rather than re-sorted here: `TeamsPanel` builds `setEventRoster`'s `team_ids` from
- * this same order, and a client-side re-sort would silently reorder that call's payload.
+ * order rather than re-sorted here; a caller that needs another order sorts its own copy.
  */
 
 /** The most teams the registry will follow `next_cursor` through — the team list only
