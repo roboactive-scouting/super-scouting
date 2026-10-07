@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { goOffline, signIn } from './api-mock';
-import { TEST_PASSWORD, userByName } from './fixtures';
+import { FIXTURE, TEST_PASSWORD, userByName } from './fixtures';
 import { shoot } from './shoot';
 
 /** The server takes nothing, so what is queued stays waiting to send. */
@@ -92,3 +92,16 @@ async function openSwitchOnPhone(page: Page) {
     .click();
   await expect(page.getByRole('heading', { name: 'Switch scouter' })).toBeVisible();
 }
+
+test('switch scouter: a device with no accounts loaded says so', async ({ page }) => {
+  await signIn(page, 'lead', {
+    overrides: {
+      'sync/pull': { ...FIXTURE.pull, entities: { ...FIXTURE.pull.entities, users: [] } },
+    },
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openSwitch(page);
+  await expect(page.getByText("This device has not loaded the team's accounts yet.")).toBeVisible();
+  await expect(page.getByLabel("Who's scouting next?")).toHaveCount(0);
+  await shoot(page, 'switch-noaccounts');
+});

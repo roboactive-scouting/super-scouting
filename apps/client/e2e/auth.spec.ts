@@ -67,3 +67,25 @@ test('change password: by choice, a mismatch is caught while typing', async ({ p
   await expect(page.getByRole('link', { name: 'Back to scouting' })).toBeVisible();
   await shoot(page, 'password');
 });
+
+test('login: an expired session keeps the name and says nothing is lost', async ({ page }) => {
+  // The server finds the token dead on the next authenticated call (here: the season list
+  // behind Switch competition); the session is expired, the user kept.
+  await signIn(page, 'scouter', {
+    overrides: { listSeasons: { status: 401, code: 'unauthorized', message: 'token expired' } },
+  });
+  const dead = page.waitForResponse((r) => r.url().includes('listSeasons') && r.status() === 401);
+  await page.getByRole('button', { name: 'Switch competition' }).click();
+  await dead;
+  // The app keeps working on an expired session (offline-first); sign-in is where it says so.
+  await expect
+    .poll(async () => {
+      await page.goto('/login');
+      // Sign in, or Home when the expiry is not stored yet: either way a page has settled.
+      await page.getByRole('heading', { level: 1 }).first().waitFor();
+      return page.getByText(/Your sign-in expired/).isVisible();
+    })
+    .toBe(true);
+  await expect(page.getByLabel('Username')).toHaveValue(SCOUTER);
+  await shoot(page, 'login-expired');
+});
