@@ -4,6 +4,7 @@ import {
   type FormFieldDefinition,
   type RobotStatus,
 } from '@frc/shared';
+import { notifyChanged } from '@/data/changes';
 import { db } from '@/data/db';
 import { enqueue, nextSeq } from '@/data/outbox';
 import { findLocalEntry } from './localEntries';
@@ -109,6 +110,7 @@ export async function submitEntry(input: SubmitEntryInput): Promise<{ row_id: st
     updated_at: now,
     deleted_at: null,
   });
+  notifyChanged('rows');
 
   if (input.draftKey) await db.drafts.delete(input.draftKey);
 

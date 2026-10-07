@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Notice } from '@/components/ui/notice';
 import { cachedRows } from '@/data/cache';
+import { notifyChanged } from '@/data/changes';
 import { db } from '@/data/db';
 import { enqueue, nextSeq } from '@/data/outbox';
 import {
@@ -141,6 +142,7 @@ export function SelectRobotPage({ eventId, author }: { eventId: string; author: 
     // Optimistic local write, so the picker and the entry screen see it at once.
     const localMatch: MatchRow = { id: rowId, ...payload };
     await db.rows.put({ ...localMatch, entity: 'matches', version: 1, updated_at: now });
+    notifyChanged('rows');
     setMatches((current) => [...current, localMatch]);
     return rowId;
   }

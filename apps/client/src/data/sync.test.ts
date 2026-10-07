@@ -3,6 +3,7 @@ import type { PullResponse, PushRequest, PushResponse } from '@frc/shared';
 import { PULL_ENTITY_KEYS } from '@frc/shared';
 import { session } from '@/auth/session';
 import { apiClient } from './api';
+import { onChanged } from './changes';
 import { db, getMeta } from './db';
 import { enqueue, pending } from './outbox';
 import { activeEvent, cachedActiveEventId, cachedDefaultEventId, hydrate, syncNow } from './sync';
@@ -494,5 +495,34 @@ describe('the active event (task 1.17b)', () => {
       ),
     );
     expect(await activeEvent()).toEqual({ status: 'unreachable' });
+  });
+});
+
+describe('syncNow change notifications', () => {
+  it('announces rows only when a pull applied some', async () => {
+    const seen: string[] = [];
+    const off = onChanged((k) => seen.push(k));
+    const empty = vi.fn(async (): Promise<PullResponse> => ({
+      watermark: '2026-11-14T09:00:55.000Z',
+      next_cursor: null,
+      complete: true,
+      entities: emptyEntities,
+    }));
+    await syncNow({ api: { push: vi.fn(), pull: empty }, eventId: 'ev-1', deviceId: 'd-1' });
+    expect(seen).not.toContain('rows');
+    const some = vi.fn(async (): Promise<PullResponse> => ({
+      watermark: '2026-11-14T09:01:55.000Z',
+      next_cursor: null,
+      complete: true,
+      entities: {
+        ...emptyEntities,
+        scouting_entries: [
+          { id: 'row-9', event_id: 'ev-1', updated_at: '2026-11-14T09:01:00.000Z' },
+        ],
+      },
+    }));
+    await syncNow({ api: { push: vi.fn(), pull: some }, eventId: 'ev-1', deviceId: 'd-1' });
+    off();
+    expect(seen).toContain('rows');
   });
 });
