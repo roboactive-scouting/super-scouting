@@ -11,10 +11,16 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 
+// `--outfile <path>` builds somewhere else: the drift test compares a fresh build with the
+// committed bundle without rewriting it. Keep the basename `index.js` so the trailing
+// sourceMappingURL comment matches.
+const at = process.argv.indexOf('--outfile');
+const outfile = at === -1 ? 'api/index.js' : process.argv[at + 1];
+
 await build({
   absWorkingDir: root, // keeps the bundle's embedded source comments CWD-independent
   entryPoints: ['src/handler.ts'],
-  outfile: 'api/index.js',
+  outfile,
   bundle: true,
   platform: 'node',
   format: 'esm',

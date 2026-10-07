@@ -244,7 +244,10 @@ describe('HomePage (Home README, RB.10)', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Week 3' })).toBeInTheDocument();
     expect(await screen.findByText('Looking at Week 3 for this session.')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Scout a match' })).toBeNull();
-    await userEvent.click(screen.getByRole('button', { name: 'Back to District #3 · Tel Aviv' }));
+    // The cached event name arrives after the first render, through IndexedDB.
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Back to District #3 · Tel Aviv' }),
+    );
     expect(sessionOverride.get()).toBeNull();
     expect(await screen.findByRole('link', { name: 'Scout a match' })).toBeInTheDocument();
   });

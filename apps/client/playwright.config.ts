@@ -12,6 +12,8 @@ export default defineConfig({
     locale: 'en-GB',
     timezoneId: 'Asia/Jerusalem',
     serviceWorkers: 'block',
+    // Still screens: axe never measures contrast mid-fade (the smoke-home flake).
+    reducedMotion: 'reduce',
   },
   webServer: {
     command: 'pnpm build && pnpm preview --port 4173 --strictPort',
