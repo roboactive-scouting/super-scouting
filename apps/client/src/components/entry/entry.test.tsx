@@ -2,10 +2,10 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ChoiceGroup } from './ChoiceGroup';
-import { CounterControl } from './CounterControl';
-import toggleSource from './ToggleField.tsx?raw';
-import { ToggleField } from './ToggleField';
+import { OptionButtons as ChoiceGroup } from '../ui/option-buttons';
+import { Counter as CounterControl } from '../ui/counter';
+import toggleSource from '../ui/switch.tsx?raw';
+import { Switch as ToggleField } from '../ui/switch';
 
 const original = window.matchMedia;
 afterEach(() => {
@@ -109,10 +109,27 @@ describe('ToggleField', () => {
     expect(toggleSource).not.toMatch(/group-has-\[[^\]]+\]:/);
   });
 
-  it('is a native checkbox named by its label', async () => {
+  it('is a native checkbox with role switch, named by its label', async () => {
     const onChange = vi.fn();
     render(<ToggleField label="Left the start line" checked={false} onChange={onChange} />);
-    await userEvent.setup().click(screen.getByRole('checkbox', { name: 'Left the start line' }));
+    await userEvent.setup().click(screen.getByRole('switch', { name: 'Left the start line' }));
     expect(onChange).toHaveBeenCalledWith(true);
+  });
+});
+
+describe('old import paths (kept until RB.18)', () => {
+  it('re-export the moved controls', async () => {
+    const old = await Promise.all([
+      import('./ChoiceGroup'),
+      import('./CounterControl'),
+      import('./StickyActionBar'),
+      import('./ToggleField'),
+      import('../ConfirmDialog'),
+    ]);
+    expect(old[0].ChoiceGroup).toBe(ChoiceGroup);
+    expect(old[1].CounterControl).toBe(CounterControl);
+    expect(old[2].StickyActionBar).toBeTypeOf('function');
+    expect(old[3].ToggleField).toBe(ToggleField);
+    expect(old[4].ConfirmDialog).toBeTypeOf('function');
   });
 });

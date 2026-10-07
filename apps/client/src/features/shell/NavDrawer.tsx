@@ -21,7 +21,7 @@ export function NavDrawer({
   account: ReactNode;
 }) {
   return (
-    <Sheet open={open} onClose={onClose} label="Menu" side="start">
+    <Sheet open={open} onClose={onClose} title="Menu" side="start">
       <div className="flex items-center gap-2 border-b border-border p-3">
         <div className="min-w-0 flex-1">
           <Brand />

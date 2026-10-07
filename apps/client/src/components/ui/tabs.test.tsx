@@ -53,3 +53,24 @@ describe('Tabs (WAI-ARIA tabs pattern)', () => {
     expect(screen.getByRole('tab', { name: 'Events' })).toHaveAttribute('aria-selected', 'true');
   });
 });
+
+describe('Tabs (RB.3: done and count)', () => {
+  it('ticks the done tabs and shows a count beside the label', () => {
+    const { container } = render(
+      <Tabs
+        label="Phases"
+        value="auto"
+        onChange={() => {}}
+        done={new Set(['auto'] as const)}
+        tabs={[
+          { key: 'auto', label: 'Auto' },
+          { key: 'tele', label: 'Teleop', count: 3 },
+        ]}
+      />,
+    );
+    expect(container.querySelectorAll('[data-done-mark]')).toHaveLength(1);
+    expect(screen.getByRole('tab', { name: 'Auto' })).toHaveAccessibleDescription('Done');
+    expect(screen.getByRole('tab', { name: /Teleop/ })).toHaveTextContent('3');
+    expect(screen.getByRole('tab', { name: /Teleop/ })).not.toHaveAttribute('aria-describedby');
+  });
+});
