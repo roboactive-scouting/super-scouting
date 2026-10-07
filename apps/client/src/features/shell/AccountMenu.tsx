@@ -8,8 +8,8 @@ import { cn } from '@/lib/utils';
 import type { Account } from './account';
 
 const ITEM =
-  'flex min-h-12 w-full items-center gap-3 rounded-lg px-3 text-start text-[0.9375rem] font-medium text-ink hover:bg-accent-tint hover:text-accent-ink focus-visible:bg-accent-tint focus-visible:text-accent-ink';
-const ICON = 'size-4 shrink-0';
+  'flex min-h-12 w-full items-center gap-3 rounded-lg px-3 text-start text-[0.9375rem] font-semibold text-ink hover:bg-accent-tint hover:text-accent-ink focus-visible:bg-accent-tint focus-visible:text-accent-ink';
+const ICON = 'size-4 shrink-0 text-muted';
 
 /**
  * The sidebar's account corner (THEME "Account menu"): initials, name and role, opening a

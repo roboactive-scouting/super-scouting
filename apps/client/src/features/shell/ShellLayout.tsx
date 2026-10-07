@@ -123,15 +123,19 @@ export function ShellLayout({
       <div
         className={cn(
           'flex min-w-0 flex-1 flex-col',
-          showBottomBar && 'pb-[calc(var(--bottom-bar)+var(--raised-overhang)+1rem)]',
+          showBottomBar && 'pb-[calc(var(--bottom-bar)+var(--below-content))]',
         )}
         // Sticky page actions (ActionBar) sit on top of the fixed bottom bar, not under it.
         style={
           showBottomBar
             ? ({
-                '--bottom-bar': 'calc(4.125rem + env(safe-area-inset-bottom))',
+                // BottomBar's exact height: 6 px top, a 56 px row, max(8 px, safe area) foot.
+                '--bottom-bar': 'calc(3.875rem + max(0.5rem, env(safe-area-inset-bottom)))',
                 // How far the raised Scout button rises above the bar (BottomBar's -mt-[1.375rem]).
                 '--raised-overhang': '1.375rem',
+                // The room kept under the content for the raised Scout button. A page's ActionBar
+                // reaches down through it, so the bar sits flush on the bottom bar.
+                '--below-content': 'calc(var(--raised-overhang) + 1rem)',
               } as CSSProperties)
             : undefined
         }
@@ -142,7 +146,15 @@ export function ShellLayout({
           <TopBar menuOpen={menuOpen} onOpenMenu={() => setMenuOpen(true)} status={status} />
         )}
         {notices}
-        <div ref={content} className="flex-1">
+        {/* A page with a pinned foot (an ActionBar; main[data-pinned-foot]) fills the height on a
+            phone, so a short page still has its action bar at the bottom (THEME). */}
+        <div
+          ref={content}
+          className={cn(
+            'flex-1',
+            !desktop && '[&:has(>[data-pinned-foot])]:flex [&:has(>[data-pinned-foot])]:flex-col',
+          )}
+        >
           {children}
         </div>
         {footer && (

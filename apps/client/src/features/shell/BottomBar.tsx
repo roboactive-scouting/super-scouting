@@ -101,7 +101,7 @@ export function BottomBar({
       aria-label="Main"
       className="on-rail fixed inset-x-0 bottom-0 z-30 bg-rail px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
     >
-      <ul className="flex">
+      <ul className="flex h-14">
         {bar.left.map(tab)}
         {bar.raised && (
           <li className="flex flex-1">

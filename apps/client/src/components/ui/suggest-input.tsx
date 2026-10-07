@@ -110,7 +110,7 @@ export function SuggestInput<T>({
         }}
         onKeyDown={onKeyDown}
         className={cn(
-          'min-h-12 w-full rounded-control border border-control-border bg-surface px-3 text-ink focus:border-accent focus:shadow-[0_0_0_3px_var(--accent-tint)]',
+          'own-focus min-h-12 w-full rounded-control border border-control-border bg-surface px-3 text-ink focus:border-accent focus:shadow-[inset_0_0_0_1px_var(--accent),0_0_0_3px_var(--accent-tint)]',
           inputMode === 'numeric' && 'num',
           !hideLabel && 'mt-1.5',
         )}

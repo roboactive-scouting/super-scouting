@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { cachedFormFields, cachedRows } from '@/data/cache';
 import type { Station } from '@/data/station';
 import { stationOf, type LineupSlot } from '@/lib/derive/entries';
-import { usePageTitle } from '@/lib/pageTitle';
+import { usePageCrumb, usePageTitle } from '@/lib/pageTitle';
 import { useIsDesktop } from '@/lib/useMediaQuery';
 import { ConfirmEntry } from './ConfirmEntry';
 import { EntryHeader, EntryTag } from './EntryHeader';
@@ -48,6 +48,8 @@ export function EntryPage(props: EntryPageProps) {
   const errorRef = useRef<HTMLParagraphElement>(null);
   // "Q38 · 5951": the team's number is the label's first word ("5951 Tiny Titans").
   usePageTitle(`${props.matchLabel} · ${props.teamLabel.split(' ')[0] ?? ''}`);
+  // The desktop crumb keeps the team's name: "Scout / Q39 · 1690 Orbit" (Entry final).
+  usePageCrumb(['Scout', `${props.matchLabel} · ${props.teamLabel}`]);
 
   // A failed submit keeps the entry and the sheet; the reason is moved into view and
   // focused, beside the button the scout just pressed.
@@ -202,7 +204,7 @@ export function EntryPage(props: EntryPageProps) {
   }
 
   return (
-    <main className="flex min-h-full flex-col">
+    <main data-pinned-foot="" className="flex flex-1 flex-col">
       {header}
       <div className="px-4 py-3">{statusBlock}</div>
       <div className="flex-1">{pane}</div>

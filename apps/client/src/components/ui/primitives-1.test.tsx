@@ -173,6 +173,22 @@ describe('primitives I: the rest', () => {
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search' }), 'q');
     expect(onChange).toHaveBeenCalledWith('q');
   });
+  it('the search field clears with its own muted ×, shown only when there is text (RB.19)', async () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <SearchField value="" onChange={onChange} placeholder="Search" label="Search" />,
+    );
+    expect(screen.queryByRole('button', { name: 'Clear search' })).toBeNull();
+    rerender(<SearchField value="16" onChange={onChange} placeholder="Search" label="Search" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+    expect(onChange).toHaveBeenCalledWith('');
+  });
+  it('fields draw one focus edge: the global ring is dropped, invalid yields to focus (RB.19)', () => {
+    render(<Input aria-label="Name" aria-invalid="true" />);
+    const cls = screen.getByRole('textbox', { name: 'Name' }).className;
+    expect(cls.split(' ')).toContain('own-focus');
+    expect(cls).toMatch(/aria-\[invalid=true\]:not-focus-visible:border-warn/);
+  });
   it('a warning notice carries its lead; a success banner its title', () => {
     render(
       <>

@@ -1,11 +1,12 @@
-import { Search } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { inputClass } from './input';
 
 /**
  * THEME "Search field": white, `--control-border`, a `--muted` magnifier. A real
  * `<input type="search">` (role searchbox) so a phone shows its search keyboard. 48 px, the
- * accessibility floor, rather than the mock-up's 46 px.
+ * accessibility floor, rather than the mock-up's 46 px. The browser's own clear button is
+ * hidden (WebKit paints it blue, an alliance colour); a `--muted` × clears instead (RB.19).
  */
 export function SearchField({
   value,
@@ -34,8 +35,22 @@ export function SearchField({
         aria-label={label}
         autoComplete="off"
         dir="auto"
-        className={cn(inputClass, 'ps-10')}
+        className={cn(
+          inputClass,
+          'ps-10 [&::-webkit-search-cancel-button]:appearance-none',
+          value && 'pe-12',
+        )}
       />
+      {value && (
+        <button
+          type="button"
+          aria-label="Clear search"
+          onClick={() => onChange('')}
+          className="tap-target hover-veil absolute end-0 top-1/2 grid -translate-y-1/2 place-items-center rounded-control text-muted"
+        >
+          <X aria-hidden="true" className="size-[18px]" />
+        </button>
+      )}
     </div>
   );
 }

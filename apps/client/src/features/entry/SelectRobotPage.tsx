@@ -7,7 +7,6 @@ import { Note, SuccessBanner } from '@/components/ui/notice';
 import { stationLabel, WarningFlag } from '@/components/ui/tag';
 import { setStation } from '@/data/station';
 import { matchLabel } from '@/lib/matchLabel';
-import { usePageCrumb } from '@/lib/pageTitle';
 import { entryPath } from '@/lib/paths';
 import { cn } from '@/lib/utils';
 import { ensureMatchLocally } from './bareMatch';
@@ -53,107 +52,112 @@ export function SelectRobotPage({ eventId, author }: { eventId: string; author: 
   }
 
   const shortMatch = valid ? matchLabel({ match_type: matchType, number: parsed }) : '';
-  // The desktop crumb: "Scout / Q39" once a match number is typed.
-  usePageCrumb(valid ? ['Scout', shortMatch] : null);
   const longMatch = `${TYPE_NAME[matchType] ?? matchType} ${formatCount(parsed)}`;
 
   return (
-    <main className="mx-auto w-full max-w-[920px] px-4 pt-3.5 lg:px-8 lg:pt-6">
-      {saved && (
-        // Static on purpose (SPEC-FINAL 17.9): the confirmation stands still on the entry path.
-        // Submitting only queues the entry; the connection indicator owns sync state.
-        <div role="status" aria-label="Entry saved" className="mb-4 lg:mb-[18px]">
-          <SuccessBanner
-            title={
-              <>
-                {saved.edited ? 'Changes saved on this device' : 'Entry saved on this device'}
-                <span className="font-normal text-ink-2">
-                  {' · '}
-                  {saved.matchLabel} · <span dir="auto">{saved.teamLabel}</span>
-                </span>
-              </>
-            }
-          >
-            It is queued to send and stays safe here with no network.
-          </SuccessBanner>
-        </div>
-      )}
+    // data-pinned-foot: on a phone the page fills the height, so a short page still has its
+    // action bar at the bottom, flush on the bottom bar (THEME "Primary action bar").
+    <main
+      data-pinned-foot=""
+      className="mx-auto flex w-full max-w-[920px] flex-1 flex-col px-4 pt-3.5 lg:px-8 lg:pt-6"
+    >
+      <div className="flex-1">
+        {saved && (
+          // Static on purpose (SPEC-FINAL 17.9): the confirmation stands still on the entry path.
+          // Submitting only queues the entry; the connection indicator owns sync state.
+          <div role="status" aria-label="Entry saved" className="mb-4 lg:mb-[18px]">
+            <SuccessBanner
+              title={
+                <>
+                  {saved.edited ? 'Changes saved on this device' : 'Entry saved on this device'}
+                  <span className="font-normal text-ink-2">
+                    {' · '}
+                    {saved.matchLabel} · <span dir="auto">{saved.teamLabel}</span>
+                  </span>
+                </>
+              }
+            >
+              It is queued to send and stays safe here with no network.
+            </SuccessBanner>
+          </div>
+        )}
 
-      {notHere ? (
-        <RosterHeading
-          sub={`${longMatch}${station ? ` · your station ${stationLabel(station)}` : ''}`}
-          onCancel={pick.closeNotHere}
-        />
-      ) : (
-        <>
-          <StationHeading station={station} onChange={() => setAsking('open')} />
-          <MatchFields
-            matchType={matchType}
-            onMatchType={setMatchType}
-            number={number}
-            onNumber={setNumber}
+        {notHere ? (
+          <RosterHeading
+            sub={`${longMatch}${station ? ` · your station ${stationLabel(station)}` : ''}`}
+            onCancel={pick.closeNotHere}
           />
-        </>
-      )}
+        ) : (
+          <>
+            <StationHeading station={station} onChange={() => setAsking('open')} />
+            <MatchFields
+              matchType={matchType}
+              onMatchType={setMatchType}
+              number={number}
+              onNumber={setNumber}
+            />
+          </>
+        )}
 
-      {showLineup && (
-        <LineupTiles
-          tiles={pick.tiles}
-          mine={station ?? null}
-          selected={pick.selected}
-          onPick={pick.pickTile}
-          shortMatch={shortMatch}
-          longMatch={longMatch}
-          onNotHere={pick.openNotHere}
-        />
-      )}
+        {showLineup && (
+          <LineupTiles
+            tiles={pick.tiles}
+            mine={station ?? null}
+            selected={pick.selected}
+            onPick={pick.pickTile}
+            shortMatch={shortMatch}
+            longMatch={longMatch}
+            onNotHere={pick.openNotHere}
+          />
+        )}
 
-      {valid && !showLineup && (
-        <section className={cn('flex flex-col gap-3', notHere ? 'mt-3.5' : 'mt-3')}>
-          {!notHere &&
-            (existing ? (
-              <Note>
-                {shortMatch} has no robots listed on this device. Choose the one you are watching.
-              </Note>
-            ) : (
-              <div role="status">
+        {valid && !showLineup && (
+          <section className={cn('flex flex-col gap-3', notHere ? 'mt-3.5' : 'mt-3')}>
+            {!notHere &&
+              (existing ? (
                 <Note>
-                  Match {formatCount(parsed)} is not on this device yet. It will be created when you
-                  submit — keep scouting.
+                  {shortMatch} has no robots listed on this device. Choose the one you are watching.
                 </Note>
-              </div>
-            ))}
-          <RosterList
-            alliance={pick.alliance}
-            onAlliance={pick.onAlliance}
-            teams={pick.roster}
-            value={pick.rosterValue}
-            onChange={pick.pickTeam}
-            query={pick.query}
-            onQuery={pick.onQuery}
-          >
-            {pick.flagged && chosen && (
-              <Note className="mt-1">
-                <WarningFlag>Not in line-up</WarningFlag>
-                <span className="mt-1.5 block">
-                  {chosen.team.number} isn't in {shortMatch}'s line-up. The entry is saved with this
-                  mark so a lead can check it. The match itself doesn't change.
-                </span>
-              </Note>
-            )}
-          </RosterList>
-        </section>
-      )}
+              ) : (
+                <div role="status">
+                  <Note>
+                    Match {formatCount(parsed)} is not on this device yet. It will be created when
+                    you submit — keep scouting.
+                  </Note>
+                </div>
+              ))}
+            <RosterList
+              alliance={pick.alliance}
+              onAlliance={pick.onAlliance}
+              teams={pick.roster}
+              value={pick.rosterValue}
+              onChange={pick.pickTeam}
+              query={pick.query}
+              onQuery={pick.onQuery}
+            >
+              {pick.flagged && chosen && (
+                <Note className="mt-1">
+                  <WarningFlag>Not in line-up</WarningFlag>
+                  <span className="mt-1.5 block">
+                    {chosen.team.number} isn't in {shortMatch}'s line-up. The entry is saved with
+                    this mark so a lead can check it. The match itself doesn't change.
+                  </span>
+                </Note>
+              )}
+            </RosterList>
+          </section>
+        )}
 
-      {chosen?.entry && (
-        <Note className="mt-3">
-          {editsAnyTime(author)
-            ? 'This robot is already scouted in this match on this device. You can change that entry; a second one cannot be started.'
-            : `This robot is already scouted in this match on this device. You can change that entry until ${hhmm(
-                editableUntil(chosen.entry),
-              )}; a second one cannot be started.`}
-        </Note>
-      )}
+        {chosen?.entry && (
+          <Note className="mt-3">
+            {editsAnyTime(author)
+              ? 'This robot is already scouted in this match on this device. You can change that entry; a second one cannot be started.'
+              : `This robot is already scouted in this match on this device. You can change that entry until ${hhmm(
+                  editableUntil(chosen.entry),
+                )}; a second one cannot be started.`}
+          </Note>
+        )}
+      </div>
 
       {/* The primary action bar on a phone; on a desktop the button sits under the picker. */}
       <ActionBar desktop="static">

@@ -1,5 +1,7 @@
 import { Ban, TriangleAlert, type LucideIcon } from 'lucide-react';
 import { useId, useRef, useState, type ReactNode } from 'react';
+import { cn } from '@/lib/utils';
+import { inputClass } from './input';
 import { ResponsiveDialog } from './responsive-dialog';
 
 export type DestructiveConfirmProps = {
@@ -118,7 +120,7 @@ function OpenConfirm({
             spellCheck={false}
             dir="auto"
             onChange={(e) => setTyped(e.target.value)}
-            className="mt-1.5 min-h-12 w-full rounded-control border border-control-border bg-surface px-3 text-ink focus:border-accent"
+            className={cn(inputClass, 'mt-1.5')}
           />
         </div>
       )}

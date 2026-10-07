@@ -105,6 +105,15 @@
     -webkit-font-smoothing: antialiased;
     -webkit-text-size-adjust: 100%;
   }
+  /* Number fields are typed, never stepped: no native spinner (THEME fields have none). */
+  input[type='number'] {
+    appearance: textfield;
+  }
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    appearance: none;
+    margin: 0;
+  }
 }
 
 /* Unlayered on purpose: a layered outline utility must not override the focus ring. */
@@ -120,6 +129,16 @@
 /* A light surface opened inside the rail (the account menu) keeps the accent ring. */
 .on-rail .off-rail :focus-visible {
   outline-color: var(--accent);
+}
+
+/*
+ * Text fields, selects and the grid cell draw their own focus: a 2 px --accent edge (5.37:1
+ * on white, past the 3:1 a control boundary needs), plus the grid cell's --accent-tint halo.
+ * THEME draws that one edge, so they drop the ring (RB.19). The outline stays, transparent,
+ * so forced-colours mode still paints a system focus ring (SPEC-FINAL 17.7).
+ */
+.own-focus:focus-visible {
+  outline-color: transparent;
 }
 
 /*

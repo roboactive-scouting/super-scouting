@@ -76,7 +76,8 @@ export function PhoneMatchList({
   }
 
   return (
-    <main className="flex flex-col gap-2 px-4 pt-3">
+    // data-pinned-foot: a short list still has Add matches at the bottom (see ActionBar).
+    <main data-pinned-foot="" className="flex flex-1 flex-col gap-2 px-4 pt-3">
       {!online && (
         <p role="status" className="text-sm text-muted">
           No connection — changes cannot be saved until it returns.
@@ -96,9 +97,9 @@ export function PhoneMatchList({
       )}
       <MatchErrors editing={editing} showError={!sheetOpen} />
       {shown.length === 0 ? (
-        <p className="py-4 text-muted">No matches yet.</p>
+        <p className="flex-1 py-4 text-muted">No matches yet.</p>
       ) : (
-        <ul className="flex flex-col gap-2">
+        <ul className="flex flex-1 flex-col gap-2">
           {shown.map((m) => (
             <li key={m.id}>
               <MatchCard

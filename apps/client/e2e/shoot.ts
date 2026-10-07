@@ -54,6 +54,8 @@ export async function shoot(
   for (const [label, size] of Object.entries(WIDTHS)) {
     if (only && only !== label) continue;
     await page.setViewportSize(size);
+    // The pointer would stay on the last control clicked and its hover veil would tint it.
+    await page.mouse.move(0, 0);
     await page.waitForLoadState('networkidle');
     await settle(page);
     const overflow = await page.evaluate(
@@ -76,10 +78,19 @@ export async function shoot(
         for (const el of document.querySelectorAll<HTMLElement>('body *')) {
           const position = getComputedStyle(el).position;
           if (position === 'fixed' || position === 'sticky') el.dataset.shootStatic = '';
+          // The room the page keeps under its content for the fixed bottom bar is empty once
+          // that bar sits in the flow, so the long shot ends at the bar (RB.19). The raised
+          // button's share (--below-content) moves above the bar, as at the end of a scroll:
+          // an ActionBar reaches down through it and sits flush on the bar.
+          if (position === 'fixed' && getComputedStyle(el).bottom === '0px' && el.parentElement) {
+            el.parentElement.dataset.shootFlush = '';
+            el.dataset.shootBelow = '';
+          }
         }
         const style = document.createElement('style');
         style.id = 'shoot-long-style';
-        style.textContent = '[data-shoot-static]{position:static !important;}';
+        style.textContent =
+          '[data-shoot-static]{position:static !important;}[data-shoot-flush]{padding-bottom:0 !important;}[data-shoot-below]{margin-top:var(--below-content,0px) !important;}';
         document.head.append(style);
       });
       await page.screenshot({
@@ -91,6 +102,12 @@ export async function shoot(
         document.getElementById('shoot-long-style')?.remove();
         for (const el of document.querySelectorAll<HTMLElement>('[data-shoot-static]')) {
           delete el.dataset.shootStatic;
+        }
+        for (const el of document.querySelectorAll<HTMLElement>('[data-shoot-flush]')) {
+          delete el.dataset.shootFlush;
+        }
+        for (const el of document.querySelectorAll<HTMLElement>('[data-shoot-below]')) {
+          delete el.dataset.shootBelow;
         }
       });
     }
