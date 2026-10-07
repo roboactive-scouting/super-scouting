@@ -4639,3 +4639,41 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
 **What I did instead:** `background_color` is now `#f4f6f8` (the light `--bg` token), pinned in `manifest.test.ts`. `theme_color` already matched `--rail` (`#161a21`). Fixed `h-[22px]`/`h-[34px]` pills (tag, UserDetail tag, filter chips, switch-competition chips) became `min-h-[…]` so they grow with the OS text size (SPEC-FINAL 17.7). Deleted the dead `components/Logo.tsx` and its test (no importers). `classes.test.ts` now also catches retired token utilities under any prefix, ignores `motion-reduce:transition-none` and `lg:motion-safe:transition`, and no longer matches palette names inside other words; each rule has self-tests.
 
 **Risk:** the splash colour is correct only for the light theme; the outdoor theme's splash will be light-grey, not white, until task 1.38 decides how a manifest follows the theme.
+
+
+## Task RB.19 — whole-app visual review fixes
+
+**Plan said (waiting count):** RB.11 logged the Entries chips as a partition: "Waiting and refused never overlap … so the chips partition as drawn (3 waiting, 1 refused)". The review sheet found the top bar and the Entries badge saying **4** while the "Waiting to send" chip said **3** on the same screen.
+
+**What was wrong:** SPEC-FINAL 9.10 keeps a refused record in the unsynced count ("A record the server rejected stays in the list, marked as rejected"), and the Entries README defines **Waiting to send = still in the outbox**. A refused entry is parked in the outbox, so the shell's 4 was right and the chip's 3 was not.
+
+**What I did instead:** `EntryRow` gained `unsent` (in the outbox, refused or not); the "Waiting to send" chip filters on it, so it now reads 4 like the shell. The amber ↑ beside the time still marks only entries that will be sent (`waiting`: in the outbox and not refused); the refused one keeps its "Not synced:" line and stays under Needs a look too. Rejected: subtracting refused records from the shell count — that breaks 9.10's "same number of items as the indicator's count". The count still counts every non-match outbox record (team or roster writes by an admin would show in the shell but not in Entries); none exist on the competition path today.
+
+**Risk:** a refused entry is counted in two chips (Waiting to send and Needs a look). That is deliberate: it is both unsent and needs a look.
+
+**Plan said (focus):** THEME draws one 2 px `--accent` edge on a focused field (plus a 3 px `--accent-tint` halo on the grid cell); the global unlayered `:focus-visible` outline added a second, offset ring.
+
+**What I did instead:** a new unlayered `.own-focus:focus-visible { outline-color: transparent }` in `index.css`, applied to `inputClass` (Input, Select, SearchField), `textareaClass`, `SuggestInput`, the type-to-confirm field (now `inputClass`) and the roster rename field (now a 2 px edge). The outline stays (transparent) so forced-colours mode still paints a system ring. `aria-invalid` now yields to focus (`aria-[invalid=true]:not-focus-visible:border-warn`), so the Switch wrong-password field shows one accent edge while focused and the warn edge at rest. Buttons, links, tabs, chips and tiles keep the global ring.
+
+**Risk:** a future field that draws no focus edge of its own must not take `own-focus`, or it loses its indicator (SPEC-FINAL 17.7). The class is only in the shared field primitives.
+
+**Plan said (phone action bar):** THEME "Primary action bar (phone)": pinned to the bottom, flush with the bar below.
+
+**What was wrong:** `ActionBar` was sticky only; on a short page it sat in the flow with a 45–130 px grey band above the bottom bar, and at the end of any scroll it stopped `--raised-overhang + 1rem` above the bar. `--bottom-bar` (66 px) was also 4.25 px shorter than the real bottom bar (70.25 px).
+
+**What I did instead:** a page with an action bar marks its `<main>` `data-pinned-foot`; on a phone ShellLayout's content wrapper becomes a flex column for it (`[&:has(>[data-pinned-foot])]`), the page fills the height and grows the content above the bar. The bar reaches down through the raised-button room (`-mb` by the new `--below-content`) and pads its own foot by `--raised-overhang`, so the raised Scout never covers the button. `--bottom-bar` is now the bottom bar's exact height (6 px + a fixed 56 px row + max(8 px, safe area)). Scout, Entry and Manage-phone use it. Rejected: making the content wrapper a flex column for every page — pages that rely on block layout (`mx-auto` without `w-full`) would shrink to their content.
+
+**Risk:** a new page with an `ActionBar` must add `data-pinned-foot` and `flex flex-1 flex-col` to its `<main>`, or a short page floats the bar again (the e2e `expectBarFlushOnNav` check covers Scout only).
+
+**Plan said (Scout station tile):** the "YOUR STATION" tag sat absolutely at the tile's top-right and covered the "2" of "BLUE 2" at 375 px.
+
+**What I did instead:** the label and the tag share one wrapping row (the tag `ms-auto`, so it stays at the right like the final); the phone tile's padding is 8 px and the line-up card's 12 px so both fit side by side at 375 px; at a larger OS text size the tag wraps under the label instead of overlapping (e2e checks both at 100 % and 125 %).
+
+**Risk:** none known; the tag is THEME's 10.5 px / 800 with 0.02 em tracking instead of 0.04 em.
+
+**Accepted, not fixed (Low rows):**
+- Dialog placement (Users add / handover, Disable confirmation): THEME "Dialog (desktop)" says **Centred**; the finals' images place them near the top. THEME's text wins over the image; changing every dialog is a theme decision for the user.
+- Disable confirmation's Cancel shows no ring when the dialog was opened with the mouse: Cancel does get first focus, but Chromium's `:focus-visible` heuristic hides the ring after a pointer interaction. Keyboard users see it. Forcing a ring on pointer use would break the global focus rule.
+- User detail rhythm: the top offset is tightened (the All users link is pulled 16 px up, the name 8 px closer); the remaining ~40 px comes from the 48 px field and checkbox rows (SPEC-FINAL 17.7, already logged), so Disable account is still just below the 900 px fold.
+- Entries phone status tags stay 24 px: the final's source (`entries.css` `.st`) draws them at 24 px; only the station tag is smaller on the card (`.pc2 .stn`, 20 px / 11 px), which is now matched. The review measured them off a scaled image.
+- The "Not in line-up" flag now uses a flag glyph everywhere (`WarningFlag`), including Scout, whose final draws the flag without an icon.
