@@ -293,11 +293,6 @@ export function generatePassword(random: RandomInt = randomIntFrom(cryptoFill)):
   return `${first}-${second}-${digits}`;
 }
 
-/** The same password drawn from a byte source: the signature callers used before RB.14. */
-export function generatePasswordWith(fill: FillRandom = cryptoFill): string {
-  return generatePassword(randomIntFrom(fill));
-}
-
 /** What a username may hold (packages/shared USERNAME_PATTERN): letters, digits, . _ - */
 const NOT_ALLOWED = /[^\p{L}\p{N}._-]/gu;
 const MAX_USERNAME = 40;

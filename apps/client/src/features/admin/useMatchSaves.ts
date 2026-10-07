@@ -50,13 +50,13 @@ export function useMatchSaves(eventId: string | null, matches: MatchRow[]): Matc
     (matchId: string, send: (matchId: string) => Promise<void>) => {
       pending.set(matchId, (pending.get(matchId) ?? 0) + 1);
       setBusy((prev) => toggled(prev, matchId, true));
-      const run = (queues.get(matchId) ?? Promise.resolve())
-        .then(() => send(matchId))
-        .finally(() => {
-          const left = (pending.get(matchId) ?? 1) - 1;
-          pending.set(matchId, left);
-          if (left === 0) setBusy((prev) => toggled(prev, matchId, false));
-        });
+      // An earlier save's failure is its own caller's to handle: it must not skip this one.
+      const go = () => send(matchId);
+      const run = (queues.get(matchId) ?? Promise.resolve()).then(go, go).finally(() => {
+        const left = (pending.get(matchId) ?? 1) - 1;
+        pending.set(matchId, left);
+        if (left === 0) setBusy((prev) => toggled(prev, matchId, false));
+      });
       queues.set(matchId, run);
       return run;
     },

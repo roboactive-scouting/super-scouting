@@ -1,3 +1,4 @@
+import { formatTime } from '@frc/shared';
 import type { Station } from '@/data/station';
 import { notInLineup, type LineupSlot } from '@/lib/derive/entries';
 import type { Tile } from './LineupTiles';
@@ -81,5 +82,5 @@ export function flaggedNotInLineup(
   return notInLineup(slots, matchId, chosen.team.id, chosen.side);
 }
 
-/** "14:05", in the device's locale. */
-export const hhmm = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+/** "14:05": 24-hour, like every other time in the app (`formatTime`). */
+export const hhmm = (d: Date) => formatTime(d.toISOString());

@@ -3,6 +3,8 @@ import {
   assertCan,
   deleteEventInput,
   deleteSeasonInput,
+  SWITCH_EVENT_FIRST,
+  SWITCH_SEASON_FIRST,
   type Caller,
   type DeleteEventInput,
   type DeleteImpactOutput,
@@ -22,8 +24,6 @@ export {
   type DeleteSeasonInput,
 } from '@frc/shared';
 
-export const SWITCH_SEASON_FIRST = 'Switch the active season first.';
-export const SWITCH_EVENT_FIRST = 'Switch the default event first.';
 export const TYPE_NAME_EXACTLY = 'Type the name exactly to delete.';
 
 function refuseActive(message: string, details: Record<string, string>): AppError {

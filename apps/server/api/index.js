@@ -174,6 +174,8 @@ var deleteEventInput = z3.object({
   dry_run: z3.boolean().default(false),
   confirm_name: z3.string().optional()
 }).strict();
+var SWITCH_SEASON_FIRST = "Switch the active season first.";
+var SWITCH_EVENT_FIRST = "Switch the default event first.";
 var deleteImpactOutput = z3.object({
   deleted: z3.boolean(),
   events: z3.number().int(),
@@ -1131,11 +1133,13 @@ function supabaseStore(db) {
       if (eventIds.length === 0) return [];
       const PAGE = 1e3;
       const counts = /* @__PURE__ */ new Map();
-      for (let from = 0; ; from += PAGE) {
-        const { data, error: readError } = await db.from("scouting_entries").select("scouter_id").in("event_id", eventIds).is("deleted_at", null).order("id").range(from, from + PAGE - 1);
-        if (readError) throw dbError(readError);
-        for (const r of data ?? []) counts.set(r.scouter_id, (counts.get(r.scouter_id) ?? 0) + 1);
-        if ((data ?? []).length < PAGE) break;
+      for (const chunk of chunks(eventIds)) {
+        for (let from = 0; ; from += PAGE) {
+          const { data, error: readError } = await db.from("scouting_entries").select("scouter_id").in("event_id", chunk).is("deleted_at", null).order("id").range(from, from + PAGE - 1);
+          if (readError) throw dbError(readError);
+          for (const r of data ?? []) counts.set(r.scouter_id, (counts.get(r.scouter_id) ?? 0) + 1);
+          if ((data ?? []).length < PAGE) break;
+        }
       }
       return [...counts].map(([scouter_id, count]) => ({ scouter_id, count }));
     },
@@ -2345,8 +2349,6 @@ async function setEventRoster(caller, input, ctx) {
 }
 
 // src/core/commands/deleteCompetition.ts
-var SWITCH_SEASON_FIRST = "Switch the active season first.";
-var SWITCH_EVENT_FIRST = "Switch the default event first.";
 var TYPE_NAME_EXACTLY = "Type the name exactly to delete.";
 function refuseActive(message, details) {
   return new AppError("conflict", message, details);

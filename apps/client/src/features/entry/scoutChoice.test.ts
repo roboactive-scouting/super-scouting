@@ -1,10 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { formatTime } from '@frc/shared';
 import type { LineupSlot } from '@/lib/derive/entries';
 import type { Tile } from './LineupTiles';
 import type { LocalEntry } from './localEntries';
 import {
   allianceFor,
   flaggedNotInLineup,
+  hhmm,
   resolveChoice,
   sideOf,
   type TeamLite,
@@ -116,5 +118,16 @@ describe('sideOf', () => {
   it('maps a station to its alliance', () => {
     expect(sideOf('R3')).toBe('red');
     expect(sideOf('B1')).toBe('blue');
+  });
+});
+
+describe('hhmm', () => {
+  it('is 24-hour HH:MM like every other time in the app, whatever the device locale', () => {
+    // A 12-hour device: the time must not follow it (Home and Entries use formatTime).
+    const twelve = vi.spyOn(Date.prototype, 'toLocaleTimeString').mockReturnValue('1:05 PM');
+    const d = new Date('2026-10-07T13:05:00Z');
+    expect(hhmm(d)).toMatch(/^\d{2}:\d{2}$/);
+    expect(hhmm(d)).toBe(formatTime(d.toISOString()));
+    twelve.mockRestore();
   });
 });

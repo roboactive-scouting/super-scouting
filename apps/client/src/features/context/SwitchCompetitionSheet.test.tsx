@@ -155,6 +155,24 @@ describe('SwitchCompetitionSheet with a server (task-1.22 addendum A)', () => {
     expect(rpc.call).toHaveBeenCalledWith('listEvents', expect.objectContaining({ season_id: S2 }));
   });
 
+  it('clears "the server did not answer" once a season’s events do answer', async () => {
+    const answering = serverRpc();
+    const call = vi.fn(async (name: string, input?: unknown) => {
+      if (name === 'listEvents' && (input as { season_id: string }).season_id === 's-1') {
+        // After listSeasons has answered, so only this failure sets the line.
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        throw new RpcError('offline', 'could not reach the server', 0);
+      }
+      return answering.call(name, input);
+    });
+    const user = userEvent.setup();
+    renderSheet({ call } as unknown as Rpc);
+    expect(await screen.findByText(/server did not answer/i)).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: /2025/ }));
+    expect(await screen.findByRole('button', { name: /district champs/i })).toBeInTheDocument();
+    expect(screen.queryByText(/server did not answer/i)).toBeNull();
+  });
+
   it('reads the default again when an event is chosen (branch review, finding 4)', async () => {
     const user = userEvent.setup();
     renderSheet();

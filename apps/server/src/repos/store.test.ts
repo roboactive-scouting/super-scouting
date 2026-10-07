@@ -412,6 +412,24 @@ describe('supabaseStore seasons, events and the active context (task 1.18)', () 
     expect(chains[2]).toContainEqual(['range', 1000, 1999]);
   });
 
+  it('countEntriesByScouterForSeason sends the event ids in chunks, like every `in` filter', async () => {
+    const events = Array.from({ length: 101 }, (_, i) => ({ id: `ev-${i}` }));
+    const { db, chains } = scriptedDb([
+      { data: events, error: null },
+      { data: [{ scouter_id: 'u1' }, { scouter_id: 'u2' }], error: null },
+      { data: [{ scouter_id: 'u1' }], error: null },
+    ]);
+    const out = await supabaseStore(db).countEntriesByScouterForSeason(SEASON);
+    expect(out).toEqual([
+      { scouter_id: 'u1', count: 2 },
+      { scouter_id: 'u2', count: 1 },
+    ]);
+    expect(chains).toHaveLength(3);
+    const ids = (chain: unknown[][]) => chain.find((c) => c[0] === 'in')?.[2] as string[];
+    expect(ids(chains[1]!)).toHaveLength(100);
+    expect(ids(chains[2]!)).toEqual(['ev-100']);
+  });
+
   it('countEntriesByScouterForSeason is empty for a season with no events, without reading entries', async () => {
     const { db, chains } = scriptedDb([{ data: [], error: null }]);
     expect(await supabaseStore(db).countEntriesByScouterForSeason(SEASON)).toEqual([]);

@@ -90,7 +90,11 @@ export function SwitchCompetitionSheet({
       season_id: seasonId,
       limit: LIST_EVENTS_MAX_LIMIT,
     }).then(
-      (items) => live && setEvents((known) => ({ ...known, [seasonId]: items })),
+      (items) => {
+        if (!live) return;
+        setEvents((known) => ({ ...known, [seasonId]: items }));
+        setSilent(false);
+      },
       () => live && setSilent(true),
     );
     return () => {

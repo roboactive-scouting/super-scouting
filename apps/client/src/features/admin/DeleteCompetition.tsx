@@ -1,16 +1,12 @@
 import { useId, useState } from 'react';
 import { Trash2 } from 'lucide-react';
-import type { DeleteImpactOutput } from '@frc/shared';
+import { SWITCH_EVENT_FIRST, SWITCH_SEASON_FIRST, type DeleteImpactOutput } from '@frc/shared';
 import { Button } from '@/components/ui/button';
 import { DestructiveConfirm } from '@/components/ui/destructive-confirm';
 import { ErrorLine } from '@/components/ui/notice';
 import type { Rpc } from '@/data/rpc';
 import { useOnline } from '@/lib/useOnline';
 import { MANAGE_UNREACHABLE, panelErrorLine } from './adminMessages';
-
-/** The use cases' own refusals (SPEC-FINAL 3.9), shown before the admin even asks. */
-export const SWITCH_SEASON_FIRST = 'Switch the active season first.';
-export const SWITCH_EVENT_FIRST = 'Switch the default event first.';
 
 export type DeleteTarget = {
   kind: 'season' | 'event';

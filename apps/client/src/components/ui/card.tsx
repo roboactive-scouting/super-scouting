@@ -22,12 +22,6 @@ export function Card({ as: Tag = 'div', tone = 'default', className, ...props }:
   );
 }
 
-export function CardHeader({ className, ...props }: ComponentProps<'div'>) {
-  return (
-    <div className={cn('flex flex-wrap items-start justify-between gap-3', className)} {...props} />
-  );
-}
-
 export function CardTitle({
   level = 2,
   className,

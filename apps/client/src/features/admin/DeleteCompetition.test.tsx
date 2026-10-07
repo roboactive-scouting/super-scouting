@@ -1,15 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { SWITCH_EVENT_FIRST, SWITCH_SEASON_FIRST } from '@frc/shared';
 import { RpcError } from '@/data/rpc';
 import { MANAGE_UNREACHABLE } from './adminMessages';
-import {
-  DeleteCompetition,
-  SWITCH_EVENT_FIRST,
-  SWITCH_SEASON_FIRST,
-  damageLine,
-  type DeleteTarget,
-} from './DeleteCompetition';
+import { DeleteCompetition, damageLine, type DeleteTarget } from './DeleteCompetition';
 
 const EVENT = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const SEASON = '11111111-1111-4111-8111-111111111111';

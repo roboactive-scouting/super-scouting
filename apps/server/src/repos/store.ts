@@ -402,17 +402,20 @@ export function supabaseStore(db: Db): Store {
       if (eventIds.length === 0) return [];
       const PAGE = 1000;
       const counts = new Map<string, number>();
-      for (let from = 0; ; from += PAGE) {
-        const { data, error: readError } = await db
-          .from('scouting_entries')
-          .select('scouter_id')
-          .in('event_id', eventIds)
-          .is('deleted_at', null)
-          .order('id')
-          .range(from, from + PAGE - 1);
-        if (readError) throw dbError(readError);
-        for (const r of data ?? []) counts.set(r.scouter_id, (counts.get(r.scouter_id) ?? 0) + 1);
-        if ((data ?? []).length < PAGE) break;
+      // The event ids go out in chunks, like every other `in` filter here.
+      for (const chunk of chunks(eventIds)) {
+        for (let from = 0; ; from += PAGE) {
+          const { data, error: readError } = await db
+            .from('scouting_entries')
+            .select('scouter_id')
+            .in('event_id', chunk)
+            .is('deleted_at', null)
+            .order('id')
+            .range(from, from + PAGE - 1);
+          if (readError) throw dbError(readError);
+          for (const r of data ?? []) counts.set(r.scouter_id, (counts.get(r.scouter_id) ?? 0) + 1);
+          if ((data ?? []).length < PAGE) break;
+        }
       }
       return [...counts].map(([scouter_id, count]) => ({ scouter_id, count }));
     },

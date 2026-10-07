@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { clientConfig } from '@/config';
 import type { Rpc } from '@/data/rpc';
+import { getStation } from '@/data/station';
 import { useDeviceQuery } from '@/data/useDeviceQuery';
 import { useSyncStatus } from '@/data/syncStatus';
 import { canManageEvents } from '@/features/admin/AdminOnly';
@@ -38,8 +39,9 @@ export function HomePage({ rpc }: { rpc?: Rpc }) {
   const data = useDeviceQuery(
     () => (ready ? loadHome(eventId, user.id) : Promise.resolve(null)),
     [ready, eventId, user.id],
-    ['rows', 'meta'],
+    ['rows'],
   );
+  const station = useDeviceQuery(getStation, [], ['meta']) ?? null;
 
   // The desktop crumb: "2026 / District #3 · Tel Aviv". The phone title is unaffected.
   const crumb =
@@ -67,7 +69,7 @@ export function HomePage({ rpc }: { rpc?: Rpc }) {
     );
   }
 
-  const tiles = data ?? { station: null, lastEntry: null, cells: [], seasonYear: null };
+  const tiles = data ?? { lastEntry: null, cells: [], seasonYear: null };
   const name = eventName ?? 'this competition';
   const goTo = <GoToTiles user={user} expired={expired} desktop={desktop} />;
   // Coverage is the default competition's; under an override it would describe the wrong one.
@@ -83,13 +85,13 @@ export function HomePage({ rpc }: { rpc?: Rpc }) {
       />
       {desktop ? (
         <>
-          <StatTiles station={tiles.station} lastEntry={tiles.lastEntry} sync={sync} />
+          <StatTiles station={station} lastEntry={tiles.lastEntry} sync={sync} />
           {goTo}
           {cover}
         </>
       ) : (
         <>
-          <PhoneTiles station={tiles.station} lastEntry={tiles.lastEntry} sync={sync} />
+          <PhoneTiles station={station} lastEntry={tiles.lastEntry} sync={sync} />
           {cover}
           {goTo}
         </>

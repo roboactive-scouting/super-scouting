@@ -1,7 +1,6 @@
 import { formatDate, formatTime } from '@frc/shared';
 import { cachedRows } from '@/data/cache';
 import { db } from '@/data/db';
-import { getStation, type Station } from '@/data/station';
 import { coverage, type CoverageState } from '@/lib/derive/coverage';
 import { newestFirst, type LineupSlot } from '@/lib/derive/entries';
 import { matchLabel } from '@/lib/matchLabel';
@@ -38,7 +37,6 @@ export type LastEntry = {
 export type CoverageCell = { matchId: string; label: string; state: CoverageState };
 
 export type HomeData = {
-  station: Station | null;
   lastEntry: LastEntry | null;
   cells: CoverageCell[];
   /** The cached season's year for the desktop crumb, or null when the device holds none. */
@@ -140,17 +138,18 @@ async function cachedSeasonYear(eventId: string): Promise<number | null> {
   return typeof season?.year === 'number' ? season.year : null;
 }
 
-/** Everything Home reads, from IndexedDB only. */
+/**
+ * Everything Home reads from the cached rows, from IndexedDB only. The station is meta and
+ * read apart, so a sync tick's meta notifications do not re-read every table.
+ */
 export async function loadHome(eventId: string, userId: string): Promise<HomeData> {
-  const [station, entries, matches, slots, teams] = await Promise.all([
-    getStation(),
+  const [entries, matches, slots, teams] = await Promise.all([
     cachedRows<EntryRow>('scouting_entries'),
     cachedRows<MatchRow>('matches'),
     cachedRows<LineupSlot>('match_teams'),
     cachedRows<TeamRow>('teams'),
   ]);
   return {
-    station,
     lastEntry: lastEntryOf(entries, matches, teams, eventId, userId),
     cells: coverageCells(matches, slots, entries, eventId),
     seasonYear: await cachedSeasonYear(eventId),

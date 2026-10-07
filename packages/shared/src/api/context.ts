@@ -196,6 +196,10 @@ export const deleteEventInput = z
   .strict();
 export type DeleteEventInput = z.input<typeof deleteEventInput>;
 
+/** The refusals for the active season and the default event, word for word on both sides. */
+export const SWITCH_SEASON_FIRST = 'Switch the active season first.';
+export const SWITCH_EVENT_FIRST = 'Switch the default event first.';
+
 /** What is (or would be) deleted. An event's answer has `events: 1` and `forms: 0`. */
 export const deleteImpactOutput = z.object({
   deleted: z.boolean(),

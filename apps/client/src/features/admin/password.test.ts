@@ -1,12 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { passwordSchema } from '@frc/shared';
-import {
-  PASSWORD_WORDS,
-  generatePassword,
-  generatePasswordWith,
-  randomIntFrom,
-  suggestUsername,
-} from './password';
+import { PASSWORD_WORDS, generatePassword, randomIntFrom, suggestUsername } from './password';
 
 describe('generated passwords and usernames', () => {
   it('is three parts, word-word-two digits, and passes the server rule', () => {
@@ -43,10 +37,10 @@ describe('generated passwords and usernames', () => {
   });
 });
 
-describe('generatePasswordWith (a byte source, as before RB.14)', () => {
+describe('generatePassword from a byte source', () => {
   it('draws from crypto.getRandomValues by default', () => {
     const spy = vi.spyOn(crypto, 'getRandomValues');
-    expect(generatePasswordWith()).toMatch(/^[a-z]+-[a-z]+-\d{2}$/);
+    expect(generatePassword()).toMatch(/^[a-z]+-[a-z]+-\d{2}$/);
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
   });
@@ -58,7 +52,9 @@ describe('generatePasswordWith (a byte source, as before RB.14)', () => {
       buf[0] = bytes.shift() ?? 0;
       return buf;
     };
-    expect(generatePasswordWith(fill)).toBe(`${PASSWORD_WORDS[0]}-${PASSWORD_WORDS[1]}-07`);
+    expect(generatePassword(randomIntFrom(fill))).toBe(
+      `${PASSWORD_WORDS[0]}-${PASSWORD_WORDS[1]}-07`,
+    );
     expect(randomIntFrom(() => new Uint8Array([255]))(256)).toBe(255);
   });
 });
