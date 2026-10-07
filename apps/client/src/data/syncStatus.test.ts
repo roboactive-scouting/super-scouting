@@ -1,7 +1,9 @@
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Operation } from '@frc/shared';
 import { db, setMeta } from './db';
-import { readSyncStatus } from './syncStatus';
+import { beginSync, endSync } from './connection';
+import { readSyncStatus, useSyncStatus } from './syncStatus';
 
 function op(id: string, entity: Operation['entity'], author: string): Operation {
   return {
@@ -40,5 +42,16 @@ describe('readSyncStatus', () => {
   });
   it('is empty on a fresh device', async () => {
     expect(await readSyncStatus()).toEqual({ waiting: 0, byAuthor: {}, lastSyncAt: null });
+  });
+});
+
+describe('useSyncStatus', () => {
+  it('turns syncing on and off as a sync begins and ends (SPEC-FINAL 9.10)', async () => {
+    const { result } = renderHook(() => useSyncStatus());
+    await waitFor(() => expect(result.current.syncing).toBe(false));
+    act(() => beginSync());
+    await waitFor(() => expect(result.current.syncing).toBe(true));
+    act(() => endSync());
+    await waitFor(() => expect(result.current.syncing).toBe(false));
   });
 });

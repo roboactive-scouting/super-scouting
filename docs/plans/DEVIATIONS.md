@@ -4716,3 +4716,25 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
 - **RB.20 minors:** the SQL guard against an `active_event_id` race, returning real deleted counts, soft-deleted entries not counted, and focus after an event delete.
 
 **Risk:** the summary restates the sections above; where the two differ, the task's own section is the record. The delete migration is the only item that can break production if the order is wrong.
+
+## Final review — the sync indicator's syncing state and copy (I1)
+
+**Plan said:** THEME "Phone top bar" and the phone-shell final README draw the sync pill in three states only: "● 3 waiting" (amber), "● All sent" (green), "● Offline" (grey). The desktop chips read "Online" / "Offline", and the menu's sync line "3 waiting to send" / "All sent" / "Offline".
+
+**What was wrong:** SPEC-FINAL 9.10 requires three named states, online / syncing / offline, plus the unsynced count ("offline · 4 unsynced"). The final-review finding I1: "`useSyncStatus()` computes `syncing`, but nothing reads it", and the phone pill dropped the count when offline. The finals have no syncing copy. SPEC-FINAL wins over a README, with this entry.
+
+**What I did instead:** one rule in `SyncPill.tsx` (`compactSync` for the pill, `syncLine` for the menu), offline first, then syncing, then waiting, then all sent. Phone pill: "● Syncing…", "● Syncing · 3", "● Offline · 4" (the count kept), with "● 3 waiting" and "● All sent" unchanged. Desktop connection chip: "Online" / "Syncing…" / "Offline", beside the unchanged "3 waiting to send" chip. Menu line: "Syncing…", "Syncing · 3 waiting to send", "Offline · 3 waiting to send". The syncing dot is `--accent` and pulses under `motion-safe:` only; reduced motion gets a still dot. Rejected: a spinner icon (wider than the pill's room beside the page title on a 375 px phone), and accepting the two-state pill (needs a user decision against SPEC-FINAL).
+
+**Risk:** the pill reads "Syncing…" for the length of every 45 s sync, so it changes briefly on each tick; that is what 9.10 asks for. The copy is new and has not been through a design round: the user should confirm it at the visual sign-off.
+
+## Final review — the confirm sheet's failure line is the shared ErrorLine (M6)
+
+**Plan said:** M6: "use `ErrorLine` everywhere, and give it a `ref` for ConfirmEntry's focus."
+
+**What was wrong:** `ErrorLine` sets the whole message in semibold, while ConfirmEntry's hand-made line set only "Not saved." in semibold. `RosterAdd.tsx`'s error is a field-level message tied to the input by `aria-describedby`, shown as plain `text-warn` text under the field (no final draws it), not a boxed line.
+
+**What I did instead:** `ErrorLine` takes `ref` and `focusable`; `DestructiveConfirm` and `ConfirmEntry` use it, so the confirm sheet's reason now carries the warning icon and is semibold throughout. `RosterAdd.tsx` is left as it is: a field message, not an error line.
+
+**Risk:** a small visual change on the Entry confirm sheet's failure state, which no final draws.
+
+- **Dialogs stay centred** (THEME "Centred"), not pinned near the top as some finals draw them. User decision 2026-10-07.

@@ -6,17 +6,11 @@ import { AccountBlock } from './AccountBlock';
 import { Brand } from './Brand';
 import { NavList } from './NavList';
 import type { NavAudience, NavItem } from './nav';
-import { SyncDot, type SyncStatus } from './SyncPill';
+import { SyncDot, syncLine, type SyncStatus } from './SyncPill';
 
-/** The menu's sync line: what waits to send (or that all is sent), then when it last synced. */
+/** The menu's sync line: the state and what waits to send (SPEC-FINAL 9.10), then when it last synced. */
 function SyncLine({ status }: { status: SyncStatus }) {
-  const tone = status.waiting > 0 ? 'waiting' : status.online ? 'sent' : 'offline';
-  const text =
-    status.waiting > 0
-      ? `${status.waiting} waiting to send`
-      : status.online
-        ? 'All sent'
-        : 'Offline';
+  const { tone, text } = syncLine(status);
   return (
     <p className="mx-1.5 mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-[10px] bg-rail-raised px-2.5 py-[9px] text-[0.78125rem] text-surface">
       <SyncDot tone={tone} />

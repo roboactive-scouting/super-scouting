@@ -1,5 +1,6 @@
-import { expect, test, type Page } from '@playwright/test';
-import { signIn } from './api-mock';
+import { fileURLToPath } from 'node:url';
+import { expect, test, type Page, type Route } from '@playwright/test';
+import { goOffline, signIn } from './api-mock';
 import { shoot } from './shoot';
 
 /** The server takes nothing, so what is queued stays waiting to send. */
@@ -60,4 +61,42 @@ test('desktop account menu', async ({ page }) => {
   await expect(page.getByRole('menuitem', { name: 'Change password' })).toBeVisible();
   await page.getByRole('menuitem', { name: 'Change password' }).hover();
   await shoot(page, 'shell-account-menu', 'desktop');
+});
+
+test('sync indicator: syncing, then offline, keeping the count (SPEC-FINAL 9.10)', async ({
+  page,
+}) => {
+  await signIn(page, 'admin', HOLD_PUSH);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await seedWaiting(page, 3);
+  const bar = page.getByRole('banner');
+  await expect(bar.getByText('3 waiting')).toBeVisible();
+
+  // Hold the next push open, then start a sync: the pill says so while it runs.
+  const held: Route[] = [];
+  await page.route('http://api.test/sync/push', (route) =>
+    route.request().method() === 'POST' ? void held.push(route) : route.fallback(),
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect(bar.getByText('Syncing · 3')).toBeVisible();
+  // `shoot` waits for network idle, which a held request never reaches: a plain picture.
+  await page.mouse.move(0, 0);
+  await page.screenshot({
+    path: fileURLToPath(new URL('./__screens__/shell-syncing-phone.png', import.meta.url)),
+  });
+  await page.getByRole('button', { name: 'Open the menu' }).click();
+  const menu = page.getByRole('dialog', { name: 'Menu' });
+  await expect(menu.getByText('Syncing · 3 waiting to send')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.unroute('http://api.test/sync/push');
+  for (const route of held) await route.fallback();
+  await expect(bar.getByText('3 waiting')).toBeVisible();
+
+  await goOffline(page);
+  await expect(bar.getByText('Offline · 3')).toBeVisible();
+  await shoot(page, 'shell-offline');
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.getByRole('button', { name: 'Open the menu' }).click();
+  await expect(menu.getByText('Offline · 3 waiting to send')).toBeVisible();
+  await shoot(page, 'shell-offline-menu', 'phone');
 });
