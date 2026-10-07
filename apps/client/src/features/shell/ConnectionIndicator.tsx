@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
-import { connectionState, type ConnectionState } from '@/data/connection';
-import { unsyncedCount } from '@/data/outbox';
+import { useSyncStatus } from '@/data/syncStatus';
 import { cn } from '@/lib/utils';
+
+type ConnectionState = 'online' | 'syncing' | 'offline';
 
 const TOKEN: Record<ConnectionState, string> = {
   online: 'var(--sync-online)',
@@ -10,31 +10,15 @@ const TOKEN: Record<ConnectionState, string> = {
 };
 
 /**
- * SPEC-FINAL 9.10: a primary UI element, not a footnote. It names the state in words
- * plus the unsynced count — "offline · 4 unsynced". The count is of records, not of
- * queued operations: an entry for a brand-new match is one, not two.
+ * SPEC-FINAL 9.10: the state in words plus the unsynced count — "offline · 4 unsynced". The
+ * count is of records, not of queued operations: an entry for a brand-new match is one, not
+ * two. Event-driven through useSyncStatus (redesign RB.6): it re-reads on a change, never
+ * polls. The shell itself now shows SyncPill; this stays until RB.18 retires it.
  */
 export function ConnectionIndicator({ compact = false }: { compact?: boolean } = {}) {
-  const [state, setState] = useState<ConnectionState>(connectionState());
-  const [unsynced, setUnsynced] = useState(0);
-
-  useEffect(() => {
-    const tick = () => {
-      setState(connectionState());
-      void unsyncedCount().then(setUnsynced);
-    };
-    tick();
-    const timer = setInterval(tick, 2000);
-    window.addEventListener('online', tick);
-    window.addEventListener('offline', tick);
-    return () => {
-      clearInterval(timer);
-      window.removeEventListener('online', tick);
-      window.removeEventListener('offline', tick);
-    };
-  }, []);
-
-  const text = unsynced > 0 ? `${state} · ${unsynced} unsynced` : state;
+  const { online, syncing, waiting } = useSyncStatus();
+  const state: ConnectionState = !online ? 'offline' : syncing ? 'syncing' : 'online';
+  const text = waiting > 0 ? `${state} · ${waiting} unsynced` : state;
   return (
     <span
       role="status"

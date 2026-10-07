@@ -91,6 +91,11 @@ const ROLE: Record<Role, { label: string; tag: string }> = {
   scouter: { label: 'Scouter', tag: 'bg-line-2 text-ink-2' },
 };
 
+/** The role's name as the tag says it ("Scout lead"), for places that show it as plain text. */
+export function roleLabel(role: Role): string {
+  return ROLE[role].label;
+}
+
 export function RoleTag({ role }: { role: Role }) {
   const { label, tag } = ROLE[role];
   return <span className={cn(TAG, tag)}>{label}</span>;

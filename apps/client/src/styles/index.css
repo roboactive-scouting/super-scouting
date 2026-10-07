@@ -81,6 +81,15 @@
   outline-offset: 2px;
 }
 
+/* The accent ring is 1.6:1 on the dark rail: focus inside a rail surface uses --rail-ink. */
+.on-rail :focus-visible {
+  outline-color: var(--rail-ink);
+}
+/* A light surface opened inside the rail (the account menu) keeps the accent ring. */
+.on-rail .off-rail :focus-visible {
+  outline-color: var(--accent);
+}
+
 /*
  * Component classes sit in the components layer, so a Tailwind utility on the same element
  * wins (redesign review): unlayered, .tap-target's 48 px floor overrode min-h-14 / min-h-16.

@@ -19,7 +19,6 @@
     "@fontsource-variable/schibsted-grotesk": "^5.3.0",
     "@fontsource/noto-sans-hebrew": "^5.1.0",
     "@frc/shared": "workspace:*",
-    "@tanstack/react-query": "^5.59.20",
     "bcryptjs": "^2.4.3",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",

@@ -7,14 +7,17 @@ import {
   type TouchEventHandler,
 } from 'react';
 import { useLocation } from 'react-router-dom';
+import { useSyncStatus } from '@/data/syncStatus';
 import { DURATION, EASING, PAGE_ENTER, usePlayOnChange } from '@/lib/motion';
 import { isEntryPath } from '@/lib/paths';
 import { cn } from '@/lib/utils';
+import type { Account } from './account';
 import { BottomBar } from './BottomBar';
+import { CrumbBar } from './CrumbBar';
 import { NavDrawer } from './NavDrawer';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
-import type { NavAudience, NavItem } from './nav';
+import { bottomBar, menuItemsFor, type NavAudience } from './nav';
 
 const COLLAPSED_KEY = 'shell.sidebar.collapsed';
 const ROUTE_MOTION = { duration: DURATION.medium1, easing: EASING.emphasizedDecelerate };
@@ -37,16 +40,15 @@ function writeCollapsed(value: boolean): void {
 }
 
 export type ShellLayoutProps = {
-  /** ≥ 1024 px: the sidebar. Below: the top bar, the drawer and the bottom bar (R.7). */
+  /** ≥ 1024 px: the sidebar and the crumb bar. Below: the dark top bar, the menu and the bottom bar. */
   desktop: boolean;
-  items: NavItem[];
-  bottomItems: NavItem[];
   /** The entry route: nothing in the thumb zone but the form's own Review bar. */
   hideBottomBar: boolean;
+  /** Who is looking: nav.ts decides the destinations from it. */
   who: NavAudience;
-  /** The connection indicator; `collapsed` asks for its compact form. */
-  status: (collapsed: boolean) => ReactNode;
-  account: (collapsed: boolean) => ReactNode;
+  account: Account;
+  /** The app's version, at the foot of the phone menu. */
+  version: string;
   /** The reconnect prompt and the notice strips, in the page flow above the page. */
   notices: ReactNode;
   footer: ReactNode;
@@ -62,12 +64,10 @@ export type ShellLayoutProps = {
  */
 export function ShellLayout({
   desktop,
-  items,
-  bottomItems,
   hideBottomBar,
   who,
-  status,
   account,
+  version,
   notices,
   footer,
   children,
@@ -78,6 +78,8 @@ export function ShellLayout({
   const [menuOpen, setMenuOpen] = useState(false);
   const { pathname } = useLocation();
   const content = useRef<HTMLDivElement>(null);
+  // One read of the sending state for every piece of chrome; it re-reads on a change, never polls.
+  const status = useSyncStatus();
 
   // SPEC-FINAL 17.9: a new page fades in; nothing plays into the data-entry path.
   usePlayOnChange(content, pathname, PAGE_ENTER, ROUTE_MOTION, !isEntryPath(pathname));
@@ -96,18 +98,19 @@ export function ShellLayout({
     writeCollapsed(next);
     setCollapsed(next);
   };
-  const showBottomBar = !desktop && !hideBottomBar && bottomItems.length > 0;
+  const bar = bottomBar(who, false);
+  const showBottomBar =
+    !desktop && !hideBottomBar && bar.left.length + bar.right.length + (bar.raised ? 1 : 0) > 0;
 
   return (
     <div className="flex min-h-dvh" onTouchStart={onTouchStart} onTouchMove={onTouchMove}>
       {desktop && (
         <Sidebar
-          items={items}
+          items={menuItemsFor(who, true)}
           who={who}
           collapsed={collapsed}
           onToggle={toggle}
-          status={status(collapsed)}
-          account={account(collapsed)}
+          account={account}
         />
       )}
       <div
@@ -116,13 +119,15 @@ export function ShellLayout({
         style={
           showBottomBar
             ? ({
-                '--bottom-bar': 'calc(4rem + 1px + env(safe-area-inset-bottom))',
+                '--bottom-bar': 'calc(4.125rem + env(safe-area-inset-bottom))',
               } as CSSProperties)
             : undefined
         }
       >
-        {!desktop && (
-          <TopBar menuOpen={menuOpen} onOpenMenu={() => setMenuOpen(true)} status={status(false)} />
+        {desktop ? (
+          <CrumbBar status={status} />
+        ) : (
+          <TopBar menuOpen={menuOpen} onOpenMenu={() => setMenuOpen(true)} status={status} />
         )}
         {notices}
         <div ref={content} className="flex-1">
@@ -133,15 +138,17 @@ export function ShellLayout({
             {footer}
           </footer>
         )}
-        {showBottomBar && <BottomBar items={bottomItems} who={who} />}
+        {showBottomBar && <BottomBar bar={bar} who={who} waiting={status.waiting} />}
       </div>
       {!desktop && (
         <NavDrawer
           open={menuOpen}
           onClose={() => setMenuOpen(false)}
-          items={items}
+          items={menuItemsFor(who, false)}
           who={who}
-          account={account(false)}
+          account={account}
+          version={version}
+          status={status}
         />
       )}
     </div>

@@ -1,56 +1,65 @@
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import type { ReactNode } from 'react';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import type { Account } from './account';
+import { AccountMenu } from './AccountMenu';
 import { Brand } from './Brand';
 import { NavList } from './NavList';
 import type { NavAudience, NavItem } from './nav';
 
 /**
- * The desktop chrome (≥ 1024 px, SPEC-FINAL 17.3): the brand, the connection state, every
- * destination, the account. It collapses to a rail; the width change is a transition,
- * never a remount of the page beside it.
+ * The desktop chrome (≥ 1024 px, SPEC-FINAL 17.3; THEME "Sidebar"): the brand, every
+ * destination grouped, and the account corner, on `--rail`. It collapses to a rail; the width
+ * change is a transition, never a remount of the page beside it.
  */
 export function Sidebar({
   items,
   who,
   collapsed,
   onToggle,
-  status,
   account,
 }: {
   items: NavItem[];
   who: NavAudience;
   collapsed: boolean;
   onToggle: () => void;
-  status: ReactNode;
-  account: ReactNode;
+  account: Account;
 }) {
+  const Toggle = collapsed ? PanelLeftOpen : PanelLeftClose;
   return (
     <aside
       aria-label="Sidebar"
       className={cn(
-        'motion-transition sticky top-0 flex h-dvh shrink-0 flex-col gap-4 border-e border-border bg-surface p-3',
-        collapsed ? 'w-[4.75rem]' : 'w-64',
+        'motion-transition sticky top-0 z-30 flex h-dvh shrink-0 flex-col on-rail bg-rail px-3.5 py-5 text-rail-ink',
+        collapsed ? 'w-[4.75rem]' : 'w-[14.5rem]',
       )}
     >
-      <Brand compact={collapsed} />
-      <div className={cn(collapsed && 'flex justify-center')}>{status}</div>
-      <nav aria-label="Main" className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1 py-1">
-        <NavList items={items} who={who} collapsed={collapsed} />
-      </nav>
-      <div className="border-t border-border pt-3">{account}</div>
-      <Button
-        variant="ghost"
-        size={collapsed ? 'icon' : 'default'}
-        aria-label={collapsed ? 'Expand the sidebar' : 'Collapse the sidebar'}
-        aria-expanded={!collapsed}
-        className={cn('text-text-muted', collapsed ? 'self-center' : 'justify-start')}
-        onClick={onToggle}
+      <div
+        className={cn(
+          'border-b border-rail-line pt-1 pb-[22px]',
+          collapsed ? 'flex justify-center' : 'px-2',
+        )}
       >
-        {collapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
-        {!collapsed && 'Collapse'}
-      </Button>
+        <Brand compact={collapsed} />
+      </div>
+      <nav aria-label="Main" className="-mx-1 mt-[22px] min-h-0 flex-1 overflow-y-auto px-1">
+        <NavList items={items} who={who} variant="sidebar" collapsed={collapsed} />
+      </nav>
+      {/* Not in the mock-ups: the collapse control (R.6) sits quietly above the account; 48 px per 17.7. */}
+      <div className={cn('flex pb-2', collapsed ? 'justify-center' : 'px-1')}>
+        <button
+          type="button"
+          aria-label={collapsed ? 'Expand the sidebar' : 'Collapse the sidebar'}
+          aria-expanded={!collapsed}
+          title={collapsed ? 'Expand the sidebar' : 'Collapse the sidebar'}
+          onClick={onToggle}
+          className="motion-transition grid size-12 shrink-0 place-items-center rounded-lg text-rail-muted hover:bg-rail-raised hover:text-white"
+        >
+          <Toggle aria-hidden="true" className="size-4" />
+        </button>
+      </div>
+      <div className="border-t border-rail-line pt-3">
+        <AccountMenu account={account} collapsed={collapsed} />
+      </div>
     </aside>
   );
 }

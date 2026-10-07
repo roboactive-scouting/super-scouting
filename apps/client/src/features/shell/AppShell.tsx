@@ -34,9 +34,8 @@ import { CloudDownload, CloudOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Notice } from '@/components/ui/notice';
 import { useIsDesktop } from '@/lib/useMediaQuery';
-import { AccountBlock } from './AccountBlock';
-import { ConnectionIndicator } from './ConnectionIndicator';
-import { bottomBarItems, navItemsFor, type NavAudience } from './nav';
+import type { Account } from './account';
+import type { NavAudience } from './nav';
 import { ShellLayout } from './ShellLayout';
 import { ShellState } from './ShellState';
 import { NoCompetition } from './NoCompetition';
@@ -447,6 +446,13 @@ export function AppShell() {
     expired: current.expired,
     override: override !== null,
   };
+  const account: Account = {
+    name: current.user.full_name,
+    role: current.user.role,
+    canSwitch: !current.expired,
+    canChangePassword: current.token !== null,
+    onSignOut: () => void session.signOut(),
+  };
 
   const notices = (
     <>
@@ -533,21 +539,10 @@ export function AppShell() {
   return (
     <ShellLayout
       desktop={desktop}
-      items={navItemsFor(who)}
-      bottomItems={bottomBarItems(who)}
       hideBottomBar={onEntryRoute}
       who={who}
-      status={(collapsed) => <ConnectionIndicator compact={collapsed} />}
-      account={(collapsed) => (
-        <AccountBlock
-          name={current.user.full_name}
-          role={current.user.role}
-          canSwitch={!current.expired}
-          canChangePassword={current.token !== null}
-          onSignOut={() => void session.signOut()}
-          collapsed={collapsed}
-        />
-      )}
+      account={account}
+      version={clientConfig().appVersion}
       notices={notices}
       footer={footer}
       onTouchStart={onTouchStart}

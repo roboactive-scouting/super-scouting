@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Role } from '@frc/shared';
-import { navItemsFor, type NavAudience } from './nav';
+import type { NavAudience } from './nav';
 import { ShellLayout } from './ShellLayout';
 
 function renderShell(path = '/entries', role: Role = 'admin', over: Partial<NavAudience> = {}) {
@@ -15,12 +15,16 @@ function renderShell(path = '/entries', role: Role = 'admin', over: Partial<NavA
         element: (
           <ShellLayout
             desktop
-            items={navItemsFor(who)}
-            bottomItems={[]}
             hideBottomBar={false}
             who={who}
-            status={() => <span>online</span>}
-            account={(collapsed) => <p>{collapsed ? 'compact account' : 'full account'}</p>}
+            account={{
+              name: 'Tamar Mor',
+              role,
+              canSwitch: true,
+              canChangePassword: true,
+              onSignOut: () => undefined,
+            }}
+            version="1.4.0"
             notices={null}
             footer={null}
           >
@@ -68,7 +72,8 @@ describe('the sidebar (redesign R.6)', () => {
       'false',
     );
     expect(screen.getByRole('link', { name: 'Entries' })).toBeInTheDocument();
-    expect(screen.getByText('compact account')).toBeInTheDocument();
+    // The account corner keeps the name for assistive technology, the initials for the eye.
+    expect(screen.getByRole('button', { name: /Tamar Mor/ })).toBeInTheDocument();
     expect(localStorage.getItem('shell.sidebar.collapsed')).toBe('true');
   });
 

@@ -42,6 +42,8 @@ const TEXT: [string, string, number][] = [
   ['--alliance-blue', '--alliance-blue-tint', 4.5],
   ['--rail-ink', '--rail', 4.5],
   ['--rail-muted', '--rail', 4.5],
+  ['--rail-ink', '--rail', 3],
+  ['--rail-ink', '--rail-raised', 3],
   ['--control-border', '--surface', 3],
   ['--control-border', '--bg', 3],
 ];

@@ -4350,3 +4350,32 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
 - The password eye stays a 40 px drawn button but has a 48 px hit area through an invisible `after:-inset-1` (SPEC-FINAL 17.7).
 - `AllianceButtons` use a constant `border-2` (`--control-border` when unselected, alliance colour when selected) so picking a side never shifts the layout; THEME only specifies the selected 2 px border, so the unselected edge is 2 px instead of the 1 px of other controls. Added a roving tabindex with Arrow / Home / End keys (selection follows focus).
 - `Station` is now imported from `@/data/station` (the local declaration is gone); `Table` uses `text-start` / `text-end`; `Handover` has `role="status"`; the dead `focus-visible:outline-none` is removed from `input.tsx`.
+
+## Task RB.6 — Shell: sidebar + account menu, dark phone bars, narrow menu, lazy routes
+
+**Plan said:** route handles `{ title: 'Home' | 'Scout' | 'Entries' | 'Switch scouter' | 'Users' | 'Matches' … }`; a desktop crumb from handle `crumb` "default the title"; the six lazy pages "inside one `<Suspense>`"; sidebar items 9×10 padding; phone ☰ 44 px, menu rows 46 px; `useCurrentTitle(): string`; ShellLayout keeps its props; the foot shows "initials, name, role".
+
+**What was wrong:**
+- Manage is "Manage" in the sidebar and the desktop crumb ("Admin / Manage") but "Matches" in the phone top bar (11-phone-shell README); one `title` cannot be both. The finals' crumbs are trails ("Admin / Users", "Scout / Q39 · 1690 Orbit"), not one string.
+- One `<Suspense>` for routes on both sides of AppShell would sit above AppShell, so a lazy admin page loading would blank the whole shell; Login and Change password sit outside AppShell.
+- The design's rows and buttons are under the 48 px floor (SPEC-FINAL 17.7): sidebar rows ≈ 35 px, ☰ 44 px, ✕ 40 px, menu rows 46 px, account-menu items ≈ 33 px.
+- The finals' foot says "Scout lead · Switch". The corner opens the account menu, not Switch scouter, and "Scout lead" lives only in `components/ui/tag.tsx`'s private role map (`ROLE_LABEL` in admin/fields says "Lead").
+- The finals have no collapse control; the plan says to keep the collapse behaviour. Inside the brand row it truncated "RobActive Scout".
+- `--rail-muted` on `--rail-raised` is 4.0:1 (axe failed the open corner's role line).
+- `clientConfig()` throws without env in unit tests, so the menu foot's version cannot read it itself.
+
+**What I did instead:**
+- `lib/pageTitle.ts` exports `PageHandle = { title?, phoneTitle?, crumb?: string[] }`; Manage is `{ title: 'Manage', phoneTitle: 'Matches', crumb: ['Admin'] }`. `useCurrentTitle(phone = true)` (no argument = the phone top bar, as the plan's signature), plus `useCrumb()` for the desktop bar; a crumb trail that ends in the current name is not repeated. Handles are merged with `named(handle, NO_HYDRATION)`. Extra titles: `/login` "Sign in", `/change-password` "Change password", the entry route "Entry" with crumb `['Scout']` (the entry page replaces it with usePageTitle).
+- One `Loading` wrapper in routes.tsx (one fallback, `Skeleton rows={4} label="Loading"`) around each lazy element, inside DesktopOnly — so the shell stays while a chunk loads. Build output shows the six chunks, all in the service worker's precache list.
+- Every tappable shell control is 48 px (SPEC-FINAL 17.7 beats the design images, per the plan's precedence rule): ☰ and ✕, the phone menu's rows and account actions, and on desktop the sidebar rows (`min-h-12`, vertical padding dropped), the account-menu items, the account corner and the collapse button (`size-12`, 16 px icon). The desktop sidebar therefore looks slightly taller than the design image (rows ≈ 35 px there).
+- Focus on the dark rail uses `--rail-ink` (the accent ring is 1.6:1 on `--rail`): an unlayered `.on-rail :focus-visible` rule in `index.css`, with `on-rail` on the sidebar, phone top bar, bottom bar and menu; the white account menu opts back to the accent ring with `off-rail`. `--rail-ink` on `--rail` and on `--rail-raised` (3:1) are in `contrast.test.ts`.
+- The phone menu's "ADMIN" marker is `--rail-ink` on the active row (`--rail-muted` is 4.0:1 on `--rail-raised`); its nav landmark is named "Places", not a second "Main".
+- The foot shows initials, name and the role as RoleTag says it, without "· Switch". Added `roleLabel(role)` to `components/ui/tag.tsx` (outside this task's file list) so the text has one source.
+- The collapse button is an icon-only control just above the account corner.
+- The corner's role line turns `--rail-ink` while the corner is open or hovered.
+- `ShellLayout` takes `who`, `account: Account` (new `features/shell/account.ts`) and `version`, and works out the sidebar, menu and bottom-bar items itself; the old `items` / `bottomItems` / `status` / `account(collapsed)` render props are gone. It calls `useSyncStatus()` once and hands the result to every bar.
+- Icons: Scout `ClipboardCheck`, Entries `List`, Manage/Matches `Calendar`, Sign out `LogOut` mirrored, to match the mock-up drawings.
+- `ConnectionIndicator` reads `useSyncStatus()` (no 2 s poll) but the shell no longer mounts it; `SyncPill` replaces it. Left for RB.18 to delete with its test.
+- Unit tests that clicked the sidebar's "Sign out" / "Switch scouter" now open the account corner first (`AppShell.test.tsx`, `routes.test.tsx`); `routes.test.tsx` reads the handle with `needsNoHydration` because handles are no longer the bare `NO_HYDRATION` object.
+
+**Risk:** the desktop sidebar is taller than the design image (48 px rows, a 48 px collapse button), so a short laptop screen scrolls the nav sooner. The corner's dark initials circle is `--rail-raised` and would vanish into the open corner, so it carries a `ring-1 ring-rail-muted` instead of the mock's untokened `#2b323d`. The main chunk is still 613 kB (Vite's > 500 kB warning): lazy routes took out the admin and auth pages only.
