@@ -5000,3 +5000,30 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
 - Tests: `HomePage.test.tsx` (tap the station → sheet with Blue 2 pressed → Red 3 → Use → saved as R3 and shown; no station → "Choose your station" opens the sheet, desktop note). `AppShell.test.tsx` checks the strip's classes. `home.spec.ts` adds the cached state (pull aborted after the first load, then a reload): x = 0 and 375 wide, computed `border-inline-start-width` 0px at 375 and 4px at 1440 — that assertion fails without the fix (Received "4px") — plus shots `home-cached` (both widths), `home-station` (phone, sheet open) and `home-station-set` (desktop, after choosing Red 3).
 
 **Risk:** on a phone, a warning strip (expired session, override, held move, gone event) no longer carries its amber start edge; its words carry it. Initial JS 203.8 KB gzip (was 203.6), 1.2 KB left under 205. `pnpm test` (all workers) died twice out of memory on this machine mid-run; `npx vitest run --maxWorkers=3 --minWorkers=1` ran the same suite green. One full `home.spec` run failed the new cached test once, details not captured; the box check now polls (the shell swaps layout after the resize), and 32 runs since passed.
+
+## UF.8 — Entries: full scouter name on phones; rows don't look tappable yet
+
+**Plan said:** phone cards show the scouter's full name, wrapping, never truncated; rows don't look tappable (no pointer, no press state) until the entry preview exists. Tests plus fresh `entries` e2e shots at 375 and 1440 with a long scouter name.
+
+**What was wrong:**
+- The final README (`docs/design/pages/05-entries/final/README.md`, Phone) says the card shows "the scouter's first name". UF.8 overrides it with the full name, per the user's note (UI-FIX-NOTES "05 Entries" 2). The README was not edited.
+- The card never had a pointer or a press state, but the desktop table's `TableRow` (THEME "Data table") carries `hover:bg-bg` on every row, so the entries table tinted under the mouse like a clickable list.
+- The e2e run could not be completed. Run 1 died with "FATAL ERROR: Committing semi space failed. Allocation failed - JavaScript heap out of memory" (all 4 tests failed at sign-in). Run 2: "Error: Process from config.webServer was not able to start. Exit code: 3221226505". The machine's commit charge was at 1.0 GB free of 35 GB: 404 `git fsmonitor--daemon run --detach --ipc-threads=8` processes held about 17.8 GB (`core.fsmonitor=true` in `C:/Program Files/Git/etc/gitconfig`). The 242 started before today were stopped (git restarts its daemon on demand), which freed commit to 6.9 GB, but the third e2e run was then refused by the agent's permission classifier and was not retried.
+
+**What I did instead:**
+- `EntryCard.tsx`: the scouter span shows `row.scouter` (was `row.scouter.split(' ')[0]`) with `min-w-0 break-words` (was `whitespace-nowrap`); only the time keeps `whitespace-nowrap`. The card's layout and classes are otherwise unchanged.
+- `EntriesTable.tsx`: every row (header, entry, refused line) gets `STATIC_ROW = 'hover:bg-transparent'`, which `cn`/tailwind-merge resolves over the shared row's `hover:bg-bg`. The shared `TableRow` is unchanged, so other tables keep their hover. Rejected: an `interactive` prop on `TableRow` (an interface change for one caller; when the entry preview lands, the rows become links and drop `STATIC_ROW`).
+- `EntriesPage.test.tsx`: the phone test now expects the full name ("Noa Levi ·"); new tests: a long name ("Amit Ben-David Abramovich-Rosenthal") is whole with no truncate / line-clamp / ellipsis / nowrap class, and no card or desktop row has a pointer, a non-transparent hover/active/focus background, a role, a tabindex or a link/button inside. Mutation-checked: putting `truncate` back on the name and dropping `STATIC_ROW` fails both new tests.
+- `e2e/entries.spec.ts`: the first test's pull renames Amit to the long name; it checks the desktop row's computed cursor (`auto`) and hover background (transparent), then at 375 that the card holds the whole name and that the name's box ends inside the card, and shoots `entries` at each width. **Written but not run green** (see above); `e2e/__screens__/entries-*.png` were not refreshed.
+
+**Risk:** the e2e assertions and the two shots are unverified. Until they run, the 375 wrap is proven only by class and jsdom text, not by layout. Initial JS 203.8 KB gzip (unchanged).
+
+## UF.8 (addendum) — the e2e card locator
+
+**Plan said:** refresh the entries shots at 375 and 1440.
+
+**What was wrong:** once the machine had memory again, the spec ran and failed: `Expected substring: "Amit Ben-David Abramovich-Rosenthal ·" Received string: "Q384338FalconsRed 3Broke downYael Shapira · 11:41"`. The test took the second list item, which is Yael's card, not the long-name card.
+
+**What I did instead:** the orchestrator now finds the card by its text (`filter({ hasText: LONG_NAME })`). `entries.spec` gives 4 passed. Both shots were checked by eye: the long name wraps inside its card.
+
+**Risk:** none. This is a test-only change.

@@ -219,7 +219,7 @@ describe('EntriesPage', () => {
     expect(screen.queryByText(/not synced/i)).not.toBeInTheDocument();
   });
 
-  it('on a phone: one card per entry with the first name and the time', async () => {
+  it('on a phone: one card per entry with the full name and the time', async () => {
     window.matchMedia = ((query: string) => ({
       matches: false,
       media: query,
@@ -232,8 +232,47 @@ describe('EntriesPage', () => {
     expect(cards).toHaveLength(5);
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(cards[0]).toHaveTextContent('Q38');
-    expect(cards[0]).toHaveTextContent('Noa ·');
+    expect(cards[0]).toHaveTextContent('Noa Levi ·');
     expect(within(cards[0]!).getByLabelText('waiting to send')).toBeInTheDocument();
     expect(within(cards[1]!).getByText('Not in line-up')).toBeInTheDocument();
+  });
+
+  // UF.8: the name wraps, never cut; nothing looks tappable until the entry preview exists.
+  const AFFORDANCE =
+    /cursor-pointer|(^|\s)(hover|active|focus-visible):bg-(?!transparent)|truncate|line-clamp|text-ellipsis|whitespace-nowrap/;
+
+  it('on a phone: a long scouter name is whole and the card looks static', async () => {
+    window.matchMedia = ((query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia;
+    await seedEntries();
+    const long = 'Amit Ben-David Abramovich-Rosenthal';
+    await db.rows.put({ ...USERS[1]!, full_name: long });
+    renderEntries();
+    const cards = await screen.findAllByRole('listitem');
+    const name = within(cards[1]!).getByText(long, { exact: false });
+    expect(name).toHaveTextContent(`${long} ·`);
+    expect(name.className).not.toMatch(AFFORDANCE);
+    for (const card of cards) {
+      expect(card.className).not.toMatch(AFFORDANCE);
+      expect(card).not.toHaveAttribute('role');
+      expect(card).not.toHaveAttribute('tabindex');
+      expect(card.querySelector('a, button, [role=button], [role=link], [tabindex]')).toBeNull();
+    }
+  });
+
+  it('on a desktop: rows have no pointer, hover or press state', async () => {
+    await seedEntries({ refused: ['e36'] });
+    renderEntries();
+    const rows = await screen.findAllByRole('row');
+    for (const row of rows) {
+      expect(row.className).not.toMatch(AFFORDANCE);
+      expect(row.className).not.toMatch(/hover:bg-bg/);
+      expect(row).not.toHaveAttribute('tabindex');
+      expect(row.querySelector('a, button, [role=button], [role=link], [tabindex]')).toBeNull();
+    }
   });
 });

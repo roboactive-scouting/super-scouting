@@ -10,8 +10,15 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { RobotStatusTag, WarningFlag } from '@/components/ui/tag';
+import { cn } from '@/lib/utils';
 import { EntryStation, refusedText, WaitingMark } from './EntryParts';
 import type { EntryRow } from './useEntriesView';
+
+/**
+ * Rows open nothing until the entry preview exists (SPEC-FINAL 13.4), so they drop the data
+ * table's hover tint: nothing here looks tappable (UF.8).
+ */
+const STATIC_ROW = 'hover:bg-transparent';
 
 /**
  * Desktop: THEME "Data table" over the entries, newest first. No Points column until the
@@ -22,7 +29,7 @@ export function EntriesTable({ rows }: { rows: EntryRow[] }) {
     <>
       <Table containerClassName="rounded-card border border-line bg-surface">
         <TableHeader>
-          <TableRow>
+          <TableRow className={STATIC_ROW}>
             <TableHead className="w-28 ps-5 text-ink">
               <span className="inline-flex items-center gap-1">
                 Match
@@ -38,7 +45,7 @@ export function EntriesTable({ rows }: { rows: EntryRow[] }) {
         <TableBody>
           {rows.map((row) => (
             <Fragment key={row.id}>
-              <TableRow className={row.refused ? 'border-b-0' : undefined}>
+              <TableRow className={cn(STATIC_ROW, row.refused && 'border-b-0')}>
                 <TableCell className="num ps-5 font-semibold">{row.matchLabel}</TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2.5">
@@ -60,7 +67,7 @@ export function EntriesTable({ rows }: { rows: EntryRow[] }) {
                 </TableCell>
               </TableRow>
               {row.refused ? (
-                <TableRow>
+                <TableRow className={STATIC_ROW}>
                   <TableCell colSpan={5} className="h-auto px-5 pb-2.5 pt-0">
                     <ErrorLine className="text-[0.8125rem] font-normal">
                       {refusedText(row.refused)}

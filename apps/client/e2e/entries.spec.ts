@@ -3,8 +3,27 @@ import { signIn } from './api-mock';
 import { ENTRIES, FIXTURE } from './fixtures';
 import { shoot } from './shoot';
 
-/** The server takes nothing, so what is queued stays waiting to send. */
-const HOLD_PUSH = { overrides: { 'sync/push': { results: [] } } };
+/** A long full name (Q38 1574's scouter): it wraps on a phone, never cut (UF.8). */
+const LONG_NAME = 'Amit Ben-David Abramovich-Rosenthal';
+
+/**
+ * The server takes nothing, so what is queued stays waiting to send; Amit's name is the long
+ * one.
+ */
+const HOLD_PUSH = {
+  overrides: {
+    'sync/push': { results: [] },
+    'sync/pull': {
+      ...FIXTURE.pull,
+      entities: {
+        ...FIXTURE.pull.entities,
+        users: FIXTURE.pull.entities.users.map((u) =>
+          u.full_name === 'Amit Ben-David' ? { ...u, full_name: LONG_NAME } : u,
+        ),
+      },
+    },
+  },
+};
 
 /** The design's clock: Tuesday 17 March 2026, 12:00 in Tel Aviv, so the entries are "today". */
 async function setClock(page: Page) {
@@ -80,7 +99,25 @@ test('entries: newest first, waiting arrows, the refused line', async ({ page })
   await expect(page.getByRole('button', { name: /^Needs a look 2/ })).toBeVisible();
   await expect(page.getByText('Not synced:')).toBeVisible();
   await expect(page.getByLabel('waiting to send')).toHaveCount(3);
-  await shoot(page, 'entries');
+  // Rows open nothing yet (the entry preview is a later page): no pointer, no hover tint.
+  const first = rows.nth(1);
+  await first.hover();
+  await expect(first).toHaveCSS('cursor', 'auto');
+  await expect(first).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await shoot(page, 'entries', 'desktop');
+  // Phone: the long name is whole, on as many lines as it needs.
+  await page.setViewportSize({ width: 375, height: 812 });
+  const card = page
+    .getByRole('main')
+    .getByRole('listitem')
+    .filter({ hasText: LONG_NAME })
+    .first();
+  await expect(card).toContainText(`${LONG_NAME} ·`);
+  await expect(card).toHaveCSS('cursor', 'auto');
+  const name = card.getByText(LONG_NAME, { exact: false });
+  const [nameBox, cardBox] = [await name.boundingBox(), await card.boundingBox()];
+  expect(nameBox!.x + nameBox!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width);
+  await shoot(page, 'entries', 'phone');
 });
 
 test('entries: Needs a look shows the refused and the not-in-line-up entries', async ({ page }) => {
