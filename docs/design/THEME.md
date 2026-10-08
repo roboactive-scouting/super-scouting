@@ -47,6 +47,8 @@ Contrast is measured against white `--surface` and grey `--bg`. WCAG AA needs 4.
 | `--alliance-red-tint` | `#FBEAE8` | Red alliance background | — |
 | `--alliance-blue` | `#2F62C8` | Blue alliance | 5.67 / 5.24 |
 | `--alliance-blue-tint` | `#E8EEFB` | Blue alliance background | — |
+| `--alliance-red-strong` | `#9A2F29` | A picked red station tile's fill (Scout); white text on it | 7.47 (white on it) |
+| `--alliance-blue-strong` | `#2551AA` | A picked blue station tile's fill (Scout); white text on it | 7.40 (white on it) |
 
 **Changed from the concept for accessibility:**
 - `--muted`, `--warn` and `--alliance-red` are slightly darker than in the D1 images, so they pass 4.5:1 on every surface and tint.
@@ -105,7 +107,7 @@ Each page round adds a row here: what was picked, which page it came from, and t
 | Summary list | White card, `--line` border. Group headings are 12 px `--muted`; rows show the label in `--muted` and the value in `--ink` 600 | Entry, 2026-10-06 |
 | Note (inline explanation) | White, `--line` border with a 3 px `--ink` left edge, 13.5 px text | Entry, 2026-10-06 |
 | Alliance tag | `--alliance-*-tint` background, `--alliance-*` text, `--radius-tag` | Entry, 2026-10-06 |
-| Station tile | Alliance tint (`--alliance-*-tint`), label "RED 1" 11 px / 700 in the alliance colour, team number in JetBrains Mono 19 px, name 12 px. Picked (amended 2026-10-08): **filled with its alliance colour** (`--alliance-red` / `--alliance-blue`), all text white, the "YOUR STATION" tag white with alliance-coloured text; was `--accent-tint` with an `--accent` ring. Done: `--line-2` grey with ✓ or 🔒 at the top right. "YOUR STATION" tag: 10.5 px / 800 white on the alliance colour (on `--accent` when picked) | Scout, 2026-10-06 |
+| Station tile | Alliance tint (`--alliance-*-tint`), label "RED 1" 11 px / 700 in the alliance colour, team number in JetBrains Mono 19 px, name 12 px. Picked (amended 2026-10-08): **filled with its alliance's strong colour** (`--alliance-red-strong` / `--alliance-blue-strong`), all text white, the "YOUR STATION" tag white with alliance-coloured text; was `--accent-tint` with an `--accent` ring. Done: `--line-2` grey with ✓ or 🔒 at the top right. "YOUR STATION" tag: 10.5 px / 800 white on the alliance colour (on `--accent` when picked) | Scout, 2026-10-06 |
 | Station pill | 32 px pill in the alliance tint with a location-pin icon, e.g. "Blue 2" | Scout, 2026-10-06 |
 | Large number field | 56 px, `--control-border`, JetBrains Mono 26 px value with a muted prefix ("Q"). Focused: 2 px `--accent` border | Scout, 2026-10-06 |
 | Select (dropdown) | 56 px, white, `--control-border`, 15 px / 600 text, chevron in `--muted` | Scout, 2026-10-06 |

@@ -136,11 +136,12 @@
 }
 
 /* Picked tile, amended 2026-10-08: filled with its alliance colour (was --accent-tint).
-   White text on --alliance-red 5.80:1, on --alliance-blue 5.67:1. */
+   Darker tokens (user, same day): white on --alliance-red-strong 7.47:1, on --alliance-blue-strong 7.40:1.
+   The final PNGs were rendered with the lighter --alliance-red / --alliance-blue and not re-rendered, by request. */
 .station.on.r, .station.on.b { box-shadow: none; color: #fff; }
-.station.on.r { background: var(--alliance-red); }
-.station.on.b { background: var(--alliance-blue); }
+.station.on.r { background: var(--alliance-red-strong); }
+.station.on.b { background: var(--alliance-blue-strong); }
 .station.on.r *, .station.on.b * { color: #fff !important; }
 .station.on .you { background: #fff !important; }
-.station.on.r .you { color: var(--alliance-red) !important; }
-.station.on.b .you { color: var(--alliance-blue) !important; }
+.station.on.r .you { color: var(--alliance-red-strong) !important; }
+.station.on.b .you { color: var(--alliance-blue-strong) !important; }

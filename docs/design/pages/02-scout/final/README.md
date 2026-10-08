@@ -14,7 +14,7 @@ Chosen: **variant E**, which combines C (my station) and D (driver stations) and
 3. **The line-up.** When the typed match has a line-up on the device:
    - its six robots show as station tiles, Red 1–3 on the left and Blue 1–3 on the right, each with the team number and name
    - your station's tile has a "YOUR STATION" tag and is **picked by default**
-   - **the picked tile is filled with its alliance colour** (dark red or dark blue, white text), not green (amended 2026-10-08, user)
+   - **the picked tile is filled with its alliance colour** (dark red or dark blue, white text), not green (amended 2026-10-08, user). **The code uses the darker `--alliance-red-strong` `#9A2F29` / `--alliance-blue-strong` `#2551AA`**; the images were rendered with the lighter alliance colours and were deliberately not re-rendered, so for this tile's fill the tokens win over the image
    - the primary button names the choice: "Start entry · 5654 Phoenix"
 4. **Another robot in the line-up.** Tapping a tile other than your station opens a sheet: "Scout Red 1 instead? Your station is Blue 2. This entry will be for 1690 Orbit on Red 1. Your station stays Blue 2." with Keep Blue 2 / Scout Red 1.
 5. **No line-up.** For a match that is new to the device, or listed with no robots:
