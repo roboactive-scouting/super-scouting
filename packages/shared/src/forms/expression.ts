@@ -64,6 +64,8 @@ export function evaluateExpr(expr: Expr, values: Record<string, unknown>): ExprV
 }
 
 const NUMERIC_UNITS = new Set(['count', 'seconds', 'points']);
+/** The types whose value is a number (a toggle reads as 1 or 0): the fallback for no unit. */
+const NUMERIC_TYPES = new Set(['counter', 'number', 'rating', 'timer', 'toggle']);
 
 type StaticType = 'float' | 'string' | 'invalid';
 
@@ -76,7 +78,12 @@ function staticType(expr: Expr, byKey: Map<string, FormFieldDefinition>): Static
       if (!field) return 'invalid';
       if (field.type === 'computed') return 'invalid';
       if (field.type === 'toggle') return 'float';
-      return NUMERIC_UNITS.has(field.unit ?? '') ? 'float' : 'string';
+      // A draft field may not have its unit yet ("needs meaning", which only publish demands):
+      // judge it by its type, so a blank unit never turns into a definition error here.
+      if (field.unit === null || field.unit === undefined) {
+        return NUMERIC_TYPES.has(field.type) ? 'float' : 'string';
+      }
+      return NUMERIC_UNITS.has(field.unit) ? 'float' : 'string';
     }
     case 'op': {
       const left = staticType(expr.left, byKey);

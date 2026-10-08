@@ -1,6 +1,7 @@
 import {
   AppError,
   assertCan,
+  selectOptions,
   setScoringRulesInput,
   validateScoringRules,
   type Caller,
@@ -37,10 +38,15 @@ function scoringError(issues: ScoringIssue[]): AppError {
   return new AppError('invalid', summary, { reason: 'invalid-scoring', issues });
 }
 
+const isSelectType = (type: string): boolean => type === 'single_select' || type === 'multi_select';
+
 /**
  * The fields a rule may name: the live fields of the form's draft and of its active version
- * (task 1.28, decision A). Where both have a key, the draft's definition wins: it is the
- * newer one, and the one the builder is editing.
+ * (task 1.28, decision A). Where both have a key, the draft's TYPE wins — it is the newer
+ * definition, the one the builder is editing — but a select's options are the UNION of both
+ * versions' (review #9): scoring is not versioned, and an option the draft dropped is still
+ * scored by every entry of the active version. When the two disagree on the type, options
+ * are still taken from both, so long as the draft's type is a select.
  */
 async function scorableUniverse(
   ctx: UseCaseContext,
@@ -53,7 +59,16 @@ async function scorableUniverse(
   const ids = [activeVersionId, draft?.id ?? null].filter((id): id is string => id !== null);
   for (const id of ids) {
     for (const field of await ctx.store.getFormFields(id)) {
-      if (!field.deprecated) byKey.set(field.key, field);
+      if (field.deprecated) continue;
+      const earlier = byKey.get(field.key);
+      if (earlier && isSelectType(field.type) && isSelectType(earlier.type)) {
+        const options = selectOptions(field);
+        const seen = new Set(options.map((o) => o.value));
+        const union = [...options, ...selectOptions(earlier).filter((o) => !seen.has(o.value))];
+        byKey.set(field.key, { ...field, config: { ...field.config, options: union } });
+      } else {
+        byKey.set(field.key, field);
+      }
     }
   }
   return [...byKey.values()];

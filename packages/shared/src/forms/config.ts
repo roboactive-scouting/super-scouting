@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { exprSchema } from './expression';
 import type { FormFieldDefinition } from './types';
+import { validateEntryData } from './validate';
 
 export const FIELD_TYPES = [
   'counter',
@@ -22,12 +23,37 @@ export const FIELD_TYPES = [
 export type FieldTypeName = (typeof FIELD_TYPES)[number];
 
 const option = z.object({ value: z.string().min(1), label: z.string().min(1) });
+
+/** A list of options or event types: at least one, and no value twice (the value is the key). */
+const optionList = z
+  .array(option)
+  .min(1)
+  .superRefine((list, ctx) => {
+    const seen = new Set<string>();
+    list.forEach((o, i) => {
+      if (seen.has(o.value)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [i, 'value'],
+          message: `the value '${o.value}' is listed twice; each value names one choice`,
+        });
+      }
+      seen.add(o.value);
+    });
+  });
+
 const mirrorAxis = z.enum(['none', 'horizontal', 'vertical', 'both']);
-const numericRange = {
-  min: z.number().optional(),
-  max: z.number().optional(),
-  step: z.number().positive().optional(),
-};
+const numericRange = z
+  .object({
+    min: z.number().optional(),
+    max: z.number().optional(),
+    step: z.number().positive().optional(),
+  })
+  .strict()
+  .refine((r) => r.min === undefined || r.max === undefined || r.min <= r.max, {
+    path: ['max'],
+    message: 'max must not be below min',
+  });
 
 /**
  * SPEC-FINAL 5.3 (amended v1.20): an event log may ask where each tap happened. When it does
@@ -35,7 +61,7 @@ const numericRange = {
  */
 const eventLog = z
   .object({
-    event_types: z.array(option).min(1),
+    event_types: optionList,
     ask_position: z.boolean().default(false),
     mirror_axis: mirrorAxis.optional(),
   })
@@ -52,15 +78,11 @@ const eventLog = z
 
 /** SPEC-FINAL 5.3, one schema per type. */
 export const FIELD_TYPE_CONFIG: Record<FieldTypeName, z.ZodType> = {
-  counter: z.object(numericRange).strict(),
-  number: z.object(numericRange).strict(),
+  counter: numericRange,
+  number: numericRange,
   toggle: z.object({}).strict(),
-  single_select: z
-    .object({ options: z.array(option).min(1), is_ordinal: z.boolean().optional() })
-    .strict(),
-  multi_select: z
-    .object({ options: z.array(option).min(1), is_ordinal: z.boolean().optional() })
-    .strict(),
+  single_select: z.object({ options: optionList, is_ordinal: z.boolean().optional() }).strict(),
+  multi_select: z.object({ options: optionList, is_ordinal: z.boolean().optional() }).strict(),
   rating: z
     .object({ max: z.number().int().positive().default(5), style: z.enum(['stars', 'slider']) })
     .strict(),
@@ -155,8 +177,29 @@ export function validateFieldDefinition(field: FormFieldDefinition): DefinitionI
           message: issue.message,
         });
       }
+    } else if (field.default_value !== null && field.default_value !== undefined) {
+      // Judged only against a config that parsed: a broken config already has its issue.
+      const message = defaultValueProblem(field);
+      if (message !== null) issues.push({ path: 'default_value', message });
     }
   }
 
   return issues;
+}
+
+/**
+ * Whether a non-null default is a value the scouter could submit: the entry validator's
+ * 'submit' rules for this one field. Its condition and `required` are set aside — a default
+ * is judged as a value, not as an answer, and its condition names a sibling not given here.
+ */
+function defaultValueProblem(field: FormFieldDefinition): string | null {
+  const alone: FormFieldDefinition = {
+    ...field,
+    required: false,
+    visibility_condition: null,
+    deprecated: false,
+  };
+  const result = validateEntryData([alone], 'played', { [field.key]: field.default_value });
+  if (result.ok) return null;
+  return `the default is not a valid value: ${result.issues[0]!.message}`;
 }

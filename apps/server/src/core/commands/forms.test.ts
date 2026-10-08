@@ -229,7 +229,7 @@ describe('saveDraftFields: field identity and permanent keys (SPEC-FINAL 5.1, v1
     ).rejects.toMatchObject({ code: 'invalid', details: { reason: 'duplicate-key', key: 'a' } });
   });
 
-  it('refuses a key retired in an earlier version of this form', async () => {
+  it('refuses a retired key brought back with a different type', async () => {
     await publishWith([counter('a'), counter('b', { display_order: 2 })]);
     const forked = await saveDraftFields(
       ADMIN,
@@ -240,13 +240,16 @@ describe('saveDraftFields: field identity and permanent keys (SPEC-FINAL 5.1, v1
     await expect(
       saveDraftFields(
         ADMIN,
-        { form_version_id: v2, fields: [counter('a'), counter('b', { display_order: 2 })] },
+        {
+          form_version_id: v2,
+          fields: [counter('a'), counter('b', { type: 'number', display_order: 2 })],
+        },
         ctx,
       ),
     ).rejects.toMatchObject({ code: 'invalid', details: { reason: 'key-retired', key: 'b' } });
   });
 
-  it('deletes a field removed from the draft it was born in, and deprecates a carried one', async () => {
+  it('deprecates a field removed from a draft — born there or carried — and never deletes its row', async () => {
     await publishWith([counter('a'), counter('b', { display_order: 2 })]);
     const forked = await saveDraftFields(
       ADMIN,
@@ -262,11 +265,11 @@ describe('saveDraftFields: field identity and permanent keys (SPEC-FINAL 5.1, v1
     expect(fields.get('a')!.deprecated).toBe(true);
     expect(fields.get('b')!.deprecated).toBe(true);
     expect(fields.get('c')!.deprecated).toBe(false);
+    const cId = fields.get('c')!.id;
+    // A device may already hold c's row (it pulls drafts), and the delta pull cannot see a
+    // hard delete: born in v2 or not, the row stays, deprecated.
     await saveDraftFields(ADMIN, { form_version_id: v2, fields: [] }, ctx);
-    expect(fieldsOf(v2).has('c')).toBe(false); // born in v2, so deleted, and its key is free
-    await expect(
-      saveDraftFields(ADMIN, { form_version_id: v2, fields: [counter('c')] }, ctx),
-    ).resolves.toMatchObject({ new_version_id: null });
+    expect(fieldsOf(v2).get('c')).toMatchObject({ id: cId, deprecated: true });
   });
 
   it('refuses an unknown version as not-found', async () => {
@@ -666,8 +669,37 @@ describe('deleteFormVersion and deleteForm', () => {
     );
   });
 
-  it("refuses the form's active version", async () => {
+  it('refuses every published version, active or not, even with no entries on the server', async () => {
     await publishWith([counter('a')]);
+    // v1 is active
+    await expect(deleteFormVersion(ADMIN, { form_version_id: draftId }, ctx)).rejects.toMatchObject(
+      { code: 'invalid', details: { reason: 'published' } },
+    );
+    // v2 published and active, so v1 is published, inactive and has no server entries — but
+    // a device may still hold queued entries for it (SPEC-FINAL 3.3)
+    const forked = await saveDraftFields(
+      ADMIN,
+      { form_version_id: draftId, fields: [counter('a'), counter('b')] },
+      ctx,
+    );
+    await publishFormVersion(ADMIN, { form_version_id: forked.new_version_id! }, ctx);
+    expect(form(formId).active_version_id).toBe(forked.new_version_id);
+    await expect(deleteFormVersion(ADMIN, { form_version_id: draftId }, ctx)).rejects.toMatchObject(
+      { code: 'invalid', details: { reason: 'published' } },
+    );
+    expect(ctx.formVersions.has(draftId)).toBe(true);
+  });
+
+  it('names entries first: a published version with entries is has-entries', async () => {
+    await publishWith([counter('a')]);
+    ctx.entryCountsByVersion.set(draftId, 2);
+    await expect(deleteFormVersion(ADMIN, { form_version_id: draftId }, ctx)).rejects.toMatchObject(
+      { code: 'invalid', details: { reason: 'has-entries', entries: 2 } },
+    );
+  });
+
+  it('still refuses a draft the form row points at as active (a row no use case writes)', async () => {
+    form(formId).active_version_id = draftId;
     await expect(deleteFormVersion(ADMIN, { form_version_id: draftId }, ctx)).rejects.toMatchObject(
       { code: 'invalid', details: { reason: 'active-version' } },
     );
@@ -921,7 +953,7 @@ describe('export and import (SPEC-FINAL 5.1, v1.22)', () => {
     const fields = fieldsOf(forked.new_version_id!);
     expect(fields.get('a')!.label).toBe('A2');
     expect(fields.get('b')!.deprecated).toBe(true);
-    expect(fields.has('c')).toBe(false); // born in the draft, so deleted
+    expect(fields.get('c')!.deprecated).toBe(true); // born in the draft, but never hard-deleted
     expect(fields.get('d')!.deprecated).toBe(false);
     expect(form(formId).name).toBe('Match');
     expect(form(formId).timer_config).toEqual(timerBefore);
@@ -1117,5 +1149,343 @@ describe('authorization: admin only, never a service caller', () => {
     for (const call of calls(SERVICE)) {
       await expect(call()).rejects.toMatchObject({ code: 'forbidden' });
     }
+  });
+});
+
+describe('a removed key can come back with the type it last had (review #6)', () => {
+  it('re-adding a field removed from a draft revives its row: same id, live again', async () => {
+    const first = await saveDraftFields(
+      ADMIN,
+      { form_version_id: draftId, fields: [counter('a'), counter('b', { display_order: 2 })] },
+      ctx,
+    );
+    const bId = first.fields.find((f) => f.key === 'b')!.id;
+    await saveDraftFields(ADMIN, { form_version_id: draftId, fields: [counter('a')] }, ctx);
+    expect(fieldsOf(draftId).get('b')).toMatchObject({ id: bId, deprecated: true });
+
+    const back = await saveDraftFields(
+      ADMIN,
+      { form_version_id: draftId, fields: [counter('a'), counter('b', { label: 'B again' })] },
+      ctx,
+    );
+    expect(back.new_version_id).toBeNull();
+    expect(back.fields.find((f) => f.key === 'b')).toMatchObject({
+      id: bId,
+      deprecated: false,
+      label: 'B again',
+    });
+  });
+
+  it("re-adding by the deprecated row's id works too, but not under another key", async () => {
+    const first = await saveDraftFields(
+      ADMIN,
+      { form_version_id: draftId, fields: [counter('a'), counter('b')] },
+      ctx,
+    );
+    const bId = first.fields.find((f) => f.key === 'b')!.id;
+    await saveDraftFields(ADMIN, { form_version_id: draftId, fields: [counter('a')] }, ctx);
+    const back = await saveDraftFields(
+      ADMIN,
+      { form_version_id: draftId, fields: [counter('a'), counter('b', { id: bId })] },
+      ctx,
+    );
+    expect(back.fields.find((f) => f.key === 'b')).toMatchObject({ id: bId, deprecated: false });
+    await saveDraftFields(ADMIN, { form_version_id: draftId, fields: [counter('a')] }, ctx);
+    await expect(
+      saveDraftFields(
+        ADMIN,
+        { form_version_id: draftId, fields: [counter('a'), counter('z', { id: bId })] },
+        ctx,
+      ),
+    ).rejects.toMatchObject({ details: { reason: 'key-change', field_id: bId } });
+  });
+
+  it('refuses re-adding a removed draft field with a different type, by key or by id', async () => {
+    const first = await saveDraftFields(
+      ADMIN,
+      { form_version_id: draftId, fields: [counter('a'), counter('b')] },
+      ctx,
+    );
+    const bId = first.fields.find((f) => f.key === 'b')!.id;
+    await saveDraftFields(ADMIN, { form_version_id: draftId, fields: [counter('a')] }, ctx);
+    for (const b of [counter('b', { type: 'number' }), counter('b', { id: bId, type: 'number' })]) {
+      await expect(
+        saveDraftFields(ADMIN, { form_version_id: draftId, fields: [counter('a'), b] }, ctx),
+      ).rejects.toMatchObject({ code: 'invalid', details: { reason: 'key-retired', key: 'b' } });
+    }
+  });
+
+  it('re-adding a key of v2 to a restored v1 forks a draft with it, when the type is the same', async () => {
+    await publishWith([counter('a')]);
+    const v2 = (
+      await saveDraftFields(
+        ADMIN,
+        { form_version_id: draftId, fields: [counter('a'), counter('b', { display_order: 2 })] },
+        ctx,
+      )
+    ).new_version_id!;
+    await publishFormVersion(ADMIN, { form_version_id: v2 }, ctx);
+    await restoreFormVersion(ADMIN, { form_version_id: draftId }, ctx);
+
+    await expect(
+      saveDraftFields(
+        ADMIN,
+        {
+          form_version_id: draftId,
+          fields: [counter('a'), counter('b', { type: 'number', display_order: 2 })],
+        },
+        ctx,
+      ),
+    ).rejects.toMatchObject({ details: { reason: 'key-retired', key: 'b' } });
+
+    const v3 = await saveDraftFields(
+      ADMIN,
+      { form_version_id: draftId, fields: [counter('a'), counter('b', { display_order: 2 })] },
+      ctx,
+    );
+    expect(v3.new_version_id).not.toBeNull();
+    expect(v3.version_no).toBe(3);
+    expect(fieldsOf(v3.new_version_id!).get('b')).toMatchObject({
+      type: 'counter',
+      deprecated: false,
+    });
+  });
+
+  it('judges by the type the key had MOST RECENTLY, not the first', async () => {
+    await publishWith([counter('a'), counter('b', { display_order: 2 })]);
+    const v2 = (
+      await saveDraftFields(
+        ADMIN,
+        {
+          form_version_id: draftId,
+          fields: [counter('a'), counter('b', { type: 'number', display_order: 2 })],
+        },
+        ctx,
+      )
+    ).new_version_id!;
+    await publishFormVersion(ADMIN, { form_version_id: v2 }, ctx);
+    const v3 = (await saveDraftFields(ADMIN, { form_version_id: v2, fields: [counter('a')] }, ctx))
+      .new_version_id!;
+    await expect(
+      saveDraftFields(
+        ADMIN,
+        { form_version_id: v3, fields: [counter('a'), counter('b', { display_order: 2 })] },
+        ctx,
+      ),
+    ).rejects.toMatchObject({ details: { reason: 'key-retired', key: 'b' } });
+    await expect(
+      saveDraftFields(
+        ADMIN,
+        {
+          form_version_id: v3,
+          fields: [counter('a'), counter('b', { type: 'number', display_order: 2 })],
+        },
+        ctx,
+      ),
+    ).resolves.toMatchObject({ new_version_id: null });
+    expect(fieldsOf(v3).get('b')).toMatchObject({ type: 'number', deprecated: false });
+  });
+});
+
+describe('an in-place fix to a published version reaches the open draft (review #4)', () => {
+  it("copies the columns the save changed onto the draft's field, and keeps the draft's own edits", async () => {
+    await publishWith([counter('a'), counter('b', { display_order: 2 })]);
+    const v2 = (
+      await saveDraftFields(
+        ADMIN,
+        {
+          form_version_id: draftId,
+          fields: [
+            counter('a', { label: 'Draft label' }),
+            counter('b', { display_order: 2 }),
+            counter('c', { display_order: 3 }),
+          ],
+        },
+        ctx,
+      )
+    ).new_version_id!;
+    version(v2).updated_by = 'u-admin';
+
+    const result = await saveDraftFields(
+      ADMIN_2,
+      {
+        form_version_id: draftId,
+        fields: [
+          counter('a', { description: 'Notes scored in auto', expected_range: { min: 0, max: 8 } }),
+          counter('b', { display_order: 2 }),
+        ],
+      },
+      ctx,
+    );
+    expect(result.new_version_id).toBeNull();
+    const draft = fieldsOf(v2);
+    expect(draft.get('a')).toMatchObject({
+      description: 'Notes scored in auto',
+      expected_range: { min: 0, max: 8 },
+      label: 'Draft label', // the draft's own edit, not touched on v1, survives
+    });
+    expect(draft.get('c')!.deprecated).toBe(false);
+    expect(version(v2).updated_by).toBe('u-admin-2');
+  });
+
+  it('skips a draft field whose type the draft changed, and a key the draft removed', async () => {
+    await publishWith([counter('a'), counter('b', { display_order: 2 })]);
+    const v2 = (
+      await saveDraftFields(
+        ADMIN,
+        { form_version_id: draftId, fields: [counter('a', { type: 'number' })] },
+        ctx,
+      )
+    ).new_version_id!;
+    await saveDraftFields(
+      ADMIN,
+      {
+        form_version_id: draftId,
+        fields: [
+          counter('a', { description: 'changed' }),
+          counter('b', { description: 'changed', display_order: 2 }),
+        ],
+      },
+      ctx,
+    );
+    expect(fieldsOf(v2).get('a')!.description).toBe('x');
+    expect(fieldsOf(v2).get('b')).toMatchObject({ description: 'x', deprecated: true });
+  });
+
+  it('a relabelled option reaches a draft that added an option, without dropping it', async () => {
+    await publishWith([select('climb', ['low', 'high'], ['Low', 'High'])]);
+    const v2 = (
+      await saveDraftFields(
+        ADMIN,
+        { form_version_id: draftId, fields: [select('climb', ['low', 'mid', 'high'])] },
+        ctx,
+      )
+    ).new_version_id!;
+    await saveDraftFields(
+      ADMIN,
+      {
+        form_version_id: draftId,
+        fields: [select('climb', ['low', 'high'], ['Low', 'Top bar'])],
+      },
+      ctx,
+    );
+    const options = (fieldsOf(v2).get('climb')!.config as { options: unknown[] }).options;
+    expect(options).toEqual([
+      { value: 'low', label: 'low' },
+      { value: 'mid', label: 'mid' },
+      { value: 'high', label: 'Top bar' },
+    ]);
+  });
+
+  it('copies nothing, and does not stamp the draft, when the save changed nothing', async () => {
+    await publishWith([counter('a')]);
+    const v2 = (
+      await saveDraftFields(
+        ADMIN,
+        { form_version_id: draftId, fields: [counter('a'), counter('b')] },
+        ctx,
+      )
+    ).new_version_id!;
+    await saveDraftFields(
+      ADMIN_2,
+      { form_version_id: draftId, fields: [counter('a', { label: 'v1 only' })] },
+      ctx,
+    );
+    expect(fieldsOf(v2).get('a')!.label).toBe('v1 only');
+    version(v2).updated_by = 'u-admin';
+    await saveDraftFields(
+      ADMIN_2,
+      { form_version_id: draftId, fields: [counter('a', { label: 'v1 only' })] },
+      ctx,
+    );
+    expect(version(v2).updated_by).toBe('u-admin');
+  });
+});
+
+describe('definition checks reach the server (review #7)', () => {
+  it('refuses min above max, a duplicate option, and a default that is not a valid value', async () => {
+    await expect(
+      saveDraftFields(
+        ADMIN,
+        {
+          form_version_id: draftId,
+          fields: [
+            counter('a', { config: { min: 5, max: 1 } }),
+            select('b', ['x', 'x'], ['X', 'X'], { display_order: 2 }),
+            counter('c', { default_value: 99, display_order: 3 }),
+          ],
+        },
+        ctx,
+      ),
+    ).rejects.toMatchObject({
+      details: {
+        reason: 'invalid-definition',
+        issues: [
+          { field_key: 'a', path: 'config.max' },
+          { field_key: 'b', path: 'config.options.1.value' },
+          { field_key: 'c', path: 'default_value' },
+        ],
+      },
+    });
+  });
+});
+
+describe('saveDraftFields: optimistic concurrency (review #10)', () => {
+  it("returns the version's updated_at after the save", async () => {
+    ctx.nowValue = new Date('2026-11-14T11:00:00.000Z');
+    const result = await saveDraftFields(
+      ADMIN,
+      { form_version_id: draftId, fields: [counter('a')] },
+      ctx,
+    );
+    expect(result.updated_at).toBe('2026-11-14T11:00:00.000Z');
+    expect(result.updated_at).toBe(version(draftId).updated_at);
+  });
+
+  it("accepts a save whose base_updated_at is the version's current one", async () => {
+    const base = String(version(draftId).updated_at);
+    await expect(
+      saveDraftFields(
+        ADMIN,
+        { form_version_id: draftId, base_updated_at: base, fields: [counter('a')] },
+        ctx,
+      ),
+    ).resolves.toMatchObject({ form_version_id: draftId });
+  });
+
+  it('refuses a stale base_updated_at with conflict / stale-version, writing nothing', async () => {
+    const stale = String(version(draftId).updated_at);
+    ctx.nowValue = new Date('2026-11-14T11:00:00.000Z');
+    await saveDraftFields(ADMIN_2, { form_version_id: draftId, fields: [counter('a')] }, ctx);
+    await expect(
+      saveDraftFields(
+        ADMIN,
+        { form_version_id: draftId, base_updated_at: stale, fields: [counter('z')] },
+        ctx,
+      ),
+    ).rejects.toMatchObject({
+      code: 'conflict',
+      details: { reason: 'stale-version', updated_at: '2026-11-14T11:00:00.000Z' },
+    });
+    expect(fieldsOf(draftId).has('z')).toBe(false);
+    expect(version(draftId).updated_by).toBe('u-admin-2');
+  });
+
+  it('without base_updated_at, saves as before', async () => {
+    await saveDraftFields(ADMIN, { form_version_id: draftId, fields: [counter('a')] }, ctx);
+    ctx.nowValue = new Date('2026-11-14T12:00:00.000Z');
+    await expect(
+      saveDraftFields(ADMIN, { form_version_id: draftId, fields: [counter('b')] }, ctx),
+    ).resolves.toMatchObject({ form_version_id: draftId });
+  });
+
+  it('refuses a base_updated_at that is not a timestamp as invalid', async () => {
+    await expect(
+      saveDraftFields(
+        ADMIN,
+        { form_version_id: draftId, base_updated_at: 'yesterday', fields: [] },
+        ctx,
+      ),
+    ).rejects.toMatchObject({ code: 'invalid' });
   });
 });

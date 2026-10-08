@@ -274,6 +274,60 @@ describe('setScoringRules: replace semantics and positioned issues (task 1.28, d
     ).rejects.toThrow(/short_text/);
   });
 
+  it('accepts option points for an option the draft dropped but the active version still has, and one the draft added (review #9)', async () => {
+    version(DRAFT, 2, null);
+    field(DRAFT, 'climb', 'single_select', {
+      config: {
+        options: [
+          { value: 'none', label: 'None' },
+          { value: 'mid', label: 'Mid' },
+        ],
+      },
+    });
+    await setScoringRules(
+      admin,
+      {
+        form_id: FORM,
+        rules: [{ field_key: 'climb', points: 0, option_points: { none: 0, mid: 4, high: 10 } }],
+      },
+      ctx,
+    );
+    expect(ctx.scoringRules.get(`${FORM}:climb`)!.option_points).toEqual({
+      none: 0,
+      mid: 4,
+      high: 10,
+    });
+    // an option of neither is still refused
+    await expect(
+      setScoringRules(
+        admin,
+        { form_id: FORM, rules: [{ field_key: 'climb', points: 0, option_points: { moon: 1 } }] },
+        ctx,
+      ),
+    ).rejects.toMatchObject({
+      details: {
+        reason: 'invalid-scoring',
+        issues: [{ field_key: 'climb', path: 'rules.0.option_points.moon' }],
+      },
+    });
+  });
+
+  it("takes options from both when the draft made a single select multi, and the draft's type for scorability", async () => {
+    version(DRAFT, 2, null);
+    field(DRAFT, 'climb', 'multi_select', {
+      config: { options: [{ value: 'deep', label: 'Deep' }] },
+    });
+    await setScoringRules(
+      admin,
+      {
+        form_id: FORM,
+        rules: [{ field_key: 'climb', points: 0, option_points: { high: 3, deep: 5 } }],
+      },
+      ctx,
+    );
+    expect(ctx.scoringRules.get(`${FORM}:climb`)!.option_points).toEqual({ high: 3, deep: 5 });
+  });
+
   it('refuses a deprecated field, an unknown key and a duplicate, each positioned', async () => {
     field(ACTIVE, 'old', 'counter', { deprecated: true });
     await expect(

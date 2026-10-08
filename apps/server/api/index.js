@@ -205,6 +205,7 @@ var exprSchema = z4.lazy(
   ])
 );
 var NUMERIC_UNITS = /* @__PURE__ */ new Set(["count", "seconds", "points"]);
+var NUMERIC_TYPES = /* @__PURE__ */ new Set(["counter", "number", "rating", "timer", "toggle"]);
 function staticType(expr, byKey) {
   switch (expr.kind) {
     case "literal":
@@ -214,7 +215,10 @@ function staticType(expr, byKey) {
       if (!field) return "invalid";
       if (field.type === "computed") return "invalid";
       if (field.type === "toggle") return "float";
-      return NUMERIC_UNITS.has(field.unit ?? "") ? "float" : "string";
+      if (field.unit === null || field.unit === void 0) {
+        return NUMERIC_TYPES.has(field.type) ? "float" : "string";
+      }
+      return NUMERIC_UNITS.has(field.unit) ? "float" : "string";
     }
     case "op": {
       const left = staticType(expr.left, byKey);
@@ -263,6 +267,257 @@ function validateExpr(expr, fields, resultType) {
   return issues;
 }
 
+// ../../packages/shared/src/forms/types.ts
+function selectOptions(field) {
+  const raw = field.config.options;
+  return Array.isArray(raw) ? raw : [];
+}
+
+// ../../packages/shared/src/forms/visibility.ts
+var OPS = ["=", "!=", ">", "<", ">=", "<="];
+var ORDERING_OPS = /* @__PURE__ */ new Set([">", "<", ">=", "<="]);
+function compare(left, op, right) {
+  switch (op) {
+    case "=":
+      return left === right;
+    case "!=":
+      return left !== right;
+    default: {
+      if (typeof left !== "number" || typeof right !== "number") return false;
+      switch (op) {
+        case ">":
+          return left > right;
+        case "<":
+          return left < right;
+        case ">=":
+          return left >= right;
+        case "<=":
+          return left <= right;
+      }
+    }
+  }
+}
+function isVisible(field, values) {
+  const condition = field.visibility_condition;
+  if (!condition) return true;
+  const controlling = values[condition.field_key];
+  if (controlling === void 0) return false;
+  return compare(controlling, condition.op, condition.value);
+}
+function validateVisibilityCondition(field, fields) {
+  const condition = field.visibility_condition;
+  if (!condition) return [];
+  const issues = [];
+  const issue = (message) => issues.push({ path: "visibility_condition", message });
+  if (condition.field_key === field.key) {
+    issue("a field cannot be shown or hidden by its own value");
+  } else {
+    const target = fields.find((f) => f.key === condition.field_key && !f.deprecated);
+    if (!target) {
+      issue(`'${condition.field_key}' is not a field in this form`);
+    } else if (target.type === "section") {
+      issue(`'${condition.field_key}' is a section and holds no value`);
+    }
+  }
+  if (!OPS.includes(condition.op)) {
+    issue(`'${String(condition.op)}' is not one of ${OPS.join(" ")}`);
+  } else if (ORDERING_OPS.has(condition.op) && !(typeof condition.value === "number" && Number.isFinite(condition.value))) {
+    issue(`'${condition.op}' compares against a number`);
+  }
+  return issues;
+}
+
+// ../../packages/shared/src/forms/validate.ts
+var LIST_TYPES = /* @__PURE__ */ new Set([
+  "multi_select",
+  "event_log",
+  "position",
+  "cycle_path"
+]);
+function isDeadRobot(status) {
+  return status === "no_show" || status === "disabled";
+}
+var isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+var inUnit = (n) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1;
+var inUnitSquare = (p) => isRecord(p) && inUnit(p.x) && inUnit(p.y);
+var TAP_KEYS = /* @__PURE__ */ new Set(["type", "t", "x", "y"]);
+function validTap(tap, allowed) {
+  if (!isRecord(tap)) return false;
+  if (Object.keys(tap).some((k) => !TAP_KEYS.has(k))) return false;
+  if (typeof tap.type !== "string" || tap.type === "") return false;
+  if (allowed !== null && !allowed.has(tap.type)) return false;
+  if (typeof tap.t !== "number" || !Number.isFinite(tap.t)) return false;
+  const hasX = "x" in tap;
+  const hasY = "y" in tap;
+  if (hasX !== hasY) return false;
+  return !hasX || inUnit(tap.x) && inUnit(tap.y);
+}
+function validateEntryData(fields, robotStatus, data, options = {}) {
+  const submit = (options.mode ?? "submit") === "submit";
+  const issues = [];
+  if (isDeadRobot(robotStatus)) {
+    if (Object.keys(data).length > 0) {
+      issues.push({
+        field_key: "*",
+        code: "dead-robot-has-data",
+        message: "a no-show or disabled robot records no field values, never zeros"
+      });
+    }
+    return issues.length === 0 ? { ok: true } : { ok: false, issues };
+  }
+  const live = fields.filter((f) => !f.deprecated);
+  const known = new Set(live.map((f) => f.key));
+  for (const key2 of Object.keys(data)) {
+    if (!known.has(key2)) {
+      issues.push({ field_key: key2, code: "unknown-field", message: `no field with key '${key2}'` });
+    }
+  }
+  for (const field of live) {
+    if (field.type === "computed" || field.type === "section") continue;
+    const value = data[field.key];
+    const emptyList = submit && LIST_TYPES.has(field.type) && Array.isArray(value) && value.length === 0;
+    const missing = value === void 0 || value === null || value === "" || emptyList;
+    if (missing) {
+      if (submit && field.required && isVisible(field, data)) {
+        issues.push({
+          field_key: field.key,
+          code: "required",
+          message: `${field.label} is required`
+        });
+      }
+      continue;
+    }
+    const wrongType = (message) => issues.push({ field_key: field.key, code: "wrong-type", message });
+    switch (field.type) {
+      case "counter":
+      case "number": {
+        if (typeof value !== "number" || !Number.isFinite(value)) {
+          issues.push({
+            field_key: field.key,
+            code: "wrong-type",
+            message: `${field.label} must be a number`
+          });
+          break;
+        }
+        if (!submit) break;
+        const min = typeof field.config.min === "number" ? field.config.min : void 0;
+        const max = typeof field.config.max === "number" ? field.config.max : void 0;
+        if (min !== void 0 && value < min || max !== void 0 && value > max) {
+          issues.push({
+            field_key: field.key,
+            code: "out-of-config-range",
+            message: `${field.label} must be between ${min ?? "-\u221E"} and ${max ?? "\u221E"}`
+          });
+          break;
+        }
+        if (field.expected_range) {
+          const { min: lo, max: hi } = field.expected_range;
+          if (value < lo || value > hi) {
+            issues.push({
+              field_key: field.key,
+              code: "out-of-expected-range",
+              message: `${field.label} is outside its expected range (${lo}\u2013${hi})`
+            });
+          }
+        }
+        break;
+      }
+      case "toggle": {
+        if (typeof value !== "boolean") {
+          issues.push({
+            field_key: field.key,
+            code: "wrong-type",
+            message: `${field.label} must be true or false`
+          });
+        }
+        break;
+      }
+      case "single_select": {
+        const allowed = selectOptions(field).map((o) => o.value);
+        if (typeof value !== "string" || !allowed.includes(value)) {
+          issues.push({
+            field_key: field.key,
+            code: "not-an-option",
+            message: `${field.label} must be one of: ${allowed.join(", ")}`
+          });
+        }
+        break;
+      }
+      case "multi_select": {
+        const allowed = selectOptions(field).map((o) => o.value);
+        if (!Array.isArray(value) || value.some((v) => typeof v !== "string" || !allowed.includes(v))) {
+          issues.push({
+            field_key: field.key,
+            code: "not-an-option",
+            message: `${field.label} must be a list drawn from: ${allowed.join(", ")}`
+          });
+        }
+        break;
+      }
+      case "short_text":
+      case "long_text": {
+        if (typeof value !== "string") wrongType(`${field.label} must be text`);
+        break;
+      }
+      case "rating": {
+        const max = typeof field.config.max === "number" ? field.config.max : 5;
+        if (typeof value !== "number" || !Number.isFinite(value) || value < 1) {
+          wrongType(`${field.label} must be a rating from 1 to ${max}`);
+        } else if (submit && value > max) {
+          wrongType(`${field.label} must be a rating from 1 to ${max}`);
+        }
+        break;
+      }
+      case "timer": {
+        if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+          wrongType(`${field.label} must be a time in seconds, 0 or more`);
+        }
+        break;
+      }
+      case "event_log": {
+        if (!Array.isArray(value)) {
+          wrongType(`${field.label} must be a list of taps`);
+          break;
+        }
+        const allowed = submit ? new Set(
+          (Array.isArray(field.config.event_types) ? field.config.event_types : []).filter(isRecord).map((o) => o.value)
+        ) : null;
+        let previous = -Infinity;
+        let good = true;
+        for (const tap of value) {
+          if (!validTap(tap, allowed) || tap.t < previous) {
+            good = false;
+            break;
+          }
+          previous = tap.t;
+        }
+        if (!good) wrongType(`${field.label} must be taps of a known type, in time order`);
+        break;
+      }
+      case "position": {
+        const points = Array.isArray(value) ? value : [value];
+        if (!points.every(inUnitSquare)) {
+          wrongType(`${field.label} must be points inside the map (0 to 1)`);
+        } else if (submit && field.config.multi_point !== true && points.length > 1) {
+          wrongType(`${field.label} takes one point`);
+        }
+        break;
+      }
+      case "cycle_path": {
+        const cap = typeof field.config.max_points_per_cycle === "number" ? field.config.max_points_per_cycle : 6;
+        const cycles = value;
+        if (!Array.isArray(cycles) || cycles.some(
+          (c) => !Array.isArray(c) || submit && c.length > cap || !c.every(inUnitSquare)
+        )) {
+          wrongType(`${field.label} must be cycles of at most ${cap} points inside the map`);
+        }
+        break;
+      }
+    }
+  }
+  return issues.length === 0 ? { ok: true } : { ok: false, issues };
+}
+
 // ../../packages/shared/src/forms/config.ts
 var FIELD_TYPES = [
   "counter",
@@ -281,14 +536,30 @@ var FIELD_TYPES = [
   "section"
 ];
 var option = z5.object({ value: z5.string().min(1), label: z5.string().min(1) });
+var optionList = z5.array(option).min(1).superRefine((list, ctx) => {
+  const seen = /* @__PURE__ */ new Set();
+  list.forEach((o, i) => {
+    if (seen.has(o.value)) {
+      ctx.addIssue({
+        code: z5.ZodIssueCode.custom,
+        path: [i, "value"],
+        message: `the value '${o.value}' is listed twice; each value names one choice`
+      });
+    }
+    seen.add(o.value);
+  });
+});
 var mirrorAxis = z5.enum(["none", "horizontal", "vertical", "both"]);
-var numericRange = {
+var numericRange = z5.object({
   min: z5.number().optional(),
   max: z5.number().optional(),
   step: z5.number().positive().optional()
-};
+}).strict().refine((r) => r.min === void 0 || r.max === void 0 || r.min <= r.max, {
+  path: ["max"],
+  message: "max must not be below min"
+});
 var eventLog = z5.object({
-  event_types: z5.array(option).min(1),
+  event_types: optionList,
   ask_position: z5.boolean().default(false),
   mirror_axis: mirrorAxis.optional()
 }).strict().superRefine((config2, ctx) => {
@@ -301,11 +572,11 @@ var eventLog = z5.object({
   }
 });
 var FIELD_TYPE_CONFIG = {
-  counter: z5.object(numericRange).strict(),
-  number: z5.object(numericRange).strict(),
+  counter: numericRange,
+  number: numericRange,
   toggle: z5.object({}).strict(),
-  single_select: z5.object({ options: z5.array(option).min(1), is_ordinal: z5.boolean().optional() }).strict(),
-  multi_select: z5.object({ options: z5.array(option).min(1), is_ordinal: z5.boolean().optional() }).strict(),
+  single_select: z5.object({ options: optionList, is_ordinal: z5.boolean().optional() }).strict(),
+  multi_select: z5.object({ options: optionList, is_ordinal: z5.boolean().optional() }).strict(),
   rating: z5.object({ max: z5.number().int().positive().default(5), style: z5.enum(["stars", "slider"]) }).strict(),
   short_text: z5.object({ max_length: z5.number().int().positive().optional() }).strict(),
   long_text: z5.object({ max_length: z5.number().int().positive().optional() }).strict(),
@@ -378,9 +649,23 @@ function validateFieldDefinition(field) {
           message: issue.message
         });
       }
+    } else if (field.default_value !== null && field.default_value !== void 0) {
+      const message = defaultValueProblem(field);
+      if (message !== null) issues.push({ path: "default_value", message });
     }
   }
   return issues;
+}
+function defaultValueProblem(field) {
+  const alone = {
+    ...field,
+    required: false,
+    visibility_condition: null,
+    deprecated: false
+  };
+  const result = validateEntryData([alone], "played", { [field.key]: field.default_value });
+  if (result.ok) return null;
+  return `the default is not a valid value: ${result.issues[0].message}`;
 }
 
 // ../../packages/shared/src/api/forms.ts
@@ -492,11 +777,16 @@ var createFormOutput = z6.object({ id: uuid2, draft_version_id: uuid2 });
 var updateFormInput = z6.object({ form_id: uuid2, name: formName.optional(), timer_config: timerConfig.optional() }).strict().refine((value) => value.name !== void 0 || value.timer_config !== void 0, {
   message: "give a new name or match timer"
 });
-var saveDraftFieldsInput = z6.object({ form_version_id: uuid2, fields: z6.array(formFieldInput).max(FORM_FIELDS_MAX) }).strict();
+var saveDraftFieldsInput = z6.object({
+  form_version_id: uuid2,
+  base_updated_at: z6.string().datetime({ offset: true }).optional(),
+  fields: z6.array(formFieldInput).max(FORM_FIELDS_MAX)
+}).strict();
 var saveDraftFieldsOutput = z6.object({
   form_version_id: uuid2,
   new_version_id: uuid2.nullable(),
   version_no: z6.number().int(),
+  updated_at: z6.string(),
   fields: z6.array(formFieldRow),
   incomplete: z6.array(formIssue)
 });
@@ -958,243 +1248,6 @@ function validateScoringRules(rules, liveFields, options) {
 }
 function countDataFields(fields) {
   return fields.filter((f) => f.deprecated !== true && f.type !== "section").length;
-}
-
-// ../../packages/shared/src/forms/types.ts
-function selectOptions(field) {
-  const raw = field.config.options;
-  return Array.isArray(raw) ? raw : [];
-}
-
-// ../../packages/shared/src/forms/visibility.ts
-var OPS = ["=", "!=", ">", "<", ">=", "<="];
-var ORDERING_OPS = /* @__PURE__ */ new Set([">", "<", ">=", "<="]);
-function compare(left, op, right) {
-  switch (op) {
-    case "=":
-      return left === right;
-    case "!=":
-      return left !== right;
-    default: {
-      if (typeof left !== "number" || typeof right !== "number") return false;
-      switch (op) {
-        case ">":
-          return left > right;
-        case "<":
-          return left < right;
-        case ">=":
-          return left >= right;
-        case "<=":
-          return left <= right;
-      }
-    }
-  }
-}
-function isVisible(field, values) {
-  const condition = field.visibility_condition;
-  if (!condition) return true;
-  const controlling = values[condition.field_key];
-  if (controlling === void 0) return false;
-  return compare(controlling, condition.op, condition.value);
-}
-function validateVisibilityCondition(field, fields) {
-  const condition = field.visibility_condition;
-  if (!condition) return [];
-  const issues = [];
-  const issue = (message) => issues.push({ path: "visibility_condition", message });
-  if (condition.field_key === field.key) {
-    issue("a field cannot be shown or hidden by its own value");
-  } else {
-    const target = fields.find((f) => f.key === condition.field_key && !f.deprecated);
-    if (!target) {
-      issue(`'${condition.field_key}' is not a field in this form`);
-    } else if (target.type === "section") {
-      issue(`'${condition.field_key}' is a section and holds no value`);
-    }
-  }
-  if (!OPS.includes(condition.op)) {
-    issue(`'${String(condition.op)}' is not one of ${OPS.join(" ")}`);
-  } else if (ORDERING_OPS.has(condition.op) && !(typeof condition.value === "number" && Number.isFinite(condition.value))) {
-    issue(`'${condition.op}' compares against a number`);
-  }
-  return issues;
-}
-
-// ../../packages/shared/src/forms/validate.ts
-function isDeadRobot(status) {
-  return status === "no_show" || status === "disabled";
-}
-var isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
-var inUnit = (n) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1;
-var inUnitSquare = (p) => isRecord(p) && inUnit(p.x) && inUnit(p.y);
-var TAP_KEYS = /* @__PURE__ */ new Set(["type", "t", "x", "y"]);
-function validTap(tap, allowed) {
-  if (!isRecord(tap)) return false;
-  if (Object.keys(tap).some((k) => !TAP_KEYS.has(k))) return false;
-  if (typeof tap.type !== "string" || !allowed.has(tap.type)) return false;
-  if (typeof tap.t !== "number" || !Number.isFinite(tap.t)) return false;
-  const hasX = "x" in tap;
-  const hasY = "y" in tap;
-  if (hasX !== hasY) return false;
-  return !hasX || inUnit(tap.x) && inUnit(tap.y);
-}
-function validateEntryData(fields, robotStatus, data) {
-  const issues = [];
-  if (isDeadRobot(robotStatus)) {
-    if (Object.keys(data).length > 0) {
-      issues.push({
-        field_key: "*",
-        code: "dead-robot-has-data",
-        message: "a no-show or disabled robot records no field values, never zeros"
-      });
-    }
-    return issues.length === 0 ? { ok: true } : { ok: false, issues };
-  }
-  const live = fields.filter((f) => !f.deprecated);
-  const known = new Set(live.map((f) => f.key));
-  for (const key2 of Object.keys(data)) {
-    if (!known.has(key2)) {
-      issues.push({ field_key: key2, code: "unknown-field", message: `no field with key '${key2}'` });
-    }
-  }
-  for (const field of live) {
-    if (field.type === "computed" || field.type === "section") continue;
-    const value = data[field.key];
-    const missing = value === void 0 || value === null || value === "";
-    if (missing) {
-      if (field.required && isVisible(field, data)) {
-        issues.push({
-          field_key: field.key,
-          code: "required",
-          message: `${field.label} is required`
-        });
-      }
-      continue;
-    }
-    const wrongType = (message) => issues.push({ field_key: field.key, code: "wrong-type", message });
-    switch (field.type) {
-      case "counter":
-      case "number": {
-        if (typeof value !== "number" || !Number.isFinite(value)) {
-          issues.push({
-            field_key: field.key,
-            code: "wrong-type",
-            message: `${field.label} must be a number`
-          });
-          break;
-        }
-        const min = typeof field.config.min === "number" ? field.config.min : void 0;
-        const max = typeof field.config.max === "number" ? field.config.max : void 0;
-        if (min !== void 0 && value < min || max !== void 0 && value > max) {
-          issues.push({
-            field_key: field.key,
-            code: "out-of-config-range",
-            message: `${field.label} must be between ${min ?? "-\u221E"} and ${max ?? "\u221E"}`
-          });
-          break;
-        }
-        if (field.expected_range) {
-          const { min: lo, max: hi } = field.expected_range;
-          if (value < lo || value > hi) {
-            issues.push({
-              field_key: field.key,
-              code: "out-of-expected-range",
-              message: `${field.label} is outside its expected range (${lo}\u2013${hi})`
-            });
-          }
-        }
-        break;
-      }
-      case "toggle": {
-        if (typeof value !== "boolean") {
-          issues.push({
-            field_key: field.key,
-            code: "wrong-type",
-            message: `${field.label} must be true or false`
-          });
-        }
-        break;
-      }
-      case "single_select": {
-        const allowed = selectOptions(field).map((o) => o.value);
-        if (typeof value !== "string" || !allowed.includes(value)) {
-          issues.push({
-            field_key: field.key,
-            code: "not-an-option",
-            message: `${field.label} must be one of: ${allowed.join(", ")}`
-          });
-        }
-        break;
-      }
-      case "multi_select": {
-        const allowed = selectOptions(field).map((o) => o.value);
-        if (!Array.isArray(value) || value.some((v) => typeof v !== "string" || !allowed.includes(v))) {
-          issues.push({
-            field_key: field.key,
-            code: "not-an-option",
-            message: `${field.label} must be a list drawn from: ${allowed.join(", ")}`
-          });
-        }
-        break;
-      }
-      case "short_text":
-      case "long_text": {
-        if (typeof value !== "string") wrongType(`${field.label} must be text`);
-        break;
-      }
-      case "rating": {
-        const max = typeof field.config.max === "number" ? field.config.max : 5;
-        if (typeof value !== "number" || !Number.isFinite(value) || value < 1 || value > max) {
-          wrongType(`${field.label} must be a rating from 1 to ${max}`);
-        }
-        break;
-      }
-      case "timer": {
-        if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-          wrongType(`${field.label} must be a time in seconds, 0 or more`);
-        }
-        break;
-      }
-      case "event_log": {
-        if (!Array.isArray(value)) {
-          wrongType(`${field.label} must be a list of taps`);
-          break;
-        }
-        const allowed = new Set(
-          (Array.isArray(field.config.event_types) ? field.config.event_types : []).filter(isRecord).map((o) => o.value)
-        );
-        let previous = -Infinity;
-        let good = true;
-        for (const tap of value) {
-          if (!validTap(tap, allowed) || tap.t < previous) {
-            good = false;
-            break;
-          }
-          previous = tap.t;
-        }
-        if (!good) wrongType(`${field.label} must be taps of a known type, in time order`);
-        break;
-      }
-      case "position": {
-        const points = Array.isArray(value) ? value : [value];
-        if (!points.every(inUnitSquare)) {
-          wrongType(`${field.label} must be points inside the map (0 to 1)`);
-        } else if (field.config.multi_point !== true && points.length > 1) {
-          wrongType(`${field.label} takes one point`);
-        }
-        break;
-      }
-      case "cycle_path": {
-        const cap = typeof field.config.max_points_per_cycle === "number" ? field.config.max_points_per_cycle : 6;
-        const cycles = value;
-        if (!Array.isArray(cycles) || cycles.some((c) => !Array.isArray(c) || c.length > cap || !c.every(inUnitSquare))) {
-          wrongType(`${field.label} must be cycles of at most ${cap} points inside the map`);
-        }
-        break;
-      }
-    }
-  }
-  return issues.length === 0 ? { ok: true } : { ok: false, issues };
 }
 
 // ../../packages/shared/src/sync/operation.ts
@@ -3451,7 +3504,7 @@ function definitionError(issues) {
   const summary = issues.length === 1 ? one : `${issues.length} problems in the form definition; first, ${one}`;
   return new AppError("invalid", summary, { reason: "invalid-definition", issues });
 }
-function resolveIdentity(incoming, target, everUsed) {
+function resolveIdentity(incoming, target, lastType) {
   const seenKeys = /* @__PURE__ */ new Set();
   const seenIds = /* @__PURE__ */ new Set();
   for (const { id, draft } of incoming) {
@@ -3476,12 +3529,23 @@ function resolveIdentity(incoming, target, everUsed) {
       seenIds.add(id);
     }
   }
-  const liveById = new Map(target.filter((f) => !f.deprecated).map((f) => [f.id, f]));
+  const byId = new Map(target.map((f) => [f.id, f]));
   const liveByKey = new Map(target.filter((f) => !f.deprecated).map((f) => [f.key, f]));
+  const deprecatedByKey = new Map(target.filter((f) => f.deprecated).map((f) => [f.key, f]));
+  const assertRevivable = (draft) => {
+    const was = lastType.get(draft.key);
+    if (was !== void 0 && was !== draft.type) {
+      throw new AppError(
+        "invalid",
+        `the key '${draft.key}' was last used by a removed ${was} field of this form; bring it back as a ${was}, or give the new field another key`,
+        { reason: "key-retired", key: draft.key, last_type: was }
+      );
+    }
+  };
   const matched = /* @__PURE__ */ new Map();
   for (const { id, draft } of incoming) {
     if (id !== void 0) {
-      const saved = liveById.get(id);
+      const saved = byId.get(id);
       if (!saved) {
         throw new AppError("invalid", "a field names a saved field this version does not have", {
           reason: "unknown-field-id",
@@ -3496,19 +3560,18 @@ function resolveIdentity(incoming, target, everUsed) {
           key_now: draft.key
         });
       }
+      if (saved.deprecated) assertRevivable(draft);
       matched.set(draft.key, saved.id);
       continue;
     }
     const live = liveByKey.get(draft.key);
     if (live) {
       matched.set(draft.key, live.id);
-    } else if (everUsed.has(draft.key)) {
-      throw new AppError(
-        "invalid",
-        `the key '${draft.key}' was used by a removed field of this form; keys are permanent, so give the new field another key`,
-        { reason: "key-retired", key: draft.key }
-      );
+      continue;
     }
+    assertRevivable(draft);
+    const removed = deprecatedByKey.get(draft.key);
+    if (removed) matched.set(draft.key, removed.id);
   }
   return matched;
 }
@@ -3530,9 +3593,15 @@ async function formHistory(ctx, versions) {
   for (const version of versions) out.set(version.id, await ctx.store.getFormFields(version.id));
   return out;
 }
-var keysOf = (byVersion, except) => new Set(
-  [...byVersion].filter(([id]) => id !== except).flatMap(([, fields]) => fields.map((f) => f.key))
-);
+function lastTypes(versions, byVersion) {
+  const out = /* @__PURE__ */ new Map();
+  for (const version of [...versions].sort((a, b) => b.version_no - a.version_no)) {
+    for (const field of byVersion.get(version.id) ?? []) {
+      if (!out.has(field.key)) out.set(field.key, field.type);
+    }
+  }
+  return out;
+}
 async function fork(ctx, userId2, form, versions, carriedFrom, drafts) {
   const versionNo = Math.max(0, ...versions.map((v) => v.version_no)) + 1;
   let created;
@@ -3569,35 +3638,79 @@ async function fork(ctx, userId2, form, versions, carriedFrom, drafts) {
   }
   return created;
 }
+var CHOICE_LISTS = /* @__PURE__ */ new Set(["options", "event_types"]);
+var choiceValues = (list) => Array.isArray(list) ? list.map((o) => String(o?.value)) : [];
+var choiceLabels = (list) => new Map(
+  (Array.isArray(list) ? list : []).map((o) => [
+    String(o?.value),
+    o?.label
+  ])
+);
+function carryConfig(before, after, twin) {
+  const out = { ...twin };
+  for (const key2 of /* @__PURE__ */ new Set([...Object.keys(before), ...Object.keys(after)])) {
+    if (stable(before[key2]) === stable(after[key2])) continue;
+    const reshaped = CHOICE_LISTS.has(key2) && Array.isArray(out[key2]) && stable(choiceValues(out[key2])) !== stable(choiceValues(before[key2]));
+    if (reshaped) {
+      const was = choiceLabels(before[key2]);
+      const now = choiceLabels(after[key2]);
+      out[key2] = out[key2].map((choice) => {
+        const value = String(choice.value);
+        return now.has(value) && stable(now.get(value)) !== stable(was.get(value)) ? { ...choice, label: now.get(value) } : choice;
+      });
+    } else if (after[key2] === void 0) {
+      delete out[key2];
+    } else {
+      out[key2] = after[key2];
+    }
+  }
+  return out;
+}
+async function carryToDraft(ctx, userId2, draft, draftFields, edits) {
+  const twins = new Map(draftFields.filter((f) => !f.deprecated).map((f) => [f.key, f]));
+  const writes = [];
+  for (const { existing, row } of edits) {
+    const twin = twins.get(existing.key);
+    if (!twin || twin.type !== existing.type) continue;
+    const before = draftColumns(existing);
+    const next = { id: twin.id, ...draftColumns(twin), deprecated: false };
+    for (const column of IN_PLACE_COLUMNS) {
+      if (stable(row[column]) === stable(before[column])) continue;
+      next[column] = column === "config" ? carryConfig(
+        before.config,
+        row.config,
+        next.config
+      ) : row[column];
+    }
+    if (changed(next, twin)) writes.push(next);
+  }
+  if (writes.length === 0) return;
+  await ctx.store.writeFormFields(draft.id, writes, []);
+  await stamp(ctx, draft.id, userId2);
+}
 async function writeFieldSet(ctx, userId2, form, target, incoming, alwaysFork = false) {
   const versions = await ctx.store.listFormVersions(form.id);
   const history = await formHistory(ctx, versions);
   const current = target ? history.get(target.id) ?? [] : [];
-  const matched = resolveIdentity(incoming, current, keysOf(history));
+  const matched = resolveIdentity(incoming, current, lastTypes(versions, history));
   const drafts = incoming.map((f) => f.draft);
   const { definition, incomplete } = checkFields(drafts);
   if (target && target.published_at === null && !alwaysFork) {
     if (definition.length > 0) throw definitionError(definition);
     await stampLockIfBound(ctx, target);
     const byKey = new Map(current.map((f) => [f.key, f]));
-    const usedElsewhere = keysOf(history, target.id);
     const rows = drafts.map((d) => ({
       id: matched.get(d.key) ?? crypto.randomUUID(),
       ...draftColumns(d),
       deprecated: false
     }));
-    const deleteKeys = [];
     const wanted = new Set(drafts.map((d) => d.key));
     for (const field of current) {
       if (field.deprecated || wanted.has(field.key)) continue;
-      if (usedElsewhere.has(field.key)) {
-        rows.push({ id: field.id, ...draftColumns(field), deprecated: true });
-      } else {
-        deleteKeys.push(field.key);
-      }
+      rows.push({ id: field.id, ...draftColumns(field), deprecated: true });
     }
     const writes = rows.filter((row) => changed(row, byKey.get(String(row.key))));
-    await ctx.store.writeFormFields(target.id, writes, deleteKeys);
+    await ctx.store.writeFormFields(target.id, writes, []);
     await stamp(ctx, target.id, userId2);
     return { version: target, forked: false, incomplete };
   }
@@ -3607,6 +3720,7 @@ async function writeFieldSet(ctx, userId2, form, target, incoming, alwaysFork = 
     await stampLockIfBound(ctx, target);
     const byKey = new Map(current.filter((f) => !f.deprecated).map((f) => [f.key, f]));
     const writes = [];
+    const edits = [];
     for (const draft2 of drafts) {
       const existing = byKey.get(draft2.key);
       const row = {
@@ -3615,10 +3729,17 @@ async function writeFieldSet(ctx, userId2, form, target, incoming, alwaysFork = 
         deprecated: false
       };
       for (const column of IN_PLACE_COLUMNS) row[column] = draftColumns(draft2)[column];
-      if (changed(row, existing)) writes.push(row);
+      if (changed(row, existing)) {
+        writes.push(row);
+        edits.push({ existing, row });
+      }
     }
     await ctx.store.writeFormFields(target.id, writes, []);
     await stamp(ctx, target.id, userId2);
+    const open = draftOf(versions);
+    if (open && edits.length > 0) {
+      await carryToDraft(ctx, userId2, open, history.get(open.id) ?? [], edits);
+    }
     return { version: target, forked: false, incomplete };
   }
   if (definition.length > 0) throw definitionError(definition);
@@ -3636,10 +3757,12 @@ async function writeFieldSet(ctx, userId2, form, target, incoming, alwaysFork = 
 }
 async function savedOutput(ctx, written) {
   const fields = await ctx.store.getFormFields(written.version.id);
+  const after = await ctx.store.getFormVersion(written.version.id);
   return {
     form_version_id: written.version.id,
     new_version_id: written.forked ? written.version.id : null,
     version_no: written.version.version_no,
+    updated_at: after?.updated_at ?? written.version.updated_at,
     fields: fields.map(toFieldRow),
     incomplete: written.incomplete
   };
@@ -3698,6 +3821,12 @@ async function saveDraftFields(caller, input, ctx) {
   const userId2 = userIdOf(caller);
   const parsed = parseInput(saveDraftFieldsInput, input);
   const target = await versionOrNotFound(ctx, parsed.form_version_id);
+  if (parsed.base_updated_at !== void 0 && Date.parse(parsed.base_updated_at) !== Date.parse(target.updated_at)) {
+    throw new AppError("conflict", "someone else saved this version; reload it", {
+      reason: "stale-version",
+      updated_at: target.updated_at
+    });
+  }
   const form = await formOrNotFound(ctx, target.form_id);
   const incoming = parsed.fields.map((f) => ({ id: f.id, draft: toDraft(f) }));
   return savedOutput(ctx, await writeFieldSet(ctx, userId2, form, target, incoming));
@@ -3757,6 +3886,13 @@ async function deleteFormVersion(caller, input, ctx) {
       "invalid",
       `this version has ${entries} ${entries === 1 ? "entry" : "entries"} bound to it and cannot be deleted; delete the form to remove them, or leave it`,
       { reason: "has-entries", entries }
+    );
+  }
+  if (version.published_at !== null) {
+    throw new AppError(
+      "invalid",
+      `v${version.version_no} is published, and a device may still hold entries for it that have not reached the server; only a draft can be deleted on its own. Delete the whole form to remove it`,
+      { reason: "published" }
     );
   }
   if (form.active_version_id === version.id) {
@@ -3921,7 +4057,7 @@ async function importForm(caller, input, ctx) {
     const written = draft ? await writeFieldSet(ctx, userId2, existing, draft, incoming) : await writeFieldSet(ctx, userId2, existing, newestOf(versions) ?? null, incoming, true);
     return { form_id: existing.id, draft_version_id: written.version.id, created: false };
   }
-  resolveIdentity(incoming, [], /* @__PURE__ */ new Set());
+  resolveIdentity(incoming, [], /* @__PURE__ */ new Map());
   const { definition: problems } = checkFields(incoming.map((f) => f.draft));
   if (problems.length > 0) throw definitionError(problems);
   let form;
@@ -3989,6 +4125,7 @@ function scoringError(issues) {
   const summary = issues.length === 1 ? one : `${issues.length} problems in the scoring; first, ${one}`;
   return new AppError("invalid", summary, { reason: "invalid-scoring", issues });
 }
+var isSelectType = (type) => type === "single_select" || type === "multi_select";
 async function scorableUniverse(ctx, formId, activeVersionId) {
   const versions = await ctx.store.listFormVersions(formId);
   const draft = versions.find((v) => v.published_at === null);
@@ -3996,7 +4133,16 @@ async function scorableUniverse(ctx, formId, activeVersionId) {
   const ids = [activeVersionId, draft?.id ?? null].filter((id) => id !== null);
   for (const id of ids) {
     for (const field of await ctx.store.getFormFields(id)) {
-      if (!field.deprecated) byKey.set(field.key, field);
+      if (field.deprecated) continue;
+      const earlier = byKey.get(field.key);
+      if (earlier && isSelectType(field.type) && isSelectType(earlier.type)) {
+        const options = selectOptions(field);
+        const seen = new Set(options.map((o) => o.value));
+        const union = [...options, ...selectOptions(earlier).filter((o) => !seen.has(o.value))];
+        byKey.set(field.key, { ...field, config: { ...field.config, options: union } });
+      } else {
+        byKey.set(field.key, field);
+      }
     }
   }
   return [...byKey.values()];
@@ -4845,7 +4991,7 @@ async function applyEntry(op, author, ctx) {
   const fields = await ctx.store.getFormFields(formVersionId);
   const status = payload.robot_status ?? "played";
   const data = payload.data ?? {};
-  const validation = validateEntryData(fields, status, data);
+  const validation = validateEntryData(fields, status, data, { mode: "stored" });
   if (!validation.ok) {
     return rejected(op.op_id, "invalid", validation.issues.map((i) => i.message).join("; "));
   }

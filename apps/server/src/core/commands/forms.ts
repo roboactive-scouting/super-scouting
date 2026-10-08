@@ -351,16 +351,19 @@ type Incoming = { id?: string | undefined; draft: FieldDraft };
 /**
  * Which saved field each incoming field is, by these rules in this order:
  * 1. one key twice in a request is refused;
- * 2. an `id` must name a live field of the target version, and its key must not change —
- *    THE server-side guarantee that a saved field's key is never accepted as changed;
+ * 2. an `id` must name a field of the target version — live, or deprecated (a revive) — and
+ *    its key must not change: THE server-side guarantee that a saved field's key is never
+ *    accepted as changed;
  * 3. without an id, a key equal to a live field of the target is that field;
- * 4. without an id, a key not live in the target but ever used in this form is retired.
+ * 4. a key not live in the target but used before in this form comes back only with the
+ *    type it had MOST RECENTLY (`lastType`: the newest version holding it); another type is
+ *    `key-retired`. A deprecated row of the target with that key is that field, revived.
  * Answers key → the existing row's id, for the fields that matched one.
  */
 function resolveIdentity(
   incoming: Incoming[],
   target: FormFieldDefinition[],
-  everUsed: ReadonlySet<string>,
+  lastType: ReadonlyMap<string, string>,
 ): Map<string, string> {
   const seenKeys = new Set<string>();
   const seenIds = new Set<string>();
@@ -387,12 +390,23 @@ function resolveIdentity(
     }
   }
 
-  const liveById = new Map(target.filter((f) => !f.deprecated).map((f) => [f.id, f]));
+  const byId = new Map(target.map((f) => [f.id, f]));
   const liveByKey = new Map(target.filter((f) => !f.deprecated).map((f) => [f.key, f]));
+  const deprecatedByKey = new Map(target.filter((f) => f.deprecated).map((f) => [f.key, f]));
+  const assertRevivable = (draft: FieldDraft): void => {
+    const was = lastType.get(draft.key);
+    if (was !== undefined && was !== draft.type) {
+      throw new AppError(
+        'invalid',
+        `the key '${draft.key}' was last used by a removed ${was} field of this form; bring it back as a ${was}, or give the new field another key`,
+        { reason: 'key-retired', key: draft.key, last_type: was },
+      );
+    }
+  };
   const matched = new Map<string, string>();
   for (const { id, draft } of incoming) {
     if (id !== undefined) {
-      const saved = liveById.get(id);
+      const saved = byId.get(id);
       if (!saved) {
         throw new AppError('invalid', 'a field names a saved field this version does not have', {
           reason: 'unknown-field-id',
@@ -407,19 +421,18 @@ function resolveIdentity(
           key_now: draft.key,
         });
       }
+      if (saved.deprecated) assertRevivable(draft);
       matched.set(draft.key, saved.id);
       continue;
     }
     const live = liveByKey.get(draft.key);
     if (live) {
       matched.set(draft.key, live.id);
-    } else if (everUsed.has(draft.key)) {
-      throw new AppError(
-        'invalid',
-        `the key '${draft.key}' was used by a removed field of this form; keys are permanent, so give the new field another key`,
-        { reason: 'key-retired', key: draft.key },
-      );
+      continue;
     }
+    assertRevivable(draft);
+    const removed = deprecatedByKey.get(draft.key);
+    if (removed) matched.set(draft.key, removed.id);
   }
   return matched;
 }
@@ -452,12 +465,19 @@ async function formHistory(
   return out;
 }
 
-const keysOf = (byVersion: Map<string, FormFieldDefinition[]>, except?: string): Set<string> =>
-  new Set(
-    [...byVersion]
-      .filter(([id]) => id !== except)
-      .flatMap(([, fields]) => fields.map((f) => f.key)),
-  );
+/** Every key ever used in the form → its type in the newest version holding it. */
+function lastTypes(
+  versions: StoredFormVersion[],
+  byVersion: Map<string, FormFieldDefinition[]>,
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const version of [...versions].sort((a, b) => b.version_no - a.version_no)) {
+    for (const field of byVersion.get(version.id) ?? []) {
+      if (!out.has(field.key)) out.set(field.key, field.type);
+    }
+  }
+  return out;
+}
 
 type Written = { version: StoredFormVersion; forked: boolean; incomplete: FormIssue[] };
 
@@ -515,6 +535,97 @@ async function fork(
   return created;
 }
 
+/** One field an in-place save rewrote on a published version: before, and the row written. */
+type InPlaceEdit = { existing: FormFieldDefinition; row: Record<string, unknown> };
+
+/** The config keys that hold a list of `{value, label}` choices. */
+const CHOICE_LISTS: ReadonlySet<string> = new Set(['options', 'event_types']);
+
+const choiceValues = (list: unknown): string[] =>
+  Array.isArray(list) ? list.map((o) => String((o as { value?: unknown } | null)?.value)) : [];
+
+const choiceLabels = (list: unknown): Map<string, unknown> =>
+  new Map(
+    (Array.isArray(list) ? list : []).map((o) => [
+      String((o as { value?: unknown } | null)?.value),
+      (o as { label?: unknown } | null)?.label,
+    ]),
+  );
+
+/**
+ * The config an in-place fix leaves on the draft's twin: per top-level config key the save
+ * changed, the published version's new value. A choice list the draft has reshaped (other
+ * values, or another order) takes only the relabels, by value, so a choice the draft added
+ * or dropped is never undone.
+ */
+function carryConfig(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  twin: Record<string, unknown>,
+): Record<string, unknown> {
+  const out = { ...twin };
+  for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    if (stable(before[key]) === stable(after[key])) continue;
+    const reshaped =
+      CHOICE_LISTS.has(key) &&
+      Array.isArray(out[key]) &&
+      stable(choiceValues(out[key])) !== stable(choiceValues(before[key]));
+    if (reshaped) {
+      const was = choiceLabels(before[key]);
+      const now = choiceLabels(after[key]);
+      out[key] = (out[key] as Record<string, unknown>[]).map((choice) => {
+        const value = String(choice.value);
+        return now.has(value) && stable(now.get(value)) !== stable(was.get(value))
+          ? { ...choice, label: now.get(value) }
+          : choice;
+      });
+    } else if (after[key] === undefined) {
+      delete out[key];
+    } else {
+      out[key] = after[key];
+    }
+  }
+  return out;
+}
+
+/**
+ * Review #4: an in-place fix to a published version, carried onto the form's open draft in
+ * the same save, so publishing the draft does not silently undo it. Only the in-place
+ * columns this save CHANGED, only onto the draft's live field with the same key AND type;
+ * every other column of the draft — its own edits — is left alone. Stamps the draft.
+ */
+async function carryToDraft(
+  ctx: UseCaseContext,
+  userId: string,
+  draft: StoredFormVersion,
+  draftFields: FormFieldDefinition[],
+  edits: InPlaceEdit[],
+): Promise<void> {
+  const twins = new Map(draftFields.filter((f) => !f.deprecated).map((f) => [f.key, f]));
+  const writes: Record<string, unknown>[] = [];
+  for (const { existing, row } of edits) {
+    const twin = twins.get(existing.key);
+    if (!twin || twin.type !== existing.type) continue;
+    const before = draftColumns(existing) as Record<string, unknown>;
+    const next: Record<string, unknown> = { id: twin.id, ...draftColumns(twin), deprecated: false };
+    for (const column of IN_PLACE_COLUMNS) {
+      if (stable(row[column]) === stable(before[column])) continue;
+      next[column] =
+        column === 'config'
+          ? carryConfig(
+              before.config as Record<string, unknown>,
+              row.config as Record<string, unknown>,
+              next.config as Record<string, unknown>,
+            )
+          : row[column];
+    }
+    if (changed(next, twin)) writes.push(next);
+  }
+  if (writes.length === 0) return;
+  await ctx.store.writeFormFields(draft.id, writes, []);
+  await stamp(ctx, draft.id, userId);
+}
+
 /**
  * The heart of saveDraftFields and of an import into an existing form: makes `incoming`
  * the live field set of `target` — in place, or by forking a new draft — or refuses it.
@@ -532,7 +643,7 @@ async function writeFieldSet(
   const versions = await ctx.store.listFormVersions(form.id);
   const history = await formHistory(ctx, versions);
   const current = target ? (history.get(target.id) ?? []) : [];
-  const matched = resolveIdentity(incoming, current, keysOf(history));
+  const matched = resolveIdentity(incoming, current, lastTypes(versions, history));
   const drafts = incoming.map((f) => f.draft);
   const { definition, incomplete } = checkFields(drafts);
 
@@ -541,26 +652,21 @@ async function writeFieldSet(
     if (definition.length > 0) throw definitionError(definition);
     await stampLockIfBound(ctx, target);
     const byKey = new Map(current.map((f) => [f.key, f]));
-    const usedElsewhere = keysOf(history, target.id);
+    // A revived key's row is matched to its deprecated id, so it comes back as itself.
     const rows: Record<string, unknown>[] = drafts.map((d) => ({
       id: matched.get(d.key) ?? crypto.randomUUID(),
       ...draftColumns(d),
       deprecated: false,
     }));
-    const deleteKeys: string[] = [];
     const wanted = new Set(drafts.map((d) => d.key));
     for (const field of current) {
       if (field.deprecated || wanted.has(field.key)) continue;
-      // Removed. A field born in this draft goes; one carried from an earlier version stays,
-      // deprecated, as a fork would have left it (its key is retired either way).
-      if (usedElsewhere.has(field.key)) {
-        rows.push({ id: field.id, ...draftColumns(field), deprecated: true });
-      } else {
-        deleteKeys.push(field.key);
-      }
+      // Removed: deprecated, never deleted, whether born in this draft or carried. Devices
+      // pull draft rows, and the delta pull cannot see a hard delete (review #3).
+      rows.push({ id: field.id, ...draftColumns(field), deprecated: true });
     }
     const writes = rows.filter((row) => changed(row, byKey.get(String(row.key))));
-    await ctx.store.writeFormFields(target.id, writes, deleteKeys);
+    await ctx.store.writeFormFields(target.id, writes, []);
     await stamp(ctx, target.id, userId);
     return { version: target, forked: false, incomplete };
   }
@@ -572,6 +678,7 @@ async function writeFieldSet(
     await stampLockIfBound(ctx, target);
     const byKey = new Map(current.filter((f) => !f.deprecated).map((f) => [f.key, f]));
     const writes: Record<string, unknown>[] = [];
+    const edits: InPlaceEdit[] = [];
     for (const draft of drafts) {
       const existing = byKey.get(draft.key)!; // non-structural: every key is live already
       const row: Record<string, unknown> = {
@@ -580,10 +687,17 @@ async function writeFieldSet(
         deprecated: false,
       };
       for (const column of IN_PLACE_COLUMNS) row[column] = draftColumns(draft)[column];
-      if (changed(row, existing)) writes.push(row);
+      if (changed(row, existing)) {
+        writes.push(row);
+        edits.push({ existing, row });
+      }
     }
     await ctx.store.writeFormFields(target.id, writes, []);
     await stamp(ctx, target.id, userId);
+    const open = draftOf(versions);
+    if (open && edits.length > 0) {
+      await carryToDraft(ctx, userId, open, history.get(open.id) ?? [], edits);
+    }
     return { version: target, forked: false, incomplete };
   }
 
@@ -603,10 +717,13 @@ async function writeFieldSet(
 
 async function savedOutput(ctx: UseCaseContext, written: Written): Promise<SaveDraftFieldsOutput> {
   const fields = await ctx.store.getFormFields(written.version.id);
+  // Read back: the save's stamp moved updated_at, and the builder's next base_updated_at is it.
+  const after = await ctx.store.getFormVersion(written.version.id);
   return {
     form_version_id: written.version.id,
     new_version_id: written.forked ? written.version.id : null,
     version_no: written.version.version_no,
+    updated_at: after?.updated_at ?? written.version.updated_at,
     fields: fields.map(toFieldRow),
     incomplete: written.incomplete,
   };
@@ -686,7 +803,8 @@ export async function updateForm(
  * Makes `fields` the version's live field set (SPEC-FINAL 5.1). A draft is written in place
  * and saves with fields still missing their meaning (`incomplete`). A published version takes
  * in-place edits in place; a structural change to it forks a new draft (`new_version_id`),
- * refused while another draft exists.
+ * refused while another draft exists. With `base_updated_at`, a save over a version someone
+ * else has saved since is refused before any write (review #10).
  */
 export async function saveDraftFields(
   caller: Caller,
@@ -697,6 +815,16 @@ export async function saveDraftFields(
   const userId = userIdOf(caller);
   const parsed = parseInput(saveDraftFieldsInput, input);
   const target = await versionOrNotFound(ctx, parsed.form_version_id);
+  // Compared as instants, not strings: the same moment may come back in another notation.
+  if (
+    parsed.base_updated_at !== undefined &&
+    Date.parse(parsed.base_updated_at) !== Date.parse(target.updated_at)
+  ) {
+    throw new AppError('conflict', 'someone else saved this version; reload it', {
+      reason: 'stale-version',
+      updated_at: target.updated_at,
+    });
+  }
   const form = await formOrNotFound(ctx, target.form_id);
   const incoming = parsed.fields.map((f) => ({ id: f.id, draft: toDraft(f) }));
   return savedOutput(ctx, await writeFieldSet(ctx, userId, form, target, incoming));
@@ -764,8 +892,11 @@ export async function restoreFormVersion(
 }
 
 /**
- * Deletes one version. Blocked while any entry is bound to it, whatever the confirmation
- * (SPEC-FINAL 3.3); the form's active version is refused too — restore another first.
+ * Deletes one DRAFT. Blocked while any entry is bound to it, whatever the confirmation
+ * (SPEC-FINAL 3.3). A published version is refused whatever the server's entry count: a
+ * device may still hold queued entries for any published version it has (3.3; review #2),
+ * so the whole form, through deleteForm, is the only way one goes. `active-version` is kept
+ * as a backstop for a form row pointing at a draft, which no use case writes.
  */
 export async function deleteFormVersion(
   caller: Caller,
@@ -782,6 +913,13 @@ export async function deleteFormVersion(
       'invalid',
       `this version has ${entries} ${entries === 1 ? 'entry' : 'entries'} bound to it and cannot be deleted; delete the form to remove them, or leave it`,
       { reason: 'has-entries', entries },
+    );
+  }
+  if (version.published_at !== null) {
+    throw new AppError(
+      'invalid',
+      `v${version.version_no} is published, and a device may still hold entries for it that have not reached the server; only a draft can be deleted on its own. Delete the whole form to remove it`,
+      { reason: 'published' },
     );
   }
   if (form.active_version_id === version.id) {
@@ -1023,7 +1161,7 @@ export async function importForm(
   }
 
   // A new form: every check before the first write.
-  resolveIdentity(incoming, [], new Set());
+  resolveIdentity(incoming, [], new Map());
   const { definition: problems } = checkFields(incoming.map((f) => f.draft));
   if (problems.length > 0) throw definitionError(problems);
 

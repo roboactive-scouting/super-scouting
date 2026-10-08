@@ -473,3 +473,173 @@ describe('validateEntryData and conditional visibility (SPEC-FINAL 5.8)', () => 
     expect(validateEntryData(fields, 'played', { climbed: false, climb_time: 12 }).ok).toBe(true);
   });
 });
+
+describe("validateEntryData 'stored' mode: an in-place edit never invalidates collected data (SPEC-FINAL 5.1, 15.1)", () => {
+  const submit = (field: FormFieldDefinition, data: Record<string, unknown>) =>
+    validateEntryData([field], 'played', data).ok;
+  const stored = (field: FormFieldDefinition, data: Record<string, unknown>) =>
+    validateEntryData([field], 'played', data, { mode: 'stored' }).ok;
+
+  it('counter max narrowed from 10 to 5: an entry of 9 is accepted stored, refused at submit', () => {
+    const narrowed = f({ key: 'auto_notes', config: { min: 0, max: 5 } });
+    expect(stored(narrowed, { auto_notes: 9 })).toBe(true);
+    expect(submit(narrowed, { auto_notes: 9 })).toBe(false);
+    const raised = f({ key: 'weight', type: 'number', config: { min: 20, max: 99 } });
+    expect(stored(raised, { weight: 10 })).toBe(true);
+    expect(submit(raised, { weight: 10 })).toBe(false);
+  });
+
+  it('expected_range narrowed: stored accepts, submit refuses', () => {
+    const narrowed = f({ key: 'auto_notes', expected_range: { min: 0, max: 5 } });
+    expect(stored(narrowed, { auto_notes: 9 })).toBe(true);
+    expect(submit(narrowed, { auto_notes: 9 })).toBe(false);
+  });
+
+  it('a field made required after the entry was collected: stored accepts its absence', () => {
+    const nowRequired = f({ key: 'auto_notes', required: true });
+    expect(stored(nowRequired, {})).toBe(true);
+    expect(submit(nowRequired, {})).toBe(false);
+  });
+
+  it('a rating max lowered: stored accepts the old value, but still wants a finite number of at least 1', () => {
+    const rating = f({ key: 'skill', type: 'rating', config: { max: 3, style: 'stars' } });
+    expect(stored(rating, { skill: 5 })).toBe(true);
+    expect(submit(rating, { skill: 5 })).toBe(false);
+    expect(stored(rating, { skill: 0 })).toBe(false);
+    expect(stored(rating, { skill: Number.POSITIVE_INFINITY })).toBe(false);
+    expect(stored(rating, { skill: '5' })).toBe(false);
+  });
+
+  it('multi_point turned off: stored accepts several points, submit refuses', () => {
+    const single = f({
+      key: 'shots',
+      type: 'position',
+      unit: 'coordinate',
+      config: { multi_point: false, mirror_axis: 'none' },
+    });
+    const points = [
+      { x: 0.1, y: 0.1 },
+      { x: 0.2, y: 0.2 },
+    ];
+    expect(stored(single, { shots: points })).toBe(true);
+    expect(submit(single, { shots: points })).toBe(false);
+    // the unit square is kept: it is not something an edit moves
+    expect(stored(single, { shots: [{ x: 1.5, y: 0.1 }] })).toBe(false);
+  });
+
+  it('the cycle cap lowered: stored accepts a longer cycle, submit refuses', () => {
+    const path = f({
+      key: 'cycles',
+      type: 'cycle_path',
+      unit: 'coordinate',
+      config: { max_points_per_cycle: 2, mirror_axis: 'none' },
+    });
+    const cycle = [
+      [
+        { x: 0.1, y: 0.1 },
+        { x: 0.2, y: 0.2 },
+        { x: 0.3, y: 0.3 },
+      ],
+    ];
+    expect(stored(path, { cycles: cycle })).toBe(true);
+    expect(submit(path, { cycles: cycle })).toBe(false);
+    expect(stored(path, { cycles: [[{ x: 2, y: 0.1 }]] })).toBe(false);
+  });
+
+  it('an event type removed: stored accepts its taps, but a tap type must still be a non-empty string', () => {
+    const log = f({
+      key: 'events',
+      type: 'event_log',
+      config: { event_types: [{ value: 'score', label: 'Score' }] },
+    });
+    const taps = [
+      { type: 'score', t: 1 },
+      { type: 'defence', t: 2 },
+    ];
+    expect(stored(log, { events: taps })).toBe(true);
+    expect(submit(log, { events: taps })).toBe(false);
+    expect(stored(log, { events: [{ type: '', t: 1 }] })).toBe(false);
+    expect(stored(log, { events: [{ type: 3, t: 1 }] })).toBe(false);
+    // time order and tap shape are kept
+    expect(
+      stored(log, {
+        events: [
+          { type: 'score', t: 2 },
+          { type: 'score', t: 1 },
+        ],
+      }),
+    ).toBe(false);
+    expect(stored(log, { events: [{ type: 'score', t: 1, x: 0.5 }] })).toBe(false);
+  });
+
+  it('keeps value types, select membership, unknown-field and the dead-robot rule', () => {
+    expect(stored(f({ key: 'n' }), { n: 'nine' })).toBe(false);
+    const climb = f({
+      key: 'climb',
+      type: 'single_select',
+      unit: 'enum',
+      config: { options: [{ value: 'low', label: 'Low' }] },
+    });
+    expect(stored(climb, { climb: 'moon' })).toBe(false);
+    expect(stored(f({ key: 'n' }), { n: 1, invented: 2 })).toBe(false);
+    expect(validateEntryData([f({ key: 'n' })], 'no_show', { n: 0 }, { mode: 'stored' }).ok).toBe(
+      false,
+    );
+  });
+
+  it("defaults to 'submit'", () => {
+    const narrowed = f({ key: 'auto_notes', config: { min: 0, max: 5 } });
+    expect(validateEntryData([narrowed], 'played', { auto_notes: 9 }, {}).ok).toBe(false);
+    expect(validateEntryData([narrowed], 'played', { auto_notes: 9 }, { mode: 'submit' }).ok).toBe(
+      false,
+    );
+  });
+});
+
+describe('validateEntryData: an empty list does not satisfy a required list field at submit', () => {
+  const types = [{ value: 'score', label: 'Score' }];
+  const cases: [string, FormFieldDefinition][] = [
+    [
+      'multi_select',
+      f({
+        key: 'k',
+        type: 'multi_select',
+        unit: 'enum',
+        required: true,
+        config: { options: [{ value: 'a', label: 'A' }] },
+      }),
+    ],
+    [
+      'event_log',
+      f({ key: 'k', type: 'event_log', required: true, config: { event_types: types } }),
+    ],
+    [
+      'position (multi)',
+      f({
+        key: 'k',
+        type: 'position',
+        unit: 'coordinate',
+        required: true,
+        config: { multi_point: true, mirror_axis: 'none' },
+      }),
+    ],
+    [
+      'cycle_path',
+      f({
+        key: 'k',
+        type: 'cycle_path',
+        unit: 'coordinate',
+        required: true,
+        config: { max_points_per_cycle: 3, mirror_axis: 'none' },
+      }),
+    ],
+  ];
+
+  it.each(cases)('%s: [] is required at submit, accepted when stored', (_name, field) => {
+    const result = validateEntryData([field], 'played', { k: [] });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.issues.map((i) => i.code)).toEqual(['required']);
+    expect(validateEntryData([field], 'played', { k: [] }, { mode: 'stored' }).ok).toBe(true);
+    expect(validateEntryData([{ ...field, required: false }], 'played', { k: [] }).ok).toBe(true);
+  });
+});

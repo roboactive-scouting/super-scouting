@@ -203,11 +203,19 @@ export type UpdateFormInput = z.input<typeof updateFormInput>;
 
 /**
  * The version's whole set of LIVE fields, in any order (`display_order` orders them). A
- * field the version has that is absent here is removed: deleted from a draft it was born
- * in, otherwise kept and marked deprecated.
+ * field the version has that is absent here is removed: its row is kept and marked
+ * deprecated, never deleted (a device may hold it). A removed key comes back — its row
+ * revived, by key or by its id — only with the type it had most recently.
+ *
+ * `base_updated_at`, when given, is the version's `updated_at` as the builder last read it:
+ * a save over a version someone has saved since is refused (`conflict`, `stale-version`).
  */
 export const saveDraftFieldsInput = z
-  .object({ form_version_id: uuid, fields: z.array(formFieldInput).max(FORM_FIELDS_MAX) })
+  .object({
+    form_version_id: uuid,
+    base_updated_at: z.string().datetime({ offset: true }).optional(),
+    fields: z.array(formFieldInput).max(FORM_FIELDS_MAX),
+  })
   .strict();
 export type SaveDraftFieldsInput = z.input<typeof saveDraftFieldsInput>;
 
@@ -216,11 +224,13 @@ export type SaveDraftFieldsInput = z.input<typeof saveDraftFieldsInput>;
  * on a published version forked (`new_version_id`, otherwise null). `fields` are that
  * version's fields after the save, deprecated ones included, with their ids. `incomplete`
  * lists the fields still missing their meaning; a draft saves with them, publish waits.
+ * `updated_at` is that version's after the save: the next save's `base_updated_at`.
  */
 export const saveDraftFieldsOutput = z.object({
   form_version_id: uuid,
   new_version_id: uuid.nullable(),
   version_no: z.number().int(),
+  updated_at: z.string(),
   fields: z.array(formFieldRow),
   incomplete: z.array(formIssue),
 });

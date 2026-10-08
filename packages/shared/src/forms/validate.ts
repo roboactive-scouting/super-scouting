@@ -17,6 +17,26 @@ export type ValidationIssue = {
 
 export type ValidationResult = { ok: true } | { ok: false; issues: ValidationIssue[] };
 
+/**
+ * `'submit'` (the default) is the entry-time check a scouter's submit gets: every rule of the
+ * version's fields as they stand now. `'stored'` judges an entry already collected (a queued
+ * push, an edit of an old entry) and skips exactly the rules an in-place edit of a published
+ * version can move (SPEC-FINAL 5.1: a range change "never retroactively invalidates data";
+ * 15.1: the range block is entry-time): config min/max, `expected_range`, `required`, the
+ * rating's upper bound, `multi_point`'s one-point limit, the cycle cap and event-type
+ * membership. Value types, select options (structural since v1.20), the unit square, tap
+ * shape and time order, unknown keys and the dead-robot rule hold in both.
+ */
+export type ValidationMode = 'submit' | 'stored';
+
+/** The list types whose `[]` holds nothing: at submit, it does not satisfy `required`. */
+const LIST_TYPES: ReadonlySet<string> = new Set([
+  'multi_select',
+  'event_log',
+  'position',
+  'cycle_path',
+]);
+
 /** SPEC-FINAL 8.2: no_show and disabled record no field values at all. */
 export function isDeadRobot(status: RobotStatus): boolean {
   return status === 'no_show' || status === 'disabled';
@@ -38,10 +58,12 @@ const TAP_KEYS = new Set(['type', 't', 'x', 'y']);
  * A place is accepted whether or not the field's `ask_position` is on right now — an in-place
  * config edit must never make collected or queued data fail (SPEC-FINAL 5.1).
  */
-function validTap(tap: unknown, allowed: Set<string>): tap is EventLogTap {
+function validTap(tap: unknown, allowed: Set<string> | null): tap is EventLogTap {
   if (!isRecord(tap)) return false;
   if (Object.keys(tap).some((k) => !TAP_KEYS.has(k))) return false;
-  if (typeof tap.type !== 'string' || !allowed.has(tap.type)) return false;
+  // `allowed` null ('stored' mode): any non-empty type, since a type may since have been removed.
+  if (typeof tap.type !== 'string' || tap.type === '') return false;
+  if (allowed !== null && !allowed.has(tap.type)) return false;
   if (typeof tap.t !== 'number' || !Number.isFinite(tap.t)) return false;
   const hasX = 'x' in tap;
   const hasY = 'y' in tap;
@@ -57,7 +79,9 @@ export function validateEntryData(
   fields: FormFieldDefinition[],
   robotStatus: RobotStatus,
   data: Record<string, unknown>,
+  options: { mode?: ValidationMode } = {},
 ): ValidationResult {
+  const submit = (options.mode ?? 'submit') === 'submit';
   const issues: ValidationIssue[] = [];
 
   if (isDeadRobot(robotStatus)) {
@@ -85,12 +109,15 @@ export function validateEntryData(
     if (field.type === 'computed' || field.type === 'section') continue;
 
     const value = data[field.key];
-    const missing = value === undefined || value === null || value === '';
+    const emptyList =
+      submit && LIST_TYPES.has(field.type) && Array.isArray(value) && value.length === 0;
+    const missing = value === undefined || value === null || value === '' || emptyList;
     if (missing) {
       // A field hidden by its condition is never required: a hidden field records no value
       // (SPEC-FINAL 5.8). A value present for a hidden field is not rejected, because a
       // condition is an in-place edit and must not fail queued entries (5.1); the client strips it.
-      if (field.required && isVisible(field, data)) {
+      // `required` is itself an in-place edit, so a stored entry is never held to it.
+      if (submit && field.required && isVisible(field, data)) {
         issues.push({
           field_key: field.key,
           code: 'required',
@@ -114,6 +141,7 @@ export function validateEntryData(
           });
           break;
         }
+        if (!submit) break; // both ranges below are in-place edits
         const min = typeof field.config.min === 'number' ? field.config.min : undefined;
         const max = typeof field.config.max === 'number' ? field.config.max : undefined;
         if ((min !== undefined && value < min) || (max !== undefined && value > max)) {
@@ -179,7 +207,9 @@ export function validateEntryData(
       }
       case 'rating': {
         const max = typeof field.config.max === 'number' ? field.config.max : 5;
-        if (typeof value !== 'number' || !Number.isFinite(value) || value < 1 || value > max) {
+        if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) {
+          wrongType(`${field.label} must be a rating from 1 to ${max}`);
+        } else if (submit && value > max) {
           wrongType(`${field.label} must be a rating from 1 to ${max}`);
         }
         break;
@@ -197,11 +227,16 @@ export function validateEntryData(
           wrongType(`${field.label} must be a list of taps`);
           break;
         }
-        const allowed = new Set(
-          (Array.isArray(field.config.event_types) ? (field.config.event_types as unknown[]) : [])
-            .filter(isRecord)
-            .map((o) => o.value as string),
-        );
+        const allowed = submit
+          ? new Set(
+              (Array.isArray(field.config.event_types)
+                ? (field.config.event_types as unknown[])
+                : []
+              )
+                .filter(isRecord)
+                .map((o) => o.value as string),
+            )
+          : null;
         let previous = -Infinity;
         let good = true;
         for (const tap of value as unknown[]) {
@@ -218,7 +253,7 @@ export function validateEntryData(
         const points = Array.isArray(value) ? (value as unknown[]) : [value];
         if (!points.every(inUnitSquare)) {
           wrongType(`${field.label} must be points inside the map (0 to 1)`);
-        } else if (field.config.multi_point !== true && points.length > 1) {
+        } else if (submit && field.config.multi_point !== true && points.length > 1) {
           wrongType(`${field.label} takes one point`);
         }
         break;
@@ -231,7 +266,9 @@ export function validateEntryData(
         const cycles = value as CyclePath[] | unknown;
         if (
           !Array.isArray(cycles) ||
-          cycles.some((c) => !Array.isArray(c) || c.length > cap || !c.every(inUnitSquare))
+          cycles.some(
+            (c) => !Array.isArray(c) || (submit && c.length > cap) || !c.every(inUnitSquare),
+          )
         ) {
           wrongType(`${field.label} must be cycles of at most ${cap} points inside the map`);
         }

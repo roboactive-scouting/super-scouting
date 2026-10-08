@@ -198,3 +198,65 @@ describe('computed field config (SPEC-FINAL 5.7)', () => {
     );
   });
 });
+
+describe('garbage definitions are refused (review #7)', () => {
+  const paths = (f: FormFieldDefinition) => validateFieldDefinition(f).map((i) => i.path);
+
+  it('a counter or number whose min exceeds its max, at config.max', () => {
+    expect(paths(field({ config: { min: 10, max: 5 } }))).toEqual(['config.max']);
+    expect(paths(field({ type: 'number', config: { min: 3, max: -3 } }))).toEqual(['config.max']);
+    expect(paths(field({ config: { min: 5, max: 5 } }))).toEqual([]);
+    expect(paths(field({ config: { min: 5 } }))).toEqual([]);
+  });
+
+  it('a select or event log naming one value twice, at the duplicate', () => {
+    const options = [
+      { value: 'a', label: 'A' },
+      { value: 'b', label: 'B' },
+      { value: 'a', label: 'A again' },
+    ];
+    expect(
+      paths(field({ type: 'single_select', unit: 'enum', is_ordinal: true, config: { options } })),
+    ).toEqual(['config.options.2.value']);
+    expect(paths(field({ type: 'multi_select', unit: 'enum', config: { options } }))).toEqual([
+      'config.options.2.value',
+    ]);
+    expect(paths(field({ type: 'event_log', config: { event_types: options } }))).toEqual([
+      'config.event_types.2.value',
+    ]);
+  });
+
+  it('a default_value that is not a valid value for the field, at default_value', () => {
+    const counter = { config: { min: 0, max: 10 }, expected_range: { min: 0, max: 8 } };
+    expect(paths(field({ ...counter, default_value: 0 }))).toEqual([]);
+    expect(paths(field({ ...counter, default_value: 12 }))).toEqual(['default_value']);
+    expect(paths(field({ ...counter, default_value: 9 }))).toEqual(['default_value']);
+    expect(paths(field({ ...counter, default_value: 'three' }))).toEqual(['default_value']);
+    expect(paths(field({ type: 'toggle', unit: 'boolean', default_value: 'yes' }))).toEqual([
+      'default_value',
+    ]);
+    expect(paths(field({ type: 'toggle', unit: 'boolean', default_value: false }))).toEqual([]);
+    const select = {
+      type: 'single_select' as const,
+      unit: 'enum' as const,
+      config: { options: [{ value: 'low', label: 'Low' }] },
+    };
+    expect(paths(field({ ...select, default_value: 'low' }))).toEqual([]);
+    expect(paths(field({ ...select, default_value: 'moon' }))).toEqual(['default_value']);
+    // null is "no default", whatever the field
+    expect(paths(field({ ...counter, default_value: null }))).toEqual([]);
+  });
+
+  it('a required default is judged the same, and a condition on the field does not hide it', () => {
+    expect(
+      paths(
+        field({
+          required: true,
+          config: { min: 0, max: 10 },
+          default_value: 11,
+          visibility_condition: { field_key: 'other', op: '=', value: true },
+        }),
+      ),
+    ).toEqual(['default_value']);
+  });
+});

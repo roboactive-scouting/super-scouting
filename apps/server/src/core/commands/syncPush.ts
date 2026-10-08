@@ -340,7 +340,10 @@ async function applyEntry(
   const fields = await ctx.store.getFormFields(formVersionId);
   const status = (payload.robot_status as RobotStatus | null) ?? 'played';
   const data = (payload.data ?? {}) as Record<string, unknown>;
-  const validation = validateEntryData(fields, status, data);
+  // 'stored', not 'submit': the version's config, ranges, required flags and event types may
+  // have been edited in place since the device collected this entry, and an in-place edit
+  // never invalidates collected data (SPEC-FINAL 5.1, 15.1). The device ran 'submit' itself.
+  const validation = validateEntryData(fields, status, data, { mode: 'stored' });
   if (!validation.ok) {
     return rejected(op.op_id, 'invalid', validation.issues.map((i) => i.message).join('; '));
   }

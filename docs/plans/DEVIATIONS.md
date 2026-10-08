@@ -5531,3 +5531,103 @@ and `z.string().datetime({ offset: false })` refuses it (`false false true` for 
 **What I did instead:** the test now keeps only the seed's own rows (ids in the deterministic `00000000-0000-4000-8000-` space, filtered in JS because `.like()` fails silently on a uuid column, BUILD-CONTEXT §10) and expects exactly `SCOUTED_MATCHES * 6`. `SCOUTED_MATCHES` moved from a local inside `seedDevDatabase` to an export of `fixtures.ts`, which both the seed and the test read, so the two cannot drift. The every-entry-bound-to-a-version check still runs over all of the event's entries. Rejected: lowering the threshold to 90 (it still counts litter, so it can pass with a broken seed), and a literal `15 * 6` in the test (it goes stale the day the seed changes).
 
 **Risk:** none for the app; the seed writes the same rows.
+
+## Phase 1 D review — in-place edits invalidated stored and queued entries (#1)
+
+**Plan said:** `syncPush` validates a pushed entry's `data` with `validateEntryData` against its version's fields (task 1.8), and 1.27 lets an admin edit a published version's `config`, `expected_range`, `required` and `visibility_condition` in place.
+
+**What was wrong:** the reviewer's scenario — a counter with `max: 10`, an entry of 9 collected offline, the admin narrows `max` to 5 in place, the device pushes — is rejected `invalid` ("Auto notes must be between 0 and 5"), and so is any later edit of that entry. That contradicts SPEC-FINAL 5.1 ("never retroactively invalidates data") and 15.1 (the range block is ENTRY-TIME). The same held for `expected_range`, a field made `required`, a lowered rating max, `multi_point` turned off, a lowered cycle cap and a removed event type.
+
+**What I did instead:** `validateEntryData(fields, status, data, options?: { mode?: 'submit' | 'stored' })`, default `'submit'` (the client's `submitEntry` and the e2e fixtures call it with three arguments and are unchanged). `'stored'` skips config min/max, `expected_range`, `required`, the rating's upper bound (a finite number ≥ 1 is still demanded), `multi_point`'s one-point limit, the cycle cap and event-type membership (a non-empty string is still demanded); it keeps value types, select option membership, the unit square, tap shape and time order, `unknown-field` and the dead-robot rule. `syncPush` calls it with `{ mode: 'stored' }`. Tests: the seven scenarios in `validate.test.ts` ("validateEntryData 'stored' mode …"), and three syncPush tests on a narrowed in-place `fv-1` (a queued create of 9 and one with the now-required field absent are applied; an edit of an old entry is applied; a wrong type and data on a no-show are still rejected). Every older syncPush test was checked: they push `auto_notes: 2` / `5` against the skeleton (still valid) or data on a no-show (still rejected by the kept dead-robot rule), so each still means what it says. Rejected: validating a push against the field definitions as they were at collection time — the server keeps no history of in-place edits, so there is nothing to validate against.
+
+**Risk:** the server now accepts a pushed value the client's own submit would refuse (e.g. 12 on a counter whose max has always been 10) from a client that skips its own check. Only the in-place-movable rules are relaxed; types, options and the dead-robot rule still hold. The scouter-facing block (15.1) is the client's, as before.
+
+## Phase 1 D review — only a draft can be deleted as a single version (#2)
+
+**Plan said:** `deleteFormVersion` deletes a version with no entries bound to it that is not the active one (task 1.27).
+
+**What was wrong:** a published, non-active version with zero entries ON THE SERVER was deleted, though a device may still hold queued entries for any published version it has (SPEC-FINAL 3.3) — those would then push against a missing version.
+
+**What I did instead:** every published version is refused `invalid` with `details.reason: 'published'`. The order is `has-entries` (so a version with entries still says how many) → `published` → `active-version`. The last is unreachable through the use cases (an active version is always published) and is kept as a backstop for a form row pointing at a draft; its test sets that row directly and says so. The old test "refuses the form's active version" became "refuses every published version, active or not, even with no entries on the server" (`reason: 'published'` for the active v1, and again for v1 after v2 is published and active); new: "names entries first: a published version with entries is has-entries", "still refuses a draft the form row points at as active". A whole form still goes through `deleteForm`.
+
+**Risk:** an admin cannot tidy away an unwanted published version; restoring another and leaving it is the way. Client contract: a new `details.reason` value, `'published'`.
+
+## Phase 1 D review — a field is never hard-deleted from a draft (#3)
+
+**Plan said:** a field removed from a draft it was born in is deleted; one carried from an earlier version is kept deprecated (task 1.27, step 4).
+
+**What was wrong:** devices pull draft rows, and the delta pull cannot see a hard delete, so a device kept a field the draft no longer had.
+
+**What I did instead:** `writeFieldSet` marks every removed draft field `deprecated: true` (same id), born there or carried, and passes `[]` as `deleteKeys`. Tests changed to match: "deprecates a field removed from a draft — born there or carried — and never deletes its row" (was "deletes a field removed from the draft it was born in, …"; the old "its key is free" tail is now covered by review #6's revive), and the import test now expects the draft-born `c` deprecated. `Store.writeFormFields`' `deleteKeys` parameter is now unused by every use case (forms.ts passes `[]` everywhere; nothing else calls it with keys); the store method, its fake and `store.test.ts` are left alone, as the brief asked — it can be dropped in a later tidy-up.
+
+**Risk:** a draft accumulates deprecated rows for fields that never held data; they show in the builder as retired and never export (export reads live fields).
+
+## Phase 1 D review — an in-place fix to a published version reaches the open draft (#4)
+
+**Plan said:** a non-structural save to a published version writes it in place (task 1.27, step 5); nothing about a draft.
+
+**What was wrong:** with draft v2 open, fixing v1's description or expected_range in place left v2 with its fork-time copy, so publishing v2 silently undid the fix.
+
+**What I did instead:** in the same save, after writing and stamping the published version, `carryToDraft` writes each in-place column whose value CHANGED in this save to the draft's live field with the same key AND type (skipped otherwise), and stamps the draft's `updated_by` (only when it wrote something). Every other column of the draft is left alone. One refinement past the brief, for `config`: it is carried per top-level config key the save changed, not as a whole, and a choice list (`options`, `event_types`) the draft has reshaped (other values or another order) takes only relabels, by value. Without this, relabelling an option on v1 would have replaced v2's whole option list and dropped an option v2 had added — the same silent undo, the other way. Tests: "copies the columns the save changed onto the draft's field, and keeps the draft's own edits" (v1's description and expected_range reach v2; v2's earlier label edit survives; v2 stamped by the saver); "skips a draft field whose type the draft changed, and a key the draft removed"; "a relabelled option reaches a draft that added an option, without dropping it"; "copies nothing, and does not stamp the draft, when the save changed nothing". Rejected: copying the whole `config` column (drops the draft's structural option edits), and copying every in-place column (overwrites the draft's own edits).
+
+**Risk:** not one transaction: if the draft write fails, v1 is fixed and the draft is not (the error reaches the admin). A carried `visibility_condition` or computed expression is not re-checked against the draft's field set; if the draft removed its target, the draft's next save or its publish reports the definition issue, positioned. An event type ADDED on v1 does not reach a draft that reshaped its event types (relabels only). Stamping the draft moves its `updated_at`, so a builder holding the draft with a `base_updated_at` gets `stale-version` and reloads — intended.
+
+## Phase 1 D review — a null unit no longer blocks Save draft through a computed field (#5)
+
+**Plan said:** a computed expression is typed by its referenced fields' `unit` (task 1.25).
+
+**What was wrong:** a draft field whose unit is still null (allowed: "needs meaning" only blocks publish) read as `string`, so `counter + computed` became a DEFINITION error ("operands must be the same type…") and blocked Save draft.
+
+**What I did instead:** `staticType` falls back to the field type when `unit` is null: counter, number, rating, timer, toggle → float; everything else → string. Tests in `expression.test.ts`: "types a %s with no unit as a number, so it does not block Save draft" (five types) and "types a %s with no unit as a string" (three).
+
+**Risk:** none; a set unit still decides, as before.
+
+## Phase 1 D review — a removed key can come back under its key (#6)
+
+**Plan said:** a key not live in the target but ever used in this form is `key-retired` (task 1.27, step 3).
+
+**What was wrong:** with #3 deprecating draft-born fields, a field removed by mistake could never come back, and a key from a later version could not return after restoring an earlier one.
+
+**What I did instead:** `resolveIdentity` takes `lastType` (key → its type in the newest version holding it, deprecated rows included). A key not live in the target may come back when its type equals that type; otherwise `key-retired` (now with `details.last_type`). In a draft holding the key as a deprecated row, that row is revived (same id, `deprecated: false`); passing that row's `id` works too (a deprecated id of the target is accepted when the key matches; another key under it is still `key-change`). On a published version a revive is a live field added, so it forks as usual. Tests ("a removed key can come back with the type it last had (review #6)"): revive by key, same id; revive by id, and not under another key; a different type by key or by id → `key-retired`; a key of v2 re-added to restored v1 forks v3 with it, and a different type is refused; the MOST RECENT type decides (counter → number → removed: counter refused, number accepted). The old "refuses a key retired in an earlier version of this form" now re-adds with a different type.
+
+**Risk:** a revived key's column (in analytics and the dictionary) mixes data from before and after the gap, under one meaning — the reason the type must match. Client contract: `details.last_type` on `key-retired`; a deprecated field's id is now a valid `id` in `saveDraftFields`.
+
+## Phase 1 D review — garbage definitions refused; `[]` is missing for a required list (#7)
+
+**Plan said:** the type configs of SPEC-FINAL 5.3, shape only (task 1.24).
+
+**What was wrong:** `{min: 10, max: 5}`, a select or event log naming one value twice, and a `default_value` the field cannot hold all saved; and `[]` satisfied `required` on a multi select, event log, position and cycle path.
+
+**What I did instead:** in `validateFieldDefinition` (so the builder gets them too): counter/number `min ≤ max` when both given (issue at `config.max`); options and event types unique by value (issue at the duplicate, e.g. `config.options.2.value`); a non-null `default_value` is checked with `validateEntryData` for that one field in `'submit'` mode, with its `required` and condition set aside and only when the config parsed (issue at `default_value`). In `validateEntryData`, `'submit'` only: `[]` on a required multi_select, event_log, position or cycle_path is `required`. Small widening: the brief said "position (multi)"; `[]` counts as missing for a single-point position too, since it holds no point either. Tests: "garbage definitions are refused (review #7)" in `config.test.ts`, "an empty list does not satisfy a required list field at submit" in `validate.test.ts`, and "definition checks reach the server (review #7)" in `forms.test.ts`.
+
+**Risk:** a default outside `expected_range` is now refused, since the submit rules apply; a client that pre-fills defaults would otherwise pre-fill a value the submit refuses. A definition already stored with one of these problems now fails its next save (and publish) until fixed; I did not check the dev database for any (no database access in this fix).
+
+## Phase 1 D review — scoring options while a draft exists (#9)
+
+**Plan said:** where draft and active version share a key, the draft's definition wins (task 1.28, decision A).
+
+**What was wrong:** a draft that dropped option X forced deleting X's points, which the active version's entries still score.
+
+**What I did instead:** `scorableUniverse` keeps the draft's type for scorability, but when both versions' fields are selects (single or multi, in either combination), the options are the union — the draft's first, then the active version's not already there. A rule naming an option of neither is still refused. Tests: "accepts option points for an option the draft dropped but the active version still has, and one the draft added (review #9)"; "takes options from both when the draft made a single select multi, and the draft's type for scorability". The existing "judges a key the draft retyped by the draft's type" still holds.
+
+**Risk:** points for an option the draft dropped stay on the rule after the draft is published; harmless (no entry of the new version can select it) and they keep scoring old entries.
+
+## Phase 1 D review — optimistic concurrency on saveDraftFields (#10)
+
+**Plan said:** nothing; a save overwrote whatever another admin saved in between.
+
+**What was wrong:** two admins editing one version: the later save silently replaced the earlier one's fields.
+
+**What I did instead:** `saveDraftFieldsInput` takes an optional `base_updated_at` (`z.string().datetime({ offset: true })`). When given and not the same instant as the target's current `updated_at`, the save is refused before any write: `conflict`, "someone else saved this version; reload it", `details: { reason: 'stale-version', updated_at }`. Absent → no check. `saveDraftFieldsOutput` gains `updated_at`, read back after the save's stamp (the forked draft's on a fork). Compared as instants, not strings, so `…Z` and `…+00:00` notations of one moment agree. Tests: "saveDraftFields: optimistic concurrency (review #10)" — output `updated_at` equals the version row's; a current base saves; a stale base is refused writing nothing; no base saves; a non-timestamp base is `invalid`.
+
+**Risk:** `Date.parse` is millisecond-precise while Postgres keeps microseconds: two saves inside one millisecond are not told apart. Client contract: new optional input `base_updated_at`, new output field `updated_at`, new `details.reason` `'stale-version'` (code `conflict`). Note #4: an in-place fix carried to the draft moves the draft's `updated_at` too.
+
+## Phase 1 D review — verification of the fixes
+
+**Plan said:** nothing; this is the final whole-branch review the user asked for after the run.
+
+**What was wrong:** an Opus reviewer read the whole branch and reported 1 Critical, 3 Important and 6 Minor findings (the nine entries above record each fix). Finding #8 — flipping `is_ordinal` on a select changes what its data means, so it arguably should fork like reordering options — was **not** fixed: the plan's in-place column list names `is_ordinal`, so it is the user's call. While re-proving against dev, the first local server from the earlier proof was still listening on port 3000 (stopping its `npx` parent left the `tsx` child running), so the new server died with `EADDRINUSE` and the first re-run hit the OLD code: 16/19, with the old `key-retired` message. Found by reading that message.
+
+**What I did instead:** killed the stale process by its port (`Get-NetTCPConnection -LocalPort 3000`), restarted, and re-ran the proof script with four new checks: 19/19 — a field removed from a draft keeps its row as `deprecated` with the same id; re-adding it with the same type revives that row; a published version cannot be deleted alone (`reason: 'published'`); plus the original fifteen. Mutation check: switching `syncPush` back to `'submit'` fails exactly the two new "an in-place edit never invalidates a collected entry" tests. The seed's seven field definitions pass the tightened `validateFieldDefinition`. Full gate: 144 files, 1955 tests, typecheck, lint, format and docs checks green.
+
+**Risk:** a local server must be stopped by port, not by stopping its `npx` wrapper, or a later proof silently tests stale code.

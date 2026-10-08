@@ -162,3 +162,31 @@ describe('computed expressions (SPEC-FINAL 5.7)', () => {
     expect(validateExpr(mixed, fields, 'float')).toHaveLength(1);
   });
 });
+
+describe('a referenced field whose unit is still null (a draft that needs meaning)', () => {
+  const ref = (key: string): Expr => ({ kind: 'field', key });
+  const plus = (a: string, b: string): Expr => ({
+    kind: 'op',
+    op: '+',
+    left: ref(a),
+    right: ref(b),
+  });
+
+  it.each(['counter', 'number', 'rating', 'timer', 'toggle'] as const)(
+    'types a %s with no unit as a number, so it does not block Save draft',
+    (type) => {
+      const fieldsWithBlank = [f('known', 'counter', 'count'), f('blank', type, null)];
+      expect(validateExpr(plus('known', 'blank'), fieldsWithBlank, 'float')).toEqual([]);
+    },
+  );
+
+  it.each(['single_select', 'short_text', 'long_text'] as const)(
+    'types a %s with no unit as a string',
+    (type) => {
+      const fieldsWithBlank = [f('known', 'short_text', 'text'), f('blank', type, null)];
+      const concat: Expr = { kind: 'op', op: 'concat', left: ref('known'), right: ref('blank') };
+      expect(validateExpr(concat, fieldsWithBlank, 'string')).toEqual([]);
+      expect(validateExpr(plus('blank', 'blank'), fieldsWithBlank)).toHaveLength(1);
+    },
+  );
+});
