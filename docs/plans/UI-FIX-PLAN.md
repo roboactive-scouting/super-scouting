@@ -212,6 +212,22 @@ Extra fixes found along the way: decimal or negative breakdown times are now rej
 (they would have stuck the queue); a wobbly tap (under 16 px) on a counter always counts;
 session changes reach every open tab.
 
+## Follow-up (2026-10-08 morning): UF.12 and UF.13
+
+The phone still didn't sync after UF.1. The Vercel log showed **every phone push answered
+400**. One edit of an already-synced entry had been queued with the server's own timestamp
+format (`+00:00`), which the op schema refused, and that one op made the whole batch fail.
+
+- **UF.12** (`d5663cc`): each op is validated on its own, so a malformed op is refused with
+  its reason and the rest of the batch still applies. The server accepts offset timestamps
+  and normalises them to UTC `Z`, and the client sends `Z`.
+- **UF.13** (`1516018`): when a whole sync fails, the app says why ("Last try failed: …") in
+  the ☰ menu, beside the desktop sync chips and on Entries, while something is waiting.
+- Live on `develop` and CI green. **The phone synced** (confirmed in dev: Q80–Q83 and the
+  entries, including the Broke down one, arrived).
+- The bundle is at 204.4 / 205 KB gzip, so the next client feature needs the budget raised
+  or a trim.
+
 ## Open for the user
 
 1. **Re-test on the phone first.** Reload the app once (close any old tabs, on the
