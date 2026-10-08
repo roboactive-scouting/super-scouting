@@ -5177,3 +5177,54 @@ and `z.string().datetime({ offset: false })` refuses it (`false false true` for 
 **What I did instead:** the listeners read the phase from a ref that is updated on every render (`current.current`), and `index` left the effect's dependencies. The test's phase waits also allow 4 s (`PHASE_WAIT`), because a loaded CI runner can exceed the 1 s default.
 
 **Risk:** none for users. A person can't swipe in the gap between a render and its effect, and the ref makes it impossible anyway.
+
+## Phase 1 D (shared + server half, tasks 1.24–1.28) — run start
+
+**Plan said:** start from `develop` at `d028913` and `main` at `59ed359`; branch `feat/phase-1d-forms` from `design/form-builder` at `6582a1f`. Task 1.28 commits as `feat(server): add the scoring-model editor and the form read queries`.
+
+**What was wrong:** nothing blocking. The local `develop` and `main` refs were stale (`9b102cd`, `bebcad6`); `origin/develop` is `d028913` and `origin/main` is `59ed359`, as stated, and `origin/develop` is an ancestor of `6582a1f`. The chat's prompt names 1.28's commit `feat(server): add scoring rules and the form read queries`.
+
+**What I did instead:** branched from `6582a1f` after `git fetch`. Baseline `pnpm test`: 136 files, 1710 tests, all green — the floor for this run. 1.28 uses the prompt's commit message (prompt outranks the plan, BUILD-CONTEXT §9). Skill instructions set aside, per §9's precedence: `subagent-driven-development`'s "the implementer commits" (BUILD-CONTEXT: the orchestrator commits), `executing-plans`' "stop and ask" (the prompt: do not stop), and the worktree skill (`CLAUDE.md`: a single working copy).
+
+**Risk:** none.
+
+## Task 1.24 — event log config and taps carry an optional place (SPEC-FINAL v1.20)
+
+**Plan said:** `event_log` config is `{ event_types }` only, and `EventLogTap = { type: string; t: number }`; `validateEntryData` checks a tap's type is allowed, `t` is a number and `t` ascends.
+
+**What was wrong:** SPEC-FINAL v1.20 (§5.2, §5.3, §5.6) postdates the plan: an event log may ask where each tap happened. Nothing failed; the plan text is simply behind the spec.
+
+**What I did instead:**
+- `config.ts`: `event_log` config is `{ event_types (min 1), ask_position?: boolean (default false), mirror_axis?: 'none'|'horizontal'|'vertical'|'both' }`, still `.strict()`, with a `superRefine` that raises an issue at `config.mirror_axis` when `ask_position` is true and `mirror_axis` is absent. `FIELD_TYPE_CONFIG.event_log` is therefore a refined (effects) schema, still typed `z.ZodType`.
+- `types.ts`: `EventLogTap = { type: string; t: number; x?: number; y?: number }`.
+- `validate.ts`: a tap is `{type, t}` or `{type, t, x, y}`. It is rejected when it is not a plain object, carries a key other than `type|t|x|y`, has only one of x/y, or has x/y that is not a finite number in 0..1. A tap with x/y is accepted whether or not `ask_position` is on at validation time, so an in-place config edit never invalidates collected or queued data (SPEC §5.1).
+- Tests added in `config.test.ts` (ask_position + mirror_axis valid; ask_position without mirror_axis invalid at `config.mirror_axis`; plain valid; unknown key and empty list still refused) and `validate.test.ts` (accepted `{type,t,x,y}`, accepted with ask_position off, one-of-x/y, out of range, non-number, extra key, non-object tap).
+
+**Risk:** a stored `ask_position: true` event log whose config predates `mirror_axis` would now fail `validateFieldDefinition`; no such field exists (the type did not exist before this task).
+
+## Task 1.24 — smaller departures from the plan's literal text
+
+**Plan said:** (a) `validate.test.ts` gets a second `import` block and its own `describe`; (b) the `switch` snippet groups `case 'number':` with `case 'rating':` while its comment says number is "identical to counter"; (c) `validateFieldDefinition` reports a config issue at `config.${issue.path.join('.')}`; (d) validators run on `value as ...` casts.
+
+**What was wrong:** (a) a second `import` of the same names and a second top-level `f`/`ok` would collide with the existing file's imports; (b) the snippet contradicts its own comment — `rating` needs `1..max`, a counter needs the min/max/`expected_range` blocks; (c) a root-level config problem (config not an object) produced the path `config.` with a trailing dot; (d) `value as Point[]` etc. would throw on `null` elements or non-object cycles instead of returning an issue.
+
+**What I did instead:**
+- (a) Appended the plan's tests to the existing `validate.test.ts` with no second import; helper names `f` and `ok` do not clash with the existing file's `fields`.
+- (b) `case 'counter': case 'number':` share the counter body (including the §15.1 `expected_range` block); `rating` is its own case.
+- (c) A root-level issue is reported at path `config`; nested ones are still `config.<path>`.
+- (d) The new cases guard each element (`isRecord`, `inUnitSquare`, `Array.isArray`) so a malformed payload yields a `wrong-type` issue, never a throw. `inUnitSquare` and `validTap` are private to `validate.ts`; nothing else needed them. Also: `computed` and `section` are skipped at the top of the per-field loop (before the `missing`/required check), so they are never required and never validated; a present computed key was already "known", so `unknown-field` did not need a change.
+- Extra tests beyond the plan: `number` behaves like a counter, `short_text`, a cycle path with an out-of-range point or a flat (non-nested) list, and `multi_select` given a bare string.
+- `short_text` and `long_text` share one case and check only that the value is a string. `max_length` is NOT enforced: the plan is silent, and a later in-place edit to it must not retroactively invalidate data (SPEC §5.1).
+- Rating and timer require a finite number; rating is not required to be an integer (the plan does not say so).
+
+**Risk:** low. `max_length` unenforced means an over-long short text is accepted server-side; the client control should cap it when it is built.
+
+## Task 1.24 — regenerated the bundled server function
+
+**Plan said:** the task's files are all under `packages/shared/src/forms/` (plus `index.ts`).
+
+**What was wrong:** `apps/server/src/bundle-drift.test.ts` inlines `@frc/shared` into `apps/server/api/index.js`, so any shared change fails it: `expect(readFileSync(outfile, 'utf8')).toBe(committed)`.
+
+**What I did instead:** ran `pnpm --filter @frc/server build` and left the regenerated `apps/server/api/index.js` and `index.js.map` in the working tree for the orchestrator to commit in the same diff (BUILD-CONTEXT §6). I also added `export * from './forms/config'` to `packages/shared/src/index.ts`.
+
+**Risk:** the bundle will need regenerating again on every later shared or server task in this run.

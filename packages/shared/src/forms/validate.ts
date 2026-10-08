@@ -1,4 +1,4 @@
-import type { FormFieldDefinition, RobotStatus } from './types';
+import type { CyclePath, EventLogTap, FormFieldDefinition, Point, RobotStatus } from './types';
 import { selectOptions } from './types';
 
 export type ValidationIssue = {
@@ -19,6 +19,33 @@ export type ValidationResult = { ok: true } | { ok: false; issues: ValidationIss
 /** SPEC-FINAL 8.2: no_show and disabled record no field values at all. */
 export function isDeadRobot(status: RobotStatus): boolean {
   return status === 'no_show' || status === 'disabled';
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** A normalised coordinate: a finite number in 0..1 (SPEC-FINAL 5.2, 5.6). */
+const inUnit = (n: unknown): n is number =>
+  typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1;
+
+const inUnitSquare = (p: unknown): p is Point => isRecord(p) && inUnit(p.x) && inUnit(p.y);
+
+const TAP_KEYS = new Set(['type', 't', 'x', 'y']);
+
+/**
+ * One event-log tap: `{type, t}` or `{type, t, x, y}`. x and y come together or not at all.
+ * A place is accepted whether or not the field's `ask_position` is on right now — an in-place
+ * config edit must never make collected or queued data fail (SPEC-FINAL 5.1).
+ */
+function validTap(tap: unknown, allowed: Set<string>): tap is EventLogTap {
+  if (!isRecord(tap)) return false;
+  if (Object.keys(tap).some((k) => !TAP_KEYS.has(k))) return false;
+  if (typeof tap.type !== 'string' || !allowed.has(tap.type)) return false;
+  if (typeof tap.t !== 'number' || !Number.isFinite(tap.t)) return false;
+  const hasX = 'x' in tap;
+  const hasY = 'y' in tap;
+  if (hasX !== hasY) return false;
+  return !hasX || (inUnit(tap.x) && inUnit(tap.y));
 }
 
 /**
@@ -52,6 +79,10 @@ export function validateEntryData(
   }
 
   for (const field of live) {
+    // A computed value is written by the engine at submit time and a section holds no data:
+    // neither is ever required of the scouter, and neither is checked here.
+    if (field.type === 'computed' || field.type === 'section') continue;
+
     const value = data[field.key];
     const missing = value === undefined || value === null || value === '';
     if (missing) {
@@ -65,8 +96,12 @@ export function validateEntryData(
       continue;
     }
 
+    const wrongType = (message: string) =>
+      issues.push({ field_key: field.key, code: 'wrong-type', message });
+
     switch (field.type) {
-      case 'counter': {
+      case 'counter':
+      case 'number': {
         if (typeof value !== 'number' || !Number.isFinite(value)) {
           issues.push({
             field_key: field.key,
@@ -119,13 +154,82 @@ export function validateEntryData(
         }
         break;
       }
-      case 'long_text': {
-        if (typeof value !== 'string') {
+      case 'multi_select': {
+        const allowed = selectOptions(field).map((o) => o.value);
+        if (
+          !Array.isArray(value) ||
+          value.some((v) => typeof v !== 'string' || !allowed.includes(v))
+        ) {
           issues.push({
             field_key: field.key,
-            code: 'wrong-type',
-            message: `${field.label} must be text`,
+            code: 'not-an-option',
+            message: `${field.label} must be a list drawn from: ${allowed.join(', ')}`,
           });
+        }
+        break;
+      }
+      case 'short_text':
+      case 'long_text': {
+        if (typeof value !== 'string') wrongType(`${field.label} must be text`);
+        break;
+      }
+      case 'rating': {
+        const max = typeof field.config.max === 'number' ? field.config.max : 5;
+        if (typeof value !== 'number' || !Number.isFinite(value) || value < 1 || value > max) {
+          wrongType(`${field.label} must be a rating from 1 to ${max}`);
+        }
+        break;
+      }
+      case 'timer': {
+        // Nullable via the "unsure — no time" toggle: it submits no value rather than a wrong
+        // number (SPEC-FINAL 5.2). A null arrives as an absent key, handled by `missing` above.
+        if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+          wrongType(`${field.label} must be a time in seconds, 0 or more`);
+        }
+        break;
+      }
+      case 'event_log': {
+        if (!Array.isArray(value)) {
+          wrongType(`${field.label} must be a list of taps`);
+          break;
+        }
+        const allowed = new Set(
+          (Array.isArray(field.config.event_types) ? (field.config.event_types as unknown[]) : [])
+            .filter(isRecord)
+            .map((o) => o.value as string),
+        );
+        let previous = -Infinity;
+        let good = true;
+        for (const tap of value as unknown[]) {
+          if (!validTap(tap, allowed) || tap.t < previous) {
+            good = false;
+            break;
+          }
+          previous = tap.t;
+        }
+        if (!good) wrongType(`${field.label} must be taps of a known type, in time order`);
+        break;
+      }
+      case 'position': {
+        const points = Array.isArray(value) ? (value as unknown[]) : [value];
+        if (!points.every(inUnitSquare)) {
+          wrongType(`${field.label} must be points inside the map (0 to 1)`);
+        } else if (field.config.multi_point !== true && points.length > 1) {
+          wrongType(`${field.label} takes one point`);
+        }
+        break;
+      }
+      case 'cycle_path': {
+        const cap =
+          typeof field.config.max_points_per_cycle === 'number'
+            ? field.config.max_points_per_cycle
+            : 6;
+        const cycles = value as CyclePath[] | unknown;
+        if (
+          !Array.isArray(cycles) ||
+          cycles.some((c) => !Array.isArray(c) || c.length > cap || !c.every(inUnitSquare))
+        ) {
+          wrongType(`${field.label} must be cycles of at most ${cap} points inside the map`);
         }
         break;
       }

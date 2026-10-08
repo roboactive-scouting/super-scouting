@@ -407,6 +407,50 @@ var SEASON_IMAGE_MANIFEST = [
   "seasons/2026/field.webp"
 ];
 
+// ../../packages/shared/src/forms/config.ts
+import { z as z6 } from "zod";
+var option = z6.object({ value: z6.string().min(1), label: z6.string().min(1) });
+var mirrorAxis = z6.enum(["none", "horizontal", "vertical", "both"]);
+var numericRange = {
+  min: z6.number().optional(),
+  max: z6.number().optional(),
+  step: z6.number().positive().optional()
+};
+var eventLog = z6.object({
+  event_types: z6.array(option).min(1),
+  ask_position: z6.boolean().default(false),
+  mirror_axis: mirrorAxis.optional()
+}).strict().superRefine((config2, ctx) => {
+  if (config2.ask_position && config2.mirror_axis === void 0) {
+    ctx.addIssue({
+      code: z6.ZodIssueCode.custom,
+      path: ["mirror_axis"],
+      message: "mirror_axis is required when ask_position is on"
+    });
+  }
+});
+var FIELD_TYPE_CONFIG = {
+  counter: z6.object(numericRange).strict(),
+  number: z6.object(numericRange).strict(),
+  toggle: z6.object({}).strict(),
+  single_select: z6.object({ options: z6.array(option).min(1), is_ordinal: z6.boolean().optional() }).strict(),
+  multi_select: z6.object({ options: z6.array(option).min(1), is_ordinal: z6.boolean().optional() }).strict(),
+  rating: z6.object({ max: z6.number().int().positive().default(5), style: z6.enum(["stars", "slider"]) }).strict(),
+  short_text: z6.object({ max_length: z6.number().int().positive().optional() }).strict(),
+  long_text: z6.object({ max_length: z6.number().int().positive().optional() }).strict(),
+  // SPEC-FINAL 5.3: allow_unsure is "always true in v1", so it defaults to true and
+  // cannot be set to false — but a field that omits it entirely is still valid.
+  timer: z6.object({ allow_unsure: z6.literal(true).default(true) }).strict(),
+  event_log: eventLog,
+  position: z6.object({ multi_point: z6.boolean(), mirror_axis: mirrorAxis }).strict(),
+  cycle_path: z6.object({
+    max_points_per_cycle: z6.number().int().positive().default(6),
+    mirror_axis: mirrorAxis
+  }).strict(),
+  computed: z6.object({ expression: z6.unknown(), result_type: z6.enum(["float", "string"]) }).strict(),
+  section: z6.object({}).strict()
+};
+
 // ../../packages/shared/src/forms/entryShape.ts
 var MAX_BREAKDOWN_SECONDS = 2147483647;
 function validateEntryShape(row) {
@@ -445,6 +489,20 @@ function selectOptions(field) {
 function isDeadRobot(status) {
   return status === "no_show" || status === "disabled";
 }
+var isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+var inUnit = (n) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1;
+var inUnitSquare = (p) => isRecord(p) && inUnit(p.x) && inUnit(p.y);
+var TAP_KEYS = /* @__PURE__ */ new Set(["type", "t", "x", "y"]);
+function validTap(tap, allowed) {
+  if (!isRecord(tap)) return false;
+  if (Object.keys(tap).some((k) => !TAP_KEYS.has(k))) return false;
+  if (typeof tap.type !== "string" || !allowed.has(tap.type)) return false;
+  if (typeof tap.t !== "number" || !Number.isFinite(tap.t)) return false;
+  const hasX = "x" in tap;
+  const hasY = "y" in tap;
+  if (hasX !== hasY) return false;
+  return !hasX || inUnit(tap.x) && inUnit(tap.y);
+}
 function validateEntryData(fields, robotStatus, data) {
   const issues = [];
   if (isDeadRobot(robotStatus)) {
@@ -465,6 +523,7 @@ function validateEntryData(fields, robotStatus, data) {
     }
   }
   for (const field of live) {
+    if (field.type === "computed" || field.type === "section") continue;
     const value = data[field.key];
     const missing = value === void 0 || value === null || value === "";
     if (missing) {
@@ -477,8 +536,10 @@ function validateEntryData(fields, robotStatus, data) {
       }
       continue;
     }
+    const wrongType = (message) => issues.push({ field_key: field.key, code: "wrong-type", message });
     switch (field.type) {
-      case "counter": {
+      case "counter":
+      case "number": {
         if (typeof value !== "number" || !Number.isFinite(value)) {
           issues.push({
             field_key: field.key,
@@ -530,13 +591,69 @@ function validateEntryData(fields, robotStatus, data) {
         }
         break;
       }
-      case "long_text": {
-        if (typeof value !== "string") {
+      case "multi_select": {
+        const allowed = selectOptions(field).map((o) => o.value);
+        if (!Array.isArray(value) || value.some((v) => typeof v !== "string" || !allowed.includes(v))) {
           issues.push({
             field_key: field.key,
-            code: "wrong-type",
-            message: `${field.label} must be text`
+            code: "not-an-option",
+            message: `${field.label} must be a list drawn from: ${allowed.join(", ")}`
           });
+        }
+        break;
+      }
+      case "short_text":
+      case "long_text": {
+        if (typeof value !== "string") wrongType(`${field.label} must be text`);
+        break;
+      }
+      case "rating": {
+        const max = typeof field.config.max === "number" ? field.config.max : 5;
+        if (typeof value !== "number" || !Number.isFinite(value) || value < 1 || value > max) {
+          wrongType(`${field.label} must be a rating from 1 to ${max}`);
+        }
+        break;
+      }
+      case "timer": {
+        if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+          wrongType(`${field.label} must be a time in seconds, 0 or more`);
+        }
+        break;
+      }
+      case "event_log": {
+        if (!Array.isArray(value)) {
+          wrongType(`${field.label} must be a list of taps`);
+          break;
+        }
+        const allowed = new Set(
+          (Array.isArray(field.config.event_types) ? field.config.event_types : []).filter(isRecord).map((o) => o.value)
+        );
+        let previous = -Infinity;
+        let good = true;
+        for (const tap of value) {
+          if (!validTap(tap, allowed) || tap.t < previous) {
+            good = false;
+            break;
+          }
+          previous = tap.t;
+        }
+        if (!good) wrongType(`${field.label} must be taps of a known type, in time order`);
+        break;
+      }
+      case "position": {
+        const points = Array.isArray(value) ? value : [value];
+        if (!points.every(inUnitSquare)) {
+          wrongType(`${field.label} must be points inside the map (0 to 1)`);
+        } else if (field.config.multi_point !== true && points.length > 1) {
+          wrongType(`${field.label} takes one point`);
+        }
+        break;
+      }
+      case "cycle_path": {
+        const cap = typeof field.config.max_points_per_cycle === "number" ? field.config.max_points_per_cycle : 6;
+        const cycles = value;
+        if (!Array.isArray(cycles) || cycles.some((c) => !Array.isArray(c) || c.length > cap || !c.every(inUnitSquare))) {
+          wrongType(`${field.label} must be cycles of at most ${cap} points inside the map`);
         }
         break;
       }
@@ -546,7 +663,7 @@ function validateEntryData(fields, robotStatus, data) {
 }
 
 // ../../packages/shared/src/sync/operation.ts
-import { z as z6 } from "zod";
+import { z as z7 } from "zod";
 var SYNC_ENTITIES = [
   "scouting_entry",
   "match",
@@ -556,26 +673,26 @@ var SYNC_ENTITIES = [
   "alliance_slot",
   "alliance_decline"
 ];
-var isoDateTime = z6.string().datetime({ offset: true }).transform((value, ctx) => {
+var isoDateTime = z7.string().datetime({ offset: true }).transform((value, ctx) => {
   const ms = Date.parse(value);
   if (Number.isNaN(ms)) {
     ctx.addIssue({ code: "custom", message: "Invalid datetime" });
-    return z6.NEVER;
+    return z7.NEVER;
   }
   return new Date(ms).toISOString();
 });
-var operationSchema = z6.object({
-  op_id: z6.string().min(1),
-  entity: z6.enum(SYNC_ENTITIES),
-  row_id: z6.string().uuid(),
-  action: z6.enum(["create", "update", "delete"]),
-  base_version: z6.number().int().positive().nullable(),
+var operationSchema = z7.object({
+  op_id: z7.string().min(1),
+  entity: z7.enum(SYNC_ENTITIES),
+  row_id: z7.string().uuid(),
+  action: z7.enum(["create", "update", "delete"]),
+  base_version: z7.number().int().positive().nullable(),
   /** Always the whole row, never a patch. Field-level merging does not exist. */
-  payload: z6.record(z6.unknown()),
-  author_user_id: z6.string().uuid(),
+  payload: z7.record(z7.unknown()),
+  author_user_id: z7.string().uuid(),
   client_created_at: isoDateTime,
   client_updated_at: isoDateTime,
-  seq: z6.number().int().nonnegative()
+  seq: z7.number().int().nonnegative()
 }).superRefine((op, ctx) => {
   if (op.action === "create" && op.base_version !== null) {
     ctx.addIssue({
@@ -601,16 +718,16 @@ var operationSchema = z6.object({
 });
 
 // ../../packages/shared/src/sync/protocol.ts
-import { z as z7 } from "zod";
+import { z as z8 } from "zod";
 var MAX_OPERATIONS_PER_PUSH = 200;
 var WATERMARK_OVERLAP_MS = 5e3;
-var pushRequestSchema = z7.object({
-  device_id: z7.string().uuid(),
-  operations: z7.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
+var pushRequestSchema = z8.object({
+  device_id: z8.string().uuid(),
+  operations: z8.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
 });
-var pushEnvelopeSchema = z7.object({
-  device_id: z7.string().uuid(),
-  operations: z7.array(z7.unknown()).max(MAX_OPERATIONS_PER_PUSH)
+var pushEnvelopeSchema = z8.object({
+  device_id: z8.string().uuid(),
+  operations: z8.array(z8.unknown()).max(MAX_OPERATIONS_PER_PUSH)
 });
 var PARENT_DELETED_DETAIL = {
   event: "the event no longer exists",
@@ -645,10 +762,10 @@ var PULL_ENTITY_KEYS = [
   "dashboard_charts",
   "weight_presets"
 ];
-var pullRequestSchema = z7.object({
-  event_id: z7.string().uuid(),
-  since: z7.string().datetime({ offset: false }).optional(),
-  cursor: z7.string().optional()
+var pullRequestSchema = z8.object({
+  event_id: z8.string().uuid(),
+  since: z8.string().datetime({ offset: false }).optional(),
+  cursor: z8.string().optional()
 });
 
 // src/routes/errors.ts
@@ -716,13 +833,13 @@ function createApp(deps) {
 
 // src/auth/token.ts
 import { jwtVerify, SignJWT } from "jose";
-import { z as z8 } from "zod";
-var sessionClaims = z8.object({
-  sub: z8.string().min(1),
-  role: z8.enum(["scouter", "lead", "admin"]),
-  username: z8.string().min(1),
-  iat: z8.number().int(),
-  exp: z8.number().int()
+import { z as z9 } from "zod";
+var sessionClaims = z9.object({
+  sub: z9.string().min(1),
+  role: z9.enum(["scouter", "lead", "admin"]),
+  username: z9.string().min(1),
+  iat: z9.number().int(),
+  exp: z9.number().int()
 });
 var key = (config2) => new TextEncoder().encode(config2.authJwtSecret);
 async function issueToken(user, config2) {
@@ -762,18 +879,18 @@ async function callerFor(request, config2, store, options = {}) {
 }
 
 // src/config.ts
-import { z as z9 } from "zod";
-var schema = z9.object({
-  SUPABASE_URL: z9.string().url(),
-  SUPABASE_SERVICE_ROLE_KEY: z9.string().min(1),
-  AUTH_JWT_SECRET: z9.string().min(32, "must be at least 32 characters"),
-  AUTH_TOKEN_TTL_DAYS: z9.coerce.number().int().positive().default(30),
-  AUTH_TOKEN_REFRESH_AFTER_DAYS: z9.coerce.number().int().positive().default(7),
-  ALLOWED_ORIGIN: z9.string().url(),
-  NODE_ENV: z9.enum(["development", "production", "test"]).default("development"),
+import { z as z10 } from "zod";
+var schema = z10.object({
+  SUPABASE_URL: z10.string().url(),
+  SUPABASE_SERVICE_ROLE_KEY: z10.string().min(1),
+  AUTH_JWT_SECRET: z10.string().min(32, "must be at least 32 characters"),
+  AUTH_TOKEN_TTL_DAYS: z10.coerce.number().int().positive().default(30),
+  AUTH_TOKEN_REFRESH_AFTER_DAYS: z10.coerce.number().int().positive().default(7),
+  ALLOWED_ORIGIN: z10.string().url(),
+  NODE_ENV: z10.enum(["development", "production", "test"]).default("development"),
   // Vercel's own system env var (https://vercel.com/docs/environment-variables/system-environment-variables),
   // not something anyone sets by hand. Absent locally and in tests.
-  VERCEL_GIT_COMMIT_SHA: z9.string().min(1).optional()
+  VERCEL_GIT_COMMIT_SHA: z10.string().min(1).optional()
 });
 function loadServerConfig(env) {
   const parsed = schema.safeParse(env);
@@ -1796,7 +1913,7 @@ function pgCode(e) {
 }
 
 // src/core/queries/listEvents.ts
-import { z as z10 } from "zod";
+import { z as z11 } from "zod";
 
 // src/core/cursor.ts
 function encodeCursor(value) {
@@ -1817,7 +1934,7 @@ function decodeCursor(schema2, raw) {
 }
 
 // src/core/queries/listEvents.ts
-var eventCursor = z10.object({ s: z10.number().int(), i: z10.string().uuid() }).strict();
+var eventCursor = z11.object({ s: z11.number().int(), i: z11.string().uuid() }).strict();
 async function listEvents(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listEventsInput, input);
@@ -1924,8 +2041,8 @@ async function setActiveEvent(caller, input, ctx) {
 }
 
 // src/core/queries/listSeasons.ts
-import { z as z11 } from "zod";
-var seasonCursor = z11.object({ y: z11.number().int() }).strict();
+import { z as z12 } from "zod";
+var seasonCursor = z12.object({ y: z12.number().int() }).strict();
 async function listSeasons(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listSeasonsInput, input);
@@ -2085,8 +2202,8 @@ async function inWaves(items, fn) {
 }
 
 // src/core/queries/listMatches.ts
-import { z as z12 } from "zod";
-var matchCursor = z12.object({ t: matchType, n: z12.number().int() }).strict();
+import { z as z13 } from "zod";
+var matchCursor = z13.object({ t: matchType, n: z13.number().int() }).strict();
 async function listMatches(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listMatchesInput, input);
@@ -2317,8 +2434,8 @@ async function teamOrNotFound(ctx, id) {
 }
 
 // src/core/queries/listTeams.ts
-import { z as z13 } from "zod";
-var teamCursor = z13.object({ n: z13.number().int() }).strict();
+import { z as z14 } from "zod";
+var teamCursor = z14.object({ n: z14.number().int() }).strict();
 async function listTeams(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listTeamsInput, input);

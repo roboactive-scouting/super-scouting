@@ -1,0 +1,169 @@
+import { describe, expect, it } from 'vitest';
+import { FIELD_TYPES, validateFieldDefinition } from './config';
+import type { FormFieldDefinition } from './types';
+
+const field = (over: Partial<FormFieldDefinition>): FormFieldDefinition => ({
+  id: 'f',
+  key: 'k',
+  label: 'L',
+  help_text: null,
+  type: 'counter',
+  section: null,
+  display_order: 1,
+  required: false,
+  default_value: null,
+  config: {},
+  visibility_condition: null,
+  deprecated: false,
+  description: 'what it means',
+  unit: 'count',
+  phase: 'auto',
+  direction: 'higher_is_better',
+  category: null,
+  expected_range: null,
+  include_in_ai_context: null,
+  is_ordinal: null,
+  ...over,
+});
+
+describe('the field-type catalogue (SPEC-FINAL 5.2)', () => {
+  it('ships all fourteen types and no Photo field', () => {
+    expect([...FIELD_TYPES]).toEqual([
+      'counter',
+      'number',
+      'toggle',
+      'single_select',
+      'multi_select',
+      'rating',
+      'short_text',
+      'long_text',
+      'timer',
+      'event_log',
+      'position',
+      'cycle_path',
+      'computed',
+      'section',
+    ]);
+    expect(FIELD_TYPES).not.toContain('photo');
+  });
+});
+
+describe('semantic metadata (SPEC-FINAL 3.3, 5.4)', () => {
+  it('requires description, unit, phase and direction on every data field', () => {
+    for (const missing of ['description', 'unit', 'phase', 'direction'] as const) {
+      const issues = validateFieldDefinition(field({ [missing]: null }));
+      expect(
+        issues.map((i) => i.path),
+        missing,
+      ).toContain(missing);
+    }
+  });
+
+  it('rejects an empty-string description as firmly as a null one', () => {
+    expect(validateFieldDefinition(field({ description: '   ' }))).not.toEqual([]);
+  });
+
+  it('requires all seven semantic columns to be null on a section', () => {
+    expect(
+      validateFieldDefinition(
+        field({ type: 'section', description: null, unit: null, phase: null, direction: null }),
+      ),
+    ).toEqual([]);
+    expect(
+      validateFieldDefinition(
+        field({ type: 'section', unit: 'count', description: null, phase: null, direction: null }),
+      ),
+    ).not.toEqual([]);
+  });
+
+  it('allows is_ordinal only on the two select types', () => {
+    const options = { options: [{ value: 'a', label: 'A' }] };
+    expect(
+      validateFieldDefinition(
+        field({ type: 'single_select', unit: 'enum', is_ordinal: true, config: options }),
+      ),
+    ).toEqual([]);
+    expect(
+      validateFieldDefinition(
+        field({ type: 'multi_select', unit: 'enum', is_ordinal: false, config: options }),
+      ),
+    ).toEqual([]);
+    expect(validateFieldDefinition(field({ type: 'counter', is_ordinal: true }))).not.toEqual([]);
+  });
+
+  it('checks the per-type config shape of SPEC-FINAL 5.3', () => {
+    expect(
+      validateFieldDefinition(
+        field({ type: 'rating', unit: 'count', config: { max: 5, style: 'stars' } }),
+      ),
+    ).toEqual([]);
+    expect(
+      validateFieldDefinition(field({ type: 'rating', unit: 'count', config: { style: 'dial' } })),
+    ).not.toEqual([]);
+    expect(
+      validateFieldDefinition(
+        field({
+          type: 'cycle_path',
+          unit: 'coordinate',
+          config: { max_points_per_cycle: 6, mirror_axis: 'horizontal' },
+        }),
+      ),
+    ).toEqual([]);
+    expect(
+      validateFieldDefinition(
+        field({
+          type: 'position',
+          unit: 'coordinate',
+          config: { multi_point: true, mirror_axis: 'sideways' },
+        }),
+      ),
+    ).not.toEqual([]);
+    expect(
+      validateFieldDefinition(
+        field({ type: 'timer', unit: 'seconds', config: { allow_unsure: true } }),
+      ),
+    ).toEqual([]);
+  });
+
+  it('requires a non-empty option list on both select types', () => {
+    expect(
+      validateFieldDefinition(
+        field({ type: 'single_select', unit: 'enum', is_ordinal: false, config: { options: [] } }),
+      ),
+    ).not.toEqual([]);
+  });
+
+  it('refuses a key that is not a safe permanent identifier', () => {
+    expect(validateFieldDefinition(field({ key: 'auto notes' }))).not.toEqual([]);
+    expect(validateFieldDefinition(field({ key: 'auto_notes_2' }))).toEqual([]);
+  });
+});
+
+describe('the event log config (SPEC-FINAL 5.3, v1.20)', () => {
+  const types = [{ value: 'score', label: 'Score' }];
+  const log = (config: Record<string, unknown>) =>
+    field({ type: 'event_log', unit: 'count', config });
+
+  it('accepts ask_position with a mirror_axis', () => {
+    expect(
+      validateFieldDefinition(
+        log({ event_types: types, ask_position: true, mirror_axis: 'horizontal' }),
+      ),
+    ).toEqual([]);
+  });
+
+  it('rejects ask_position without a mirror_axis, at config.mirror_axis', () => {
+    const issues = validateFieldDefinition(log({ event_types: types, ask_position: true }));
+    expect(issues.map((i) => i.path)).toEqual(['config.mirror_axis']);
+  });
+
+  it('accepts a plain event log with neither', () => {
+    expect(validateFieldDefinition(log({ event_types: types }))).toEqual([]);
+    expect(validateFieldDefinition(log({ event_types: types, ask_position: false }))).toEqual([]);
+  });
+
+  it('still refuses an unknown key and an empty event type list', () => {
+    expect(validateFieldDefinition(log({ event_types: types, colour: 'red' }))).not.toEqual([]);
+    expect(validateFieldDefinition(log({ event_types: [] }))).not.toEqual([]);
+  });
+});
