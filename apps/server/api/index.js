@@ -408,6 +408,7 @@ var SEASON_IMAGE_MANIFEST = [
 ];
 
 // ../../packages/shared/src/forms/entryShape.ts
+var MAX_BREAKDOWN_SECONDS = 2147483647;
 function validateEntryShape(row) {
   const issues = [];
   if (row.form_kind === "match") {
@@ -426,6 +427,10 @@ function validateEntryShape(row) {
   }
   if (!brokeDown && row.breakdown_seconds !== null) {
     issues.push("breakdown time is recorded only when the robot broke down");
+  }
+  const seconds = row.breakdown_seconds;
+  if (seconds !== null && !(Number.isInteger(seconds) && seconds >= 0 && seconds <= MAX_BREAKDOWN_SECONDS)) {
+    issues.push("breakdown time must be a whole number of seconds, 0 or more");
   }
   return issues;
 }

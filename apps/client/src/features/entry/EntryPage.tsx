@@ -40,7 +40,8 @@ export function EntryPage(props: EntryPageProps) {
   const [fields, setFields] = useState<FormFieldDefinition[]>([]);
   const [station, setStation] = useState<Station | null>(null);
   const [status, setStatus] = useState<RobotStatus | null>(null);
-  const [breakdownSeconds, setBreakdownSeconds] = useState<number>(0);
+  // Null while the field is empty: a Broke down entry then fails SPEC-FINAL 3.5's check.
+  const [breakdownSeconds, setBreakdownSeconds] = useState<number | null>(null);
   const [data, setData] = useState<Record<string, unknown>>({});
   const [phase, setPhase] = useState<FieldPhase>('auto');
   const [reviewing, setReviewing] = useState(false);
@@ -48,6 +49,7 @@ export function EntryPage(props: EntryPageProps) {
   const [submitting, setSubmitting] = useState(false);
   const inFlight = useRef(false);
   const errorRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
   // "Q38 · 5951": the team's number is the label's first word ("5951 Tiny Titans").
   usePageTitle(`${props.matchLabel} · ${props.teamLabel.split(' ')[0] ?? ''}`);
   // The desktop crumb keeps the team's name: "Scout / Q39 · 1690 Orbit" (Entry final).
@@ -76,7 +78,9 @@ export function EntryPage(props: EntryPageProps) {
     if (source === null) return;
     setStatus((source.robot_status as RobotStatus | null) ?? null);
     setData((source.data as Record<string, unknown>) ?? {});
-    setBreakdownSeconds(Number(source.breakdown_seconds ?? 0));
+    setBreakdownSeconds(
+      typeof source.breakdown_seconds === 'number' ? source.breakdown_seconds : null,
+    );
   }, [loaded, draft, props.existing]);
 
   const dead = status === 'no_show' || status === 'disabled';
@@ -88,11 +92,11 @@ export function EntryPage(props: EntryPageProps) {
   function update(next: {
     status?: RobotStatus;
     data?: Record<string, unknown>;
-    seconds?: number;
+    seconds?: number | null;
   }) {
     const nextStatus = next.status ?? status;
     const nextData = next.data ?? data;
-    const nextSeconds = next.seconds ?? breakdownSeconds;
+    const nextSeconds = next.seconds !== undefined ? next.seconds : breakdownSeconds;
     setStatus(nextStatus);
     setData(nextData);
     setBreakdownSeconds(nextSeconds);
@@ -157,7 +161,14 @@ export function EntryPage(props: EntryPageProps) {
   );
 
   const pane = showPhases && (
-    <PhaseTabs phases={phases} value={current.key} onChange={setPhase} done={done} phone={!desktop}>
+    <PhaseTabs
+      phases={phases}
+      value={current.key}
+      onChange={setPhase}
+      done={done}
+      phone={!desktop}
+      swipeArea={mainRef}
+    >
       {current.fields.map((field) => (
         <FieldInput
           key={field.key}
@@ -214,10 +225,16 @@ export function EntryPage(props: EntryPageProps) {
   }
 
   return (
-    <main data-pinned-foot="" className="flex flex-1 flex-col">
+    // The whole page takes the phase swipe (PhaseTabs), the space below a short form too;
+    // the browser keeps the vertical scroll and the pinch zoom.
+    <main
+      ref={mainRef}
+      data-pinned-foot=""
+      className="flex flex-1 touch-pan-y touch-pinch-zoom flex-col"
+    >
       {header}
       <div className="px-4 py-3">{statusBlock}</div>
-      <div className="flex-1">{pane}</div>
+      <div className="flex flex-1 flex-col">{pane}</div>
       {/* The wrapper is the sticky element and a direct child of <main>, which is taller than
           the bar: pinned at the bottom while a long phase scrolls. Its mt-0 override drops the
           bar's own top margin, so no scrolled content shows in a gap above the border. */}

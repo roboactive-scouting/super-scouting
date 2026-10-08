@@ -20,8 +20,9 @@ export function RobotStatusPicker({
 }: {
   value: RobotStatus | null;
   onChange: (status: RobotStatus) => void;
-  breakdownSeconds: number;
-  onBreakdownSeconds: (seconds: number) => void;
+  /** Null while the field is empty. */
+  breakdownSeconds: number | null;
+  onBreakdownSeconds: (seconds: number | null) => void;
 }) {
   const label = useId();
   const breakdownId = useId();
@@ -48,13 +49,19 @@ export function RobotStatusPicker({
           <div className="relative">
             <Input
               id={breakdownId}
-              type="number"
-              min={0}
+              // Digits only (UF.5): a text box, so a "." or "-" a keypad offers is stripped as it
+              // is typed, not kept invisible by a number input; "020" reads back as 20.
+              type="text"
               inputMode="numeric"
+              pattern="[0-9]*"
+              autoComplete="off"
               mono
               className="pe-8 text-lg font-semibold"
-              value={breakdownSeconds}
-              onChange={(e) => onBreakdownSeconds(Number(e.target.value))}
+              value={breakdownSeconds ?? ''}
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, '');
+                onBreakdownSeconds(digits === '' ? null : Number(digits));
+              }}
             />
             <span
               aria-hidden="true"

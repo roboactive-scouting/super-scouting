@@ -245,6 +245,30 @@ describe('syncPush', () => {
     expect(straySeconds.results[0]).toMatchObject({ status: 'rejected', reason: 'invalid' });
   });
 
+  it('rejects a fractional or negative breakdown time as invalid, named, before any write', async () => {
+    for (const [i, seconds] of [2.5, -3].entries()) {
+      const res = await syncPush(
+        scouter,
+        {
+          device_id: 'd-1',
+          operations: [
+            op({
+              row_id: `b-frac-${i}`,
+              payload: { ...op().payload, robot_status: 'broke_down', breakdown_seconds: seconds },
+            }),
+          ],
+        },
+        ctx,
+      );
+      expect(res.results[0]).toMatchObject({
+        status: 'rejected',
+        reason: 'invalid',
+        detail: expect.stringContaining('whole number of seconds'),
+      });
+      expect(res.results[0]).not.toMatchObject({ detail: 'unexpected server error' });
+    }
+  });
+
   it('is a noop when the bare match already exists', async () => {
     ctx.rows.matches.set(M_9, {
       id: M_9,

@@ -78,7 +78,8 @@ export function shouldDismiss(distance: number, velocity: number, size: number):
 }
 
 /** Text being typed into keeps its own gestures (moving the caret, selecting). */
-const TEXT_ENTRY = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
+export const TEXT_ENTRY =
+  'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 const SETTLE_MS = 200;
 const LEAVE_MS = 160;
 /** A click this soon after a drag's release is the drag's own, not a tap. */

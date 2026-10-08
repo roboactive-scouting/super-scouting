@@ -8,6 +8,9 @@ export type EntryShape = {
   breakdown_seconds: number | null;
 };
 
+/** The largest value the `breakdown_seconds` integer column holds. */
+const MAX_BREAKDOWN_SECONDS = 2_147_483_647;
+
 /**
  * The three SPEC-FINAL 3.5 constraints that span form kinds and therefore cannot be
  * database check constraints. Both sides call this: the client before submit, and the
@@ -33,6 +36,15 @@ export function validateEntryShape(row: EntryShape): string[] {
   }
   if (!brokeDown && row.breakdown_seconds !== null) {
     issues.push('breakdown time is recorded only when the robot broke down');
+  }
+  // The column is a Postgres `integer`: a fraction, a negative or an overflow would otherwise
+  // fail the insert itself, which the client sees as a transient error and retries for ever.
+  const seconds = row.breakdown_seconds;
+  if (
+    seconds !== null &&
+    !(Number.isInteger(seconds) && seconds >= 0 && seconds <= MAX_BREAKDOWN_SECONDS)
+  ) {
+    issues.push('breakdown time must be a whole number of seconds, 0 or more');
   }
 
   return issues;

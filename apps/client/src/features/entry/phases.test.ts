@@ -22,11 +22,17 @@ describe('entry phases', () => {
     );
   });
 
-  it('turns a sideways gesture of 60 px or more into a step, and ignores a scroll', () => {
-    expect(swipeStep(-60, 5)).toBe(1);
-    expect(swipeStep(80, -10)).toBe(-1);
-    expect(swipeStep(-59, 0)).toBe(0);
-    expect(swipeStep(-70, 90)).toBe(0);
+  it('steps past 30 % of the pane (at most 120 px) or on a flick, and springs back short of it', () => {
+    // a slow drag on a 375 px pane: 112.5 px decides
+    expect(swipeStep(-113, 0, 375)).toBe(1);
+    expect(swipeStep(113, 0, 375)).toBe(-1);
+    expect(swipeStep(-110, 0, 375)).toBe(0);
+    expect(swipeStep(-121, 0, 1000)).toBe(1);
+    // a flick (0.5 px/ms) the way of the drag goes at any distance; one back the other way does not
+    expect(swipeStep(-30, -0.6, 375)).toBe(1);
+    expect(swipeStep(30, 0.6, 375)).toBe(-1);
+    expect(swipeStep(-30, 0.6, 375)).toBe(0);
+    expect(swipeStep(0, -1, 375)).toBe(0);
   });
 
   it('reads values for the confirm list', () => {

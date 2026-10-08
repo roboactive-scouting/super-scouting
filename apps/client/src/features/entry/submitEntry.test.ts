@@ -107,6 +107,18 @@ describe('submitEntry', () => {
     expect(second!.payload.breakdown_seconds).toBeNull();
   });
 
+  it('refuses Broke down without a breakdown time, and queues nothing (SPEC-FINAL 3.5)', async () => {
+    await expect(
+      submitEntry({
+        ...base,
+        robotStatus: 'broke_down',
+        breakdownSeconds: null,
+        data: { auto_notes: 2 },
+      }),
+    ).rejects.toThrow(/needs its breakdown time/);
+    expect(await pending(10)).toHaveLength(0);
+  });
+
   it('refuses a value outside the expected range (SPEC-FINAL 15.1)', async () => {
     await expect(
       submitEntry({ ...base, robotStatus: 'played', data: { auto_notes: 11 } }),

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CachedRow } from '@/data/db';
 import { db } from '@/data/db';
 import { pending } from '@/data/outbox';
@@ -93,7 +94,12 @@ async function renderEntry(opts: { draftSavedAt?: string } = {}) {
       updated_at: opts.draftSavedAt,
     });
   }
-  render(<EntryPage {...props} />);
+  // A router for the phone header's back link.
+  render(
+    <MemoryRouter>
+      <EntryPage {...props} />
+    </MemoryRouter>,
+  );
   await screen.findByRole('group', { name: /robot status/i });
 }
 
@@ -376,5 +382,230 @@ describe('EntryPage', () => {
       expect(await screen.findByRole('alert')).toHaveTextContent(/locked — ask a lead/);
       expect(await pending(10)).toHaveLength(0);
     });
+  });
+});
+
+describe('breakdown time (UF.5, SPEC-FINAL 3.5)', () => {
+  const box = () =>
+    screen.getByLabelText('Breakdown time (seconds from match start)') as HTMLInputElement;
+  const draft = async () =>
+    (await db.drafts.get(`${props.formVersionId}:${props.matchId}:${props.teamId}`))?.payload;
+
+  it('starts empty, clears to empty, and typing 20 gives 20', async () => {
+    const user = userEvent.setup();
+    render(<EntryPage {...props} />);
+    await user.click(await screen.findByRole('radio', { name: 'Broke down' }));
+    expect(box().value).toBe('');
+    await user.type(box(), '20');
+    expect(box().value).toBe('20');
+    await waitFor(async () => expect((await draft())?.breakdown_seconds).toBe(20));
+    await user.clear(box());
+    expect(box().value).toBe('');
+    await waitFor(async () => expect((await draft())?.breakdown_seconds).toBeNull());
+  });
+
+  it('takes digits only: a "." or "-" is dropped as it is typed', async () => {
+    const user = userEvent.setup();
+    render(<EntryPage {...props} />);
+    await user.click(await screen.findByRole('radio', { name: 'Broke down' }));
+    await user.type(box(), '-2.5');
+    expect(box().value).toBe('25');
+    await waitFor(async () => expect((await draft())?.breakdown_seconds).toBe(25));
+    await user.clear(box());
+    await user.type(box(), 'x');
+    expect(box().value).toBe('');
+    await waitFor(async () => expect((await draft())?.breakdown_seconds).toBeNull());
+  });
+
+  it('blocks a Broke down submit while the field is empty', async () => {
+    const user = userEvent.setup();
+    render(<EntryPage {...props} />);
+    await user.click(await screen.findByRole('radio', { name: 'Broke down' }));
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    await user.click(await screen.findByRole('button', { name: /submit entry/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/needs its breakdown time/);
+    expect(await pending(10)).toHaveLength(0);
+  });
+
+  it('sends the time with Broke down, and none once the status changes', async () => {
+    const user = userEvent.setup();
+    render(<EntryPage {...props} />);
+    await user.click(await screen.findByRole('radio', { name: 'Broke down' }));
+    await user.type(box(), '74');
+    await user.click(screen.getByRole('radio', { name: 'Played' }));
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    await user.click(await screen.findByRole('button', { name: /submit entry/i }));
+    await waitFor(async () => expect(await pending(10)).toHaveLength(1));
+    const [op] = await pending(10);
+    expect(op?.payload).toMatchObject({ robot_status: 'played', breakdown_seconds: null });
+  });
+});
+
+describe('phase swipe on a phone (UF.5)', () => {
+  /** jsdom has no PointerEvent: a MouseEvent carrying the pointer fields the swipe reads. */
+  class TestPointerEvent extends MouseEvent {
+    pointerId = 1;
+    pointerType: string;
+    isPrimary = true;
+    constructor(type: string, init: MouseEventInit & { pointerType?: string } = {}) {
+      super(type, { bubbles: true, cancelable: true, ...init });
+      this.pointerType = init.pointerType ?? 'touch';
+    }
+  }
+  function pointer(el: Element, type: string, x: number, y: number, t = 0) {
+    const e = new TestPointerEvent(type, { clientX: x, clientY: y });
+    Object.defineProperty(e, 'timeStamp', { value: t });
+    fireEvent(el, e);
+  }
+  /** A slow stroke on `el` through `points` ([x, y, ms]), released at the last one. */
+  function stroke(el: Element, points: [number, number, number][]) {
+    points.forEach(([x, y, t], i) => pointer(el, i === 0 ? 'pointerdown' : 'pointermove', x, y, t));
+    const [x, y, t] = points[points.length - 1]!;
+    pointer(el, 'pointerup', x, y, t);
+  }
+  const slowSideways = (by: number): [number, number, number][] => [
+    [200, 300, 0],
+    [200 + Math.sign(by) * 10, 300, 1000],
+    [200 + by, 300, 2000],
+  ];
+
+  /** A phone (not desktop), with or without reduced motion; the pane 375 px wide. */
+  const original = window.matchMedia;
+  const width = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
+  function phone({ reduced = false } = {}) {
+    window.matchMedia = ((query: string) => ({
+      matches: reduced && query.includes('reduced-motion'),
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    })) as unknown as typeof window.matchMedia;
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+      configurable: true,
+      get: () => 375,
+    });
+  }
+  afterEach(() => {
+    window.matchMedia = original;
+    if (width) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', width);
+  });
+
+  const selected = (name: string) => screen.getByRole('tab', { name, selected: true });
+  const panel = () => screen.getByRole('tabpanel');
+
+  async function played() {
+    await renderEntry();
+    await userEvent.click(screen.getByRole('radio', { name: 'Played' }));
+    expect(selected('Auto')).toBeInTheDocument();
+  }
+
+  it('a swipe left on the empty page below the form follows the finger, then goes to the next phase', async () => {
+    phone();
+    await played();
+    const main = screen.getByRole('main');
+    pointer(main, 'pointerdown', 200, 600);
+    pointer(main, 'pointermove', 190, 600, 1000);
+    pointer(main, 'pointermove', 70, 600, 2000);
+    expect(panel().style.transform).toBe('translateX(-130px)');
+    pointer(main, 'pointerup', 70, 600, 2000);
+    await waitFor(() => expect(selected('Teleop')).toBeInTheDocument());
+    expect(panel().style.transform).toBe('');
+    // and a swipe right comes back
+    stroke(main, slowSideways(130));
+    await waitFor(() => expect(selected('Auto')).toBeInTheDocument());
+  });
+
+  it('springs back from a short drag, and gives only a rubber band before the first phase', async () => {
+    phone();
+    await played();
+    const main = screen.getByRole('main');
+    stroke(main, slowSideways(-80));
+    expect(selected('Auto')).toBeInTheDocument();
+    expect(panel().style.transform).toBe('');
+    expect(panel().style.transition).toContain('transform');
+
+    pointer(main, 'pointerdown', 200, 300);
+    pointer(main, 'pointermove', 210, 300, 1000);
+    pointer(main, 'pointermove', 600, 300, 2000);
+    const band = parseFloat(panel().style.transform.replace('translateX(', ''));
+    expect(band).toBeGreaterThan(0);
+    expect(band).toBeLessThan(24);
+    pointer(main, 'pointerup', 600, 300, 2000);
+    expect(selected('Auto')).toBeInTheDocument();
+  });
+
+  it('goes on a fast flick, however short', async () => {
+    phone();
+    await played();
+    stroke(screen.getByRole('main'), [
+      [200, 300, 0],
+      [180, 300, 20],
+      [160, 300, 40],
+    ]);
+    await waitFor(() => expect(selected('Teleop')).toBeInTheDocument());
+  });
+
+  it('leaves a mostly vertical gesture to scroll the page', async () => {
+    phone();
+    await played();
+    stroke(screen.getByRole('main'), [
+      [200, 300, 0],
+      [205, 320, 1000],
+      [80, 500, 2000],
+    ]);
+    expect(selected('Auto')).toBeInTheDocument();
+    expect(panel().style.transform).toBe('');
+  });
+
+  it('a tap on a counter still counts; a swipe that starts on it changes phase and does not', async () => {
+    phone();
+    await played();
+    const plus = screen.getByRole('button', { name: 'Auto notes plus one' });
+    pointer(plus, 'pointerdown', 300, 300);
+    pointer(plus, 'pointerup', 300, 300, 100);
+    fireEvent.click(plus);
+    expect(screen.getByLabelText('Auto notes value')).toHaveTextContent('1');
+
+    stroke(plus, slowSideways(-150));
+    fireEvent.click(plus);
+    await waitFor(() => expect(selected('Teleop')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('tab', { name: /Auto/ }));
+    expect(screen.getByLabelText('Auto notes value')).toHaveTextContent('1');
+  });
+
+  it('never starts from a focused text field', async () => {
+    phone();
+    await renderEntry();
+    await userEvent.click(screen.getByRole('radio', { name: 'Broke down' }));
+    const box = screen.getByLabelText('Breakdown time (seconds from match start)');
+    box.focus();
+    stroke(box, slowSideways(-150));
+    expect(selected('Auto')).toBeInTheDocument();
+  });
+
+  it('the review sheet closes on a drag down (UF.4), back to the form', async () => {
+    phone({ reduced: true });
+    await played();
+    await userEvent.click(screen.getByRole('button', { name: /review entry/i }));
+    const title = await screen.findByRole('heading', { name: 'Confirm this entry' });
+    stroke(title, [
+      [200, 100, 0],
+      [200, 110, 1000],
+      [200, 300, 2000],
+    ]);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(selected('Auto')).toBeInTheDocument();
+    expect(await pending(10)).toHaveLength(0);
+  });
+
+  it('under reduced motion nothing follows the finger and a qualifying swipe just changes phase', async () => {
+    phone({ reduced: true });
+    await played();
+    const main = screen.getByRole('main');
+    pointer(main, 'pointerdown', 200, 300);
+    pointer(main, 'pointermove', 190, 300, 1000);
+    pointer(main, 'pointermove', 50, 300, 2000);
+    expect(panel().style.transform).toBe('');
+    pointer(main, 'pointerup', 50, 300, 2000);
+    expect(selected('Teleop')).toBeInTheDocument();
   });
 });

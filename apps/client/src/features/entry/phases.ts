@@ -5,6 +5,7 @@ import {
   type FormFieldDefinition,
   type RobotStatus,
 } from '@frc/shared';
+import { shouldDismiss } from '@/components/ui/drag-dismiss';
 
 /** The order a match is played in; a phase with no fields gets no tab (Entry README). */
 export const PHASE_ORDER: readonly FieldPhase[] = ['auto', 'teleop', 'endgame', 'post_match'];
@@ -62,15 +63,14 @@ export function donePhases(
   return new Set(phases.filter((p) => filledCount(p, data) > 0).map((p) => p.key));
 }
 
-/** A swipe's minimum sideways travel in px. */
-export const SWIPE_PX = 60;
-
 /**
- * Which way a finished gesture moves through the phases: +1 (swiped left: next), -1 (swiped
- * right: previous) or 0 (too short, or more up-and-down than sideways: a scroll).
+ * Which way a finished sideways drag moves through the phases: +1 (swiped left: next), -1
+ * (swiped right: previous) or 0 (springs back). It takes the distance or flick a sheet's
+ * dismiss takes (drag-dismiss): 30 % of the pane's `width`, at most 120 px, or 0.5 px/ms.
+ * `velocity` is the drag's speed along x (px per ms, negative to the left).
  */
-export function swipeStep(dx: number, dy: number): -1 | 0 | 1 {
-  if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) <= Math.abs(dy)) return 0;
+export function swipeStep(dx: number, velocity: number, width: number): -1 | 0 | 1 {
+  if (!shouldDismiss(Math.abs(dx), Math.sign(dx) * velocity, width)) return 0;
   return dx < 0 ? 1 : -1;
 }
 

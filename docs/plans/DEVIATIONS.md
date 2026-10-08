@@ -4865,3 +4865,52 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
 - Mutation-checked: with the drag disabled, all three UF.4 e2e tests fail. Without the scrolled-content check, or without dropping a gesture that starts upward, the matching component test fails.
 
 **Risk:** none known.
+
+## UF.5 — Entry: swipe between phases anywhere on the page, smoother; breakdown time can be cleared
+
+**Plan said:** a phase swipe anywhere on the page, including the empty area below the form, with a smoother transition that follows the finger, but not while a counter or input is in use.
+
+**What was wrong:** nothing; these are choices the plan left open. One prompt line ("not while a counter … is being used") conflicts with the final's frame 2, which shows the page sliding over the counters. The prompt's own refinement settles it: a tap without movement must still click.
+
+**What I did instead:**
+- The swipe is native pointer listeners on the phone `<main>`. `PhaseTabs` takes a new `swipeArea` ref and binds them there. `<main>` gets `touch-pan-y touch-pinch-zoom`. The phase wrapper and `PhaseTabs`' pane box are `flex-1`, so the grey space below a short phase belongs to the page and to the clipping box.
+- The listeners are native rather than React props because React events bubble through portals. The confirm sheet is portalled into `<body>`, so a drag inside it would otherwise reach `<main>`'s handlers.
+- The axis lock is `gestureIntent('start', -|dx|, dy)` from UF.4: the same 6 px slop and the same horizontal-versus-vertical test, either way along the row. A vertical gesture is dropped, and the browser scrolls.
+- The pane follows 1:1, with UF.4's `followOffset` rubber band (24 px cap) before the first phase and after the last. It moves `transform` on the tabpanel. The pager foot stays put.
+- `swipeStep(dx, velocity, width)` replaces `swipeStep(dx, dy)` and `SWIPE_PX` (60 px). It reuses UF.4's `shouldDismiss`: 30 % of the pane box, at most 120 px, or a 0.5 px/ms flick the way of the drag. On a 375 px phone that is about 112 px, up from 60, but a short flick now goes at any distance.
+- A committed swipe slides the old pane out (140 ms, ease-out). Then the new phase enters from the side it was swiped from (260 ms, `EASE_IN_PLACE`), set up in a `useLayoutEffect` so the old position never paints. A short drag springs back (200 ms). A tab or pager tap keeps the old 32 px / opacity 0.4 entrance.
+- Under reduced motion nothing follows the finger and a qualifying swipe just switches phase.
+- Touch and pen only, like UF.4. A swipe can start on a counter's button. A swipe never starts from a focused text field (`TEXT_ENTRY`, now exported from `drag-dismiss.ts`).
+- After a swipe, a click within 400 ms is swallowed, as in UF.4. Unlike UF.4, a new `pointerdown` resets that window. The e2e caught the problem: Playwright's "Previous phase" click about 100 ms after a swipe was eaten.
+- The existing e2e swipe used `page.mouse`. It now uses `touchDrag`, which accepts a page point as well as a locator.
+
+**Risk:** the release threshold is higher than before (about 112 px versus 60 px) for a slow drag. If it feels heavy on the device, `swipeStep` is the one place to lower it. Initial JS went from 202.6 to 203.4 KB gzip, leaving 1.6 KB under the 205 KB budget.
+
+**Plan said:** breakdown time clears; typing 20 gives 20.
+
+**What was wrong:** `EntryPage` held `breakdownSeconds` as `number` (initially `0`) and restored the draft with `Number(source.breakdown_seconds ?? 0)`. That effect re-runs on every `save()`, so clearing the field (`Number('')` = 0) immediately put the 0 back. It also meant a Broke down submit always carried at least 0, and SPEC 3.5's "needs its breakdown time" check could never fire from the page.
+
+**What I did instead:** the state is `number | null` end to end: `EntryPage`, `RobotStatusPicker` (`value={breakdownSeconds ?? ''}`, where `''` becomes null) and `SubmitEntryInput.breakdownSeconds?: number | null`. `update()` uses `!== undefined` so an explicit null is kept. `submitEntry` was already sending null for any status other than broke_down.
+
+**Risk:** an old draft saved with `breakdown_seconds: 0` still restores as 0, which is a real value, and the scout can now clear it. The field takes `inputMode="numeric"` with no integer check, so on an Android keypad that offers "." or "-" the scout can still type a decimal or a negative. Neither the client nor `validateEntryShape` rejects that, and the column is `integer`. This is not new, and it was not changed here (see report).
+
+**Plan said:** check the review sheet's swipe-down from UF.4.
+
+**What was wrong:** nothing.
+
+**What I did instead:** checked it in a component test (phone layout, drag the title down, and the sheet closes with nothing queued) and in the new e2e test (`touchDrag` dy 220 on the real sheet).
+
+**Risk:** none known.
+
+## UF.5 (addendum) — breakdown time is a whole number of seconds, client and server
+
+**Plan said:** nothing. The orchestrator added this after the UF.5 report flagged the hole: a decimal or negative `breakdown_seconds` passed every check and failed the `integer` column insert, which the client reads as "unexpected server error" and retries for ever.
+
+**What was wrong:** `packages/shared` has no match-length constant to bound it by (searched `packages/shared/src` for match length, duration and `_SECONDS`; none).
+
+**What I did instead:**
+- `validateEntryShape` adds "breakdown time must be a whole number of seconds, 0 or more" when `breakdown_seconds` is not null and is not an integer between 0 and 2 147 483 647. That upper bound is the Postgres `integer` limit, not a match length. It is there because a digits-only field can still overflow the column, and that is the same DB-error path. The server's push already runs this check, so a bad value is now `invalid` with that detail (parked and shown), never the transient error.
+- The client field is `type="text" inputMode="numeric" pattern="[0-9]*"` and strips non-digits on every change. It moved off `type="number"`, because a number input reports `""` for a lone "-" or "2." and keeps showing it, so stripping cannot reach what is on screen.
+- Tests: shared (2.5, -3, NaN, Infinity and 2³¹ rejected; 0, 20 and 2³¹−1 accepted); `syncPush` (2.5 and -3 come back `invalid` with the detail, not "unexpected server error"); EntryPage (typing "-2.5" gives "25", typing "x" leaves it empty). Mutation-checked: disabling the shared rule fails the shared and server tests. `apps/server/api/index.js` was rebuilt.
+
+**Risk:** an op already queued on a device with a fractional or negative time, made by an earlier build, is now parked as invalid with a reason instead of being retried for ever. That is the intended outcome. Initial JS is 203.5 KB gzip.

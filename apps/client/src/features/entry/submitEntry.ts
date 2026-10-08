@@ -19,7 +19,8 @@ export type SubmitEntryInput = {
   alliance: 'red' | 'blue' | null;
   authorUserId: string;
   robotStatus: RobotStatus | null;
-  breakdownSeconds?: number;
+  /** Null or absent while the scout has not given one. */
+  breakdownSeconds?: number | null;
   data: Record<string, unknown>;
   draftKey?: string;
   rowId?: string;
