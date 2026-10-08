@@ -107,11 +107,7 @@ test('entries: newest first, waiting arrows, the refused line', async ({ page })
   await shoot(page, 'entries', 'desktop');
   // Phone: the long name is whole, on as many lines as it needs.
   await page.setViewportSize({ width: 375, height: 812 });
-  const card = page
-    .getByRole('main')
-    .getByRole('listitem')
-    .filter({ hasText: LONG_NAME })
-    .first();
+  const card = page.getByRole('main').getByRole('listitem').filter({ hasText: LONG_NAME }).first();
   await expect(card).toContainText(`${LONG_NAME} ·`);
   await expect(card).toHaveCSS('cursor', 'auto');
   const name = card.getByText(LONG_NAME, { exact: false });
