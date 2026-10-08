@@ -48,7 +48,7 @@ export type FormVersionDefinition = {
   fields: FormFieldDefinition[];
 };
 
-export function selectOptions(field: FormFieldDefinition): SelectOption[] {
+export function selectOptions(field: Pick<FormFieldDefinition, 'config'>): SelectOption[] {
   const raw = field.config.options;
   return Array.isArray(raw) ? (raw as SelectOption[]) : [];
 }

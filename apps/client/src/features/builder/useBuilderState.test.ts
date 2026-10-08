@@ -271,3 +271,61 @@ describe('keys and phase placement', () => {
     expect(phaseAt(withSection, 1)).toBe('teleop');
   });
 });
+
+describe('useBuilderState — references follow a new key (task 1.30, fix round 1, I3)', () => {
+  const row = (over: Partial<FormFieldDefinition> & { id: string; key: string }) =>
+    ({ ...initial.fields[0]!, ...over }) as FormFieldDefinition;
+
+  it("B's condition on unsaved A survives A's phase change, and so does a computed sum of A", () => {
+    const { result } = renderHook(() =>
+      useBuilderState({
+        ...initial,
+        fields: [row({ id: 'h', key: 'auto_high', display_order: 1 })],
+      }),
+    );
+    act(() => result.current.addField('toggle', { phase: 'auto' }));
+    const a = result.current.selectedField!;
+    expect(a.key).toBe('auto_toggle');
+    act(() => result.current.addField('counter', { phase: 'auto' }));
+    const b = result.current.selectedField!;
+    act(() =>
+      result.current.updateField(b.key, {
+        visibility_condition: { field_key: 'auto_toggle', op: '=', value: true },
+      }),
+    );
+    act(() => result.current.addField('computed', { phase: 'auto' }));
+    const c = result.current.selectedField!;
+    act(() =>
+      result.current.updateField(c.key, {
+        config: {
+          expression: {
+            kind: 'op',
+            op: '+',
+            left: { kind: 'field', key: 'auto_high' },
+            right: { kind: 'field', key: 'auto_toggle' },
+          },
+          result_type: 'float',
+        },
+      }),
+    );
+
+    // A is unsaved: moving it to Teleop moves its key, and B and C follow it.
+    act(() => result.current.updateField('auto_toggle', { phase: 'teleop' }));
+    const byId = (id: string) => result.current.fields.find((f) => f.id === id)!;
+    expect(byId(a.id).key).toBe('tele_toggle');
+    expect(byId(b.id).visibility_condition).toEqual({
+      field_key: 'tele_toggle',
+      op: '=',
+      value: true,
+    });
+    expect(byId(c.id).config.expression).toEqual({
+      kind: 'op',
+      op: '+',
+      left: { kind: 'field', key: 'auto_high' },
+      right: { kind: 'field', key: 'tele_toggle' },
+    });
+    expect(result.current.issuesFor(byId(b.id).key).map((i) => i.path)).not.toContain(
+      'visibility_condition',
+    );
+  });
+});

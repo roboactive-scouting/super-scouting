@@ -1,4 +1,5 @@
 import type { FieldTypeName } from './config';
+import { selectOptions } from './types';
 
 /**
  * SPEC-FINAL 4.1: the only field types a scoring rule may name. Toggle scores `points` when
@@ -15,15 +16,57 @@ export const SCORABLE_FIELD_TYPES = [
   'multi_select',
 ] as const satisfies readonly FieldTypeName[];
 
-const SCORABLE: ReadonlySet<string> = new Set(SCORABLE_FIELD_TYPES);
-const SELECTS: ReadonlySet<string> = new Set(['single_select', 'multi_select']);
+// An array, not `new Set(SCORABLE_FIELD_TYPES)`: a Set built from a variable is a side effect to
+// the bundler, which then ships this module in the client's initial JS although only the lazy
+// form builder calls it (task 1.30; DEVIATIONS 1.29, "shared module rule").
+const SCORABLE: readonly string[] = SCORABLE_FIELD_TYPES;
+
+/** The types that score by option (`option_points`) and may be ordinal. */
+export const SELECT_FIELD_TYPES = [
+  'single_select',
+  'multi_select',
+] as const satisfies readonly FieldTypeName[];
+const SELECTS: readonly string[] = SELECT_FIELD_TYPES;
 
 export function isScorable(type: FieldTypeName): boolean {
-  return SCORABLE.has(type);
+  return SCORABLE.includes(type);
+}
+
+export function isSelectType(type: string): boolean {
+  return SELECTS.includes(type);
 }
 
 /** What a rule is checked against: a LIVE field of the form. */
 export type ScoringField = { key: string; type: FieldTypeName; config: Record<string, unknown> };
+
+/**
+ * The fields a scoring rule may name (task 1.28, decision A; review #9): the live fields of
+ * the form's active version, then of its draft. Where both have a key, the draft's TYPE wins —
+ * it is the newer definition, the one the builder is editing — but a select's options are
+ * the UNION of both versions' (the draft's first): scoring is not versioned, and an option the
+ * draft dropped is still scored by every entry of the active version. When the two disagree on
+ * the type, options are still taken from both, so long as both are selects. One copy for the
+ * server's `setScoringRules` and the builder's pre-check, so the two cannot drift (task 1.30).
+ */
+export function scoringUniverse<F extends ScoringField & { deprecated?: boolean | null }>(
+  active: readonly F[],
+  draft: readonly F[],
+): F[] {
+  const byKey = new Map<string, F>();
+  for (const field of [...active, ...draft]) {
+    if (field.deprecated) continue;
+    const earlier = byKey.get(field.key);
+    if (earlier && isSelectType(field.type) && isSelectType(earlier.type)) {
+      const own = selectOptions(field);
+      const seen = new Set(own.map((o) => o.value));
+      const union = [...own, ...selectOptions(earlier).filter((o) => !seen.has(o.value))];
+      byKey.set(field.key, { ...field, config: { ...field.config, options: union } });
+    } else {
+      byKey.set(field.key, field);
+    }
+  }
+  return [...byKey.values()];
+}
 
 export type ScoringRuleCandidate = {
   field_key: string;
@@ -75,14 +118,14 @@ export function validateScoringRules(
       push('field_key', `scoring names '${key}', which is not a field of this ${options.noun}`);
       return;
     }
-    if (!SCORABLE.has(field.type)) {
+    if (!SCORABLE.includes(field.type)) {
       push(
         'field_key',
         `'${key}' is a ${field.type} field; only toggle, counter, number, single_select and multi_select fields are scored`,
       );
       return;
     }
-    const isSelect = SELECTS.has(field.type);
+    const isSelect = isSelectType(field.type);
     if (!validPoints(rule.points)) {
       push('points', 'points must be a number of at least 0; penalties are never subtracted');
     } else if (isSelect && rule.points !== 0) {

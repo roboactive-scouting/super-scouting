@@ -1168,8 +1168,31 @@ var SCORABLE_FIELD_TYPES = [
   "single_select",
   "multi_select"
 ];
-var SCORABLE = new Set(SCORABLE_FIELD_TYPES);
-var SELECTS = /* @__PURE__ */ new Set(["single_select", "multi_select"]);
+var SCORABLE = SCORABLE_FIELD_TYPES;
+var SELECT_FIELD_TYPES = [
+  "single_select",
+  "multi_select"
+];
+var SELECTS = SELECT_FIELD_TYPES;
+function isSelectType(type) {
+  return SELECTS.includes(type);
+}
+function scoringUniverse(active, draft) {
+  const byKey = /* @__PURE__ */ new Map();
+  for (const field of [...active, ...draft]) {
+    if (field.deprecated) continue;
+    const earlier = byKey.get(field.key);
+    if (earlier && isSelectType(field.type) && isSelectType(earlier.type)) {
+      const own = selectOptions(field);
+      const seen = new Set(own.map((o) => o.value));
+      const union = [...own, ...selectOptions(earlier).filter((o) => !seen.has(o.value))];
+      byKey.set(field.key, { ...field, config: { ...field.config, options: union } });
+    } else {
+      byKey.set(field.key, field);
+    }
+  }
+  return [...byKey.values()];
+}
 var validPoints = (n) => Number.isFinite(n) && n >= 0;
 function optionValues(field) {
   const raw = field.config.options;
@@ -1193,14 +1216,14 @@ function validateScoringRules(rules, liveFields, options) {
       push("field_key", `scoring names '${key2}', which is not a field of this ${options.noun}`);
       return;
     }
-    if (!SCORABLE.has(field.type)) {
+    if (!SCORABLE.includes(field.type)) {
       push(
         "field_key",
         `'${key2}' is a ${field.type} field; only toggle, counter, number, single_select and multi_select fields are scored`
       );
       return;
     }
-    const isSelect2 = SELECTS.has(field.type);
+    const isSelect2 = isSelectType(field.type);
     if (!validPoints(rule.points)) {
       push("points", "points must be a number of at least 0; penalties are never subtracted");
     } else if (isSelect2 && rule.points !== 0) {
@@ -4131,27 +4154,12 @@ function scoringError(issues) {
   const summary = issues.length === 1 ? one : `${issues.length} problems in the scoring; first, ${one}`;
   return new AppError("invalid", summary, { reason: "invalid-scoring", issues });
 }
-var isSelectType = (type) => type === "single_select" || type === "multi_select";
 async function scorableUniverse(ctx, formId, activeVersionId) {
   const versions = await ctx.store.listFormVersions(formId);
   const draft = versions.find((v) => v.published_at === null);
-  const byKey = /* @__PURE__ */ new Map();
-  const ids = [activeVersionId, draft?.id ?? null].filter((id) => id !== null);
-  for (const id of ids) {
-    for (const field of await ctx.store.getFormFields(id)) {
-      if (field.deprecated) continue;
-      const earlier = byKey.get(field.key);
-      if (earlier && isSelectType(field.type) && isSelectType(earlier.type)) {
-        const options = selectOptions(field);
-        const seen = new Set(options.map((o) => o.value));
-        const union = [...options, ...selectOptions(earlier).filter((o) => !seen.has(o.value))];
-        byKey.set(field.key, { ...field, config: { ...field.config, options: union } });
-      } else {
-        byKey.set(field.key, field);
-      }
-    }
-  }
-  return [...byKey.values()];
+  const active = activeVersionId ? await ctx.store.getFormFields(activeVersionId) : [];
+  const drafted = draft ? await ctx.store.getFormFields(draft.id) : [];
+  return scoringUniverse(active, drafted);
 }
 async function setScoringRules(caller, input, ctx) {
   assertCan(caller, "manage_forms");
@@ -4160,9 +4168,7 @@ async function setScoringRules(caller, input, ctx) {
   const fields = await scorableUniverse(ctx, form.id, form.active_version_id ?? null);
   const issues = validateScoringRules(parsed.rules, fields, { prefix: "rules", noun: "form" });
   if (issues.length > 0) throw scoringError(issues);
-  const isSelect2 = new Map(
-    fields.map((f) => [f.key, f.type === "single_select" || f.type === "multi_select"])
-  );
+  const isSelect2 = new Map(fields.map((f) => [f.key, isSelectType(f.type)]));
   const existingIds = new Map(
     (await ctx.store.getScoringRules(form.id)).map((r) => [r.field_key, r.id])
   );

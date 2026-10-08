@@ -5845,3 +5845,272 @@ Tests: the palette case in `BuilderPage.test.tsx`. The held-Save case is in the 
 2. The sticky header stays opaque (`--line-2`) and gains bottom padding (`pb-2.5`, was `pb-1.5`). Once the column is scrolled, it also shows a 1 px `--line` rule along its bottom edge (a box-shadow, so nothing shifts). Items scroll into view with `scroll-mt-[4.5rem]` (was `scroll-mt-14`), so a selected item clears the header. Checked in `builder-new-field-desktop.png`: the first item's key line, `tele_cycle_routes`, now reads in full below the header.
 
 **Risk:** the new field joins a section the admin may not have meant. Moving it out is the settings pane's Section field (task 1.30).
+
+## Task 1.30 — the settings pane's props: pure, with the points in the same patch
+
+**Plan said:** the tests render `<SettingsPane field allFields onChange seasonImagePath? />`; the orchestrator: keep that pure shape, wire it to `state.updateField` "and a scoring callback", and adapt the plan's tests only where the scoring callback needs a prop.
+
+**What was wrong:** nothing; a shape had to be chosen. A separate scoring callback would have needed a prop the plan's tests do not pass, and test 3 ("offers scoring for a counter") expects `onChange` itself to fire when points are typed.
+
+**What I did instead:** `SettingsPane({ field: PaneField | null, allFields, onChange(patch: PanePatch), seasonImagePath?, editable?, saved?, published?, forkNote?, savedOptionValues?, issues?, scoringIssues?, onRemove? })`. `PaneField` is the definition plus its `points` / `option_points` (a `ScoredFieldRow`'s shape); `PanePatch` is a `FieldPatch` plus `points` / `option_points`. `BuilderPage.onPaneChange` splits the patch: the points go to the builder's scoring (`useScoring`), every other column to `state.updateField(key, columns)`. A phase change also moves the canvas to that phase. All optional props default to the plain case (editable, saved, a draft), so the plan's eight cases run unchanged, except one (next entry).
+
+**Risk:** none known. Rejected: an `onScoring` prop (the plan's counter test would then need it).
+
+## Task 1.30 — the plan's test file: one regex anchored, 1.29's page tests unfold the Field group
+
+**Plan said:** test 2 checks `getByLabelText(/unit/i)` is required, and test 3 types into `getByLabelText(/points per unit/i)`, both on the same counter.
+
+**What was wrong:** both labels are on the page at once, so `/unit/i` finds two elements: `TestingLibraryElementError: Found multiple elements with the text of: /unit/i`.
+
+**What I did instead:**
+- Test 2 uses `/^unit$/i`, with a comment. Every other plan case is verbatim; `field()` is cast to `PaneField`.
+- 1.29's page tests typed into the settings pane's Label at once. A saved, complete field's Field group now starts folded (the design), so a helper `labelBox(u)` unfolds it first (7 call sites).
+- Two 1.29 page tests now take longer under a full parallel run, because the pane makes the page's DOM larger (role queries are slower in jsdom). "a new field from the palette is incomplete…" took 4.8 s against the 5 s default, and "asks before another page…" missed its dialog within the 1 s `findByRole` default. They get `15_000` and a `5_000` `findByRole` timeout, each with a comment. Both pass alone in 1.7 s and 0.75 s.
+
+**Risk:** the suite is slower: the builder page file takes about 13 s alone.
+
+## Task 1.30 — the scoring matrix against one rule per field
+
+**Plan said:** "Scoring is a phase × value matrix" (design: Auto · Teleop · Endgame columns).
+
+**What was wrong:** a scoring rule holds one `points` (or one `option_points` map) per field, and a field has one phase (SPEC-FINAL 4.1 rule 2).
+
+**What I did instead (orchestrator decision):** the matrix stays. The column of the field's own phase holds the inputs. The other two are greyed boxes with sr-only "not this field's phase" (no inputs). A field with no phase, or in Notes, shows one "Points" column, with the line "Once its meaning names a phase, the points sit in that column." when the phase is blank. Rows: "Each piece" for a counter or number (input "Points per unit"), "Yes" for a toggle ("Points for yes"), one row per option for a select ("Points for <label>"). A select's change sends `points: 0` with its `option_points`. Inputs refuse negatives (shown invalid, nothing sent). A 0 cell is greyed (`--bg` fill, `--muted` text: `--faint` failed axe colour-contrast). "in place · no new version" shows on a published version. A type that is not scored has the Scoring group with a Note that says why: rating, timer, short text, long text, event log, position, cycle path and computed each have a sentence.
+
+**Risk:** none known.
+
+## Task 1.30 — persisting scoring: the whole rule set, read from both versions, after the fields
+
+**Plan said (orchestrator):** hold the form's full rule set locally, seeded from `version.fields`' points; on Save, `saveDraftFields` first, then `setScoringRules` with the whole set when it changed. Rules that are 0 everywhere are dropped. Validate with `validateScoringRules` first. A failure of the second call says the fields were saved and the points were not.
+
+**What was wrong:** `version.fields` is not the whole rule set. `setScoringRules` replaces every rule of the form, and its universe is the live fields of the draft and of the active version (task 1.28, review #9). A rule on a key only the OTHER version has (for example a field draft v4 added, while v3 is open) is not in this version's rows, so a set built from them alone would delete it.
+
+**What I did instead:**
+- `scoringRules.ts` holds one rule per field id (a new field's key still follows its label), from the loaded rows, deprecated ones included. `dirty` compares against what was loaded or last sent.
+- When the scoring changed, Save first reads the other version: the active version for a draft, or the draft for the active version (one more `getFormVersion`).
+- `wholeRuleSet` builds the set by key. It takes this version's live fields, then its other rows (retired, or removed in this session), then the other version's rows for keys this version lacks.
+- `scoringUniverse` builds the universe the way the server does. The draft's type wins, and two selects' options are a union. On the active version, if the save forks, the new draft is the live set and the active version is the baseline.
+- Only keys in that universe are sent. A select keeps option points only for options either version still has.
+- The set is checked with `validateScoringRules`. Any problem stops the whole save, with nothing sent: an error line names the field, and the problem shows in that field's Scoring group.
+- Then `saveDraftFields` runs, if the fields changed. A new field's points follow its server id (`rekey`). Then `setScoringRules`.
+- If `setScoringRules` fails after a field save, the line says "The fields were saved; the points were not. <reason>", and the points stay unsaved. If the save forked first, that line is carried to the new draft's page by a ref in `BuilderScreen`, which outlives the remounted editor. Router state was rejected: `useLocation` added an export to the initial chunk.
+- Publish saves first when either the fields or the points changed.
+- The canvas's points tags follow the points being edited.
+
+**Risk:**
+- A rule whose key is live in neither version (a key retired from both) cannot be sent (the server refuses it). So it is dropped by the next scoring save, and it no longer scores old entries of older versions. This is a consequence of 1.28's replace semantics, not new here.
+- Two tabs editing scoring still last-write-win (`setScoringRules` has no `base_updated_at`).
+
+## Task 1.30 — groups, folding, and what each group holds
+
+**Plan said:** one `Card` with the key line, then `SectionHeader level={3}` groups Field · Configuration · Meaning · Scoring · Show when; a complete group folds to a one-line summary. Fields from `features/admin/fields.tsx` and `Textarea`; errors are `FormError`.
+
+**What was wrong:**
+- No `SectionHeader` and no `FormError` component exist.
+- `features/admin/fields.tsx`'s `TextField` is a 48 px block with its own `mt-4` and hint layout, not the pane's `.fb-f` rows.
+- The design's images fold only Field and Meaning. Configuration, Scoring and Show when never have a "complete" state.
+
+**What I did instead:**
+- Each group is a `<section>` with an `h3` (`paneParts.PaneGroup`). Field and Meaning fold once complete: the `h3` holds a button with `aria-expanded`, and the folded line is the summary, e.g. "Teleop · not required · help: “…”" or "count · Teleop · higher is better · Scoring", with "✓ Complete".
+- A saved, complete field starts folded. A new (unsaved) field starts with everything open, to be filled now. An incomplete Meaning never folds.
+- Errors are `ErrorLine` (the 3 px `--warn` line).
+- Controls are `Input`, `Textarea`, `Select`, `Switch` and `Segmented` from `components/ui` in a pane-local row (`PaneRow`: 12 px / 650 label, a muted "required", "Needed to publish" in `--warn` linked by `aria-describedby`). `TextField` is not used.
+- **Field:** Label, Help text, **Type** (not in the design; next entry), Section (an `Input` with a `datalist` of the form's section names), Required.
+- **Meaning:** "4 required" and "⚠ N missing" (`WarningFlag`) or "✓ Complete". The Note "This cannot be added later. Nobody goes back and describes 80 fields." Description (`Textarea`, `required`), Unit (`Select`, `required`), Category (`Select`: the spec's five examples plus any the form already uses), Phase and Direction (`Segmented`, `aria-required`). A blank required control has a 2 px `--warn` edge or ring and "Needed to publish". The phase segments read Auto · Teleop · Endgame · Notes (the tabs' words, `PHASE_TAB`), not the image's "After".
+- Expected range is shown for counter and number only: the entry validator holds only those two to it (SPEC-FINAL 15.1). It has the line "A value outside it is blocked when the scouter enters it." Half a range writes `null`, with "Give both ends of the range, or neither."
+- **Configuration:**
+  - Counter and number: min, max, step and default; a blank one drops the key.
+  - Selects: Ordered ("the list order is the rank, worst → best"), WORST / BEST, and on a published version "Adding an option <starts|belongs in> draft vN". Options are reordered with ↑ ↓ buttons and removed with ✕ (never below one), not dragged by the design's grips. A saved option's value is permanent; a new one's follows its label.
+  - Event log: Buttons, "Ask where on the field" (turning it on sets `mirror_axis`, default left ↔ right), the mirror control and preview, and the Note on what a tap saves.
+  - Rating: highest rating and Stars / Slider.
+  - Text: the longest answer.
+  - Timer: a Note on "Unsure — no time".
+  - Position: One point / A list of points, mirror, preview.
+  - Cycle path: − n + (at least 2), mirror, preview.
+  - Computed: below.
+  - Toggle has no Configuration group.
+- A section-type field shows only its Label and a Note ("holds no data, so it has no meaning, scoring or condition").
+- Read-only (an older version): each group's controls sit in a disabled `fieldset`, the fold buttons stay usable, and the ⋯ menu is hidden.
+- The pane's inputs keep the 48 px floor (SPEC-FINAL 17.7), not the images' 38 px and 32 px, so the pane is longer than the images and scrolls sooner.
+- The unit is not filled in from the type. The new-field image shows "count" already chosen; the meaning is chosen by the admin at creation, never guessed.
+
+**Risk:** the design's drag grips on options are not built. ↑ ↓ does the same job with keyboard access.
+
+## Task 1.30 — changing a type, removing a field, and the ⋯ menu
+
+**Plan said:** nothing about a type control; the README: "a ⋯ menu (Remove field, which deprecates it in the next version)". Orchestrator: changing a type is allowed on a draft and forks on the active version, with 1.29's hold while a draft exists.
+
+**What was wrong:** the design draws no control that changes a type.
+
+**What I did instead:**
+- A **Type** `Select` in the Field group lists the 13 data types; a section cannot change type. On a published version its hint is "Changing the type <starts|belongs in> draft vN."
+- A change resets `config` to the type's default and sets `default_value: null`, `unit: null` (the meaning is re-chosen) and `is_ordinal` (false for a select, else null). It also drops the field's points, since a rule belongs to the type it was written for.
+- ⋯ is a small menu button ("Field actions: <label>") with one item, Remove field. It says what removing does here: "Retired in the next version: removing it starts draft vN" on a published version; "Retired from this draft…" on a saved draft field; "never saved, so it simply goes" on a new one. It calls `state.removeField`.
+- On the active version while a draft exists, a removal or a type change shows 1.29's held line "This change belongs in draft vN · Open draft vN" (now tested on the page).
+- A field dropped onto an item still gets `section: null` (1.29's note). The Section box is now where the admin sets it; `addField` is unchanged.
+
+**Risk:** resetting the unit on a type change makes a published field incomplete until its unit is chosen again.
+
+## Task 1.30 — the computed field's editor offers common shapes
+
+**Plan said (orchestrator):** the smallest honest editor that writes a valid `Expr`, validated live with `validateExpr`; `null` until written; if a full editor is too large, offer the common shapes and log what is not offered.
+
+**What was wrong:** nothing; this records the scope.
+
+**What I did instead:** `expressionShapes.ts`. "Worked out as" offers a sum of fields (two or more, "Add a field"), a difference, a product or a ratio (first a field; second a field or a number), and text joined (two text fields). `result_type` follows the shape: `string` for a join, `float` otherwise, so there is no separate control. Until every operand is chosen, `expression` stays `null`, with the line "Until every operand is chosen the expression stays empty, and the form can't be published." `validateExpr` issues show live as an `ErrorLine`. A complete expression is shown as text ("Saves `auto_high + tele_high` as a number").
+**Not offered:** nested mixes (`(a + b) / c`), a number on the left, a literal string, and a sum that mixes in a number. An expression of another shape (from JSON or an import) is shown as text with "Replace it", which starts a sum.
+
+**Risk:** an admin who needs `(a + b) / c` must use Edit as JSON (task 1.31).
+
+## Task 1.30 — Show when: one condition, written when complete
+
+**Plan said:** one condition, never a list.
+
+**What was wrong:** nothing; this records the choices.
+
+**What I did instead:**
+- A dashed "Show this field only when…" button opens one row: "When field" (the form's other live fields that hold one value: counter, number, rating, timer, toggle, single select, short and long text, computed), "Is" (ASCII `=` `!=`, plus `>` `<` `>=` `<=` for a number), and "Value".
+- The value control follows the field: Yes / No for a toggle, the options for a select, a number box, or text.
+- The condition is written only when a field and a value are chosen. Until then it stays `null`, with "Until a field and a value are chosen, this field always shows." A toggle or a select starts on its first answer, so it is written at once.
+- "Remove the condition" writes `null`.
+- Multi select, event log, position and cycle path are not offered as targets: they hold lists, and `isVisible` compares one value.
+
+**Risk:** none known.
+
+## Task 1.30 — the mirroring preview uses the season's game image
+
+**Plan said:** a mirroring preview over the season game image (§5.6).
+
+**What was wrong:** nothing; the image's source had to be found.
+
+**What I did instead:**
+- `useBuilderLoad` already reads `listSeasons`. `BuilderData` gains `fieldImage`: the season row's `field_image_path`, or null.
+- `MirrorPreview` draws that image, `/<path>` from the build (`season/images`), twice: "A blue scout taps", then "Saved as (red's side)". The marks are positioned in percentages over the image: two spots, or a three-point route for a cycle path.
+- When the path is not in this build, or the image fails to load, it draws a neutral outline: a red end on the left, a blue end on the right.
+- The whole preview is `role="img"`, named "Mirroring preview". The line under it says "Red is saved as tapped; **blue is mirrored** <axis words>…", or "nothing is mirrored" for None.
+- The line "Game image: `<path>`, set on the season in Manage." follows.
+
+**Risk:** the preview is a sketch for checking the axis, not the scouter's map (tasks 1.34–1.35).
+
+## Task 1.30 — `Segmented` and `Switch` widened by types and aria only; the bundle
+
+**Plan said:** BUILD-CONTEXT §12: use the shared components; `pnpm build && pnpm bundle:check`. Orchestrator: initial JS must stay ≤ 207.5 KB.
+
+**What was wrong:**
+1. A blank meaning control needs `Segmented` with no value, `aria-required`, `aria-invalid` and `aria-describedby`, a warn ring, and a held state. The builder's switches put the switch first, with a bold lead word.
+2. The first build measured `initial JS 208.2 KB gzip`. `packages/shared/src/forms/scoring.ts` had `const SCORABLE = new Set(SCORABLE_FIELD_TYPES)`. Rollup treats a `Set` built from a variable as a side effect, so the module stayed in the entry chunk, and `validateScoringRules`, which the lazy builder now uses, shipped in the initial JS (the 1.29 "shared module rule").
+3. After that fix: `207.6 KB` (212 565 B against HEAD's 212 522 B). Each name the lazy chunk imports from the entry adds an export there.
+
+**What I did instead:**
+1. `Segmented`: `value: K | null` and `aria-required` / `aria-invalid` / `aria-describedby` spread onto the radiogroup. `Switch`: `label: ReactNode`. Nothing else in either. The warn ring, the dimming of a held group and the switch-first layout live in builder-only wrappers (`paneParts.PaneSegmented`, `LeadSwitch`). A disabled `fieldset` disables the segments.
+2. `scoring.ts` keeps `SCORABLE` as the array and uses `.includes`. Nothing else changes, and the server bundle (`apps/server/api/index.js`) is regenerated.
+3. The builder avoids new entry exports:
+   - ✕ / + / − are text glyphs, not lucide `X` / `Plus` / `Minus`.
+   - Reordering uses `MoveUp` / `MoveDown`, which only the builder uses.
+   - The fold chevron is the entry's `ChevronDown`, rotated.
+   - The type list comes from `FIELD_TYPE_INFO`, not `FIELD_TYPES`.
+   - A local `optionsOf` replaces `selectOptions`.
+   - The fork notice is a ref, not router state.
+
+   Result: `initial JS 207.5 KB gzip` (212 517 B, 5 B under HEAD). `BuilderPage` grows from 28.7 KB to 40.9 KB (lazy, precached).
+
+**Risk:** the 205 KB budget line stays red, as decided by the user. Rejected: adding `className` / `lead` props to `Switch` and `Segmented` (dropping them took the entry chunk from 212 543 B to 212 517 B), and a separate `scoringCheck.ts` module (the array fix was smaller and kept one home for the rules).
+
+## Task 1.30 — fix round 1: a type change keeps the points it can carry (I1)
+
+**Plan said:** nothing on scoring across a type change. Round 0 (entry "changing a type, removing a field, and the ⋯ menu") zeroed the field's rule on every type change.
+
+**What was wrong:** review I1. The zero rule marked the key as seen in `wholeRuleSet`, so the partner version's rule was not re-added and `setScoringRules` (which replaces the whole set) deleted it. Scenario: draft `tele_high`, live in active v3 at 4/ea; counter → number in the draft; v3's entries stop scoring silently.
+
+**What I did instead:**
+- `changeType` no longer touches the rule. The page keeps the rule by field id.
+- `scoringRules.ruleLost(type, rule)`: a rule that scores something but that the type cannot carry — the type is not scored, or select ↔ non-select. A counter's points carry to a number or a toggle; a single select's option points to a multi select.
+- `useScoring(rows, live)` now takes the live fields: a lost rule counts as removed in `dirty`, so the type change alone makes the scoring dirty and the save sends the set without it. `markSent(types)` drops lost rules from the local map once sent (the server no longer has them), so the warning goes and changing the type back does not bring back points that were deleted.
+- Before the save, the Type control's hint (wired as its `aria-describedby`) says "Its points are removed for every version of this form." The canvas's points tag is hidden for a lost rule. Changing the type back before saving brings the points back untouched.
+- `onPaneChange` merges a patch that carries only `points` or only `option_points` into the current rule.
+
+**Risk:** dropping a lost rule still deletes it for every version, including the active version whose entries scored it; the hint is the only guard. Rejected: a `points: null` "drop" signal in the patch (it needs the page to remember the pre-change rule to show the hint), and zeroing only when lost (the hint then has nothing to read from once the rule is gone).
+
+## Task 1.30 — fix round 1: a new option's points follow its value (I2)
+
+**Plan said:** nothing.
+
+**What was wrong:** review I2. Relabelling a new option changed its value (`option_1` → `low`), but `option_points` kept `option_1: 5`. The save then filtered the orphaned key out, losing the points.
+
+**What I did instead:** `ChoiceList.onItems(next, change)` reports `{ from, to }` for a value that moved and `{ from, to: null }` for a removed one. The select's handler renames or removes the `option_points` key in the same patch as the config, **only for an option not yet saved**. A saved option removed from the list keeps its points: its value is still the other version's (and the save's union universe keeps it), and `wholeRuleSet` already drops points for an option no version has.
+
+**Risk:** a saved option removed in a draft that is the form's only version keeps a dead key in the local rule until the save filters it. Harmless: it is never sent.
+
+## Task 1.30 — fix round 1: references follow a new field's key (I3)
+
+**Plan said:** a new field's key follows its label until the first save (1.29).
+
+**What was wrong:** review I3. `updateField` re-derives an unsaved field's key on a label or phase change. Another field's `visibility_condition.field_key` and a computed field's expression held the old key string, so they dangled.
+
+**What I did instead:** `useBuilderState.renameReferences(field, from, to)` (exported). In the same state update that moves a key, every field's condition and computed expression naming the old key is rewritten. The scoring rule needs nothing: it is held by field id, not key. The pane's local Show-when and computed drafts belong to the selected field only, and a key moves only while its own field is selected, so they never hold a stale key.
+
+**Risk:** none known.
+
+## Task 1.30 — fix round 1: `scoringUniverse` moved to `@frc/shared`; `isSelectType` shared (I4)
+
+**Plan said:** the client mirrored the server's `scorableUniverse`.
+
+**What was wrong:** review I4. There were two copies of one rule, so they could drift. The client also had local `optionsOf` / `options()` / `isSelectType`, kept only to save entry-chunk bytes.
+
+**What I did instead:**
+- `packages/shared/src/forms/scoring.ts` exports `scoringUniverse<F>(active, draft)`, `SELECT_FIELD_TYPES` and `isSelectType`. The validator uses `isSelectType`. The select list is an array with `.includes`, per the shared-module rule.
+- The server's `scorableUniverse` reads both versions' fields and calls it. Its behaviour is unchanged: the active version first, then the draft; the draft's type wins; two selects union their options. Server tests pass unchanged, and `apps/server/api/index.js` is regenerated.
+- `selectOptions` now takes `Pick<FormFieldDefinition, 'config'>`, which is wider and changes nothing at runtime.
+- The client uses `selectOptions`, `isSelectType` and `scoringUniverse` from `@frc/shared`. `optionsOf` and the local copies are gone. The universe test moved to `packages/shared/src/forms/scoring.test.ts`.
+
+**Risk:** none. The server comment said "so long as the draft's type is a select", but the code required both to be selects; the shared function keeps the code's behaviour, and its comment now says so.
+
+## Task 1.30 — fix round 1: shared components in the pane (I4, I5)
+
+**Plan said:** BUILD-CONTEXT §12.1: build from `components/ui/*`.
+
+**What was wrong:** review I4/I5:
+- the pane was a hand-styled `<section>`
+- the scoring matrix was a raw `<table>`
+- icon and text actions were hand-styled `<button>`s with text glyphs ✕ / + / −
+- `LeadSwitch` restyled `Switch` internals with descendant selectors
+- the fork notice rode a ref
+
+**What I did instead:**
+- The pane is `Card as="section"`, with `p-0` because the pane scrolls inside.
+- The matrix is `Table` / `TableHeader` / `TableBody` / `TableRow` / `TableHead` / `TableCell`, drawn as the design's points grid through `className`: no row dividers or hover, 3 px row padding, 11.5 px bold headers. Rows are keyed by option value. `Table` itself is unchanged.
+- `Button` gains a size `icon-sm`: 32 px drawn, with a 48 px hit area through `::after`. It is for the dense rows: move ↑ / ↓, remove, and the ⋯ menu. The cycle's − / + are `Button size="icon"` (48 px, secondary).
+- The ghost buttons are "Add an option / a button", "Add a field" and "Remove the condition". "Show this field only when…" is a secondary button with a dashed edge.
+- The glyphs are lucide `X`, `Plus` and `Minus`.
+- `Switch` gains `lead` (the track before the words), and dims with a not-allowed cursor when a disabled fieldset holds it. That applies to every `Switch`; no other screen disables one today. `LeadSwitch` is gone.
+- The fork notice is router navigation state (`{ notice }`) on the navigate to the new draft. The new editor reads it at mount and replaces the history entry without it, so a reload does not repeat it.
+
+**Risk:** the entry chunk is 212 630 B, +108 B over HEAD's 212 522 B, within the revised allowance of about 1 KB. The 205 KB line stays red, as decided by the user. `BuilderPage` is 41.5 KB (lazy, precached). Rejected: restyling `Table` itself (it would change every data table).
+
+## Task 1.30 — fix round 1: the minor findings
+
+**Plan said:** the plan's tests assert the counter's patch, and a toggle's single row.
+
+**What was wrong:** review minors:
+- the mirror image was cropped to the 2026 aspect
+- the matrix was keyed by its aria-label
+- Step and Default had no guards
+- `exprText` printed `(a + b) + c`
+- `is_ordinal` was `null` from the palette but `false` after a type change
+- the heading was empty with a blank label
+- the ⋯ menu stayed open on Tab
+- tests were loose
+
+**What I did instead:**
+- `MirrorPreview`'s image is `h-auto w-full` at its natural aspect (no `aspect-[2000/812]`, no `object-cover`), so the dots stay true for any season's image.
+- Step refuses 0 and below (`NumberInput positive`, the config's `positive()`). A counter's Default refuses a fraction (`integer`); a counter counts whole pieces, although the schema alone does not require it. The config does not require any other guard here.
+- `exprText` reads a `+` chain flat: "a + b + c". Other nesting keeps its brackets.
+- `is_ordinal` is `null` after a type change, as a palette field starts and as the server stores an unset value (`field.is_ordinal ?? null`). "Ordered" reads `=== true`, so null shows unordered.
+- A blank label names the head and the ⋯ menu by the type ("Counter").
+- The ⋯ menu closes on Tab (focus moves on) as well as Escape (focus returns to ⋯).
+- Tests:
+  - the counter test asserts `{ points: 5, option_points: null }`
+  - the toggle test counts two rows (the header and Yes) and one row header
+  - new tests: counter → number keeps 4/ea (pane and page; no `setScoringRules`); counter → long text shows the hint and sends the set without `tele_high`; a new option's points are renamed and removed; a saved option's points stay; a step of 0 and a fractional counter default are refused; the ⋯ menu closes on Escape and Tab; a blank label shows the type; references follow a moved key; `exprText` flattens; the fork + failed-points notice shows on the new draft and is cleared from history
+
+**Risk:** before the game image loads, the preview has no height (no reserved aspect). The e2e shot waits for `networkidle`.

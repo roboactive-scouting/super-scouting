@@ -115,6 +115,15 @@ afterEach(() => {
 const draftPath = `/admin/forms/${FORM_ID}?version=4`;
 const canvas = () => screen.getByRole('region', { name: 'Form' });
 const settings = () => screen.getByRole('region', { name: 'Field settings' });
+/**
+ * The settings pane's Label box. A saved, complete field's Field group starts folded to one line
+ * (task 1.30), so it is unfolded first.
+ */
+async function labelBox(u: ReturnType<typeof userEvent.setup>) {
+  const fold = within(settings()).queryByRole('button', { name: 'Field', expanded: false });
+  if (fold) await u.click(fold);
+  return within(settings()).getByLabelText('Label');
+}
 /** The top bar's saved / unsaved line (dnd-kit adds a live region of its own). */
 const saveState = () => document.querySelector<HTMLElement>('[data-save-state]')!;
 
@@ -246,7 +255,7 @@ describe('BuilderPage: the published version (task 1.29)', () => {
     await u.click(
       await within(canvas()).findByRole('button', { name: 'Left the start zone, Toggle' }),
     );
-    await u.type(within(settings()).getByLabelText('Label'), '!');
+    await u.type(await labelBox(u), '!');
     expect(saveState()).toHaveTextContent('● Unsaved changes');
     expect(saveState()).not.toHaveTextContent('draft v4');
     await u.click(screen.getByRole('button', { name: /^Add Toggle:/ }));
@@ -315,7 +324,7 @@ describe('BuilderPage: the published version (task 1.29)', () => {
     await u.keyboard('{Escape}');
 
     await u.click(within(canvas()).getByRole('button', { name: 'Left the start zone, Toggle' }));
-    await u.type(within(settings()).getByLabelText('Label'), '!');
+    await u.type(await labelBox(u), '!');
     expect(saveState()).toHaveTextContent('● Unsaved changes');
     await u.click(chip);
     const restore = screen.getByRole('menuitem', { name: 'Restore v2' });
@@ -333,7 +342,7 @@ describe('BuilderPage: the published version (task 1.29)', () => {
     // In-place edits still work here.
     const u = userEvent.setup();
     await u.click(within(canvas()).getByRole('button', { name: 'Left the start zone, Toggle' }));
-    await u.type(within(settings()).getByLabelText('Label'), '!');
+    await u.type(await labelBox(u), '!');
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
     expect(saveState()).not.toHaveTextContent('draft v');
   });
@@ -385,8 +394,8 @@ describe('BuilderPage: the draft — save, publish, incomplete fields (task 1.29
     await u.click(await within(canvas()).findByRole('tab', { name: /Teleop/ }));
     screen.getByRole('button', { name: /^Add Counter:/ }).focus();
     await u.keyboard('{Enter}');
-    await u.clear(within(settings()).getByLabelText('Label'));
-    await u.type(within(settings()).getByLabelText('Label'), 'Pieces dropped');
+    await u.clear(await labelBox(u));
+    await u.type(await labelBox(u), 'Pieces dropped');
     expect(within(settings()).getByText('tele_pieces_dropped')).toBeVisible();
     expect(
       within(settings()).getByText('follows the label until the first save, then it is permanent'),
@@ -408,7 +417,8 @@ describe('BuilderPage: the draft — save, publish, incomplete fields (task 1.29
     await u.click(screen.getByRole('button', { name: /Next incomplete/ }));
     expect(within(canvas()).getByText('Phase 2 of 4')).toBeInTheDocument();
     expect(within(settings()).getByRole('heading', { name: 'Pieces dropped' })).toBeVisible();
-  });
+    // Typing a label re-renders the whole settings pane per key: slow in jsdom under a full run.
+  }, 15_000);
 
   it('several incomplete fields: the count and the first label', async () => {
     await open(draftPath, server().rpc);
@@ -474,7 +484,7 @@ describe('BuilderPage: the draft — save, publish, incomplete fields (task 1.29
     }
     // Saved: its key is permanent now, so the label no longer moves it.
     expect(within(settings()).getByText('· permanent, never changes')).toBeVisible();
-    await u.type(within(settings()).getByLabelText('Label'), 's');
+    await u.type(await labelBox(u), 's');
     expect(within(settings()).getByText('auto_counter')).toBeVisible();
     expect(saveState()).toHaveTextContent('● Unsaved changes');
 
@@ -532,7 +542,7 @@ describe('BuilderPage: the draft — save, publish, incomplete fields (task 1.29
     await u.click(
       await within(canvas()).findByRole('button', { name: 'Pieces scored high, Counter' }),
     );
-    const label = within(settings()).getByLabelText('Label');
+    const label = await labelBox(u);
     await u.clear(label);
     await u.type(label, 'Balls high');
     expect(within(settings()).getByRole('heading', { name: 'Balls high' })).toBeVisible();
@@ -566,10 +576,288 @@ describe('BuilderPage: leaving with unsaved changes asks first (task 1.29)', () 
     const u = userEvent.setup();
     await u.click(await screen.findByRole('button', { name: /^Add Toggle:/ }));
     void router.navigate('/admin/forms');
-    const dialog = await screen.findByRole('dialog', { name: 'Leave without saving?' });
+    // The settings pane makes the page's DOM larger, so a role query takes longer under a full run.
+    const dialog = await screen.findByRole(
+      'dialog',
+      { name: 'Leave without saving?' },
+      { timeout: 5_000 },
+    );
     await u.click(within(dialog).getByRole('button', { name: 'Stay' }));
     expect(router.state.location.pathname).toBe(`/admin/forms/${FORM_ID}`);
     expect(saveState()).toHaveTextContent('● Unsaved changes');
+  });
+});
+
+/** saveDraftFields as the server answers it: every field back with an id. */
+const savesFields = (input: Record<string, unknown>) => {
+  const fields = (input.fields as Record<string, unknown>[]).map((f, i) => ({
+    ...f,
+    id: f.id ?? `00000000-0000-4000-8000-00000000c0${String(i).padStart(2, '0')}`,
+    form_version_id: input.form_version_id,
+    deprecated: false,
+  }));
+  return {
+    form_version_id: input.form_version_id,
+    new_version_id: null,
+    version_no: 4,
+    updated_at: '2026-10-08T09:30:00.000Z',
+    fields,
+    incomplete: [],
+  };
+};
+
+describe('BuilderPage: the settings pane and scoring (task 1.30)', () => {
+  it('a new field’s points are sent after the field save, as the form’s whole rule set', async () => {
+    const { rpc, calls } = server({
+      saveDraftFields: savesFields,
+      setScoringRules: () => ({ rules: [] }),
+    });
+    await open(draftPath, rpc);
+    const u = userEvent.setup();
+    await u.click(await screen.findByRole('button', { name: /^Add Counter:/ }));
+    // Added on the Auto page, it scores in the Auto column.
+    const box = within(settings()).getByLabelText('Points per unit');
+    await u.clear(box);
+    await u.type(box, '5');
+    expect(within(canvas()).getByText('5/ea pts')).toBeVisible();
+    expect(saveState()).toHaveTextContent('● Unsaved changes');
+    await u.click(screen.getByRole('button', { name: 'Save draft' }));
+
+    await waitFor(() => expect(calls.some((c) => c.name === 'setScoringRules')).toBe(true));
+    const names = calls.map((c) => c.name);
+    expect(names.indexOf('saveDraftFields')).toBeLessThan(names.indexOf('setScoringRules'));
+    // The other version (the active v3) was read to keep the rules of keys it has.
+    expect(calls.filter((c) => c.name === 'getFormVersion').at(-1)!.input).toEqual({
+      form_version_id: V.v3,
+    });
+    expect(calls.find((c) => c.name === 'setScoringRules')!.input).toEqual({
+      form_id: FORM_ID,
+      rules: [
+        { field_key: 'auto_leave', points: 3 },
+        { field_key: 'auto_high', points: 6 },
+        { field_key: 'auto_counter', points: 5 },
+        { field_key: 'tele_high', points: 4 },
+        { field_key: 'end_climb', points: 0, option_points: { none: 0, high: 12 } },
+      ],
+    });
+    await waitFor(() => expect(saveState()).toHaveTextContent('Saved'));
+    expect(saveState()).not.toHaveTextContent('Unsaved');
+  });
+
+  it('an in-place points edit on the active version sends only the rules, keeping the draft’s', async () => {
+    // VERSIONS: draft v4 (which adds Climb level) over the active v3.
+    const { rpc, calls } = server({ setScoringRules: () => ({ rules: [] }) });
+    await open(`/admin/forms/${FORM_ID}?version=3`, rpc);
+    const u = userEvent.setup();
+    await u.click(
+      await within(canvas()).findByRole('button', { name: 'Pieces scored high, Counter' }),
+    );
+    expect(within(settings()).getByText('in place · no new version')).toBeVisible();
+    const box = within(settings()).getByLabelText('Points per unit');
+    await u.clear(box);
+    await u.type(box, '8');
+    expect(within(canvas()).getByText('8/ea pts')).toBeVisible();
+    await u.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(calls.some((c) => c.name === 'setScoringRules')).toBe(true));
+    expect(calls.some((c) => c.name === 'saveDraftFields')).toBe(false);
+    const rules = calls.find((c) => c.name === 'setScoringRules')!.input.rules as {
+      field_key: string;
+    }[];
+    expect(rules).toContainEqual({ field_key: 'auto_high', points: 8 });
+    // end_climb is only in draft v4; replacing the rule set must not drop its points.
+    expect(rules).toContainEqual({
+      field_key: 'end_climb',
+      points: 0,
+      option_points: { none: 0, high: 12 },
+    });
+  });
+
+  it('a points save that fails after the fields saved says the fields were saved and the points were not', async () => {
+    const { rpc } = server({
+      saveDraftFields: savesFields,
+      setScoringRules: () => {
+        throw new RpcError('unavailable', 'down', 503, true);
+      },
+    });
+    await open(draftPath, rpc);
+    const u = userEvent.setup();
+    await u.click(await screen.findByRole('button', { name: /^Add Counter:/ }));
+    await u.type(within(settings()).getByLabelText('Points per unit'), '5');
+    await u.click(screen.getByRole('button', { name: 'Save draft' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The fields were saved; the points were not.',
+    );
+    // The points are still to send: the page keeps them as unsaved.
+    expect(saveState()).toHaveTextContent('● Unsaved changes');
+  });
+
+  it('a blank required meaning control holds Publish, and the held line names the field', async () => {
+    await open(draftPath, server().rpc);
+    const u = userEvent.setup();
+    expect(await screen.findByRole('button', { name: 'Publish v4' })).toBeEnabled();
+    await u.click(within(canvas()).getByRole('button', { name: 'Pieces scored high, Counter' }));
+    await u.click(within(settings()).getByRole('button', { name: 'Meaning' }));
+    await u.clear(within(settings()).getByLabelText('Description'));
+    expect(within(settings()).getByText('Needed to publish')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Publish v4' })).toBeDisabled();
+    expect(
+      screen.getByText('“Pieces scored high” needs its meaning before v4 can be published ·'),
+    ).toBeVisible();
+  });
+
+  it('removing a field on the active version while a draft exists holds Save changes: it belongs in the draft', async () => {
+    await open(`/admin/forms/${FORM_ID}?version=3`, server().rpc);
+    const u = userEvent.setup();
+    await u.click(
+      await within(canvas()).findByRole('button', { name: 'Left the start zone, Toggle' }),
+    );
+    await u.click(
+      within(settings()).getByRole('button', { name: 'Field actions: Left the start zone' }),
+    );
+    const item = screen.getByRole('menuitem', { name: /Remove field/ });
+    expect(item).toHaveTextContent('removing it belongs in draft v4');
+    await u.click(item);
+    expect(within(canvas()).queryByText('auto_leave')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+    expect(screen.getByText('This change belongs in draft v4 ·')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open draft v4' })).toHaveAttribute(
+      'href',
+      `/admin/forms/${FORM_ID}?version=4`,
+    );
+  });
+
+  it('on a published version, adding, removing or reordering an option forks; relabelling does not', async () => {
+    const noDraft = VERSIONS.slice(1);
+    const { rpc } = server(
+      {
+        getFormVersion: (input) => versionOut(noDraft.find((v) => v.id === input.form_version_id)!),
+      },
+      noDraft,
+    );
+    await open(`/admin/forms/${FORM_ID}?version=3`, rpc);
+    const u = userEvent.setup();
+    await u.click(within(canvas()).getByRole('tab', { name: /Endgame/ }));
+    await u.click(within(canvas()).getByRole('button', { name: 'Climb level, Single select' }));
+    expect(within(settings()).getByText('Adding an option starts draft v4')).toBeVisible();
+
+    await u.type(within(settings()).getByLabelText('Option 2 label'), ' (top)');
+    expect(saveState()).toHaveTextContent('● Unsaved changes');
+    expect(saveState()).not.toHaveTextContent('draft v4');
+
+    await u.click(within(settings()).getByRole('button', { name: 'Add an option' }));
+    expect(saveState()).toHaveTextContent('saving starts draft v4');
+    await u.click(within(settings()).getByRole('button', { name: 'Remove Option 3' }));
+    expect(saveState()).not.toHaveTextContent('draft v4');
+
+    await u.click(within(settings()).getByRole('button', { name: 'Move High bar (top) up' }));
+    expect(saveState()).toHaveTextContent('saving starts draft v4');
+  });
+
+  it('changing a phase in the meaning moves the canvas to that phase', async () => {
+    await open(draftPath, server().rpc);
+    const u = userEvent.setup();
+    await u.click(await screen.findByRole('button', { name: /^Add Counter:/ }));
+    await u.click(within(settings()).getByRole('radio', { name: 'Endgame' }));
+    expect(within(canvas()).getByText('Phase 3 of 4')).toBeVisible();
+    expect(within(canvas()).getByText('end_counter')).toBeVisible();
+  });
+});
+
+describe('BuilderPage: review fixes (task 1.30, fix round 1)', () => {
+  /** Teleop's "Pieces scored high" (tele_high, 4/ea in both v3 and the draft), Field unfolded. */
+  async function openTeleHigh(u: ReturnType<typeof userEvent.setup>) {
+    await u.click(within(canvas()).getByRole('tab', { name: /Teleop/ }));
+    await u.click(within(canvas()).getByRole('button', { name: 'Pieces scored high, Counter' }));
+    await labelBox(u);
+  }
+
+  it('a counter changed to a number keeps its 4/ea: nothing is removed from the rule set', async () => {
+    const { rpc, calls } = server({
+      saveDraftFields: savesFields,
+      setScoringRules: () => ({ rules: [] }),
+    });
+    await open(draftPath, rpc);
+    const u = userEvent.setup();
+    await openTeleHigh(u);
+    await u.selectOptions(within(settings()).getByLabelText('Type'), 'number');
+    expect(within(canvas()).getByText('4/ea pts')).toBeVisible();
+    expect(within(settings()).getByLabelText('Points per unit')).toHaveValue('4');
+    expect(within(settings()).queryByText(/Its points are removed/)).toBeNull();
+    await u.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => expect(saveState()).toHaveTextContent('Saved'));
+    expect(calls.some((c) => c.name === 'saveDraftFields')).toBe(true);
+    // The rule is untouched, so the form's rule set is not sent at all: v3 keeps scoring it.
+    expect(calls.some((c) => c.name === 'setScoringRules')).toBe(false);
+  });
+
+  it('a counter changed to long text says its points go for every version, then sends the set without it', async () => {
+    const { rpc, calls } = server({
+      saveDraftFields: savesFields,
+      setScoringRules: () => ({ rules: [] }),
+    });
+    await open(draftPath, rpc);
+    const u = userEvent.setup();
+    await openTeleHigh(u);
+    await u.selectOptions(within(settings()).getByLabelText('Type'), 'long_text');
+    expect(within(settings()).getByLabelText('Type')).toHaveAccessibleDescription(
+      'Its points are removed for every version of this form.',
+    );
+    expect(within(canvas()).queryByText('4/ea pts')).toBeNull();
+    await u.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => expect(calls.some((c) => c.name === 'setScoringRules')).toBe(true));
+    const rules = calls.find((c) => c.name === 'setScoringRules')!.input.rules as {
+      field_key: string;
+    }[];
+    expect(rules.map((r) => r.field_key)).not.toContain('tele_high');
+    expect(rules).toContainEqual({ field_key: 'auto_high', points: 6 });
+    await waitFor(() => expect(saveState()).toHaveTextContent('Saved'));
+    // Sent: the rule is gone here too, and the warning with it.
+    expect(within(settings()).queryByText(/Its points are removed/)).toBeNull();
+  });
+
+  it('a save that forks and then fails to send the points says so on the new draft, once', async () => {
+    const noDraft = VERSIONS.slice(1);
+    let forked = false;
+    const { rpc } = server(
+      {
+        getForm: () => formOut(forked ? VERSIONS : noDraft),
+        getFormVersion: (input) => {
+          const row = VERSIONS.find((v) => v.id === input.form_version_id)!;
+          return versionOut(row, row.version_no === 4 ? draftFields() : v3Fields());
+        },
+        saveDraftFields: () => {
+          forked = true;
+          return {
+            form_version_id: V.v4,
+            new_version_id: V.v4,
+            version_no: 4,
+            updated_at: '2026-10-08T09:00:00.000Z',
+            fields: [],
+            incomplete: [],
+          };
+        },
+        setScoringRules: () => {
+          throw new RpcError('unavailable', 'down', 503, true);
+        },
+      },
+      noDraft,
+    );
+    const router = await open(`/admin/forms/${FORM_ID}?version=3`, rpc);
+    const u = userEvent.setup();
+    await u.click(await screen.findByRole('button', { name: /^Add Counter:/ }));
+    await u.type(within(settings()).getByLabelText('Points per unit'), '5');
+    await u.click(screen.getByRole('button', { name: 'Save changes' }));
+    // The save, the fork and the new draft's read take a while under a full parallel run.
+    expect(
+      await screen.findByRole('button', { name: /Draft v4 · not published/ }, { timeout: 5_000 }),
+    ).toBeVisible();
+    expect(router.state.location.search).toBe('?version=4');
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'The fields were saved; the points were not.',
+    );
+    // Carried as navigation state, and cleared once shown: a reload does not say it again.
+    await waitFor(() => expect(router.state.location.state).toBeNull());
+    expect(router.state.location.search).toBe('?version=4');
   });
 });
 

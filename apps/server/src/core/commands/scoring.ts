@@ -1,7 +1,8 @@
 import {
   AppError,
   assertCan,
-  selectOptions,
+  isSelectType,
+  scoringUniverse,
   setScoringRulesInput,
   validateScoringRules,
   type Caller,
@@ -38,15 +39,11 @@ function scoringError(issues: ScoringIssue[]): AppError {
   return new AppError('invalid', summary, { reason: 'invalid-scoring', issues });
 }
 
-const isSelectType = (type: string): boolean => type === 'single_select' || type === 'multi_select';
-
 /**
- * The fields a rule may name: the live fields of the form's draft and of its active version
- * (task 1.28, decision A). Where both have a key, the draft's TYPE wins — it is the newer
- * definition, the one the builder is editing — but a select's options are the UNION of both
- * versions' (review #9): scoring is not versioned, and an option the draft dropped is still
- * scored by every entry of the active version. When the two disagree on the type, options
- * are still taken from both, so long as the draft's type is a select.
+ * The fields a rule may name: the live fields of the form's active version and of its draft
+ * (task 1.28, decision A), merged by the shared `scoringUniverse` — the draft's type wins, a
+ * select's options are the union of both versions' (review #9). The builder checks a rule set
+ * against the same function before it sends one (task 1.30), so the two cannot drift.
  */
 async function scorableUniverse(
   ctx: UseCaseContext,
@@ -55,23 +52,9 @@ async function scorableUniverse(
 ): Promise<FormFieldDefinition[]> {
   const versions = await ctx.store.listFormVersions(formId);
   const draft = versions.find((v) => v.published_at === null);
-  const byKey = new Map<string, FormFieldDefinition>();
-  const ids = [activeVersionId, draft?.id ?? null].filter((id): id is string => id !== null);
-  for (const id of ids) {
-    for (const field of await ctx.store.getFormFields(id)) {
-      if (field.deprecated) continue;
-      const earlier = byKey.get(field.key);
-      if (earlier && isSelectType(field.type) && isSelectType(earlier.type)) {
-        const options = selectOptions(field);
-        const seen = new Set(options.map((o) => o.value));
-        const union = [...options, ...selectOptions(earlier).filter((o) => !seen.has(o.value))];
-        byKey.set(field.key, { ...field, config: { ...field.config, options: union } });
-      } else {
-        byKey.set(field.key, field);
-      }
-    }
-  }
-  return [...byKey.values()];
+  const active = activeVersionId ? await ctx.store.getFormFields(activeVersionId) : [];
+  const drafted = draft ? await ctx.store.getFormFields(draft.id) : [];
+  return scoringUniverse(active, drafted);
 }
 
 /**
@@ -94,9 +77,7 @@ export async function setScoringRules(
   if (issues.length > 0) throw scoringError(issues);
 
   // Only validated keys reach replaceScoringRules: its delete interpolates them (1.27).
-  const isSelect = new Map(
-    fields.map((f) => [f.key, f.type === 'single_select' || f.type === 'multi_select']),
-  );
+  const isSelect = new Map(fields.map((f) => [f.key, isSelectType(f.type)]));
   // A kept rule keeps its id: the upsert writes every column it is given, `id` included,
   // and a re-keyed row would reach a device as a second rule beside the stale one.
   const existingIds = new Map(

@@ -15,6 +15,8 @@ export type BuilderData = {
   version: GetFormVersionOutput;
   /** The season's year, for the title ("Match form 2026"); null when the seasons did not load. */
   year: number | null;
+  /** The season's game image path, for the mirroring preview; null when the seasons did not load. */
+  fieldImage: string | null;
   /**
    * A draft's predecessor, for "made from v3": only when it is unambiguous — the active version
    * is the newest published one. After a restore the draft may come from either, so: null.
@@ -84,8 +86,10 @@ export function useBuilderLoad(rpc: Rpc, formId: string, versionNo: number | nul
             ).catch(() => null)
           : Promise.resolve(null),
       ]);
-      const year = seasons?.items.find((s) => s.id === form.season_id)?.year ?? null;
-      return { status: 'ready', data: { form, version, year, previous } };
+      const season = seasons?.items.find((s) => s.id === form.season_id);
+      const year = season?.year ?? null;
+      const fieldImage = season?.field_image_path ?? null;
+      return { status: 'ready', data: { form, version, year, fieldImage, previous } };
     })().then(
       (next) => {
         if (live) setLoad(next);

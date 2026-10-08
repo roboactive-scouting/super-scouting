@@ -34,6 +34,9 @@ export const buttonVariants = cva(
         lg: 'min-h-[52px] px-6 text-base',
         block: 'min-h-[52px] w-full px-4 text-base',
         icon: 'px-0',
+        /** A 32 px icon button in a dense row; its ::after grows the hit area to 48 px. */
+        'icon-sm':
+          "relative size-8 min-h-8 min-w-8 px-0 after:absolute after:-inset-2 after:content-['']",
       },
     },
     defaultVariants: { variant: 'secondary', size: 'md' },

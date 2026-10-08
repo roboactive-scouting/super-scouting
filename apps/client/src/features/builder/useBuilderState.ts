@@ -138,6 +138,38 @@ export function insertIndexFor(
   return at;
 }
 
+/** An expression with every reference to field `from` naming `to` instead. */
+function renameInExpr(expr: Expr, from: string, to: string): Expr {
+  if (expr.kind === 'field') return expr.key === from ? { kind: 'field', key: to } : expr;
+  if (expr.kind !== 'op') return expr;
+  const left = renameInExpr(expr.left, from, to);
+  const right = renameInExpr(expr.right, from, to);
+  return left === expr.left && right === expr.right ? expr : { ...expr, left, right };
+}
+
+/**
+ * A field whose condition or computed expression names key `from`, naming `to` instead: a
+ * new field's key moves with its label or phase, and what refers to it moves with it (task
+ * 1.30, fix round 1, I3). The same object when nothing refers to it.
+ */
+export function renameReferences(
+  field: FormFieldDefinition,
+  from: string,
+  to: string,
+): FormFieldDefinition {
+  let next = field;
+  const condition = field.visibility_condition;
+  if (condition?.field_key === from) {
+    next = { ...next, visibility_condition: { ...condition, field_key: to } };
+  }
+  const expression = field.type === 'computed' ? (field.config.expression as Expr | null) : null;
+  if (expression) {
+    const renamed = renameInExpr(expression, from, to);
+    if (renamed !== expression) next = { ...next, config: { ...next.config, expression: renamed } };
+  }
+  return next;
+}
+
 const renumber = (fields: FormFieldDefinition[]) =>
   fields.map((f, i) => (f.display_order === i + 1 ? f : { ...f, display_order: i + 1 }));
 
@@ -343,7 +375,11 @@ export function useBuilderState(initial: BuilderInitial) {
             key: keyFromLabel(after.label, after.phase, after.type, takenBy(s, before.id)),
           };
         }
-        const next = [...s.fields];
+        // In the same update, what referred to the old key follows the new one.
+        const next =
+          after.key === before.key
+            ? [...s.fields]
+            : s.fields.map((f) => renameReferences(f, before.key, after.key));
         next[index] = after;
         return { ...s, fields: next };
       });

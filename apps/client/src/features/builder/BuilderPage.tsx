@@ -15,14 +15,20 @@ import {
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { Lock } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import type {
-  FieldPhase,
-  FieldTypeName,
-  FormFieldDefinition,
-  SaveDraftFieldsOutput,
-  ScoredFieldRow,
-  VersionSummary,
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import {
+  scoringUniverse,
+  validateScoringRules,
+  type FieldPhase,
+  type FieldTypeName,
+  type FormFieldDefinition,
+  type GetFormVersionOutput,
+  type SaveDraftFieldsOutput,
+  type ScoredFieldRow,
+  type ScoringField,
+  type ScoringIssue,
+  type ScoringRuleInput,
+  type VersionSummary,
 } from '@frc/shared';
 import { Skeleton } from '@/components/Skeleton';
 import { StateMessage } from '@/components/StateMessage';
@@ -42,7 +48,8 @@ import { BuilderTopBar, heldLine } from './BuilderTopBar';
 import { FieldPalette, PaletteGhost, paletteTypeOf } from './FieldPalette';
 import { formErrorLine, offersReload } from './formErrors';
 import { typeName } from './fieldTypes';
-import { SettingsPane } from './SettingsPane';
+import { ruleLost, useScoring, wholeRuleSet } from './scoringRules';
+import { SettingsPane, type PanePatch } from './SettingsPane';
 import { useBuilderLoad, type BuilderData } from './useBuilderLoad';
 import { phaseAt, useBuilderState } from './useBuilderState';
 import { versionLabel } from './VersionMenu';
@@ -123,7 +130,9 @@ function BuilderScreen({ rpc }: { rpc: Rpc }) {
 }
 
 /** The points tag at a canvas item's top right, where the form scores the field. */
-export function pointsTag(row: ScoredFieldRow): string | null {
+export function pointsTag(
+  row: Pick<ScoredFieldRow, 'type' | 'points' | 'option_points'>,
+): string | null {
   if (row.option_points) {
     const values = Object.values(row.option_points);
     const max = Math.max(...values);
@@ -156,9 +165,16 @@ const collide: CollisionDetection = (args) => {
   });
 };
 
+/**
+ * What a save that forked hands the new draft's page, as router navigation state: the line
+ * saying the points were not sent, if they were not (fix round 1, I4).
+ */
+type ForkState = { notice: string | null } | null;
+
 function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; reload: () => void }) {
-  const { form, version, year, previous } = data;
+  const { form, version, year, fieldImage, previous } = data;
   const navigate = useNavigate();
+  const location = useLocation();
   const online = useOnline();
   const published = version.status === 'published';
   // A draft takes anything; the active version takes edits in place (a structural one forks);
@@ -175,8 +191,21 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
     const pages = phasePages(state.fields);
     return PHASE_ORDER.find((p) => pages[p].length > 0) ?? 'auto';
   });
+  const scoring = useScoring(version.fields, state.fields);
+  const [scoringIssues, setScoringIssues] = useState<ScoringIssue[]>([]);
   const [busy, setBusy] = useState<'save' | 'publish' | 'restore' | null>(null);
-  const [error, setError] = useState<{ line: string; reload: boolean } | null>(null);
+  // A save that forked and then failed to send the points says so on the new draft's page.
+  const [error, setError] = useState<{ line: string; reload: boolean } | null>(() => {
+    const notice = (location.state as ForkState)?.notice;
+    return notice ? { line: notice, reload: false } : null;
+  });
+  useEffect(() => {
+    // Said once: a reload of this page does not say it again.
+    if ((location.state as ForkState)?.notice) {
+      navigate({ pathname: location.pathname, search: location.search }, { replace: true });
+    }
+    // Only on arrival.
+  }, []);
   const [base, setBase] = useState(version.updated_at);
   const [dragType, setDragType] = useState<FieldTypeName | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -187,16 +216,21 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
   usePageTitle(title);
   usePageCrumb(['Admin', 'Forms', title]);
 
+  // The canvas's points tags follow the scoring being edited, not only the scoring last saved.
   const points = useMemo(
     () =>
       new Map(
-        version.fields.flatMap((row) => {
-          const tag = pointsTag(row);
-          return tag ? [[row.key, tag] as const] : [];
+        state.fields.flatMap((field) => {
+          const rule = scoring.rules.get(field.id);
+          // A rule the type can no longer carry is not shown: saving drops it.
+          const tag =
+            rule && !ruleLost(field.type, rule) ? pointsTag({ type: field.type, ...rule }) : null;
+          return tag ? [[field.key, tag] as const] : [];
         }),
       ),
-    [version.fields],
+    [state.fields, scoring.rules],
   );
+  const dirty = state.dirty || scoring.dirty;
 
   const newest = Math.max(...form.versions.map((v) => v.version_no));
   const draft = form.versions.find((v) => v.status === 'draft');
@@ -223,6 +257,22 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
   const forkLine =
     published && state.willForkNewVersion && !draft ? `saving starts draft v${newest + 1}` : null;
   const belongsIn = draftHolds && state.willForkNewVersion && draft ? draft.version_no : null;
+  /** On a published version, where a structural change from the settings pane goes. */
+  const structuralNote = !published
+    ? null
+    : draft
+      ? `belongs in draft v${draft.version_no}`
+      : `starts draft v${newest + 1}`;
+  // The selected field as the pane shows it, with the points being edited.
+  const selected = state.selectedField
+    ? { ...state.selectedField, ...(scoring.ruleFor(state.selectedField.id) ?? {}) }
+    : null;
+  // A saved field's option and button values are permanent; a new one's follow their labels.
+  const savedOptionValues = useMemo(() => {
+    const row = state.baseline.find((f) => f.id === state.selectedField?.id);
+    const list = (row?.config.options ?? row?.config.event_types ?? []) as { value: string }[];
+    return list.map((o) => o.value);
+  }, [state.baseline, state.selectedField?.id]);
   const held =
     version.status === 'draft'
       ? heldLine(state.incomplete, state.hasDataField, version.version_no)
@@ -243,42 +293,165 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
     setError({ line: formErrorLine(e, { labelOf }), reload: offersReload(e) });
   };
 
-  /** Saves the whole live set. False when it did not save here (refused, or it forked). */
+  /**
+   * The form's whole rule set for `setScoringRules`, checked as the server will check it, or
+   * the problems that hold it. Scoring is per form and replaces every rule, so the other
+   * version's rows (the active one for a draft, the draft for the active one) are read to keep
+   * the rules of keys this version does not have (DEVIATIONS 1.30).
+   */
+  async function rulesToSend(): Promise<
+    { rules: ScoringRuleInput[]; issues: ScoringIssue[] } | 'failed'
+  > {
+    const partnerSummary =
+      version.status === 'draft'
+        ? form.versions.find((v) => v.is_active && v.id !== version.id)
+        : form.versions.find((v) => v.status === 'draft');
+    let partner: ScoredFieldRow[] = [];
+    if (partnerSummary) {
+      try {
+        partner = (
+          (await rpc.call('getFormVersion', {
+            form_version_id: partnerSummary.id,
+          })) as GetFormVersionOutput
+        ).fields;
+      } catch (e) {
+        fail(e);
+        return 'failed';
+      }
+    }
+    const live = state.fields;
+    const liveIds = new Set(live.map((f) => f.id));
+    const others = state.baseline.filter((f) => !liveIds.has(f.id));
+    const baselineLive = state.baseline.filter((f) => !f.deprecated);
+    // Which fields the server will judge as the draft's and which as the active version's.
+    type Side = readonly (ScoringField & { deprecated?: boolean })[];
+    const [active, draftSide]: [Side, Side] =
+      version.status === 'draft'
+        ? [partner, live]
+        : state.willForkNewVersion
+          ? [baselineLive, live]
+          : [live, partner];
+    const universe = scoringUniverse(active, draftSide);
+    const rules = wholeRuleSet({ live, others, partner, rules: scoring.rules, universe });
+    const issues = validateScoringRules(rules, universe, { prefix: 'rules', noun: 'form' });
+    return { rules, issues };
+  }
+
+  /**
+   * Saves what changed: the whole live field set (`saveDraftFields`), then the form's whole
+   * rule set (`setScoringRules`) — fields first, because a rule may name a field that does not
+   * exist until this save. False when it did not save here (refused, failed, or it forked).
+   */
   async function save(): Promise<boolean> {
     setBusy('save');
     setError(null);
+    setScoringIssues([]);
+    const fieldsDirty = state.dirty;
+    let send: ScoringRuleInput[] | null = null;
+    if (scoring.dirty) {
+      const checked = await rulesToSend();
+      if (checked === 'failed') {
+        setBusy(null);
+        return false;
+      }
+      if (checked.issues.length > 0) {
+        const first = checked.issues[0]!;
+        setScoringIssues(checked.issues);
+        setError({
+          line: `Nothing was saved: the points for “${labelOf(first.field_key) ?? first.field_key}” are not valid (${first.message}).`,
+          reload: false,
+        });
+        setBusy(null);
+        return false;
+      }
+      send = checked.rules;
+    }
+
     let out: SaveDraftFieldsOutput | null = null;
-    try {
-      await state.save(async (fields) => {
-        out = (await rpc.call('saveDraftFields', {
-          form_version_id: version.id,
-          base_updated_at: base,
-          fields,
-        })) as SaveDraftFieldsOutput;
-        // A structural edit to a published version started a new draft: that is another page.
-        return out.new_version_id ? null : (out.fields as FormFieldDefinition[]);
-      });
-    } catch (e) {
-      fail(e);
-      setBusy(null);
-      return false;
+    // A new field's `new-n` id → the id the server gave it.
+    const ids = new Map<string, string>();
+    const sentFields = state.fields;
+    if (fieldsDirty) {
+      const before = new Map(state.fields.map((f) => [f.key, f.id]));
+      try {
+        await state.save(async (fields) => {
+          out = (await rpc.call('saveDraftFields', {
+            form_version_id: version.id,
+            base_updated_at: base,
+            fields,
+          })) as SaveDraftFieldsOutput;
+          // A structural edit to a published version started a new draft: that is another page.
+          return out.new_version_id ? null : (out.fields as FormFieldDefinition[]);
+        });
+      } catch (e) {
+        fail(e);
+        setBusy(null);
+        return false;
+      }
+      const saved = out as SaveDraftFieldsOutput | null;
+      if (saved && !saved.new_version_id) {
+        setBase(saved.updated_at);
+        // A new field's points follow it to the id the server gave it.
+        for (const row of saved.fields) {
+          const was = before.get(row.key);
+          if (was && was !== row.id) ids.set(was, row.id);
+        }
+        scoring.rekey(ids);
+      }
     }
     const saved = out as SaveDraftFieldsOutput | null;
-    if (saved?.new_version_id) {
+    const forkedTo = saved?.new_version_id ? saved.version_no : null;
+
+    let notice: string | null = null;
+    if (send) {
+      try {
+        await rpc.call('setScoringRules', { form_id: form.id, rules: send });
+        scoring.markSent(new Map(sentFields.map((f) => [ids.get(f.id) ?? f.id, f.type])));
+      } catch (e) {
+        const why = formErrorLine(e, { labelOf });
+        notice = fieldsDirty ? `The fields were saved; the points were not. ${why}` : why;
+        if (forkedTo === null) {
+          setError({ line: notice, reload: offersReload(e) });
+          setBusy(null);
+          return false;
+        }
+      }
+    }
+    if (forkedTo !== null) {
       // The editor stays busy (Save and Publish held, panes inert) until the new draft is read
       // and this editor is replaced by its own.
       leaving.current = true;
-      navigate(formBuilderPath(form.id, saved.version_no));
+      navigate(formBuilderPath(form.id, forkedTo), {
+        state: { notice } satisfies ForkState,
+      });
       return false;
     }
     setBusy(null);
-    if (!saved) return false;
-    setBase(saved.updated_at);
-    return true;
+    return !fieldsDirty || saved !== null;
+  }
+
+  /** One change from the settings pane: the field's columns, and its points. */
+  function onPaneChange(patch: PanePatch) {
+    const field = state.selectedField;
+    if (!field) return;
+    const { points: p, option_points: op, ...columns } = patch;
+    if (p !== undefined || op !== undefined) {
+      // A patch may carry one of the two (an option renamed carries only its points).
+      const was = scoring.ruleFor(field.id);
+      scoring.setRule(field.id, {
+        points: p ?? was?.points ?? 0,
+        option_points: op === undefined ? (was?.option_points ?? null) : op,
+      });
+      setScoringIssues([]);
+    }
+    if (Object.keys(columns).length > 0) {
+      state.updateField(field.key, columns);
+      if (columns.phase && field.type !== 'section') setPhase(columns.phase);
+    }
   }
 
   async function publish() {
-    if (state.dirty && !(await save())) return;
+    if (dirty && !(await save())) return;
     setBusy('publish');
     setError(null);
     try {
@@ -380,7 +553,7 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
         editable={editable}
         online={online}
         busy={busy}
-        dirty={state.dirty}
+        dirty={dirty}
         changeLine={changeLine}
         forkLine={forkLine}
         belongsIn={belongsIn}
@@ -477,14 +650,29 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
             points={points}
             dragging={dragging}
           />
-          <SettingsPane state={state} editable={editable} />
+          <SettingsPane
+            field={selected}
+            allFields={state.fields}
+            onChange={onPaneChange}
+            seasonImagePath={fieldImage}
+            editable={editable}
+            saved={selected ? state.isSaved(selected) : true}
+            published={published}
+            forkNote={structuralNote}
+            savedOptionValues={savedOptionValues}
+            issues={selected ? state.issuesFor(selected.key) : []}
+            scoringIssues={scoringIssues
+              .filter((i) => i.field_key === selected?.key)
+              .map((i) => i.message)}
+            onRemove={() => selected && state.removeField(selected.key)}
+          />
         </div>
         <DragOverlay dropAnimation={null}>
           {dragType ? <PaletteGhost type={dragType} /> : null}
         </DragOverlay>
       </DndContext>
       <BuilderLeaveGuard
-        holding={state.dirty}
+        holding={dirty}
         name={`${title} · ${versionLabel(version).split(' · ')[0]!.toLowerCase()}`}
         skip={leaving}
       />

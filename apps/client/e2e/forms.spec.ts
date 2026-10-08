@@ -63,6 +63,15 @@ test('builder: the draft by default, an event log field selected', async ({ page
   await canvas(page).getByRole('button', { name: 'Shots, Event log' }).click();
   await expect(settings(page).getByRole('heading', { name: 'Shots' })).toBeVisible();
   await expect(canvas(page).getByText('4/ea pts')).toBeVisible();
+  // The settings pane (task 1.30): Field and Meaning folded, the buttons, "where?", no scoring.
+  await expect(
+    settings(page).getByText('Teleop · not required · help:', { exact: false }),
+  ).toBeVisible();
+  await expect(settings(page).getByLabel('Button 1 label')).toHaveValue('High goal');
+  await expect(
+    settings(page).getByRole('switch', { name: /Ask where on the field/ }),
+  ).toBeChecked();
+  await expect(settings(page).getByText(/Event logs are not scored/)).toBeVisible();
   await shoot(page, 'builder', 'desktop');
 });
 
@@ -92,6 +101,10 @@ test('builder: a field dragged onto a phase tab joins it, missing its meaning, s
   ).toBeVisible();
   await expect(canvas(page).getByText('Needs meaning')).toBeVisible();
   await expect(page.getByText('● Unsaved changes')).toBeVisible();
+  // Its meaning is missing: required controls say so, and the scoring sits under Teleop.
+  await expect(settings(page).getByText('3 missing')).toBeVisible();
+  await expect(settings(page).getByText('Needed to publish')).toHaveCount(3);
+  await expect(settings(page).getByLabel('Points per unit')).toHaveValue('0');
   await shoot(page, 'builder-new-field', 'desktop');
 });
 
@@ -106,7 +119,46 @@ test('builder: the locked active version names its entries', async ({ page }) =>
   await canvas(page).getByRole('button', { name: 'Climb level, Single select' }).click();
   await expect(canvas(page).getByText('0–12 pts')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save changes' })).toBeVisible();
+  // The ordinal select: its options worst → best, and points per option in place.
+  await expect(settings(page).getByRole('switch', { name: /Ordered/ })).toBeChecked();
+  await expect(settings(page).getByText('Adding an option belongs in draft v4')).toBeVisible();
+  await expect(settings(page).getByLabel('Points for High bar')).toHaveValue('12');
+  await expect(settings(page).getByText('in place · no new version')).toBeVisible();
+  await settings(page).getByRole('heading', { name: 'Scoring' }).scrollIntoViewIfNeeded();
   await shoot(page, 'builder-locked', 'desktop');
+});
+
+test('builder: a field position shows its blue-mirror preview over the game image', async ({
+  page,
+}) => {
+  await openBuilder(page);
+  await canvas(page).getByRole('button', { name: 'Scoring spots, Field position' }).click();
+  await expect(settings(page).getByRole('radio', { name: 'A list of points' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await expect(settings(page).getByRole('radio', { name: 'Left ↔ right' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await expect(settings(page).getByRole('img', { name: 'Mirroring preview' })).toBeVisible();
+  await expect(settings(page).getByText('blue is mirrored')).toBeVisible();
+  await expect(settings(page).getByText(/Field positions are not scored/)).toBeVisible();
+  await shoot(page, 'builder-position', 'desktop');
+});
+
+test('builder: a cycle path caps its points per cycle and previews the mirrored route', async ({
+  page,
+}) => {
+  await openBuilder(page);
+  await canvas(page)
+    .getByRole('tab', { name: /Teleop/ })
+    .click();
+  await canvas(page).getByRole('button', { name: 'Cycle routes, Cycle path' }).click();
+  await expect(settings(page).getByLabel('Points per cycle, at most')).toHaveValue('6');
+  await expect(settings(page).getByRole('img', { name: 'Mirroring preview' })).toBeVisible();
+  await expect(settings(page).getByText(/Cycle paths are not scored/)).toBeVisible();
+  await shoot(page, 'builder-cycle', 'desktop');
 });
 
 test('builder: offline pauses editing and keeps unsaved changes', async ({ page }) => {
