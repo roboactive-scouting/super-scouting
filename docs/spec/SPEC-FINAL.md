@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.20 · **Date:** 2026-10-08 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.21 · **Date:** 2026-10-08 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.21 adds the forms list (`/admin/forms`): §5.9, §17.9's new Forms row, and `form_versions.updated_by` in §3. See the living spec's §21, 2026-10-08 (v0.69).*
 
 *v1.20 adds the form builder's closed design: §5.1 (a new field's key follows its label until the first save; select-option changes are structural), §5.2 / §5.3 / §5.6 (an event-log field may ask where each tap happened), §5.9 (the builder's layout), §8.2 (map fields open a full-screen map) and §17.9's Form builder row. See the living spec's §21, 2026-10-08 (v0.68).*
 
@@ -266,6 +268,7 @@ form_versions (
   version_no    integer not null,
   published_at  timestamptz,           -- null = draft
   is_locked     boolean not null default false,
+  updated_by    uuid references users(id),   -- who last saved it; shown on the forms list (v1.21)
   created_at, updated_at,
   unique (form_id, version_no)
 )
@@ -740,7 +743,7 @@ Desktop only, **≥ 1024 px** (§17.2). Three panes:
 2. **Canvas** — the ordered field list, drag-reorderable, grouped by section.
 3. **Settings pane** — the selected field's configuration, semantic metadata and scoring, all in one place so metadata is filled *while* the field is created.
 
-*Closed design (2026-10-08, v1.20; `docs/design/pages/12-form-builder/final/`):* the canvas draws each field with the scouter's real controls and is **paged by phase like the entry form** (the phase tabs, "Phase n of 4", swipe or ← →); its **Try it** mode is the phone-width preview and shows **what the entry would save** and what the analysis gets. The top bar holds **Match timer** and **More** (Edit as JSON · Export · Import · Delete form), then Save draft / Publish; a held Publish says why, with "Next incomplete". A locked version shows a banner naming **how many entries use it**. An incomplete field is marked in the warning colour, never red. Reached from **`/admin/forms`**, an admin-only list of the season's forms (its design is the next round).
+*Closed design (2026-10-08, v1.20; `docs/design/pages/12-form-builder/final/`):* the canvas draws each field with the scouter's real controls and is **paged by phase like the entry form** (the phase tabs, "Phase n of 4", swipe or ← →); its **Try it** mode is the phone-width preview and shows **what the entry would save** and what the analysis gets. The top bar holds **Match timer** and **More** (Edit as JSON · Export · Import · Delete form), then Save draft / Publish; a held Publish says why, with "Next incomplete". A locked version shows a banner naming **how many entries use it**. An incomplete field is marked in the warning colour, never red. Reached from **`/admin/forms`** (v1.21; `docs/design/pages/13-forms/final/`): per season, a card per form (match, super) with its status, fields, entries, last edited (date · who) and a **version timeline** — entries per version, and a button per version that opens the builder on it: **Continue** (the draft), **Open** (the active version, in-place edits), **View** (an older version, read-only) with **Restore**. **Open builder** opens the draft if there is one, else the active version. A missing form offers Create or Import; a season with no published match form shows a warning. The builder route takes the version: `/admin/forms/:formId?version=n`.
 
 Plus:
 
@@ -1946,6 +1949,7 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 | User detail (`/admin/users/:id`) | Added 2026-10-07, v1.13. Desktop only. One column: who it is (with "This is you" on your own account); **Role** as three described choices that **save on pick, with no Save button** ("Saving…", then a "Saved" line; a refusal shows the server's sentence and restores the role); Rename; Reset password with **Generate** and the one-time handover; **Disable** behind the destructive confirmation. A disabled account shows only **Enable account**. |
 | Change password (`/change-password`) | Added 2026-10-07, v1.14. The sign-in frame. Forced after sign-in ("Choose a new password", no way back) or by choice ("Change your password", Back to scouting). Current, new and confirm, each with **show / hide**; **live checks** for "at least 8 characters" and "both new passwords match"; offline is said first and the button is held. Reached by choice from the **account menu** (the sidebar's account corner: Switch scouter · Change password · Sign out; on a phone, the drawer's account section). |
 | Phone data entry | One job on screen. Primary actions stay thumb-reachable. Counters are a − / value / + triplet, never a text input. The sticky timer never fights the page scroll. |
+| Forms list (`/admin/forms`) | Added 2026-10-08, v1.21. Desktop only; admins; not in the phone menu. Season chips (a plain label, a dot on the active season); per form a card with status, counts, last edited · who, and the version timeline with Continue / Open / View and Restore; Open builder; Create or Import for a missing form; a warning while no match form is published. |
 | Form builder | Three panes: palette → canvas → settings. Semantic metadata lives in the settings pane so it is filled *while* the field is created. *(Amended 2026-10-08, v1.20.)* Desktop only. The canvas draws the real entry controls, paged by phase like the entry form; **Try it** replaces a separate preview and shows the data the entry would save. Top bar: version chip, Match timer, More (Edit as JSON · Export · Import · Delete form), Save draft / Publish. Map fields are buttons that open the map dialog. |
 | Team page | Sticky team header, horizontal tab strip, stat rows as label → value → inline bar. Readable in one thumb scroll. |
 | Dashboards & builder | A panel grid with a pinned scope/filter bar; a builder order a non-programmer can follow; KPI stat tiles above the charts. |
