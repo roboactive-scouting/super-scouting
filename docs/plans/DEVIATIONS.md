@@ -5076,3 +5076,53 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
 - Low. Initial JS is 203.8 KB gzip, 0.1 KB less than UF.9's 203.9.
 - The "nothing raised" room under the content is a few px more than a flat bar needs, so a short page on Switch scouter etc. has 38 px of spare foot. If the user wants it tighter, set `--below-content` per page from the current route.
 - Other pages' final images still show the always-raised Scout. The shell final wins (UI-FIX-NOTES 11, note 2).
+
+## UF.12 — one malformed operation no longer blocks a whole push
+
+**Plan said:** SPEC-FINAL 9.3.1: operations are applied independently; a rejection does not stop the batch.
+
+**What was wrong:** The Vercel log showed every `POST /sync/push` from a real phone answering 400. `routes/sync.ts` parsed the whole body with `pushRequestSchema`, whose `operations: z.array(operationSchema)` fails the whole request when any ONE operation fails `operationSchema`. The client (`syncNow`) reads a 400 as a failed sync: nothing acked, nothing parked, nothing shown, and every good operation behind the bad one is blocked for ever without a word.
+
+The bad operation, as far as the code shows: `submitEntry` (edit path) copied the cached row's `client_created_at` into the op as it was. A row that came from a pull carries PostgREST's timestamptz form. Read from the dev project for this entry:
+```
+[{"client_created_at":"1999-03-02T09:00:00+00:00","updated_at":"2026-10-05T16:57:46.360022+00:00"}, …]
+```
+and `z.string().datetime({ offset: false })` refuses it (`false false true` for `…+00:00`, `…360022+00:00`, `…360Z`). So editing any entry that had already synced (a scouter's self-edit, a lead's fix) queued an op that 400'd every push from that device from then on. I can't see the phone's outbox, so this is the cause the code shows, not one read off the device.
+
+**What I did instead:**
+- Shared: new `pushEnvelopeSchema` (device_id uuid; `operations: z.array(z.unknown()).max(200)`). `pushRequestSchema` / `PushRequest` are unchanged, so the client still sends typed valid ops.
+- Server: the route parses the envelope (still a 400 when that is malformed), then `screenOperations` (in `syncPush.ts`) parses each op on its own. A malformed op with a string op_id gets `{ status: 'rejected', reason: 'invalid', detail }`, where `detail` is `path: message` for each zod issue. `invalid_enum_value`'s own message quotes the received value, so that one says `expected create | update | delete` instead. An op with no usable op_id is skipped, since it can't be answered. Both are `console.error`ed with issue paths and codes keyed by op_id (or index), never a value. Valid ops go to `syncPush` unchanged, so they are still applied in seq order. The response is the valid ops' results in seq order, then the rejections. The client matches by op_id, so order carries no meaning.
+- Client, the source: `submitEntry` passes the cached `client_created_at` through the new `asUtcIso` (outbox.ts) for the op and the optimistic row.
+- Client, the repair: `pending()` sends both timestamps through `asUtcIso`, so an op queued before this fix (the live phone's) goes out valid with no user action. The stored op is left alone. A value that does not parse is passed through untouched, so the server refuses that one op visibly.
+- The client already parked an `invalid` rejection and showed `Not synced: <detail>` (ackResults + rejectionMessage). A new test pins a mixed batch: the acks apply, the bad op is parked with its detail.
+- Rejected alternative: having syncPush validate its own input. Its tests (and its typed callers) use non-uuid fixture ids, and the parse belongs at the transport edge, like the pull's. Rejected too: loosening `operationSchema` to accept offsets. That is a protocol change, and the client fix plus the `pending()` repair cover the real source.
+- `pnpm --filter @frc/server build` regenerated `apps/server/api/index.js`.
+
+**Risk:**
+- Low. The protocol is unchanged for a well-formed push. A malformed op that a pre-UF.12 server answered with a 400 is now parked on the device with a readable reason, rather than blocking the queue.
+- Order: rejections for malformed ops come after the seq-ordered results. Only a client that matched by position would notice, and this one matches by op_id.
+- The live phone recovers only once BOTH sides are deployed. With the new server and the old client, the bad op is parked ("client_created_at: Invalid datetime") and the rest sync. With the new client, `pending()` mends it, but a parked op needs Retry on the sync page (or a new edit of the entry) to go again.
+
+## UF.12 (addendum) — the server accepts an offset timestamp and normalises it to UTC Z
+
+**Plan said:** (coordinator, after UF.12) A phone should recover without a manual Retry whatever client it runs. Accept offset timestamps in `operationSchema` and audit every server or shared place that uses them as strings.
+
+**What was wrong:** With UF.12 alone, a phone on the old client had its `+00:00` edit parked as `invalid`, and only Retry or a new edit sent it again.
+
+**What I did instead:**
+- `operationSchema`'s `client_created_at` / `client_updated_at` now take `z.string().datetime({ offset: true })`, then a transform to `new Date(ms).toISOString()`. Every parsed op therefore carries UTC `Z` at millisecond precision, whatever the device sent, so the stored value and anything comparing it never sees a mixed pair. A value zod accepts that `Date.parse` cannot read is a custom `Invalid datetime` issue, never a thrown RangeError. A string with no zone (`2026-11-14T09:00:00`) is still refused, because it would be read in the server's local time. The client keeps sending `Z` (asUtcIso, submitEntry, pending() unchanged).
+- Audit of string uses of these values in server and shared code:
+  - `withinSelfEditWindow` (shared/auth/permissions.ts) already parses both to epoch ms, so it was correct with mixed values even before the normalisation. The new test passes against both.
+  - `syncPush` stores `op.client_*` (now `Z`) and `existing.client_created_at` (Postgres `timestamptz`, normalised by the DB) and only compares them through `withinSelfEditWindow`.
+  - There is no `a > b` / `localeCompare` on client timestamps in server or shared code. `store.ts:581` and `syncPull.ts:69` sort and compare the DB's own `updated_at`, which is always the DB's single format.
+  - The "latest client_updated_at wins" canonical rule (divergence/duplicate) is not implemented yet (task 1.40). When it is, it reads parsed values.
+- Tests:
+  - app.test: the offset case moved out of the rejected list (replaced by a non-ISO `14/11/2026 09:00`). A `+00:00` / `+02:00` op is applied and stored as `…09:00:00.123Z` / `…09:00:00.500Z`.
+  - app.test: a self-edit sent at `11:03+02:00` (3 min later) is applied, and one at `09:03-02:00` (2 h 3 min later, though it reads earlier as text) is `edit-window-expired`.
+  - operation.test: offset accepted and normalised, and a timestamp with no zone rejected.
+  - Mutation: returning the raw value from the transform fails the two normalisation tests.
+
+**Risk:**
+- Low. The server is now more liberal, but only for zone-qualified ISO timestamps. Microseconds beyond the millisecond are dropped, and the client never sends them.
+- The client's own `newestFirst` still `localeCompare`s `client_created_at`, and a cache can hold both a pulled `+00:00` and a local `Z` value. Both are UTC, so the order is right to the second. Only two values within the same millisecond can tie the wrong way. Left as is: out of scope here and invisible in practice.
+- Initial JS 203.9 KB gzip (+0.1 KB, the transform is in the shared schema the client bundles).

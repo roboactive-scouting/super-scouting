@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { PARENT_DELETED_DETAIL, type Operation, type PushResult } from '@frc/shared';
 import { session } from '@/auth/session';
 import { db } from './db';
+import { rejectionMessage } from './rejections';
 import {
   ackResults,
+  asUtcIso,
   enqueue,
   matchIdsNeededByOutbox,
   nextSeq,
@@ -233,6 +235,45 @@ describe('push rejections are recorded, never pruned (SPEC-FINAL 9.4, 7.6)', () 
     ]);
     expect((await syncStateOf('row-1'))?.rejection ?? null).toBeNull();
     expect(await pending(50)).toHaveLength(1);
+  });
+});
+
+describe('one malformed op in a batch (UF.12, SPEC-FINAL 9.3.1)', () => {
+  it('parks the refused op with its detail and still acks the rest of the batch', async () => {
+    for (let i = 1; i <= 3; i += 1) await enqueue(op({ row_id: `row-${i}`, seq: i }));
+    const [one, two, three] = await pending(50);
+    const detail = 'client_created_at: Invalid datetime';
+    await ackResults([
+      { op_id: one!.op_id, status: 'applied', row_id: 'row-1', new_version: 1 },
+      { op_id: three!.op_id, status: 'applied', row_id: 'row-3', new_version: 1 },
+      { op_id: two!.op_id, status: 'rejected', reason: 'invalid', detail },
+    ]);
+
+    expect((await db.outbox.toArray()).map((o) => o.row_id)).toEqual(['row-2']);
+    expect((await syncStateOf('row-1'))?.sync_state).toBe('acked');
+    expect((await syncStateOf('row-3'))?.sync_state).toBe('acked');
+    expect((await syncStateOf('row-2'))?.rejection).toMatchObject({
+      code: 'invalid',
+      message: detail,
+    });
+    expect(rejectionMessage((await syncStateOf('row-2'))!.rejection!)).toBe(detail);
+    expect(await pending(50)).toHaveLength(0);
+  });
+
+  it("sends an op queued with a pulled row's +00:00 timestamp as UTC Z", async () => {
+    // What an edit of a synced entry queued before UF.12: Postgres's form, which the
+    // protocol refuses. pending() mends it on the way out; the stored op is left alone.
+    await db.outbox.put(
+      op({ action: 'update', base_version: 1, client_created_at: '2026-11-14T09:00:00.5+00:00' }),
+    );
+    const [sent] = await pending(50);
+    expect(sent!.client_created_at).toBe('2026-11-14T09:00:00.500Z');
+    expect(sent!.client_updated_at).toBe('2026-11-14T09:00:00.000Z');
+  });
+
+  it('asUtcIso leaves a value it cannot read alone, for the server to refuse visibly', () => {
+    expect(asUtcIso('2026-11-14T11:00:00+02:00')).toBe('2026-11-14T09:00:00.000Z');
+    expect(asUtcIso('not a date')).toBe('not a date');
   });
 });
 

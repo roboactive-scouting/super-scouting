@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
-import { pullRequestSchema, pushRequestSchema } from '@frc/shared';
+import { pullRequestSchema, pushEnvelopeSchema } from '@frc/shared';
 import type { CallerResult } from '../auth/callerFor.js';
-import { syncPush } from '../core/commands/syncPush.js';
+import { screenOperations, syncPush } from '../core/commands/syncPush.js';
 import { syncPull } from '../core/queries/syncPull.js';
 import type { UseCaseContext } from '../core/context.js';
 
@@ -27,12 +27,21 @@ export function syncRoutes(deps: SyncRouteDeps): Hono {
     if (!caller) return c.json(UNAUTHENTICATED, 401);
     if (refreshedToken) c.header('X-Refreshed-Token', refreshedToken);
 
+    // Only a malformed ENVELOPE is a 400. Each operation is parsed on its own (UF.12): a
+    // malformed one is answered `invalid`, and the rest of the batch is still applied.
     const body = await c.req.json().catch(() => null);
-    const parsed = pushRequestSchema.safeParse(body);
+    const parsed = pushEnvelopeSchema.safeParse(body);
     if (!parsed.success) {
       return c.json({ error: { code: 'invalid', message: parsed.error.message } }, 400);
     }
-    return c.json(await syncPush(caller, parsed.data, deps.ctx));
+    const { operations, rejections } = screenOperations(parsed.data.operations);
+    const { results } = await syncPush(
+      caller,
+      { device_id: parsed.data.device_id, operations },
+      deps.ctx,
+    );
+    // The client matches every result by op_id; the order carries no meaning.
+    return c.json({ results: [...results, ...rejections] });
   });
 
   app.get('/sync/pull', async (c) => {

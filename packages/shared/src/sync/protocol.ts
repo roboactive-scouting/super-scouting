@@ -11,6 +11,18 @@ export const pushRequestSchema = z.object({
 });
 export type PushRequest = z.infer<typeof pushRequestSchema>;
 
+/**
+ * The server's parse of a push (UF.12): the envelope strictly, the operations only as an
+ * array. Each operation is then parsed on its own, so a malformed one is answered
+ * `invalid` (SPEC-FINAL 9.3.1: a rejection does not stop the batch) instead of turning the
+ * whole push into a 400 that blocks every good operation queued behind it. The client
+ * still sends a PushRequest.
+ */
+export const pushEnvelopeSchema = z.object({
+  device_id: z.string().uuid(),
+  operations: z.array(z.unknown()).max(MAX_OPERATIONS_PER_PUSH),
+});
+
 export const REJECTION_REASONS = [
   'parent-deleted',
   'edit-window-expired',

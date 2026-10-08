@@ -3,6 +3,7 @@ import {
   can,
   ensureMatchInput,
   isUser,
+  operationSchema,
   PARENT_DELETED_DETAIL,
   validateEntryData,
   withinSelfEditWindow,
@@ -16,6 +17,7 @@ import {
   type RejectionReason,
   type RobotStatus,
 } from '@frc/shared';
+import type { ZodIssue } from 'zod';
 import type { StoredUser, UseCaseContext } from '../context.js';
 import { pgCode } from '../seasonRows.js';
 import { ensureMatch } from './matches.js';
@@ -65,6 +67,53 @@ const callerOf = (author: StoredUser): Caller => ({
   userId: author.id,
   role: author.role,
 });
+
+/** One zod issue as `path: message`, never with the value it was about. */
+function describeIssue(issue: ZodIssue): string {
+  const path = issue.path.join('.') || 'operation';
+  // invalid_enum_value's own message quotes the value received; name the options instead.
+  const message =
+    issue.code === 'invalid_enum_value' ? `expected ${issue.options.join(' | ')}` : issue.message;
+  return `${path}: ${message}`;
+}
+
+const opIdOf = (candidate: unknown): string | null => {
+  if (typeof candidate !== 'object' || candidate === null) return null;
+  const opId = (candidate as { op_id?: unknown }).op_id;
+  return typeof opId === 'string' && opId.length > 0 ? opId : null;
+};
+
+/**
+ * SPEC-FINAL 9.3.1 (UF.12): the route parses the push envelope strictly and each operation
+ * here, on its own. A malformed operation is answered `invalid` with the fields it got
+ * wrong, so it is parked on the device and shown, and every good operation in the batch
+ * is still applied. One with no op_id cannot be answered at all, so it is skipped. Either
+ * way the issue paths and codes are logged, keyed by op_id, never with a value.
+ */
+export function screenOperations(raw: unknown[]): {
+  operations: Operation[];
+  rejections: PushResult[];
+} {
+  const operations: Operation[] = [];
+  const rejections: PushResult[] = [];
+  raw.forEach((candidate, index) => {
+    const parsed = operationSchema.safeParse(candidate);
+    if (parsed.success) {
+      operations.push(parsed.data);
+      return;
+    }
+    const { issues } = parsed.error;
+    const codes = issues.map((i) => `${i.path.join('.') || 'operation'} ${i.code}`).join(', ');
+    const opId = opIdOf(candidate);
+    if (opId === null) {
+      console.error(`syncPush: skipped operation #${index}, which has no op_id: ${codes}`);
+      return;
+    }
+    console.error(`syncPush: op ${opId} is malformed: ${codes}`);
+    rejections.push(rejected(opId, 'invalid', issues.map(describeIssue).join('; ')));
+  });
+  return { operations, rejections };
+}
 
 /**
  * SPEC-FINAL 9.3.1. Operations are applied in seq order, each independently; a

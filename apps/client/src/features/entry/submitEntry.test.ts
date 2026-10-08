@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { FormFieldDefinition } from '@frc/shared';
+import { operationSchema, type FormFieldDefinition } from '@frc/shared';
 import { db } from '@/data/db';
 import { ackResults, pending } from '@/data/outbox';
 import { submitEntry } from './submitEntry';
@@ -164,5 +164,39 @@ describe('submitEntry', () => {
     expect(op!.author_user_id).toBe('u-lead');
     expect(op!.payload).toMatchObject({ scouter_id: 'u-1' });
     expect(await db.rows.get(['scouting_entries', row_id])).toMatchObject({ scouter_id: 'u-1' });
+  });
+});
+
+describe('an edit of a pulled entry (UF.12)', () => {
+  it("sends the row's client_created_at as UTC Z, never Postgres's +00:00, so the push accepts it", async () => {
+    const rowId = '00000000-0000-4000-8000-000000000e01';
+    // The row as a pull caches it: PostgREST writes a timestamptz with an offset.
+    await db.rows.put({
+      entity: 'scouting_entries',
+      id: rowId,
+      event_id: 'ev-1',
+      form_kind: 'match',
+      match_id: 'm-1',
+      team_id: 't-1',
+      scouter_id: 'u-1',
+      version: 1,
+      client_created_at: '2026-11-14T09:00:00.123456+00:00',
+      client_updated_at: '2026-11-14T09:00:00.123456+00:00',
+      deleted_at: null,
+    });
+    await submitEntry({ ...base, rowId, robotStatus: 'played', data: { auto_notes: 2 } });
+
+    const [queued] = await db.outbox.toArray();
+    expect(queued).toMatchObject({ action: 'update', base_version: 1 });
+    expect(queued!.client_created_at).toBe('2026-11-14T09:00:00.123Z');
+    expect(
+      operationSchema.safeParse({
+        ...queued,
+        author_user_id: '00000000-0000-4000-8000-0000000000a1',
+      }).success,
+    ).toBe(true);
+    expect(await db.rows.get(['scouting_entries', rowId])).toMatchObject({
+      client_created_at: '2026-11-14T09:00:00.123Z',
+    });
   });
 });

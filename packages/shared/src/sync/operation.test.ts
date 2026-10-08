@@ -59,6 +59,22 @@ describe('Operation', () => {
     ]);
   });
 
+  it('accepts a timestamp with an offset and hands it on as UTC Z (UF.12)', () => {
+    const parsed = operationSchema.parse({
+      ...valid,
+      client_created_at: '2026-11-14T09:00:00.123456+00:00',
+      client_updated_at: '2026-11-14T11:00:00+02:00',
+    });
+    expect(parsed.client_created_at).toBe('2026-11-14T09:00:00.123Z');
+    expect(parsed.client_updated_at).toBe('2026-11-14T09:00:00.000Z');
+  });
+
+  it('rejects a timestamp with no zone at all', () => {
+    expect(
+      operationSchema.safeParse({ ...valid, client_created_at: '2026-11-14T09:00:00' }).success,
+    ).toBe(false);
+  });
+
   it('rejects a non-ISO client timestamp', () => {
     expect(operationSchema.safeParse({ ...valid, client_created_at: '14/11/2026' }).success).toBe(
       false,

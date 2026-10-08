@@ -32,6 +32,17 @@ async function authorRole(authorUserId: string): Promise<Role | null> {
   return null;
 }
 
+/**
+ * A timestamp as the push protocol takes it: UTC with a `Z` (operationSchema refuses an
+ * offset). A pulled row carries Postgres's form, `…+00:00`, so a value read back from the
+ * cache must pass through here before it goes into an operation (UF.12). Left as it is
+ * when it does not parse: the server then refuses that one operation, visibly.
+ */
+export function asUtcIso(value: string): string {
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? value : new Date(ms).toISOString();
+}
+
 const SEQ_KEY = 'outbox.seq';
 
 export async function nextSeq(): Promise<number> {
@@ -104,18 +115,24 @@ export async function enqueue(op: Operation, origin: 'local' | 'qr' = 'local'): 
  * outbox and keeps counting as unsynced, but is not retried until a new local edit of
  * the row, or `retryRejected`, un-parks it. This is also what keeps a run of refused
  * operations at the head of the outbox from blocking everything queued behind them.
- * `skip` leaves out op_ids already sent in the current sync.
+ * `skip` leaves out op_ids already sent in the current sync. Timestamps go out as UTC
+ * `Z` (asUtcIso), which also mends an edit queued before UF.12 with a pulled `+00:00`.
  */
 export async function pending(
   limit: number,
   skip: ReadonlySet<string> = new Set(),
 ): Promise<Operation[]> {
   const parked = new Set((await rejectedRows()).map((s) => s.row_id));
-  return db.outbox
+  const ops = await db.outbox
     .orderBy('seq')
     .filter((op) => !parked.has(op.row_id) && !skip.has(op.op_id))
     .limit(limit)
     .toArray();
+  return ops.map((op) => ({
+    ...op,
+    client_created_at: asUtcIso(op.client_created_at),
+    client_updated_at: asUtcIso(op.client_updated_at),
+  }));
 }
 
 /**

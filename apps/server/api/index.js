@@ -556,7 +556,14 @@ var SYNC_ENTITIES = [
   "alliance_slot",
   "alliance_decline"
 ];
-var isoDateTime = z6.string().datetime({ offset: false });
+var isoDateTime = z6.string().datetime({ offset: true }).transform((value, ctx) => {
+  const ms = Date.parse(value);
+  if (Number.isNaN(ms)) {
+    ctx.addIssue({ code: "custom", message: "Invalid datetime" });
+    return z6.NEVER;
+  }
+  return new Date(ms).toISOString();
+});
 var operationSchema = z6.object({
   op_id: z6.string().min(1),
   entity: z6.enum(SYNC_ENTITIES),
@@ -600,6 +607,10 @@ var WATERMARK_OVERLAP_MS = 5e3;
 var pushRequestSchema = z7.object({
   device_id: z7.string().uuid(),
   operations: z7.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
+});
+var pushEnvelopeSchema = z7.object({
+  device_id: z7.string().uuid(),
+  operations: z7.array(z7.unknown()).max(MAX_OPERATIONS_PER_PUSH)
 });
 var PARENT_DELETED_DETAIL = {
   event: "the event no longer exists",
@@ -2792,6 +2803,37 @@ var callerOf = (author) => ({
   userId: author.id,
   role: author.role
 });
+function describeIssue(issue) {
+  const path = issue.path.join(".") || "operation";
+  const message = issue.code === "invalid_enum_value" ? `expected ${issue.options.join(" | ")}` : issue.message;
+  return `${path}: ${message}`;
+}
+var opIdOf = (candidate) => {
+  if (typeof candidate !== "object" || candidate === null) return null;
+  const opId = candidate.op_id;
+  return typeof opId === "string" && opId.length > 0 ? opId : null;
+};
+function screenOperations(raw) {
+  const operations = [];
+  const rejections = [];
+  raw.forEach((candidate, index) => {
+    const parsed = operationSchema.safeParse(candidate);
+    if (parsed.success) {
+      operations.push(parsed.data);
+      return;
+    }
+    const { issues } = parsed.error;
+    const codes = issues.map((i) => `${i.path.join(".") || "operation"} ${i.code}`).join(", ");
+    const opId = opIdOf(candidate);
+    if (opId === null) {
+      console.error(`syncPush: skipped operation #${index}, which has no op_id: ${codes}`);
+      return;
+    }
+    console.error(`syncPush: op ${opId} is malformed: ${codes}`);
+    rejections.push(rejected(opId, "invalid", issues.map(describeIssue).join("; ")));
+  });
+  return { operations, rejections };
+}
 async function syncPush(caller, input, ctx) {
   const ordered = [...input.operations].sort((a, b) => a.seq - b.seq);
   const results = [];
@@ -3027,11 +3069,17 @@ function syncRoutes(deps) {
     if (!caller) return c.json(UNAUTHENTICATED, 401);
     if (refreshedToken) c.header("X-Refreshed-Token", refreshedToken);
     const body = await c.req.json().catch(() => null);
-    const parsed = pushRequestSchema.safeParse(body);
+    const parsed = pushEnvelopeSchema.safeParse(body);
     if (!parsed.success) {
       return c.json({ error: { code: "invalid", message: parsed.error.message } }, 400);
     }
-    return c.json(await syncPush(caller, parsed.data, deps.ctx));
+    const { operations, rejections } = screenOperations(parsed.data.operations);
+    const { results } = await syncPush(
+      caller,
+      { device_id: parsed.data.device_id, operations },
+      deps.ctx
+    );
+    return c.json({ results: [...results, ...rejections] });
   });
   app2.get("/sync/pull", async (c) => {
     const { caller, refreshedToken } = await deps.callerFor(c.req.raw);
