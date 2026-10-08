@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { clientConfig } from '@/config';
 import type { Rpc } from '@/data/rpc';
-import { getStation } from '@/data/station';
+import { getStation, setStation } from '@/data/station';
 import { useDeviceQuery } from '@/data/useDeviceQuery';
 import { useSyncStatus } from '@/data/syncStatus';
 import { canManageEvents } from '@/features/admin/AdminOnly';
 import { SwitchCompetitionSheet } from '@/features/context/SwitchCompetitionSheet';
+import { StationSheet } from '@/features/entry/StationSheet';
 import { useSessionOverride } from '@/features/context/sessionOverride';
 import { useEventName } from '@/features/context/useEventName';
 import { useShellContext } from '@/features/shell/shellContext';
@@ -35,6 +36,7 @@ export function HomePage({ rpc }: { rpc?: Rpc }) {
   const override = useSessionOverride();
   const eventName = useEventName(eventId, gate);
   const [switching, setSwitching] = useState(false);
+  const [picking, setPicking] = useState(false);
   const ready = !notReady(gate) && eventId !== null;
   const data = useDeviceQuery(
     () => (ready ? loadHome(eventId, user.id) : Promise.resolve(null)),
@@ -72,6 +74,7 @@ export function HomePage({ rpc }: { rpc?: Rpc }) {
   const tiles = data ?? { lastEntry: null, cells: [], seasonYear: null };
   const name = eventName ?? 'this competition';
   const goTo = <GoToTiles user={user} expired={expired} desktop={desktop} />;
+  const pick = () => setPicking(true);
   // Coverage is the default competition's; under an override it would describe the wrong one.
   const cover = !override && <CoverageCard cells={tiles.cells} desktop={desktop} />;
 
@@ -85,19 +88,29 @@ export function HomePage({ rpc }: { rpc?: Rpc }) {
       />
       {desktop ? (
         <>
-          <StatTiles station={station} lastEntry={tiles.lastEntry} sync={sync} />
+          <StatTiles station={station} onStation={pick} lastEntry={tiles.lastEntry} sync={sync} />
           {goTo}
           {cover}
         </>
       ) : (
         <>
-          <PhoneTiles station={station} lastEntry={tiles.lastEntry} sync={sync} />
+          <PhoneTiles station={station} onStation={pick} lastEntry={tiles.lastEntry} sync={sync} />
           {cover}
           {goTo}
         </>
       )}
       {version}
       <SwitchCompetitionSheet open={switching} onClose={() => setSwitching(false)} rpc={rpc} />
+      {/* Scout's own picker, saved the same way (SPEC-FINAL v1.17 17.9). */}
+      <StationSheet
+        open={picking}
+        current={station}
+        onClose={() => setPicking(false)}
+        onUse={(s) => {
+          setPicking(false);
+          void setStation(s);
+        }}
+      />
     </main>
   );
 }

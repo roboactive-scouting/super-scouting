@@ -246,6 +246,16 @@ describe('AppShell cached-first start (task 1.17b)', () => {
     expect(loading.seen.ever).toBe(false);
   });
 
+  it('draws the cached-data strip with no start edge below 1024 px, and keeps it on desktop (UF.7)', async () => {
+    await hydratedFor(EVENT);
+    syncNow.mockReturnValue(new Promise(() => {}));
+    renderShell();
+    const strip = (await screen.findByText(/data already on this device/i)).parentElement!;
+    // The 4 px --ink start edge met the dark top bar on a phone and read as its background.
+    expect(strip).toHaveClass('rounded-none', 'border-s-4', 'max-lg:border-s-0');
+    expect(strip.className).not.toMatch(/(^|\s)-?m[xs]-/);
+  });
+
   it('moves from cached to fresh when the background sync lands, keeping a part-filled form', async () => {
     await hydratedFor(EVENT);
     const background = deferred<SyncOutcome>();

@@ -130,6 +130,53 @@ test.describe('with motion', () => {
   });
 });
 
+test('home: the cached-data notice is flush with the page on a phone (UF.7)', async ({ page }) => {
+  await setClock(page);
+  await signIn(page, 'lead', HOLD_PUSH);
+  // Loaded once; from then on the pull never answers: the device works from what it holds.
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'District #3 · Tel Aviv' }),
+  ).toBeVisible();
+  await page.route(
+    (url) => url.host === 'api.test' && url.pathname.endsWith('/sync/pull'),
+    (route) => route.abort('internetdisconnected'),
+  );
+  await seedDevice(page, 'B2');
+  const notice = page.getByText(/^Working from data already on this device/);
+  await expect(notice).toBeVisible();
+  await page.setViewportSize({ width: 375, height: 812 });
+  const strip = notice.locator('xpath=..');
+  // The shell swaps to its phone layout on the resize; measure once it has.
+  await expect.poll(async () => await strip.boundingBox()).toMatchObject({ x: 0, width: 375 });
+  // No dark start edge against the top bar: the strip's white runs to the screen's edge.
+  const edge = () => strip.evaluate((el) => getComputedStyle(el).borderInlineStartWidth);
+  expect(await edge()).toBe('0px');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  expect(await edge()).toBe('4px'); // desktop unchanged
+  await shoot(page, 'home-cached');
+});
+
+test('home: tapping the station opens the station picker and saves the choice (UF.7)', async ({
+  page,
+}) => {
+  await setClock(page);
+  await signIn(page, 'lead', HOLD_PUSH);
+  await seedDevice(page, 'B2');
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.getByRole('button', { name: /Change station/ }).click();
+  const sheet = page.getByRole('dialog', { name: 'Choose your station' });
+  await expect(sheet.getByRole('button', { name: 'Blue 2', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await sheet.getByRole('button', { name: 'Red 3', exact: true }).click();
+  await shoot(page, 'home-station', 'phone');
+  await sheet.getByRole('button', { name: 'Use Red 3' }).click();
+  await expect(sheet).toBeHidden();
+  await expect(page.getByRole('button', { name: /Change station/ })).toContainText('Red 3');
+  await shoot(page, 'home-station-set', 'desktop');
+});
+
 test('home: an admin on desktop sees the Manage and Users tiles', async ({ page }) => {
   await setClock(page);
   await signIn(page, 'admin', HOLD_PUSH);

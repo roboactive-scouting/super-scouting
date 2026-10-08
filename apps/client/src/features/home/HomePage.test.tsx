@@ -6,7 +6,7 @@ import type { Role } from '@frc/shared';
 import { SERVER_UNREACHABLE_LINE } from '@/auth/messages';
 import { db, type CachedRow } from '@/data/db';
 import type { Rpc } from '@/data/rpc';
-import { setStation } from '@/data/station';
+import { getStation, setStation } from '@/data/station';
 import { sessionOverride } from '@/features/context/sessionOverride';
 import type { ShellContext } from '@/features/shell/shellContext';
 import { HomePage } from './HomePage';
@@ -250,6 +250,34 @@ describe('HomePage (Home README, RB.10)', () => {
     );
     expect(sessionOverride.get()).toBeNull();
     expect(await screen.findByRole('link', { name: 'Scout a match' })).toBeInTheDocument();
+  });
+
+  it('opens the station picker from the station, saves the choice and shows it (UF.7)', async () => {
+    await seedHomeDevice();
+    renderHome();
+    await userEvent.click(await screen.findByRole('button', { name: 'Blue 2 · Change station' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Choose your station' });
+    expect(within(sheet).getByRole('button', { name: 'Blue 2' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Red 3' }));
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Use Red 3' }));
+    expect(
+      await screen.findByRole('button', { name: 'Red 3 · Change station' }),
+    ).toBeInTheDocument();
+    expect(await getStation()).toBe('R3');
+    expect(screen.queryByRole('dialog', { name: 'Choose your station' })).toBeNull();
+  });
+
+  it('offers to choose a station when none is set, on desktop too', async () => {
+    await seedHomeDevice();
+    await db.meta.delete('scout.station');
+    setWidth(1440);
+    renderHome();
+    await userEvent.click(await screen.findByRole('button', { name: 'Choose your station' }));
+    expect(await screen.findByRole('dialog', { name: 'Choose your station' })).toBeInTheDocument();
+    expect(screen.getByText('Change it here or on Scout')).toBeInTheDocument();
   });
 
   it('shows the version quietly at the foot', async () => {

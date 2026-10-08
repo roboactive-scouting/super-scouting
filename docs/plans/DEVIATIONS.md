@@ -4985,3 +4985,18 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
   - `TAP_SLOP_PX = 100`.
 
 **Risk (replaces addendum 2's):** a phase flick now needs more than 16 px of travel. A deliberate phase change is far longer than that, so this is not expected to matter. Initial JS is 203.6 KB gzip.
+
+## UF.7 — Home: the cached-data strip on phones, and the station opens the picker
+
+**Plan said:** the "Working from data already on this device…" notice sits flush with the page on a phone (no background showing on its left); tapping the station on Home opens Scout's `StationSheet` and saves the same way.
+
+**What was wrong:** nothing in the plan, but the cause was not a margin or a width. A 375 px e2e shot of the cached state measured the strip at x = 0, width 375 before any fix. The gap the user saw is the shell strip's own 4 px start edge (`STRIP = '… border-s-4 …'` with the info tone's `border-s-ink`): `--ink` (#141820) is all but the top bar's `--rail` (#161a21), and the edge touches the bar, so on a phone it reads as the dark bar's background running down the strip's left side.
+
+**What I did instead:**
+- `STRIP` in `AppShell.tsx` gains `max-lg:border-s-0`: below 1024 px (the shell's own desktop query) every shell strip — cached data, offline sign-in, expired session, override, held move, switched default, gone event — runs edge to edge with no start edge. Desktop keeps its 4 px edge, unchanged. Rejected: changing the edge colour only for the info tone (two rules for one strip, and the other strips meet the same dark bar); a negative margin (there is no margin to undo).
+- Home's station is a `<button>` around the unchanged `StationPill`, accessible name "Blue 2 · Change station" (visible text first), hit area grown to 48 px by an invisible `::after` (the same trick as the Open link). It opens `StationSheet` with the current station preselected; Use saves through `setStation`, and Home re-reads it through the `meta` change notice. No new component.
+- With no station set, the tile shows "Choose" (accent ink) where it showed "—", accessible name "Choose your station" — a dash is not something anyone would tap. Not in the finals (they always show a station).
+- Desktop note "Change it on Scout" became "Change it here or on Scout"; the Home final README's line was updated to match. The phone tile has no note, as in the final.
+- Tests: `HomePage.test.tsx` (tap the station → sheet with Blue 2 pressed → Red 3 → Use → saved as R3 and shown; no station → "Choose your station" opens the sheet, desktop note). `AppShell.test.tsx` checks the strip's classes. `home.spec.ts` adds the cached state (pull aborted after the first load, then a reload): x = 0 and 375 wide, computed `border-inline-start-width` 0px at 375 and 4px at 1440 — that assertion fails without the fix (Received "4px") — plus shots `home-cached` (both widths), `home-station` (phone, sheet open) and `home-station-set` (desktop, after choosing Red 3).
+
+**Risk:** on a phone, a warning strip (expired session, override, held move, gone event) no longer carries its amber start edge; its words carry it. Initial JS 203.8 KB gzip (was 203.6), 1.2 KB left under 205. `pnpm test` (all workers) died twice out of memory on this machine mid-run; `npx vitest run --maxWorkers=3 --minWorkers=1` ran the same suite green. One full `home.spec` run failed the new cached test once, details not captured; the box check now polls (the shell swaps layout after the resize), and 32 runs since passed.

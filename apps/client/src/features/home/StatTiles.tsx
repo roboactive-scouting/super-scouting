@@ -25,26 +25,35 @@ function OpenLink({ entry, arrow = false }: { entry: LastEntry; arrow?: boolean 
   );
 }
 
-function StationValue({ station }: { station: Station | null }) {
-  return station ? (
-    <span className="my-2 block">
-      <StationPill station={station} />
-    </span>
-  ) : (
-    <span>
-      <span aria-hidden="true">—</span>
-      <span className="sr-only">None</span>
-    </span>
+/**
+ * The station opens Scout's station picker (SPEC-FINAL 17.9, UF.7). The pill keeps its look;
+ * an invisible ::after grows the hit area to 48 px, like the Open link.
+ */
+function StationValue({ station, onChange }: { station: Station | null; onChange: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onChange}
+      className={cn(
+        "hover-veil my-2 block w-fit rounded-full after:absolute after:-inset-2 after:content-['']",
+        !station && 'font-sans text-[0.9375rem] font-semibold text-accent-ink after:-inset-y-4',
+      )}
+    >
+      {station ? <StationPill station={station} /> : 'Choose'}
+      <span className="sr-only">{station ? ' · Change station' : ' your station'}</span>
+    </button>
   );
 }
 
 /** Desktop: Your station · Waiting to send · Your last entry (the Our-team card comes later). */
 export function StatTiles({
   station,
+  onStation,
   lastEntry,
   sync,
 }: {
   station: Station | null;
+  onStation: () => void;
   lastEntry: LastEntry | null;
   sync: Sync;
 }) {
@@ -52,8 +61,8 @@ export function StatTiles({
     <div className="mt-4 grid grid-cols-3 gap-2.5">
       <StatTile
         label="Your station"
-        value={<StationValue station={station} />}
-        note="Change it on Scout"
+        value={<StationValue station={station} onChange={onStation} />}
+        note="Change it here or on Scout"
       />
       <StatTile
         label="Waiting to send"
@@ -91,10 +100,12 @@ const BOX = 'rounded-card border border-line bg-surface px-3 py-2.5';
 /** Phone: a small station tile beside a larger last-entry tile, then one line about sending. */
 export function PhoneTiles({
   station,
+  onStation,
   lastEntry,
   sync,
 }: {
   station: Station | null;
+  onStation: () => void;
   lastEntry: LastEntry | null;
   sync: Sync;
 }) {
@@ -103,7 +114,7 @@ export function PhoneTiles({
       <div className="mt-3 grid grid-cols-[1fr_1.5fr] gap-2">
         <div className={BOX}>
           <p className="text-xs font-semibold text-muted">Your station</p>
-          <StationValue station={station} />
+          <StationValue station={station} onChange={onStation} />
         </div>
         <div className={cn(BOX, 'flex flex-col')}>
           <p className="text-xs font-semibold text-muted">Your last entry</p>

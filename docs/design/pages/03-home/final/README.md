@@ -8,7 +8,7 @@ Chosen: **variant B, refined twice ("B3")**, with the user's phone order.
 
 1. "This device is working on" plus the event name. On the right: **Switch competition** (secondary) and **Scout a match** (primary).
 2. Four tiles:
-   - **Your station** (pill, "Change it on Scout")
+   - **Your station** (pill, "Change it here or on Scout"; tapping the pill opens the station picker, SPEC-FINAL v1.17 §17.9)
    - **Waiting to send** (count, last sync time)
    - **Your last entry** (match · team, how long ago, Open)
    - **Our team** (dark card: 2096, rank #N of M, average, places moved)

@@ -51,8 +51,12 @@ const PULL_TO_REFRESH_PX = 80;
 
 export const UPDATE_READY_LINE = 'An update is ready. It will apply next time you open the app.';
 
-/** A notice as a full-width strip under the shell's top edge. */
-const STRIP = 'rounded-none border-0 border-b border-s-4 px-4';
+/**
+ * A notice as a full-width strip under the shell's top edge. Below 1024 px it has no start
+ * edge: the `--ink` edge met the dark top bar and read as its background down the strip's
+ * left side (UF.7). On desktop the edge stays.
+ */
+const STRIP = 'rounded-none border-0 border-b border-s-4 px-4 max-lg:border-s-0';
 
 /** SPEC-FINAL 9.3: the notice after a pull answered that the event is gone. */
 function goneLine(name: string | null): string {
