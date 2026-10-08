@@ -14518,6 +14518,8 @@ git add -A && git commit -m "feat(shared): implement the conflict policy as pure
 
 **Open input from phase 1C — close both before this task's commit.** Spec §7.5 items 1 and 2 (`docs/spec/frc-scouting-app-spec.md`). **(1)** `deleteMatch` and `setMatchTeams` hard-delete, so a deleted match or a cleared slot never reaches a device: add a `deleted_at` migration on `matches` and `match_teams` and tombstone instead, as `event_teams` already does, so the delta pull carries the removal. **(2)** When a bare match resolves to an id the server already holds (`noop` with the server's `row_id`), rewrite that id in every later operation of the **same push batch** before applying it, so an entry sent alongside its bare match does not fail the foreign key as `rejected: invalid`.
 
+**Open input from phase 1D — close before this task's commit.** Spec §7.5 item 5: `form_fields`, `form_versions`, `forms` and `scoring_rules` have no `deleted_at`, so a field removed from a draft, a deleted version, a dropped scoring rule and a deleted form (with every entry bound to it) never reach a device through the delta pull. A device then scores with a rule the admin removed. Carry the removals to devices — a trigger-written tombstone table like `match_deletions` (UF.1) is the existing pattern — and drop the deleted form's entries on the device under item 3's rule (never an unsynced row).
+
 **Files:**
 - Modify: `apps/server/src/core/commands/syncPush.ts`, `apps/server/src/core/commands/syncPush.test.ts`
 - Modify: `apps/server/src/repos/store.ts` and `apps/server/src/test/fake-context.ts` (replace the `findByLogicalKey`, `parentsExist` and `insertConflict` stubs — all three are already declared by task 1.3)
