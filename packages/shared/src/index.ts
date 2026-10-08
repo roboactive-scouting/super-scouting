@@ -1,5 +1,6 @@
 export * from './api/auth';
 export * from './api/context';
+export * from './api/forms';
 export * from './api/matches';
 export * from './api/teams';
 export * from './api/users';

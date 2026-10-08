@@ -184,51 +184,416 @@ var deleteImpactOutput = z3.object({
   forms: z3.number().int()
 });
 
-// ../../packages/shared/src/api/matches.ts
+// ../../packages/shared/src/api/forms.ts
+import { z as z6 } from "zod";
+
+// ../../packages/shared/src/forms/config.ts
+import { z as z5 } from "zod";
+
+// ../../packages/shared/src/forms/expression.ts
 import { z as z4 } from "zod";
-var uuid2 = z4.string().uuid();
+var exprSchema = z4.lazy(
+  () => z4.union([
+    z4.object({ kind: z4.literal("field"), key: z4.string().min(1) }).strict(),
+    z4.object({ kind: z4.literal("literal"), value: z4.union([z4.number(), z4.string()]) }).strict(),
+    z4.object({
+      kind: z4.literal("op"),
+      op: z4.enum(["+", "-", "*", "/", "concat"]),
+      left: exprSchema,
+      right: exprSchema
+    }).strict()
+  ])
+);
+var NUMERIC_UNITS = /* @__PURE__ */ new Set(["count", "seconds", "points"]);
+function staticType(expr, byKey) {
+  switch (expr.kind) {
+    case "literal":
+      return typeof expr.value === "number" ? "float" : "string";
+    case "field": {
+      const field = byKey.get(expr.key);
+      if (!field) return "invalid";
+      if (field.type === "computed") return "invalid";
+      if (field.type === "toggle") return "float";
+      return NUMERIC_UNITS.has(field.unit ?? "") ? "float" : "string";
+    }
+    case "op": {
+      const left = staticType(expr.left, byKey);
+      const right = staticType(expr.right, byKey);
+      if (left === "invalid" || right === "invalid" || left !== right) return "invalid";
+      if (expr.op === "concat") return left === "string" ? "string" : "invalid";
+      return left === "float" ? "float" : "invalid";
+    }
+  }
+}
+function validateExpr(expr, fields, resultType) {
+  const byKey = new Map(fields.map((f) => [f.key, f]));
+  const issues = [];
+  const walk = (node) => {
+    if (node.kind === "field") {
+      const field = byKey.get(node.key);
+      if (!field) {
+        issues.push({ path: "expression", message: `'${node.key}' is not a field on this form` });
+      } else if (field.type === "computed") {
+        issues.push({
+          path: "expression",
+          message: `a computed field may not reference another computed field ('${node.key}')`
+        });
+      }
+    }
+    if (node.kind === "op") {
+      walk(node.left);
+      walk(node.right);
+    }
+  };
+  walk(expr);
+  if (issues.length === 0) {
+    const type = staticType(expr, byKey);
+    if (type === "invalid") {
+      issues.push({
+        path: "expression",
+        message: "operands must be the same type: numbers take + \u2212 \xD7 \xF7, strings take concat"
+      });
+    } else if (resultType !== void 0 && type !== resultType) {
+      issues.push({
+        path: "expression",
+        message: `the expression gives a ${type}, but the field says ${resultType}`
+      });
+    }
+  }
+  return issues;
+}
+
+// ../../packages/shared/src/forms/config.ts
+var FIELD_TYPES = [
+  "counter",
+  "number",
+  "toggle",
+  "single_select",
+  "multi_select",
+  "rating",
+  "short_text",
+  "long_text",
+  "timer",
+  "event_log",
+  "position",
+  "cycle_path",
+  "computed",
+  "section"
+];
+var option = z5.object({ value: z5.string().min(1), label: z5.string().min(1) });
+var mirrorAxis = z5.enum(["none", "horizontal", "vertical", "both"]);
+var numericRange = {
+  min: z5.number().optional(),
+  max: z5.number().optional(),
+  step: z5.number().positive().optional()
+};
+var eventLog = z5.object({
+  event_types: z5.array(option).min(1),
+  ask_position: z5.boolean().default(false),
+  mirror_axis: mirrorAxis.optional()
+}).strict().superRefine((config2, ctx) => {
+  if (config2.ask_position && config2.mirror_axis === void 0) {
+    ctx.addIssue({
+      code: z5.ZodIssueCode.custom,
+      path: ["mirror_axis"],
+      message: "mirror_axis is required when ask_position is on"
+    });
+  }
+});
+var FIELD_TYPE_CONFIG = {
+  counter: z5.object(numericRange).strict(),
+  number: z5.object(numericRange).strict(),
+  toggle: z5.object({}).strict(),
+  single_select: z5.object({ options: z5.array(option).min(1), is_ordinal: z5.boolean().optional() }).strict(),
+  multi_select: z5.object({ options: z5.array(option).min(1), is_ordinal: z5.boolean().optional() }).strict(),
+  rating: z5.object({ max: z5.number().int().positive().default(5), style: z5.enum(["stars", "slider"]) }).strict(),
+  short_text: z5.object({ max_length: z5.number().int().positive().optional() }).strict(),
+  long_text: z5.object({ max_length: z5.number().int().positive().optional() }).strict(),
+  // SPEC-FINAL 5.3: allow_unsure is "always true in v1", so it defaults to true and
+  // cannot be set to false — but a field that omits it entirely is still valid.
+  timer: z5.object({ allow_unsure: z5.literal(true).default(true) }).strict(),
+  event_log: eventLog,
+  position: z5.object({ multi_point: z5.boolean(), mirror_axis: mirrorAxis }).strict(),
+  cycle_path: z5.object({
+    max_points_per_cycle: z5.number().int().positive().default(6),
+    mirror_axis: mirrorAxis
+  }).strict(),
+  computed: z5.object({ expression: exprSchema.nullable(), result_type: z5.enum(["float", "string"]) }).strict(),
+  section: z5.object({}).strict()
+};
+var KEY_PATTERN = /^[a-z][a-z0-9_]{0,62}$/;
+var SEMANTIC_COLUMNS = [
+  "description",
+  "unit",
+  "phase",
+  "direction",
+  "category",
+  "expected_range",
+  "include_in_ai_context"
+];
+var blank = (value) => value === null || value === void 0 || typeof value === "string" && value.trim() === "";
+function validateFieldDefinition(field) {
+  const issues = [];
+  if (!KEY_PATTERN.test(field.key)) {
+    issues.push({
+      path: "key",
+      message: "a key is permanent: lowercase letters, digits and underscores, starting with a letter"
+    });
+  }
+  if (field.type === "section") {
+    for (const column of SEMANTIC_COLUMNS) {
+      if (field[column] !== null && field[column] !== void 0) {
+        issues.push({
+          path: column,
+          message: "a section holds no data and carries no semantic metadata"
+        });
+      }
+    }
+  } else {
+    for (const required of ["description", "unit", "phase", "direction"]) {
+      if (blank(field[required])) {
+        issues.push({
+          path: required,
+          message: `${required} is required on every data field and cannot be backfilled later`
+        });
+      }
+    }
+  }
+  const ordinalAllowed = field.type === "single_select" || field.type === "multi_select";
+  if (!ordinalAllowed && field.is_ordinal !== null && field.is_ordinal !== void 0) {
+    issues.push({
+      path: "is_ordinal",
+      message: "is_ordinal applies only to single and multi select"
+    });
+  }
+  const schema2 = FIELD_TYPE_CONFIG[field.type];
+  if (!schema2) {
+    issues.push({ path: "type", message: `unknown field type '${field.type}'` });
+  } else {
+    const parsed = schema2.safeParse(field.config);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        issues.push({
+          path: issue.path.length > 0 ? `config.${issue.path.join(".")}` : "config",
+          message: issue.message
+        });
+      }
+    }
+  }
+  return issues;
+}
+
+// ../../packages/shared/src/api/forms.ts
+var uuid2 = z6.string().uuid();
+var FORM_KINDS = ["match", "super"];
+var formKind = z6.enum(FORM_KINDS);
+var FORM_NAME_MAX_LENGTH = 80;
+var FIELD_LABEL_MAX_LENGTH = 200;
+var FORM_FIELDS_MAX = 500;
+var TIMER_PHASES_MAX = 8;
+var TIMER_PHASE_SECONDS_MAX = 3600;
+var FORM_EXPORT_TTL_MS = 24 * 60 * 60 * 1e3;
+var FORM_DEFINITION_FORMAT = 1;
+var formName = z6.string().trim().min(1).max(FORM_NAME_MAX_LENGTH);
+var FIELD_PHASES = ["auto", "teleop", "endgame", "post_match"];
+var FIELD_UNITS = [
+  "count",
+  "seconds",
+  "points",
+  "boolean",
+  "enum",
+  "text",
+  "coordinate"
+];
+var FIELD_DIRECTIONS = ["higher_is_better", "lower_is_better", "neutral"];
+var VISIBILITY_OPS = ["=", "!=", ">", "<", ">=", "<="];
+var timerConfig = z6.object({
+  phases: z6.array(
+    z6.object({
+      phase: z6.enum(FIELD_PHASES),
+      seconds: z6.number().int().positive().max(TIMER_PHASE_SECONDS_MAX)
+    }).strict()
+  ).max(TIMER_PHASES_MAX)
+}).strict().superRefine((value, ctx) => {
+  const seen = /* @__PURE__ */ new Set();
+  value.phases.forEach((p, i) => {
+    if (seen.has(p.phase)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["phases", i, "phase"],
+        message: `the timer names ${p.phase} twice`
+      });
+    }
+    seen.add(p.phase);
+  });
+});
+var fieldShape = {
+  key: z6.string().min(1).max(63),
+  label: z6.string().trim().min(1).max(FIELD_LABEL_MAX_LENGTH),
+  help_text: z6.string().nullable().default(null),
+  type: z6.enum(FIELD_TYPES),
+  section: z6.string().nullable().default(null),
+  display_order: z6.number().int(),
+  required: z6.boolean().default(false),
+  default_value: z6.unknown().default(null),
+  config: z6.record(z6.unknown()).default({}),
+  visibility_condition: z6.object({ field_key: z6.string().min(1), op: z6.enum(VISIBILITY_OPS), value: z6.unknown() }).strict().nullable().default(null),
+  description: z6.string().nullable().default(null),
+  unit: z6.enum(FIELD_UNITS).nullable().default(null),
+  phase: z6.enum(FIELD_PHASES).nullable().default(null),
+  direction: z6.enum(FIELD_DIRECTIONS).nullable().default(null),
+  category: z6.string().nullable().default(null),
+  expected_range: z6.object({ min: z6.number(), max: z6.number() }).strict().refine((r) => r.min <= r.max, { message: "expected_range min must not exceed max" }).nullable().default(null),
+  include_in_ai_context: z6.boolean().nullable().default(null),
+  is_ordinal: z6.boolean().nullable().default(null)
+};
+var formFieldDraft = z6.object(fieldShape).strict();
+var formFieldInput = z6.object({ id: uuid2.optional(), ...fieldShape }).strict();
+var formFieldRow = z6.object({
+  id: uuid2,
+  form_version_id: uuid2,
+  key: z6.string(),
+  label: z6.string(),
+  help_text: z6.string().nullable(),
+  type: z6.enum(FIELD_TYPES),
+  section: z6.string().nullable(),
+  display_order: z6.number().int(),
+  required: z6.boolean(),
+  default_value: z6.unknown(),
+  config: z6.record(z6.unknown()),
+  visibility_condition: z6.object({ field_key: z6.string(), op: z6.string(), value: z6.unknown() }).nullable(),
+  deprecated: z6.boolean(),
+  description: z6.string().nullable(),
+  unit: z6.enum(FIELD_UNITS).nullable(),
+  phase: z6.enum(FIELD_PHASES).nullable(),
+  direction: z6.enum(FIELD_DIRECTIONS).nullable(),
+  category: z6.string().nullable(),
+  expected_range: z6.object({ min: z6.number(), max: z6.number() }).nullable(),
+  include_in_ai_context: z6.boolean().nullable(),
+  is_ordinal: z6.boolean().nullable()
+});
+var formIssue = z6.object({
+  field_key: z6.string().nullable(),
+  path: z6.string(),
+  message: z6.string()
+});
+var formRow = z6.object({
+  id: uuid2,
+  season_id: uuid2,
+  kind: formKind,
+  name: z6.string(),
+  active_version_id: uuid2.nullable(),
+  timer_config: timerConfig,
+  created_at: z6.string(),
+  updated_at: z6.string()
+});
+var createFormInput = z6.object({ season_id: uuid2, kind: formKind, name: formName }).strict();
+var createFormOutput = z6.object({ id: uuid2, draft_version_id: uuid2 });
+var updateFormInput = z6.object({ form_id: uuid2, name: formName.optional(), timer_config: timerConfig.optional() }).strict().refine((value) => value.name !== void 0 || value.timer_config !== void 0, {
+  message: "give a new name or match timer"
+});
+var saveDraftFieldsInput = z6.object({ form_version_id: uuid2, fields: z6.array(formFieldInput).max(FORM_FIELDS_MAX) }).strict();
+var saveDraftFieldsOutput = z6.object({
+  form_version_id: uuid2,
+  new_version_id: uuid2.nullable(),
+  version_no: z6.number().int(),
+  fields: z6.array(formFieldRow),
+  incomplete: z6.array(formIssue)
+});
+var publishFormVersionInput = z6.object({ form_version_id: uuid2 }).strict();
+var publishFormVersionOutput = z6.object({
+  form_version_id: uuid2,
+  published_at: z6.string(),
+  active_version_id: uuid2.nullable()
+});
+var restoreFormVersionInput = z6.object({ form_version_id: uuid2 }).strict();
+var restoreFormVersionOutput = z6.object({ active_version_id: uuid2 });
+var deleteFormVersionInput = z6.object({ form_version_id: uuid2 }).strict();
+var deleteFormVersionOutput = z6.object({ deleted: z6.literal(true) });
+var deleteFormInput = z6.object({ form_id: uuid2, dry_run: z6.boolean().default(false) }).strict();
+var deleteFormOutput = z6.object({
+  versions: z6.number().int(),
+  entries: z6.number().int(),
+  deleted: z6.boolean()
+});
+var definitionScoringRule = z6.object({
+  field_key: z6.string().min(1),
+  points: z6.number().min(0),
+  option_points: z6.record(z6.number().min(0)).nullable().default(null)
+}).strict();
+var formDefinition = z6.object({
+  format: z6.literal(FORM_DEFINITION_FORMAT),
+  kind: formKind,
+  name: formName,
+  timer_config: timerConfig,
+  fields: z6.array(formFieldDraft).max(FORM_FIELDS_MAX),
+  scoring_rules: z6.array(definitionScoringRule).max(FORM_FIELDS_MAX)
+}).strict();
+var exportFormInput = z6.object({ form_id: uuid2, form_version_id: uuid2.optional() }).strict();
+var saveFormExportInput = z6.object({ form_id: uuid2, form_version_id: uuid2 }).strict();
+var exportSummary = z6.object({
+  id: uuid2,
+  form_id: uuid2.nullable(),
+  kind: formKind,
+  label: z6.string(),
+  field_count: z6.number().int(),
+  created_by: z6.object({ id: uuid2, full_name: z6.string() }),
+  created_at: z6.string(),
+  expires_at: z6.string(),
+  expires_in_seconds: z6.number().int()
+});
+var importFormInput = z6.object({ season_id: uuid2, definition: formDefinition, form_id: uuid2.optional() }).strict();
+var importFormOutput = z6.object({
+  form_id: uuid2,
+  draft_version_id: uuid2,
+  created: z6.boolean()
+});
+
+// ../../packages/shared/src/api/matches.ts
+import { z as z7 } from "zod";
+var uuid3 = z7.string().uuid();
 var MATCH_TYPES = ["practice", "qualification", "playoff"];
-var matchType = z4.enum(MATCH_TYPES);
+var matchType = z7.enum(MATCH_TYPES);
 var ALLIANCES = ["red", "blue"];
 var MATCH_NUMBER_MAX = 999;
 var MATCH_BULK_MAX = 200;
 var LIST_MATCHES_DEFAULT_LIMIT = 50;
 var LIST_MATCHES_MAX_LIMIT = 200;
-var matchNumber = z4.number().int().min(1).max(MATCH_NUMBER_MAX);
-var matchSlot = z4.object({
-  alliance: z4.enum(ALLIANCES),
-  station: z4.number().int().min(1).max(3),
-  team_id: uuid2
+var matchNumber = z7.number().int().min(1).max(MATCH_NUMBER_MAX);
+var matchSlot = z7.object({
+  alliance: z7.enum(ALLIANCES),
+  station: z7.number().int().min(1).max(3),
+  team_id: uuid3
 }).strict();
-var matchRow = z4.object({
-  id: uuid2,
-  event_id: uuid2,
+var matchRow = z7.object({
+  id: uuid3,
+  event_id: uuid3,
   match_type: matchType,
-  number: z4.number().int(),
-  created_at: z4.string(),
-  updated_at: z4.string(),
-  slots: z4.array(matchSlot)
+  number: z7.number().int(),
+  created_at: z7.string(),
+  updated_at: z7.string(),
+  slots: z7.array(matchSlot)
 });
-var createMatchInput = z4.object({
-  event_id: uuid2,
+var createMatchInput = z7.object({
+  event_id: uuid3,
   match_type: matchType,
   number: matchNumber.optional(),
-  count: z4.number().int().min(1).max(MATCH_BULK_MAX).optional()
+  count: z7.number().int().min(1).max(MATCH_BULK_MAX).optional()
 }).strict().refine((value) => value.number === void 0 !== (value.count === void 0), {
   message: "give either a match number or a count of matches, not both"
 });
-var createMatchOutput = z4.object({
-  created: z4.number().int(),
-  items: z4.array(matchRow)
+var createMatchOutput = z7.object({
+  created: z7.number().int(),
+  items: z7.array(matchRow)
 });
-var updateMatchInput = z4.object({
-  match_id: uuid2,
+var updateMatchInput = z7.object({
+  match_id: uuid3,
   match_type: matchType.optional(),
   number: matchNumber.optional()
 }).strict().refine((value) => value.match_type !== void 0 || value.number !== void 0, {
   message: "give a new match type or number"
 });
-var setMatchTeamsInput = z4.object({ match_id: uuid2, slots: z4.array(matchSlot).max(6) }).strict().superRefine((value, ctx) => {
+var setMatchTeamsInput = z7.object({ match_id: uuid3, slots: z7.array(matchSlot).max(6) }).strict().superRefine((value, ctx) => {
   const stations = new Set(value.slots.map((s) => `${s.alliance} ${s.station}`));
   if (stations.size !== value.slots.length) {
     ctx.addIssue({
@@ -246,67 +611,67 @@ var setMatchTeamsInput = z4.object({ match_id: uuid2, slots: z4.array(matchSlot)
     });
   }
 });
-var deleteMatchInput = z4.object({ match_id: uuid2 }).strict();
-var deleteMatchOutput = z4.object({ id: uuid2, deleted: z4.literal(true) });
-var listMatchesInput = z4.object({
-  event_id: uuid2,
-  limit: z4.number().int().min(1).optional(),
-  cursor: z4.string().min(1).optional()
+var deleteMatchInput = z7.object({ match_id: uuid3 }).strict();
+var deleteMatchOutput = z7.object({ id: uuid3, deleted: z7.literal(true) });
+var listMatchesInput = z7.object({
+  event_id: uuid3,
+  limit: z7.number().int().min(1).optional(),
+  cursor: z7.string().min(1).optional()
 }).strict();
-var listMatchesOutput = z4.object({
-  items: z4.array(matchRow),
-  next_cursor: z4.string().nullable()
+var listMatchesOutput = z7.object({
+  items: z7.array(matchRow),
+  next_cursor: z7.string().nullable()
 });
-var ensureMatchInput = z4.object({
-  id: uuid2,
-  event_id: uuid2,
+var ensureMatchInput = z7.object({
+  id: uuid3,
+  event_id: uuid3,
   match_type: matchType,
   number: matchNumber
 }).strict();
-var ensureMatchOutput = z4.object({ id: uuid2, created: z4.boolean() });
+var ensureMatchOutput = z7.object({ id: uuid3, created: z7.boolean() });
 
 // ../../packages/shared/src/api/teams.ts
-import { z as z5 } from "zod";
-var uuid3 = z5.string().uuid();
+import { z as z8 } from "zod";
+var uuid4 = z8.string().uuid();
 var TEAM_NUMBER_MIN = 1;
 var TEAM_NUMBER_MAX = 99999;
 var TEAM_QUERY_MAX_LENGTH = NAME_MAX_LENGTH;
 var ROSTER_MAX_TEAMS = 200;
 var LIST_TEAMS_DEFAULT_LIMIT = 50;
 var LIST_TEAMS_MAX_LIMIT = 200;
-var teamNumber = z5.number().int().min(TEAM_NUMBER_MIN).max(TEAM_NUMBER_MAX);
-var teamName = z5.string().trim().min(1).max(NAME_MAX_LENGTH);
-var teamRow = z5.object({
-  id: uuid3,
-  number: z5.number().int(),
-  name: z5.string(),
-  created_at: z5.string(),
-  updated_at: z5.string()
+var teamNumber = z8.number().int().min(TEAM_NUMBER_MIN).max(TEAM_NUMBER_MAX);
+var teamName = z8.string().trim().min(1).max(NAME_MAX_LENGTH);
+var teamRow = z8.object({
+  id: uuid4,
+  number: z8.number().int(),
+  name: z8.string(),
+  created_at: z8.string(),
+  updated_at: z8.string()
 });
-var createTeamInput = z5.object({ number: teamNumber, name: teamName }).strict();
-var updateTeamInput = z5.object({ team_id: uuid3, name: teamName }).strict();
-var listTeamsInput = z5.object({
-  query: z5.string().trim().max(TEAM_QUERY_MAX_LENGTH).optional().transform((value) => value ? value : void 0),
-  limit: z5.number().int().min(1).optional(),
-  cursor: z5.string().min(1).optional()
+var createTeamInput = z8.object({ number: teamNumber, name: teamName }).strict();
+var updateTeamInput = z8.object({ team_id: uuid4, name: teamName }).strict();
+var listTeamsInput = z8.object({
+  query: z8.string().trim().max(TEAM_QUERY_MAX_LENGTH).optional().transform((value) => value ? value : void 0),
+  limit: z8.number().int().min(1).optional(),
+  cursor: z8.string().min(1).optional()
 }).strict();
-var listTeamsOutput = z5.object({
-  items: z5.array(teamRow),
-  next_cursor: z5.string().nullable()
+var listTeamsOutput = z8.object({
+  items: z8.array(teamRow),
+  next_cursor: z8.string().nullable()
 });
-var rosterRow = z5.object({
-  team_id: uuid3,
-  number: z5.number().int(),
-  name: z5.string()
+var rosterRow = z8.object({
+  team_id: uuid4,
+  number: z8.number().int(),
+  name: z8.string()
 });
-var setEventRosterInput = z5.object({
-  event_id: uuid3,
-  team_ids: z5.array(uuid3).max(ROSTER_MAX_TEAMS).refine((ids) => new Set(ids).size === ids.length, {
+var setEventRosterInput = z8.object({
+  event_id: uuid4,
+  team_ids: z8.array(uuid4).max(ROSTER_MAX_TEAMS).refine((ids) => new Set(ids).size === ids.length, {
     message: "name each team only once"
   })
 }).strict();
-var listEventRosterInput = z5.object({ event_id: uuid3 }).strict();
-var eventRosterOutput = z5.object({ items: z5.array(rosterRow) });
+var listEventRosterInput = z8.object({ event_id: uuid4 }).strict();
+var eventRosterOutput = z8.object({ items: z8.array(rosterRow) });
 
 // ../../packages/shared/src/api/index.ts
 var API = {
@@ -343,7 +708,17 @@ var API = {
   setMatchTeams: { input: setMatchTeamsInput, output: matchRow },
   deleteMatch: { input: deleteMatchInput, output: deleteMatchOutput },
   listMatches: { input: listMatchesInput, output: listMatchesOutput },
-  ensureMatch: { input: ensureMatchInput, output: ensureMatchOutput }
+  ensureMatch: { input: ensureMatchInput, output: ensureMatchOutput },
+  createForm: { input: createFormInput, output: createFormOutput },
+  updateForm: { input: updateFormInput, output: formRow },
+  saveDraftFields: { input: saveDraftFieldsInput, output: saveDraftFieldsOutput },
+  publishFormVersion: { input: publishFormVersionInput, output: publishFormVersionOutput },
+  restoreFormVersion: { input: restoreFormVersionInput, output: restoreFormVersionOutput },
+  deleteFormVersion: { input: deleteFormVersionInput, output: deleteFormVersionOutput },
+  deleteForm: { input: deleteFormInput, output: deleteFormOutput },
+  exportForm: { input: exportFormInput, output: formDefinition },
+  saveFormExport: { input: saveFormExportInput, output: exportSummary },
+  importForm: { input: importFormInput, output: importFormOutput }
 };
 
 // ../../packages/shared/src/errors.ts
@@ -407,67 +782,6 @@ var SEASON_IMAGE_MANIFEST = [
   "seasons/2026/field.webp"
 ];
 
-// ../../packages/shared/src/forms/config.ts
-import { z as z7 } from "zod";
-
-// ../../packages/shared/src/forms/expression.ts
-import { z as z6 } from "zod";
-var exprSchema = z6.lazy(
-  () => z6.union([
-    z6.object({ kind: z6.literal("field"), key: z6.string().min(1) }).strict(),
-    z6.object({ kind: z6.literal("literal"), value: z6.union([z6.number(), z6.string()]) }).strict(),
-    z6.object({
-      kind: z6.literal("op"),
-      op: z6.enum(["+", "-", "*", "/", "concat"]),
-      left: exprSchema,
-      right: exprSchema
-    }).strict()
-  ])
-);
-
-// ../../packages/shared/src/forms/config.ts
-var option = z7.object({ value: z7.string().min(1), label: z7.string().min(1) });
-var mirrorAxis = z7.enum(["none", "horizontal", "vertical", "both"]);
-var numericRange = {
-  min: z7.number().optional(),
-  max: z7.number().optional(),
-  step: z7.number().positive().optional()
-};
-var eventLog = z7.object({
-  event_types: z7.array(option).min(1),
-  ask_position: z7.boolean().default(false),
-  mirror_axis: mirrorAxis.optional()
-}).strict().superRefine((config2, ctx) => {
-  if (config2.ask_position && config2.mirror_axis === void 0) {
-    ctx.addIssue({
-      code: z7.ZodIssueCode.custom,
-      path: ["mirror_axis"],
-      message: "mirror_axis is required when ask_position is on"
-    });
-  }
-});
-var FIELD_TYPE_CONFIG = {
-  counter: z7.object(numericRange).strict(),
-  number: z7.object(numericRange).strict(),
-  toggle: z7.object({}).strict(),
-  single_select: z7.object({ options: z7.array(option).min(1), is_ordinal: z7.boolean().optional() }).strict(),
-  multi_select: z7.object({ options: z7.array(option).min(1), is_ordinal: z7.boolean().optional() }).strict(),
-  rating: z7.object({ max: z7.number().int().positive().default(5), style: z7.enum(["stars", "slider"]) }).strict(),
-  short_text: z7.object({ max_length: z7.number().int().positive().optional() }).strict(),
-  long_text: z7.object({ max_length: z7.number().int().positive().optional() }).strict(),
-  // SPEC-FINAL 5.3: allow_unsure is "always true in v1", so it defaults to true and
-  // cannot be set to false — but a field that omits it entirely is still valid.
-  timer: z7.object({ allow_unsure: z7.literal(true).default(true) }).strict(),
-  event_log: eventLog,
-  position: z7.object({ multi_point: z7.boolean(), mirror_axis: mirrorAxis }).strict(),
-  cycle_path: z7.object({
-    max_points_per_cycle: z7.number().int().positive().default(6),
-    mirror_axis: mirrorAxis
-  }).strict(),
-  computed: z7.object({ expression: exprSchema.nullable(), result_type: z7.enum(["float", "string"]) }).strict(),
-  section: z7.object({}).strict()
-};
-
 // ../../packages/shared/src/forms/entryShape.ts
 var MAX_BREAKDOWN_SECONDS = 2147483647;
 function validateEntryShape(row) {
@@ -503,6 +817,8 @@ function selectOptions(field) {
 }
 
 // ../../packages/shared/src/forms/visibility.ts
+var OPS = ["=", "!=", ">", "<", ">=", "<="];
+var ORDERING_OPS = /* @__PURE__ */ new Set([">", "<", ">=", "<="]);
 function compare(left, op, right) {
   switch (op) {
     case "=":
@@ -530,6 +846,28 @@ function isVisible(field, values) {
   const controlling = values[condition.field_key];
   if (controlling === void 0) return false;
   return compare(controlling, condition.op, condition.value);
+}
+function validateVisibilityCondition(field, fields) {
+  const condition = field.visibility_condition;
+  if (!condition) return [];
+  const issues = [];
+  const issue = (message) => issues.push({ path: "visibility_condition", message });
+  if (condition.field_key === field.key) {
+    issue("a field cannot be shown or hidden by its own value");
+  } else {
+    const target = fields.find((f) => f.key === condition.field_key && !f.deprecated);
+    if (!target) {
+      issue(`'${condition.field_key}' is not a field in this form`);
+    } else if (target.type === "section") {
+      issue(`'${condition.field_key}' is a section and holds no value`);
+    }
+  }
+  if (!OPS.includes(condition.op)) {
+    issue(`'${String(condition.op)}' is not one of ${OPS.join(" ")}`);
+  } else if (ORDERING_OPS.has(condition.op) && !(typeof condition.value === "number" && Number.isFinite(condition.value))) {
+    issue(`'${condition.op}' compares against a number`);
+  }
+  return issues;
 }
 
 // ../../packages/shared/src/forms/validate.ts
@@ -710,7 +1048,7 @@ function validateEntryData(fields, robotStatus, data) {
 }
 
 // ../../packages/shared/src/sync/operation.ts
-import { z as z8 } from "zod";
+import { z as z9 } from "zod";
 var SYNC_ENTITIES = [
   "scouting_entry",
   "match",
@@ -720,26 +1058,26 @@ var SYNC_ENTITIES = [
   "alliance_slot",
   "alliance_decline"
 ];
-var isoDateTime = z8.string().datetime({ offset: true }).transform((value, ctx) => {
+var isoDateTime = z9.string().datetime({ offset: true }).transform((value, ctx) => {
   const ms = Date.parse(value);
   if (Number.isNaN(ms)) {
     ctx.addIssue({ code: "custom", message: "Invalid datetime" });
-    return z8.NEVER;
+    return z9.NEVER;
   }
   return new Date(ms).toISOString();
 });
-var operationSchema = z8.object({
-  op_id: z8.string().min(1),
-  entity: z8.enum(SYNC_ENTITIES),
-  row_id: z8.string().uuid(),
-  action: z8.enum(["create", "update", "delete"]),
-  base_version: z8.number().int().positive().nullable(),
+var operationSchema = z9.object({
+  op_id: z9.string().min(1),
+  entity: z9.enum(SYNC_ENTITIES),
+  row_id: z9.string().uuid(),
+  action: z9.enum(["create", "update", "delete"]),
+  base_version: z9.number().int().positive().nullable(),
   /** Always the whole row, never a patch. Field-level merging does not exist. */
-  payload: z8.record(z8.unknown()),
-  author_user_id: z8.string().uuid(),
+  payload: z9.record(z9.unknown()),
+  author_user_id: z9.string().uuid(),
   client_created_at: isoDateTime,
   client_updated_at: isoDateTime,
-  seq: z8.number().int().nonnegative()
+  seq: z9.number().int().nonnegative()
 }).superRefine((op, ctx) => {
   if (op.action === "create" && op.base_version !== null) {
     ctx.addIssue({
@@ -765,16 +1103,16 @@ var operationSchema = z8.object({
 });
 
 // ../../packages/shared/src/sync/protocol.ts
-import { z as z9 } from "zod";
+import { z as z10 } from "zod";
 var MAX_OPERATIONS_PER_PUSH = 200;
 var WATERMARK_OVERLAP_MS = 5e3;
-var pushRequestSchema = z9.object({
-  device_id: z9.string().uuid(),
-  operations: z9.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
+var pushRequestSchema = z10.object({
+  device_id: z10.string().uuid(),
+  operations: z10.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
 });
-var pushEnvelopeSchema = z9.object({
-  device_id: z9.string().uuid(),
-  operations: z9.array(z9.unknown()).max(MAX_OPERATIONS_PER_PUSH)
+var pushEnvelopeSchema = z10.object({
+  device_id: z10.string().uuid(),
+  operations: z10.array(z10.unknown()).max(MAX_OPERATIONS_PER_PUSH)
 });
 var PARENT_DELETED_DETAIL = {
   event: "the event no longer exists",
@@ -809,10 +1147,10 @@ var PULL_ENTITY_KEYS = [
   "dashboard_charts",
   "weight_presets"
 ];
-var pullRequestSchema = z9.object({
-  event_id: z9.string().uuid(),
-  since: z9.string().datetime({ offset: false }).optional(),
-  cursor: z9.string().optional()
+var pullRequestSchema = z10.object({
+  event_id: z10.string().uuid(),
+  since: z10.string().datetime({ offset: false }).optional(),
+  cursor: z10.string().optional()
 });
 
 // src/routes/errors.ts
@@ -880,13 +1218,13 @@ function createApp(deps) {
 
 // src/auth/token.ts
 import { jwtVerify, SignJWT } from "jose";
-import { z as z10 } from "zod";
-var sessionClaims = z10.object({
-  sub: z10.string().min(1),
-  role: z10.enum(["scouter", "lead", "admin"]),
-  username: z10.string().min(1),
-  iat: z10.number().int(),
-  exp: z10.number().int()
+import { z as z11 } from "zod";
+var sessionClaims = z11.object({
+  sub: z11.string().min(1),
+  role: z11.enum(["scouter", "lead", "admin"]),
+  username: z11.string().min(1),
+  iat: z11.number().int(),
+  exp: z11.number().int()
 });
 var key = (config2) => new TextEncoder().encode(config2.authJwtSecret);
 async function issueToken(user, config2) {
@@ -926,18 +1264,18 @@ async function callerFor(request, config2, store, options = {}) {
 }
 
 // src/config.ts
-import { z as z11 } from "zod";
-var schema = z11.object({
-  SUPABASE_URL: z11.string().url(),
-  SUPABASE_SERVICE_ROLE_KEY: z11.string().min(1),
-  AUTH_JWT_SECRET: z11.string().min(32, "must be at least 32 characters"),
-  AUTH_TOKEN_TTL_DAYS: z11.coerce.number().int().positive().default(30),
-  AUTH_TOKEN_REFRESH_AFTER_DAYS: z11.coerce.number().int().positive().default(7),
-  ALLOWED_ORIGIN: z11.string().url(),
-  NODE_ENV: z11.enum(["development", "production", "test"]).default("development"),
+import { z as z12 } from "zod";
+var schema = z12.object({
+  SUPABASE_URL: z12.string().url(),
+  SUPABASE_SERVICE_ROLE_KEY: z12.string().min(1),
+  AUTH_JWT_SECRET: z12.string().min(32, "must be at least 32 characters"),
+  AUTH_TOKEN_TTL_DAYS: z12.coerce.number().int().positive().default(30),
+  AUTH_TOKEN_REFRESH_AFTER_DAYS: z12.coerce.number().int().positive().default(7),
+  ALLOWED_ORIGIN: z12.string().url(),
+  NODE_ENV: z12.enum(["development", "production", "test"]).default("development"),
   // Vercel's own system env var (https://vercel.com/docs/environment-variables/system-environment-variables),
   // not something anyone sets by hand. Absent locally and in tests.
-  VERCEL_GIT_COMMIT_SHA: z11.string().min(1).optional()
+  VERCEL_GIT_COMMIT_SHA: z12.string().min(1).optional()
 });
 function loadServerConfig(env) {
   const parsed = schema.safeParse(env);
@@ -1105,6 +1443,10 @@ var EVENT_COLUMNS = "id, season_id, name, code, sort_order, created_at, updated_
 var TEAM_COLUMNS = "id, number, name, created_at, updated_at";
 var MATCH_COLUMNS = "id, event_id, match_type, number, created_at, updated_at";
 var SLOT_COLUMNS = "match_id, alliance, station, team_id";
+var FORM_COLUMNS = "id, season_id, kind, name, active_version_id, timer_config, created_at, updated_at";
+var FORM_VERSION_COLUMNS = "id, form_id, version_no, published_at, is_locked, updated_by, created_at, updated_at";
+var SCORING_RULE_COLUMNS = "id, form_id, field_key, points, option_points, created_at, updated_at";
+var FORM_EXPORT_COLUMNS = "id, form_id, label, definition, created_by, created_at";
 var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 var IN_CHUNK = 100;
 var EVENT_TEAMS_READ_LIMIT = 1e3;
@@ -1214,9 +1556,114 @@ function supabaseStore(db) {
       return null;
     },
     async getFormFields(formVersionId) {
-      const { data, error } = await db.from("form_fields").select("*").eq("form_version_id", formVersionId);
+      const { data, error } = await db.from("form_fields").select("*").eq("form_version_id", formVersionId).order("display_order", { ascending: true }).order("key", { ascending: true });
       if (error) throw dbError(error);
       return data ?? [];
+    },
+    // Task 1.27: forms, versions, fields, scoring rules and saved exports. Every method
+    // THROWS on a database error, keeping Postgres's code (dbError).
+    async getForm(id) {
+      const { data, error } = await db.from("forms").select(FORM_COLUMNS).eq("id", id).maybeSingle();
+      if (error) throw dbError(error);
+      return data ?? null;
+    },
+    async getFormByKind(seasonId, kind) {
+      const { data, error } = await db.from("forms").select(FORM_COLUMNS).eq("season_id", seasonId).eq("kind", kind).maybeSingle();
+      if (error) throw dbError(error);
+      return data ?? null;
+    },
+    async insertForm(row) {
+      const { data, error } = await db.from("forms").insert(row).select(FORM_COLUMNS).single();
+      if (error) throw dbError(error);
+      return data;
+    },
+    async updateForm(id, patch) {
+      const { data, error } = await db.from("forms").update(patch).eq("id", id).select(FORM_COLUMNS).single();
+      if (error) throw dbError(error);
+      return data;
+    },
+    async getFormVersion(id) {
+      const { data, error } = await db.from("form_versions").select(FORM_VERSION_COLUMNS).eq("id", id).maybeSingle();
+      if (error) throw dbError(error);
+      return data ?? null;
+    },
+    async listFormVersions(formId) {
+      const { data, error } = await db.from("form_versions").select(FORM_VERSION_COLUMNS).eq("form_id", formId).order("version_no", { ascending: true });
+      if (error) throw dbError(error);
+      return data ?? [];
+    },
+    async insertFormVersion(row) {
+      const { data, error } = await db.from("form_versions").insert(row).select(FORM_VERSION_COLUMNS).single();
+      if (error) throw dbError(error);
+      return data;
+    },
+    async updateFormVersion(id, patch) {
+      const { data, error } = await db.from("form_versions").update(patch).eq("id", id).select(FORM_VERSION_COLUMNS).single();
+      if (error) throw dbError(error);
+      return data;
+    },
+    // Soft-deleted entries count: they are bound to the version all the same.
+    async countEntriesByFormVersion(formVersionId) {
+      const { count, error } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).eq("form_version_id", formVersionId);
+      if (error) throw dbError(error);
+      return count ?? 0;
+    },
+    // Ids survive a save: deletes first, then ONE upsert on (form_version_id, key), so a
+    // key already saved is updated in place (keeping its id) and a new one is inserted.
+    // Not one transaction; re-sending the same save completes a half-done one.
+    async writeFormFields(formVersionId, rows, deleteKeys) {
+      for (const chunk of chunks(deleteKeys)) {
+        const res2 = await db.from("form_fields").delete().eq("form_version_id", formVersionId).in("key", chunk);
+        if (res2.error) throw dbError(res2.error);
+      }
+      if (rows.length === 0) return;
+      const res = await db.from("form_fields").upsert(rows.map((row) => ({ ...row, form_version_id: formVersionId })), {
+        onConflict: "form_version_id,key"
+      });
+      if (res.error) throw dbError(res.error);
+    },
+    async getScoringRules(formId) {
+      const { data, error } = await db.from("scoring_rules").select(SCORING_RULE_COLUMNS).eq("form_id", formId).order("field_key", { ascending: true });
+      if (error) throw dbError(error);
+      return (data ?? []).map((r) => ({ ...r, points: Number(r.points) }));
+    },
+    // Upserted on (form_id, field_key), so a rule keeps its id; the form's rules for any
+    // other key are deleted first. Not one transaction.
+    async replaceScoringRules(formId, rules) {
+      const keep = rules.map((r) => String(r.field_key));
+      let remove = db.from("scoring_rules").delete().eq("form_id", formId);
+      if (keep.length > 0) {
+        remove = remove.not("field_key", "in", `(${keep.map((k) => `"${k}"`).join(",")})`);
+      }
+      const removed = await remove;
+      if (removed.error) throw dbError(removed.error);
+      if (rules.length === 0) return;
+      const res = await db.from("scoring_rules").upsert(rules.map((r) => ({ ...r, form_id: formId })), {
+        onConflict: "form_id,field_key"
+      });
+      if (res.error) throw dbError(res.error);
+    },
+    async insertFormExport(row) {
+      const { data, error } = await db.from("form_exports").insert(row).select(FORM_EXPORT_COLUMNS).single();
+      if (error) throw dbError(error);
+      return data;
+    },
+    async purgeFormExports(olderThan) {
+      const { count, error } = await db.from("form_exports").delete({ count: "exact" }).lt("created_at", olderThan.toISOString());
+      if (error) throw dbError(error);
+      return count ?? 0;
+    },
+    // ONE statement (decision G): form_versions, form_fields, scoring_rules and, through
+    // form_versions, scouting_entries are all ON DELETE CASCADE; form_exports.form_id is
+    // ON DELETE SET NULL. Nothing references scouting_entries, so nothing can refuse it.
+    async deleteFormCascade(id) {
+      const { error } = await db.from("forms").delete().eq("id", id);
+      if (error) throw dbError(error);
+    },
+    // Its fields and entries cascade; the use case refuses a version with entries first.
+    async deleteFormVersion(id) {
+      const { error } = await db.from("form_versions").delete().eq("id", id);
+      if (error) throw dbError(error);
     },
     async eventExists(eventId) {
       const { data, error } = await db.from("events").select("id").eq("id", eventId).maybeSingle();
@@ -1595,24 +2042,10 @@ function supabaseStore(db) {
       "listConflicts",
       "getConflict",
       "resolveConflictRow",
-      "getForm",
-      "getFormByKind",
-      "insertForm",
-      "updateForm",
-      "getFormVersion",
-      "listFormVersions",
-      "insertFormVersion",
-      "updateFormVersion",
-      "countEntriesByFormVersion",
-      "replaceFormFields",
-      "getScoringRules",
-      "replaceScoringRules",
       "getEntry",
       "queryEntries",
       "entriesForScope",
-      "listTeamEvents",
-      "deleteFormCascade",
-      "deleteFormVersion"
+      "listTeamEvents"
     ])
     // The spread above only carries an index signature (its keys come from a plain
     // string[]), so TS can't see that it supplies the remaining named Store methods;
@@ -1960,7 +2393,7 @@ function pgCode(e) {
 }
 
 // src/core/queries/listEvents.ts
-import { z as z12 } from "zod";
+import { z as z13 } from "zod";
 
 // src/core/cursor.ts
 function encodeCursor(value) {
@@ -1981,7 +2414,7 @@ function decodeCursor(schema2, raw) {
 }
 
 // src/core/queries/listEvents.ts
-var eventCursor = z12.object({ s: z12.number().int(), i: z12.string().uuid() }).strict();
+var eventCursor = z13.object({ s: z13.number().int(), i: z13.string().uuid() }).strict();
 async function listEvents(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listEventsInput, input);
@@ -2088,8 +2521,8 @@ async function setActiveEvent(caller, input, ctx) {
 }
 
 // src/core/queries/listSeasons.ts
-import { z as z13 } from "zod";
-var seasonCursor = z13.object({ y: z13.number().int() }).strict();
+import { z as z14 } from "zod";
+var seasonCursor = z14.object({ y: z14.number().int() }).strict();
 async function listSeasons(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listSeasonsInput, input);
@@ -2249,8 +2682,8 @@ async function inWaves(items, fn) {
 }
 
 // src/core/queries/listMatches.ts
-import { z as z14 } from "zod";
-var matchCursor = z14.object({ t: matchType, n: z14.number().int() }).strict();
+import { z as z15 } from "zod";
+var matchCursor = z15.object({ t: matchType, n: z15.number().int() }).strict();
 async function listMatches(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listMatchesInput, input);
@@ -2388,12 +2821,12 @@ async function setMatchTeams(caller, input, ctx) {
       s.team_id
     ])
   );
-  const changed = parsed.slots.filter(
+  const changed2 = parsed.slots.filter(
     (s) => current.get(`${s.alliance}:${s.station}`) !== s.team_id
   );
-  if (changed.length > 0) {
+  if (changed2.length > 0) {
     const roster = new Set((await ctx.store.getRoster(match.event_id)).map((t) => t.id));
-    const stranger = changed.find((s) => !roster.has(s.team_id));
+    const stranger = changed2.find((s) => !roster.has(s.team_id));
     if (stranger) {
       const team = await ctx.store.getTeam(stranger.team_id);
       throw notOnRoster(team ? String(team.number) : stranger.team_id);
@@ -2481,8 +2914,8 @@ async function teamOrNotFound(ctx, id) {
 }
 
 // src/core/queries/listTeams.ts
-import { z as z15 } from "zod";
-var teamCursor = z15.object({ n: z15.number().int() }).strict();
+import { z as z16 } from "zod";
+var teamCursor = z16.object({ n: z16.number().int() }).strict();
 async function listTeams(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listTeamsInput, input);
@@ -2605,6 +3038,762 @@ async function deleteEvent(caller, input, ctx) {
   assertConfirmed(parsed.confirm_name, event.name);
   await ctx.store.deleteEvent(event.id);
   return { deleted: true, ...impact };
+}
+
+// src/core/forms/version.ts
+var isSelect = (type) => type === "single_select" || type === "multi_select";
+function optionValues(config2) {
+  const options = config2.options;
+  if (!Array.isArray(options)) return [];
+  return options.map(
+    (option2) => typeof option2 === "object" && option2 !== null ? String(option2.value) : ""
+  );
+}
+var sameList = (a, b) => a.length === b.length && a.every((value, i) => value === b[i]);
+function isStructuralChange(current, next) {
+  const currentLive = new Map(current.filter((f) => !f.deprecated).map((f) => [f.key, f]));
+  const nextLive = next.filter((f) => !f.deprecated);
+  const nextKeys = new Set(nextLive.map((f) => f.key));
+  for (const field of nextLive) {
+    const existing = currentLive.get(field.key);
+    if (!existing) return true;
+    if (existing.type !== field.type) return true;
+    if (isSelect(field.type) && !sameList(optionValues(existing.config), optionValues(field.config))) {
+      return true;
+    }
+  }
+  for (const key2 of currentLive.keys()) {
+    if (!nextKeys.has(key2)) return true;
+  }
+  return false;
+}
+
+// src/core/commands/forms.ts
+var DRAFT_COLUMNS = [
+  "key",
+  "label",
+  "help_text",
+  "type",
+  "section",
+  "display_order",
+  "required",
+  "default_value",
+  "config",
+  "visibility_condition",
+  "description",
+  "unit",
+  "phase",
+  "direction",
+  "category",
+  "expected_range",
+  "include_in_ai_context",
+  "is_ordinal"
+];
+var IN_PLACE_COLUMNS = [
+  "label",
+  "help_text",
+  "config",
+  "expected_range",
+  "display_order",
+  "section",
+  "description",
+  "unit",
+  "phase",
+  "direction",
+  "category",
+  "include_in_ai_context",
+  "is_ordinal",
+  "required",
+  "default_value",
+  "visibility_condition"
+];
+var MEANING_PATHS = /* @__PURE__ */ new Set(["description", "unit", "phase", "direction"]);
+function userIdOf(caller) {
+  if (!isUser(caller)) throw new AppError("forbidden", "a service caller may not edit forms");
+  return caller.userId;
+}
+function toFormRow(row) {
+  return {
+    id: row.id,
+    season_id: row.season_id,
+    kind: row.kind,
+    name: row.name,
+    active_version_id: row.active_version_id ?? null,
+    timer_config: row.timer_config,
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  };
+}
+function toFieldRow(field) {
+  const row = field;
+  return {
+    id: row.id,
+    form_version_id: row.form_version_id,
+    key: row.key,
+    label: row.label,
+    help_text: row.help_text ?? null,
+    type: row.type,
+    section: row.section ?? null,
+    display_order: row.display_order,
+    required: row.required,
+    default_value: row.default_value ?? null,
+    config: row.config ?? {},
+    visibility_condition: row.visibility_condition ?? null,
+    deprecated: row.deprecated,
+    description: row.description ?? null,
+    unit: row.unit ?? null,
+    phase: row.phase ?? null,
+    direction: row.direction ?? null,
+    category: row.category ?? null,
+    expected_range: row.expected_range ?? null,
+    include_in_ai_context: row.include_in_ai_context ?? null,
+    is_ordinal: row.is_ordinal ?? null
+  };
+}
+function draftColumns(field) {
+  const out = {};
+  for (const column of DRAFT_COLUMNS) out[column] = field[column] ?? null;
+  out.config = field.config ?? {};
+  out.required = field.required ?? false;
+  return out;
+}
+function toDraft(field) {
+  return {
+    key: field.key,
+    label: field.label,
+    help_text: field.help_text ?? null,
+    type: field.type,
+    section: field.section ?? null,
+    display_order: field.display_order,
+    required: field.required ?? false,
+    default_value: field.default_value ?? null,
+    config: field.config ?? {},
+    visibility_condition: field.visibility_condition ?? null,
+    deprecated: false,
+    description: field.description ?? null,
+    unit: field.unit ?? null,
+    phase: field.phase ?? null,
+    direction: field.direction ?? null,
+    category: field.category ?? null,
+    expected_range: field.expected_range ?? null,
+    include_in_ai_context: field.include_in_ai_context ?? null,
+    is_ordinal: field.is_ordinal ?? null
+  };
+}
+async function formOrNotFound(ctx, id) {
+  const form = await ctx.store.getForm(id);
+  if (!form) {
+    throw new AppError("not-found", "that form does not exist; it may have been deleted", {
+      form_id: id
+    });
+  }
+  return form;
+}
+async function versionOrNotFound(ctx, id) {
+  const version = await ctx.store.getFormVersion(id);
+  if (!version) {
+    throw new AppError("not-found", "that form version does not exist; it may have been deleted", {
+      form_version_id: id
+    });
+  }
+  return version;
+}
+var newestOf = (versions) => [...versions].sort((a, b) => b.version_no - a.version_no)[0];
+var draftOf = (versions) => versions.find((v) => v.published_at === null);
+async function stamp(ctx, versionId, userId2) {
+  await ctx.store.updateFormVersion(versionId, { updated_by: userId2 });
+}
+async function stampLockIfBound(ctx, version) {
+  if (version.is_locked) return;
+  if (await ctx.store.countEntriesByFormVersion(version.id) > 0) {
+    await ctx.store.updateFormVersion(version.id, { is_locked: true });
+  }
+}
+function checkFields(live) {
+  const definition = [];
+  const incomplete = [];
+  const siblings = live.map((f, i) => ({ id: `field-${i}`, ...f }));
+  for (const field of siblings) {
+    for (const issue of validateFieldDefinition(field)) {
+      (MEANING_PATHS.has(issue.path) ? incomplete : definition).push({
+        field_key: field.key,
+        ...issue
+      });
+    }
+    for (const issue of validateVisibilityCondition(field, siblings)) {
+      definition.push({ field_key: field.key, ...issue });
+    }
+    if (field.type === "computed") {
+      const config2 = FIELD_TYPE_CONFIG.computed.safeParse(field.config);
+      const parsed = config2.success ? config2.data : null;
+      if (parsed?.expression) {
+        for (const issue of validateExpr(parsed.expression, siblings, parsed.result_type)) {
+          definition.push({
+            field_key: field.key,
+            path: `config.${issue.path}`,
+            message: issue.message
+          });
+        }
+      }
+    }
+  }
+  return { definition, incomplete };
+}
+function publishOnlyIssues(live) {
+  const issues = [];
+  for (const field of live) {
+    if (field.type !== "computed") continue;
+    const config2 = FIELD_TYPE_CONFIG.computed.safeParse(field.config);
+    if (config2.success && config2.data.expression === null) {
+      issues.push({
+        field_key: field.key,
+        path: "config.expression",
+        message: "a computed field needs its expression before the form can be published"
+      });
+    }
+  }
+  if (!live.some((f) => f.type !== "section")) {
+    issues.push({
+      field_key: null,
+      path: "fields",
+      message: "a form needs at least one data field before it can be published"
+    });
+  }
+  return issues;
+}
+function definitionError(issues) {
+  const first = issues[0];
+  const one = `${first.field_key ?? "the form"}: ${first.message}`;
+  const summary = issues.length === 1 ? one : `${issues.length} problems in the form definition; first, ${one}`;
+  return new AppError("invalid", summary, { reason: "invalid-definition", issues });
+}
+function resolveIdentity(incoming, target, everUsed) {
+  const seenKeys = /* @__PURE__ */ new Set();
+  const seenIds = /* @__PURE__ */ new Set();
+  for (const { id, draft } of incoming) {
+    if (seenKeys.has(draft.key)) {
+      throw new AppError(
+        "invalid",
+        `two fields have the key '${draft.key}'; a key names one field`,
+        {
+          reason: "duplicate-key",
+          key: draft.key
+        }
+      );
+    }
+    seenKeys.add(draft.key);
+    if (id !== void 0) {
+      if (seenIds.has(id)) {
+        throw new AppError("invalid", "two fields name the same saved field", {
+          reason: "duplicate-field-id",
+          field_id: id
+        });
+      }
+      seenIds.add(id);
+    }
+  }
+  const liveById = new Map(target.filter((f) => !f.deprecated).map((f) => [f.id, f]));
+  const liveByKey = new Map(target.filter((f) => !f.deprecated).map((f) => [f.key, f]));
+  const matched = /* @__PURE__ */ new Map();
+  for (const { id, draft } of incoming) {
+    if (id !== void 0) {
+      const saved = liveById.get(id);
+      if (!saved) {
+        throw new AppError("invalid", "a field names a saved field this version does not have", {
+          reason: "unknown-field-id",
+          field_id: id
+        });
+      }
+      if (saved.key !== draft.key) {
+        throw new AppError("invalid", "a saved field's key never changes", {
+          reason: "key-change",
+          field_id: id,
+          key_was: saved.key,
+          key_now: draft.key
+        });
+      }
+      matched.set(draft.key, saved.id);
+      continue;
+    }
+    const live = liveByKey.get(draft.key);
+    if (live) {
+      matched.set(draft.key, live.id);
+    } else if (everUsed.has(draft.key)) {
+      throw new AppError(
+        "invalid",
+        `the key '${draft.key}' was used by a removed field of this form; keys are permanent, so give the new field another key`,
+        { reason: "key-retired", key: draft.key }
+      );
+    }
+  }
+  return matched;
+}
+function stable(value) {
+  if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value).filter(([, v]) => v !== void 0).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stable(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+function changed(row, existing) {
+  if (!existing) return true;
+  const before = existing;
+  return Object.keys(row).some((column) => stable(row[column]) !== stable(before[column]));
+}
+async function formHistory(ctx, versions) {
+  const out = /* @__PURE__ */ new Map();
+  for (const version of versions) out.set(version.id, await ctx.store.getFormFields(version.id));
+  return out;
+}
+var keysOf = (byVersion, except) => new Set(
+  [...byVersion].filter(([id]) => id !== except).flatMap(([, fields]) => fields.map((f) => f.key))
+);
+async function fork(ctx, userId2, form, versions, carriedFrom, drafts) {
+  const versionNo = Math.max(0, ...versions.map((v) => v.version_no)) + 1;
+  let created;
+  try {
+    created = await ctx.store.insertFormVersion({
+      id: crypto.randomUUID(),
+      form_id: form.id,
+      version_no: versionNo,
+      updated_by: userId2
+    });
+  } catch (e) {
+    if (pgCode(e) === "23505") {
+      throw new AppError(
+        "conflict",
+        "another save just created a version of this form; reload it",
+        {
+          reason: "version-race",
+          form_id: form.id
+        }
+      );
+    }
+    throw e;
+  }
+  try {
+    const live = new Set(drafts.map((d) => d.key));
+    const rows = [
+      ...drafts.map((d) => ({ id: crypto.randomUUID(), ...draftColumns(d), deprecated: false })),
+      ...carriedFrom.filter((f) => !live.has(f.key)).map((f) => ({ id: crypto.randomUUID(), ...draftColumns(f), deprecated: true }))
+    ];
+    await ctx.store.writeFormFields(created.id, rows, []);
+  } catch (e) {
+    await ctx.store.deleteFormVersion(created.id).catch(() => void 0);
+    throw e;
+  }
+  return created;
+}
+async function writeFieldSet(ctx, userId2, form, target, incoming, alwaysFork = false) {
+  const versions = await ctx.store.listFormVersions(form.id);
+  const history = await formHistory(ctx, versions);
+  const current = target ? history.get(target.id) ?? [] : [];
+  const matched = resolveIdentity(incoming, current, keysOf(history));
+  const drafts = incoming.map((f) => f.draft);
+  const { definition, incomplete } = checkFields(drafts);
+  if (target && target.published_at === null && !alwaysFork) {
+    if (definition.length > 0) throw definitionError(definition);
+    await stampLockIfBound(ctx, target);
+    const byKey = new Map(current.map((f) => [f.key, f]));
+    const usedElsewhere = keysOf(history, target.id);
+    const rows = drafts.map((d) => ({
+      id: matched.get(d.key) ?? crypto.randomUUID(),
+      ...draftColumns(d),
+      deprecated: false
+    }));
+    const deleteKeys = [];
+    const wanted = new Set(drafts.map((d) => d.key));
+    for (const field of current) {
+      if (field.deprecated || wanted.has(field.key)) continue;
+      if (usedElsewhere.has(field.key)) {
+        rows.push({ id: field.id, ...draftColumns(field), deprecated: true });
+      } else {
+        deleteKeys.push(field.key);
+      }
+    }
+    const writes = rows.filter((row) => changed(row, byKey.get(String(row.key))));
+    await ctx.store.writeFormFields(target.id, writes, deleteKeys);
+    await stamp(ctx, target.id, userId2);
+    return { version: target, forked: false, incomplete };
+  }
+  if (target && !alwaysFork && !isStructuralChange(current, drafts)) {
+    const all = [...definition, ...incomplete];
+    if (all.length > 0) throw definitionError(all);
+    await stampLockIfBound(ctx, target);
+    const byKey = new Map(current.filter((f) => !f.deprecated).map((f) => [f.key, f]));
+    const writes = [];
+    for (const draft2 of drafts) {
+      const existing = byKey.get(draft2.key);
+      const row = {
+        id: existing.id,
+        ...draftColumns(existing),
+        deprecated: false
+      };
+      for (const column of IN_PLACE_COLUMNS) row[column] = draftColumns(draft2)[column];
+      if (changed(row, existing)) writes.push(row);
+    }
+    await ctx.store.writeFormFields(target.id, writes, []);
+    await stamp(ctx, target.id, userId2);
+    return { version: target, forked: false, incomplete };
+  }
+  if (definition.length > 0) throw definitionError(definition);
+  const draft = draftOf(versions);
+  if (draft) {
+    throw new AppError("conflict", `draft v${draft.version_no} already exists; edit it`, {
+      reason: "draft-exists",
+      draft_version_id: draft.id,
+      version_no: draft.version_no
+    });
+  }
+  if (target) await stampLockIfBound(ctx, target);
+  const created = await fork(ctx, userId2, form, versions, current, drafts);
+  return { version: created, forked: true, incomplete };
+}
+async function savedOutput(ctx, written) {
+  const fields = await ctx.store.getFormFields(written.version.id);
+  return {
+    form_version_id: written.version.id,
+    new_version_id: written.forked ? written.version.id : null,
+    version_no: written.version.version_no,
+    fields: fields.map(toFieldRow),
+    incomplete: written.incomplete
+  };
+}
+async function createForm(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const userId2 = userIdOf(caller);
+  const parsed = parseInput(createFormInput, input);
+  await seasonOrNotFound(ctx, parsed.season_id);
+  const taken = () => new AppError("conflict", `this season already has a ${parsed.kind} form`, {
+    reason: "form-exists",
+    kind: parsed.kind
+  });
+  if (await ctx.store.getFormByKind(parsed.season_id, parsed.kind)) throw taken();
+  let form;
+  try {
+    form = await ctx.store.insertForm({
+      id: crypto.randomUUID(),
+      season_id: parsed.season_id,
+      kind: parsed.kind,
+      name: parsed.name
+    });
+  } catch (e) {
+    if (pgCode(e) === "23505") throw taken();
+    throw e;
+  }
+  try {
+    const draft = await ctx.store.insertFormVersion({
+      id: crypto.randomUUID(),
+      form_id: form.id,
+      version_no: 1,
+      updated_by: userId2
+    });
+    return { id: form.id, draft_version_id: draft.id };
+  } catch (e) {
+    await ctx.store.deleteFormCascade(form.id).catch(() => void 0);
+    throw e;
+  }
+}
+async function updateForm(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const userId2 = userIdOf(caller);
+  const parsed = parseInput(updateFormInput, input);
+  const form = await formOrNotFound(ctx, parsed.form_id);
+  const patch = {};
+  if (parsed.name !== void 0) patch.name = parsed.name;
+  if (parsed.timer_config !== void 0) patch.timer_config = parsed.timer_config;
+  const row = await ctx.store.updateForm(form.id, patch);
+  const versions = await ctx.store.listFormVersions(form.id);
+  const stamped = draftOf(versions) ?? versions.find((v) => v.id === form.active_version_id);
+  if (stamped) await stamp(ctx, stamped.id, userId2);
+  return toFormRow(row);
+}
+async function saveDraftFields(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const userId2 = userIdOf(caller);
+  const parsed = parseInput(saveDraftFieldsInput, input);
+  const target = await versionOrNotFound(ctx, parsed.form_version_id);
+  const form = await formOrNotFound(ctx, target.form_id);
+  const incoming = parsed.fields.map((f) => ({ id: f.id, draft: toDraft(f) }));
+  return savedOutput(ctx, await writeFieldSet(ctx, userId2, form, target, incoming));
+}
+async function publishFormVersion(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const userId2 = userIdOf(caller);
+  const parsed = parseInput(publishFormVersionInput, input);
+  const version = await versionOrNotFound(ctx, parsed.form_version_id);
+  const form = await formOrNotFound(ctx, version.form_id);
+  if (version.published_at !== null) {
+    throw new AppError("invalid", `v${version.version_no} is already published`, {
+      reason: "already-published"
+    });
+  }
+  const live = (await ctx.store.getFormFields(version.id)).filter((f) => !f.deprecated);
+  const { definition, incomplete } = checkFields(live);
+  const issues = [...definition, ...incomplete, ...publishOnlyIssues(live)];
+  if (issues.length > 0) throw definitionError(issues);
+  const publishedAt = ctx.now().toISOString();
+  await ctx.store.updateFormVersion(version.id, { published_at: publishedAt, updated_by: userId2 });
+  let activeVersionId = form.active_version_id ?? null;
+  const newest = newestOf(await ctx.store.listFormVersions(form.id));
+  if (newest?.id === version.id) {
+    await ctx.store.updateForm(form.id, { active_version_id: version.id });
+    activeVersionId = version.id;
+  }
+  return {
+    form_version_id: version.id,
+    published_at: publishedAt,
+    active_version_id: activeVersionId
+  };
+}
+async function restoreFormVersion(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const userId2 = userIdOf(caller);
+  const parsed = parseInput(restoreFormVersionInput, input);
+  const version = await versionOrNotFound(ctx, parsed.form_version_id);
+  const form = await formOrNotFound(ctx, version.form_id);
+  if (version.published_at === null) {
+    throw new AppError("invalid", "a draft cannot be restored; publish it instead", {
+      reason: "not-published"
+    });
+  }
+  await ctx.store.updateForm(form.id, { active_version_id: version.id });
+  await stamp(ctx, version.id, userId2);
+  return { active_version_id: version.id };
+}
+async function deleteFormVersion(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const parsed = parseInput(deleteFormVersionInput, input);
+  const version = await versionOrNotFound(ctx, parsed.form_version_id);
+  const form = await formOrNotFound(ctx, version.form_id);
+  const entries = await ctx.store.countEntriesByFormVersion(version.id);
+  if (entries > 0) {
+    throw new AppError(
+      "invalid",
+      `this version has ${entries} ${entries === 1 ? "entry" : "entries"} bound to it and cannot be deleted; delete the form to remove them, or leave it`,
+      { reason: "has-entries", entries }
+    );
+  }
+  if (form.active_version_id === version.id) {
+    throw new AppError(
+      "invalid",
+      "this is the active version; deleting it would leave the form with nothing to scout. Restore another version first",
+      { reason: "active-version" }
+    );
+  }
+  await ctx.store.deleteFormVersion(version.id);
+  return { deleted: true };
+}
+async function deleteForm(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const parsed = parseInput(deleteFormInput, input);
+  const form = await formOrNotFound(ctx, parsed.form_id);
+  const versions = await ctx.store.listFormVersions(form.id);
+  let entries = 0;
+  for (const version of versions) entries += await ctx.store.countEntriesByFormVersion(version.id);
+  if (parsed.dry_run) return { versions: versions.length, entries, deleted: false };
+  await ctx.store.deleteFormCascade(form.id);
+  return { versions: versions.length, entries, deleted: true };
+}
+async function exportableVersion(ctx, form, versionId) {
+  const versions = await ctx.store.listFormVersions(form.id);
+  if (versionId !== void 0) {
+    const version = versions.find((v) => v.id === versionId);
+    if (!version) {
+      throw new AppError(
+        "not-found",
+        "that form version does not exist; it may have been deleted",
+        {
+          form_version_id: versionId
+        }
+      );
+    }
+    if (version.published_at !== null && version.id !== form.active_version_id) {
+      throw new AppError("invalid", "only the draft or the active version can be exported", {
+        reason: "not-exportable"
+      });
+    }
+    return version;
+  }
+  const chosen = draftOf(versions) ?? versions.find((v) => v.id === form.active_version_id);
+  if (!chosen) {
+    throw new AppError("invalid", "this form has no draft and no active version to export", {
+      reason: "not-exportable"
+    });
+  }
+  return chosen;
+}
+async function definitionOf(ctx, form, version) {
+  const live = (await ctx.store.getFormFields(version.id)).filter((f) => !f.deprecated);
+  const keys = new Set(live.map((f) => f.key));
+  const rules = (await ctx.store.getScoringRules(form.id)).filter((r) => keys.has(r.field_key)).sort((a, b) => a.field_key < b.field_key ? -1 : a.field_key > b.field_key ? 1 : 0).map((r) => ({
+    field_key: r.field_key,
+    points: Number(r.points),
+    option_points: r.option_points ?? null
+  }));
+  return {
+    format: FORM_DEFINITION_FORMAT,
+    kind: form.kind,
+    name: form.name,
+    timer_config: form.timer_config,
+    fields: live.map(draftColumns),
+    scoring_rules: rules
+  };
+}
+async function exportForm(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const parsed = parseInput(exportFormInput, input);
+  const form = await formOrNotFound(ctx, parsed.form_id);
+  return definitionOf(ctx, form, await exportableVersion(ctx, form, parsed.form_version_id));
+}
+function toExportSummary(row, creator, now) {
+  const definition = row.definition;
+  const expiresAt = Date.parse(row.created_at) + FORM_EXPORT_TTL_MS;
+  return {
+    id: row.id,
+    form_id: row.form_id ?? null,
+    kind: definition?.kind === "super" ? "super" : "match",
+    label: row.label,
+    field_count: Array.isArray(definition?.fields) ? definition.fields.length : 0,
+    created_by: creator,
+    created_at: row.created_at,
+    expires_at: new Date(expiresAt).toISOString(),
+    expires_in_seconds: Math.max(0, Math.floor((expiresAt - now.getTime()) / 1e3))
+  };
+}
+async function saveFormExport(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const userId2 = userIdOf(caller);
+  const parsed = parseInput(saveFormExportInput, input);
+  const form = await formOrNotFound(ctx, parsed.form_id);
+  const version = await exportableVersion(ctx, form, parsed.form_version_id);
+  const definition = await definitionOf(ctx, form, version);
+  const now = ctx.now();
+  await ctx.store.purgeFormExports(new Date(now.getTime() - FORM_EXPORT_TTL_MS));
+  const label = version.published_at === null ? `${form.name} \xB7 draft v${version.version_no}` : `${form.name} \xB7 v${version.version_no}`;
+  const row = await ctx.store.insertFormExport({
+    id: crypto.randomUUID(),
+    form_id: form.id,
+    label,
+    definition,
+    created_by: userId2
+  });
+  const creator = await ctx.store.getFullUser(userId2);
+  return toExportSummary(row, { id: userId2, full_name: creator?.full_name ?? "" }, now);
+}
+function parseDefinition(raw) {
+  const parsed = formDefinition.safeParse(raw);
+  if (parsed.success) return parsed.data;
+  const fields = raw?.fields;
+  const issues = parsed.error.issues.map((issue) => {
+    const [head, index, ...rest] = issue.path;
+    if (head === "fields" && typeof index === "number" && Array.isArray(fields)) {
+      const key2 = fields[index]?.key;
+      return {
+        field_key: typeof key2 === "string" ? key2 : null,
+        path: rest.length > 0 ? rest.join(".") : "field",
+        message: issue.message
+      };
+    }
+    return {
+      field_key: null,
+      path: issue.path.length > 0 ? issue.path.join(".") : "definition",
+      message: issue.message
+    };
+  });
+  throw definitionError(issues);
+}
+function checkScoring(definition) {
+  const keys = new Set(definition.fields.map((f) => f.key));
+  const issues = [];
+  definition.scoring_rules.forEach((rule, i) => {
+    if (!keys.has(rule.field_key)) {
+      issues.push({
+        field_key: rule.field_key,
+        path: `scoring_rules.${i}.field_key`,
+        message: `scoring names '${rule.field_key}', which is not a field of this definition`
+      });
+    }
+  });
+  if (issues.length > 0) throw definitionError(issues);
+}
+async function importForm(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const userId2 = userIdOf(caller);
+  const definition = parseDefinition(input?.definition);
+  const parsed = parseInput(importFormInput, input);
+  await seasonOrNotFound(ctx, parsed.season_id);
+  checkScoring(definition);
+  const incoming = definition.fields.map((f) => ({ draft: toDraft(f) }));
+  let existing;
+  if (parsed.form_id !== void 0) {
+    existing = await formOrNotFound(ctx, parsed.form_id);
+    if (existing.season_id !== parsed.season_id || existing.kind !== definition.kind) {
+      throw new AppError("invalid", `that form is not this season's ${definition.kind} form`, {
+        reason: "kind-mismatch"
+      });
+    }
+  } else {
+    existing = await ctx.store.getFormByKind(parsed.season_id, definition.kind);
+  }
+  if (existing) {
+    const versions = await ctx.store.listFormVersions(existing.id);
+    const draft = draftOf(versions);
+    const written = draft ? await writeFieldSet(ctx, userId2, existing, draft, incoming) : await writeFieldSet(ctx, userId2, existing, newestOf(versions) ?? null, incoming, true);
+    return { form_id: existing.id, draft_version_id: written.version.id, created: false };
+  }
+  resolveIdentity(incoming, [], /* @__PURE__ */ new Set());
+  const { definition: problems } = checkFields(incoming.map((f) => f.draft));
+  if (problems.length > 0) throw definitionError(problems);
+  let form;
+  try {
+    form = await ctx.store.insertForm({
+      id: crypto.randomUUID(),
+      season_id: parsed.season_id,
+      kind: definition.kind,
+      name: definition.name,
+      timer_config: definition.timer_config
+    });
+  } catch (e) {
+    if (pgCode(e) === "23505") {
+      throw new AppError("conflict", `this season already has a ${definition.kind} form`, {
+        reason: "form-exists",
+        kind: definition.kind
+      });
+    }
+    throw e;
+  }
+  try {
+    const version = await ctx.store.insertFormVersion({
+      id: crypto.randomUUID(),
+      form_id: form.id,
+      version_no: 1,
+      updated_by: userId2
+    });
+    await ctx.store.writeFormFields(
+      version.id,
+      incoming.map((f) => ({
+        id: crypto.randomUUID(),
+        ...draftColumns(f.draft),
+        deprecated: false
+      })),
+      []
+    );
+    await ctx.store.replaceScoringRules(
+      form.id,
+      definition.scoring_rules.map((r) => ({
+        id: crypto.randomUUID(),
+        field_key: r.field_key,
+        points: r.points,
+        option_points: r.option_points
+      }))
+    );
+    return { form_id: form.id, draft_version_id: version.id, created: true };
+  } catch (e) {
+    await ctx.store.deleteFormCascade(form.id).catch(() => void 0);
+    throw e;
+  }
 }
 
 // src/core/queries/context.ts
@@ -2898,6 +4087,76 @@ var REGISTRY = {
     input: API.ensureMatch.input,
     output: API.ensureMatch.output,
     handler: ensureMatch
+  },
+  createForm: {
+    kind: "command",
+    description: "Admin only: create a season's match or super form as an empty draft version 1. One form of each kind per season; a second is a conflict.",
+    input: API.createForm.input,
+    output: API.createForm.output,
+    handler: createForm
+  },
+  updateForm: {
+    kind: "command",
+    description: "Admin only: rename a form or set its match timer (phases and seconds). In place: never creates a form version.",
+    input: API.updateForm.input,
+    output: API.updateForm.output,
+    handler: updateForm
+  },
+  saveDraftFields: {
+    kind: "command",
+    description: "Admin only: make a list of fields a form version's live fields. A draft is edited in place and saves with fields still missing their meaning. A published version takes labels, ranges, meaning and order in place; adding, removing or retyping a field, or changing a select's options, starts a new draft. A saved field's key never changes.",
+    input: API.saveDraftFields.input,
+    output: API.saveDraftFields.output,
+    handler: saveDraftFields
+  },
+  publishFormVersion: {
+    kind: "command",
+    description: "Admin only: publish a draft version; the newest published version becomes the one devices scout with. Refused while a field misses its meaning or breaks a rule.",
+    input: API.publishFormVersion.input,
+    output: API.publishFormVersion.output,
+    handler: publishFormVersion
+  },
+  restoreFormVersion: {
+    kind: "command",
+    description: "Admin only: make an older published version the active one again, without creating a version.",
+    input: API.restoreFormVersion.input,
+    output: API.restoreFormVersion.output,
+    handler: restoreFormVersion
+  },
+  deleteFormVersion: {
+    kind: "command",
+    description: "Admin only: delete one form version. Blocked while any entry is bound to it, and for the active version.",
+    input: API.deleteFormVersion.input,
+    output: API.deleteFormVersion.output,
+    handler: deleteFormVersion
+  },
+  deleteForm: {
+    kind: "command",
+    description: "Admin only: hard-delete a form with all its versions, fields, scoring and entries, irreversibly. dry_run answers how many versions and entries go, and deletes nothing.",
+    input: API.deleteForm.input,
+    output: API.deleteForm.output,
+    handler: deleteForm
+  },
+  exportForm: {
+    kind: "query",
+    description: "Admin only (a service caller is refused): the portable JSON definition of a form's draft or active version: fields, timer and scoring, with no ids or season.",
+    input: API.exportForm.input,
+    output: API.exportForm.output,
+    handler: exportForm
+  },
+  saveFormExport: {
+    kind: "command",
+    description: "Admin only: save a form version's definition into Exports, kept 24 hours. Older exports are deleted first.",
+    input: API.saveFormExport.input,
+    output: API.saveFormExport.output,
+    handler: saveFormExport
+  },
+  importForm: {
+    kind: "command",
+    description: "Admin only: import a form definition into a season. With no form of its kind there, it creates one as draft v1; otherwise its fields become that form's draft, and the form's name, timer and scoring stay.",
+    input: API.importForm.input,
+    output: API.importForm.output,
+    handler: importForm
   }
 };
 

@@ -2,9 +2,13 @@ import { MATCH_TYPES, type FormFieldDefinition } from '@frc/shared';
 import type {
   Store,
   StoredEvent,
+  StoredForm,
+  StoredFormExport,
+  StoredFormVersion,
   StoredFullUser,
   StoredMatch,
   StoredRow,
+  StoredScoringRule,
   StoredSeason,
   StoredTeam,
   StoredUser,
@@ -124,6 +128,74 @@ const EVENT_COLUMNS = new Set([
   'sort_order',
   'created_at',
   'updated_at',
+]);
+
+/**
+ * The columns of public.forms, form_versions, form_fields and scoring_rules (migration
+ * 20260903091000_forms.sql, plus form_versions.updated_by from 20261008100000) and
+ * public.form_exports (20261008101000), checked like the others.
+ */
+const FORM_COLUMNS = new Set([
+  'id',
+  'season_id',
+  'kind',
+  'name',
+  'active_version_id',
+  'timer_config',
+  'created_at',
+  'updated_at',
+]);
+const FORM_VERSION_COLUMNS = new Set([
+  'id',
+  'form_id',
+  'version_no',
+  'published_at',
+  'is_locked',
+  'updated_by',
+  'created_at',
+  'updated_at',
+]);
+const FORM_FIELD_COLUMNS = new Set([
+  'id',
+  'form_version_id',
+  'key',
+  'label',
+  'help_text',
+  'type',
+  'section',
+  'display_order',
+  'required',
+  'default_value',
+  'config',
+  'visibility_condition',
+  'deprecated',
+  'description',
+  'unit',
+  'phase',
+  'direction',
+  'category',
+  'expected_range',
+  'include_in_ai_context',
+  'is_ordinal',
+  'created_at',
+  'updated_at',
+]);
+const SCORING_RULE_COLUMNS = new Set([
+  'id',
+  'form_id',
+  'field_key',
+  'points',
+  'option_points',
+  'created_at',
+  'updated_at',
+]);
+const FORM_EXPORT_COLUMNS = new Set([
+  'id',
+  'form_id',
+  'label',
+  'definition',
+  'created_by',
+  'created_at',
 ]);
 
 function checkColumns(table: string, columns: Set<string>, row: Record<string, unknown>): void {
@@ -349,10 +421,16 @@ export type FakeContext = UseCaseContext & {
   roster: Map<string, string[]>;
   matches: Map<string, FakeMatchRow>;
   matchTeams: Map<string, FakeMatchTeam>;
+  /** `forms` rows by id. FakeRow-typed so a fixture may give a bare `{ id, season_id }`. */
   forms: Map<string, FakeRow>;
+  /** `form_versions` rows by id (task 1.27: written by the form use cases). */
   formVersions: Map<string, FakeRow>;
+  /** `form_fields` rows keyed `${form_version_id}:${key}`; each row carries its id. */
   formFields: Map<string, FormFieldDefinition>;
+  /** `scoring_rules` rows keyed `${form_id}:${field_key}`. */
   scoringRules: Map<string, FakeRow>;
+  /** `form_exports` rows by id (task 1.27). `form_id` is set null when its form goes. */
+  formExports: Map<string, StoredFormExport>;
   conflicts: Map<string, FakeRow>;
   pullRows: Map<string, Record<string, unknown>[]>;
   knownEvents: Set<string>;
@@ -368,9 +446,14 @@ export type FakeContext = UseCaseContext & {
   matchDeletions: Map<string, { event_id: string; deleted_at: string }>;
   entryCountsByMatch: Map<string, number>;
   entryCountsBySeason: Map<string, number>;
+  /**
+   * Entries bound to a form version beyond those in `rows.scouting_entries`: what
+   * countEntriesByFormVersion adds to the rows it counts there.
+   */
   entryCountsByVersion: Map<string, number>;
   ops: Set<string>;
   appliedOrder: string[];
+  /** Every insert, update or delete of a `form_versions` row (task 1.28 asserts on it). */
   formVersionWrites: number;
   /** Overridable clock, so a test can prove the server never compares to server time. */
   nowValue: Date;
@@ -562,6 +645,7 @@ export function makeFakeContext(): FakeContext {
     formVersions: new Map(),
     formFields: new Map(),
     scoringRules: new Map(),
+    formExports: new Map(),
     conflicts: new Map(),
     pullRows,
     knownEvents,
@@ -623,6 +707,43 @@ export function makeFakeContext(): FakeContext {
     events.delete(id);
     if (activeContext.active_event_id === id) activeContext.active_event_id = null;
   };
+
+  // Task 1.27: what `delete from form_versions where id = …` leaves behind. Its fields and
+  // its entries cascade; forms.active_version_id is ON DELETE SET NULL.
+  const dropFormVersion = (id: string): void => {
+    for (const [k, f] of fake.formFields) {
+      if ((f as unknown as { form_version_id: string }).form_version_id === id) {
+        fake.formFields.delete(k);
+      }
+    }
+    for (const [k, row] of rows.scouting_entries) {
+      if (row.form_version_id === id) rows.scouting_entries.delete(k);
+    }
+    fake.entryCountsByVersion.delete(id);
+    for (const form of fake.forms.values()) {
+      if (form.active_version_id === id) form.active_version_id = null;
+    }
+    fake.formVersions.delete(id);
+    fake.formVersionWrites += 1;
+  };
+  // ...and of `delete from forms where id = …`: its versions (with their fields and entries)
+  // and scoring rules cascade; a saved export's form_id is ON DELETE SET NULL.
+  const dropForm = (id: string): void => {
+    for (const version of [...fake.formVersions.values()]) {
+      if (version.form_id === id) dropFormVersion(version.id);
+    }
+    for (const [k, rule] of fake.scoringRules) if (rule.form_id === id) fake.scoringRules.delete(k);
+    for (const exported of fake.formExports.values()) {
+      if (exported.form_id === id) exported.form_id = null;
+    }
+    fake.forms.delete(id);
+  };
+  const userExists = (id: unknown): boolean => typeof id === 'string' && usersById.has(id);
+  const fieldRowsOf = (versionId: string): FormFieldDefinition[] =>
+    [...fake.formFields.entries()]
+      .filter(([k]) => k.startsWith(`${versionId}:`))
+      .map(([, f]) => ({ ...f }))
+      .sort((a, b) => a.display_order - b.display_order || (a.key < b.key ? -1 : 1));
 
   // Typed separately, rather than inline in the Object.assign below: Object.assign's
   // generic inference does not flow FakeContext's `store: Store` field back in as a
@@ -712,12 +833,196 @@ export function makeFakeContext(): FakeContext {
       }
       appliedOrder.push(id);
     },
-    // A declared parameter matters here even though the skeleton fixture ignores it:
-    // an arity mismatch against Store's own `getFormFields(formVersionId: string)` is
-    // enough to make the `as Store` cast below fail as "insufficient overlap" (see the
-    // deviation logged for this task).
-    async getFormFields(_formVersionId) {
-      return SKELETON_FIELDS;
+    // Task 1.27: a version's own rows, by display_order then key. A version the fake has
+    // never heard of (no form_versions row and no field rows) still answers the skeleton
+    // fixture, which the sync tests validate their entries against ('fv-1').
+    async getFormFields(formVersionId) {
+      const own = fieldRowsOf(formVersionId);
+      if (own.length === 0 && !fake.formVersions.has(formVersionId)) return SKELETON_FIELDS;
+      return own;
+    },
+    // Task 1.27: forms, versions, fields, scoring rules and saved exports. Every write
+    // checks its columns and raises Postgres's own codes, like the other tables.
+    async getForm(id) {
+      const row = fake.forms.get(id);
+      return row ? ({ ...row } as unknown as StoredForm) : null;
+    },
+    async getFormByKind(seasonId, kind) {
+      const row = [...fake.forms.values()].find((f) => f.season_id === seasonId && f.kind === kind);
+      return row ? ({ ...row } as unknown as StoredForm) : null;
+    },
+    async insertForm(row) {
+      checkColumns('forms', FORM_COLUMNS, row);
+      const at = fake.nowValue.toISOString();
+      const next = {
+        active_version_id: null,
+        timer_config: { phases: [] },
+        created_at: at,
+        updated_at: at,
+        ...row,
+      } as unknown as FakeRow;
+      if (!seasons.has(String(next.season_id))) throw pgError('23503', 'forms_season_id_fkey');
+      if (fake.forms.has(next.id)) throw pgError('23505', 'forms_pkey');
+      if (
+        [...fake.forms.values()].some((f) => f.season_id === next.season_id && f.kind === next.kind)
+      ) {
+        throw pgError('23505', 'forms_season_id_kind_key');
+      }
+      fake.forms.set(next.id, next);
+      return { ...next } as unknown as StoredForm;
+    },
+    async updateForm(id, patch) {
+      checkColumns('forms', FORM_COLUMNS, patch);
+      const existing = fake.forms.get(id);
+      if (!existing) throw pgError('PGRST116', 'no form with that id');
+      const next = { ...existing, ...patch, updated_at: fake.nowValue.toISOString() } as FakeRow;
+      if (
+        next.active_version_id != null &&
+        !fake.formVersions.has(String(next.active_version_id))
+      ) {
+        throw pgError('23503', 'forms_active_version_fk');
+      }
+      fake.forms.set(id, next);
+      return { ...next } as unknown as StoredForm;
+    },
+    async getFormVersion(id) {
+      const row = fake.formVersions.get(id);
+      return row ? ({ ...row } as unknown as StoredFormVersion) : null;
+    },
+    async listFormVersions(formId) {
+      return [...fake.formVersions.values()]
+        .filter((v) => v.form_id === formId)
+        .sort((a, b) => Number(a.version_no) - Number(b.version_no))
+        .map((v) => ({ ...v }) as unknown as StoredFormVersion);
+    },
+    async insertFormVersion(row) {
+      checkColumns('form_versions', FORM_VERSION_COLUMNS, row);
+      const at = fake.nowValue.toISOString();
+      const next = {
+        published_at: null,
+        is_locked: false,
+        updated_by: null,
+        created_at: at,
+        updated_at: at,
+        ...row,
+      } as unknown as FakeRow;
+      if (!fake.forms.has(String(next.form_id)))
+        throw pgError('23503', 'form_versions_form_id_fkey');
+      if (next.updated_by != null && !userExists(next.updated_by)) {
+        throw pgError('23503', 'form_versions_updated_by_fkey');
+      }
+      if (fake.formVersions.has(next.id)) throw pgError('23505', 'form_versions_pkey');
+      if (
+        [...fake.formVersions.values()].some(
+          (v) => v.form_id === next.form_id && v.version_no === next.version_no,
+        )
+      ) {
+        throw pgError('23505', 'form_versions_form_id_version_no_key');
+      }
+      fake.formVersions.set(next.id, next);
+      fake.formVersionWrites += 1;
+      return { ...next } as unknown as StoredFormVersion;
+    },
+    async updateFormVersion(id, patch) {
+      checkColumns('form_versions', FORM_VERSION_COLUMNS, patch);
+      const existing = fake.formVersions.get(id);
+      if (!existing) throw pgError('PGRST116', 'no form version with that id');
+      if (patch.updated_by != null && !userExists(patch.updated_by)) {
+        throw pgError('23503', 'form_versions_updated_by_fkey');
+      }
+      // Mutated in place, not replaced: a test holding the row (to set is_locked) keeps it.
+      Object.assign(existing, patch, { updated_at: fake.nowValue.toISOString() });
+      fake.formVersionWrites += 1;
+      return { ...existing } as unknown as StoredFormVersion;
+    },
+    // Rows in `rows.scouting_entries` bound to the version, soft-deleted ones included,
+    // plus whatever a test declared in `entryCountsByVersion`.
+    async countEntriesByFormVersion(formVersionId) {
+      const bound = [...rows.scouting_entries.values()].filter(
+        (row) => row.form_version_id === formVersionId,
+      ).length;
+      return bound + (fake.entryCountsByVersion.get(formVersionId) ?? 0);
+    },
+    // Deletes first, then upserts on (form_version_id, key): an existing row keeps its
+    // created_at and takes the row's columns (its id included); a new key is inserted.
+    async writeFormFields(formVersionId, fieldRows, deleteKeys) {
+      if (!fake.formVersions.has(formVersionId)) {
+        throw pgError('23503', 'form_fields_form_version_id_fkey');
+      }
+      for (const row of fieldRows) checkColumns('form_fields', FORM_FIELD_COLUMNS, row);
+      for (const key of deleteKeys) fake.formFields.delete(`${formVersionId}:${key}`);
+      const at = fake.nowValue.toISOString();
+      for (const row of fieldRows) {
+        const k = `${formVersionId}:${String(row.key)}`;
+        const existing = fake.formFields.get(k) as Record<string, unknown> | undefined;
+        fake.formFields.set(k, {
+          created_at: existing?.created_at ?? at,
+          ...row,
+          form_version_id: formVersionId,
+          updated_at: at,
+        } as unknown as FormFieldDefinition);
+      }
+    },
+    async getScoringRules(formId) {
+      return [...fake.scoringRules.values()]
+        .filter((r) => r.form_id === formId)
+        .map((r) => ({ option_points: null, ...r }) as unknown as StoredScoringRule);
+    },
+    async replaceScoringRules(formId, rules) {
+      if (!fake.forms.has(formId)) throw pgError('23503', 'scoring_rules_form_id_fkey');
+      for (const rule of rules) checkColumns('scoring_rules', SCORING_RULE_COLUMNS, rule);
+      if (rules.some((r) => Number(r.points) < 0)) {
+        throw pgError('23514', 'scoring_rules_points_check');
+      }
+      const keep = new Set(rules.map((r) => String(r.field_key)));
+      for (const [k, rule] of fake.scoringRules) {
+        if (rule.form_id === formId && !keep.has(String(rule.field_key)))
+          fake.scoringRules.delete(k);
+      }
+      const at = fake.nowValue.toISOString();
+      for (const rule of rules) {
+        const k = `${formId}:${String(rule.field_key)}`;
+        const existing = fake.scoringRules.get(k);
+        fake.scoringRules.set(k, {
+          created_at: existing?.created_at ?? at,
+          ...rule,
+          id: existing?.id ?? String(rule.id),
+          form_id: formId,
+          updated_at: at,
+        } as unknown as FakeRow);
+      }
+    },
+    async insertFormExport(row) {
+      checkColumns('form_exports', FORM_EXPORT_COLUMNS, row);
+      const next = {
+        form_id: null,
+        created_at: fake.nowValue.toISOString(),
+        ...row,
+      } as StoredFormExport;
+      if (!userExists(next.created_by)) throw pgError('23503', 'form_exports_created_by_fkey');
+      if (next.form_id !== null && !fake.forms.has(next.form_id)) {
+        throw pgError('23503', 'form_exports_form_id_fkey');
+      }
+      if (fake.formExports.has(next.id)) throw pgError('23505', 'form_exports_pkey');
+      fake.formExports.set(next.id, next);
+      return { ...next };
+    },
+    async purgeFormExports(olderThan) {
+      let purged = 0;
+      for (const [k, row] of fake.formExports) {
+        if (new Date(row.created_at).getTime() < olderThan.getTime()) {
+          fake.formExports.delete(k);
+          purged += 1;
+        }
+      }
+      return purged;
+    },
+    // One statement each in the Supabase store; here, the cascades they set off.
+    async deleteFormCascade(id) {
+      dropForm(id);
+    },
+    async deleteFormVersion(id) {
+      dropFormVersion(id);
     },
     // `knownEvents` is the pull tests' shorthand; an event a use case created is real too.
     async eventExists(eventId) {
@@ -1042,7 +1347,7 @@ export function makeFakeContext(): FakeContext {
       for (const event of [...events.values()]) {
         if (event.season_id === id) dropEvent(event.id);
       }
-      for (const [k, form] of fake.forms) if (form.season_id === id) fake.forms.delete(k);
+      for (const form of [...fake.forms.values()]) if (form.season_id === id) dropForm(form.id);
       seasons.delete(id);
       if (activeContext.active_season_id === id) activeContext.active_season_id = null;
     },
@@ -1072,24 +1377,10 @@ export function makeFakeContext(): FakeContext {
       'listConflicts',
       'getConflict',
       'resolveConflictRow',
-      'getForm',
-      'getFormByKind',
-      'insertForm',
-      'updateForm',
-      'getFormVersion',
-      'listFormVersions',
-      'insertFormVersion',
-      'updateFormVersion',
-      'countEntriesByFormVersion',
-      'replaceFormFields',
-      'getScoringRules',
-      'replaceScoringRules',
       'getEntry',
       'queryEntries',
       'entriesForScope',
       'listTeamEvents',
-      'deleteFormCascade',
-      'deleteFormVersion',
     ]),
   } as Store;
 

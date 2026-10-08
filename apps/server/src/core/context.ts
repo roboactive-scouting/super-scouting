@@ -239,20 +239,45 @@ export type Store = {
   /** A hard delete; its match_teams go with it (`on delete cascade`). '23503' on entries. */
   deleteMatch(id: string): Promise<void>;
 
-  // forms and scoring (tasks 1.27, 1.28)
-  getForm(id: string): Promise<StoredRow | null>;
-  getFormByKind(seasonId: string, kind: 'match' | 'super'): Promise<StoredRow | null>;
-  insertForm(row: Record<string, unknown>): Promise<StoredRow>;
-  updateForm(id: string, patch: Record<string, unknown>): Promise<StoredRow>;
-  getFormVersion(id: string): Promise<StoredRow | null>;
-  listFormVersions(formId: string): Promise<StoredRow[]>;
-  insertFormVersion(row: Record<string, unknown>): Promise<StoredRow>;
-  updateFormVersion(id: string, patch: Record<string, unknown>): Promise<StoredRow>;
+  // forms and scoring (tasks 1.27, 1.28). Every method THROWS on a database error, keeping
+  // Postgres's code: '23505' on a second form of a kind in a season or a duplicate
+  // (form, version_no); '23503' when a row names a season, form or user that is gone.
+  getForm(id: string): Promise<StoredForm | null>;
+  getFormByKind(seasonId: string, kind: 'match' | 'super'): Promise<StoredForm | null>;
+  insertForm(row: Record<string, unknown>): Promise<StoredForm>;
+  updateForm(id: string, patch: Record<string, unknown>): Promise<StoredForm>;
+  getFormVersion(id: string): Promise<StoredFormVersion | null>;
+  /** The form's versions by version_no, oldest first. */
+  listFormVersions(formId: string): Promise<StoredFormVersion[]>;
+  insertFormVersion(row: Record<string, unknown>): Promise<StoredFormVersion>;
+  /** `updated_at` is the table trigger's; a write with `updated_by` stamps who saved it. */
+  updateFormVersion(id: string, patch: Record<string, unknown>): Promise<StoredFormVersion>;
+  /** Every entry bound to the version, soft-deleted ones included: they are bound too. */
   countEntriesByFormVersion(formVersionId: string): Promise<number>;
+  /** The version's fields, deprecated ones included, by display_order then key. */
   getFormFields(formVersionId: string): Promise<FormFieldDefinition[]>;
-  replaceFormFields(formVersionId: string, fields: Record<string, unknown>[]): Promise<void>;
-  getScoringRules(formId: string): Promise<StoredRow[]>;
+  /**
+   * Task 1.27 (replaces `replaceFormFields`): writes the version's fields so ids SURVIVE a
+   * save. Each row carries its id and is upserted on (form_version_id, key) — an existing
+   * key is updated in place, a new one inserted — and the rows whose keys are in
+   * `deleteKeys` are deleted first. A row the version holds that is in neither list is
+   * left alone. Not one transaction.
+   */
+  writeFormFields(
+    formVersionId: string,
+    rows: Record<string, unknown>[],
+    deleteKeys: string[],
+  ): Promise<void>;
+  getScoringRules(formId: string): Promise<StoredScoringRule[]>;
+  /**
+   * Makes `rules` the form's scoring rules: upserted on (form_id, field_key), and the
+   * form's rules for any other key deleted. Not one transaction.
+   */
   replaceScoringRules(formId: string, rules: Record<string, unknown>[]): Promise<void>;
+  /** Task 1.27: one saved export (SPEC-FINAL 3.3, v1.22). '23503' on an unknown user. */
+  insertFormExport(row: Record<string, unknown>): Promise<StoredFormExport>;
+  /** Deletes every saved export created before `olderThan`; answers how many went. */
+  purgeFormExports(olderThan: Date): Promise<number>;
 
   // reads for browse, search and statistics (tasks 1.50, 1.57)
   getEntry(id: string): Promise<StoredRow | null>;
@@ -281,6 +306,51 @@ export type Store = {
    * season's forms (0 for an event). The form delete widens `kind` when it lands.
    */
   countDeleteImpact(kind: 'season' | 'event', id: string): Promise<DeleteImpact>;
+};
+
+/** A `forms` row (migration 20260903091000_forms.sql). Not synced by push; no `version`. */
+export type StoredForm = {
+  id: string;
+  season_id: string;
+  kind: 'match' | 'super';
+  name: string;
+  active_version_id: string | null;
+  timer_config: unknown;
+  created_at: string;
+  updated_at: string;
+};
+
+/** A `form_versions` row; `updated_by` arrived with migration 20261008100000. */
+export type StoredFormVersion = {
+  id: string;
+  form_id: string;
+  version_no: number;
+  published_at: string | null;
+  is_locked: boolean;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** A `scoring_rules` row (SPEC-FINAL 3.4), keyed by (form_id, field_key). */
+export type StoredScoringRule = {
+  id: string;
+  form_id: string;
+  field_key: string;
+  points: number;
+  option_points: Record<string, number> | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** A `form_exports` row (migration 20261008101000). `form_id` is set null with its form. */
+export type StoredFormExport = {
+  id: string;
+  form_id: string | null;
+  label: string;
+  definition: unknown;
+  created_by: string;
+  created_at: string;
 };
 
 /** The parent `missingParent` found gone. */

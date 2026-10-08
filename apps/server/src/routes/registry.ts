@@ -42,6 +42,18 @@ import {
   updateTeam,
 } from '../core/commands/teams.js';
 import { deleteEvent, deleteSeason } from '../core/commands/deleteCompetition.js';
+import {
+  createForm,
+  deleteForm,
+  deleteFormVersion,
+  exportForm,
+  importForm,
+  publishFormVersion,
+  restoreFormVersion,
+  saveDraftFields,
+  saveFormExport,
+  updateForm,
+} from '../core/commands/forms.js';
 import { getActiveContext } from '../core/queries/context.js';
 import { countEntriesByScouter } from '../core/queries/countEntriesByScouter.js';
 import { listUsers } from '../core/queries/listUsers.js';
@@ -353,5 +365,85 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     input: API.ensureMatch.input,
     output: API.ensureMatch.output,
     handler: ensureMatch,
+  },
+  createForm: {
+    kind: 'command',
+    description:
+      "Admin only: create a season's match or super form as an empty draft version 1. One form of each kind per season; a second is a conflict.",
+    input: API.createForm.input,
+    output: API.createForm.output,
+    handler: createForm,
+  },
+  updateForm: {
+    kind: 'command',
+    description:
+      'Admin only: rename a form or set its match timer (phases and seconds). In place: never creates a form version.',
+    input: API.updateForm.input,
+    output: API.updateForm.output,
+    handler: updateForm,
+  },
+  saveDraftFields: {
+    kind: 'command',
+    description:
+      "Admin only: make a list of fields a form version's live fields. A draft is edited in place and saves with fields still missing their meaning. A published version takes labels, ranges, meaning and order in place; adding, removing or retyping a field, or changing a select's options, starts a new draft. A saved field's key never changes.",
+    input: API.saveDraftFields.input,
+    output: API.saveDraftFields.output,
+    handler: saveDraftFields,
+  },
+  publishFormVersion: {
+    kind: 'command',
+    description:
+      'Admin only: publish a draft version; the newest published version becomes the one devices scout with. Refused while a field misses its meaning or breaks a rule.',
+    input: API.publishFormVersion.input,
+    output: API.publishFormVersion.output,
+    handler: publishFormVersion,
+  },
+  restoreFormVersion: {
+    kind: 'command',
+    description:
+      'Admin only: make an older published version the active one again, without creating a version.',
+    input: API.restoreFormVersion.input,
+    output: API.restoreFormVersion.output,
+    handler: restoreFormVersion,
+  },
+  deleteFormVersion: {
+    kind: 'command',
+    description:
+      'Admin only: delete one form version. Blocked while any entry is bound to it, and for the active version.',
+    input: API.deleteFormVersion.input,
+    output: API.deleteFormVersion.output,
+    handler: deleteFormVersion,
+  },
+  deleteForm: {
+    kind: 'command',
+    description:
+      'Admin only: hard-delete a form with all its versions, fields, scoring and entries, irreversibly. dry_run answers how many versions and entries go, and deletes nothing.',
+    input: API.deleteForm.input,
+    output: API.deleteForm.output,
+    handler: deleteForm,
+  },
+  exportForm: {
+    kind: 'query',
+    description:
+      "Admin only (a service caller is refused): the portable JSON definition of a form's draft or active version: fields, timer and scoring, with no ids or season.",
+    input: API.exportForm.input,
+    output: API.exportForm.output,
+    handler: exportForm,
+  },
+  saveFormExport: {
+    kind: 'command',
+    description:
+      "Admin only: save a form version's definition into Exports, kept 24 hours. Older exports are deleted first.",
+    input: API.saveFormExport.input,
+    output: API.saveFormExport.output,
+    handler: saveFormExport,
+  },
+  importForm: {
+    kind: 'command',
+    description:
+      "Admin only: import a form definition into a season. With no form of its kind there, it creates one as draft v1; otherwise its fields become that form's draft, and the form's name, timer and scoring stay.",
+    input: API.importForm.input,
+    output: API.importForm.output,
+    handler: importForm,
   },
 };

@@ -21,6 +21,28 @@ import {
   updateSeasonInput,
 } from './context';
 import {
+  createFormInput,
+  createFormOutput,
+  deleteFormInput,
+  deleteFormOutput,
+  deleteFormVersionInput,
+  deleteFormVersionOutput,
+  exportFormInput,
+  exportSummary,
+  formDefinition,
+  formRow,
+  importFormInput,
+  importFormOutput,
+  publishFormVersionInput,
+  publishFormVersionOutput,
+  restoreFormVersionInput,
+  restoreFormVersionOutput,
+  saveDraftFieldsInput,
+  saveDraftFieldsOutput,
+  saveFormExportInput,
+  updateFormInput,
+} from './forms';
+import {
   createMatchInput,
   createMatchOutput,
   deleteMatchInput,
@@ -102,6 +124,16 @@ export const API = {
   deleteMatch: { input: deleteMatchInput, output: deleteMatchOutput },
   listMatches: { input: listMatchesInput, output: listMatchesOutput },
   ensureMatch: { input: ensureMatchInput, output: ensureMatchOutput },
+  createForm: { input: createFormInput, output: createFormOutput },
+  updateForm: { input: updateFormInput, output: formRow },
+  saveDraftFields: { input: saveDraftFieldsInput, output: saveDraftFieldsOutput },
+  publishFormVersion: { input: publishFormVersionInput, output: publishFormVersionOutput },
+  restoreFormVersion: { input: restoreFormVersionInput, output: restoreFormVersionOutput },
+  deleteFormVersion: { input: deleteFormVersionInput, output: deleteFormVersionOutput },
+  deleteForm: { input: deleteFormInput, output: deleteFormOutput },
+  exportForm: { input: exportFormInput, output: formDefinition },
+  saveFormExport: { input: saveFormExportInput, output: exportSummary },
+  importForm: { input: importFormInput, output: importFormOutput },
 } as const;
 
 export type Api = typeof API;

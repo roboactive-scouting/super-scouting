@@ -2,6 +2,28 @@ import { describe, expect, it } from 'vitest';
 import { API } from './index';
 import { loginInput, loginOutput, refreshTokenInput } from './auth';
 import {
+  createFormInput,
+  createFormOutput,
+  deleteFormInput,
+  deleteFormOutput,
+  deleteFormVersionInput,
+  deleteFormVersionOutput,
+  exportFormInput,
+  exportSummary,
+  formDefinition,
+  formRow,
+  importFormInput,
+  importFormOutput,
+  publishFormVersionInput,
+  publishFormVersionOutput,
+  restoreFormVersionInput,
+  restoreFormVersionOutput,
+  saveDraftFieldsInput,
+  saveDraftFieldsOutput,
+  saveFormExportInput,
+  updateFormInput,
+} from './forms';
+import {
   activeContext,
   createEventInput,
   createSeasonInput,
@@ -64,17 +86,22 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
       'changeOwnPassword',
       'countEntriesByScouter',
       'createEvent',
+      'createForm',
       'createMatch',
       'createSeason',
       'createTeam',
       'createUser',
       'deleteEvent',
+      'deleteForm',
+      'deleteFormVersion',
       'deleteMatch',
       'deleteSeason',
       'disableUser',
       'enableUser',
       'ensureMatch',
+      'exportForm',
       'getActiveContext',
+      'importForm',
       'listEventRoster',
       'listEvents',
       'listMatches',
@@ -82,16 +109,21 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
       'listTeams',
       'listUsers',
       'login',
+      'publishFormVersion',
       'refreshToken',
       'renameUser',
       'reorderEvents',
       'resetPassword',
+      'restoreFormVersion',
+      'saveDraftFields',
+      'saveFormExport',
       'setActiveEvent',
       'setActiveSeason',
       'setEventRoster',
       'setMatchTeams',
       'setUserRole',
       'updateEvent',
+      'updateForm',
       'updateMatch',
       'updateSeason',
       'updateTeam',
@@ -136,5 +168,27 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
     expect(API.deleteMatch).toEqual({ input: deleteMatchInput, output: deleteMatchOutput });
     expect(API.listMatches).toEqual({ input: listMatchesInput, output: listMatchesOutput });
     expect(API.ensureMatch).toEqual({ input: ensureMatchInput, output: ensureMatchOutput });
+    expect(API.createForm).toEqual({ input: createFormInput, output: createFormOutput });
+    expect(API.updateForm).toEqual({ input: updateFormInput, output: formRow });
+    expect(API.saveDraftFields).toEqual({
+      input: saveDraftFieldsInput,
+      output: saveDraftFieldsOutput,
+    });
+    expect(API.publishFormVersion).toEqual({
+      input: publishFormVersionInput,
+      output: publishFormVersionOutput,
+    });
+    expect(API.restoreFormVersion).toEqual({
+      input: restoreFormVersionInput,
+      output: restoreFormVersionOutput,
+    });
+    expect(API.deleteFormVersion).toEqual({
+      input: deleteFormVersionInput,
+      output: deleteFormVersionOutput,
+    });
+    expect(API.deleteForm).toEqual({ input: deleteFormInput, output: deleteFormOutput });
+    expect(API.exportForm).toEqual({ input: exportFormInput, output: formDefinition });
+    expect(API.saveFormExport).toEqual({ input: saveFormExportInput, output: exportSummary });
+    expect(API.importForm).toEqual({ input: importFormInput, output: importFormOutput });
   });
 });

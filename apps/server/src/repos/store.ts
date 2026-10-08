@@ -10,11 +10,15 @@ import type {
   PullScope,
   Store,
   StoredEvent,
+  StoredForm,
+  StoredFormExport,
+  StoredFormVersion,
   StoredFullUser,
   StoredMatch,
   StoredMatchSlot,
   StoredPublicUser,
   StoredRow,
+  StoredScoringRule,
   StoredSeason,
   StoredTeam,
   StoredUser,
@@ -44,6 +48,13 @@ const TEAM_COLUMNS = 'id, number, name, created_at, updated_at';
 /** Never the reserved official-result columns: they are not read in v1 (SPEC-FINAL 3.1). */
 const MATCH_COLUMNS = 'id, event_id, match_type, number, created_at, updated_at';
 const SLOT_COLUMNS = 'match_id, alliance, station, team_id';
+const FORM_COLUMNS =
+  'id, season_id, kind, name, active_version_id, timer_config, created_at, updated_at';
+const FORM_VERSION_COLUMNS =
+  'id, form_id, version_no, published_at, is_locked, updated_by, created_at, updated_at';
+const SCORING_RULE_COLUMNS =
+  'id, form_id, field_key, points, option_points, created_at, updated_at';
+const FORM_EXPORT_COLUMNS = 'id, form_id, label, definition, created_by, created_at';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -234,13 +245,188 @@ export function supabaseStore(db: Db): Store {
       return null;
     },
     async getFormFields(formVersionId: string): Promise<FormFieldDefinition[]> {
+      // Ordered (task 1.27): the builder and an export read the fields in display order.
       const { data, error } = await db
         .from('form_fields')
         .select('*')
-        .eq('form_version_id', formVersionId);
+        .eq('form_version_id', formVersionId)
+        .order('display_order', { ascending: true })
+        .order('key', { ascending: true });
       // Swallowed, an entry would be validated against no fields at all.
       if (error) throw dbError(error);
       return (data ?? []) as unknown as FormFieldDefinition[];
+    },
+    // Task 1.27: forms, versions, fields, scoring rules and saved exports. Every method
+    // THROWS on a database error, keeping Postgres's code (dbError).
+    async getForm(id: string): Promise<StoredForm | null> {
+      const { data, error } = await db
+        .from('forms')
+        .select(FORM_COLUMNS)
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw dbError(error);
+      return (data as StoredForm | null) ?? null;
+    },
+    async getFormByKind(seasonId: string, kind: 'match' | 'super'): Promise<StoredForm | null> {
+      const { data, error } = await db
+        .from('forms')
+        .select(FORM_COLUMNS)
+        .eq('season_id', seasonId)
+        .eq('kind', kind)
+        .maybeSingle();
+      if (error) throw dbError(error);
+      return (data as StoredForm | null) ?? null;
+    },
+    async insertForm(row: Record<string, unknown>): Promise<StoredForm> {
+      const { data, error } = await db
+        .from('forms')
+        .insert(row as never)
+        .select(FORM_COLUMNS)
+        .single();
+      if (error) throw dbError(error);
+      return data as StoredForm;
+    },
+    async updateForm(id: string, patch: Record<string, unknown>): Promise<StoredForm> {
+      // updated_at is set by the table's set_updated_at trigger.
+      const { data, error } = await db
+        .from('forms')
+        .update(patch as never)
+        .eq('id', id)
+        .select(FORM_COLUMNS)
+        .single();
+      if (error) throw dbError(error);
+      return data as StoredForm;
+    },
+    async getFormVersion(id: string): Promise<StoredFormVersion | null> {
+      const { data, error } = await db
+        .from('form_versions')
+        .select(FORM_VERSION_COLUMNS)
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw dbError(error);
+      return (data as StoredFormVersion | null) ?? null;
+    },
+    async listFormVersions(formId: string): Promise<StoredFormVersion[]> {
+      const { data, error } = await db
+        .from('form_versions')
+        .select(FORM_VERSION_COLUMNS)
+        .eq('form_id', formId)
+        .order('version_no', { ascending: true });
+      if (error) throw dbError(error);
+      return (data ?? []) as StoredFormVersion[];
+    },
+    async insertFormVersion(row: Record<string, unknown>): Promise<StoredFormVersion> {
+      const { data, error } = await db
+        .from('form_versions')
+        .insert(row as never)
+        .select(FORM_VERSION_COLUMNS)
+        .single();
+      if (error) throw dbError(error);
+      return data as StoredFormVersion;
+    },
+    async updateFormVersion(
+      id: string,
+      patch: Record<string, unknown>,
+    ): Promise<StoredFormVersion> {
+      // updated_at is set by the table's set_updated_at trigger.
+      const { data, error } = await db
+        .from('form_versions')
+        .update(patch as never)
+        .eq('id', id)
+        .select(FORM_VERSION_COLUMNS)
+        .single();
+      if (error) throw dbError(error);
+      return data as StoredFormVersion;
+    },
+    // Soft-deleted entries count: they are bound to the version all the same.
+    async countEntriesByFormVersion(formVersionId: string): Promise<number> {
+      const { count, error } = await db
+        .from('scouting_entries')
+        .select('id', { count: 'exact', head: true })
+        .eq('form_version_id', formVersionId);
+      if (error) throw dbError(error);
+      return count ?? 0;
+    },
+    // Ids survive a save: deletes first, then ONE upsert on (form_version_id, key), so a
+    // key already saved is updated in place (keeping its id) and a new one is inserted.
+    // Not one transaction; re-sending the same save completes a half-done one.
+    async writeFormFields(
+      formVersionId: string,
+      rows: Record<string, unknown>[],
+      deleteKeys: string[],
+    ): Promise<void> {
+      for (const chunk of chunks(deleteKeys)) {
+        const res = await db
+          .from('form_fields')
+          .delete()
+          .eq('form_version_id', formVersionId)
+          .in('key', chunk);
+        if (res.error) throw dbError(res.error);
+      }
+      if (rows.length === 0) return;
+      const res = await db
+        .from('form_fields')
+        .upsert(rows.map((row) => ({ ...row, form_version_id: formVersionId })) as never, {
+          onConflict: 'form_version_id,key',
+        });
+      if (res.error) throw dbError(res.error);
+    },
+    async getScoringRules(formId: string): Promise<StoredScoringRule[]> {
+      const { data, error } = await db
+        .from('scoring_rules')
+        .select(SCORING_RULE_COLUMNS)
+        .eq('form_id', formId)
+        .order('field_key', { ascending: true });
+      if (error) throw dbError(error);
+      return ((data ?? []) as StoredScoringRule[]).map((r) => ({ ...r, points: Number(r.points) }));
+    },
+    // Upserted on (form_id, field_key), so a rule keeps its id; the form's rules for any
+    // other key are deleted first. Not one transaction.
+    async replaceScoringRules(formId: string, rules: Record<string, unknown>[]): Promise<void> {
+      const keep = rules.map((r) => String(r.field_key));
+      let remove = db.from('scoring_rules').delete().eq('form_id', formId);
+      if (keep.length > 0) {
+        // Field keys are [a-z0-9_] (validateFieldDefinition), safe inside a PostgREST list.
+        remove = remove.not('field_key', 'in', `(${keep.map((k) => `"${k}"`).join(',')})`);
+      }
+      const removed = await remove;
+      if (removed.error) throw dbError(removed.error);
+      if (rules.length === 0) return;
+      const res = await db
+        .from('scoring_rules')
+        .upsert(rules.map((r) => ({ ...r, form_id: formId })) as never, {
+          onConflict: 'form_id,field_key',
+        });
+      if (res.error) throw dbError(res.error);
+    },
+    async insertFormExport(row: Record<string, unknown>): Promise<StoredFormExport> {
+      const { data, error } = await db
+        .from('form_exports')
+        .insert(row as never)
+        .select(FORM_EXPORT_COLUMNS)
+        .single();
+      if (error) throw dbError(error);
+      return data as StoredFormExport;
+    },
+    async purgeFormExports(olderThan: Date): Promise<number> {
+      const { count, error } = await db
+        .from('form_exports')
+        .delete({ count: 'exact' })
+        .lt('created_at', olderThan.toISOString());
+      if (error) throw dbError(error);
+      return count ?? 0;
+    },
+    // ONE statement (decision G): form_versions, form_fields, scoring_rules and, through
+    // form_versions, scouting_entries are all ON DELETE CASCADE; form_exports.form_id is
+    // ON DELETE SET NULL. Nothing references scouting_entries, so nothing can refuse it.
+    async deleteFormCascade(id: string): Promise<void> {
+      const { error } = await db.from('forms').delete().eq('id', id);
+      if (error) throw dbError(error);
+    },
+    // Its fields and entries cascade; the use case refuses a version with entries first.
+    async deleteFormVersion(id: string): Promise<void> {
+      const { error } = await db.from('form_versions').delete().eq('id', id);
+      if (error) throw dbError(error);
     },
     async eventExists(eventId: string): Promise<boolean> {
       const { data, error } = await db.from('events').select('id').eq('id', eventId).maybeSingle();
@@ -790,24 +976,10 @@ export function supabaseStore(db: Db): Store {
       'listConflicts',
       'getConflict',
       'resolveConflictRow',
-      'getForm',
-      'getFormByKind',
-      'insertForm',
-      'updateForm',
-      'getFormVersion',
-      'listFormVersions',
-      'insertFormVersion',
-      'updateFormVersion',
-      'countEntriesByFormVersion',
-      'replaceFormFields',
-      'getScoringRules',
-      'replaceScoringRules',
       'getEntry',
       'queryEntries',
       'entriesForScope',
       'listTeamEvents',
-      'deleteFormCascade',
-      'deleteFormVersion',
     ]),
     // The spread above only carries an index signature (its keys come from a plain
     // string[]), so TS can't see that it supplies the remaining named Store methods;

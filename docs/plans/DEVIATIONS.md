@@ -5298,3 +5298,123 @@ and `z.string().datetime({ offset: false })` refuses it (`false false true` for 
 **What I did instead:** (a) the tests are written in Prettier's layout, with the same cases plus the extras above and one added case (an ordering operator is false when the controlling value is a string); (b) `export * from './forms/visibility'` added to `packages/shared/src/index.ts`, and `pnpm --filter @frc/server build` run, leaving the regenerated `apps/server/api/index.js` and `index.js.map` in the working tree (BUILD-CONTEXT section 6); (c) the code's ASCII operators are kept, and `validateVisibilityCondition` rejects `≠ ≥ ≤`.
 
 **Risk:** the builder and any JSON import must write ASCII operators; the unicode forms in the spec are display only.
+
+## Task 1.27 — two migrations: `form_versions.updated_by` and `form_exports`
+
+**Plan said:** Task 1.27 modifies `forms.ts`, its test, `store.ts`, `registry.ts` and `fake-context.ts`; no migration.
+
+**What was wrong:** SPEC-FINAL v1.21 adds `form_versions.updated_by` and v1.22 adds the `form_exports` table (§3.3), after the plan text was written; neither existed in the database. Orchestrator decision A.
+
+**What I did instead:** `20261008100000_form_versions_updated_by.sql` (`alter table public.form_versions add column updated_by uuid references public.users(id)`, nullable, no ON DELETE action because users are never deleted) and `20261008101000_form_exports.sql` (exactly §3.3's columns; `form_id … on delete set null`; plus an index on `created_at` for the 24-hour purge; no `updated_at`, no `deleted_at`, no RLS, not in `PULL_ENTITY_KEYS`). Checked `packages/db/supabase/.temp/project-ref` printed `oqvoqddoizhhwvjwejtm`; `npx -y supabase@latest db push --linked --dry-run` listed exactly the two; `npx -y supabase@latest db push --linked --yes` applied them (no password asked). `database.types.ts` regenerated with the workspace CLI (`pnpm --filter @frc/db exec supabase gen types typescript --linked --schema public`, v2.117.0), as UF.1 did, because `types-drift.itest.ts` compares against it; the diff is the new table and the new column only. `forms.itest.ts` gained a describe block proving: `updated_by` records a user, may be null and refuses an unknown user (23503); `form_exports` takes a row and refuses an unknown author (23503); and `delete from forms where id = …` (the statement `deleteFormCascade` sends) removes the form's versions, fields, scoring rules and an entry, and sets the export's `form_id` null. Its fixture cleans up after itself. Rejected: adding `updated_at`/`deleted_at` to `form_exports` (it is never synced or edited), and an RLS policy (the project has none).
+
+**Risk:** production needs the same two migrations, applied by hand by the user, before a server carrying task 1.27 deploys to production: the use cases write `updated_by` and `form_exports`, and would fail with "column does not exist" against an un-migrated database.
+
+## Task 1.27 — `isStructuralChange` lives in `core/forms/version.ts`, and options are structural
+
+**Plan said:** `FieldDraft` and `isStructuralChange` sit in `commands/forms.ts`; structural is "adding a field, removing/deprecating a field, or changing a field's type".
+
+**What was wrong:** SPEC-FINAL v1.20 §5.1 makes adding, removing or reordering a select option structural too (renaming an option's label is in place); and task 1.29 needs the function in the client. Orchestrator decision B.
+
+**What I did instead:** `apps/server/src/core/forms/version.ts` holds only `FieldDraft` and `isStructuralChange`, importing only a type from `@frc/shared`, with no relative import and no Node API, so 1.29 can `git mv` it to `packages/shared/src/forms/`. For `single_select`/`multi_select` the ORDERED list of option values is compared; a field marked `deprecated` in `next` counts as removed. `version.test.ts` (13 tests) covers each case, including "reorder two options → structural" and "relabel an option → not structural", and that an event-log button change is in place. Its import of `./version` is extensionless, unlike the rest of `apps/server`, so the pair moves without an edit (a test is never bundled). Rejected: putting it straight into `packages/shared` (1.29's move, per the decision).
+
+**Risk:** when it moves, its `from '@frc/shared'` import must become relative inside `packages/shared`. An event log's `event_types` list is treated as in place (only selects are named by the spec); entries carrying a removed button's value would then fail `validateEntryData` on a later edit.
+
+## Task 1.27 — field identity: an optional `id`, and `writeFormFields` replaces `replaceFormFields`
+
+**Plan said:** fields are sent without ids; step 3 rejects "a key that is not in the current version and collides with a deprecated key from an earlier version"; the store's `replaceFormFields(formVersionId, fields)`.
+
+**What was wrong:** with no id the server cannot tell a renamed key from a new field, so "a saved field's key is never accepted as changed" (v1.20 §5.1) cannot be enforced; and a delete-all-then-insert `replaceFormFields` re-ids every field on every save, so an id could never be trusted. Orchestrator decision C.
+
+**What I did instead:** a request field is `FormFieldInput` = the definition plus an optional `id`. In order: a key twice → `invalid` `duplicate-key` (and an id twice → `duplicate-field-id`); an `id` that names no LIVE field of the target → `invalid` `unknown-field-id`; an `id` whose key differs → `AppError('invalid', "a saved field's key never changes", { reason: 'key-change', field_id, key_was, key_now })`; no id and a live key → that field; no id and a key used by any row of any version of the form but not live in the target → `invalid` `key-retired`. The Store method is now `writeFormFields(formVersionId, rows, deleteKeys)`: deletes the named keys, then one upsert on `(form_version_id, key)` with each row carrying its id; the use case sends only rows that changed (compared with a key-sorted JSON, so jsonb's key order is not a change). The response returns the version's fields with their ids. **Beyond the decision:** a field removed from an unpublished draft is DELETED only when no other version of the form has its key (born in this draft, so its key becomes free again); one carried from an earlier version is kept, `deprecated: true`, as the fork that made the draft would have left it. Rejected: deleting carried fields too (the draft would stop describing keys its predecessor's entries carry), and upserting on `id` (the decision names the key).
+
+**Risk:** `writeFormFields` is not one transaction (delete, then upsert); a failure between leaves a draft missing a removed field, which the same save re-sent completes. Reading every version's fields to know the keys ever used is one query per version: fine for a handful of versions.
+
+## Task 1.27 — a draft saves with "needs meaning"; publish refuses it
+
+**Plan said:** step 2 refuses any `validateFieldDefinition` issue on every save, and the test "refuses to publish a version whose fields fail the semantic-metadata rule" only checks that a draft save with `description: ''` is refused.
+
+**What was wrong:** the closed builder design (12-form-builder, 2026-10-08) has Save draft work while fields show "Needs meaning" and holds only Publish. Orchestrator decision D.
+
+**What I did instead:** issues on `description`, `unit`, `phase`, `direction` are "incomplete"; every other issue (key pattern, config shape, section metadata, `is_ordinal`, `validateVisibilityCondition`, and `validateExpr(expr, liveFields, result_type)` when the computed config parses and its expression is non-null) is a "definition" issue. A save landing in an unpublished draft (target, fork or import) refuses definition issues and returns the incomplete ones as `incomplete: [{ field_key, path, message }]`; an in-place save to a published version refuses both. `publishFormVersion` refuses either kind, a computed field whose expression is null (`path: 'config.expression'`), and a version with no live non-section field (`field_key: null, path: 'fields'`). Every refusal is `AppError('invalid', <one line>, { reason: 'invalid-definition', issues })`. `validateExpr`'s `expression` path is reported as `config.expression`, matching `validateFieldDefinition`'s `config.*` paths. The plan's test was rewritten to do what its title says (draft save succeeds with `incomplete` naming the field; publish refused), and tests were added for a definition issue refused on a draft save and blank meaning refused on an in-place save to a published version. The plan's "never renames a key" test (`'AUTO NOTES'` without an id) is kept and still refused, by the key pattern.
+
+**Risk:** the zod input lets `unit`, `phase` and `direction` be null but not `''`; the builder must send null for an unset choice.
+
+## Task 1.27 — locking and forking
+
+**Plan said:** fork only when the target "is locked"; an unlocked target is written in place whatever the change.
+
+**What was wrong:** devices may hold queued entries for any PUBLISHED version, locked or not, so a structural edit in place to a published version could break them; nothing in the codebase sets `is_locked`. Orchestrator decision E.
+
+**What I did instead:** a structural change to any published version forks draft `max(version_no)+1` (carrying every field of the target, applying the new set, marking carried fields absent from it `deprecated: true`, all with new ids); an unpublished draft takes structural edits in place; non-structural edits to a published version are written in place, in the plan's column list, creating no version. A structural change while the form has an unpublished draft → `AppError('conflict', 'draft vN already exists; edit it', { reason: 'draft-exists', draft_version_id, version_no })`. A save that finds entries bound to the target while `is_locked` is false stamps it true. The fork deletes the version row it inserted when the field write fails, then rethrows (tested by making `writeFormFields` throw); a second `insertFormVersion` racing on `(form_id, version_no)` (23505) reads as `conflict` `version-race`.
+
+**Risk:** if the compensating delete also fails, an empty or partial draft is left; the admin sees it as the form's draft and can delete it (no entries). A DRAFT that somehow has entries bound to it still takes structural edits in place.
+
+## Task 1.27 — `updated_by` stamped by every form write
+
+**Plan said:** nothing (the column did not exist).
+
+**What was wrong:** SPEC-FINAL v1.21 §3: the forms list shows who last saved each version. Orchestrator decision F.
+
+**What I did instead:** `createForm` stamps draft v1; `saveDraftFields` the version it wrote (the target, or the fork — not the published version a fork came from); `publishFormVersion` and `restoreFormVersion` that version; `importForm` the draft it writes; `updateForm` the form's draft if any, else its active version, else nothing. A test per use case, with a second admin so the stamp visibly changes.
+
+**Risk:** none known. A lock stamp (`is_locked: true`) is written without `updated_by`: it is not an edit.
+
+## Task 1.27 — the remaining use cases: shapes, plus `deleteForm` and `saveFormExport`
+
+**Plan said:** produces `createForm`, `updateForm`, `saveDraftFields`, `publishFormVersion`, `restoreFormVersion`, `deleteFormVersion`, `deleteForm`, `importForm`, `exportForm`; `exportForm`/`importForm` serialise `{ kind, name, timer_config, fields, scoring_rules }`; the whole-form delete is described as task 1.60's cascade.
+
+**What was wrong:** SPEC-FINAL v1.22 adds 24-hour saved exports and a delete warning that names versions and entries; the plan gave no shapes. Orchestrator decision G.
+
+**What I did instead:** shapes exactly as the decision (listed in the task report). In detail: `createForm` refuses a second form of a kind with `conflict` `form-exists`, an unknown season with `not-found`, and deletes the form again if its draft cannot be inserted. `updateForm` validates `timer_config` with a strict zod schema: each phase from the field-phase vocabulary, whole seconds 1..3600, at most 8 phases, **and no phase named twice** (my addition: a timer with two Auto phases has no meaning). `publishFormVersion` refuses an already-published version (`already-published`) and moves `active_version_id` only when the version is the newest. `restoreFormVersion` refuses a draft (`not-published`). `deleteFormVersion` checks entries first (the plan's message, with `has-entries` and the count; "1 entry" in the singular), then refuses the active version (`active-version`). `deleteForm({ form_id, dry_run })` returns `{ versions, entries, deleted }`, where `entries` counts every entry bound to any version, soft-deleted ones included (they are deleted too); the real delete is `Store.deleteFormCascade`, ONE `delete from forms where id = …` (checked: nothing references `scouting_entries`; `form_versions`, `form_fields`, `scoring_rules`, `metrics.form_id` and `scouting_entries.form_version_id` cascade; `forms.active_version_id` and `form_exports.form_id` set null; integration-tested against dev). `exportForm` returns `{ format: 1, kind, name, timer_config, fields, scoring_rules }`, fields being the version's live fields without id/version/timestamps/`deprecated`, in display order, and scoring rules **only for the exported version's live keys**, sorted by key (my addition: a rule for a key the version lacks would make the export fail its own import). Only the draft or the active version exports (`not-exportable`). `saveFormExport` purges exports created before `now − FORM_EXPORT_TTL_MS` through `Store.purgeFormExports(olderThan)`, then inserts; the label is `${name} · draft v${n}` or `${name} · v${n}`. `importForm` parses `definition` strictly first and refuses with `invalid-definition` and positioned issues; checks scoring keys; creates a new form (draft v1, with name, timer, fields and scoring; compensated by `deleteFormCascade` on a later failure) or writes the existing form's draft (replacing its fields, or forking from the newest version — from nothing when the form has no version left), leaving name, timer and scoring untouched; with `form_id` given, a form of another season or kind is `invalid` `kind-mismatch`.
+
+**Risk:** over HTTP, `rpc.ts` parses the input with the shared schema BEFORE the use case, so a malformed `definition` sent to `/api/importForm` comes back as a 400 `invalid` with zod's message and no `details.issues`; the client's `call()` also pre-parses. The builder should validate a file locally with the exported `formDefinition` schema to show positioned problems. The decision's "→ invalid with issues" holds for direct calls. `field_count` counts every field of the definition, sections included.
+
+## Task 1.27 — the contract: `packages/shared/src/api/forms.ts`, and `exportForm` registered as a query
+
+**Plan said:** modify `registry.ts`; no shared schema file named.
+
+**What was wrong:** every registry entry's schemas come from the shared `API` map (SPEC-FINAL 16.1), and the plan names none. Orchestrator decision H.
+
+**What I did instead:** `packages/shared/src/api/forms.ts` holds every input and output schema (strict inputs) plus `FORM_EXPORT_TTL_MS`, `FORM_DEFINITION_FORMAT`, `timerConfig`, `formFieldInput`, `formFieldDraft`, `formFieldRow`, `formIssue`, `formRow`, `formDefinition`, `exportSummary`; exported from `@frc/shared`; ten rows added to `API`, and the ten use cases registered. `rpc.ts` does nothing with `kind` (it is metadata for readers and a future MCP list), so a query can be admin-gated in its handler: `exportForm` is registered `kind: 'query'` (it reads) and refuses a service caller itself, tested by name. The other nine are commands, so `rpc.test.ts`'s every-command-refuses-a-service-caller loop covers them; its two name lists and the shared `index.test.ts` list were extended (thirty-three authenticated commands). Rejected: registering `exportForm` as a command (it writes nothing).
+
+**Risk:** a future reader who assumes "every query is service-callable" (permissions.ts says query use cases must not gate on `can()`) will find `exportForm` an exception; its description says so.
+
+## Task 1.27 — the Store's form methods are typed, and two methods are added
+
+**Plan said:** the Store's form methods return `StoredRow`; the interface is fixed ("a task that wants a method not on this list has drifted").
+
+**What was wrong:** `StoredRow` requires a `version` column that `forms`, `form_versions` and `scoring_rules` do not have; the decisions need a field write that keeps ids and two export methods.
+
+**What I did instead:** `StoredForm`, `StoredFormVersion` (with `updated_by`), `StoredScoringRule`, `StoredFormExport` in `core/context.ts`, used by `getForm`, `getFormByKind`, `insertForm`, `updateForm`, `getFormVersion`, `listFormVersions` (by version_no), `insertFormVersion`, `updateFormVersion`, `getScoringRules`; `replaceFormFields` is gone, replaced by `writeFormFields`; `insertFormExport` and `purgeFormExports` added. `getFormFields` now orders by `display_order`, then `key`. `replaceScoringRules` is implemented (delete of the form's other keys, then upsert on `(form_id, field_key)`) because `importForm` writes a new form's scoring; `countEntriesByFormVersion`, `deleteFormCascade` and `deleteFormVersion` are implemented. Supabase-store unit tests were added for each, and a throwaway script (deleted afterwards) drove the real Supabase store through the use cases against dev: id survival on upsert, draft deletion, a fork with a deprecated field, `updated_by`, scoring upsert, export label and author, purge count, export → import → export equality, and the one-statement delete all passed, and it cleaned up.
+
+**Risk:** `replaceScoringRules`' delete filter interpolates field keys into a PostgREST list; keys are `[a-z0-9_]` by `validateFieldDefinition`, but task 1.28 must keep it fed only with validated keys.
+
+## Task 1.27 — the fake context
+
+**Plan said:** the tests use `ctx.forms`, `ctx.formVersions`, `ctx.formFields` (keyed `${versionId}:${key}`) and `ctx.entryCountsByVersion`.
+
+**What was wrong:** the fake's form methods were stubs, and its `getFormFields` answered the sync tests' skeleton fixture for every version.
+
+**What I did instead:** every form method implemented over those maps, with column checks and Postgres codes like the other fakes (23503 on an unknown season, form or user — `updated_by` and `created_by` included; 23505 on a second form of a kind or a duplicate version number). Added `ctx.formExports`. `deleteFormCascade` and `deleteFormVersion` cascade exactly as the database does (fields, entries in `rows.scouting_entries`, scoring rules, `active_version_id` and an export's `form_id` set null); `deleteSeason`'s fake now drops forms through the same cascade. `countEntriesByFormVersion` is the version's rows in `rows.scouting_entries` PLUS `entryCountsByVersion` (a test's shorthand). `updateFormVersion` mutates the stored row in place, so a test holding it (to set `is_locked`) keeps seeing it. `formVersionWrites` counts every insert, update and delete of a version (task 1.28 asserts on it). `getFormFields` answers a version's own rows, and still the skeleton fixture for a version the fake has never heard of, which the sync tests rely on (`'fv-1'`).
+
+**Risk:** the skeleton fallback means a test that forgets to create its version silently gets the sync fixture's one field.
+
+## Task 1.27 — the plan's test file, literally
+
+**Plan said:** callers `u-a`/`u-l`, season ids `se-1`/`se-2`, imports without `.js`, `imported.id`, single long lines.
+
+**What was wrong:** the use cases parse their input with the strict shared schemas (wire ids are uuids), the fake's foreign keys need real seasons and users, `apps/server` imports carry `.js`, `importForm` returns `form_id` (decision G), and Prettier reformats long lines.
+
+**What I did instead:** uuid constants and seeded seasons; `u-admin` (a fake fixture user) and a second admin `u-admin-2` for the stamp tests; `.js` imports; `imported.form_id`; the plan's cases kept (the round trip extended: it also sets a timer, a select and a scoring rule and compares `scoring_rules`), in Prettier's layout, plus the decision's named tests and the authorization loop over all ten use cases for a lead, a scouter and a service caller. 58 tests in `forms.test.ts`.
+
+**Risk:** none.
+
+## Task 1.27 — `pnpm db:test` has one failure that predates this task
+
+**Plan said:** (decision A) run `pnpm db:test` after the migration.
+
+**What was wrong:** `test/seed.itest.ts > creates about a hundred scouting entries` fails: `AssertionError: expected 96 to be greater than or equal to 100`. The seed writes 15 scouted matches × 6 = 90 entries since commit `1b7d24d` ("leave the last five matches unscouted"); the test passes only while at least ten non-seed entries litter the dev event, and dev now holds six. Nothing in this task touches the seed, its event or its entries.
+
+**What I did instead:** nothing; out of scope. Every other integration test passes (67 of 68), including the extended `forms.itest.ts` (13 of 13) and `types-drift.itest.ts`.
+
+**Risk:** the threshold should be 90 (or the seed's own count); until it is changed, `db:test` reads red whenever dev is clean.
