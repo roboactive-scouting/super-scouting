@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { SEASON_IMAGE_MANIFEST } from '@frc/shared';
 import type { Database } from '../database.types';
-import { SEED, SEED_FIELDS, SEED_SUPER_FIELDS, type SeedField } from './fixtures';
+import { SCOUTED_MATCHES, SEED, SEED_FIELDS, SEED_SUPER_FIELDS, type SeedField } from './fixtures';
 
 /** The deterministic seed id space (see fixtures.ts). */
 const SEED_ID_PREFIX = '00000000-0000-4000-8000-';
@@ -216,7 +216,6 @@ export async function seedDevDatabase(
   // start a second entry for a robot already scouted on this device (spec 6.2), and a
   // fully seeded event leaves a rehearsal with nowhere to scout. Every match still gets
   // its match_teams, so alliance narrowing works across all 20.
-  const SCOUTED_MATCHES = 15;
   const matches = Array.from({ length: 20 }, (_, i) => ({
     id: SEED.match(i + 1),
     event_id: SEED.event,

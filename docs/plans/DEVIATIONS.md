@@ -5521,3 +5521,13 @@ and `z.string().datetime({ offset: false })` refuses it (`false false true` for 
 - `SPEC-FINAL.md` Appendix C gains `listForms`, `exportForm` / `listFormExports` / `getFormExport` (admin only, service refused), `saveDraftFields` / `importForm` and `saveFormExport`, noted in the v1.22 header line without a version bump. `IMPLEMENTATION-PLAN.md` gains a release note for the two migrations, beside the delete-cascade and match-deletions ones.
 
 **Risk:** `pnpm db:test` still fails `seed.itest.ts` ("expected 96 to be greater than or equal to 100"), logged under 1.27: the seed writes 90 entries since `1b7d24d`, and the test passes only while dev holds ten or more non-seed entries. Not touched in this run. Hard deletes of form fields, versions, forms and scoring rules leave no tombstone for the delta pull (logged under 1.27 and 1.28) — needs a decision before devices score offline.
+
+## Phase 1 D (after the run) — `seed.itest.ts` counted litter, not the seed
+
+**Plan said:** nothing; the test is task 0.14's. It asserted at least 100 `scouting_entries` at the seed event.
+
+**What was wrong:** `pnpm db:test` failed: `AssertionError: expected 96 to be greater than or equal to 100`. Since `1b7d24d` the seed writes 15 scouted matches × 6 = 90 entries, and the query counted every entry at the event, so the test passed only while dev held ten or more non-seed entries from rehearsals and smoke runs. `pnpm db:clean` would have made it fail permanently.
+
+**What I did instead:** the test now keeps only the seed's own rows (ids in the deterministic `00000000-0000-4000-8000-` space, filtered in JS because `.like()` fails silently on a uuid column, BUILD-CONTEXT §10) and expects exactly `SCOUTED_MATCHES * 6`. `SCOUTED_MATCHES` moved from a local inside `seedDevDatabase` to an export of `fixtures.ts`, which both the seed and the test read, so the two cannot drift. The every-entry-bound-to-a-version check still runs over all of the event's entries. Rejected: lowering the threshold to 90 (it still counts litter, so it can pass with a broken seed), and a literal `15 * 6` in the test (it goes stale the day the seed changes).
+
+**Risk:** none for the app; the seed writes the same rows.

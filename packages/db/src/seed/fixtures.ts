@@ -30,6 +30,12 @@ export const SEED = Object.freeze({
 });
 
 /**
+ * Of the seed event's 20 qualification matches, the first this many carry entries (6 each);
+ * the rest are left unscouted on purpose — see the note in seed.ts. Read by seed.itest.ts.
+ */
+export const SCOUTED_MATCHES = 15;
+
+/**
  * Every element carries the same keys, with nulls where a value does not apply. A
  * heterogeneous `as const` array would make `f.points` a type error on the members
  * that omit it, which is exactly the kind of thing `strict` is for.
