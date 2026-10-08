@@ -11,6 +11,7 @@ import {
   exportFormInput,
   formDefinition,
   importFormInput,
+  isStructuralChange,
   isUser,
   publishFormVersionInput,
   restoreFormVersionInput,
@@ -31,6 +32,7 @@ import {
   type ExportFormInput,
   type ExportSummary,
   type Expr,
+  type FieldDraft,
   type FormDefinition,
   type FormFieldDefinition,
   type FormFieldDraft,
@@ -57,7 +59,6 @@ import type {
   StoredFormVersion,
   UseCaseContext,
 } from '../context.js';
-import { isStructuralChange, type FieldDraft } from '../forms/version.js';
 import { pgCode, seasonOrNotFound } from '../seasonRows.js';
 import { parseInput } from './users.js';
 

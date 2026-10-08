@@ -26,6 +26,10 @@ export type Rpc = {
  * A captive portal's HTML page, a proxy's 502 or a redirect to a sign-in page all come
  * back with `answered: false` — whatever their status says, they are not our server's
  * verdict (task 1.16 decides the offline-login fallback on this).
+ *
+ * `details` is the server's `error.details` as sent (`{ reason, … }` on every form refusal,
+ * task 1.27), and `undefined` when the answer carried none or was not our server's. Its shape
+ * is not checked here: `features/builder/formErrors.ts` narrows it.
  */
 export class RpcError extends Error {
   constructor(
@@ -33,6 +37,7 @@ export class RpcError extends Error {
     message: string,
     readonly status: number,
     readonly answered: boolean = false,
+    readonly details: unknown = undefined,
   ) {
     super(message);
     this.name = 'RpcError';
@@ -151,7 +156,9 @@ export const rpc: Rpc = {
       // A body that never finishes arriving counts as no body: `{}`.
       const body: unknown = await limit.race(res.json()).catch(() => ({}));
       if (!res.ok) {
-        const error = (body as { error?: { code?: unknown; message?: unknown } } | null)?.error;
+        const error = (
+          body as { error?: { code?: unknown; message?: unknown; details?: unknown } } | null
+        )?.error;
         const answered = typeof error?.code === 'string';
         if (res.status === 401 && !open) {
           if (!bearer) await ensureToken({ path: name, serverAnswered401: answered });
@@ -162,6 +169,7 @@ export const rpc: Rpc = {
           typeof error?.message === 'string' ? error.message : 'that did not work',
           res.status,
           answered,
+          answered ? error?.details : undefined,
         );
       }
       return body;

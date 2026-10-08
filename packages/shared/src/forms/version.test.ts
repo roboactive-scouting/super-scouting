@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { FormFieldDefinition } from '@frc/shared';
-// Extensionless on purpose: task 1.29 moves this pair into packages/shared/src/forms/, whose
-// imports carry no `.js`. Vitest resolves it either way; the server bundle never sees a test.
+import type { FormFieldDefinition } from './types';
 import { isStructuralChange, type FieldDraft } from './version';
 
 const draft = (key: string, over: Partial<FieldDraft> = {}): FieldDraft => ({

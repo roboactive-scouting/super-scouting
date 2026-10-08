@@ -12,7 +12,20 @@ export const PATHS = {
   login: '/login',
   users: '/admin/users',
   manage: '/admin/manage',
+  forms: '/admin/forms',
 } as const;
+
+/** The form builder's route pattern (SPEC-FINAL 5.9, v1.21): the version is a query, `?version=n`. */
+export const FORM_BUILDER_ROUTE = '/admin/forms/:formId';
+
+/**
+ * The form builder on one form. `version` is the version NUMBER (v3 → 3), never an id; without
+ * it the builder opens the draft if there is one, else the active version (13-forms README).
+ */
+export function formBuilderPath(formId: string, version?: number): string {
+  const base = `${PATHS.forms}/${formId}`;
+  return version === undefined ? base : `${base}?version=${version}`;
+}
 
 /** The entry route's pattern, for `matchPath` and the route tree. */
 export const ENTRY_ROUTE = '/entry/:matchId/:teamId';

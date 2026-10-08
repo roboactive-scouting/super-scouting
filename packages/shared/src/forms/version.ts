@@ -1,8 +1,7 @@
-import type { FormFieldDefinition } from '@frc/shared';
+import type { FormFieldDefinition } from './types';
 
-// Task 1.27. Pure and browser-safe: it imports only types from @frc/shared, carries no
-// `.js`-suffixed relative import and touches no Node API, because task 1.29 moves it
-// (with its test) to packages/shared/src/forms/version.ts for the builder to share.
+// SPEC-FINAL 5.1. Moved here from apps/server/src/core/forms/ by task 1.29 so the server's save
+// and the form builder judge "structural" with one function. Pure and browser-safe.
 
 /** A field as a save names it: the definition without its server id. */
 export type FieldDraft = Omit<FormFieldDefinition, 'id'>;

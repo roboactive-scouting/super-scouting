@@ -204,319 +204,6 @@ var exprSchema = z4.lazy(
     }).strict()
   ])
 );
-var NUMERIC_UNITS = /* @__PURE__ */ new Set(["count", "seconds", "points"]);
-var NUMERIC_TYPES = /* @__PURE__ */ new Set(["counter", "number", "rating", "timer", "toggle"]);
-function staticType(expr, byKey) {
-  switch (expr.kind) {
-    case "literal":
-      return typeof expr.value === "number" ? "float" : "string";
-    case "field": {
-      const field = byKey.get(expr.key);
-      if (!field) return "invalid";
-      if (field.type === "computed") return "invalid";
-      if (field.type === "toggle") return "float";
-      if (field.unit === null || field.unit === void 0) {
-        return NUMERIC_TYPES.has(field.type) ? "float" : "string";
-      }
-      return NUMERIC_UNITS.has(field.unit) ? "float" : "string";
-    }
-    case "op": {
-      const left = staticType(expr.left, byKey);
-      const right = staticType(expr.right, byKey);
-      if (left === "invalid" || right === "invalid" || left !== right) return "invalid";
-      if (expr.op === "concat") return left === "string" ? "string" : "invalid";
-      return left === "float" ? "float" : "invalid";
-    }
-  }
-}
-function validateExpr(expr, fields, resultType) {
-  const byKey = new Map(fields.map((f) => [f.key, f]));
-  const issues = [];
-  const walk = (node) => {
-    if (node.kind === "field") {
-      const field = byKey.get(node.key);
-      if (!field) {
-        issues.push({ path: "expression", message: `'${node.key}' is not a field on this form` });
-      } else if (field.type === "computed") {
-        issues.push({
-          path: "expression",
-          message: `a computed field may not reference another computed field ('${node.key}')`
-        });
-      }
-    }
-    if (node.kind === "op") {
-      walk(node.left);
-      walk(node.right);
-    }
-  };
-  walk(expr);
-  if (issues.length === 0) {
-    const type = staticType(expr, byKey);
-    if (type === "invalid") {
-      issues.push({
-        path: "expression",
-        message: "operands must be the same type: numbers take + \u2212 \xD7 \xF7, strings take concat"
-      });
-    } else if (resultType !== void 0 && type !== resultType) {
-      issues.push({
-        path: "expression",
-        message: `the expression gives a ${type}, but the field says ${resultType}`
-      });
-    }
-  }
-  return issues;
-}
-
-// ../../packages/shared/src/forms/types.ts
-function selectOptions(field) {
-  const raw = field.config.options;
-  return Array.isArray(raw) ? raw : [];
-}
-
-// ../../packages/shared/src/forms/visibility.ts
-var OPS = ["=", "!=", ">", "<", ">=", "<="];
-var ORDERING_OPS = /* @__PURE__ */ new Set([">", "<", ">=", "<="]);
-function compare(left, op, right) {
-  switch (op) {
-    case "=":
-      return left === right;
-    case "!=":
-      return left !== right;
-    default: {
-      if (typeof left !== "number" || typeof right !== "number") return false;
-      switch (op) {
-        case ">":
-          return left > right;
-        case "<":
-          return left < right;
-        case ">=":
-          return left >= right;
-        case "<=":
-          return left <= right;
-      }
-    }
-  }
-}
-function isVisible(field, values) {
-  const condition = field.visibility_condition;
-  if (!condition) return true;
-  const controlling = values[condition.field_key];
-  if (controlling === void 0) return false;
-  return compare(controlling, condition.op, condition.value);
-}
-function validateVisibilityCondition(field, fields) {
-  const condition = field.visibility_condition;
-  if (!condition) return [];
-  const issues = [];
-  const issue = (message) => issues.push({ path: "visibility_condition", message });
-  if (condition.field_key === field.key) {
-    issue("a field cannot be shown or hidden by its own value");
-  } else {
-    const target = fields.find((f) => f.key === condition.field_key && !f.deprecated);
-    if (!target) {
-      issue(`'${condition.field_key}' is not a field in this form`);
-    } else if (target.type === "section") {
-      issue(`'${condition.field_key}' is a section and holds no value`);
-    }
-  }
-  if (!OPS.includes(condition.op)) {
-    issue(`'${String(condition.op)}' is not one of ${OPS.join(" ")}`);
-  } else if (ORDERING_OPS.has(condition.op) && !(typeof condition.value === "number" && Number.isFinite(condition.value))) {
-    issue(`'${condition.op}' compares against a number`);
-  }
-  return issues;
-}
-
-// ../../packages/shared/src/forms/validate.ts
-var LIST_TYPES = /* @__PURE__ */ new Set([
-  "multi_select",
-  "event_log",
-  "position",
-  "cycle_path"
-]);
-function isDeadRobot(status) {
-  return status === "no_show" || status === "disabled";
-}
-var isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
-var inUnit = (n) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1;
-var inUnitSquare = (p) => isRecord(p) && inUnit(p.x) && inUnit(p.y);
-var TAP_KEYS = /* @__PURE__ */ new Set(["type", "t", "x", "y"]);
-function validTap(tap, allowed) {
-  if (!isRecord(tap)) return false;
-  if (Object.keys(tap).some((k) => !TAP_KEYS.has(k))) return false;
-  if (typeof tap.type !== "string" || tap.type === "") return false;
-  if (allowed !== null && !allowed.has(tap.type)) return false;
-  if (typeof tap.t !== "number" || !Number.isFinite(tap.t)) return false;
-  const hasX = "x" in tap;
-  const hasY = "y" in tap;
-  if (hasX !== hasY) return false;
-  return !hasX || inUnit(tap.x) && inUnit(tap.y);
-}
-function validateEntryData(fields, robotStatus, data, options = {}) {
-  const submit = (options.mode ?? "submit") === "submit";
-  const issues = [];
-  if (isDeadRobot(robotStatus)) {
-    if (Object.keys(data).length > 0) {
-      issues.push({
-        field_key: "*",
-        code: "dead-robot-has-data",
-        message: "a no-show or disabled robot records no field values, never zeros"
-      });
-    }
-    return issues.length === 0 ? { ok: true } : { ok: false, issues };
-  }
-  const live = fields.filter((f) => !f.deprecated);
-  const known = new Set(live.map((f) => f.key));
-  for (const key2 of Object.keys(data)) {
-    if (!known.has(key2)) {
-      issues.push({ field_key: key2, code: "unknown-field", message: `no field with key '${key2}'` });
-    }
-  }
-  for (const field of live) {
-    if (field.type === "computed" || field.type === "section") continue;
-    const value = data[field.key];
-    const emptyList = submit && LIST_TYPES.has(field.type) && Array.isArray(value) && value.length === 0;
-    const missing = value === void 0 || value === null || value === "" || emptyList;
-    if (missing) {
-      if (submit && field.required && isVisible(field, data)) {
-        issues.push({
-          field_key: field.key,
-          code: "required",
-          message: `${field.label} is required`
-        });
-      }
-      continue;
-    }
-    const wrongType = (message) => issues.push({ field_key: field.key, code: "wrong-type", message });
-    switch (field.type) {
-      case "counter":
-      case "number": {
-        if (typeof value !== "number" || !Number.isFinite(value)) {
-          issues.push({
-            field_key: field.key,
-            code: "wrong-type",
-            message: `${field.label} must be a number`
-          });
-          break;
-        }
-        if (!submit) break;
-        const min = typeof field.config.min === "number" ? field.config.min : void 0;
-        const max = typeof field.config.max === "number" ? field.config.max : void 0;
-        if (min !== void 0 && value < min || max !== void 0 && value > max) {
-          issues.push({
-            field_key: field.key,
-            code: "out-of-config-range",
-            message: `${field.label} must be between ${min ?? "-\u221E"} and ${max ?? "\u221E"}`
-          });
-          break;
-        }
-        if (field.expected_range) {
-          const { min: lo, max: hi } = field.expected_range;
-          if (value < lo || value > hi) {
-            issues.push({
-              field_key: field.key,
-              code: "out-of-expected-range",
-              message: `${field.label} is outside its expected range (${lo}\u2013${hi})`
-            });
-          }
-        }
-        break;
-      }
-      case "toggle": {
-        if (typeof value !== "boolean") {
-          issues.push({
-            field_key: field.key,
-            code: "wrong-type",
-            message: `${field.label} must be true or false`
-          });
-        }
-        break;
-      }
-      case "single_select": {
-        const allowed = selectOptions(field).map((o) => o.value);
-        if (typeof value !== "string" || !allowed.includes(value)) {
-          issues.push({
-            field_key: field.key,
-            code: "not-an-option",
-            message: `${field.label} must be one of: ${allowed.join(", ")}`
-          });
-        }
-        break;
-      }
-      case "multi_select": {
-        const allowed = selectOptions(field).map((o) => o.value);
-        if (!Array.isArray(value) || value.some((v) => typeof v !== "string" || !allowed.includes(v))) {
-          issues.push({
-            field_key: field.key,
-            code: "not-an-option",
-            message: `${field.label} must be a list drawn from: ${allowed.join(", ")}`
-          });
-        }
-        break;
-      }
-      case "short_text":
-      case "long_text": {
-        if (typeof value !== "string") wrongType(`${field.label} must be text`);
-        break;
-      }
-      case "rating": {
-        const max = typeof field.config.max === "number" ? field.config.max : 5;
-        if (typeof value !== "number" || !Number.isFinite(value) || value < 1) {
-          wrongType(`${field.label} must be a rating from 1 to ${max}`);
-        } else if (submit && value > max) {
-          wrongType(`${field.label} must be a rating from 1 to ${max}`);
-        }
-        break;
-      }
-      case "timer": {
-        if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-          wrongType(`${field.label} must be a time in seconds, 0 or more`);
-        }
-        break;
-      }
-      case "event_log": {
-        if (!Array.isArray(value)) {
-          wrongType(`${field.label} must be a list of taps`);
-          break;
-        }
-        const allowed = submit ? new Set(
-          (Array.isArray(field.config.event_types) ? field.config.event_types : []).filter(isRecord).map((o) => o.value)
-        ) : null;
-        let previous = -Infinity;
-        let good = true;
-        for (const tap of value) {
-          if (!validTap(tap, allowed) || tap.t < previous) {
-            good = false;
-            break;
-          }
-          previous = tap.t;
-        }
-        if (!good) wrongType(`${field.label} must be taps of a known type, in time order`);
-        break;
-      }
-      case "position": {
-        const points = Array.isArray(value) ? value : [value];
-        if (!points.every(inUnitSquare)) {
-          wrongType(`${field.label} must be points inside the map (0 to 1)`);
-        } else if (submit && field.config.multi_point !== true && points.length > 1) {
-          wrongType(`${field.label} takes one point`);
-        }
-        break;
-      }
-      case "cycle_path": {
-        const cap = typeof field.config.max_points_per_cycle === "number" ? field.config.max_points_per_cycle : 6;
-        const cycles = value;
-        if (!Array.isArray(cycles) || cycles.some(
-          (c) => !Array.isArray(c) || submit && c.length > cap || !c.every(inUnitSquare)
-        )) {
-          wrongType(`${field.label} must be cycles of at most ${cap} points inside the map`);
-        }
-        break;
-      }
-    }
-  }
-  return issues.length === 0 ? { ok: true } : { ok: false, issues };
-}
 
 // ../../packages/shared/src/forms/config.ts
 var FIELD_TYPES = [
@@ -592,81 +279,6 @@ var FIELD_TYPE_CONFIG = {
   computed: z5.object({ expression: exprSchema.nullable(), result_type: z5.enum(["float", "string"]) }).strict(),
   section: z5.object({}).strict()
 };
-var KEY_PATTERN = /^[a-z][a-z0-9_]{0,62}$/;
-var SEMANTIC_COLUMNS = [
-  "description",
-  "unit",
-  "phase",
-  "direction",
-  "category",
-  "expected_range",
-  "include_in_ai_context"
-];
-var blank = (value) => value === null || value === void 0 || typeof value === "string" && value.trim() === "";
-function validateFieldDefinition(field) {
-  const issues = [];
-  if (!KEY_PATTERN.test(field.key)) {
-    issues.push({
-      path: "key",
-      message: "a key is permanent: lowercase letters, digits and underscores, starting with a letter"
-    });
-  }
-  if (field.type === "section") {
-    for (const column of SEMANTIC_COLUMNS) {
-      if (field[column] !== null && field[column] !== void 0) {
-        issues.push({
-          path: column,
-          message: "a section holds no data and carries no semantic metadata"
-        });
-      }
-    }
-  } else {
-    for (const required of ["description", "unit", "phase", "direction"]) {
-      if (blank(field[required])) {
-        issues.push({
-          path: required,
-          message: `${required} is required on every data field and cannot be backfilled later`
-        });
-      }
-    }
-  }
-  const ordinalAllowed = field.type === "single_select" || field.type === "multi_select";
-  if (!ordinalAllowed && field.is_ordinal !== null && field.is_ordinal !== void 0) {
-    issues.push({
-      path: "is_ordinal",
-      message: "is_ordinal applies only to single and multi select"
-    });
-  }
-  const schema2 = FIELD_TYPE_CONFIG[field.type];
-  if (!schema2) {
-    issues.push({ path: "type", message: `unknown field type '${field.type}'` });
-  } else {
-    const parsed = schema2.safeParse(field.config);
-    if (!parsed.success) {
-      for (const issue of parsed.error.issues) {
-        issues.push({
-          path: issue.path.length > 0 ? `config.${issue.path.join(".")}` : "config",
-          message: issue.message
-        });
-      }
-    } else if (field.default_value !== null && field.default_value !== void 0) {
-      const message = defaultValueProblem(field);
-      if (message !== null) issues.push({ path: "default_value", message });
-    }
-  }
-  return issues;
-}
-function defaultValueProblem(field) {
-  const alone = {
-    ...field,
-    required: false,
-    visibility_condition: null,
-    deprecated: false
-  };
-  const result = validateEntryData([alone], "played", { [field.key]: field.default_value });
-  if (result.ok) return null;
-  return `the default is not a valid value: ${result.issues[0].message}`;
-}
 
 // ../../packages/shared/src/api/forms.ts
 var uuid2 = z6.string().uuid();
@@ -1152,6 +764,310 @@ var SEASON_IMAGE_MANIFEST = [
   "seasons/2026/field.webp"
 ];
 
+// ../../packages/shared/src/forms/types.ts
+function selectOptions(field) {
+  const raw = field.config.options;
+  return Array.isArray(raw) ? raw : [];
+}
+
+// ../../packages/shared/src/forms/visibility.ts
+function compare(left, op, right) {
+  switch (op) {
+    case "=":
+      return left === right;
+    case "!=":
+      return left !== right;
+    default: {
+      if (typeof left !== "number" || typeof right !== "number") return false;
+      switch (op) {
+        case ">":
+          return left > right;
+        case "<":
+          return left < right;
+        case ">=":
+          return left >= right;
+        case "<=":
+          return left <= right;
+      }
+    }
+  }
+}
+function isVisible(field, values) {
+  const condition = field.visibility_condition;
+  if (!condition) return true;
+  const controlling = values[condition.field_key];
+  if (controlling === void 0) return false;
+  return compare(controlling, condition.op, condition.value);
+}
+
+// ../../packages/shared/src/forms/validate.ts
+var LIST_TYPES = /* @__PURE__ */ new Set([
+  "multi_select",
+  "event_log",
+  "position",
+  "cycle_path"
+]);
+function isDeadRobot(status) {
+  return status === "no_show" || status === "disabled";
+}
+var isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+var inUnit = (n) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1;
+var inUnitSquare = (p) => isRecord(p) && inUnit(p.x) && inUnit(p.y);
+var TAP_KEYS = /* @__PURE__ */ new Set(["type", "t", "x", "y"]);
+function validTap(tap, allowed) {
+  if (!isRecord(tap)) return false;
+  if (Object.keys(tap).some((k) => !TAP_KEYS.has(k))) return false;
+  if (typeof tap.type !== "string" || tap.type === "") return false;
+  if (allowed !== null && !allowed.has(tap.type)) return false;
+  if (typeof tap.t !== "number" || !Number.isFinite(tap.t)) return false;
+  const hasX = "x" in tap;
+  const hasY = "y" in tap;
+  if (hasX !== hasY) return false;
+  return !hasX || inUnit(tap.x) && inUnit(tap.y);
+}
+function validateEntryData(fields, robotStatus, data, options = {}) {
+  const submit = (options.mode ?? "submit") === "submit";
+  const issues = [];
+  if (isDeadRobot(robotStatus)) {
+    if (Object.keys(data).length > 0) {
+      issues.push({
+        field_key: "*",
+        code: "dead-robot-has-data",
+        message: "a no-show or disabled robot records no field values, never zeros"
+      });
+    }
+    return issues.length === 0 ? { ok: true } : { ok: false, issues };
+  }
+  const live = fields.filter((f) => !f.deprecated);
+  const known = new Set(live.map((f) => f.key));
+  for (const key2 of Object.keys(data)) {
+    if (!known.has(key2)) {
+      issues.push({ field_key: key2, code: "unknown-field", message: `no field with key '${key2}'` });
+    }
+  }
+  for (const field of live) {
+    if (field.type === "computed" || field.type === "section") continue;
+    const value = data[field.key];
+    const emptyList = submit && LIST_TYPES.has(field.type) && Array.isArray(value) && value.length === 0;
+    const missing = value === void 0 || value === null || value === "" || emptyList;
+    if (missing) {
+      if (submit && field.required && isVisible(field, data)) {
+        issues.push({
+          field_key: field.key,
+          code: "required",
+          message: `${field.label} is required`
+        });
+      }
+      continue;
+    }
+    const wrongType = (message) => issues.push({ field_key: field.key, code: "wrong-type", message });
+    switch (field.type) {
+      case "counter":
+      case "number": {
+        if (typeof value !== "number" || !Number.isFinite(value)) {
+          issues.push({
+            field_key: field.key,
+            code: "wrong-type",
+            message: `${field.label} must be a number`
+          });
+          break;
+        }
+        if (!submit) break;
+        const min = typeof field.config.min === "number" ? field.config.min : void 0;
+        const max = typeof field.config.max === "number" ? field.config.max : void 0;
+        if (min !== void 0 && value < min || max !== void 0 && value > max) {
+          issues.push({
+            field_key: field.key,
+            code: "out-of-config-range",
+            message: `${field.label} must be between ${min ?? "-\u221E"} and ${max ?? "\u221E"}`
+          });
+          break;
+        }
+        if (field.expected_range) {
+          const { min: lo, max: hi } = field.expected_range;
+          if (value < lo || value > hi) {
+            issues.push({
+              field_key: field.key,
+              code: "out-of-expected-range",
+              message: `${field.label} is outside its expected range (${lo}\u2013${hi})`
+            });
+          }
+        }
+        break;
+      }
+      case "toggle": {
+        if (typeof value !== "boolean") {
+          issues.push({
+            field_key: field.key,
+            code: "wrong-type",
+            message: `${field.label} must be true or false`
+          });
+        }
+        break;
+      }
+      case "single_select": {
+        const allowed = selectOptions(field).map((o) => o.value);
+        if (typeof value !== "string" || !allowed.includes(value)) {
+          issues.push({
+            field_key: field.key,
+            code: "not-an-option",
+            message: `${field.label} must be one of: ${allowed.join(", ")}`
+          });
+        }
+        break;
+      }
+      case "multi_select": {
+        const allowed = selectOptions(field).map((o) => o.value);
+        if (!Array.isArray(value) || value.some((v) => typeof v !== "string" || !allowed.includes(v))) {
+          issues.push({
+            field_key: field.key,
+            code: "not-an-option",
+            message: `${field.label} must be a list drawn from: ${allowed.join(", ")}`
+          });
+        }
+        break;
+      }
+      case "short_text":
+      case "long_text": {
+        if (typeof value !== "string") wrongType(`${field.label} must be text`);
+        break;
+      }
+      case "rating": {
+        const max = typeof field.config.max === "number" ? field.config.max : 5;
+        if (typeof value !== "number" || !Number.isFinite(value) || value < 1) {
+          wrongType(`${field.label} must be a rating from 1 to ${max}`);
+        } else if (submit && value > max) {
+          wrongType(`${field.label} must be a rating from 1 to ${max}`);
+        }
+        break;
+      }
+      case "timer": {
+        if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+          wrongType(`${field.label} must be a time in seconds, 0 or more`);
+        }
+        break;
+      }
+      case "event_log": {
+        if (!Array.isArray(value)) {
+          wrongType(`${field.label} must be a list of taps`);
+          break;
+        }
+        const allowed = submit ? new Set(
+          (Array.isArray(field.config.event_types) ? field.config.event_types : []).filter(isRecord).map((o) => o.value)
+        ) : null;
+        let previous = -Infinity;
+        let good = true;
+        for (const tap of value) {
+          if (!validTap(tap, allowed) || tap.t < previous) {
+            good = false;
+            break;
+          }
+          previous = tap.t;
+        }
+        if (!good) wrongType(`${field.label} must be taps of a known type, in time order`);
+        break;
+      }
+      case "position": {
+        const points = Array.isArray(value) ? value : [value];
+        if (!points.every(inUnitSquare)) {
+          wrongType(`${field.label} must be points inside the map (0 to 1)`);
+        } else if (submit && field.config.multi_point !== true && points.length > 1) {
+          wrongType(`${field.label} takes one point`);
+        }
+        break;
+      }
+      case "cycle_path": {
+        const cap = typeof field.config.max_points_per_cycle === "number" ? field.config.max_points_per_cycle : 6;
+        const cycles = value;
+        if (!Array.isArray(cycles) || cycles.some(
+          (c) => !Array.isArray(c) || submit && c.length > cap || !c.every(inUnitSquare)
+        )) {
+          wrongType(`${field.label} must be cycles of at most ${cap} points inside the map`);
+        }
+        break;
+      }
+    }
+  }
+  return issues.length === 0 ? { ok: true } : { ok: false, issues };
+}
+
+// ../../packages/shared/src/forms/definition.ts
+var KEY_PATTERN = /^[a-z][a-z0-9_]{0,62}$/;
+var SEMANTIC_COLUMNS = [
+  "description",
+  "unit",
+  "phase",
+  "direction",
+  "category",
+  "expected_range",
+  "include_in_ai_context"
+];
+var blank = (value) => value === null || value === void 0 || typeof value === "string" && value.trim() === "";
+function validateFieldDefinition(field) {
+  const issues = [];
+  if (!KEY_PATTERN.test(field.key)) {
+    issues.push({
+      path: "key",
+      message: "a key is permanent: lowercase letters, digits and underscores, starting with a letter"
+    });
+  }
+  if (field.type === "section") {
+    for (const column of SEMANTIC_COLUMNS) {
+      if (field[column] !== null && field[column] !== void 0) {
+        issues.push({
+          path: column,
+          message: "a section holds no data and carries no semantic metadata"
+        });
+      }
+    }
+  } else {
+    for (const required of ["description", "unit", "phase", "direction"]) {
+      if (blank(field[required])) {
+        issues.push({
+          path: required,
+          message: `${required} is required on every data field and cannot be backfilled later`
+        });
+      }
+    }
+  }
+  const ordinalAllowed = field.type === "single_select" || field.type === "multi_select";
+  if (!ordinalAllowed && field.is_ordinal !== null && field.is_ordinal !== void 0) {
+    issues.push({
+      path: "is_ordinal",
+      message: "is_ordinal applies only to single and multi select"
+    });
+  }
+  const schema2 = FIELD_TYPE_CONFIG[field.type];
+  if (!schema2) {
+    issues.push({ path: "type", message: `unknown field type '${field.type}'` });
+  } else {
+    const parsed = schema2.safeParse(field.config);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        issues.push({
+          path: issue.path.length > 0 ? `config.${issue.path.join(".")}` : "config",
+          message: issue.message
+        });
+      }
+    } else if (field.default_value !== null && field.default_value !== void 0) {
+      const message = defaultValueProblem(field);
+      if (message !== null) issues.push({ path: "default_value", message });
+    }
+  }
+  return issues;
+}
+function defaultValueProblem(field) {
+  const alone = {
+    ...field,
+    required: false,
+    visibility_condition: null,
+    deprecated: false
+  };
+  const result = validateEntryData([alone], "played", { [field.key]: field.default_value });
+  if (result.ok) return null;
+  return `the default is not a valid value: ${result.issues[0].message}`;
+}
+
 // ../../packages/shared/src/forms/entryShape.ts
 var MAX_BREAKDOWN_SECONDS = 2147483647;
 function validateEntryShape(row) {
@@ -1176,6 +1092,70 @@ function validateEntryShape(row) {
   const seconds = row.breakdown_seconds;
   if (seconds !== null && !(Number.isInteger(seconds) && seconds >= 0 && seconds <= MAX_BREAKDOWN_SECONDS)) {
     issues.push("breakdown time must be a whole number of seconds, 0 or more");
+  }
+  return issues;
+}
+
+// ../../packages/shared/src/forms/expressionCheck.ts
+var NUMERIC_UNITS = /* @__PURE__ */ new Set(["count", "seconds", "points"]);
+var NUMERIC_TYPES = /* @__PURE__ */ new Set(["counter", "number", "rating", "timer", "toggle"]);
+function staticType(expr, byKey) {
+  switch (expr.kind) {
+    case "literal":
+      return typeof expr.value === "number" ? "float" : "string";
+    case "field": {
+      const field = byKey.get(expr.key);
+      if (!field) return "invalid";
+      if (field.type === "computed") return "invalid";
+      if (field.type === "toggle") return "float";
+      if (field.unit === null || field.unit === void 0) {
+        return NUMERIC_TYPES.has(field.type) ? "float" : "string";
+      }
+      return NUMERIC_UNITS.has(field.unit) ? "float" : "string";
+    }
+    case "op": {
+      const left = staticType(expr.left, byKey);
+      const right = staticType(expr.right, byKey);
+      if (left === "invalid" || right === "invalid" || left !== right) return "invalid";
+      if (expr.op === "concat") return left === "string" ? "string" : "invalid";
+      return left === "float" ? "float" : "invalid";
+    }
+  }
+}
+function validateExpr(expr, fields, resultType) {
+  const byKey = new Map(fields.map((f) => [f.key, f]));
+  const issues = [];
+  const walk = (node) => {
+    if (node.kind === "field") {
+      const field = byKey.get(node.key);
+      if (!field) {
+        issues.push({ path: "expression", message: `'${node.key}' is not a field on this form` });
+      } else if (field.type === "computed") {
+        issues.push({
+          path: "expression",
+          message: `a computed field may not reference another computed field ('${node.key}')`
+        });
+      }
+    }
+    if (node.kind === "op") {
+      walk(node.left);
+      walk(node.right);
+    }
+  };
+  walk(expr);
+  if (issues.length === 0) {
+    const type = staticType(expr, byKey);
+    if (type === "invalid") {
+      issues.push({
+        path: "expression",
+        message: "operands must be the same type: numbers take + \u2212 \xD7 \xF7, strings take concat"
+      });
+    } else if (resultType !== void 0 && type !== resultType) {
+      issues.push({
+        path: "expression",
+        message: `the expression gives a ${type}, but the field says ${resultType}`
+      });
+    }
   }
   return issues;
 }
@@ -1248,6 +1228,60 @@ function validateScoringRules(rules, liveFields, options) {
 }
 function countDataFields(fields) {
   return fields.filter((f) => f.deprecated !== true && f.type !== "section").length;
+}
+
+// ../../packages/shared/src/forms/version.ts
+var isSelect = (type) => type === "single_select" || type === "multi_select";
+function optionValues2(config2) {
+  const options = config2.options;
+  if (!Array.isArray(options)) return [];
+  return options.map(
+    (option2) => typeof option2 === "object" && option2 !== null ? String(option2.value) : ""
+  );
+}
+var sameList = (a, b) => a.length === b.length && a.every((value, i) => value === b[i]);
+function isStructuralChange(current, next) {
+  const currentLive = new Map(current.filter((f) => !f.deprecated).map((f) => [f.key, f]));
+  const nextLive = next.filter((f) => !f.deprecated);
+  const nextKeys = new Set(nextLive.map((f) => f.key));
+  for (const field of nextLive) {
+    const existing = currentLive.get(field.key);
+    if (!existing) return true;
+    if (existing.type !== field.type) return true;
+    if (isSelect(field.type) && !sameList(optionValues2(existing.config), optionValues2(field.config))) {
+      return true;
+    }
+  }
+  for (const key2 of currentLive.keys()) {
+    if (!nextKeys.has(key2)) return true;
+  }
+  return false;
+}
+
+// ../../packages/shared/src/forms/visibilityCheck.ts
+var OPS = ["=", "!=", ">", "<", ">=", "<="];
+var ORDERING_OPS = /* @__PURE__ */ new Set([">", "<", ">=", "<="]);
+function validateVisibilityCondition(field, fields) {
+  const condition = field.visibility_condition;
+  if (!condition) return [];
+  const issues = [];
+  const issue = (message) => issues.push({ path: "visibility_condition", message });
+  if (condition.field_key === field.key) {
+    issue("a field cannot be shown or hidden by its own value");
+  } else {
+    const target = fields.find((f) => f.key === condition.field_key && !f.deprecated);
+    if (!target) {
+      issue(`'${condition.field_key}' is not a field in this form`);
+    } else if (target.type === "section") {
+      issue(`'${condition.field_key}' is a section and holds no value`);
+    }
+  }
+  if (!OPS.includes(condition.op)) {
+    issue(`'${String(condition.op)}' is not one of ${OPS.join(" ")}`);
+  } else if (ORDERING_OPS.has(condition.op) && !(typeof condition.value === "number" && Number.isFinite(condition.value))) {
+    issue(`'${condition.op}' compares against a number`);
+  }
+  return issues;
 }
 
 // ../../packages/shared/src/sync/operation.ts
@@ -3275,34 +3309,6 @@ async function deleteEvent(caller, input, ctx) {
   assertConfirmed(parsed.confirm_name, event.name);
   await ctx.store.deleteEvent(event.id);
   return { deleted: true, ...impact };
-}
-
-// src/core/forms/version.ts
-var isSelect = (type) => type === "single_select" || type === "multi_select";
-function optionValues2(config2) {
-  const options = config2.options;
-  if (!Array.isArray(options)) return [];
-  return options.map(
-    (option2) => typeof option2 === "object" && option2 !== null ? String(option2.value) : ""
-  );
-}
-var sameList = (a, b) => a.length === b.length && a.every((value, i) => value === b[i]);
-function isStructuralChange(current, next) {
-  const currentLive = new Map(current.filter((f) => !f.deprecated).map((f) => [f.key, f]));
-  const nextLive = next.filter((f) => !f.deprecated);
-  const nextKeys = new Set(nextLive.map((f) => f.key));
-  for (const field of nextLive) {
-    const existing = currentLive.get(field.key);
-    if (!existing) return true;
-    if (existing.type !== field.type) return true;
-    if (isSelect(field.type) && !sameList(optionValues2(existing.config), optionValues2(field.config))) {
-      return true;
-    }
-  }
-  for (const key2 of currentLive.keys()) {
-    if (!nextKeys.has(key2)) return true;
-  }
-  return false;
 }
 
 // src/core/commands/forms.ts

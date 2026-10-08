@@ -15,19 +15,45 @@ export function canManageEvents(user: { id: string; role: Role }): boolean {
   return can({ kind: 'user', userId: user.id, role: user.role }, 'manage_events');
 }
 
+/** Same rule, `manage_forms` (SPEC-FINAL 5.1: form templates are admin-only): task 1.29. */
+export function canManageForms(user: { id: string; role: Role }): boolean {
+  return can({ kind: 'user', userId: user.id, role: user.role }, 'manage_forms');
+}
+
+/** What a page behind `AdminOnly` checks, and what it says to someone who may not. */
+export type AdminGate = {
+  allow: (user: { id: string; role: Role }) => boolean;
+  title: string;
+  detail: string;
+};
+
+/** The Users pages' gate: the default. */
+export const USERS_GATE: AdminGate = {
+  allow: canManageUsers,
+  title: NOT_ADMIN_TITLE,
+  detail:
+    'Accounts, roles and passwords are managed by an admin. Ask one if something needs to change.',
+};
+
 /**
  * The UI half of SPEC-FINAL 7.4: a non-admin who reaches an admin URL gets a clear state
  * and nothing is requested. Convenience only — the server refuses every admin call anyway.
  */
-export function AdminOnly({ children }: { children: ReactNode }) {
+export function AdminOnly({
+  gate = USERS_GATE,
+  children,
+}: {
+  gate?: AdminGate;
+  children: ReactNode;
+}) {
   const user = useSignedInUser();
-  if (canManageUsers(user)) return <>{children}</>;
+  if (gate.allow(user)) return <>{children}</>;
   return (
     <StateMessage
       variant="not-permitted"
       headingLevel={1}
-      title={NOT_ADMIN_TITLE}
-      detail="Accounts, roles and passwords are managed by an admin. Ask one if something needs to change."
+      title={gate.title}
+      detail={gate.detail}
       action={{ label: 'Back to scouting', to: PATHS.scout }}
     />
   );

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { FIELD_TYPES, validateFieldDefinition } from './config';
+import { FIELD_TYPES } from './config';
+import { validateFieldDefinition } from './definition';
 import type { FormFieldDefinition } from './types';
 
 const field = (over: Partial<FormFieldDefinition>): FormFieldDefinition => ({

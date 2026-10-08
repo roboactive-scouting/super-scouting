@@ -1,4 +1,4 @@
-import { Flag } from 'lucide-react';
+import { Flag, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { formatDate, type Role } from '@frc/shared';
 import type { Station } from '@/data/station';
@@ -120,12 +120,18 @@ export function AccountStatusTag({ disabledAt }: { disabledAt: string | null }) 
 
 /**
  * A flag on a record that needs a look, e.g. "Not in line-up": `--warn-tint` on `--warn`, with
- * a flag glyph (Entries final ⚑).
+ * a flag glyph (Entries final ⚑), or another glyph (the builder's ⚠ "Needs meaning").
  */
-export function WarningFlag({ children }: { children: ReactNode }) {
+export function WarningFlag({
+  children,
+  icon: Icon = Flag,
+}: {
+  children: ReactNode;
+  icon?: LucideIcon;
+}) {
   return (
     <span className="inline-flex min-h-[22px] items-center gap-1.5 whitespace-nowrap rounded-tag bg-warn-tint px-[7px] text-xs font-[650] text-warn">
-      <Flag aria-hidden="true" className="size-[13px]" />
+      <Icon aria-hidden="true" className="size-[13px]" />
       {children}
     </span>
   );

@@ -71,10 +71,11 @@ export function Note({
   className,
 }: {
   children: ReactNode;
-  icon?: 'info' | 'offline';
+  /** A named icon, or any icon component (the builder's lock, THEME "Version banner (locked)"). */
+  icon?: 'info' | 'offline' | LucideIcon;
   className?: string;
 }) {
-  const Icon = icon === 'offline' ? WifiOff : icon === 'info' ? Info : null;
+  const Icon = icon === 'offline' ? WifiOff : icon === 'info' ? Info : (icon ?? null);
   return (
     <div
       className={cn(

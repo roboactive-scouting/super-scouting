@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Expr } from './expression';
-import { evaluateExpr, exprSchema, validateExpr } from './expression';
+import { evaluateExpr, exprSchema } from './expression';
+import { validateExpr } from './expressionCheck';
 import type { FormFieldDefinition } from './types';
 
 const f = (

@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FormFieldDefinition } from './types';
-import {
-  isVisible,
-  stripHiddenValues,
-  validateVisibilityCondition,
-  visibleFields,
-} from './visibility';
+import { isVisible, stripHiddenValues, visibleFields } from './visibility';
+import { validateVisibilityCondition } from './visibilityCheck';
 
 const base: FormFieldDefinition = {
   id: 'f',

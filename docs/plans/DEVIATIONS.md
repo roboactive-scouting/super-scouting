@@ -5631,3 +5631,217 @@ and `z.string().datetime({ offset: false })` refuses it (`false false true` for 
 **What I did instead:** killed the stale process by its port (`Get-NetTCPConnection -LocalPort 3000`), restarted, and re-ran the proof script with four new checks: 19/19 — a field removed from a draft keeps its row as `deprecated` with the same id; re-adding it with the same type revives that row; a published version cannot be deleted alone (`reason: 'published'`); plus the original fifteen. Mutation check: switching `syncPush` back to `'submit'` fails exactly the two new "an in-place edit never invalidates a collected entry" tests. The seed's seven field definitions pass the tightened `validateFieldDefinition`. Full gate: 144 files, 1955 tests, typecheck, lint, format and docs checks green.
 
 **Risk:** a local server must be stopped by port, not by stopping its `npx` wrapper, or a later proof silently tests stale code.
+
+## Task 1.29 — a neutral placeholder for the field types `FieldInput` cannot draw yet
+
+**Plan said:** the canvas draws each field with the real `FieldInput`.
+
+**What was wrong:** `FieldInput` draws counter, toggle, single select and long text only; the other ten types arrive with tasks 1.33–1.35 (it returns nothing for them). Orchestrator decision.
+
+**What I did instead:** `features/builder/FieldPreview.tsx` draws those four with the real `FieldInput` (inert, value = the field's default), a `section` as its heading, and every other type as a neutral dashed card on `--bg` (`--control-border` edge, `--ink` label, `--muted` help and the line "Shown on the phone once tasks 1.33–1.35 land"); the key and points sit in the item's bar as for every field. `FieldInput` is not widened. Rejected: drawing mock controls for the missing types (they would drift from the phone's real ones).
+
+**Risk:** the line names task numbers to the admin until 1.33–1.35 replace the placeholder; each of those tasks must add its type to `DRAWN_TYPES` in `FieldPreview.tsx`.
+
+## Task 1.29 — `/admin/forms` reads `listForms`, every season's
+
+**Plan said:** the list page reads "the season's match and super forms through `getFormByKind`".
+
+**What was wrong:** `getFormByKind` is a Store method, not a use case; the server registered `listForms { season_id }` (task 1.28).
+
+**What I did instead:** `useFormsList` calls `listSeasons` + `getActiveContext`, then `listForms` once per season in parallel, so each season chip can say "no forms yet". Restore re-reads only that season. The stat row follows the image rather than a sum: **Fields and Entries are the active version's** (the image shows 214, v3's, beside 38 and 12 in the timeline), **Versions counts published versions** (3 beside draft v4), Last edited is the newest `updated_at` with its `updated_by`. The draft's timeline row says "not published yet · 17 fields" without "2 fields added": the summary has only field counts, and a count difference is not an "added" (one removed and three added also reads +2). The builder's change line does say it, from the two versions' keys. Rejected: `getForm` per kind (two calls per season and no "no forms yet" on the other chips).
+
+**Risk:** one `listForms` per season on every visit; a team keeps a handful of seasons.
+
+## Task 1.29 — the list's Export, Import and ⋯ and the builder's Match timer, More and Try it are left out
+
+**Plan said:** the card has Export and ⋯ (Delete form); a missing form has Import; the top bar has Match timer and More; the canvas has Edit · Try it.
+
+**What was wrong:** those belong to tasks 1.31 (Export, Import, Delete form, Edit as JSON, Try it) and 1.32 (Match timer). Orchestrator split.
+
+**What I did instead:** no dead buttons: Export, Import, ⋯, Match timer and More are not rendered (1.31/1.32 add them). Try it is rendered **disabled** beside Edit, so the canvas head keeps the design's shape and 1.31 only enables it. The missing match form's line drops the design's "or import last season's…" sentence (it names a button that is not there yet): "Every entry needs a match form. Create it here, then publish it from the form builder." Rejected: rendering Export/Import/More disabled (a control that does nothing, with no reason given).
+
+**Risk:** 1.31 must restore the design's import sentence on the missing match form card.
+
+## Task 1.29 — `useBuilderState`: the plan's tests typed, its interface, and how keys are made
+
+**Plan said:** an untyped `initial` literal; the hook has `addField`, `selectField`, `updateField`, `reorder`, `removeField`, `dirty`, `save`; "a field's key is the label's slug (deduplicated with `_2`, `_3`)".
+
+**What was wrong:** (a) the untyped literal widens `type: 'counter'` to `string` and fails `pnpm typecheck`; (b) the plan gives `save` no signature; (c) the design's keys carry the phase (`tele_pieces_dropped` "follows the label", `end_climb`, `post_driver`), which a bare slug never gives.
+
+**What I did instead:** (a) every plan test kept with its assertions, the fixture typed `const initial: BuilderInitial`; the "clean after save" half of the dirty test is now asserted (the plan's test stopped before saving), plus 10 tests of mine. (b) `save(write)` sends the whole live set (`toSaveInput()`: every live field, `id` only on a saved one, column by column so nothing a read added — `form_version_id`, `points`, `deprecated` — rides along) through `write`, and `markSaved(rows)` makes the answer the new baseline. Also exposed: `selectedField`, `isSaved`, `incomplete` (fields holding Publish, in display order), `hasDataField`, `baseline`. `is_locked` means "edits land on a published version": the builder passes `status === 'published'` (decision E: any published version forks, locked or not). (c) `keyFromLabel`: the label's slug led by the phase's prefix (`auto_`, `tele_`, `end_`, `post_`) unless the slug already starts with it, `f_` when it would start with a digit, the type's name for a label with no Latin letters (Hebrew), at most 63 characters, then `_2`, `_3`… against every other live key **and every deprecated key of the version** (so a new field never walks into `key-retired` by accident). A patch never carries `id` or `key`; a saved field's key never moves. A new field's label starts as its type's name ("Counter"), its phase as the tab it was added on, its config as one `validateFieldDefinition` accepts (`defaultConfig`: a select with "Option 1"/"Option 2", an event log with "Event 1", a computed `expression: null`), so Save draft takes it at once and only its meaning is missing (design: "⚠ 3 missing" of 4). `issuesFor(key)` is what holds Publish on the server: `validateFieldDefinition`, `validateVisibilityCondition`, and for a computed field a null expression or `validateExpr`. Rejected: a bare slug (the plan's own `pieces_dropped` test still holds: it adds with no phase).
+
+**Risk:** a key used by another *version* of the form (not this one) is unknown to the builder; the server's `key-retired` refusal names it and the sentence tells the admin to change the label.
+
+## Task 1.29 — the Publish-held line, and "Needs a fix"
+
+**Plan said:** "⚠ 1 field needs its meaning before v4 can be published · Next incomplete →".
+
+**What was wrong:** the line is designed for one field; the dispatch decided the wording for several.
+
+**What I did instead:** one incomplete field: "“Pieces dropped” needs its meaning before v4 can be published"; several: "3 fields need their meaning before v4 can be published, starting with “Pieces dropped”". When a field's problem is not its meaning (a computed field with no expression, a bad condition) the words are "needs a fix" / "need a fix", and its canvas tag says "⚠ Needs a fix" (the same `--warn` tag, sr-only "incomplete"). A draft with no data field: "Add a field before v1 can be published". Next incomplete → selects the incomplete field after the selected one (cycling), switches the phase tab and scrolls it into view. Save draft is disabled while nothing has changed.
+
+**Risk:** "Needs a fix" is my wording; the design shows only "Needs meaning".
+
+## Task 1.29 — the settings pane slot shows the label too
+
+**Plan said:** the settings pane is task 1.30; 1.29 renders a minimal pane (type, label, key line).
+
+**What was wrong:** without one editable control, the key that "follows the label until the first save" cannot be shown working, and the new-field screen cannot be drawn.
+
+**What I did instead:** `SettingsPane.tsx`: the head (type icon, type name, the label), the key line ("Key `tele_pieces_dropped` follows the label until the first save, then it is permanent" / "🔒 Key `end_climb` · permanent, never changes") and a **Label** input (read-only on an older version). Nothing else. 1.30 replaces it.
+
+**Risk:** none.
+
+## Task 1.29 — section-type fields carry no phase, so the canvas places them
+
+**Plan said:** the canvas shows a phase's fields "under their section headings".
+
+**What was wrong:** `validateFieldDefinition` refuses any semantic metadata, `phase` included, on a `section` field, so a section heading cannot say which phase page it belongs to.
+
+**What I did instead:** headings come from the `section` column (a heading wherever it changes within a phase) and from `section`-type fields, which sit on the page of the data field after them, else the one before (`phaseAt`). A section added to a phase goes at the head of that phase's run (`insertIndexFor`). Rejected: storing a phase on a section (the server refuses it).
+
+**Risk:** a section added to an empty phase lands on the next phase's page. 1.30 should revisit if sections matter.
+
+## Task 1.29 — `isStructuralChange` moved, and three validators split out of their modules for the bundle
+
+**Plan said:** move `isStructuralChange` to `packages/shared/src/forms/version.ts`; `pnpm build && pnpm bundle:check` must pass.
+
+**What was wrong:** (a) the move itself went as 1.27 prepared it; (b) after this task's first build, `pnpm bundle:check` said `initial JS 208.8 KB gzip` / `initial JS over 205 KB gzip`. Measuring HEAD (`8c59c4a`, this task's `apps/client/src` changes stashed, then popped) gave **207.0 KB: over the 205 KB budget before task 1.29** — the form schemas tasks 1.24–1.28 added to the shared `API` map ship in the entry chunk (204.4 KB was the last figure logged before them). Of this task's +1.8 KB, about 1.2 KB was `validateFieldDefinition`, `validateExpr` and `validateVisibilityCondition`: their modules (`config.ts`, `expression.ts`, `visibility.ts`) are in the entry chunk for the entry form, and a bundler places a module whole, so once the lazy builder used those functions they shipped in the initial JS.
+
+**What I did instead:** (a) `git mv` of `version.ts` and its test into `packages/shared/src/forms/`, the `@frc/shared` imports made relative, `export * from './forms/version'`, the server's import pointed at `@frc/shared`, the bundle rebuilt. (b) The three validators moved unchanged into `forms/definition.ts`, `forms/expressionCheck.ts` and `forms/visibilityCheck.ts` (exported from the index under the same names; the server unaffected; the three shared tests' imports updated). Also kept out of the entry chunk: the form tags (`components/ui/version-tag.tsx`, not `tag.tsx`), the forms gate's words (`features/forms/formsGate.ts`, not `AdminOnly.tsx`), the lock icon (`Note` takes an icon component). Initial JS is now **207.5 KB: +0.5 KB over HEAD, 2.5 KB over budget**; `pnpm bundle:check` fails, as it did at HEAD. Its precache check passes. Rejected: lazy-loading the admin use cases' schemas out of `API` (an architecture change to `call()` that is not this task's), and raising the budget (the user's decision, 2026-10-07).
+
+**Risk:** **`pnpm bundle:check` is red until the user decides**: raise the budget, or split the `API` map so admin-only schemas load with their pages. Every later client task adds to it.
+
+## Task 1.29 — shared UI additions
+
+**Plan said:** nothing about shared components.
+
+**What was wrong:** the builder and the list need pieces the component system did not have.
+
+**What I did instead:** `components/ui/season-chips.tsx` (THEME "Season chips (labelled)"); `components/ui/version-tag.tsx` (`VersionTag`, `NotCreatedTag`: the version chip's look and the card's status tag); `Tabs` gains `flagged` + `flagLabel` (a `--warn` ⚠ after the count, sr-only words; a test added); `Note`'s `icon` also takes a component; `AdminOnly` takes a `gate` (`allow`, `title`, `detail`; default the Users gate, so its callers are unchanged) and `canManageForms` joins `canManageUsers`/`canManageEvents`. `RpcError` gains `details` (5th constructor argument, `undefined` unless our server answered; a test added). `features/builder/formErrors.ts` maps every reason in the contract to one sentence (20 tests). Rejected: a builder-local season chip (THEME locks it as a shared component).
+
+**Risk:** none.
+
+## Task 1.29 — the builder's own leave guard, and its drag-and-drop
+
+**Plan said:** use `features/admin/LeaveGuard.tsx` if it fits; "drag onto the canvas or onto a phase tab with @dnd-kit, and a click/Enter also adds".
+
+**What was wrong:** `LeaveGuard` takes match rows and its dialog names line-ups, so it does not fit a form.
+
+**What I did instead:** `BuilderLeaveGuard.tsx`: the same pattern (`useBlocker` + `beforeunload`, the destructive confirm "Leave without saving?", Stay first), blocking a change of path **or of `?version=`**, and skipped on purpose when a save forked and the builder moves to the new draft. Drag-and-drop: one `DndContext`; palette rows are `useDraggable` with only the pointer listener spread, so Enter/Space stay the button's own and add the field to the phase on screen; canvas items are `useSortable` with the grip as the explicit activator (keyboard sorting through `sortableKeyboardCoordinates`); the phase column and four transparent drop zones laid over the tabs are droppables. A palette drag collides by pointer (an item before the column); a field drag only with fields. Dropped on a tab, a type joins that phase and the tab opens; on an item, it goes before it; on the column, at the end of the phase. dnd-kit's announcements name fields and phases, never ids. ← / → on the canvas (not in an input or the tablist, not mid-drag) and a sideways trackpad swipe (80 px of `deltaX`, one phase per swipe) change phase. Proven in the e2e by a real mouse drag of Counter onto the Teleop tab.
+
+**Risk:** dropping a field (not a type) onto another phase's tab does nothing; changing a field's phase is the settings pane's (1.30).
+
+## Task 1.29 — e2e fixtures
+
+**Plan said:** extend `e2e/api-mock.ts` with form fixtures.
+
+**What was wrong:** nothing; a placement choice.
+
+**What I did instead:** the data is `e2e/formFixtures.ts` (the 2026 match form: draft v4 with 17 fields over the active, locked v3 with 15 and 214 entries, v2, v1; fields across Auto/Teleop/Endgame/Notes, the four drawn types plus position, cycle path, event log, timer, rating and computed; a "Defence" section); `api-mock.ts` answers `listForms`/`getForm`/`getFormVersion` from it after the shared fixture's answers, and an override may now be a function of the call's input. The 2027 season with no forms comes through a `listSeasons` override in `forms.spec.ts`, so the shared `SEASONS` (and Manage's screenshots) are unchanged.
+
+**Risk:** none.
+
+## Task 1.29 — the initial-JS budget was already broken before this task
+
+**Plan said:** `pnpm build && pnpm bundle:check` must pass (initial JS at most 205 KB gzip, BUILD-CONTEXT §12).
+
+**What was wrong:** `pnpm bundle:check` prints `initial JS 207.5 KB gzip` / `initial JS over 205 KB gzip`. HEAD (`8c59c4a`) was already at **207.0 KB**: the orchestrator re-measured it by stashing this task and building. This task adds 0.5 KB, to **207.5 KB**, and the review's fix round kept it there. The cause is the form schemas that chat 1 (tasks 1.24–1.28) added to the shared `API` map. That map ships in the entry chunk, so every admin-only form schema is in the initial JS.
+
+**What I did instead:** kept this task's own cost down. The three validators the builder uses (`validateFieldDefinition`, `validateExpr`, `validateVisibilityCondition`) moved into their own modules (`forms/definition.ts`, `forms/expressionCheck.ts`, `forms/visibilityCheck.ts`), so the lazy builder no longer pulls them into the entry chunk. No other code change for the budget. Rejected: raising `BUDGET_KB`, because the 205 KB budget is the user's decision of 2026-10-07 and only the user changes it. Also rejected: splitting the admin schemas out of `API` so they load with their pages. That is an architecture change to `call()`, outside tasks 1.29–1.32.
+
+**Risk:** `pnpm bundle:check` stays red until the user chooses: raise the budget, or split admin-only schemas out of `API`. Phase 1 E adds code on the entry path, so the user must choose before Phase 1 E starts.
+
+## Task 1.29 — fix round 1: Restore waits while there are unsaved changes
+
+**Plan said:** the version menu restores an older published version (`restoreFormVersion`).
+
+**What was wrong:** say an admin is on the active v3 with unsaved edits and picks Restore v2. The builder reloads, v3 remounts read-only, and the edits are gone. The leave guard does not ask, because the route does not change.
+
+**What I did instead:** while `state.dirty`, every Restore in the version menu is disabled. The menu shows the reason as visible `--warn` text, "Save or undo your changes first", and each disabled Restore points to that text through `aria-describedby`. The text sits in the popup, outside the `role="menu"` list, so the menu holds only menu items. Tested in `BuilderPage.test.tsx`. Rejected: asking through the leave-guard dialog. The resolution chose a held action.
+
+**Risk:** none.
+
+## Task 1.29 — fix round 1: on the active version while a draft exists, structural edits are held
+
+**Plan said:** a structural edit to a published version forks a new draft (SPEC-FINAL 5.1).
+
+**What was wrong:** when a draft already exists, the server refuses that save with `draft-exists`. The builder still offered the palette and Save changes, so the admin hit a dead end.
+
+**What I did instead:** on the active version while a draft vN exists:
+- The palette is disabled. Its head says "New fields go in draft vN", in `--warn`, in place of "drag onto the form".
+- If `willForkNewVersion` is still true (for example, a field removed or a type changed through the settings pane in task 1.30), Save changes is held. Under it is the line "This change belongs in draft vN · Open draft vN →", which links to `?version=N`. The "● Unsaved changes" line no longer repeats "this change belongs in draft vN".
+- In-place edits still save.
+- With every row disabled, the palette's list takes focus itself (`tabIndex=0`, named "Field types") so it still scrolls from the keyboard. axe's `scrollable-region-focusable` flagged it in `builder-locked` without this.
+
+Tests: the palette case in `BuilderPage.test.tsx`. The held-Save case is in the new `BuilderTopBar.test.tsx`, because task 1.29 has no UI that removes a field or changes its type.
+
+**Risk:** when task 1.30 adds Remove field and type changes, it should check that the held line appears through the page.
+
+## Task 1.29 — fix round 1: a new field's key avoids every saved key of the version
+
+**Plan said:** a generated key is deduplicated against the live keys and the retired keys (the earlier 1.29 entry on `useBuilderState`).
+
+**What was wrong:** a saved field removed in the same session is neither live nor retired yet. So a new field could take its key, perhaps with a different type. The server then sees the old key come back as another type.
+
+**What I did instead:** `takenBy` now includes every key in the baseline, live and deprecated, as well as the other live keys. Test: remove the saved counter `auto_high`, add a toggle labelled "high" in Auto, and the key is `auto_high_2` (`useBuilderState.test.ts`).
+
+**Risk:** none. A key the admin really wants back can come back by undoing the removal.
+
+## Task 1.29 — fix round 1: the fork keeps the editor busy; more refusals offer Reload; the list's failed re-read
+
+**Plan said:** a fork switches to the new version and reads it again. Refusals are mapped to one sentence.
+
+**What was wrong:**
+1. During a fork, the old editor was live again until the new draft loaded.
+2. `version-race`, `already-published` and `duplicate-field-id` told the admin to "reload" but gave no Reload button.
+3. On the forms list, a successful restore followed by a failed re-read showed up as a failed restore.
+
+**What I did instead:**
+1. After a fork, `busy` stays set (Save and Publish held, panes inert) until the editor remounts on the new draft. The fork test now returns v4 after the save and asserts the busy editor, the second `getFormVersion` call (v4) and the "Draft v4" chip.
+2. `formErrors.ts` gains `offersReload(e)` (six reasons), which the builder uses. Tested in `formErrors.test.ts`.
+3. `FormsPage` catches the re-read on its own. The card says "vN is restored. The list did not read again, so it may be out of date. …" and gets a Try again button (`FormCard`'s new `onRetry`) that reads the season again. Tested in `FormsPage.test.tsx`.
+
+**Risk:** none.
+
+## Task 1.29 — fix round 1: "made from vN" only when the source is certain
+
+**Plan said:** the top bar shows "made from v3 · 2 fields added" (design 12-form-builder).
+
+**What was wrong:** the source was taken to be the newest published version below the draft. After a restore (v2 active, v3 newest published) the draft may come from either version, so the line could name the wrong one.
+
+**What I did instead:** `useBuilderLoad` gives a draft a `previous` only when the newest published version is the active one. Otherwise `previous` is null, nothing extra is read, and the change line is left out. It never guesses. Tested in `BuilderPage.test.tsx`. Rejected: recording the source on the version (a server column). That is not part of this task.
+
+**Risk:** after a restore, a draft shows no "made from" line until it is published.
+
+## Task 1.29 — fix round 1: shared pieces for the canvas marker, the version chip and the ghost; the Edit / Try it pills
+
+**Plan said:** BUILD-CONTEXT §12: build from the shared components.
+
+**What was wrong:**
+- The "Needs meaning" chip duplicated `WarningFlag`.
+- The version chip button re-implemented `VersionTag`'s classes.
+- `PaletteGhost` hard-coded `rgba(20,24,32,0.45)`.
+- The Edit / Try it pills were hand-styled.
+
+**What I did instead:**
+- The canvas uses `WarningFlag`, which gains an optional `icon` (default `Flag`) so the builder keeps the design's ⚠. The sr-only "incomplete" stays.
+- `version-tag.tsx` exports `versionTagClass(tone)`, which both `VersionTag` and the chip button use.
+- The ghost's shadow is `var(--shadow-float)`.
+- The Edit / Try it pills stay hand-styled. `Segmented` does not fit: it is a radiogroup of 46 px segments in which selection follows focus, it has no disabled segment, and its look (an accent-tint track) is not the design's ink-filled pills. `FilterChips` matches the look, but it has no disabled option either, and it sits in the entry chunk. Rejected: adding a `disabled` option to `FilterChips` for a control whose second half is a placeholder until task 1.31.
+
+**Risk:** when task 1.31 makes Try it live, it should move the pair onto `FilterChips`, which then needs no disabled option.
+
+## Task 1.29 — fix round 1: a field added to a phase joins the last field's section; the sticky phase header
+
+**Plan said:** a type dropped on a phase tab joins that phase (design 12-form-builder `-new-field`, where the new field sits second in Teleop).
+
+**What was wrong:**
+1. The new field went after the phase's last field with `section: null`. The canvas draws a heading only when `section` changes from the field before. So the new field sat under the last section's heading (Defence) and looked part of it, while its data said it was not.
+2. The sticky "Teleop · Phase 2 of 4" header overlapped the first item's key line while the column scrolled.
+
+**What I did instead:**
+1. The canvas groups by the `section` column, not by section-type heading rows, so the first option of the resolution applies. A field added to a phase without an explicit index goes after that phase's last field and inherits that field's `section`. This covers a tab drop, a column drop and a palette click or Enter. Nothing is inherited when the phase has no fields, when the field before is a section-type row, or when the added field is itself a section. The field is still placed last, not second as in the design. Tested in `useBuilderState.test.ts`. A drop on a given item (explicit index) is unchanged.
+2. The sticky header stays opaque (`--line-2`) and gains bottom padding (`pb-2.5`, was `pb-1.5`). Once the column is scrolled, it also shows a 1 px `--line` rule along its bottom edge (a box-shadow, so nothing shifts). Items scroll into view with `scroll-mt-[4.5rem]` (was `scroll-mt-14`), so a selected item clears the header. Checked in `builder-new-field-desktop.png`: the first item's key line, `tele_cycle_routes`, now reads in full below the header.
+
+**Risk:** the new field joins a section the admin may not have meant. Moving it out is the settings pane's Section field (task 1.30).
