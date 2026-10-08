@@ -502,6 +502,36 @@ function selectOptions(field) {
   return Array.isArray(raw) ? raw : [];
 }
 
+// ../../packages/shared/src/forms/visibility.ts
+function compare(left, op, right) {
+  switch (op) {
+    case "=":
+      return left === right;
+    case "!=":
+      return left !== right;
+    default: {
+      if (typeof left !== "number" || typeof right !== "number") return false;
+      switch (op) {
+        case ">":
+          return left > right;
+        case "<":
+          return left < right;
+        case ">=":
+          return left >= right;
+        case "<=":
+          return left <= right;
+      }
+    }
+  }
+}
+function isVisible(field, values) {
+  const condition = field.visibility_condition;
+  if (!condition) return true;
+  const controlling = values[condition.field_key];
+  if (controlling === void 0) return false;
+  return compare(controlling, condition.op, condition.value);
+}
+
 // ../../packages/shared/src/forms/validate.ts
 function isDeadRobot(status) {
   return status === "no_show" || status === "disabled";
@@ -544,7 +574,7 @@ function validateEntryData(fields, robotStatus, data) {
     const value = data[field.key];
     const missing = value === void 0 || value === null || value === "";
     if (missing) {
-      if (field.required) {
+      if (field.required && isVisible(field, data)) {
         issues.push({
           field_key: field.key,
           code: "required",

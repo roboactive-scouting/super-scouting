@@ -1,5 +1,6 @@
 import type { CyclePath, EventLogTap, FormFieldDefinition, Point, RobotStatus } from './types';
 import { selectOptions } from './types';
+import { isVisible } from './visibility';
 
 export type ValidationIssue = {
   field_key: string;
@@ -86,7 +87,10 @@ export function validateEntryData(
     const value = data[field.key];
     const missing = value === undefined || value === null || value === '';
     if (missing) {
-      if (field.required) {
+      // A field hidden by its condition is never required: a hidden field records no value
+      // (SPEC-FINAL 5.8). A value present for a hidden field is not rejected, because a
+      // condition is an in-place edit and must not fail queued entries (5.1); the client strips it.
+      if (field.required && isVisible(field, data)) {
         issues.push({
           field_key: field.key,
           code: 'required',

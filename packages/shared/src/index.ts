@@ -14,6 +14,7 @@ export * from './forms/entryShape';
 export * from './forms/expression';
 export * from './forms/types';
 export * from './forms/validate';
+export * from './forms/visibility';
 export * from './sync/operation';
 export * from './sync/protocol';
 export * from './version';

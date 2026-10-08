@@ -5258,3 +5258,43 @@ and `z.string().datetime({ offset: false })` refuses it (`false false true` for 
 **What I did instead:** (a) a boolean field value evaluates to 1 or 0, with a test; (b) the plan's tests are written in Prettier's layout, with the same cases plus the extras named above; (c) `export * from './forms/expression'` added to `packages/shared/src/index.ts`, and `pnpm --filter @frc/server build` run, leaving the regenerated `apps/server/api/index.js` and `index.js.map` in the working tree (BUILD-CONTEXT §6).
 
 **Risk:** low. The float/string rule for a field is derived from `unit`, so a `number` field with `unit: 'enum'` or `'text'` is typed as a string; the plan fixed this and the builder should offer a numeric unit for numeric fields.
+
+## Task 1.26 — `validateEntryData` does not require a hidden field
+
+**Plan said:** Task 1.26 creates only `visibility.ts` and its test; `validate.ts` is not touched.
+
+**What was wrong:** `validateEntryData` reports `required` for every live required field with no value. A required field behind a condition has no value whenever it is hidden, so it would block every submit where it is hidden (SPEC-FINAL 5.8: a hidden field records no value). Orchestrator decision.
+
+**What I did instead:** in `validate.ts` the `required` issue is raised only when `isVisible(field, data)`, judged on the submitted `data`. A value present for a hidden field is still not rejected (and is still type-checked like any other), because a `visibility_condition` is an in-place edit (SPEC-FINAL 5.1) and must never make a queued offline entry fail; stripping it is the client's job (`stripHiddenValues`). Three tests added to `validate.test.ts`: hidden and required passes, shown and empty is `required`, hidden with a value passes. Rejected: rejecting a value present for a hidden field, which would fail queued entries after a condition edit.
+
+**Risk:** a controlling value that is absent hides the field (`isVisible` returns false on `undefined`). If the client leaves a never-touched toggle out of `data` instead of submitting its default, the fields it controls are treated as hidden and not required. The client must submit toggle and counter defaults, or `default_value` must fill them before validation.
+
+## Task 1.26 — `stripHiddenValues` added
+
+**Plan said:** Task 1.26 produces `isVisible` and `visibleFields`; the test named "strips the values of hidden fields" only calls `visibleFields`.
+
+**What was wrong:** nothing errored, but the plan's test title promises a strip that no function performs, so nothing would honour "a hidden field records no value" at submit. Orchestrator decision.
+
+**What I did instead:** added `stripHiddenValues(fields, data): Record<string, unknown>` to `visibility.ts`. It returns a copy of `data` without the keys of hidden fields, every condition judged on the submitted `data` (not on the progressively stripped copy, which matches the no-chain rule); keys that belong to no field are kept, so `validateEntryData` still reports `unknown-field`. The plan's test was retitled "hides the fields whose condition is not met, because a hidden field records no value", since it exercises `visibleFields`; `stripHiddenValues` has its own five tests.
+
+**Risk:** low. The client's submit must call it before sending; it does not remove a key for a field that is absent from `fields`.
+
+## Task 1.26 — `validateVisibilityCondition` added
+
+**Plan said:** nothing validates a visibility condition; Task 1.24's `validateFieldDefinition` does not look at `visibility_condition`.
+
+**What was wrong:** a condition pointing at a missing, deprecated, section or own key, or with an ordering operator and a non-numeric value, would be saved and then hide the field forever (or never evaluate). Orchestrator decision.
+
+**What I did instead:** added `validateVisibilityCondition(field, fields): DefinitionIssue[]` to `visibility.ts`. A null condition gives `[]`. Otherwise issues with path `visibility_condition` for: the key is the field's own; the key is not a non-deprecated sibling; the sibling is a `section`; the `op` is not one of `= != > < >= <=`; or an ordering op with a `value` that is not a finite number. A self-reference gives one issue, not also "not a sibling". `=` and `!=` accept any value. Tests cover each case.
+
+**Risk:** it is a separate function, not folded into `validateFieldDefinition`, because it needs the sibling fields; Task 1.27 must call it for every field on save. It does not check that the value suits the controlling field's type (e.g. `= 'x'` against a toggle), nor that a condition does not form a cycle (a field controlled by one that is controlled by it): with raw-value judging a cycle is harmless but pointless.
+
+## Task 1.26 — smaller departures from the plan's literal text
+
+**Plan said:** (a) the test file is laid out on single long lines; (b) only `visibility.ts` and its test are created; (c) the plan's operator set is written `≠ ≥ ≤` in the spec and `!= >= <=` in the code.
+
+**What was wrong:** (a) Prettier would reformat them (`pnpm format:check`); (b) `index.ts` needs the export, and the bundle drifts (`bundle-drift.test.ts` failed until rebuilt).
+
+**What I did instead:** (a) the tests are written in Prettier's layout, with the same cases plus the extras above and one added case (an ordering operator is false when the controlling value is a string); (b) `export * from './forms/visibility'` added to `packages/shared/src/index.ts`, and `pnpm --filter @frc/server build` run, leaving the regenerated `apps/server/api/index.js` and `index.js.map` in the working tree (BUILD-CONTEXT section 6); (c) the code's ASCII operators are kept, and `validateVisibilityCondition` rejects `≠ ≥ ≤`.
+
+**Risk:** the builder and any JSON import must write ASCII operators; the unicode forms in the spec are display only.

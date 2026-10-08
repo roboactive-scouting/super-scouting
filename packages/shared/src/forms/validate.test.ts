@@ -447,3 +447,29 @@ describe('validateEntryData over the whole catalogue', () => {
     expect(ok(multi, 'a')).toBe(false);
   });
 });
+
+describe('validateEntryData and conditional visibility (SPEC-FINAL 5.8)', () => {
+  const climbed = f({ key: 'climbed', type: 'toggle', unit: 'boolean' });
+  const climbTime = f({
+    key: 'climb_time',
+    label: 'Climb time',
+    required: true,
+    visibility_condition: { field_key: 'climbed', op: '=', value: true },
+  });
+  const fields = [climbed, climbTime];
+
+  it('does not require a field that its condition hides', () => {
+    expect(validateEntryData(fields, 'played', { climbed: false }).ok).toBe(true);
+  });
+
+  it('requires the same field once its condition shows it', () => {
+    const result = validateEntryData(fields, 'played', { climbed: true });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.issues.map((i) => i.code)).toEqual(['required']);
+    expect(validateEntryData(fields, 'played', { climbed: true, climb_time: 12 }).ok).toBe(true);
+  });
+
+  it('does not reject a value present for a hidden field, because a condition is an in-place edit', () => {
+    expect(validateEntryData(fields, 'played', { climbed: false, climb_time: 12 }).ok).toBe(true);
+  });
+});
