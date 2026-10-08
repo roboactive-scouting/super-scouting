@@ -12,8 +12,20 @@ import {
   exportSummary,
   formDefinition,
   formRow,
+  getFormDictionaryInput,
+  getFormDictionaryOutput,
+  getFormExportInput,
+  getFormExportOutput,
+  getFormInput,
+  getFormOutput,
+  getFormVersionInput,
+  getFormVersionOutput,
   importFormInput,
   importFormOutput,
+  listFormExportsInput,
+  listFormExportsOutput,
+  listFormsInput,
+  listFormsOutput,
   publishFormVersionInput,
   publishFormVersionOutput,
   restoreFormVersionInput,
@@ -21,6 +33,8 @@ import {
   saveDraftFieldsInput,
   saveDraftFieldsOutput,
   saveFormExportInput,
+  setScoringRulesInput,
+  setScoringRulesOutput,
   updateFormInput,
 } from './forms';
 import {
@@ -101,9 +115,15 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
       'ensureMatch',
       'exportForm',
       'getActiveContext',
+      'getForm',
+      'getFormDictionary',
+      'getFormExport',
+      'getFormVersion',
       'importForm',
       'listEventRoster',
       'listEvents',
+      'listFormExports',
+      'listForms',
       'listMatches',
       'listSeasons',
       'listTeams',
@@ -121,6 +141,7 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
       'setActiveSeason',
       'setEventRoster',
       'setMatchTeams',
+      'setScoringRules',
       'setUserRole',
       'updateEvent',
       'updateForm',
@@ -190,5 +211,24 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
     expect(API.exportForm).toEqual({ input: exportFormInput, output: formDefinition });
     expect(API.saveFormExport).toEqual({ input: saveFormExportInput, output: exportSummary });
     expect(API.importForm).toEqual({ input: importFormInput, output: importFormOutput });
+    expect(API.setScoringRules).toEqual({
+      input: setScoringRulesInput,
+      output: setScoringRulesOutput,
+    });
+    expect(API.listForms).toEqual({ input: listFormsInput, output: listFormsOutput });
+    expect(API.getForm).toEqual({ input: getFormInput, output: getFormOutput });
+    expect(API.getFormVersion).toEqual({
+      input: getFormVersionInput,
+      output: getFormVersionOutput,
+    });
+    expect(API.getFormDictionary).toEqual({
+      input: getFormDictionaryInput,
+      output: getFormDictionaryOutput,
+    });
+    expect(API.listFormExports).toEqual({
+      input: listFormExportsInput,
+      output: listFormExportsOutput,
+    });
+    expect(API.getFormExport).toEqual({ input: getFormExportInput, output: getFormExportOutput });
   });
 });

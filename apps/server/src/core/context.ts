@@ -278,6 +278,19 @@ export type Store = {
   insertFormExport(row: Record<string, unknown>): Promise<StoredFormExport>;
   /** Deletes every saved export created before `olderThan`; answers how many went. */
   purgeFormExports(olderThan: Date): Promise<number>;
+  /**
+   * Task 1.28: the saved exports, newest first, at most FORM_EXPORTS_READ_LIMIT (200) — far
+   * more than 24 hours of exports. The caller purges the expired ones first.
+   */
+  listFormExports(): Promise<StoredFormExport[]>;
+  getFormExport(id: string): Promise<StoredFormExport | null>;
+  /**
+   * Task 1.28: LIVE entries (`deleted_at is null`) bound to each version, one head count per
+   * id (in parallel); every id asked is in the answer, 0 when it has none.
+   */
+  countLiveEntriesByFormVersions(versionIds: string[]): Promise<Map<string, number>>;
+  /** Task 1.28: id and full name of each user named, in one batched read; unknown ids are absent. */
+  listUserNames(ids: string[]): Promise<{ id: string; full_name: string }[]>;
 
   // reads for browse, search and statistics (tasks 1.50, 1.57)
   getEntry(id: string): Promise<StoredRow | null>;

@@ -979,6 +979,32 @@ describe('export and import (SPEC-FINAL 5.1, v1.22)', () => {
     expect([...ctx.forms.values()].filter((f) => f.kind === 'super')).toHaveLength(0);
   });
 
+  it('refuses a scoring rule on an unscorable type, positioned (task 1.28)', async () => {
+    const definition: ImportFormInput['definition'] = {
+      format: 1,
+      kind: 'super',
+      name: 'S',
+      timer_config: { phases: [] },
+      fields: [
+        counter('a'),
+        counter('notes', { type: 'long_text', unit: 'text', direction: 'neutral', config: {} }),
+      ],
+      scoring_rules: [
+        { field_key: 'a', points: 1, option_points: null },
+        { field_key: 'notes', points: 1, option_points: null },
+      ],
+    };
+    await expect(importForm(ADMIN, { season_id: SEASON, definition }, ctx)).rejects.toMatchObject({
+      code: 'invalid',
+      message: expect.stringContaining('long_text'),
+      details: {
+        reason: 'invalid-definition',
+        issues: [{ field_key: 'notes', path: 'scoring_rules.1.field_key' }],
+      },
+    });
+    expect([...ctx.forms.values()].filter((f) => f.kind === 'super')).toHaveLength(0);
+  });
+
   it('imports incomplete meaning as a draft and reports nothing structural', async () => {
     const definition: ImportFormInput['definition'] = {
       format: 1,

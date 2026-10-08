@@ -68,6 +68,8 @@ const IN_CHUNK = 100;
  * event holds at most one row per team that was ever on its roster.
  */
 const EVENT_TEAMS_READ_LIMIT = 1000;
+/** A bound on one read of the saved exports; they are deleted after 24 hours. */
+const FORM_EXPORTS_READ_LIMIT = 200;
 
 function chunks<T>(items: T[]): T[][] {
   const out: T[][] = [];
@@ -415,6 +417,52 @@ export function supabaseStore(db: Db): Store {
         .lt('created_at', olderThan.toISOString());
       if (error) throw dbError(error);
       return count ?? 0;
+    },
+    // Task 1.28: the Exports picker. Bounded: exports live 24 hours, so 200 is far beyond use.
+    async listFormExports(): Promise<StoredFormExport[]> {
+      const { data, error } = await db
+        .from('form_exports')
+        .select(FORM_EXPORT_COLUMNS)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true })
+        .limit(FORM_EXPORTS_READ_LIMIT);
+      if (error) throw dbError(error);
+      return (data ?? []) as StoredFormExport[];
+    },
+    async getFormExport(id: string): Promise<StoredFormExport | null> {
+      const { data, error } = await db
+        .from('form_exports')
+        .select(FORM_EXPORT_COLUMNS)
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw dbError(error);
+      return (data as StoredFormExport | null) ?? null;
+    },
+    // Task 1.28: one head count per version, in parallel — no rows read, no 1000-row cap, and
+    // a form has a handful of versions. Live entries only: the forms list's "entries".
+    async countLiveEntriesByFormVersions(versionIds: string[]): Promise<Map<string, number>> {
+      const counted = await Promise.all(
+        versionIds.map(async (id) => {
+          const { count, error } = await db
+            .from('scouting_entries')
+            .select('id', { count: 'exact', head: true })
+            .eq('form_version_id', id)
+            .is('deleted_at', null);
+          if (error) throw dbError(error);
+          return [id, count ?? 0] as const;
+        }),
+      );
+      return new Map(counted);
+    },
+    // Task 1.28: names for "last edited · who", one read per IN_CHUNK ids.
+    async listUserNames(ids: string[]): Promise<{ id: string; full_name: string }[]> {
+      const out: { id: string; full_name: string }[] = [];
+      for (const chunk of chunks(ids)) {
+        const { data, error } = await db.from('users').select('id, full_name').in('id', chunk);
+        if (error) throw dbError(error);
+        out.push(...((data ?? []) as { id: string; full_name: string }[]));
+      }
+      return out;
     },
     // ONE statement (decision G): form_versions, form_fields, scoring_rules and, through
     // form_versions, scouting_entries are all ON DELETE CASCADE; form_exports.form_id is

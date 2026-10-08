@@ -548,6 +548,79 @@ var importFormOutput = z6.object({
   draft_version_id: uuid2,
   created: z6.boolean()
 });
+var scoringRuleInput = z6.object({
+  field_key: z6.string().min(1).max(63),
+  points: z6.number().finite(),
+  option_points: z6.record(z6.number().finite()).nullable().optional()
+}).strict();
+var setScoringRulesInput = z6.object({ form_id: uuid2, rules: z6.array(scoringRuleInput).max(FORM_FIELDS_MAX) }).strict();
+var scoringRuleRow = z6.object({
+  field_key: z6.string(),
+  points: z6.number(),
+  option_points: z6.record(z6.number()).nullable()
+});
+var setScoringRulesOutput = z6.object({ rules: z6.array(scoringRuleRow) });
+var userRef = z6.object({ id: uuid2, full_name: z6.string() });
+var versionSummary = z6.object({
+  id: uuid2,
+  version_no: z6.number().int(),
+  status: z6.enum(["draft", "published"]),
+  published_at: z6.string().nullable(),
+  is_active: z6.boolean(),
+  is_locked: z6.boolean(),
+  field_count: z6.number().int(),
+  entry_count: z6.number().int(),
+  updated_at: z6.string(),
+  updated_by: userRef.nullable()
+});
+var getFormInput = z6.object({ form_id: uuid2 }).strict();
+var getFormOutput = formRow.extend({ versions: z6.array(versionSummary) });
+var getFormVersionInput = z6.object({ form_version_id: uuid2 }).strict();
+var scoredFieldRow = formFieldRow.extend({
+  points: z6.number().nullable(),
+  option_points: z6.record(z6.number()).nullable()
+});
+var getFormVersionOutput = versionSummary.extend({
+  form_id: uuid2,
+  fields: z6.array(scoredFieldRow)
+});
+var getFormDictionaryInput = z6.object({ form_id: uuid2 }).strict();
+var dictionaryField = z6.object({
+  key: z6.string(),
+  label: z6.string(),
+  description: z6.string().nullable(),
+  type: z6.enum(FIELD_TYPES),
+  unit: z6.enum(FIELD_UNITS).nullable(),
+  phase: z6.enum(FIELD_PHASES).nullable(),
+  direction: z6.enum(FIELD_DIRECTIONS).nullable(),
+  category: z6.string().nullable(),
+  expected_range: z6.object({ min: z6.number(), max: z6.number() }).nullable(),
+  include_in_ai_context: z6.boolean().nullable(),
+  is_ordinal: z6.boolean().nullable(),
+  /** A select's options in order (worst → best when ordinal); null for every other type. */
+  options: z6.array(z6.object({ value: z6.string(), label: z6.string() })).nullable(),
+  points: z6.number().nullable(),
+  option_points: z6.record(z6.number()).nullable()
+});
+var getFormDictionaryOutput = z6.object({
+  form_id: uuid2,
+  version_no: z6.number().int().nullable(),
+  fields: z6.array(dictionaryField)
+});
+var listFormsInput = z6.object({ season_id: uuid2 }).strict();
+var formListItem = z6.object({
+  id: uuid2,
+  kind: formKind,
+  name: z6.string(),
+  active_version_id: uuid2.nullable(),
+  updated_at: z6.string(),
+  versions: z6.array(versionSummary)
+});
+var listFormsOutput = z6.object({ season_id: uuid2, forms: z6.array(formListItem) });
+var listFormExportsInput = z6.object({}).strict();
+var listFormExportsOutput = z6.object({ exports: z6.array(exportSummary) });
+var getFormExportInput = z6.object({ export_id: uuid2 }).strict();
+var getFormExportOutput = exportSummary.extend({ definition: formDefinition });
 
 // ../../packages/shared/src/api/matches.ts
 import { z as z7 } from "zod";
@@ -718,7 +791,14 @@ var API = {
   deleteForm: { input: deleteFormInput, output: deleteFormOutput },
   exportForm: { input: exportFormInput, output: formDefinition },
   saveFormExport: { input: saveFormExportInput, output: exportSummary },
-  importForm: { input: importFormInput, output: importFormOutput }
+  importForm: { input: importFormInput, output: importFormOutput },
+  setScoringRules: { input: setScoringRulesInput, output: setScoringRulesOutput },
+  listForms: { input: listFormsInput, output: listFormsOutput },
+  getForm: { input: getFormInput, output: getFormOutput },
+  getFormVersion: { input: getFormVersionInput, output: getFormVersionOutput },
+  getFormDictionary: { input: getFormDictionaryInput, output: getFormDictionaryOutput },
+  listFormExports: { input: listFormExportsInput, output: listFormExportsOutput },
+  getFormExport: { input: getFormExportInput, output: getFormExportOutput }
 };
 
 // ../../packages/shared/src/errors.ts
@@ -808,6 +888,76 @@ function validateEntryShape(row) {
     issues.push("breakdown time must be a whole number of seconds, 0 or more");
   }
   return issues;
+}
+
+// ../../packages/shared/src/forms/scoring.ts
+var SCORABLE_FIELD_TYPES = [
+  "toggle",
+  "counter",
+  "number",
+  "single_select",
+  "multi_select"
+];
+var SCORABLE = new Set(SCORABLE_FIELD_TYPES);
+var SELECTS = /* @__PURE__ */ new Set(["single_select", "multi_select"]);
+var validPoints = (n) => Number.isFinite(n) && n >= 0;
+function optionValues(field) {
+  const raw = field.config.options;
+  if (!Array.isArray(raw)) return /* @__PURE__ */ new Set();
+  return new Set(
+    raw.map((o) => o?.value).filter((v) => typeof v === "string")
+  );
+}
+function validateScoringRules(rules, liveFields, options) {
+  const byKey = new Map(liveFields.map((f) => [f.key, f]));
+  const seen = /* @__PURE__ */ new Set();
+  const issues = [];
+  rules.forEach((rule, i) => {
+    const at = `${options.prefix}.${i}`;
+    const key2 = rule.field_key;
+    const push = (path, message) => issues.push({ field_key: key2, path: `${at}.${path}`, message });
+    if (seen.has(key2)) push("field_key", `two rules name '${key2}'; a field has one scoring rule`);
+    seen.add(key2);
+    const field = byKey.get(key2);
+    if (!field) {
+      push("field_key", `scoring names '${key2}', which is not a field of this ${options.noun}`);
+      return;
+    }
+    if (!SCORABLE.has(field.type)) {
+      push(
+        "field_key",
+        `'${key2}' is a ${field.type} field; only toggle, counter, number, single_select and multi_select fields are scored`
+      );
+      return;
+    }
+    const isSelect2 = SELECTS.has(field.type);
+    if (!validPoints(rule.points)) {
+      push("points", "points must be a number of at least 0; penalties are never subtracted");
+    } else if (isSelect2 && rule.points !== 0) {
+      push("points", `a ${field.type} scores by option_points; its points must be 0`);
+    }
+    const optionPoints = rule.option_points ?? null;
+    if (optionPoints === null) return;
+    if (!isSelect2) {
+      push("option_points", `only a select scores by option; '${key2}' is a ${field.type} field`);
+      return;
+    }
+    const values = optionValues(field);
+    for (const [value, points] of Object.entries(optionPoints)) {
+      if (!values.has(value)) {
+        push(`option_points.${value}`, `'${value}' is not an option of '${key2}'`);
+      } else if (!validPoints(points)) {
+        push(
+          `option_points.${value}`,
+          "option points must be a number of at least 0; penalties are never subtracted"
+        );
+      }
+    }
+  });
+  return issues;
+}
+function countDataFields(fields) {
+  return fields.filter((f) => f.deprecated !== true && f.type !== "section").length;
 }
 
 // ../../packages/shared/src/forms/types.ts
@@ -1450,6 +1600,7 @@ var FORM_EXPORT_COLUMNS = "id, form_id, label, definition, created_by, created_a
 var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 var IN_CHUNK = 100;
 var EVENT_TEAMS_READ_LIMIT = 1e3;
+var FORM_EXPORTS_READ_LIMIT = 200;
 function chunks(items) {
   const out = [];
   for (let i = 0; i < items.length; i += IN_CHUNK) out.push(items.slice(i, i + IN_CHUNK));
@@ -1652,6 +1803,39 @@ function supabaseStore(db) {
       const { count, error } = await db.from("form_exports").delete({ count: "exact" }).lt("created_at", olderThan.toISOString());
       if (error) throw dbError(error);
       return count ?? 0;
+    },
+    // Task 1.28: the Exports picker. Bounded: exports live 24 hours, so 200 is far beyond use.
+    async listFormExports() {
+      const { data, error } = await db.from("form_exports").select(FORM_EXPORT_COLUMNS).order("created_at", { ascending: false }).order("id", { ascending: true }).limit(FORM_EXPORTS_READ_LIMIT);
+      if (error) throw dbError(error);
+      return data ?? [];
+    },
+    async getFormExport(id) {
+      const { data, error } = await db.from("form_exports").select(FORM_EXPORT_COLUMNS).eq("id", id).maybeSingle();
+      if (error) throw dbError(error);
+      return data ?? null;
+    },
+    // Task 1.28: one head count per version, in parallel — no rows read, no 1000-row cap, and
+    // a form has a handful of versions. Live entries only: the forms list's "entries".
+    async countLiveEntriesByFormVersions(versionIds) {
+      const counted = await Promise.all(
+        versionIds.map(async (id) => {
+          const { count, error } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).eq("form_version_id", id).is("deleted_at", null);
+          if (error) throw dbError(error);
+          return [id, count ?? 0];
+        })
+      );
+      return new Map(counted);
+    },
+    // Task 1.28: names for "last edited · who", one read per IN_CHUNK ids.
+    async listUserNames(ids) {
+      const out = [];
+      for (const chunk of chunks(ids)) {
+        const { data, error } = await db.from("users").select("id, full_name").in("id", chunk);
+        if (error) throw dbError(error);
+        out.push(...data ?? []);
+      }
+      return out;
     },
     // ONE statement (decision G): form_versions, form_fields, scoring_rules and, through
     // form_versions, scouting_entries are all ON DELETE CASCADE; form_exports.form_id is
@@ -3042,7 +3226,7 @@ async function deleteEvent(caller, input, ctx) {
 
 // src/core/forms/version.ts
 var isSelect = (type) => type === "single_select" || type === "multi_select";
-function optionValues(config2) {
+function optionValues2(config2) {
   const options = config2.options;
   if (!Array.isArray(options)) return [];
   return options.map(
@@ -3058,7 +3242,7 @@ function isStructuralChange(current, next) {
     const existing = currentLive.get(field.key);
     if (!existing) return true;
     if (existing.type !== field.type) return true;
-    if (isSelect(field.type) && !sameList(optionValues(existing.config), optionValues(field.config))) {
+    if (isSelect(field.type) && !sameList(optionValues2(existing.config), optionValues2(field.config))) {
       return true;
     }
   }
@@ -3655,7 +3839,8 @@ function toExportSummary(row, creator, now) {
     form_id: row.form_id ?? null,
     kind: definition?.kind === "super" ? "super" : "match",
     label: row.label,
-    field_count: Array.isArray(definition?.fields) ? definition.fields.length : 0,
+    // Live, non-section fields: the count every form surface shows (task 1.28).
+    field_count: Array.isArray(definition?.fields) ? countDataFields(definition.fields) : 0,
     created_by: creator,
     created_at: row.created_at,
     expires_at: new Date(expiresAt).toISOString(),
@@ -3705,16 +3890,9 @@ function parseDefinition(raw) {
   throw definitionError(issues);
 }
 function checkScoring(definition) {
-  const keys = new Set(definition.fields.map((f) => f.key));
-  const issues = [];
-  definition.scoring_rules.forEach((rule, i) => {
-    if (!keys.has(rule.field_key)) {
-      issues.push({
-        field_key: rule.field_key,
-        path: `scoring_rules.${i}.field_key`,
-        message: `scoring names '${rule.field_key}', which is not a field of this definition`
-      });
-    }
+  const issues = validateScoringRules(definition.scoring_rules, definition.fields, {
+    prefix: "scoring_rules",
+    noun: "definition"
   });
   if (issues.length > 0) throw definitionError(issues);
 }
@@ -3796,6 +3974,59 @@ async function importForm(caller, input, ctx) {
   }
 }
 
+// src/core/commands/scoring.ts
+function toScoringRuleRow(rule) {
+  return {
+    field_key: rule.field_key,
+    points: Number(rule.points),
+    option_points: rule.option_points ?? null
+  };
+}
+var byFieldKey = (a, b) => a.field_key < b.field_key ? -1 : a.field_key > b.field_key ? 1 : 0;
+function scoringError(issues) {
+  const first = issues[0];
+  const one = `${first.field_key}: ${first.message}`;
+  const summary = issues.length === 1 ? one : `${issues.length} problems in the scoring; first, ${one}`;
+  return new AppError("invalid", summary, { reason: "invalid-scoring", issues });
+}
+async function scorableUniverse(ctx, formId, activeVersionId) {
+  const versions = await ctx.store.listFormVersions(formId);
+  const draft = versions.find((v) => v.published_at === null);
+  const byKey = /* @__PURE__ */ new Map();
+  const ids = [activeVersionId, draft?.id ?? null].filter((id) => id !== null);
+  for (const id of ids) {
+    for (const field of await ctx.store.getFormFields(id)) {
+      if (!field.deprecated) byKey.set(field.key, field);
+    }
+  }
+  return [...byKey.values()];
+}
+async function setScoringRules(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const parsed = parseInput(setScoringRulesInput, input);
+  const form = await formOrNotFound(ctx, parsed.form_id);
+  const fields = await scorableUniverse(ctx, form.id, form.active_version_id ?? null);
+  const issues = validateScoringRules(parsed.rules, fields, { prefix: "rules", noun: "form" });
+  if (issues.length > 0) throw scoringError(issues);
+  const isSelect2 = new Map(
+    fields.map((f) => [f.key, f.type === "single_select" || f.type === "multi_select"])
+  );
+  const existingIds = new Map(
+    (await ctx.store.getScoringRules(form.id)).map((r) => [r.field_key, r.id])
+  );
+  await ctx.store.replaceScoringRules(
+    form.id,
+    parsed.rules.map((rule) => ({
+      id: existingIds.get(rule.field_key) ?? crypto.randomUUID(),
+      field_key: rule.field_key,
+      points: rule.points,
+      option_points: isSelect2.get(rule.field_key) ? rule.option_points ?? null : null
+    }))
+  );
+  const stored = await ctx.store.getScoringRules(form.id);
+  return { rules: stored.map(toScoringRuleRow).sort(byFieldKey) };
+}
+
 // src/core/queries/context.ts
 async function getActiveContext(caller, input, ctx) {
   void caller;
@@ -3806,6 +4037,172 @@ async function getActiveContext(caller, input, ctx) {
   return {
     active_season_id: current.active_season_id,
     active_event_id: eventLives ? eventId : null
+  };
+}
+
+// src/core/queries/forms.ts
+async function userRefs(ctx, ids) {
+  const wanted = [...new Set(ids.filter((id) => id !== null))];
+  if (wanted.length === 0) return /* @__PURE__ */ new Map();
+  const found = await ctx.store.listUserNames(wanted);
+  return new Map(found.map((u) => [u.id, { id: u.id, full_name: u.full_name }]));
+}
+async function summarise(ctx, form, versions) {
+  const live = await ctx.store.countLiveEntriesByFormVersions(versions.map((v) => v.id));
+  const users = await userRefs(
+    ctx,
+    versions.map((v) => v.updated_by ?? null)
+  );
+  const out = [];
+  for (const version of versions) {
+    const fields = await ctx.store.getFormFields(version.id);
+    const entryCount = live.get(version.id) ?? 0;
+    const locked = version.is_locked || entryCount > 0 || await ctx.store.countEntriesByFormVersion(version.id) > 0;
+    const by = version.updated_by ?? null;
+    out.push({
+      fields,
+      summary: {
+        id: version.id,
+        version_no: version.version_no,
+        status: version.published_at === null ? "draft" : "published",
+        published_at: version.published_at ?? null,
+        is_active: version.id === form.active_version_id,
+        is_locked: locked,
+        field_count: countDataFields(fields),
+        entry_count: entryCount,
+        updated_at: version.updated_at,
+        updated_by: by === null ? null : users.get(by) ?? { id: by, full_name: "" }
+      }
+    });
+  }
+  return out;
+}
+async function versionsNewestFirst(ctx, form) {
+  const versions = (await ctx.store.listFormVersions(form.id)).sort(
+    (a, b) => b.version_no - a.version_no
+  );
+  return (await summarise(ctx, form, versions)).map((s) => s.summary);
+}
+async function rulesByKey(ctx, formId) {
+  const rules = await ctx.store.getScoringRules(formId);
+  return new Map(rules.map((r) => [r.field_key, toScoringRuleRow(r)]));
+}
+async function listForms(caller, input, ctx) {
+  void caller;
+  const { season_id } = parseInput(listFormsInput, input);
+  await seasonOrNotFound(ctx, season_id);
+  const forms = [];
+  for (const kind of ["match", "super"]) {
+    const form = await ctx.store.getFormByKind(season_id, kind);
+    if (!form) continue;
+    forms.push({
+      id: form.id,
+      kind: form.kind,
+      name: form.name,
+      active_version_id: form.active_version_id ?? null,
+      updated_at: form.updated_at,
+      versions: await versionsNewestFirst(ctx, form)
+    });
+  }
+  return { season_id, forms };
+}
+async function getForm(caller, input, ctx) {
+  void caller;
+  const { form_id } = parseInput(getFormInput, input);
+  const form = await formOrNotFound(ctx, form_id);
+  return { ...toFormRow(form), versions: await versionsNewestFirst(ctx, form) };
+}
+async function getFormVersion(caller, input, ctx) {
+  void caller;
+  const { form_version_id } = parseInput(getFormVersionInput, input);
+  const version = await versionOrNotFound(ctx, form_version_id);
+  const form = await formOrNotFound(ctx, version.form_id);
+  const [{ summary, fields }] = await summarise(ctx, form, [version]);
+  const rules = await rulesByKey(ctx, form.id);
+  return {
+    ...summary,
+    form_id: form.id,
+    fields: fields.map((field) => {
+      const rule = rules.get(field.key);
+      return {
+        ...toFieldRow(field),
+        points: rule?.points ?? null,
+        option_points: rule?.option_points ?? null
+      };
+    })
+  };
+}
+async function getFormDictionary(caller, input, ctx) {
+  void caller;
+  const { form_id } = parseInput(getFormDictionaryInput, input);
+  const form = await formOrNotFound(ctx, form_id);
+  const activeId = form.active_version_id ?? null;
+  const active = activeId === null ? null : await ctx.store.getFormVersion(activeId);
+  if (!active) return { form_id: form.id, version_no: null, fields: [] };
+  const rules = await rulesByKey(ctx, form.id);
+  const fields = (await ctx.store.getFormFields(active.id)).filter(
+    (f) => !f.deprecated && f.type !== "section"
+  );
+  return {
+    form_id: form.id,
+    version_no: active.version_no,
+    fields: fields.map((field) => {
+      const rule = rules.get(field.key);
+      const isSelect2 = field.type === "single_select" || field.type === "multi_select";
+      return {
+        key: field.key,
+        label: field.label,
+        description: field.description ?? null,
+        type: field.type,
+        unit: field.unit ?? null,
+        phase: field.phase ?? null,
+        direction: field.direction ?? null,
+        category: field.category ?? null,
+        expected_range: field.expected_range ?? null,
+        include_in_ai_context: field.include_in_ai_context ?? null,
+        is_ordinal: field.is_ordinal ?? null,
+        options: isSelect2 ? selectOptions(field).map((o) => ({ value: o.value, label: o.label })) : null,
+        points: rule?.points ?? null,
+        option_points: rule?.option_points ?? null
+      };
+    })
+  };
+}
+var expired = (createdAt, now) => Date.parse(createdAt) + FORM_EXPORT_TTL_MS <= now.getTime();
+async function listFormExports(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  parseInput(listFormExportsInput, input);
+  const now = ctx.now();
+  await ctx.store.purgeFormExports(new Date(now.getTime() - FORM_EXPORT_TTL_MS));
+  const rows = (await ctx.store.listFormExports()).filter((r) => !expired(r.created_at, now));
+  const users = await userRefs(
+    ctx,
+    rows.map((r) => r.created_by)
+  );
+  return {
+    exports: rows.map(
+      (row) => toExportSummary(row, users.get(row.created_by) ?? { id: row.created_by, full_name: "" }, now)
+    )
+  };
+}
+async function getFormExport(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const { export_id } = parseInput(getFormExportInput, input);
+  const now = ctx.now();
+  const row = await ctx.store.getFormExport(export_id);
+  if (!row || expired(row.created_at, now)) {
+    throw new AppError("not-found", "that export does not exist; exports are kept 24 hours", {
+      export_id
+    });
+  }
+  const users = await userRefs(ctx, [row.created_by]);
+  return {
+    ...toExportSummary(
+      row,
+      users.get(row.created_by) ?? { id: row.created_by, full_name: "" },
+      now
+    ),
+    definition: formDefinition.parse(row.definition)
   };
 }
 
@@ -4157,6 +4554,55 @@ var REGISTRY = {
     input: API.importForm.input,
     output: API.importForm.output,
     handler: importForm
+  },
+  setScoringRules: {
+    kind: "command",
+    description: "Admin only: replace a form's scoring model. The rules given become the whole rule set; a field not named loses its rule. Points are never negative, only toggle, counter, number and select fields score, and a select scores per option. Never creates a form version.",
+    input: API.setScoringRules.input,
+    output: API.setScoringRules.output,
+    handler: setScoringRules
+  },
+  listForms: {
+    kind: "query",
+    description: "A season's forms for the forms page, match then super, each with its versions newest first: status, active, effective lock, live fields, live entries, and who last saved it.",
+    input: API.listForms.input,
+    output: API.listForms.output,
+    handler: listForms
+  },
+  getForm: {
+    kind: "query",
+    description: "One form: its name, kind, match timer and active version, with every version summarised newest first.",
+    input: API.getForm.input,
+    output: API.getForm.output,
+    handler: getForm
+  },
+  getFormVersion: {
+    kind: "query",
+    description: "One form version for the builder: its summary and every field in display order, retired ones included and flagged, each with its points from the form's scoring.",
+    input: API.getFormVersion.input,
+    output: API.getFormVersion.output,
+    handler: getFormVersion
+  },
+  getFormDictionary: {
+    kind: "query",
+    description: "The machine-readable field dictionary of a form's active version: each live data field's key, label, meaning, unit, phase, direction, category, expected range, options and points.",
+    input: API.getFormDictionary.input,
+    output: API.getFormDictionary.output,
+    handler: getFormDictionary
+  },
+  listFormExports: {
+    kind: "query",
+    description: "Admin only (a service caller is refused): the saved form exports, newest first. Exports older than 24 hours are deleted first.",
+    input: API.listFormExports.input,
+    output: API.listFormExports.output,
+    handler: listFormExports
+  },
+  getFormExport: {
+    kind: "query",
+    description: "Admin only (a service caller is refused): one saved form export with the definition it holds, for import. An export older than 24 hours is not found.",
+    input: API.getFormExport.input,
+    output: API.getFormExport.output,
+    handler: getFormExport
   }
 };
 

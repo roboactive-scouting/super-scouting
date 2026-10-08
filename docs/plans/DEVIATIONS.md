@@ -5418,3 +5418,93 @@ and `z.string().datetime({ offset: false })` refuses it (`false false true` for 
 **What I did instead:** nothing; out of scope. Every other integration test passes (67 of 68), including the extended `forms.itest.ts` (13 of 13) and `types-drift.itest.ts`.
 
 **Risk:** the threshold should be 90 (or the seed's own count); until it is changed, `db:test` reads red whenever dev is clean.
+
+## Task 1.28 — the plan's test file, literally
+
+**Plan said:** `scoring.test.ts` with callers `u-a`/`u-l`, form `'f-1'`, version `'fv-1'` (no `form_versions` row), imports without `.js`, and `forms.test.ts` (queries) asserting display order, scoring attached, service may call all three, dictionary excludes deprecated.
+
+**What was wrong:** the use case parses its input with the strict shared schema (wire ids are uuids), `apps/server` imports carry `.js`, and Prettier reformats the long lines — the same three facts 1.27 logged.
+
+**What I did instead:** uuid constants, real `forms`/`form_versions` rows in the fake, `u-admin`/`u-lead` fixture users, `.js` imports, Prettier's layout. Every plan case is kept with its assertion (`/long_text/`, `/moon/`, `formVersionWrites` unchanged, the one key `${FORM}:auto_notes`, a lead refused). Added: replace semantics, sorted output, empty set clears, draft ∪ active, a draft retype judged by the draft's type, positioned `invalid-scoring` issues, option points off a select, points on a select, not-found / malformed input, scouter and service refused, and that a kept rule is sent with its existing id. `queries/forms.test.ts` builds its fixture through the real 1.27 use cases (createForm → saveDraftFields → publish → setScoringRules → a forking save by a second admin) and holds the decision's named tests. 18 + 21 tests, plus 5 in `packages/shared/src/forms/scoring.test.ts` and one import test in `commands/forms.test.ts`.
+
+**Risk:** none.
+
+## Task 1.28 — the scoring validator lives in `packages/shared`, and a select's `points` must be 0
+
+**Plan said:** create `commands/scoring.ts`; decision A: "put the rule validator in one exported function and make 1.27's `importForm` use it".
+
+**What was wrong:** nothing; a placement choice. The builder (task 1.29) needs the same rules to show the points input only where a rule is allowed and to check a rule before saving, and 1.27 already had to plan a `git mv` for `version.ts`.
+
+**What I did instead:** `packages/shared/src/forms/scoring.ts` (pure, browser-safe, exported from `@frc/shared`): `SCORABLE_FIELD_TYPES` (toggle, counter, number, single_select, multi_select), `isScorable(type)`, `validateScoringRules(rules, liveFields, { prefix, noun })` → `ScoringIssue[]` (`{ field_key, path, message }`, path `<prefix>.<i>.field_key | points | option_points | option_points.<value>`), and `countDataFields(fields)`. Rules, in order per rule: a key named twice; a key that is not a live field ("…not a field of this form/definition"); an unscorable type (the message names the type); points negative or non-finite; option_points off a select; an option value the field lacks (the message names it); a negative or non-finite option score. **My addition:** on a select, `points` other than 0 is refused (`<prefix>.<i>.points`) — a select scores by option, so a non-zero `points` would be stored and silently never used. `commands/scoring.ts` holds `setScoringRules` and `toScoringRuleRow`. `importForm`'s `checkScoring` now calls the validator with prefix `scoring_rules` against the definition's fields, still refusing as `invalid-definition` (1.27's ghost-key test unchanged; one test added for a long_text rule).
+
+**Risk:** an import whose definition has `points > 0` on a select is now refused; no such export can exist (exports are at most 24 h old and none was written with one). Rejected: the validator in `commands/scoring.ts` (the client would duplicate it).
+
+## Task 1.28 — `setScoringRules`: replace semantics, shape-only schema, draft ∪ active, ids kept
+
+**Plan said:** `setScoringRules({ form_id, rules })`; the plan's tests only; no output named.
+
+**What was wrong:** the plan gave no semantics for a key not named, no output and no field universe; decision A fixed them.
+
+**What I did instead:** admin only (`assertCan(caller, 'manage_forms')`, which refuses a service caller). The rules REPLACE the form's set (`replaceScoringRules`), and the answer is `{ rules: [{ field_key, points, option_points }] }` read back, sorted by key, `option_points` null off the selects (forced null on write too). A rule may name a live field of the draft or of the active version; where both have the key, **the draft's definition wins** (my choice: it is newer and is what the builder edits) — tested with a draft that retyped a counter to short_text. **`setScoringRulesInput` checks shape only** (`points: z.number().finite()`, `option_points: record(finite).nullable().optional()`); non-negativity and the rest are the validator's, so over HTTP a negative point comes back as `invalid` with `details: { reason: 'invalid-scoring', issues }` instead of a bare 400 zod message (1.27's logged risk for `importForm`). **Beyond the decision:** a rule whose key already has a row is sent with that row's id. The Supabase upsert writes every column given, `id` included, so a fresh uuid per save would re-key the row — and a device pulling `scoring_rules` by delta would then hold two rules for one key, the stale one never tombstoned. As decided, nothing writes `form_versions` (not even `updated_by`), so **a scoring edit does not move the forms list's "last edited"**.
+
+**Risk:** a rule REMOVED by replace is hard-deleted, and `scoring_rules` has no `deleted_at`, so a device that already pulled it keeps it until a full re-hydration (see the task report).
+
+## Task 1.28 — read query shapes: `getFormVersion` is a superset, the dictionary carries `description` and `is_ordinal`
+
+**Plan said:** produces `getForm`, `getFormVersion`, `getFormDictionary`; decision B gives their shapes.
+
+**What was wrong:** nothing; two small widenings.
+
+**What I did instead:** `getFormVersion` answers the `VersionSummary` (id, version_no, `status`, published_at, `is_active`, effective is_locked, `field_count`, entry_count, updated_at, updated_by) plus `form_id` and `fields` — a superset of the decision's list, so the builder can choose Continue/Open/View from one call, and the summary comes from the one helper `listForms` uses. Each field is 1.27's `FormFieldRow` plus `points: number | null` and `option_points: Record<string, number> | null`. `getForm`'s `versions` are newest first, like `listForms`. `getFormDictionary` adds `description` ("what the number actually means", §5.4 — the most useful column for a machine reader) and `is_ordinal` (the option order is a rank) to the decision's columns; `options` is a select's `{ value, label }[]` in order, null on every other type (an event log's buttons are not options). The four are `query` kind and never call `can()`; tested for a scouter, a lead and a service caller.
+
+**Risk:** none known.
+
+## Task 1.28 — the effective lock costs one more head count for an unstamped version with no live entry
+
+**Plan said:** (decision B) `is_locked` is the effective lock, `is_locked || entries > 0` (1.27's rule); `entry_count` counts live entries; add `countLiveEntriesByFormVersions`.
+
+**What was wrong:** 1.27's lock counts every bound entry, soft-deleted ones included (`countEntriesByFormVersion`, as `deleteFormVersion` does); the new batch counts live ones only, so a version whose only entries are soft-deleted would read as unlocked from it.
+
+**What I did instead:** `is_locked || live > 0 || countEntriesByFormVersion(id) > 0`, the last asked only when the first two are false (usually just the draft). Tested: a draft with one soft-deleted entry reads `is_locked: true, entry_count: 0`.
+
+**Risk:** one extra head count per such version; a form has a handful.
+
+## Task 1.28 — four Store methods added
+
+**Plan said:** the Store interface is fixed; decision B allows `countLiveEntriesByFormVersions` and "one batched user lookup".
+
+**What was wrong:** the batched name lookup and the two export reads had no method.
+
+**What I did instead:** `countLiveEntriesByFormVersions(ids)` — one PostgREST head count per id, in parallel (`eq form_version_id`, `is deleted_at null`), chosen over reading `form_version_id` rows and counting in JS because it reads no rows and has no 1000-row cap to page around; every id asked is in the map. `listUserNames(ids)` — `select('id, full_name').in('id', chunk)` in chunks of 100 (no `password_hash` leaves the store). `listFormExports()` — newest first, then id, `limit(200)` (exports live 24 hours). `getFormExport(id)`. All throw with Postgres's code; the fake implements each (its live count adds `entryCountsByVersion`, as `countEntriesByFormVersion` does); store tests pin each query's chain.
+
+**Risk:** none known.
+
+## Task 1.28 — `field_count` of a saved export no longer counts sections
+
+**Plan said:** (1.27) `field_count` counts every field of the definition, sections included.
+
+**What was wrong:** decision B: one definition of `field_count` everywhere — live, non-section fields.
+
+**What I did instead:** `toExportSummary` uses the shared `countDataFields`; the forms list uses it too. 1.27's `saveFormExport` test (two counters) is unchanged; a definition with sections now reports fewer fields than before.
+
+**Risk:** none: no client shows the number yet.
+
+## Task 1.28 — `listFormExports` and `getFormExport`
+
+**Plan said:** nothing (decision B adds them).
+
+**What was wrong:** nothing.
+
+**What I did instead:** both admin only through `assertCan(caller, 'manage_forms')` and registered `kind: 'query'` (as 1.27's `exportForm`; `rpc.ts` ignores kind), so `rpc.test.ts`'s every-command loop does not cover them — `queries/forms.test.ts` refuses a lead, a scouter and a service caller on both and on `saveFormExport`. `listFormExports({})` purges rows created before `now − FORM_EXPORT_TTL_MS`, then lists, also dropping a row exactly at its expiry instant. `getFormExport({ export_id })` treats `created_at + 24 h <= now` as `not-found` (`details: { export_id }`) and does NOT purge (tested: the row is still there). Its `definition` is re-parsed with `formDefinition` on the way out. Names come from `listUserNames`, not `getFullUser`.
+
+**Risk:** a stored definition that somehow fails `formDefinition` makes `getFormExport` a 500, not a clean error; only `saveFormExport` writes the table.
+
+## Task 1.28 — verification and the bundle
+
+**Plan said:** run `pnpm --filter @frc/server exec vitest run && pnpm typecheck`.
+
+**What was wrong:** nothing; the brief asks for the full four, and BUILD-CONTEXT §6 for the bundle.
+
+**What I did instead:** ran `pnpm --filter @frc/server build` (regenerating `apps/server/api/index.js` and `.map`; `bundle-drift.test.ts` passes), then `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, all green. `rpc.test.ts`'s command list (now thirty-four, with `setScoringRules`) and its full name list, and the shared `index.test.ts`, were extended by the seven new use cases.
+
+**Risk:** none.

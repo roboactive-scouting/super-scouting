@@ -342,3 +342,170 @@ export const importFormOutput = z.object({
   created: z.boolean(),
 });
 export type ImportFormOutput = z.infer<typeof importFormOutput>;
+
+// ---------------------------------------------------------------------------------------
+// Scoring (SPEC-FINAL 3.4, 4; task 1.28).
+// ---------------------------------------------------------------------------------------
+
+/**
+ * One rule as the builder sends it. Only the SHAPE is checked here: non-negative points, a
+ * scorable live field and real option values are the server's `validateScoringRules`, so
+ * every problem comes back positioned (`invalid-scoring` issues) rather than as one zod
+ * message. `option_points` is for the two selects only.
+ */
+export const scoringRuleInput = z
+  .object({
+    field_key: z.string().min(1).max(63),
+    points: z.number().finite(),
+    option_points: z.record(z.number().finite()).nullable().optional(),
+  })
+  .strict();
+export type ScoringRuleInput = z.input<typeof scoringRuleInput>;
+
+/**
+ * REPLACES the form's scoring: the rules given become its whole rule set, and a field not
+ * named loses its rule. Keyed by (form, field key), so it carries across versions; it never
+ * touches a form version. Refused as `invalid` with `details.reason: 'invalid-scoring'`.
+ */
+export const setScoringRulesInput = z
+  .object({ form_id: uuid, rules: z.array(scoringRuleInput).max(FORM_FIELDS_MAX) })
+  .strict();
+export type SetScoringRulesInput = z.input<typeof setScoringRulesInput>;
+
+/** A stored rule. `option_points` is null on every type but the two selects. */
+export const scoringRuleRow = z.object({
+  field_key: z.string(),
+  points: z.number(),
+  option_points: z.record(z.number()).nullable(),
+});
+export type ScoringRuleRow = z.infer<typeof scoringRuleRow>;
+
+/** The form's whole rule set after the save, by field key. */
+export const setScoringRulesOutput = z.object({ rules: z.array(scoringRuleRow) });
+export type SetScoringRulesOutput = z.infer<typeof setScoringRulesOutput>;
+
+// ---------------------------------------------------------------------------------------
+// Read queries (task 1.28): any authenticated caller, a service caller included.
+// ---------------------------------------------------------------------------------------
+
+/** Who last saved a version. */
+export const userRef = z.object({ id: uuid, full_name: z.string() });
+export type UserRef = z.infer<typeof userRef>;
+
+/**
+ * One version as the forms list's timeline shows it (design 13-forms). `is_locked` is the
+ * EFFECTIVE lock: stamped, or any entry (soft-deleted ones too) bound to it. `field_count`
+ * counts live, non-section fields; `entry_count` counts live entries bound to the version.
+ */
+export const versionSummary = z.object({
+  id: uuid,
+  version_no: z.number().int(),
+  status: z.enum(['draft', 'published']),
+  published_at: z.string().nullable(),
+  is_active: z.boolean(),
+  is_locked: z.boolean(),
+  field_count: z.number().int(),
+  entry_count: z.number().int(),
+  updated_at: z.string(),
+  updated_by: userRef.nullable(),
+});
+export type VersionSummary = z.infer<typeof versionSummary>;
+
+export const getFormInput = z.object({ form_id: uuid }).strict();
+export type GetFormInput = z.input<typeof getFormInput>;
+
+/** The form row plus every version, newest first. */
+export const getFormOutput = formRow.extend({ versions: z.array(versionSummary) });
+export type GetFormOutput = z.infer<typeof getFormOutput>;
+
+export const getFormVersionInput = z.object({ form_version_id: uuid }).strict();
+export type GetFormVersionInput = z.input<typeof getFormVersionInput>;
+
+/**
+ * A field with its scoring attached from the form's rules (keyed by field key). Both are
+ * null when the field has no rule, which is always so for an unscored type.
+ */
+export const scoredFieldRow = formFieldRow.extend({
+  points: z.number().nullable(),
+  option_points: z.record(z.number()).nullable(),
+});
+export type ScoredFieldRow = z.infer<typeof scoredFieldRow>;
+
+/**
+ * One version for the builder: its summary, and every field in display order, deprecated
+ * ones included and flagged (the builder shows retired keys).
+ */
+export const getFormVersionOutput = versionSummary.extend({
+  form_id: uuid,
+  fields: z.array(scoredFieldRow),
+});
+export type GetFormVersionOutput = z.infer<typeof getFormVersionOutput>;
+
+export const getFormDictionaryInput = z.object({ form_id: uuid }).strict();
+export type GetFormDictionaryInput = z.input<typeof getFormDictionaryInput>;
+
+/** One live data field of the active version, as a machine reads it (SPEC-FINAL 16.8). */
+export const dictionaryField = z.object({
+  key: z.string(),
+  label: z.string(),
+  description: z.string().nullable(),
+  type: z.enum(FIELD_TYPES),
+  unit: z.enum(FIELD_UNITS).nullable(),
+  phase: z.enum(FIELD_PHASES).nullable(),
+  direction: z.enum(FIELD_DIRECTIONS).nullable(),
+  category: z.string().nullable(),
+  expected_range: z.object({ min: z.number(), max: z.number() }).nullable(),
+  include_in_ai_context: z.boolean().nullable(),
+  is_ordinal: z.boolean().nullable(),
+  /** A select's options in order (worst → best when ordinal); null for every other type. */
+  options: z.array(z.object({ value: z.string(), label: z.string() })).nullable(),
+  points: z.number().nullable(),
+  option_points: z.record(z.number()).nullable(),
+});
+export type DictionaryField = z.infer<typeof dictionaryField>;
+
+/**
+ * The machine-readable field dictionary of the form's ACTIVE version: its live fields in
+ * display order, sections and deprecated fields left out. No active version → `version_no`
+ * null and no fields.
+ */
+export const getFormDictionaryOutput = z.object({
+  form_id: uuid,
+  version_no: z.number().int().nullable(),
+  fields: z.array(dictionaryField),
+});
+export type GetFormDictionaryOutput = z.infer<typeof getFormDictionaryOutput>;
+
+export const listFormsInput = z.object({ season_id: uuid }).strict();
+export type ListFormsInput = z.input<typeof listFormsInput>;
+
+/** One form on the forms list: its versions newest first. */
+export const formListItem = z.object({
+  id: uuid,
+  kind: formKind,
+  name: z.string(),
+  active_version_id: uuid.nullable(),
+  updated_at: z.string(),
+  versions: z.array(versionSummary),
+});
+export type FormListItem = z.infer<typeof formListItem>;
+
+/** The season's forms, match then super; a missing form is simply absent. */
+export const listFormsOutput = z.object({ season_id: uuid, forms: z.array(formListItem) });
+export type ListFormsOutput = z.infer<typeof listFormsOutput>;
+
+/** Admin only. Every export older than 24 hours is deleted first. */
+export const listFormExportsInput = z.object({}).strict();
+export type ListFormExportsInput = z.input<typeof listFormExportsInput>;
+
+/** The saved exports, newest first. */
+export const listFormExportsOutput = z.object({ exports: z.array(exportSummary) });
+export type ListFormExportsOutput = z.infer<typeof listFormExportsOutput>;
+
+/** Admin only. An export older than 24 hours is not-found, purged or not. */
+export const getFormExportInput = z.object({ export_id: uuid }).strict();
+export type GetFormExportInput = z.input<typeof getFormExportInput>;
+
+/** One saved export with the definition it holds, ready for importForm. */
+export const getFormExportOutput = exportSummary.extend({ definition: formDefinition });
+export type GetFormExportOutput = z.infer<typeof getFormExportOutput>;

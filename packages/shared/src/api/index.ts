@@ -31,8 +31,20 @@ import {
   exportSummary,
   formDefinition,
   formRow,
+  getFormDictionaryInput,
+  getFormDictionaryOutput,
+  getFormExportInput,
+  getFormExportOutput,
+  getFormInput,
+  getFormOutput,
+  getFormVersionInput,
+  getFormVersionOutput,
   importFormInput,
   importFormOutput,
+  listFormExportsInput,
+  listFormExportsOutput,
+  listFormsInput,
+  listFormsOutput,
   publishFormVersionInput,
   publishFormVersionOutput,
   restoreFormVersionInput,
@@ -40,6 +52,8 @@ import {
   saveDraftFieldsInput,
   saveDraftFieldsOutput,
   saveFormExportInput,
+  setScoringRulesInput,
+  setScoringRulesOutput,
   updateFormInput,
 } from './forms';
 import {
@@ -134,6 +148,13 @@ export const API = {
   exportForm: { input: exportFormInput, output: formDefinition },
   saveFormExport: { input: saveFormExportInput, output: exportSummary },
   importForm: { input: importFormInput, output: importFormOutput },
+  setScoringRules: { input: setScoringRulesInput, output: setScoringRulesOutput },
+  listForms: { input: listFormsInput, output: listFormsOutput },
+  getForm: { input: getFormInput, output: getFormOutput },
+  getFormVersion: { input: getFormVersionInput, output: getFormVersionOutput },
+  getFormDictionary: { input: getFormDictionaryInput, output: getFormDictionaryOutput },
+  listFormExports: { input: listFormExportsInput, output: listFormExportsOutput },
+  getFormExport: { input: getFormExportInput, output: getFormExportOutput },
 } as const;
 
 export type Api = typeof API;

@@ -1017,6 +1017,35 @@ export function makeFakeContext(): FakeContext {
       }
       return purged;
     },
+    // Task 1.28: newest first (then id), bounded like the Supabase store's read.
+    async listFormExports() {
+      return [...fake.formExports.values()]
+        .sort((a, b) => b.created_at.localeCompare(a.created_at) || (a.id < b.id ? -1 : 1))
+        .slice(0, 200)
+        .map((row) => ({ ...row }));
+    },
+    async getFormExport(id) {
+      const row = fake.formExports.get(id);
+      return row ? { ...row } : null;
+    },
+    // Task 1.28: rows in `rows.scouting_entries` bound to each version with no deleted_at,
+    // plus whatever a test declared in `entryCountsByVersion` (that shorthand counts as live).
+    async countLiveEntriesByFormVersions(versionIds) {
+      return new Map(
+        versionIds.map((id) => [
+          id,
+          [...rows.scouting_entries.values()].filter(
+            (row) => row.form_version_id === id && row.deleted_at == null,
+          ).length + (fake.entryCountsByVersion.get(id) ?? 0),
+        ]),
+      );
+    },
+    async listUserNames(ids) {
+      return ids.flatMap((id) => {
+        const user = usersById.get(id);
+        return user ? [{ id: user.id, full_name: user.full_name }] : [];
+      });
+    },
     // One statement each in the Supabase store; here, the cascades they set off.
     async deleteFormCascade(id) {
       dropForm(id);

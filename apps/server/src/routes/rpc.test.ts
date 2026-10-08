@@ -30,7 +30,7 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
     }
   });
 
-  it('has thirty-three authenticated commands for that loop to check, so it is not vacuous', () => {
+  it('has thirty-four authenticated commands for that loop to check, so it is not vacuous', () => {
     const commands = Object.entries(REGISTRY).filter(
       ([, e]) => e.kind === 'command' && !e.unauthenticated,
     );
@@ -62,6 +62,7 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
       'setActiveSeason',
       'setEventRoster',
       'setMatchTeams',
+      'setScoringRules',
       'setUserRole',
       'updateEvent',
       'updateForm',
@@ -98,9 +99,15 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
       'ensureMatch',
       'exportForm',
       'getActiveContext',
+      'getForm',
+      'getFormDictionary',
+      'getFormExport',
+      'getFormVersion',
       'importForm',
       'listEventRoster',
       'listEvents',
+      'listFormExports',
+      'listForms',
       'listMatches',
       'listSeasons',
       'listTeams',
@@ -118,6 +125,7 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
       'setActiveSeason',
       'setEventRoster',
       'setMatchTeams',
+      'setScoringRules',
       'setUserRole',
       'updateEvent',
       'updateForm',

@@ -54,7 +54,16 @@ import {
   saveFormExport,
   updateForm,
 } from '../core/commands/forms.js';
+import { setScoringRules } from '../core/commands/scoring.js';
 import { getActiveContext } from '../core/queries/context.js';
+import {
+  getForm,
+  getFormDictionary,
+  getFormExport,
+  getFormVersion,
+  listFormExports,
+  listForms,
+} from '../core/queries/forms.js';
 import { countEntriesByScouter } from '../core/queries/countEntriesByScouter.js';
 import { listUsers } from '../core/queries/listUsers.js';
 
@@ -445,5 +454,61 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     input: API.importForm.input,
     output: API.importForm.output,
     handler: importForm,
+  },
+  setScoringRules: {
+    kind: 'command',
+    description:
+      "Admin only: replace a form's scoring model. The rules given become the whole rule set; a field not named loses its rule. Points are never negative, only toggle, counter, number and select fields score, and a select scores per option. Never creates a form version.",
+    input: API.setScoringRules.input,
+    output: API.setScoringRules.output,
+    handler: setScoringRules,
+  },
+  listForms: {
+    kind: 'query',
+    description:
+      "A season's forms for the forms page, match then super, each with its versions newest first: status, active, effective lock, live fields, live entries, and who last saved it.",
+    input: API.listForms.input,
+    output: API.listForms.output,
+    handler: listForms,
+  },
+  getForm: {
+    kind: 'query',
+    description:
+      'One form: its name, kind, match timer and active version, with every version summarised newest first.',
+    input: API.getForm.input,
+    output: API.getForm.output,
+    handler: getForm,
+  },
+  getFormVersion: {
+    kind: 'query',
+    description:
+      "One form version for the builder: its summary and every field in display order, retired ones included and flagged, each with its points from the form's scoring.",
+    input: API.getFormVersion.input,
+    output: API.getFormVersion.output,
+    handler: getFormVersion,
+  },
+  getFormDictionary: {
+    kind: 'query',
+    description:
+      "The machine-readable field dictionary of a form's active version: each live data field's key, label, meaning, unit, phase, direction, category, expected range, options and points.",
+    input: API.getFormDictionary.input,
+    output: API.getFormDictionary.output,
+    handler: getFormDictionary,
+  },
+  listFormExports: {
+    kind: 'query',
+    description:
+      'Admin only (a service caller is refused): the saved form exports, newest first. Exports older than 24 hours are deleted first.',
+    input: API.listFormExports.input,
+    output: API.listFormExports.output,
+    handler: listFormExports,
+  },
+  getFormExport: {
+    kind: 'query',
+    description:
+      'Admin only (a service caller is refused): one saved form export with the definition it holds, for import. An export older than 24 hours is not found.',
+    input: API.getFormExport.input,
+    output: API.getFormExport.output,
+    handler: getFormExport,
   },
 };

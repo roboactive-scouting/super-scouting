@@ -1011,6 +1011,79 @@ describe('supabaseStore forms (task 1.27)', () => {
     ]);
   });
 
+  it('countLiveEntriesByFormVersions head-counts each version’s LIVE entries', async () => {
+    const OTHER = 'ffffffff-ffff-4fff-8fff-000000000002';
+    const { db, chains } = scriptedDb([
+      { error: null, count: 3 },
+      { error: null, count: null },
+    ]);
+    const counts = await supabaseStore(db).countLiveEntriesByFormVersions([VERSION, OTHER]);
+    expect([...counts]).toEqual([
+      [VERSION, 3],
+      [OTHER, 0],
+    ]);
+    expect(chains[0]).toEqual([
+      ['from', 'scouting_entries'],
+      ['select', 'id', { count: 'exact', head: true }],
+      ['eq', 'form_version_id', VERSION],
+      ['is', 'deleted_at', null],
+    ]);
+    expect(chains[1]).toContainEqual(['eq', 'form_version_id', OTHER]);
+  });
+
+  it('countLiveEntriesByFormVersions makes no request for no versions, and throws on an error', async () => {
+    const none = scriptedDb([]);
+    expect((await supabaseStore(none.db).countLiveEntriesByFormVersions([])).size).toBe(0);
+    expect(none.chains).toHaveLength(0);
+    const { db } = scriptedDb([{ error: { message: 'connection refused' } }]);
+    await expect(supabaseStore(db).countLiveEntriesByFormVersions([VERSION])).rejects.toThrow(
+      'connection refused',
+    );
+  });
+
+  it('listUserNames reads id and full_name only, in chunks, and nothing for no ids', async () => {
+    const ids = Array.from({ length: 101 }, (_, i) => `u-${i}`);
+    const { db, chains } = scriptedDb([
+      { data: [{ id: 'u-0', full_name: 'Zero' }], error: null },
+      { data: [{ id: 'u-100', full_name: 'Hundred' }], error: null },
+    ]);
+    expect(await supabaseStore(db).listUserNames(ids)).toEqual([
+      { id: 'u-0', full_name: 'Zero' },
+      { id: 'u-100', full_name: 'Hundred' },
+    ]);
+    expect(chains[0]).toEqual([
+      ['from', 'users'],
+      ['select', 'id, full_name'],
+      ['in', 'id', ids.slice(0, 100)],
+    ]);
+    expect(chains[1]).toContainEqual(['in', 'id', ['u-100']]);
+    const none = scriptedDb([]);
+    expect(await supabaseStore(none.db).listUserNames([])).toEqual([]);
+    expect(none.chains).toHaveLength(0);
+  });
+
+  it('listFormExports reads newest first and bounded; getFormExport reads one by id', async () => {
+    const { db, chains } = scriptedDb([
+      { data: [], error: null },
+      { data: null, error: null },
+    ]);
+    await supabaseStore(db).listFormExports();
+    expect(await supabaseStore(db).getFormExport(FORM)).toBeNull();
+    expect(chains[0]).toEqual([
+      ['from', 'form_exports'],
+      ['select', 'id, form_id, label, definition, created_by, created_at'],
+      ['order', 'created_at', { ascending: false }],
+      ['order', 'id', { ascending: true }],
+      ['limit', 200],
+    ]);
+    expect(chains[1]).toEqual([
+      ['from', 'form_exports'],
+      ['select', 'id, form_id, label, definition, created_by, created_at'],
+      ['eq', 'id', FORM],
+      ['maybeSingle'],
+    ]);
+  });
+
   it('form and version reads select explicit column lists', async () => {
     const { db, chains } = scriptedDb([
       { data: null, error: null },

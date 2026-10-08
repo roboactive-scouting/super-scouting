@@ -4,6 +4,7 @@ import {
   FORM_DEFINITION_FORMAT,
   FORM_EXPORT_TTL_MS,
   assertCan,
+  countDataFields,
   createFormInput,
   deleteFormInput,
   deleteFormVersionInput,
@@ -18,6 +19,7 @@ import {
   updateFormInput,
   validateExpr,
   validateFieldDefinition,
+  validateScoringRules,
   validateVisibilityCondition,
   type Caller,
   type CreateFormInput,
@@ -218,7 +220,7 @@ function toDraft(field: RequestField | FormFieldDraft): FieldDraft {
   };
 }
 
-async function formOrNotFound(ctx: UseCaseContext, id: string): Promise<StoredForm> {
+export async function formOrNotFound(ctx: UseCaseContext, id: string): Promise<StoredForm> {
   const form = await ctx.store.getForm(id);
   if (!form) {
     throw new AppError('not-found', 'that form does not exist; it may have been deleted', {
@@ -228,7 +230,10 @@ async function formOrNotFound(ctx: UseCaseContext, id: string): Promise<StoredFo
   return form;
 }
 
-async function versionOrNotFound(ctx: UseCaseContext, id: string): Promise<StoredFormVersion> {
+export async function versionOrNotFound(
+  ctx: UseCaseContext,
+  id: string,
+): Promise<StoredFormVersion> {
   const version = await ctx.store.getFormVersion(id);
   if (!version) {
     throw new AppError('not-found', 'that form version does not exist; it may have been deleted', {
@@ -899,7 +904,8 @@ export function toExportSummary(
     form_id: row.form_id ?? null,
     kind: definition?.kind === 'super' ? 'super' : 'match',
     label: row.label,
-    field_count: Array.isArray(definition?.fields) ? definition.fields.length : 0,
+    // Live, non-section fields: the count every form surface shows (task 1.28).
+    field_count: Array.isArray(definition?.fields) ? countDataFields(definition.fields) : 0,
     created_by: creator,
     created_at: row.created_at,
     expires_at: new Date(expiresAt).toISOString(),
@@ -963,18 +969,14 @@ function parseDefinition(raw: unknown): FormDefinition {
   throw definitionError(issues);
 }
 
-/** Imported scoring: non-negative (the schema) and for a key the definition has. */
+/**
+ * Imported scoring, by the same rules as setScoringRules (task 1.28): each rule names a
+ * scorable field of the definition, once, with non-negative points and real option values.
+ */
 function checkScoring(definition: FormDefinition): void {
-  const keys = new Set(definition.fields.map((f) => f.key));
-  const issues: FormIssue[] = [];
-  definition.scoring_rules.forEach((rule, i) => {
-    if (!keys.has(rule.field_key)) {
-      issues.push({
-        field_key: rule.field_key,
-        path: `scoring_rules.${i}.field_key`,
-        message: `scoring names '${rule.field_key}', which is not a field of this definition`,
-      });
-    }
+  const issues = validateScoringRules(definition.scoring_rules, definition.fields, {
+    prefix: 'scoring_rules',
+    noun: 'definition',
   });
   if (issues.length > 0) throw definitionError(issues);
 }
