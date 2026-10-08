@@ -5228,3 +5228,33 @@ and `z.string().datetime({ offset: false })` refuses it (`false false true` for 
 **What I did instead:** ran `pnpm --filter @frc/server build` and left the regenerated `apps/server/api/index.js` and `index.js.map` in the working tree for the orchestrator to commit in the same diff (BUILD-CONTEXT §6). I also added `export * from './forms/config'` to `packages/shared/src/index.ts`.
 
 **Risk:** the bundle will need regenerating again on every later shared or server task in this run.
+
+## Task 1.25 — computed `expression` is shape-checked in the field config
+
+**Plan said:** Task 1.25 creates only `expression.ts`/`expression.test.ts` and exports from `index.ts`; `FIELD_TYPE_CONFIG.computed` (Task 1.24) keeps `expression: z.unknown()`.
+
+**What was wrong:** with `z.unknown()`, `validateFieldDefinition` accepts any junk as an expression (`{kind:'call'}`, a string), so a malformed tree would only be caught if the server remembered to parse it separately. Orchestrator decision.
+
+**What I did instead:** `config.ts` now imports `exprSchema` and declares `expression: exprSchema.nullable()` (null = not written yet, allowed in a draft). `expression.ts` imports only types from `config.ts` (`import type`), so there is no runtime cycle. Cross-field checks (unknown key, another computed field, mixed types) stay in `validateExpr` because they need the sibling fields. Tests added to `config.test.ts` (valid tree passes, `{kind:'call'}` fails under `config.expression`, `null` passes). Rejected: parsing the tree inside `validateExpr` only, which would leave the field-config check silent on shape.
+
+**Risk:** `z.unknown()` let the `expression` key be absent; `exprSchema.nullable()` does not, so a computed config without the `expression` key now fails (`Required`). Builders must write `expression: null` explicitly for a blank draft.
+
+## Task 1.25 — `validateExpr` takes an optional `resultType`
+
+**Plan said:** `validateExpr(expr, fields): DefinitionIssue[]`.
+
+**What was wrong:** nothing errored, but the plan never checks the expression's type against the field's own `result_type`, so a numeric expression on a `string` field would pass.
+
+**What I did instead:** added a third optional parameter `resultType?: 'float' | 'string'`. When the static type is valid but differs, it pushes `{ path: 'expression', message: 'the expression gives a <x>, but the field says <y>' }`. It is skipped when the expression already has an error, so one mistake gives one message. Tests cover both directions, the matching case, and no stacking. Orchestrator decision.
+
+**Risk:** the server (Task 1.27) must pass `config.result_type` or the check does not run.
+
+## Task 1.25 — smaller departures from the plan's literal text
+
+**Plan said:** (a) `evaluateExpr` reads a field value only if it is a finite number or a string; (b) the plan's test file is laid out on single long lines; (c) `index.ts` is the only other file modified.
+
+**What was wrong:** (a) `staticType` types a `toggle` field as `float`, but a toggle's stored value is a boolean, which the plan's evaluator turns into `null`, so a validated `auto + climbed` expression would always evaluate to null; (b) Prettier would reformat them (`pnpm format:check`); (c) `config.ts` also needs editing (see above), and the bundle drifts.
+
+**What I did instead:** (a) a boolean field value evaluates to 1 or 0, with a test; (b) the plan's tests are written in Prettier's layout, with the same cases plus the extras named above; (c) `export * from './forms/expression'` added to `packages/shared/src/index.ts`, and `pnpm --filter @frc/server build` run, leaving the regenerated `apps/server/api/index.js` and `index.js.map` in the working tree (BUILD-CONTEXT §6).
+
+**Risk:** low. The float/string rule for a field is derived from `unit`, so a `number` field with `unit: 'enum'` or `'text'` is typed as a string; the plan fixed this and the builder should offer a numeric unit for numeric fields.

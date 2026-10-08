@@ -11,6 +11,7 @@ export * from './format';
 export * from './season/manifest';
 export * from './forms/config';
 export * from './forms/entryShape';
+export * from './forms/expression';
 export * from './forms/types';
 export * from './forms/validate';
 export * from './sync/operation';

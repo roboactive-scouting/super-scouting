@@ -167,3 +167,34 @@ describe('the event log config (SPEC-FINAL 5.3, v1.20)', () => {
     expect(validateFieldDefinition(log({ event_types: [] }))).not.toEqual([]);
   });
 });
+
+describe('computed field config (SPEC-FINAL 5.7)', () => {
+  const computed = (config: Record<string, unknown>) =>
+    field({ type: 'computed', unit: 'count', config });
+  const tree = {
+    kind: 'op',
+    op: '+',
+    left: { kind: 'field', key: 'auto' },
+    right: { kind: 'literal', value: 1 },
+  };
+
+  it('accepts a well-formed expression tree', () => {
+    expect(validateFieldDefinition(computed({ expression: tree, result_type: 'float' }))).toEqual(
+      [],
+    );
+  });
+
+  it('refuses a node kind outside the three, at config.expression', () => {
+    const issues = validateFieldDefinition(
+      computed({ expression: { kind: 'call' }, result_type: 'float' }),
+    );
+    expect(issues).not.toEqual([]);
+    expect(issues.every((i) => i.path.startsWith('config.expression'))).toBe(true);
+  });
+
+  it('accepts a null expression: a draft not yet written', () => {
+    expect(validateFieldDefinition(computed({ expression: null, result_type: 'float' }))).toEqual(
+      [],
+    );
+  });
+});

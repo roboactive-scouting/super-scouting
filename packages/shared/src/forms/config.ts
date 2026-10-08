@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { exprSchema } from './expression';
 import type { FormFieldDefinition } from './types';
 
 export const FIELD_TYPES = [
@@ -77,7 +78,7 @@ export const FIELD_TYPE_CONFIG: Record<FieldTypeName, z.ZodType> = {
     })
     .strict(),
   computed: z
-    .object({ expression: z.unknown(), result_type: z.enum(['float', 'string']) })
+    .object({ expression: exprSchema.nullable(), result_type: z.enum(['float', 'string']) })
     .strict(),
   section: z.object({}).strict(),
 };

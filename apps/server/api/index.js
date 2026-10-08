@@ -408,47 +408,64 @@ var SEASON_IMAGE_MANIFEST = [
 ];
 
 // ../../packages/shared/src/forms/config.ts
+import { z as z7 } from "zod";
+
+// ../../packages/shared/src/forms/expression.ts
 import { z as z6 } from "zod";
-var option = z6.object({ value: z6.string().min(1), label: z6.string().min(1) });
-var mirrorAxis = z6.enum(["none", "horizontal", "vertical", "both"]);
+var exprSchema = z6.lazy(
+  () => z6.union([
+    z6.object({ kind: z6.literal("field"), key: z6.string().min(1) }).strict(),
+    z6.object({ kind: z6.literal("literal"), value: z6.union([z6.number(), z6.string()]) }).strict(),
+    z6.object({
+      kind: z6.literal("op"),
+      op: z6.enum(["+", "-", "*", "/", "concat"]),
+      left: exprSchema,
+      right: exprSchema
+    }).strict()
+  ])
+);
+
+// ../../packages/shared/src/forms/config.ts
+var option = z7.object({ value: z7.string().min(1), label: z7.string().min(1) });
+var mirrorAxis = z7.enum(["none", "horizontal", "vertical", "both"]);
 var numericRange = {
-  min: z6.number().optional(),
-  max: z6.number().optional(),
-  step: z6.number().positive().optional()
+  min: z7.number().optional(),
+  max: z7.number().optional(),
+  step: z7.number().positive().optional()
 };
-var eventLog = z6.object({
-  event_types: z6.array(option).min(1),
-  ask_position: z6.boolean().default(false),
+var eventLog = z7.object({
+  event_types: z7.array(option).min(1),
+  ask_position: z7.boolean().default(false),
   mirror_axis: mirrorAxis.optional()
 }).strict().superRefine((config2, ctx) => {
   if (config2.ask_position && config2.mirror_axis === void 0) {
     ctx.addIssue({
-      code: z6.ZodIssueCode.custom,
+      code: z7.ZodIssueCode.custom,
       path: ["mirror_axis"],
       message: "mirror_axis is required when ask_position is on"
     });
   }
 });
 var FIELD_TYPE_CONFIG = {
-  counter: z6.object(numericRange).strict(),
-  number: z6.object(numericRange).strict(),
-  toggle: z6.object({}).strict(),
-  single_select: z6.object({ options: z6.array(option).min(1), is_ordinal: z6.boolean().optional() }).strict(),
-  multi_select: z6.object({ options: z6.array(option).min(1), is_ordinal: z6.boolean().optional() }).strict(),
-  rating: z6.object({ max: z6.number().int().positive().default(5), style: z6.enum(["stars", "slider"]) }).strict(),
-  short_text: z6.object({ max_length: z6.number().int().positive().optional() }).strict(),
-  long_text: z6.object({ max_length: z6.number().int().positive().optional() }).strict(),
+  counter: z7.object(numericRange).strict(),
+  number: z7.object(numericRange).strict(),
+  toggle: z7.object({}).strict(),
+  single_select: z7.object({ options: z7.array(option).min(1), is_ordinal: z7.boolean().optional() }).strict(),
+  multi_select: z7.object({ options: z7.array(option).min(1), is_ordinal: z7.boolean().optional() }).strict(),
+  rating: z7.object({ max: z7.number().int().positive().default(5), style: z7.enum(["stars", "slider"]) }).strict(),
+  short_text: z7.object({ max_length: z7.number().int().positive().optional() }).strict(),
+  long_text: z7.object({ max_length: z7.number().int().positive().optional() }).strict(),
   // SPEC-FINAL 5.3: allow_unsure is "always true in v1", so it defaults to true and
   // cannot be set to false — but a field that omits it entirely is still valid.
-  timer: z6.object({ allow_unsure: z6.literal(true).default(true) }).strict(),
+  timer: z7.object({ allow_unsure: z7.literal(true).default(true) }).strict(),
   event_log: eventLog,
-  position: z6.object({ multi_point: z6.boolean(), mirror_axis: mirrorAxis }).strict(),
-  cycle_path: z6.object({
-    max_points_per_cycle: z6.number().int().positive().default(6),
+  position: z7.object({ multi_point: z7.boolean(), mirror_axis: mirrorAxis }).strict(),
+  cycle_path: z7.object({
+    max_points_per_cycle: z7.number().int().positive().default(6),
     mirror_axis: mirrorAxis
   }).strict(),
-  computed: z6.object({ expression: z6.unknown(), result_type: z6.enum(["float", "string"]) }).strict(),
-  section: z6.object({}).strict()
+  computed: z7.object({ expression: exprSchema.nullable(), result_type: z7.enum(["float", "string"]) }).strict(),
+  section: z7.object({}).strict()
 };
 
 // ../../packages/shared/src/forms/entryShape.ts
@@ -663,7 +680,7 @@ function validateEntryData(fields, robotStatus, data) {
 }
 
 // ../../packages/shared/src/sync/operation.ts
-import { z as z7 } from "zod";
+import { z as z8 } from "zod";
 var SYNC_ENTITIES = [
   "scouting_entry",
   "match",
@@ -673,26 +690,26 @@ var SYNC_ENTITIES = [
   "alliance_slot",
   "alliance_decline"
 ];
-var isoDateTime = z7.string().datetime({ offset: true }).transform((value, ctx) => {
+var isoDateTime = z8.string().datetime({ offset: true }).transform((value, ctx) => {
   const ms = Date.parse(value);
   if (Number.isNaN(ms)) {
     ctx.addIssue({ code: "custom", message: "Invalid datetime" });
-    return z7.NEVER;
+    return z8.NEVER;
   }
   return new Date(ms).toISOString();
 });
-var operationSchema = z7.object({
-  op_id: z7.string().min(1),
-  entity: z7.enum(SYNC_ENTITIES),
-  row_id: z7.string().uuid(),
-  action: z7.enum(["create", "update", "delete"]),
-  base_version: z7.number().int().positive().nullable(),
+var operationSchema = z8.object({
+  op_id: z8.string().min(1),
+  entity: z8.enum(SYNC_ENTITIES),
+  row_id: z8.string().uuid(),
+  action: z8.enum(["create", "update", "delete"]),
+  base_version: z8.number().int().positive().nullable(),
   /** Always the whole row, never a patch. Field-level merging does not exist. */
-  payload: z7.record(z7.unknown()),
-  author_user_id: z7.string().uuid(),
+  payload: z8.record(z8.unknown()),
+  author_user_id: z8.string().uuid(),
   client_created_at: isoDateTime,
   client_updated_at: isoDateTime,
-  seq: z7.number().int().nonnegative()
+  seq: z8.number().int().nonnegative()
 }).superRefine((op, ctx) => {
   if (op.action === "create" && op.base_version !== null) {
     ctx.addIssue({
@@ -718,16 +735,16 @@ var operationSchema = z7.object({
 });
 
 // ../../packages/shared/src/sync/protocol.ts
-import { z as z8 } from "zod";
+import { z as z9 } from "zod";
 var MAX_OPERATIONS_PER_PUSH = 200;
 var WATERMARK_OVERLAP_MS = 5e3;
-var pushRequestSchema = z8.object({
-  device_id: z8.string().uuid(),
-  operations: z8.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
+var pushRequestSchema = z9.object({
+  device_id: z9.string().uuid(),
+  operations: z9.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
 });
-var pushEnvelopeSchema = z8.object({
-  device_id: z8.string().uuid(),
-  operations: z8.array(z8.unknown()).max(MAX_OPERATIONS_PER_PUSH)
+var pushEnvelopeSchema = z9.object({
+  device_id: z9.string().uuid(),
+  operations: z9.array(z9.unknown()).max(MAX_OPERATIONS_PER_PUSH)
 });
 var PARENT_DELETED_DETAIL = {
   event: "the event no longer exists",
@@ -762,10 +779,10 @@ var PULL_ENTITY_KEYS = [
   "dashboard_charts",
   "weight_presets"
 ];
-var pullRequestSchema = z8.object({
-  event_id: z8.string().uuid(),
-  since: z8.string().datetime({ offset: false }).optional(),
-  cursor: z8.string().optional()
+var pullRequestSchema = z9.object({
+  event_id: z9.string().uuid(),
+  since: z9.string().datetime({ offset: false }).optional(),
+  cursor: z9.string().optional()
 });
 
 // src/routes/errors.ts
@@ -833,13 +850,13 @@ function createApp(deps) {
 
 // src/auth/token.ts
 import { jwtVerify, SignJWT } from "jose";
-import { z as z9 } from "zod";
-var sessionClaims = z9.object({
-  sub: z9.string().min(1),
-  role: z9.enum(["scouter", "lead", "admin"]),
-  username: z9.string().min(1),
-  iat: z9.number().int(),
-  exp: z9.number().int()
+import { z as z10 } from "zod";
+var sessionClaims = z10.object({
+  sub: z10.string().min(1),
+  role: z10.enum(["scouter", "lead", "admin"]),
+  username: z10.string().min(1),
+  iat: z10.number().int(),
+  exp: z10.number().int()
 });
 var key = (config2) => new TextEncoder().encode(config2.authJwtSecret);
 async function issueToken(user, config2) {
@@ -879,18 +896,18 @@ async function callerFor(request, config2, store, options = {}) {
 }
 
 // src/config.ts
-import { z as z10 } from "zod";
-var schema = z10.object({
-  SUPABASE_URL: z10.string().url(),
-  SUPABASE_SERVICE_ROLE_KEY: z10.string().min(1),
-  AUTH_JWT_SECRET: z10.string().min(32, "must be at least 32 characters"),
-  AUTH_TOKEN_TTL_DAYS: z10.coerce.number().int().positive().default(30),
-  AUTH_TOKEN_REFRESH_AFTER_DAYS: z10.coerce.number().int().positive().default(7),
-  ALLOWED_ORIGIN: z10.string().url(),
-  NODE_ENV: z10.enum(["development", "production", "test"]).default("development"),
+import { z as z11 } from "zod";
+var schema = z11.object({
+  SUPABASE_URL: z11.string().url(),
+  SUPABASE_SERVICE_ROLE_KEY: z11.string().min(1),
+  AUTH_JWT_SECRET: z11.string().min(32, "must be at least 32 characters"),
+  AUTH_TOKEN_TTL_DAYS: z11.coerce.number().int().positive().default(30),
+  AUTH_TOKEN_REFRESH_AFTER_DAYS: z11.coerce.number().int().positive().default(7),
+  ALLOWED_ORIGIN: z11.string().url(),
+  NODE_ENV: z11.enum(["development", "production", "test"]).default("development"),
   // Vercel's own system env var (https://vercel.com/docs/environment-variables/system-environment-variables),
   // not something anyone sets by hand. Absent locally and in tests.
-  VERCEL_GIT_COMMIT_SHA: z10.string().min(1).optional()
+  VERCEL_GIT_COMMIT_SHA: z11.string().min(1).optional()
 });
 function loadServerConfig(env) {
   const parsed = schema.safeParse(env);
@@ -1913,7 +1930,7 @@ function pgCode(e) {
 }
 
 // src/core/queries/listEvents.ts
-import { z as z11 } from "zod";
+import { z as z12 } from "zod";
 
 // src/core/cursor.ts
 function encodeCursor(value) {
@@ -1934,7 +1951,7 @@ function decodeCursor(schema2, raw) {
 }
 
 // src/core/queries/listEvents.ts
-var eventCursor = z11.object({ s: z11.number().int(), i: z11.string().uuid() }).strict();
+var eventCursor = z12.object({ s: z12.number().int(), i: z12.string().uuid() }).strict();
 async function listEvents(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listEventsInput, input);
@@ -2041,8 +2058,8 @@ async function setActiveEvent(caller, input, ctx) {
 }
 
 // src/core/queries/listSeasons.ts
-import { z as z12 } from "zod";
-var seasonCursor = z12.object({ y: z12.number().int() }).strict();
+import { z as z13 } from "zod";
+var seasonCursor = z13.object({ y: z13.number().int() }).strict();
 async function listSeasons(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listSeasonsInput, input);
@@ -2202,8 +2219,8 @@ async function inWaves(items, fn) {
 }
 
 // src/core/queries/listMatches.ts
-import { z as z13 } from "zod";
-var matchCursor = z13.object({ t: matchType, n: z13.number().int() }).strict();
+import { z as z14 } from "zod";
+var matchCursor = z14.object({ t: matchType, n: z14.number().int() }).strict();
 async function listMatches(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listMatchesInput, input);
@@ -2434,8 +2451,8 @@ async function teamOrNotFound(ctx, id) {
 }
 
 // src/core/queries/listTeams.ts
-import { z as z14 } from "zod";
-var teamCursor = z14.object({ n: z14.number().int() }).strict();
+import { z as z15 } from "zod";
+var teamCursor = z15.object({ n: z15.number().int() }).strict();
 async function listTeams(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listTeamsInput, input);
