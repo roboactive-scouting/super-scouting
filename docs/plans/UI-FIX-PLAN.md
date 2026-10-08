@@ -230,6 +230,8 @@ format (`+00:00`), which the op schema refused, and that one op made the whole b
 
 ## Open for the user
 
+**Answers 2026-10-08:** phone Login works; the 3 stuck entries synced; **no ✕ on the other sheets** (swipe down is enough). Item 5 was explained to the user, answer pending.
+
 1. **Re-test on the phone first.** Reload the app once (close any old tabs, on the
    computer too; tabs opened before this build don't hear the new cross-tab sign-out).
    The 3 stuck entries should send by themselves within a sync or two: the app rebuilds
