@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.19 · **Date:** 2026-10-08 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.20 · **Date:** 2026-10-08 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.20 adds the form builder's closed design: §5.1 (a new field's key follows its label until the first save; select-option changes are structural), §5.2 / §5.3 / §5.6 (an event-log field may ask where each tap happened), §5.9 (the builder's layout), §8.2 (map fields open a full-screen map) and §17.9's Form builder row. See the living spec's §21, 2026-10-08 (v0.68).*
 
 *v1.19 moves the v1 date to 2026-12-01 (scope line, §20.1) and removes §20.6's phase 2 cut: every phase 1 and phase 2 task is built. See the living spec's §21, 2026-10-08 (v0.67).*
 
@@ -601,9 +603,9 @@ Points are captured at field-creation time for the same reason as semantic metad
 ### 5.1 Versioning
 
 - A form belongs to a **season**. A season may hold several forms (one `match`, one `super`). Every event in that season uses them.
-- **A new form version is created only by a structural change**: adding a field, removing/deprecating a field, or changing a field's type.
+- **A new form version is created only by a structural change**: adding a field, removing/deprecating a field, or changing a field's type. **Adding, removing or reordering a select option is structural too**; renaming an option's label is in place. *(amended 2026-10-08, v1.20)*
 - **These edits happen in place and create no version:** a field's `label`, its help text, its `min`/`max`/`step` range, its `expected_range`, its display order, its section, its semantic metadata, its scoring, and the form's `timer_config`. A range change applies to new entries only and never retroactively invalidates data already collected.
-- **Field `key`s are permanent.** Labels change freely; keys never.
+- **Field `key`s are permanent.** Labels change freely; keys never. A new field's key is generated from its label and **follows the label until the field is first saved**; from that save on it never changes. *(amended 2026-10-08, v1.20)*
 - Deleting a field marks it `deprecated` in the new version. Historical data is retained.
 - A form has one **active version** (`forms.active_version_id`) plus restorable secondary version snapshots. Statistics always compute against the **active** version's field set.
 - Entries collected under other versions still aggregate through shared field `key`s.
@@ -627,7 +629,7 @@ All of the following ship in v1.
 | **Short text** | Free text. |
 | **Long text** | Notes / comments. |
 | **Timer** | Accumulating stopwatch. **Editable after stop** (to correct a late stop) and **nullable via an "unsure — no time" toggle** (submits no value rather than a wrong number). |
-| **Event log** | Scouter-defined event buttons. Each tap is stored as `{type, t}` where `t` is seconds from match start (§5.5). Taps are deletable before submit. |
+| **Event log** | Scouter-defined event buttons. Each tap is stored as `{type, t}` where `t` is seconds from match start (§5.5). Taps are deletable before submit. **Optionally, per field, each tap also asks where** (`ask_position`): the map opens after the tap, and the tap stores `{type, t, x, y}`, or `{type, t}` when the scouter skips. *(amended 2026-10-08, v1.20)* |
 | **Field-position picker** | Tap the season game image; stores normalized `{x, y}` in 0–1. One point or a list per entry. Alliance-normalized (§5.6). |
 | **Cycle path** | Tap an **ordered sequence of points** per cycle; an entry holds a **list of cycles**. **Low fidelity by design** — a configurable cap on points per cycle, defaulting to 6, keeps the payload light. It is a rough sketch, not a trajectory. Same alliance normalization (§5.6). |
 | **Computed** | Read-only, derived from other fields by a small typed expression (§5.7). |
@@ -645,7 +647,7 @@ Every field carries: `key`, `label`, help text, `type`, `required`, `default_val
 | Rating | `max` (default 5), `style` (`stars` \| `slider`) |
 | Single / Multi select | `options: [{value, label}]`, `is_ordinal` |
 | Timer | `allow_unsure` (always true in v1) |
-| Event log | `event_types: [{value, label}]` |
+| Event log | `event_types: [{value, label}]`, `ask_position` (bool, default false), `mirror_axis` (used when `ask_position` is on) |
 | Field-position picker | `multi_point` (bool), `mirror_axis` ∈ `none` \| `horizontal` \| `vertical` \| `both` |
 | Cycle path | `max_points_per_cycle` (default 6), `mirror_axis` |
 | Computed | `expression` (§5.7), `result_type` ∈ `float` \| `string` |
@@ -697,7 +699,7 @@ Derived series available to the metric engine per event type: **cycle count**, *
 
 ### 5.6 Alliance normalization for spatial fields
 
-Field-position picker and Cycle-path fields store normalized `{x, y}` in 0–1 against the **season game image**.
+Field-position picker and Cycle-path fields, and Event-log taps with a place, store normalized `{x, y}` in 0–1 against the **season game image**.
 
 - The **red** alliance keeps raw coordinates.
 - The **blue** alliance is mirrored on the field's configured `mirror_axis` (`horizontal`, `vertical`, `both`, or `none`), so both alliances map to a single canonical frame.
@@ -737,6 +739,8 @@ Desktop only, **≥ 1024 px** (§17.2). Three panes:
 1. **Field palette** — the type catalogue, dragged onto the canvas.
 2. **Canvas** — the ordered field list, drag-reorderable, grouped by section.
 3. **Settings pane** — the selected field's configuration, semantic metadata and scoring, all in one place so metadata is filled *while* the field is created.
+
+*Closed design (2026-10-08, v1.20; `docs/design/pages/12-form-builder/final/`):* the canvas draws each field with the scouter's real controls and is **paged by phase like the entry form** (the phase tabs, "Phase n of 4", swipe or ← →); its **Try it** mode is the phone-width preview and shows **what the entry would save** and what the analysis gets. The top bar holds **Match timer** and **More** (Edit as JSON · Export · Import · Delete form), then Save draft / Publish; a held Publish says why, with "Next incomplete". A locked version shows a banner naming **how many entries use it**. An incomplete field is marked in the warning colour, never red. Reached from **`/admin/forms`**, an admin-only list of the season's forms (its design is the next round).
 
 Plus:
 
@@ -906,6 +910,7 @@ If a super entry for that (team, event) already exists on the device, the app op
 - **Conditional fields** appear and disappear per §5.8.
 - **Hard range block** on submit: a numeric value outside its field's `expected_range` blocks submission (§15.1).
 - **Undo** is available on every repeatable input: counters, event-log taps, position-picker points (undo last point / clear all), multi-select, and timer reset.
+- **Map fields** (position picker, cycle path, and an event log that asks where) are one button in the form showing what is marked. It opens the map **full screen on a phone** and **as a dialog on a computer**, drawn with **the scout's own alliance end at the bottom** (phone) or on the left (computer); only the drawing turns, never the stored coordinates. Tap to add; tap a mark to select it and **✕ Remove** it; Undo. A cycle path shows only the routes: while drawing, **Clear path** restarts the path being drawn. An event log's "where?" can be skipped, keeping the tap's time. *(added 2026-10-08, v1.20)*
 - **Explicit submit.** Submitting shows a **confirmation summary of the whole entry** before it commits. Nothing reaches the shared data on a stray tap.
 
 ### 8.3 Never lose data
@@ -1941,7 +1946,7 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 | User detail (`/admin/users/:id`) | Added 2026-10-07, v1.13. Desktop only. One column: who it is (with "This is you" on your own account); **Role** as three described choices that **save on pick, with no Save button** ("Saving…", then a "Saved" line; a refusal shows the server's sentence and restores the role); Rename; Reset password with **Generate** and the one-time handover; **Disable** behind the destructive confirmation. A disabled account shows only **Enable account**. |
 | Change password (`/change-password`) | Added 2026-10-07, v1.14. The sign-in frame. Forced after sign-in ("Choose a new password", no way back) or by choice ("Change your password", Back to scouting). Current, new and confirm, each with **show / hide**; **live checks** for "at least 8 characters" and "both new passwords match"; offline is said first and the button is held. Reached by choice from the **account menu** (the sidebar's account corner: Switch scouter · Change password · Sign out; on a phone, the drawer's account section). |
 | Phone data entry | One job on screen. Primary actions stay thumb-reachable. Counters are a − / value / + triplet, never a text input. The sticky timer never fights the page scroll. |
-| Form builder | Three panes: palette → canvas → settings. Semantic metadata lives in the settings pane so it is filled *while* the field is created. A preview toggle renders the form at phone width. |
+| Form builder | Three panes: palette → canvas → settings. Semantic metadata lives in the settings pane so it is filled *while* the field is created. *(Amended 2026-10-08, v1.20.)* Desktop only. The canvas draws the real entry controls, paged by phase like the entry form; **Try it** replaces a separate preview and shows the data the entry would save. Top bar: version chip, Match timer, More (Edit as JSON · Export · Import · Delete form), Save draft / Publish. Map fields are buttons that open the map dialog. |
 | Team page | Sticky team header, horizontal tab strip, stat rows as label → value → inline bar. Readable in one thumb scroll. |
 | Dashboards & builder | A panel grid with a pinned scope/filter bar; a builder order a non-programmer can follow; KPI stat tiles above the charts. |
 | Ranking table | Column sort, column visibility, sticky header, no pagination for 50 teams. Rank column, medals on the top 3. |

@@ -1,6 +1,7 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.4 · **Date:** 2026-10-07 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.5 · **Date:** 2026-10-08 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.5 (2026-10-08): the form builder is designed (`docs/design/pages/12-form-builder/final/`, spec v0.68 / SPEC-FINAL v1.20). Tasks 1.29–1.31 point at it: `/admin/forms` is decided, a new field's key follows its label until the first save, the incomplete marker is the warning colour (never red), the canvas pages by phase and its Try it mode is the preview. Tasks 1.34–1.35 gain the map pop-up and the event log's optional "where?".*
 *v1.4 (2026-10-07): the redesign build RB.1 – RB.20 (`REDESIGN-BUILD-PLAN.md`) is coded; the execution-order note and the visual-reference banner point at it, and a release note records that the delete-cascade migration goes to production before the server.*
 *v1.3 (2026-10-06): the previous design's styling — colours, fonts, reference apps, motion style — is removed from the global constraints, "The redesign system", the unfinished tasks (1.24 on, phase 2) and the appendix, ahead of the from-scratch redesign (spec v0.52). Finished tasks are untouched and carry a banner. Structural requirements are unchanged.*
 *v1.2 (2026-10-01): the redesign runs now. It is the redesign tasks R.1–R.14 (executed 2026-10-01; their plan file was deleted 2026-10-06 and is in git history), after task 1.23 and before 1.24. Every UI task from 1.29 on carries a "Design (redesign system)" block, and the new section "The redesign system" binds them all.*
@@ -13115,8 +13116,8 @@ git add -A && git commit -m "feat(server): add the scoring-model editor and the 
 
 ## Task 1.29: Client — the form builder shell
 
-**Design (redesign system).** The three panes sit side by side (palette · canvas · settings). Canvas rows are rows of one list. An incomplete field shows a visible marker with `sr-only` text "incomplete".
-**Open input [RAISED BY ME]:** nothing lists forms or links to `/admin/forms/:formId` (living spec §4.3, 2026-10-01). Decide before this task runs. The recommendation is a minimal `/admin/forms` page (the season's match and super forms through `getFormByKind`), `PATHS.forms`, and `NAV_ITEMS` row `{ id: 'forms', label: 'Forms', icon: FileText, group: 'admin', bottomBar: null, visible: admin }`.
+**Design (closed 2026-10-08) — match `docs/design/pages/12-form-builder/final/` and its README.** The three panes sit side by side (palette · canvas · settings). The canvas draws each field with the real `FieldInput`, **one phase at a time under the entry form's phase tabs** ("Phase n of 4", dots, ← →), with the key and points at each item's top right. An incomplete field shows the **warning-colour "Needs meaning" marker** with `sr-only` text "incomplete" — never a red dot (red is the red alliance). The top bar is Match timer · More (Edit as JSON · Export · Import · Delete form) · Save draft · Publish, with "Next incomplete →" when Publish is held.
+**Decided 2026-10-08 (spec v0.68):** nothing listed forms (living spec §4.3); this task also adds a minimal `/admin/forms` page (the season's match and super forms through `getFormByKind`), `PATHS.forms`, and `NAV_ITEMS` row `{ id: 'forms', label: 'Forms', icon: FileText, group: 'admin', bottomBar: null, visible: admin }`. The list page's look is its own design round (`pages/13-forms`), closed before this task runs.
 
 **Files:**
 - Create: `apps/client/src/features/builder/BuilderPage.tsx`, `apps/client/src/features/builder/FieldPalette.tsx`, `apps/client/src/features/builder/BuilderCanvas.tsx`, `apps/client/src/features/builder/useBuilderState.ts`
@@ -13177,9 +13178,16 @@ describe('useBuilderState', () => {
     expect(result.current.fields[0]!.type).toBe('toggle');
   });
 
-  it('never lets a key be edited once the field exists', () => {
+  it('derives a new field's key from its label until the first save (SPEC-FINAL 5.1)', () => {
     const { result } = renderHook(() => useBuilderState(initial));
-    act(() => result.current.updateField('auto_notes', { key: 'renamed' } as never));
+    act(() => result.current.addField('counter'));
+    act(() => result.current.updateField(result.current.selectedKey!, { label: 'Pieces dropped' }));
+    expect(result.current.fields.at(-1)!.key).toBe('pieces_dropped');
+  });
+
+  it('never lets a saved field's key change', () => {
+    const { result } = renderHook(() => useBuilderState(initial));
+    act(() => result.current.updateField('auto_notes', { key: 'renamed', label: 'Renamed' } as never));
     expect(result.current.fields[0]!.key).toBe('auto_notes');
   });
 
@@ -13204,11 +13212,11 @@ describe('useBuilderState', () => {
 });
 ```
 
-`apps/client/src/features/builder/BuilderPage.test.tsx` asserts: the three panes are present at 1280 px; the palette lists all fourteen types and no Photo; the canvas groups fields under their section headings; clicking a canvas row selects it in the settings pane; the page renders the desktop-only panel at 640 px; a banner shows while the version is locked, saying a structural edit will create a new version and an in-place edit will not.
+`apps/client/src/features/builder/BuilderPage.test.tsx` asserts: the three panes are present at 1280 px; the palette lists all fourteen types and no Photo; the canvas shows one phase at a time under the phase tabs, that phase's fields under their section headings; clicking a canvas row selects it in the settings pane; the page renders the desktop-only panel at 640 px; a banner shows while the version is locked, saying a structural edit will create a new version and an in-place edit will not.
 
 - [ ] **Step 2: Run, implement, re-run**
 
-`useBuilderState` holds `fields` as an array, computes `willForkNewVersion` by calling the **same `isStructuralChange`** helper (moved to `packages/shared/src/forms/version.ts` in this task so both sides share it), validates with `validateFieldDefinition`, and refuses key edits outright. `FieldPalette` renders one draggable button per `FIELD_TYPES` entry with a one-line description. `BuilderCanvas` is a `@dnd-kit/sortable` list with an explicit drag handle, grouped by `section`, each row showing the label, the type and a red dot when `issuesFor(key)` is non-empty.
+`useBuilderState` holds `fields` as an array, computes `willForkNewVersion` by calling the **same `isStructuralChange`** helper (which also counts adding, removing or reordering a select option as structural, SPEC-FINAL v1.20 §5.1; an option label rename is not) (moved to `packages/shared/src/forms/version.ts` in this task so both sides share it), validates with `validateFieldDefinition`, and refuses key edits on any saved field. `FieldPalette` renders one draggable button per `FIELD_TYPES` entry with a one-line description. `BuilderCanvas` is a `@dnd-kit/sortable` list with an explicit drag handle, grouped by `section`, each item drawing the field's real input, its key and the warning "Needs meaning" marker when `issuesFor(key)` is non-empty. A field's key is the label's slug (deduplicated with `_2`, `_3`) until the field is first saved; then key edits are refused outright.
 
 ```bash
 pnpm install && pnpm --filter @frc/client exec vitest run src/features/builder && pnpm typecheck
@@ -13226,7 +13234,7 @@ git add -A && git commit -m "feat(client): add the three-pane form builder shell
 
 ## Task 1.30: Client — the builder settings pane
 
-**Design (redesign system).** The settings pane is one `Card` with three `SectionHeader level={3}` groups: Configuration, Meaning (the semantic metadata), Scoring. Fields come from `features/admin/fields.tsx` and `Textarea`; errors are `FormError`.
+**Design (closed 2026-10-08) — match `docs/design/pages/12-form-builder/final/`.** The settings pane is one `Card`: the key line, then `SectionHeader level={3}` groups Field · Configuration · Meaning (the semantic metadata) · Scoring · Show when; a complete group folds to a one-line summary. Scoring is a phase × value matrix. Fields come from `features/admin/fields.tsx` and `Textarea`; errors are `FormError`.
 
 **Files:**
 - Create: `apps/client/src/features/builder/SettingsPane.tsx`, `apps/client/src/features/builder/MetadataFields.tsx`, `apps/client/src/features/builder/ScoringFields.tsx`, `apps/client/src/features/builder/ConfigFields.tsx`, `apps/client/src/features/builder/MirrorPreview.tsx`
@@ -13347,7 +13355,7 @@ git add -A && git commit -m "feat(client): add the builder settings pane with me
 
 ## Task 1.31: Client — live preview, the raw-JSON editor and export/import
 
-**Design (redesign system).** The phone-width preview is a 375 px-wide frame rendering the real `FieldInput`. The raw-JSON editor is a `Textarea`; its line-numbered error is a `Notice tone="danger" role="alert"`. Export and import are `Button`s.
+**Design (closed 2026-10-08) — match `docs/design/pages/12-form-builder/final/`.** The preview is the canvas's **Try it** mode: the phone-width column (410 px) rendering the real `FieldInput` without grips or keys, while the settings pane shows **what the entry would save** (its JSON) and what the analysis gets. Edit as JSON, Export and Import live in the top bar's **More** menu. The raw-JSON editor is a `Textarea`; its line-numbered error is a `Notice tone="danger" role="alert"`. Export and import are `Button`s.
 
 **Files:**
 - Create: `apps/client/src/features/builder/LivePreview.tsx`, `apps/client/src/features/builder/RawJsonEditor.tsx`, `apps/client/src/features/builder/ImportExport.tsx`
@@ -13360,7 +13368,7 @@ git add -A && git commit -m "feat(client): add the builder settings pane with me
 
 - [ ] **Step 1: Write the failing tests**
 
-`LivePreview.test.tsx` asserts: the preview renders inside a 390 px-wide frame; it uses the same `FieldInput` the scouter sees, so a counter shows as −/value/+ and never as a text box; conditional fields appear and disappear as the preview is filled; **nothing typed in the preview is ever submitted or drafted**.
+`LivePreview.test.tsx` asserts: Try it renders inside the canvas's phone-width column (≤ 410 px) and the side pane shows the would-be-saved JSON; it uses the same `FieldInput` the scouter sees, so a counter shows as −/value/+ and never as a text box; conditional fields appear and disappear as the preview is filled; **nothing typed in the preview is ever submitted or drafted**.
 
 `RawJsonEditor.test.tsx` asserts: it opens closed, behind an "Advanced" toggle; editing valid JSON updates the builder state; invalid JSON shows one message naming the position and leaves the state untouched; a definition that fails `validateFieldDefinition` is refused with the field key named.
 
@@ -13664,7 +13672,7 @@ git add -A && git commit -m "feat(client): render every simple field type in the
 
 ## Task 1.34: The sticky match timer, the Timer field and the Event-log field
 
-**Design (redesign system).** The sticky timer sits under the phone top bar and stays visible while the form scrolls. Event-log buttons are `Button`s, and taps show as `Badge` chips with undo.
+**Design (redesign system).** The sticky timer sits under the phone top bar and stays visible while the form scrolls. Event-log buttons are `Button`s, and taps show as `Badge` chips with undo. **Closed 2026-10-08 (`docs/design/pages/12-form-builder/final/maps-phone.png`):** an event-log field with `ask_position` on opens the map after each tap ("High goal · where?", earlier taps grey); **Skip · no place** keeps `{type, t}`, **Save tap** stores `{type, t, x, y}` (alliance-normalized like §5.6); a chip with a place carries a pin. **The Timer field** (`timer-phone.png`): one centred green Start; running shows the time with Pause and Clear; paused shows Resume, Clear and ✎ to correct the time; "Unsure — no time" records no value.
 
 **Files:**
 - Create: `apps/client/src/features/entry/MatchTimer.tsx`, `apps/client/src/features/entry/MatchTimer.test.tsx`
@@ -13786,7 +13794,7 @@ git add -A && git commit -m "feat(client): add the sticky match timer, the timer
 
 ## Task 1.35: Spatial fields — the position picker and the cycle path
 
-**Design (redesign system).** The game image sits in a `Card`. Tapped points are drawn in the scout's alliance colour. A missing image is `FieldImage`'s alert, unchanged.
+**Design (closed 2026-10-08) — match `docs/design/pages/12-form-builder/final/maps-phone.png` and `form-builder-desktop-try*.png`.** In the form a map field is one **button** (thumbnail + count + ›). It opens the map **full screen on a phone** and **as a dialog on a computer**, drawn with **the scout's own alliance end at the bottom** (phone) / left (computer) — a display rotation only; stored coordinates are unchanged. Tapped points are drawn in the scout's alliance colour. Tap a mark to select it and show **✕ Remove**; Undo; the Delete key on a computer. A cycle path shows only the routes; while drawing: Undo · **Clear path** (restart the path being drawn) · Finish; otherwise + New path. A missing image is `FieldImage`'s alert, unchanged.
 
 **Files:**
 - Create: `packages/shared/src/forms/mirror.ts`, `packages/shared/src/forms/mirror.test.ts`

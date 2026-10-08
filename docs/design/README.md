@@ -43,10 +43,12 @@ Pages go **one at a time**. At this stage that means only the pages that exist t
 | 8 | Users | `/admin/users` | **Closed** 2026-10-07, variant C + B's dialog | RB.14 |
 | 9 | User detail | `/admin/users/:id` | **Closed** 2026-10-07, variant A | RB.15 |
 | 10 | Change password | `/change-password` | **Closed** 2026-10-07, variant C | RB.7 |
+| 12 | Form builder (planned page) | `/admin/forms/:formId` | **Closed** 2026-10-08, variant D (+ the scouter's map pop-ups) | 1.29–1.32; maps in 1.34–1.35 |
+| 13 | Forms list (planned page) | `/admin/forms` | Next round | 1.29 |
 
 The phone shell (`pages/11-phone-shell/final/`, not a numbered route) is coded in RB.6. All were built in the redesign build (`docs/plans/REDESIGN-BUILD-PLAN.md`, RB.1–RB.20), and RB.19 reviewed each against its final images. `/context` is only a redirect to `/`. Update this table when a page closes.
 
-**All ten current pages are closed (2026-10-07), and so is the phone shell** (`pages/11-phone-shell/final/`: top bar, bottom bar, menu). **Planned pages, designed after these ten:** the **entry preview** (SPEC-FINAL §13.4; Entries rows open it, user 2026-10-07), Search, Ranking and the other pages in `IMPLEMENTATION-PLAN.md`.
+**All ten current pages are closed (2026-10-07), and so is the phone shell** (`pages/11-phone-shell/final/`: top bar, bottom bar, menu). **Planned pages, designed one group ahead of the code (2026-10-08):** the form builder is closed (`pages/12-form-builder/final/`); the forms list is next. **Still to design:** the **entry preview** (SPEC-FINAL §13.4; Entries rows open it, user 2026-10-07), Search, Ranking and the other pages in `IMPLEMENTATION-PLAN.md`.
 
 ## Making the images
 
