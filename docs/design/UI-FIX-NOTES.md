@@ -1,5 +1,8 @@
 # UI fix notes — round 1
 
+**Status (2026-10-08):** all fixed in UF.1–UF.10 and shipped to `develop` (`72731c8`). See
+`docs/plans/UI-FIX-PLAN.md` "Result" and "Open for the user".
+
 Notes from real-device testing of `develop` (`version 9b102cd`). Collected page by page;
 nothing is fixed until the list is complete. Fixed on `fix/ui-pages`, one commit per page.
 Source of truth for each fix: the page's `final/` images and README.

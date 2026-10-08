@@ -191,6 +191,58 @@ Commit (docs only, if any): `docs: UI fix round 1 shipped to develop (UF.11)`
 
 ---
 
+## Result (2026-10-08, overnight run)
+
+All of UF.1–UF.10 shipped. `develop` was fast-forwarded to `72731c8` and pushed. CI is green
+(run 37723337066). The preview server `/health` and the client bundle both serve `72731c8`.
+
+Live checks against the preview:
+- Deep links `/login`, `/scout`, `/entries` and `/admin/users` → 200 HTML. `/sw.js` and the
+  manifest keep their own types.
+- A push of an entry for a missing match → `parent-deleted`, "the match no longer
+  exists". This used to be "unexpected server error".
+- A delta pull carries `deleted_matches`. An admin RPC with a token → 200; without one → 401.
+
+Local suites: vitest 135 files / 1676 tests; typecheck, lint and format clean; bundle
+203.8 KB gzip (of 205). e2e gave 44/45 in one full run. The failing test, auth "an expired
+session keeps the name", then passed alone 7/7 and again 4/4 with `--repeat-each 4`, so it
+is flaky under load. It's logged here and was not changed.
+
+Extra fixes found along the way: decimal or negative breakdown times are now rejected
+(they would have stuck the queue); a wobbly tap (under 16 px) on a counter always counts;
+session changes reach every open tab.
+
 ## Open for the user
 
-*(filled in during the run)*
+1. **Re-test on the phone first.** Reload the app once (close any old tabs, on the
+   computer too; tabs opened before this build don't hear the new cross-tab sign-out).
+   The 3 stuck entries should send by themselves within a sync or two: the app rebuilds
+   their deleted match. Then do the phone Login check that was skipped.
+2. **Manage edit sheet (UF.9).** The overflow and scroll-to-bottom didn't reproduce in
+   Chrome. The fix targets iOS Safari's zoom-on-focus: nothing is focused on open, and the
+   fields are 16 px. Please re-test on the phone; if it's Android and still wrong, send a
+   screenshot.
+3. **Lost sign-in (UF.2).** Two causes are fixed: a slow login quietly falling back to an
+   offline sign-in, and a sign-out in one tab not reaching another. If "sign in again"
+   ever comes back, the device now records why in `meta['auth.last_token_loss']`. Tell
+   me and I'll read it.
+4. **✕ on sheets.** No phone final draws a ✕ on a sheet. It was added only to Switch
+   competition, as you asked. All sheets close with a swipe down. Want the ✕ on the
+   others too?
+5. **Scout: "Team not here?" after a submit, on a short phone.** It's now a full-width
+   button and never ends up under the Start entry bar. On a short screen with the "Entry
+   saved" banner it still starts below the fold until you scroll. Is that OK, or should it
+   move into the bottom bar? (That makes the bar about 56 px taller.)
+6. **Phone warning strips** lost their 4 px dark start edge. That edge was what looked
+   misaligned on Home. Their wording carries the warning now.
+7. **Production release order.** Before promoting to `main`, push the migrations
+   `20261007120000_delete_cascade` **and** `20261008090000_match_deletions` to production
+   by hand. A server with UF.1 fails every delta pull without the second one.
+8. **This machine's memory.** Hundreds of `git fsmonitor--daemon` processes (from
+   `core.fsmonitor=true` in the system gitconfig) held about 18 GB, so tests ran out of
+   memory. During UF.8 a subagent stopped 242 of the stale daemons; git restarts them when
+   needed. A lasting fix is your call, for example
+   `git config --system core.fsmonitor false`.
+9. **Finals not re-rendered.** The Scout and Home final READMEs were updated, but their
+   PNGs still show the old link text, the unpinned desktop button and the always-raised
+   Scout. The shell final, which was re-rendered, is what counts for the bar.
