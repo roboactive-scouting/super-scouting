@@ -193,6 +193,27 @@ describe('SelectRobotPage: your station and the line-up (Scout README 1–4, 6)'
   });
 });
 
+describe('SelectRobotPage: Team not here? and Start entry stay in reach (UI fix round)', () => {
+  it('"Team not here?" is a full-width secondary button that scrolls clear of the pinned bar', async () => {
+    await seedEventWithLineup();
+    await setStation('B2');
+    const user = userEvent.setup();
+    renderScout();
+    await typeMatch(user, '39');
+    const notHere = await screen.findByRole('button', { name: /Team not here\?/ });
+    expect(notHere).toHaveClass('w-full', 'border-control-border', 'min-h-11');
+    expect(notHere.className).toContain('scroll-mb-[calc(var(--bottom-bar,0px)+6.5rem)]');
+  });
+
+  it('pins Start entry at every width, the desktop one flat on the page background', async () => {
+    renderScout();
+    const bar = (await screen.findByRole('button', { name: /start entry/i })).parentElement;
+    expect(bar).toHaveClass('sticky', 'lg:bg-bg');
+    expect(bar?.className).not.toMatch(/lg:static/);
+    expect(bar?.closest('main')).toHaveAttribute('data-pinned-foot');
+  });
+});
+
 describe('SelectRobotPage: a match with no line-up (SPEC-FINAL 8.1, 6.4)', () => {
   beforeEach(() => setStation('R2'));
 
@@ -348,13 +369,60 @@ describe('SelectRobotPage: picks belong to the typed match and station', () => {
 
 describe('SelectRobotPage: the saved banner (SPEC-FINAL 8.1)', () => {
   it('confirms what was saved after a submit, and says it is on this device, not synced', async () => {
-    location.state = { saved: { matchLabel: 'Q21', teamLabel: '118 Robonauts', edited: false } };
+    location.state = {
+      saved: {
+        matchType: 'qualification',
+        number: 21,
+        matchLabel: 'Q21',
+        teamLabel: '118 Robonauts',
+        edited: false,
+      },
+    };
     renderScout();
     const notice = await screen.findByRole('status', { name: /entry saved/i });
     expect(notice).toHaveTextContent('Entry saved on this device');
     expect(notice).toHaveTextContent('Q21 · 118 Robonauts');
     expect(notice).toHaveTextContent(/safe here with no network/);
     expect(notice).not.toHaveTextContent(/synced/i);
+  });
+
+  it('offers the next match of the same type after a new entry, with no robot picked (v1.17)', async () => {
+    await setStation('R1');
+    location.state = {
+      saved: {
+        matchType: 'practice',
+        number: 8,
+        matchLabel: 'P8',
+        teamLabel: '118 Robonauts',
+        edited: false,
+      },
+    };
+    const user = userEvent.setup();
+    renderScout();
+    const number = await screen.findByLabelText('Match number');
+    expect(number).toHaveValue(9);
+    expect(screen.getByLabelText('Match type')).toHaveValue('practice');
+    expect(await screen.findByRole('searchbox')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /start entry/i })).toBeDisabled();
+    // Still editable.
+    await user.clear(number);
+    await user.type(number, '12');
+    expect(number).toHaveValue(12);
+  });
+
+  it('fills in no match after an edit', async () => {
+    location.state = {
+      saved: {
+        matchType: 'practice',
+        number: 8,
+        matchLabel: 'P8',
+        teamLabel: '118 Robonauts',
+        edited: true,
+      },
+    };
+    renderScout();
+    expect(await screen.findByLabelText('Match number')).toHaveValue(null);
+    expect(screen.getByLabelText('Match type')).toHaveValue('qualification');
   });
 
   it('shows no confirmation on an ordinary visit', async () => {

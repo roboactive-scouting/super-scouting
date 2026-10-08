@@ -104,12 +104,17 @@ export function LineupTiles({
           </div>
         ))}
       </div>
-      <p className="mt-1 text-center text-[0.84375rem] text-muted">
-        <button type="button" className="tap-target px-2" onClick={onNotHere}>
-          Team not here?{' '}
-          <span className="font-semibold text-accent-ink">Choose from the event's teams</span>
-        </button>
-      </p>
+      {/* A real button, not link text (UI fix round). Its scroll margin is the pinned bar's
+          height, so focusing it never leaves it under Start entry (ActionBar). */}
+      <Button
+        className="mt-3 w-full scroll-mb-[calc(var(--bottom-bar,0px)+6.5rem)] px-3 text-[0.84375rem] whitespace-normal lg:text-[0.90625rem]"
+        onClick={onNotHere}
+      >
+        <span>
+          <span className="font-normal">Team not here?</span>{' '}
+          <span className="text-accent-ink">Choose from the event's teams</span>
+        </span>
+      </Button>
     </section>
   );
 }

@@ -4914,3 +4914,37 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
 - Tests: shared (2.5, -3, NaN, Infinity and 2³¹ rejected; 0, 20 and 2³¹−1 accepted); `syncPush` (2.5 and -3 come back `invalid` with the detail, not "unexpected server error"); EntryPage (typing "-2.5" gives "25", typing "x" leaves it empty). Mutation-checked: disabling the shared rule fails the shared and server tests. `apps/server/api/index.js` was rebuilt.
 
 **Risk:** an op already queued on a device with a fractional or negative time, made by an earlier build, is now parked as invalid with a reason instead of being retried for ever. That is the intended outcome. Initial JS is 203.5 KB gzip.
+
+## UF.6 — Scout: Team not here clearance, pinned desktop Start entry, next match pre-filled
+
+**Plan said:** "Team not here?" gets enough bottom clearance to show above the pinned Start entry bar on a phone (the orchestrator: bottom padding that matches the bar's height).
+
+**What was wrong:** measured before changing anything (375 px wide, 812 / 667 / 600 px tall, saved banner shown, Q39): scrolled to the end, the link's bottom was already 24 px above the bar's top at every height (`812 end {"nhBottom":619,"barTop":643}`, `667 end {"nhBottom":474,"barTop":498}`, `600 end {"nhBottom":407,"barTop":431}`). It was only covered **at rest**, whenever the page is taller than the screen (`812 top {"nhTop":671,"barTop":643}`). Bottom padding can't fix that: it only adds an empty gap at the end of the scroll and makes the page longer, so it would overflow on more phones.
+
+**What I did instead:** the link is now a full-width secondary `Button` (44 px drawn, 48 px target), 13.5 px on a phone so the original copy fits on one line, and 14.5 px from `lg`. It has `scroll-mb-[calc(var(--bottom-bar,0px)+6.5rem)]`, which is the pinned bar's height plus the bottom bar, so focusing or scrolling to it never leaves it under Start entry. The e2e test checks that it clears the bar at the end of the scroll and when it is focused at rest on the overflowing saved-banner page. It also checks the "Not in line-up" note at the end of the full roster at 375 px (`scout-roster-end-phone`). Rejected: moving "Team not here?" into the pinned bar. It would always show, but the bar would get about 56 px taller and cover the tiles instead.
+
+**Risk:** on a short phone after a submit (with the banner), the button still starts below the fold under the bar, as `scout-done-phone` shows. Only the user can decide whether that is acceptable or whether it belongs in the bar.
+
+**Plan said:** pin Start entry on desktop as on the phone.
+
+**What was wrong:** the bar's default chrome on desktop (white, top border, `-mx-4`) draws a white strip 32 px wider than the content inside the 920 px column, sitting on the grey page.
+
+**What I did instead:** `ActionBar`'s `desktop="static"` (used only by Scout) became `desktop="flat"`. From `lg` the bar stays sticky but drops its border and side bleed and sits on `bg-bg`. A short page looks like the final (the button under the content), and on a long one the rows scroll under it. The `primitives-2` test was updated for this.
+
+**Risk:** no hairline marks the pinned edge on desktop, so the rows are cut cleanly at the band's top.
+
+**Plan said:** after a new entry, the next match is pre-filled with "no robot picked".
+
+**What was wrong:** README 3 / SPEC 8.1 still pick the remembered station's tile by default whenever a line-up is shown.
+
+**What I did instead:** nothing from the last entry carries over (the page remounts). If the next match has a line-up, the station tile is picked by the existing default, as for a typed number. The seed also needs `saved.number` to be truthy, so a history state written by an older build (which has no number) falls back to an empty field instead of "NaN". The README's item 6 also records the button and the desktop pin.
+
+**Risk:** a scout can now start the next match in two taps (submit, then Start entry) without typing anything. That is intended by v1.17, but the number is a guess.
+
+**Plan said:** run the scout/entry e2e specs.
+
+**What was wrong:** run 1 (4 workers) hung for over 20 minutes after four tests timed out at 30 s (`Error: page.evaluate: Test timeout of 30000ms exceeded.`). I stopped it. Run 2 crashed: `FATAL ERROR: Committing semi space failed. Allocation failed - JavaScript heap out of memory`, with the machine low on memory. Run 3 (`--workers=2`): scout 3/3 passed, and entry `a swipe on the empty page below the form changes phase` failed (`Expected: "1" Received: "0"` on `Auto notes scored value`, at "A tap on a counter still counts"). The same test fails the same way with my changes stashed (HEAD 7b5acc9), so it predates UF.6.
+
+**What I did instead:** left it alone (out of scope) and reported it.
+
+**Risk:** UF.5's counter-tap-after-swipe e2e is red on the branch.

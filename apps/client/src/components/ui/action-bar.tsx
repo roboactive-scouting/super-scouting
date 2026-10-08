@@ -12,16 +12,16 @@ import { cn } from '@/lib/utils';
  * at the bottom: the page's <main> carries `data-pinned-foot`, fills the height (ShellLayout)
  * and grows the content above the bar.
  *
- * `desktop="static"`: from `lg` the bar drops its chrome and sits in the page flow, so the
- * button stands under the content (Scout's desktop design).
+ * `desktop="flat"`: from `lg` the bar stays pinned but drops its chrome onto the page
+ * background, so on a short page the button stands under the content (Scout's desktop design)
+ * and on a long one it stays in reach.
  */
-export function ActionBar({ children, desktop }: { children: ReactNode; desktop?: 'static' }) {
+export function ActionBar({ children, desktop }: { children: ReactNode; desktop?: 'flat' }) {
   return (
     <div
       className={cn(
         'sticky bottom-[var(--bottom-bar,0px)] z-20 -mx-4 mt-6 mb-[calc(var(--below-content,0px)*-1)] flex gap-2.5 border-t border-line bg-surface px-4 pt-3 pb-[max(calc(var(--raised-overhang,0px)+0.75rem),env(safe-area-inset-bottom))] [&>button]:min-h-13',
-        desktop === 'static' &&
-          'lg:static lg:mx-0 lg:mt-4 lg:mb-0 lg:border-0 lg:bg-transparent lg:p-0',
+        desktop === 'flat' && 'lg:mx-0 lg:mt-1 lg:border-0 lg:bg-bg lg:px-0',
       )}
     >
       {children}

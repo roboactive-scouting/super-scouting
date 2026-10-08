@@ -30,6 +30,7 @@ type Resolved = {
   /** Set when the match is another event's and nothing was begun for it: refuse. */
   refused: { defaultName: string } | null;
   formVersionId: string;
+  match: Pick<MatchRow, 'match_type' | 'number'>;
   matchLabel: string;
   teamLabel: string;
   /** This device's entry for the same (event, match, team), if it has one. */
@@ -101,6 +102,7 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
               defaultName: events.find((e) => e.id === eventId)?.name ?? 'the default competition',
             },
         formVersionId,
+        match,
         matchLabel: matchLabel(match),
         teamLabel: `${formatCount(team.number)} ${team.name}`,
         existing,
@@ -197,9 +199,11 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
       matchLabel={resolved.matchLabel}
       existing={resolved.existing}
       onSubmitted={() => {
-        // SPEC-FINAL 8.1: submit returns to a fresh manual selection. Replace, so Back
-        // does not reopen a form that has already been saved.
+        // SPEC-FINAL 8.1: submit returns to a fresh manual selection, offering the next match
+        // after a new entry. Replace, so Back does not reopen a form that has already been saved.
         const saved: SavedNotice = {
+          matchType: resolved.match.match_type,
+          number: resolved.match.number,
           matchLabel: resolved.matchLabel,
           teamLabel: resolved.teamLabel,
           edited: resolved.existing !== undefined,

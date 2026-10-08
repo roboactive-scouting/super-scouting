@@ -44,6 +44,20 @@ async function expectBarFlushOnNav(page: Page) {
   expect(Math.abs(bar.y + bar.height - nav.y)).toBeLessThanOrEqual(1);
 }
 
+/** Above the pinned Start entry bar, never under it (UF.6). */
+async function expectClearOfBar(page: Page, what: ReturnType<Page['getByRole']>) {
+  const bar = await page
+    .getByRole('button', { name: /^Start entry/ })
+    .locator('..')
+    .boundingBox();
+  const box = await what.boundingBox();
+  if (!bar || !box) throw new Error('action bar or target not laid out');
+  expect(box.y + box.height).toBeLessThanOrEqual(bar.y);
+}
+
+const scrollToEnd = (page: Page) =>
+  page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+
 test('scout: choose a station, the line-up, and a team not in it', async ({ page }) => {
   await signIn(page, 'lead');
   await page.setViewportSize({ width: 375, height: 812 });
@@ -64,6 +78,8 @@ test('scout: choose a station, the line-up, and a team not in it', async ({ page
   await shoot(page, 'scout');
   await expectTagBesideLabel(page);
   await expectBarFlushOnNav(page);
+  await scrollToEnd(page);
+  await expectClearOfBar(page, page.getByRole('button', { name: /Team not here\?/ }));
   // A larger OS text size: the tag wraps under the label rather than covering it.
   const bigText = await page.addStyleTag({ content: 'html{font-size:125%}' });
   await expectTagBesideLabel(page);
@@ -83,8 +99,24 @@ test('scout: choose a station, the line-up, and a team not in it', async ({ page
   await page.getByRole('radio', { name: /1574/ }).click();
   await expect(page.getByText('Not in line-up')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Start entry · 1574/ })).toBeEnabled();
-  await shoot(page, 'scout-roster', 'phone');
+  await shoot(page, 'scout-roster');
   await expectBarFlushOnNav(page);
+  // The whole roster is longer than the screen: scrolled to the end, the flag note clears the bar.
+  await page.getByRole('searchbox').fill('');
+  await scrollToEnd(page);
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  await expectClearOfBar(page, page.getByText(/isn't in Q39's line-up/));
+  await shoot(page, 'scout-roster-end', 'phone');
+
+  // Desktop: with the whole roster listed, Start entry stays pinned at the window's foot.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeGreaterThan(900);
+  const start = await page.getByRole('button', { name: /^Start entry · 1574/ }).boundingBox();
+  if (!start) throw new Error('Start entry not laid out');
+  expect(start.y + start.height).toBeLessThanOrEqual(900);
+  expect(start.y + start.height).toBeGreaterThan(800);
+  await shoot(page, 'scout-roster-long', 'desktop');
 });
 
 test('scout: robots already scouted on this device, and the saved banner', async ({ page }) => {
@@ -99,7 +131,15 @@ test('scout: robots already scouted on this device, and the saved banner', async
   // What EntryRoute hands back after a submit: router state on this same page.
   await page.evaluate(() => {
     const state = {
-      usr: { saved: { matchLabel: 'Q36', teamLabel: '5135 Black Unicorns', edited: false } },
+      usr: {
+        saved: {
+          matchType: 'qualification',
+          number: 36,
+          matchLabel: 'Q36',
+          teamLabel: '5135 Black Unicorns',
+          edited: false,
+        },
+      },
       key: 'e2e-saved',
       idx: (history.state?.idx ?? 0) + 1,
     };
@@ -108,6 +148,12 @@ test('scout: robots already scouted on this device, and the saved banner', async
   });
   await expect(page.getByRole('status', { name: 'Entry saved' })).toContainText('Q36');
   await shoot(page, 'scout-done');
+  // With the banner the page outgrows a phone: reached by keyboard, the button clears the bar.
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const notHere = page.getByRole('button', { name: /Team not here\?/ });
+  await notHere.focus();
+  await expectClearOfBar(page, notHere);
 });
 
 test('scout: a scouter sees another scout’s old entries locked', async ({ page }) => {

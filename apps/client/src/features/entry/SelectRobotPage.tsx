@@ -19,7 +19,13 @@ import { StationHeading, StationSheet } from './StationSheet';
 import { useScoutSelection } from './useScoutSelection';
 
 /** What EntryRoute hands back through router state after a submit (SPEC-FINAL 8.1). */
-export type SavedNotice = { matchLabel: string; teamLabel: string; edited: boolean };
+export type SavedNotice = {
+  matchType: string;
+  number: number;
+  matchLabel: string;
+  teamLabel: string;
+  edited: boolean;
+};
 
 const TYPE_NAME: Record<string, string> = {
   qualification: 'Qualification',
@@ -30,8 +36,11 @@ const TYPE_NAME: Record<string, string> = {
 export function SelectRobotPage({ eventId, author }: { eventId: string; author: Editor }) {
   const navigate = useNavigate();
   const saved = (useLocation().state as { saved?: SavedNotice } | null)?.saved;
-  const [matchType, setMatchType] = useState('qualification');
-  const [number, setNumber] = useState('');
+  // SPEC-FINAL 8.1 (v1.17): after a new entry the type stays and the next number is offered,
+  // still editable and with no robot carried over; after an edit the number stays empty.
+  const next = saved && !saved.edited && saved.number ? saved : null;
+  const [matchType, setMatchType] = useState(next?.matchType ?? 'qualification');
+  const [number, setNumber] = useState(next ? String(next.number + 1) : '');
   const [asking, setAsking] = useState<'auto' | 'open' | 'closed'>('auto');
   const starting = useRef(false);
   const pick = useScoutSelection(eventId, author, matchType, number);
@@ -159,8 +168,8 @@ export function SelectRobotPage({ eventId, author }: { eventId: string; author: 
         )}
       </div>
 
-      {/* The primary action bar on a phone; on a desktop the button sits under the picker. */}
-      <ActionBar desktop="static">
+      {/* The primary action bar, pinned at every width: a long roster never hides it. */}
+      <ActionBar desktop="flat">
         <Button variant="primary" size="block" disabled={!chosen} onClick={start}>
           {!chosen
             ? 'Start entry'

@@ -515,12 +515,14 @@ describe('moved controls', () => {
     expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
   });
 
-  it('an action bar can stand in the page flow from a desktop width', () => {
+  it('an action bar stays pinned at a desktop width, flat on the page background', () => {
     render(
-      <ActionBar desktop="static">
+      <ActionBar desktop="flat">
         <button type="button">Send</button>
       </ActionBar>,
     );
-    expect(screen.getByRole('button', { name: 'Send' }).parentElement).toHaveClass('lg:static');
+    const bar = screen.getByRole('button', { name: 'Send' }).parentElement;
+    expect(bar).toHaveClass('sticky', 'lg:bg-bg');
+    expect(bar?.className).not.toMatch(/lg:static/);
   });
 });
