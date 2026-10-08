@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
  * button). Sticky, not fixed: it never covers the sidebar on a wide screen or the last
  * field of a short form, and it clears the phone's home indicator. Where the shell shows
  * its phone bottom bar, it rides on top of it (ShellLayout sets --bottom-bar), flush: it
- * reaches down through the room kept for the raised Scout button (--below-content) and pads
+ * reaches down through the room kept for the raised button (--below-content) and pads
  * its own foot by that overhang so the button never covers it. On a short page it is still
  * at the bottom: the page's <main> carries `data-pinned-foot`, fills the height (ShellLayout)
  * and grows the content above the bar.

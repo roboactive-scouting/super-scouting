@@ -128,7 +128,7 @@ describe('the shell (redesign RB.6)', () => {
     expect(screen.getByRole('link', { name: 'Entries' })).toBeInTheDocument();
   });
 
-  it('puts Scout raised between Home and Entries, and titles the top bar', async () => {
+  it('puts Scout between Home and Entries, and titles the top bar', async () => {
     await renderShell({ width: 375 });
     const bar = await screen.findByRole('navigation', { name: 'Main' });
     expect(
@@ -148,5 +148,48 @@ describe('the shell (redesign RB.6)', () => {
   it('keeps the bottom bar on Scout', async () => {
     await renderShell({ width: 375, path: '/scout' });
     expect(await screen.findByRole('navigation', { name: 'Main' })).toBeInTheDocument();
+  });
+});
+
+/** The phone bar on `path`: its tabs in order, the raised one(s) and the current one(s). */
+async function phoneBar(path: string) {
+  await renderShell({ width: 375, path });
+  const bar = await screen.findByRole('navigation', { name: 'Main' });
+  const links = within(bar).getAllByRole('link');
+  const names = (keep: (l: HTMLElement) => boolean) =>
+    links.filter(keep).map((l) => l.getAttribute('aria-label') ?? l.textContent);
+  return {
+    order: names(() => true),
+    raised: names((l) => l.querySelector('[data-raised]') !== null),
+    current: names((l) => l.getAttribute('aria-current') === 'page'),
+  };
+}
+
+describe('the phone bar: the current page is the raised button (UF.10)', () => {
+  it.each([
+    ['/', 'Home'],
+    ['/scout', 'Scout'],
+    ['/entries', 'Entries'],
+  ])('on %s raises %s, and only it, and marks it current', async (path, name) => {
+    const bar = await phoneBar(path);
+    expect(bar.order).toEqual(['Home', 'Scout', 'Entries']);
+    expect(bar.raised).toEqual([name]);
+    expect(bar.current).toEqual([name]);
+  });
+
+  it('raises nothing on any other page, Scout a flat tab in the middle', async () => {
+    const bar = await phoneBar('/switch-scouter');
+    expect(bar.order).toEqual(['Home', 'Scout', 'Entries']);
+    expect(bar.raised).toEqual([]);
+    expect(bar.current).toEqual([]);
+  });
+
+  it("keeps Entries' waiting badge on it when it is raised", async () => {
+    await seedOutbox(3);
+    await renderShell({ width: 375, path: '/entries' });
+    const entries = await screen.findByRole('link', { name: 'Entries, 3 waiting to send' });
+    expect(entries).toHaveAttribute('aria-current', 'page');
+    expect(entries.querySelector('[data-raised]')).not.toBeNull();
+    expect(within(entries).getByText('3')).toBeInTheDocument();
   });
 });

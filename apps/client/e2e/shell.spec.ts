@@ -53,6 +53,42 @@ test('phone shell: bars, menu, and no Users on a phone', async ({ page }) => {
   await shoot(page, 'shell-menu', 'phone');
 });
 
+test('phone bar: the current page is the raised button; elsewhere nothing is (UF.10)', async ({
+  page,
+}) => {
+  await signIn(page, 'admin', HOLD_PUSH);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await seedWaiting(page, 3);
+  const bar = page.getByRole('navigation', { name: 'Main' });
+  const raised = bar.locator('[data-raised]');
+  const current = bar.locator('[aria-current="page"]');
+  for (const [name, link, shot] of [
+    ['Home', 'Home', 'shell-bar-home'],
+    ['Scout', 'Scout', 'shell-bar-scout'],
+    ['Entries', 'Entries, 3 waiting to send', 'shell-bar-entries'],
+  ] as const) {
+    await bar.getByRole('link', { name: link }).click();
+    if (name === 'Scout') {
+      // A fresh device asks for its station first (02-scout).
+      const sheet = page.getByRole('dialog', { name: 'Choose your station' });
+      await sheet.getByRole('button', { name: 'Blue 2', exact: true }).click();
+      await sheet.getByRole('button', { name: 'Use Blue 2' }).click();
+      await expect(sheet).toBeHidden();
+    }
+    await expect(raised).toHaveCount(1);
+    await expect(current).toHaveAccessibleName(link);
+    await expect(current.locator('[data-raised]')).toHaveCount(1);
+    await shoot(page, shot, 'phone');
+  }
+  await page.getByRole('button', { name: 'Open the menu' }).click();
+  await page.getByRole('dialog', { name: 'Menu' }).getByText('Switch scouter').click();
+  await expect(page.getByRole('banner').getByText('Switch scouter')).toBeVisible();
+  await expect(raised).toHaveCount(0);
+  await expect(current).toHaveCount(0);
+  await expect(bar.getByRole('link')).toHaveText(['Home', 'Scout', /^Entries/]);
+  await shoot(page, 'shell-bar-other', 'phone');
+});
+
 test('phone menu: a swipe left closes it; a swipe right or down does not (UF.4)', async ({
   page,
 }) => {

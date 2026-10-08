@@ -5053,3 +5053,26 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
 - I can't run iOS Safari here. The zoom cause comes from reasoning plus the Chromium measurements, not from a run on the device. Re-test on the phone: open a match, then tap a station.
 - If the phone is Android, the zoom does not apply, and the only remaining cause is the keyboard that the old focus brought up, which this task removes.
 - Initial JS is 203.9 KB gzip, 0.1 KB more than UF.8's 203.8, from the shared `useModalFocus` and `Sheet`. The filter itself lives in the lazy `ManagePage` chunk.
+
+## UF.10 — The current page is the raised green button in the phone bar
+
+**Plan said:** The current page is the raised 58 px green button and it moves (Home, Scout or Entries); the others are flat tabs; on any other page nothing is raised or green; Entries' badge stays on it either way. Match `shell-phone.png` images 1, 3, 6, 7 and THEME "Phone bottom bar".
+
+**What was wrong:** Nothing failed. Four points where the code needed a choice the plan doesn't spell out:
+1. `nav.ts` called Scout's flag `raised` and `bottomBar()` returned `{ left, raised, right }`. Scout is now only the bar's middle slot, raised like any tab when it is the current page, so the name would mislead.
+2. The design's `.bb > span` gives the raised item a 6 px top pad (`.center { margin-top: -22px }` plus `padding-top: 6px`), so in the design the button rises about 10 px above the bar and its label sits about 7 px lower than the flat labels. The code (RB) left that pad out: the button rises 16 px. With the pad added, the raised label would run about 2 px past the bottom of a 375 × 812 viewport, where the safe-area foot is 8 px rather than the mock's 22 px.
+3. The old flat tab put a `--rail-raised` pill (`motion-safe:animate-indicator-in`) behind the current tab. The current tab is now always the raised button, and image 6 shows no pill anywhere.
+4. `ShellLayout` keeps room under the content for the raised button (`--raised-overhang`, `--below-content`).
+
+**What I did instead:**
+1. Renamed it `middle` (`NavItem.middle`, `bottomBar()` → `{ left, middle, right }`). `BottomBar` lays out left · middle · right in one list, and each `NavLink` picks its face from `isActive`: the 58 px `--accent` square (18 px radius, 4 px `--rail` ring, the existing accent shadow, 26 px icon, white label, `data-raised`) when current, otherwise the flat tab (22 px icon in a 52 × 30 box, 11.5 px label, `--rail-muted`, 52 px tall). `aria-current="page"` comes from `NavLink` as before. A disabled Scout (session override) is always flat.
+2. Kept RB's geometry (`-mt-[1.375rem]`, no top pad), so the label stays on screen on phones without a home-indicator inset. Side by side with images 1/3/6/7 it reads the same; the button sits about 6 px higher than in the mock.
+3. Removed the pill. The flat tab has no current state, and there is no animation, so there is nothing for reduced motion to guard.
+4. Kept that room on every phone page, including pages where nothing is raised, so content and `ActionBar` positions don't jump between pages. The badge sits at `-top-1 start-[60%]` on the raised button (design `.center .badge2 { top: -4px; left: 60% }`) and at `top-0.5 start-[56%]` on the flat tab, as before.
+- Also changed: stale "raised Scout" comments in `ShellLayout.tsx` and `components/ui/action-bar.tsx`, and the test names in `nav.test.ts` and `shell.test.tsx` for the rename.
+- New tests: `shell.test.tsx` checks that `/`, `/scout` and `/entries` each raise exactly their own item with `aria-current`, that `/switch-scouter` raises nothing and has no current item, and that the badge stays on a raised Entries. The e2e `phone bar: the current page is the raised button…` shoots `shell-bar-{home,scout,entries,other}-phone.png` at 375. The Scout leg picks Blue 2 first, because a fresh device opens the station picker over the page.
+
+**Risk:**
+- Low. Initial JS is 203.8 KB gzip, 0.1 KB less than UF.9's 203.9.
+- The "nothing raised" room under the content is a few px more than a flat bar needs, so a short page on Switch scouter etc. has 38 px of spare foot. If the user wants it tighter, set `--below-content` per page from the current route.
+- Other pages' final images still show the always-raised Scout. The shell final wins (UI-FIX-NOTES 11, note 2).

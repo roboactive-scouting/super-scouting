@@ -107,7 +107,7 @@ export function ShellLayout({
   };
   const bar = bottomBar(who, false);
   const showBottomBar =
-    !desktop && !hideBottomBar && bar.left.length + bar.right.length + (bar.raised ? 1 : 0) > 0;
+    !desktop && !hideBottomBar && bar.left.length + bar.right.length + (bar.middle ? 1 : 0) > 0;
 
   return (
     <div className="flex min-h-dvh" onTouchStart={onTouchStart} onTouchMove={onTouchMove}>
@@ -131,9 +131,10 @@ export function ShellLayout({
             ? ({
                 // BottomBar's exact height: 6 px top, a 56 px row, max(8 px, safe area) foot.
                 '--bottom-bar': 'calc(3.875rem + max(0.5rem, env(safe-area-inset-bottom)))',
-                // How far the raised Scout button rises above the bar (BottomBar's -mt-[1.375rem]).
+                // How far the current page's raised button rises above the bar (BottomBar's -mt-[1.375rem]).
                 '--raised-overhang': '1.375rem',
-                // The room kept under the content for the raised Scout button. A page's ActionBar
+                // The room kept under the content for the raised button. Kept on every page, so
+                // the content doesn't jump when nothing is raised (UF.10). A page's ActionBar
                 // reaches down through it, so the bar sits flush on the bottom bar.
                 '--below-content': 'calc(var(--raised-overhang) + 1rem)',
               } as CSSProperties)

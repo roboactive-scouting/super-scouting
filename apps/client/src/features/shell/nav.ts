@@ -30,8 +30,11 @@ export type NavItem = {
   phoneLabel?: string;
   /** Computer work (SPEC-FINAL 17.2): in the sidebar, never in the phone menu. */
   desktopOnly?: boolean;
-  /** The phone bar's raised middle button: the one primary job, Scout (spec v1.15). */
-  raised?: boolean;
+  /**
+   * The phone bar's middle tab: the one primary job, Scout (spec v1.15). It is raised only
+   * while it is the current page, like any other tab (UF.10).
+   */
+  middle?: boolean;
   /** NavLink `end`: `/` is current on `/` alone. */
   end?: boolean;
   /** Whether it shows. The page checks the role again, and so does the server. */
@@ -41,7 +44,7 @@ export type NavItem = {
 };
 
 /**
- * Tabs either side of the raised Scout (spec v1.15). Task 1.51 (Teams) and 1.58 (Ranking)
+ * Tabs either side of Scout in the middle (spec v1.15). Task 1.51 (Teams) and 1.58 (Ranking)
  * make it Home · Teams · Scout · Ranking · Entries — Entries stays in the bar.
  */
 export const BOTTOM_BAR_SIDE_MAX = 2;
@@ -68,7 +71,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     icon: ClipboardCheck,
     group: 'competition',
     bottomBar: 1,
-    raised: true,
+    middle: true,
     visible: () => true,
     disabled: (who) => who.override,
   },
@@ -116,22 +119,22 @@ export function menuItemsFor(
   return navItemsFor(who, items).filter((item) => isDesktop || !item.desktopOnly);
 }
 
-/** The phone bottom bar: tabs either side of the raised Scout, each side in its own order. */
+/** The phone bottom bar: tabs either side of the middle Scout, each side in its own order. */
 export function bottomBar(
   who: NavAudience,
   isDesktop: false,
   items: readonly NavItem[] = NAV_ITEMS,
-): { left: NavItem[]; raised: NavItem | null; right: NavItem[] } {
+): { left: NavItem[]; middle: NavItem | null; right: NavItem[] } {
   const placed = menuItemsFor(who, isDesktop, items)
     .filter((item) => item.bottomBar !== null)
     .sort((a, b) => (a.bottomBar ?? 0) - (b.bottomBar ?? 0));
-  const raised = placed.find((item) => item.raised) ?? null;
-  const middle = raised?.bottomBar ?? Infinity;
-  const sides = placed.filter((item) => item !== raised);
+  const middle = placed.find((item) => item.middle) ?? null;
+  const at = middle?.bottomBar ?? Infinity;
+  const sides = placed.filter((item) => item !== middle);
   return {
-    left: sides.filter((item) => (item.bottomBar ?? 0) < middle).slice(0, BOTTOM_BAR_SIDE_MAX),
-    raised,
-    right: sides.filter((item) => (item.bottomBar ?? 0) > middle).slice(0, BOTTOM_BAR_SIDE_MAX),
+    left: sides.filter((item) => (item.bottomBar ?? 0) < at).slice(0, BOTTOM_BAR_SIDE_MAX),
+    middle,
+    right: sides.filter((item) => (item.bottomBar ?? 0) > at).slice(0, BOTTOM_BAR_SIDE_MAX),
   };
 }
 
