@@ -210,7 +210,28 @@ export function supabaseStore(db: Db): Store {
       // is a distinct literal shape, so it cannot be checked structurally here — the
       // same Record<string, unknown>-vs-Json gap noted in DEVIATIONS.md for task 0.14.
       const { error } = await db.from(TABLE[entity]).upsert({ ...row, id } as never);
-      if (error) throw new Error(error.message);
+      // dbError keeps the code: a foreign-key failure ('23503') is syncPush's parent-deleted.
+      if (error) throw dbError(error);
+    },
+    // Three reads, together; the order of the answer is the order of the checks. An event
+    // delete cascades to its matches, so a gone event is reported as the event.
+    async missingParent(parents) {
+      // A non-uuid id names no row, and Postgres would refuse the filter (22P02).
+      if (!UUID.test(parents.event_id)) return 'event';
+      if (parents.match_id !== null && !UUID.test(parents.match_id)) return 'match';
+      if (!UUID.test(parents.team_id)) return 'team';
+      const [event, match, team] = await Promise.all([
+        db.from('events').select('id').eq('id', parents.event_id).maybeSingle(),
+        parents.match_id === null
+          ? Promise.resolve({ data: { id: null }, error: null })
+          : db.from('matches').select('id').eq('id', parents.match_id).maybeSingle(),
+        db.from('teams').select('id').eq('id', parents.team_id).maybeSingle(),
+      ]);
+      for (const result of [event, match, team]) if (result.error) throw dbError(result.error);
+      if (event.data === null) return 'event';
+      if (match.data === null) return 'match';
+      if (team.data === null) return 'team';
+      return null;
     },
     async getFormFields(formVersionId: string): Promise<FormFieldDefinition[]> {
       const { data, error } = await db
@@ -237,6 +258,26 @@ export function supabaseStore(db: Db): Store {
       return { eventId: data.id, seasonId: data.season_id };
     },
     pullEntity,
+    // UF.1. Paged by deleted_at: PostgREST caps a read at max_rows = 1000
+    // (packages/db/supabase/config.toml), and a truncated list would leave matches behind.
+    async listMatchDeletions(eventId: string, since: string) {
+      const PAGE = 1000;
+      const out: { match_id: string; deleted_at: string }[] = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await db
+          .from('match_deletions')
+          .select('match_id, deleted_at')
+          .eq('event_id', eventId)
+          .gt('deleted_at', since)
+          .order('deleted_at', { ascending: true })
+          .order('match_id', { ascending: true })
+          .range(from, from + PAGE - 1);
+        if (error) throw dbError(error);
+        out.push(...(data ?? []));
+        if ((data ?? []).length < PAGE) break;
+      }
+      return out;
+    },
     // Task 1.17b, ahead of the rest of 1.18. The singleton row is created by the skeleton
     // migration on every project; a missing one reads as nothing set up. THROWS on a
     // database error: swallowed, a blip would tell every device no competition exists.
@@ -388,6 +429,36 @@ export function supabaseStore(db: Db): Store {
         .in('event_id', eventIds);
       if (countError) throw dbError(countError);
       return count ?? 0;
+    },
+    // RB.13: live entries per scouter across the season, for the Users page. Two reads, no
+    // join, like countEntriesBySeason. PostgREST caps a read at max_rows = 1000
+    // (packages/db/supabase/config.toml), so the entries are paged, ordered by id.
+    async countEntriesByScouterForSeason(seasonId: string) {
+      const { data: events, error } = await db
+        .from('events')
+        .select('id')
+        .eq('season_id', seasonId);
+      if (error) throw dbError(error);
+      const eventIds = (events ?? []).map((e) => e.id);
+      if (eventIds.length === 0) return [];
+      const PAGE = 1000;
+      const counts = new Map<string, number>();
+      // The event ids go out in chunks, like every other `in` filter here.
+      for (const chunk of chunks(eventIds)) {
+        for (let from = 0; ; from += PAGE) {
+          const { data, error: readError } = await db
+            .from('scouting_entries')
+            .select('scouter_id')
+            .in('event_id', chunk)
+            .is('deleted_at', null)
+            .order('id')
+            .range(from, from + PAGE - 1);
+          if (readError) throw dbError(readError);
+          for (const r of data ?? []) counts.set(r.scouter_id, (counts.get(r.scouter_id) ?? 0) + 1);
+          if ((data ?? []).length < PAGE) break;
+        }
+      }
+      return [...counts].map(([scouter_id, count]) => ({ scouter_id, count }));
     },
     // Task 1.19: teams, the roster, matches and their slots. Every method THROWS on a
     // database error, keeping Postgres's code (dbError), as the season and event methods
@@ -664,6 +735,51 @@ export function supabaseStore(db: Db): Store {
       const { error } = await db.from('matches').delete().eq('id', id);
       if (error) throw dbError(error);
     },
+    // RB.20: the hard cascade deletes (SPEC-FINAL 3.9). One SQL function each (migration
+    // 20261007120000_delete_cascade.sql): the entries go first, then the parent, all or nothing.
+    async deleteSeason(id: string): Promise<void> {
+      const { error } = await db.rpc('delete_season_cascade', { p_season_id: id });
+      if (error) throw dbError(error);
+    },
+    async deleteEvent(id: string): Promise<void> {
+      const { error } = await db.rpc('delete_event_cascade', { p_event_id: id });
+      if (error) throw dbError(error);
+    },
+    // Head counts only, no rows read. Live entries: a soft-deleted one is already gone to
+    // the admin. The event ids go out in chunks, like every `in` filter here.
+    async countDeleteImpact(kind: 'season' | 'event', id: string) {
+      let eventIds = [id];
+      let forms = 0;
+      if (kind === 'season') {
+        const { data, error } = await db.from('events').select('id').eq('season_id', id);
+        if (error) throw dbError(error);
+        eventIds = (data ?? []).map((e) => e.id);
+        const counted = await db
+          .from('forms')
+          .select('id', { count: 'exact', head: true })
+          .eq('season_id', id);
+        if (counted.error) throw dbError(counted.error);
+        forms = counted.count ?? 0;
+      }
+      let matches = 0;
+      let entries = 0;
+      for (const chunk of chunks(eventIds)) {
+        const m = await db
+          .from('matches')
+          .select('id', { count: 'exact', head: true })
+          .in('event_id', chunk);
+        if (m.error) throw dbError(m.error);
+        const e = await db
+          .from('scouting_entries')
+          .select('id', { count: 'exact', head: true })
+          .in('event_id', chunk)
+          .is('deleted_at', null);
+        if (e.error) throw dbError(e.error);
+        matches += m.count ?? 0;
+        entries += e.count ?? 0;
+      }
+      return { events: eventIds.length, matches, entries, forms };
+    },
     // The remaining methods start as loud stubs, exactly as the fake does. Each later
     // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
     // without these the file does not compile at all.
@@ -690,11 +806,8 @@ export function supabaseStore(db: Db): Store {
       'queryEntries',
       'entriesForScope',
       'listTeamEvents',
-      'deleteSeason',
-      'deleteEvent',
       'deleteFormCascade',
       'deleteFormVersion',
-      'countDeleteImpact',
     ]),
     // The spread above only carries an index signature (its keys come from a plain
     // string[]), so TS can't see that it supplies the remaining named Store methods;

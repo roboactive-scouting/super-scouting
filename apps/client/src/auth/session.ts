@@ -67,8 +67,70 @@ async function update(
     await db.meta.put(record);
     box.result = { before, after };
   });
-  if (box.result) notify(box.result.after);
+  if (box.result) {
+    notify(box.result.after);
+    tellOtherTabs();
+  }
   return box.result ?? null;
+}
+
+/** The slice of a BroadcastChannel the cross-tab sync uses; tests hand in a fake. */
+export type SessionChannel = {
+  postMessage(message: unknown): void;
+  onmessage: ((event: MessageEvent) => void) | null;
+  close(): void;
+};
+
+const CHANNEL = 'auth.session';
+let channel: SessionChannel | null = null;
+
+function tellOtherTabs(): void {
+  try {
+    channel?.postMessage('changed');
+  } catch {
+    // A closed channel: the other tabs read the session on their next request anyway.
+  }
+}
+
+function openChannel(): SessionChannel | null {
+  return typeof BroadcastChannel === 'function' ? new BroadcastChannel(CHANNEL) : null;
+}
+
+/**
+ * UF.2: one session, every tab. The session lives in IndexedDB, which every tab of the app
+ * shares, but listeners are per tab: a sign-out, a sign-in or an expiry in one tab left
+ * another showing a signed-in screen whose requests then went out with no token and failed
+ * one by one, with no strip. Each change is announced on a BroadcastChannel; a tab that
+ * hears one re-reads the session and tells its own listeners, so it shows sign-in or the
+ * strip at once. No BroadcastChannel (an old browser): a no-op. Called once, from main.tsx.
+ * Returns the disconnect function.
+ */
+export function syncSessionAcrossTabs(open: () => SessionChannel | null = openChannel): () => void {
+  channel?.close();
+  const opened = open();
+  channel = opened;
+  if (!opened) return () => {};
+  opened.onmessage = () => {
+    // Another tab wrote the session. A change made here meanwhile is newer: keep that one.
+    const at = generation;
+    void read().then((next) => {
+      if (generation === at) notify(next);
+    });
+  };
+  return () => {
+    opened.close();
+    if (channel === opened) channel = null;
+  };
+}
+
+async function markExpired(applies: (current: Session) => boolean): Promise<boolean> {
+  const result = await update((current) => {
+    if (!current || current.expired || !applies(current)) return undefined;
+    return { ...current, token: null, offline: false, expired: true };
+  });
+  const after = result?.after;
+  if (after) for (const listener of expiredListeners) listener(after);
+  return Boolean(after);
 }
 
 export const session = {
@@ -101,16 +163,20 @@ export const session = {
    * as needing sign-in. Never touches drafts, the dataset or the outbox: an entry in
    * progress carries on, and everything queued syncs after the next sign-in.
    * `sentWith` as for replaceToken: a 401 for a token that is no longer current (the
-   * user has already signed in again) changes nothing.
+   * user has already signed in again) changes nothing. True when the session changed.
    */
-  async expire(sentWith?: string | null): Promise<void> {
-    const result = await update((current) => {
-      if (!current || current.expired) return undefined;
-      if (sentWith != null && sentWith !== current.token) return undefined;
-      return { ...current, token: null, offline: false, expired: true };
-    });
-    const after = result?.after;
-    if (after) for (const listener of expiredListeners) listener(after);
+  async expire(sentWith?: string | null): Promise<boolean> {
+    return markExpired((current) => sentWith == null || sentWith === current.token);
+  },
+
+  /**
+   * UF.2: an offline sign-in on an online device that cannot get a token (no password in
+   * memory, or the server refused it). The same expiry as a 401 — user kept, sign-in asked
+   * for — but only for `userId`'s tokenless session: one that got a token or changed hands
+   * meanwhile is left alone. True when the session changed.
+   */
+  async expireOffline(userId: string): Promise<boolean> {
+    return markExpired((current) => current.token === null && current.user.id === userId);
   },
 
   /** Merges server-authoritative fields into the signed-in user (role, name, flags). */

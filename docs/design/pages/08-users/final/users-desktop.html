@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Users — final, desktop</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../07-manage/src/manage.css"><link rel="stylesheet" href="../src/users.css"><link rel="stylesheet" href="../src/c.css"><link rel="stylesheet" href="../src/b.css">
+<style>body{background:var(--bg)}.desk.final{zoom:1;border-radius:0;box-shadow:none}</style>
+</head><body>
+<div class="desk final"><div data-desk-shell="users" data-crumb="Admin / <b>Users</b>">
+      <div class="mpad">
+        <div class="uhd"><div><div class="mh1">Users</div><div class="msub">Open an account to change its role, reset its password or disable it.</div></div><span class="sp"></span><span class="btn primary"><i data-i="plus"></i>Add a user</span></div>
+        <div class="fch"><div class="f"><div class="in ph" style="width:260px;gap:8px;height:38px"><i data-i="search"></i>Search</div></div>
+          <span class="fchip on">All <span class="c">11</span></span><span class="fchip">Scouters <span class="c">7</span></span><span class="fchip">Leads <span class="c">2</span></span><span class="fchip">Admins <span class="c">2</span></span><span class="fchip">Disabled <span class="c">1</span></span></div>
+        <div class="card" style="margin-top:12px;overflow:hidden">
+          <table class="tb"><thead><tr><th>Full name</th><th>Username</th><th>Role</th><th>Status</th><th class="r">Entries this season</th><th class="r">Quick actions</th></tr></thead><tbody id="c1"></tbody></table>
+        </div>
+      </div>
+    </div></div>
+<script src="../src/users.js"></script>
+<script>
+const row = (u, hov) => `<tr class="${hov ? 'hov' : ''}"><td><span class="nm2"><span class="av4">${u.ini}</span>${u.name}</span></td><td class="mono" style="font-weight:500">${u.user}</td><td>${U.role(u.role)}</td><td>${U.status(u)}</td><td class="n ${u.n === 0 ? 'z' : ''}">${u.n}</td><td>${hov ? `<div class="ra"><span class="btn">${U.svg('key')}Reset password</span><span class="btn">${U.svg('ban')}Disable</span></div>` : ''}</td></tr>`;
+document.getElementById('c1').innerHTML = U.users().map((u) => row(u, u.user === 'yael.s')).join('');
+
+U.icons();
+</script>
+<script src="../../shell.js"></script>
+</body></html>

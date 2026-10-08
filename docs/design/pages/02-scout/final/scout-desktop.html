@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Scout — final, desktop</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../01-entry/src/entry.css"><link rel="stylesheet" href="../../01-entry/final/final.css"><link rel="stylesheet" href="../src/scout.css"><link rel="stylesheet" href="../src/e-station.css">
+<style>
+.nothere{text-align:center;margin-top:10px;font-size:13.5px;color:var(--muted)}
+.flag{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:var(--radius-tag);background:var(--warn-tint);color:var(--warn);font-size:12.5px;font-weight:650}
+body{background:var(--bg)}
+.desk.final{zoom:1;border-radius:0;box-shadow:none}
+.dwrap{max-width:920px;margin:0 auto;padding:24px 32px}
+.dwrap .station{min-height:70px}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+</style></head><body>
+<div class="desk final"><div data-desk-shell="scout" data-crumb="<b>Scout</b>">
+  <div class="dwrap">
+    <div class="saved"><span class="ic chk"></span><div><b>Entry saved on this device</b> · Q38 · 5951 Tiny Titans<br>It is queued to send and stays safe here with no network.</div></div>
+    <div style="display:flex;align-items:center;gap:14px;margin-top:18px"><div class="dh1">Scout a match</div><span class="sp"></span><div class="sb"></div></div>
+    <div class="split"><div class="mi"></div><div></div></div>
+    <div class="lbl" style="margin-top:20px">Qualification 39 · tap the robot you are watching</div>
+    <div class="card" style="padding:14px" id="lu"></div><div class="nothere">Team not here? <span class="link">Choose from the event's teams</span></div>
+    <a class="btn primary" style="width:100%;height:52px;margin-top:16px;font-size:16px">Start entry · Blue 2 · 5654 Phoenix</a>
+  </div>
+</div></div>
+<script src="../../01-entry/src/entry.js"></script><script src="../src/e-common.js"></script><script src="../../shell.js"></script>
+<script>
+document.querySelector('.chk').innerHTML=E.check;
+document.querySelector('.sb').innerHTML=S.stationBar().replace('class="stbar"','class="stbar" style="padding:6px 10px"');
+document.querySelector('.mi').innerHTML=S.matchInputs('39',false);
+document.getElementById('lu').innerHTML=S.lineup({mine:'blue-2',on:'blue-2',done:{'red-2':'edit'}});
+</script>
+</body></html>

@@ -14,7 +14,23 @@ export const SYNC_ENTITIES = [
 export type SyncEntity = (typeof SYNC_ENTITIES)[number];
 export type OperationAction = 'create' | 'update' | 'delete';
 
-const isoDateTime = z.string().datetime({ offset: false });
+/**
+ * Liberal in what it accepts, strict in what it hands on (UF.12): an ISO timestamp with `Z`
+ * or an offset — a pulled row carries Postgres's `…+00:00`, and a client before UF.12 copied
+ * it into an edit — always comes out as UTC `Z`, so nothing downstream ever compares a
+ * mixed pair as strings. The client still sends `Z`.
+ */
+const isoDateTime = z
+  .string()
+  .datetime({ offset: true })
+  .transform((value, ctx) => {
+    const ms = Date.parse(value);
+    if (Number.isNaN(ms)) {
+      ctx.addIssue({ code: 'custom', message: 'Invalid datetime' });
+      return z.NEVER;
+    }
+    return new Date(ms).toISOString();
+  });
 
 export const operationSchema = z
   .object({

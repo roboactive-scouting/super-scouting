@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Entries — final, phone</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../src/entries.css"><link rel="stylesheet" href="../src/a2.css">
+<style>.canvas{height:940px}.frames{gap:22px}</style>
+</head><body>
+<div class="canvas">
+  <div class="canvas-head"><b>Entries — final · phone</b><span>All entries, the "Needs a look" filter, a search, and the empty state. A card opens the entry preview (its own page, designed later).</span></div>
+  <div class="frames">
+    <figure class="frame"><div class="phone"><div data-phone-shell data-time="11:43" data-title="Entries">
+      <div class="phd"><h1>Entries</h1><p>On this device · newest first</p></div>
+      <div class="pfil"><div class="srch"><i data-i="search"></i>Team, match or scouter</div></div>
+      <div class="pchips"><span class="fchip on">All 14</span><span class="fchip">Mine 4</span><span class="fchip">Waiting 3</span><span class="fchip">Needs a look 2</span></div>
+      <div class="pl" id="p1"></div>
+    </div></div><figcaption>1 · All entries</figcaption></figure>
+
+    <figure class="frame"><div class="phone"><div data-phone-shell data-time="11:44" data-title="Entries">
+      <div class="phd"><h1>Entries</h1><p>On this device · newest first</p></div>
+      <div class="pfil"><div class="srch"><i data-i="search"></i>Team, match or scouter</div></div>
+      <div class="pchips"><span class="fchip">All 14</span><span class="fchip">Mine 4</span><span class="fchip">Waiting 3</span><span class="fchip on">Needs a look 2</span></div>
+      <div class="pl" id="p2"></div>
+    </div></div><figcaption>2 · Needs a look (refused or not in line-up)</figcaption></figure>
+
+    <figure class="frame"><div class="phone"><div data-phone-shell data-time="11:45" data-title="Entries">
+      <div class="phd"><h1>Entries</h1><p>On this device · newest first</p></div>
+      <div class="pfil"><div class="srch" style="color:var(--ink);border:2px solid var(--accent)"><i data-i="search"></i>Noa<span style="margin-left:auto;color:var(--muted)">✕</span></div></div>
+      <div class="pchips"><span class="fchip on">All 4</span><span class="fchip">Mine 4</span><span class="fchip">Waiting 1</span><span class="fchip">Needs a look 2</span></div>
+      <div class="pl" id="p3"></div>
+    </div></div><figcaption>3 · Search by scouter</figcaption></figure>
+
+    <figure class="frame"><div class="phone"><div data-phone-shell data-time="08:30" data-title="Entries" data-sync="<span class='dot'></span>Online">
+      <div class="phd"><h1>Entries</h1><p>On this device · newest first</p></div>
+      <div class="empty"><div class="ei"><i data-i="search"></i></div><b>No entries yet</b><p>Entries appear here as soon as a device syncs. Nothing is lost while a device is offline.</p><span class="btn primary">Scout a match</span></div>
+    </div></div><figcaption>4 · Empty</figcaption></figure>
+  </div>
+</div>
+<script src="../src/entries.js"></script><script src="../src/a2.js"></script>
+<script>
+document.getElementById('p1').innerHTML = E.rows({ n: 7 }).map(EF.card).join('');
+document.getElementById('p2').innerHTML = E.rows().filter((r) => r.flag || r.sync === 'r').map(EF.card).join('');
+document.getElementById('p3').innerHTML = E.rows({ mine: true }).map(EF.card).join('');
+E.icons();
+</script>
+<script src="../../shell.js"></script>
+</body></html>

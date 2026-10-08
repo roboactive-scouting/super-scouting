@@ -69,14 +69,29 @@ describe('EntryRoute on submit (SPEC-FINAL 8.1)', () => {
     const notice = await screen.findByRole('status', { name: /entry saved/i });
     expect(notice).toHaveTextContent('Entry saved on this device');
     expect(notice).toHaveTextContent('Q21 · 118 Robonauts');
-    expect(screen.getByLabelText(/match number/i)).toHaveValue(null);
-    // The scout page's cache read has finished once the roster is on the select.
-    expect(await screen.findByRole('option', { name: /118/ })).toBeInTheDocument();
+    // v1.17: a new entry offers the next match of the same type.
+    expect(screen.getByLabelText(/match number/i)).toHaveValue(22);
+    expect(screen.getByLabelText(/match type/i)).toHaveValue('qualification');
+    // The scout page's device read has finished once it asks for a station (none is set).
+    expect(await screen.findByRole('dialog', { name: 'Choose your station' })).toBeInTheDocument();
     await waitFor(async () => expect(await pending(10)).toHaveLength(1));
   });
 });
 
 describe('EntryRoute and an entry already on this device (SPEC-FINAL 8.1, 7.6)', () => {
+  it('after an edit, returns to the scout page with no match number filled in (v1.17)', async () => {
+    await db.rows.put(entry(60 * 1000));
+    const user = userEvent.setup();
+    renderAt('/entry/m-1/t-1?alliance=red');
+    await user.click(await screen.findByRole('radio', { name: /no show/i }));
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    await user.click(await screen.findByRole('button', { name: /submit entry/i }));
+
+    const notice = await screen.findByRole('status', { name: /entry saved/i });
+    expect(notice).toHaveTextContent('Changes saved on this device');
+    expect(screen.getByLabelText(/match number/i)).toHaveValue(null);
+  });
+
   it('says plainly that the robot is scouted and locked once the window has passed', async () => {
     await db.rows.put(entry(6 * 60 * 1000));
     renderAt('/entry/m-1/t-1?alliance=red');

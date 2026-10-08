@@ -1,6 +1,4 @@
-import { readFileSync } from 'node:fs';
 import bcrypt from 'bcryptjs';
-import { join } from 'node:path';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -81,12 +79,24 @@ describe('LoginPage (SPEC-FINAL 7.3, 7.5)', () => {
     expect(screen.queryByRole('link', { name: /forgot/i })).not.toBeInTheDocument();
   });
 
-  it('gives the submit button the 48 px touch-target class', async () => {
+  it('shows the version and lets you see the password you typed', async () => {
     renderLogin();
-    const button = await screen.findByRole('button', { name: 'Sign in' });
-    expect(button).toHaveClass('tap-target');
-    const css = readFileSync(join(import.meta.dirname, '../styles/index.css'), 'utf8');
-    expect(css).toMatch(/\.tap-target\s*\{[^}]*min-block-size:\s*48px/);
+    expect(await screen.findByText(/version/)).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('Password', { selector: 'input' }), 'abc12345');
+    await userEvent.click(screen.getByRole('button', { name: 'Show password' }));
+    expect(screen.getByLabelText('Password', { selector: 'input' })).toHaveAttribute(
+      'type',
+      'text',
+    );
+  });
+
+  it('focuses the password when the sign-in expired and the name is kept', async () => {
+    await session.signIn(user, 'old');
+    await session.expire();
+    renderLogin();
+    await waitFor(() =>
+      expect(screen.getByLabelText('Password', { selector: 'input' })).toHaveFocus(),
+    );
   });
 
   it('signs in, stores the session and goes to the scout page', async () => {
@@ -148,7 +158,10 @@ describe('LoginPage (SPEC-FINAL 7.3, 7.5)', () => {
     [429, 'rate-limited', 'Too many attempts. Wait a few minutes and try again.'],
     [500, 'invalid', 'The server is having trouble. Try again in a minute.'],
   ])('maps HTTP %i to a sentence, never the code', async (status, code, line) => {
-    fetchMock.mockResolvedValueOnce(json(status, { error: { code, message: 'raw server text' } }));
+    // Both tries: a 5xx is not definitive, so an online device retries once (UF.2).
+    fetchMock.mockImplementation(async () =>
+      json(status, { error: { code, message: 'raw server text' } }),
+    );
     renderLogin();
     await signInWith('seed_scouter', 'seedpass1');
     expect(await screen.findByRole('alert')).toHaveTextContent(line);

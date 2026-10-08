@@ -1,12 +1,15 @@
-import { useEffect, useId, useState, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { buttonVariants } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { NativeSelect } from '@/components/ui/native-select';
-import { Notice } from '@/components/ui/notice';
-import { PageHeader } from '@/components/ui/page-header';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { Initials } from '@/components/ui/initials';
+import { ErrorLine, Note } from '@/components/ui/notice';
+import { PasswordInput } from '@/components/ui/password-input';
+import { Select } from '@/components/ui/select';
+import { stationLabel } from '@/components/ui/tag';
 import { db } from '@/data/db';
-import { AuthError, AuthField, AuthSubmit } from './AuthFrame';
+import { getStation, type Station } from '@/data/station';
+import { useSyncStatus } from '@/data/syncStatus';
+import { useDeviceQuery } from '@/data/useDeviceQuery';
 import {
   cachedSignInUsers,
   NO_CACHED_ACCOUNTS_LINE,
@@ -45,10 +48,49 @@ function optionText(user: CachedUser, signedIn: boolean): string {
   return `${user.full_name} · ${user.username}${signedIn ? ' · signed in now' : ''}`;
 }
 
+/**
+ * "Stays on this device" (06-switch README): what the hand-over leaves behind, by name and
+ * never by pronoun. Nothing waiting and no station: no note.
+ */
+function StaysNote({
+  name,
+  waiting,
+  station,
+}: {
+  name: string;
+  waiting: number;
+  station: Station | null;
+}) {
+  if (waiting === 0 && station === null) return null;
+  const who = <bdi>{name}</bdi>;
+  return (
+    <Note icon="info" className="mt-4">
+      <b className="font-semibold text-ink">Stays on this device:</b>{' '}
+      {waiting > 0 && (
+        <>
+          {who}&apos;s {waiting} {waiting === 1 ? 'entry' : 'entries'} waiting to send, which still
+          send as {who}&apos;s{station ? ', and ' : '.'}
+        </>
+      )}
+      {station && (
+        <>
+          {waiting > 0 ? 'station' : 'Station'}{' '}
+          <b className="font-semibold text-ink">{stationLabel(station)}</b>.
+        </>
+      )}
+    </Note>
+  );
+}
+
 export function SwitchScouter() {
   const navigate = useNavigate();
   const current = useSession();
+  const sync = useSyncStatus();
+  const station = useDeviceQuery(getStation, [], ['meta']);
   const pickerId = useId();
+  const passwordId = useId();
+  const errorId = useId();
+  const passwordRef = useRef<HTMLInputElement>(null);
   const [users, setUsers] = useState<CachedUser[] | null>(null);
   const [chosenId, setChosenId] = useState('');
   const [password, setPassword] = useState('');
@@ -76,6 +118,7 @@ export function SwitchScouter() {
     }
     if (password === '') {
       setError('Enter the password.');
+      passwordRef.current?.focus();
       return;
     }
     setBusy(true);
@@ -85,6 +128,8 @@ export function SwitchScouter() {
     } catch (err) {
       setError(signInErrorLine(err));
       setPassword('');
+      // Cleared, not disabled: the field keeps the focus for the next try.
+      passwordRef.current?.focus();
     } finally {
       setBusy(false);
     }
@@ -93,24 +138,38 @@ export function SwitchScouter() {
   if (users === null) return null; // IndexedDB is being read; a few milliseconds
 
   return (
-    <main className="mx-auto w-full max-w-md px-4 py-8">
-      <PageHeader
-        title="Switch scouter"
-        description={
-          users.length > 0
-            ? 'Entries already on this device keep the scouter who made them.'
-            : undefined
-        }
-      />
+    <main className="mx-auto w-full max-w-[460px] px-4 py-5 md:py-8">
+      <h1 className="text-[1.375rem] font-bold tracking-tight md:text-[1.625rem]">
+        Switch scouter
+      </h1>
+      {users.length > 0 && (
+        <p className="mt-1.5 text-sm leading-snug text-muted">
+          Entries already on this device keep the scouter who made them.
+        </p>
+      )}
       {users.length === 0 ? (
-        <Notice still className="mt-6">
+        <Note icon="offline" className="mt-5">
           {NO_CACHED_ACCOUNTS_LINE}
-        </Notice>
+        </Note>
       ) : (
-        <form noValidate className="mt-6" onSubmit={(e) => void submit(e)}>
-          <Label htmlFor={pickerId}>Scouter</Label>
-          <NativeSelect
+        <form noValidate className="mt-[18px]" onSubmit={(e) => void submit(e)}>
+          {current && (
+            <div className="flex items-center gap-3 rounded-card border border-line bg-surface px-3.5 py-3">
+              <Initials name={current.user.full_name} size={40} />
+              <div className="min-w-0">
+                <small className="block text-xs font-semibold text-muted">Scouting now</small>
+                <b dir="auto" className="block truncate text-[0.96875rem] font-semibold text-ink">
+                  {current.user.full_name}
+                </b>
+              </div>
+            </div>
+          )}
+          <label htmlFor={pickerId} className="mt-5 block text-sm font-semibold text-ink">
+            Who&apos;s scouting next?
+          </label>
+          <Select
             id={pickerId}
+            size="lg"
             dir="auto"
             value={chosenId}
             wrapperClassName="mt-1.5"
@@ -128,24 +187,48 @@ export function SwitchScouter() {
                 {optionText(u, u.id === current?.user.id)}
               </option>
             ))}
-          </NativeSelect>
+          </Select>
           {chosen && (
-            <AuthField
-              key={chosen.id}
-              label={
-                <>
-                  Password for <span dir="auto">{chosen.full_name}</span>
-                </>
-              }
-              type="password"
-              value={password}
-              autoComplete="current-password"
-              autoFocus
-              onChange={setPassword}
+            <div key={chosen.id} className="mt-5">
+              <label htmlFor={passwordId} className="block text-sm font-semibold text-ink">
+                Password for <span dir="auto">{chosen.full_name}</span>
+              </label>
+              <PasswordInput
+                id={passwordId}
+                ref={passwordRef}
+                value={password}
+                autoComplete="current-password"
+                autoFocus
+                dir="auto"
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? errorId : undefined}
+                className="mt-1.5"
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+          )}
+          {error && (
+            <ErrorLine id={errorId} className="mt-4">
+              {error}
+            </ErrorLine>
+          )}
+          {chosen && current && chosen.id !== current.user.id && (
+            <StaysNote
+              name={current.user.full_name}
+              waiting={sync.byAuthor[current.user.id] ?? 0}
+              station={station ?? null}
             />
           )}
-          <AuthError message={error} />
-          <AuthSubmit busy={busy} label="Switch scouter" busyLabel="Switching…" />
+          <Button
+            type="submit"
+            variant="primary"
+            size="block"
+            busy={busy}
+            busyLabel="Switching…"
+            className="mt-5"
+          >
+            Switch scouter
+          </Button>
         </form>
       )}
       <Link

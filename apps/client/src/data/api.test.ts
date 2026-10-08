@@ -1,10 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PULL_ENTITY_KEYS, type PullResponse } from '@frc/shared';
+import { pendingCredential } from '@/auth/pendingCredential';
 import { session } from '@/auth/session';
+import { lastTokenLoss } from '@/auth/tokenLoss';
 import { ApiError, apiClient } from './api';
 import { db } from './db';
 import { enqueue, pending } from './outbox';
 import { syncNow } from './sync';
+
+// The reconnect exchange (UF.2) logs in through rpc.ts, which reads the config itself.
+vi.mock('@/config', () => ({
+  clientConfig: () => ({ apiBaseUrl: 'https://api.test', deviceWipeCode: 'w', appVersion: 't' }),
+}));
 
 const config = { apiBaseUrl: 'https://api.test', deviceWipeCode: 'w', appVersion: 't' };
 const user = {
@@ -106,6 +113,7 @@ describe('the sync API client and the bearer token (SPEC-FINAL 7.5)', () => {
     expect(now?.expired).toBe(true);
     expect(now?.token).toBeNull();
     expect(now?.user.id).toBe('u-1');
+    expect(await lastTokenLoss()).toMatchObject({ reason: '401', path: '/sync/pull' });
   });
 
   it('keeps the session and the token on a 403 — never signs out', async () => {
@@ -129,6 +137,95 @@ describe('the sync API client and the bearer token (SPEC-FINAL 7.5)', () => {
       status: 500,
     });
     expect(await session.token()).toBe('token-abc');
+  });
+});
+
+describe('an offline sign-in on an online device, on the sync routes (UF.2)', () => {
+  const offlineUser = { ...user, id: '00000000-0000-4000-8000-0000000000a1' };
+  const unauthenticated = () =>
+    json(401, { error: { code: 'unauthenticated', message: 'sign in again' } });
+  const urls = () => fetchMock.mock.calls.map(([url]) => String(url));
+  let online = true;
+
+  beforeEach(async () => {
+    online = true;
+    vi.spyOn(navigator, 'onLine', 'get').mockImplementation(() => online);
+    await session.signIn(offlineUser, null, true);
+    pendingCredential.set({ username: 'alice', password: 'pw' });
+  });
+
+  afterEach(() => pendingCredential.clear());
+
+  it('gets a token before the request, and sends it', async () => {
+    fetchMock
+      .mockResolvedValueOnce(json(200, { token: 'tok-new', user: offlineUser }))
+      .mockResolvedValueOnce(okPull());
+    await apiClient(config).pull({ event_id: 'ev-1' });
+    expect(urls()[0]).toBe('https://api.test/api/login');
+    expect(sentHeaders(1).get('authorization')).toBe('Bearer tok-new');
+  });
+
+  it('with no password held: sends the request; our server’s 401 expires the session', async () => {
+    pendingCredential.clear();
+    fetchMock.mockResolvedValueOnce(unauthenticated());
+    await expect(
+      apiClient(config).push({ device_id: DEVICE, operations: [] }),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(urls()).toEqual(['https://api.test/sync/push']);
+    expect(await session.current()).toMatchObject({ token: null, expired: true });
+    expect(await lastTokenLoss()).toMatchObject({ reason: '401', path: '/sync/push' });
+  });
+
+  it('a 401 that is not our server’s (a portal) never expires the offline session', async () => {
+    pendingCredential.clear();
+    fetchMock.mockResolvedValueOnce(
+      new Response('<html>Sign in to Venue WiFi</html>', {
+        status: 401,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+    await expect(apiClient(config).pull({ event_id: 'ev-1' })).rejects.toMatchObject({
+      status: 401,
+    });
+    expect(await session.current()).toMatchObject({ offline: true, expired: false });
+    expect(await lastTokenLoss()).toBeNull();
+  });
+
+  it('a 401 sent with no bearer tries the exchange again, and expires when it is refused', async () => {
+    fetchMock
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(unauthenticated())
+      .mockResolvedValueOnce(unauthenticated());
+    await expect(apiClient(config).pull({ event_id: 'ev-1' })).rejects.toMatchObject({
+      status: 401,
+    });
+    expect(urls()).toEqual([
+      'https://api.test/api/login',
+      'https://api.test/sync/pull?event_id=ev-1',
+      'https://api.test/api/login',
+    ]);
+    expect((await session.current())?.expired).toBe(true);
+    expect(await lastTokenLoss()).toMatchObject({ reason: '401', path: '/sync/pull' });
+  });
+
+  it('a 403 sent with no bearer never expires anything', async () => {
+    fetchMock
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(json(403, { error: { code: 'forbidden', message: 'no' } }));
+    await expect(apiClient(config).pull({ event_id: 'ev-1' })).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(await session.current()).toMatchObject({ offline: true, expired: false });
+  });
+
+  it('offline: makes no exchange and never expires the session', async () => {
+    online = false;
+    pendingCredential.clear();
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await expect(apiClient(config).pull({ event_id: 'ev-1' })).rejects.toThrow();
+    expect(urls()).toEqual(['https://api.test/sync/pull?event_id=ev-1']);
+    expect(await session.current()).toMatchObject({ offline: true, expired: false });
   });
 });
 

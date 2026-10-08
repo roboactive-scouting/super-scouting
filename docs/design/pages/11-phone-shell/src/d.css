@@ -1,0 +1,11 @@
+/* Phone shell, closed variant D. Colours only from theme.css. */
+.drw.narrow { width: 252px; padding: 14px 10px 20px; }
+.drw.narrow .br img { width: 30px; }
+.drw.narrow .br b { font-size: 14px; }
+.drw.narrow a { min-height: 46px; font-size: 14.5px; }
+.drw.narrow .syncrow { font-size: 12.5px; margin: 6px 6px 0; padding: 9px 10px; flex-wrap: wrap; row-gap: 2px; }
+.drw.narrow .syncrow small { margin-left: 15px; width: 100%; }
+.bb.dark .center .fab { border-color: var(--rail); }
+/* Amended 2026-10-08 (UI fix round): the current page is the raised green button. */
+.bb.dark .center { position: relative; }
+.bb.dark .center .badge2 { top: -4px; left: 60%; z-index: 1; }

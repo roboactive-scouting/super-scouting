@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button, buttonVariants } from './ui/button';
+import { EmptyState } from './ui/empty-state';
 
 /**
  * SPEC-FINAL 17.8's six variants, plus `not-permitted` (task 1.17): a role reaching a page
@@ -72,7 +73,7 @@ const VARIANTS: Record<StateVariant, { glyph: LucideIcon; title: string; detail:
 };
 
 /**
- * The one state component (SPEC-FINAL 17.8): a centred glyph, one bold line of what
+ * The one state component (SPEC-FINAL 17.8): an EmptyState card: a glyph, one bold line of what
  * happened, one muted line of why, and exactly one primary action. No dead ends.
  *
  * `detail` must be a sentence for a person: pass an error through `sentence()` or a
@@ -93,36 +94,28 @@ export function StateMessage({
   headingLevel?: 1 | 2;
 }) {
   const copy = VARIANTS[variant];
-  const Glyph = copy.glyph;
-  const Heading = headingLevel === 1 ? 'h1' : 'h2';
   const why = detail ?? copy.detail;
   const line = variant === 'offline-needs-server' ? `${why} ${SAFE_ON_DEVICE}` : why;
 
   return (
-    <section className="enter-fade mx-auto flex max-w-md flex-col items-center px-4 py-16 text-center">
-      <span
-        aria-hidden="true"
-        className="flex size-12 items-center justify-center rounded-full border border-border bg-surface"
-      >
-        <Glyph className="size-6 text-text-muted" strokeWidth={1.5} />
-      </span>
-      <Heading className="mt-5 text-lg font-semibold" dir="auto">
-        {title ?? copy.title}
-      </Heading>
-      <p className="mt-2 text-sm text-text-muted" dir="auto">
-        {line}
-      </p>
-      <div className="mt-6">
-        {'to' in action ? (
-          <Link to={action.to} className={buttonVariants({ variant: 'primary' })}>
-            {action.label}
-          </Link>
-        ) : (
-          <Button variant="primary" onClick={action.onClick}>
-            {action.label}
-          </Button>
-        )}
-      </div>
-    </section>
+    <div className="mx-auto max-w-md px-4 py-10">
+      <EmptyState
+        icon={copy.glyph}
+        title={title ?? copy.title}
+        detail={line}
+        headingLevel={headingLevel}
+        action={
+          'to' in action ? (
+            <Link to={action.to} className={buttonVariants({ variant: 'primary' })}>
+              {action.label}
+            </Link>
+          ) : (
+            <Button variant="primary" onClick={action.onClick}>
+              {action.label}
+            </Button>
+          )
+        }
+      />
+    </div>
   );
 }

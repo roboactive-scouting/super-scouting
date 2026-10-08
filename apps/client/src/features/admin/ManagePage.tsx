@@ -1,190 +1,42 @@
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import type { EventRow, SeasonRow } from '@frc/shared';
-import { Label } from '@/components/ui/label';
-import { NativeSelect } from '@/components/ui/native-select';
-import { PageHeader } from '@/components/ui/page-header';
-import { Tabs } from '@/components/ui/tabs';
+import { useState, type ReactNode } from 'react';
 import { StateMessage } from '@/components/StateMessage';
+import { Select } from '@/components/ui/select';
+import { Tabs } from '@/components/ui/tabs';
 import { adminRpc, type Rpc } from '@/data/rpc';
 import { useSignedInUser } from '@/features/shell/shellContext';
+import { PATHS } from '@/lib/paths';
 import { useOnline } from '@/lib/useOnline';
 import { canManageEvents } from './AdminOnly';
-import { panelErrorLine, unreachable } from './adminMessages';
-import { EventsPanel } from './EventsPanel';
+import { CompetitionsPanel } from './CompetitionsPanel';
+import { LeaveGuard } from './LeaveGuard';
+import { LoadFailure } from './LoadFailure';
 import { MatchesPanel } from './MatchesPanel';
-import { SeasonsPanel } from './SeasonsPanel';
-import { TeamsPanel } from './TeamsPanel';
-import { PATHS } from '@/lib/paths';
+import { RosterPanel } from './RosterPanel';
+import { UnsavedConfirm } from './UnsavedConfirm';
+import { useManageLists } from './useManageLists';
 
 /**
- * SPEC-FINAL 6.2–6.4 (tasks 1.20–1.21): season, event, team/roster and match management,
- * at `/admin/manage`. Desktop-only and `NO_HYDRATION` are the route's job (routes.tsx,
- * matching the Users routes) — this page only checks the role, exactly as `AdminOnly` does
- * for Users, but against `manage_events` rather than `manage_users`, so it does not reuse
- * that component.
+ * SPEC-FINAL 6.2–6.4 at `/admin/manage` (07-manage final): "Season and event management",
+ * the event being worked on with a picker, and three tabs — Competitions (seasons and
+ * events), Teams & roster, Matches — with counts. The page loads every list once and owns
+ * it; the tabs change it in place. The role gate is `manage_events`, as before.
  */
-type TabKey = 'seasons' | 'events' | 'roster' | 'matches';
+type TabKey = 'competitions' | 'roster' | 'matches';
 
-const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
-  { key: 'seasons', label: 'Seasons' },
-  { key: 'events', label: 'Events' },
-  { key: 'roster', label: 'Teams & roster' },
-  { key: 'matches', label: 'Matches' },
-];
-
-/** Why a list the page needs did not load: no connection, or a server refusal. */
-type Failure = { unreachable: boolean; line: string };
-
-const failureOf = (e: unknown): Failure => ({
-  unreachable: unreachable(e),
-  line: panelErrorLine(e),
-});
+const DESCRIPTION =
+  'Seasons, events, rosters and matches. The default event is the one every device works on.';
 
 export function ManagePage({ rpc = adminRpc }: { rpc?: Rpc }) {
-  const user = useSignedInUser();
-  const allowed = canManageEvents(user);
+  const allowed = canManageEvents(useSignedInUser());
   const online = useOnline();
-  const [tab, setTab] = useState<TabKey>('seasons');
-  // `null` until the first listing answers. A listing that failed leaves it `null` and sets
-  // `seasonsFailure` - never an empty list, which would read as "no seasons yet".
-  const [seasons, setSeasons] = useState<SeasonRow[] | null>(null);
-  const [seasonsFailure, setSeasonsFailure] = useState<Failure | null>(null);
-  // True while the page is mounted (follow-up fix): `refreshSeasons`'s own `onChanged` call
-  // is not inside the mount effect that would otherwise catch this for it. Set in the
-  // effect's own setup, not only the `useRef(true)` initialiser — StrictMode's dev-mode
-  // setup → cleanup → setup would otherwise leave this false forever after the first
-  // render, since a ref's initial value is not re-applied on a second setup.
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-  /**
-   * The generation of the latest `refreshSeasons` call (follow-up fix, same idea as
-   * `managedSeasonRef` below): a stale response — one from a call that is no longer the
-   * most recent — is dropped, exactly as a stale Events-tab refresh already is.
-   */
-  const seasonsRefreshRef = useRef(0);
-  // The season the Events/Roster/Matches tabs manage: the active season if one is set,
-  // else the newest, else none. Chosen once seasons are known, then left to the admin's
-  // own selection (task 1.20).
-  const [managedSeasonId, setManagedSeasonId] = useState<string | null>(null);
-  /**
-   * The managed season as of the latest render (branch review, finding 6): an Events-tab
-   * refresh started for season X must not land once the admin has picked season Y, or
-   * the Roster and Matches tabs would edit an event of the other season.
-   */
-  const managedSeasonRef = useRef<string | null>(managedSeasonId);
-  managedSeasonRef.current = managedSeasonId;
-  const [events, setEvents] = useState<EventRow[] | null>(null);
-  const [eventsFailure, setEventsFailure] = useState<Failure | null>(null);
-  // The event the Roster/Matches tabs manage (task 1.21 addendum): the active event if it
-  // belongs to the managed season, else that season's first event by sort_order, else none.
-  const [managedEventId, setManagedEventId] = useState<string | null>(null);
-
-  // Re-run after a create, edit or "make active" on the Seasons tab, and once on mount
-  // (task 1.20 review): otherwise an admin who creates a season on an empty install and
-  // switches to Events still sees "Create a season first" until a reload.
-  const refreshSeasons = useCallback(
-    (live: () => boolean) => {
-      const generation = ++seasonsRefreshRef.current;
-      const stillLatest = () => seasonsRefreshRef.current === generation;
-      Promise.all([rpc.call('listSeasons', {}), rpc.call('getActiveContext', {})]).then(
-        ([seasonsOut, contextOut]) => {
-          if (!live() || !stillLatest()) return;
-          const items = (seasonsOut as { items: SeasonRow[] }).items;
-          const sorted = [...items].sort((a, b) => b.year - a.year);
-          const activeSeasonId = (contextOut as { active_season_id: string | null })
-            .active_season_id;
-          setSeasonsFailure(null);
-          setSeasons(sorted);
-          setManagedSeasonId((prev) => prev ?? activeSeasonId ?? sorted[0]?.id ?? null);
-        },
-        (e: unknown) => {
-          // Seasons already on screen stay; the failure only shows when there are none.
-          if (live() && stillLatest()) setSeasonsFailure(failureOf(e));
-        },
-      );
-    },
-    // rpc is an injected dependency held stable by the caller.
-    [],
-  );
-
-  // Task 1.21: the counterpart of `refreshSeasons` for the managed season's events. Re-run
-  // whenever the managed season changes, and when the Events tab reports a change (the same
-  // `onChanged` pattern), so the Roster/Matches tabs' event picker follows along live.
-  const refreshEvents = useCallback((seasonId: string, live: () => boolean) => {
-    Promise.all([
-      rpc.call('listEvents', { season_id: seasonId }),
-      rpc.call('getActiveContext', {}),
-    ]).then(
-      ([eventsOut, contextOut]) => {
-        if (!live()) return;
-        const items = (eventsOut as { items: EventRow[] }).items;
-        const sorted = [...items].sort((a, b) => a.sort_order - b.sort_order);
-        const activeEventId = (contextOut as { active_event_id: string | null }).active_event_id;
-        const activeBelongsHere = sorted.some((e) => e.id === activeEventId);
-        setEventsFailure(null);
-        setEvents(sorted);
-        setManagedEventId((prev) => {
-          if (prev && sorted.some((e) => e.id === prev)) return prev;
-          return activeBelongsHere ? activeEventId : (sorted[0]?.id ?? null);
-        });
-      },
-      (e: unknown) => {
-        if (live()) setEventsFailure(failureOf(e));
-      },
-    );
-  }, []);
-
-  useEffect(() => {
-    // A non-admin makes no request at all (common.md), and neither does an offline page:
-    // before the first load it says so, and loads by itself when `online` flips back.
-    if (!allowed || !online) return;
-    let live = true;
-    refreshSeasons(() => live);
-    return () => {
-      live = false;
-    };
-  }, [allowed, online, refreshSeasons]);
-
-  // A different season (or none) starts its events from scratch. Kept apart from the fetch
-  // below so a blink of the connection never blanks events that are already on screen.
-  useEffect(() => {
-    setEvents(null);
-    setEventsFailure(null);
-    setManagedEventId(null);
-  }, [allowed, managedSeasonId]);
-
-  useEffect(() => {
-    if (!allowed || !online || !managedSeasonId) return;
-    let live = true;
-    refreshEvents(managedSeasonId, () => live);
-    return () => {
-      live = false;
-    };
-  }, [allowed, online, managedSeasonId, refreshEvents]);
-
-  const retrySeasons = () => {
-    setSeasonsFailure(null);
-    refreshSeasons(() => mountedRef.current);
-  };
-  const retryEvents = () => {
-    if (!managedSeasonId) return;
-    const seasonId = managedSeasonId;
-    setEventsFailure(null);
-    refreshEvents(seasonId, () => managedSeasonRef.current === seasonId);
-  };
-  // What the Events, Roster and Matches tabs show until the seasons are known: a failure
-  // is said as one, never as "Create a season first".
-  const seasonsGate: ReactNode =
-    seasons !== null ? null : seasonsFailure ? (
-      <LoadFailure what="Seasons" failure={seasonsFailure} onRetry={retrySeasons} />
-    ) : (
-      <p className="text-text-muted">Loading the seasons…</p>
-    );
+  const [tab, setTab] = useState<TabKey>('competitions');
+  const lists = useManageLists(rpc, allowed && online);
+  const { seasons, events, eventId, roster, setRoster, matches, setMatches, saves } = lists;
+  /** A change of event or season waiting on "Leave without saving?" (RB.17 fix 2). */
+  const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
+  // Asks while a line-up is "Not saved" or still being sent (fix 3); the switch drops both.
+  const switchCompetition = (go: () => void) =>
+    saves.held.size > 0 ? setPendingSwitch(() => go) : go();
 
   if (!allowed) {
     return (
@@ -198,8 +50,8 @@ export function ManagePage({ rpc = adminRpc }: { rpc?: Rpc }) {
     );
   }
 
-  // Offline before anything has loaded: nothing to show, so say so. Once the page has
-  // loaded, going offline keeps it - and every open form with what was typed in it.
+  // Offline before anything has loaded: nothing to show, so say so. Once loaded, going
+  // offline keeps the page — and every open form with what was typed in it.
   if (!online && seasons === null) {
     return (
       <StateMessage
@@ -211,240 +63,174 @@ export function ManagePage({ rpc = adminRpc }: { rpc?: Rpc }) {
     );
   }
 
+  const season = seasons?.find((s) => s.id === lists.seasonId) ?? null;
+  const event = events?.find((e) => e.id === eventId) ?? null;
+  const working = tab !== 'competitions' && season && event;
+
+  const seasonsGate: ReactNode = lists.seasonsFailure ? (
+    <LoadFailure what="Seasons" failure={lists.seasonsFailure} onRetry={lists.retrySeasons} />
+  ) : (
+    <p className="text-muted">Loading the seasons…</p>
+  );
+  const eventsGate: ReactNode = lists.eventsFailure ? (
+    <LoadFailure what="Events" failure={lists.eventsFailure} onRetry={lists.retryEvents} />
+  ) : (
+    <p className="text-muted">Loading the events…</p>
+  );
+
+  /** What the Roster and Matches tabs show until their event's lists are in. */
+  function eventGate(what: 'Teams' | 'Matches'): ReactNode {
+    if (seasons === null) return seasonsGate;
+    if (!lists.seasonId) {
+      return (
+        <StateMessage
+          variant="no-data"
+          title="Create a season first"
+          detail="Events belong to a season. Add one on the Competitions tab, then come back here."
+          action={{ label: 'Competitions', onClick: () => setTab('competitions') }}
+        />
+      );
+    }
+    if (events === null) return eventsGate;
+    if (!eventId) {
+      return (
+        <StateMessage
+          variant="no-data"
+          title="Create an event first"
+          detail="Teams, rosters and matches belong to an event. Add one on the Competitions tab, then come back here."
+          action={{ label: 'Competitions', onClick: () => setTab('competitions') }}
+        />
+      );
+    }
+    if (lists.eventFailure) {
+      return <LoadFailure what={what} failure={lists.eventFailure} onRetry={lists.retryEvent} />;
+    }
+    if (!lists.eventReady) return <p className="text-muted">Loading the {what.toLowerCase()}…</p>;
+    return null;
+  }
+
+  const counted = lists.eventReady;
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-8 lg:px-8">
+    <main className="mx-auto w-full px-4 pb-8 pt-5 lg:px-8 lg:pt-6">
       {!online && (
-        <p role="status" className="mb-4 text-sm text-text-muted">
+        <p role="status" className="mb-4 text-sm text-muted">
           No connection — changes cannot be saved until it returns.
         </p>
       )}
-      <PageHeader
-        title="Season and event management"
-        description="Seasons, events, rosters and matches. The default event is the one every device works on."
-      />
-      <div className="mt-6">
-        <Tabs label="Manage" tabs={TABS} value={tab} onChange={setTab} />
-      </div>
-      <div className="mt-6">
-        {tab === 'seasons' && (
-          <SeasonsPanel rpc={rpc} onChanged={() => refreshSeasons(() => mountedRef.current)} />
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-[1.625rem] font-[750] tracking-[-0.02em]">
+            Season and event management
+          </h1>
+          <p className="mt-1 text-[0.84375rem] text-muted">
+            {working ? (
+              <>
+                Working on{' '}
+                <b className="font-bold text-ink" dir="auto">
+                  {event.name}
+                </b>
+                {event.id === lists.active.active_event_id && ' (default)'} ·{' '}
+                <span className="num">{season.year}</span>
+              </>
+            ) : (
+              DESCRIPTION
+            )}
+          </p>
+        </div>
+        {tab !== 'competitions' && events && events.length > 1 && eventId && (
+          <Select
+            aria-label="Event"
+            value={eventId}
+            wrapperClassName="w-full sm:w-auto sm:min-w-[240px]"
+            onChange={(e) => {
+              const id = e.target.value;
+              switchCompetition(() => lists.chooseEvent(id));
+            }}
+          >
+            {events.map((row) => (
+              <option key={row.id} value={row.id} dir="auto">
+                {row.name}
+              </option>
+            ))}
+          </Select>
         )}
-        {tab === 'events' &&
-          (managedSeasonId ? (
-            <>
-              {seasons && seasons.length > 1 && (
-                <SeasonSelect
-                  seasons={seasons}
-                  value={managedSeasonId}
-                  onChange={setManagedSeasonId}
-                />
-              )}
-              <EventsPanel
-                seasonId={managedSeasonId}
-                rpc={rpc}
-                onChanged={() => {
-                  const seasonId = managedSeasonId;
-                  refreshEvents(seasonId, () => managedSeasonRef.current === seasonId);
-                }}
-              />
-            </>
+      </div>
+      <div className="mt-3.5 overflow-hidden rounded-card border border-line">
+        <Tabs
+          flush
+          label="Manage"
+          value={tab}
+          onChange={setTab}
+          tabs={[
+            { key: 'competitions', label: 'Competitions' },
+            { key: 'roster', label: 'Teams & roster', count: counted ? roster.length : undefined },
+            { key: 'matches', label: 'Matches', count: counted ? matches.length : undefined },
+          ]}
+        />
+      </div>
+      <div className="mt-4">
+        {tab === 'competitions' &&
+          (seasons === null ? (
+            seasonsGate
           ) : (
-            (seasonsGate ?? <NoSeasonYet onGoToSeasons={() => setTab('seasons')} />)
+            <CompetitionsPanel
+              rpc={rpc}
+              seasons={seasons}
+              active={lists.active}
+              seasonId={lists.seasonId}
+              events={events}
+              eventsGate={eventsGate}
+              onSelectSeason={(id) => {
+                if (id !== lists.seasonId) switchCompetition(() => lists.selectSeason(id));
+              }}
+              onSeasonSaved={lists.saveSeason}
+              onActiveChange={lists.setActive}
+              onEventsChange={lists.changeEvents}
+              onSeasonDeleted={lists.dropSeason}
+              onEventDeleted={lists.dropEvent}
+            />
           ))}
-        {tab === 'roster' && (
-          <ManagedEventGate
-            managedSeasonId={managedSeasonId}
-            seasonsGate={seasonsGate}
-            events={events}
-            eventsFailure={eventsFailure}
-            onRetryEvents={retryEvents}
-            managedEventId={managedEventId}
-            onEventChange={setManagedEventId}
-            onGoToSeasons={() => setTab('seasons')}
-            onGoToEvents={() => setTab('events')}
-          >
-            {(eventId) => <TeamsPanel eventId={eventId} rpc={rpc} />}
-          </ManagedEventGate>
-        )}
-        {tab === 'matches' && (
-          <ManagedEventGate
-            managedSeasonId={managedSeasonId}
-            seasonsGate={seasonsGate}
-            events={events}
-            eventsFailure={eventsFailure}
-            onRetryEvents={retryEvents}
-            managedEventId={managedEventId}
-            onEventChange={setManagedEventId}
-            onGoToSeasons={() => setTab('seasons')}
-            onGoToEvents={() => setTab('events')}
-          >
-            {(eventId) => <MatchesPanel eventId={eventId} rpc={rpc} />}
-          </ManagedEventGate>
-        )}
+        {tab === 'roster' &&
+          (eventGate('Teams') ??
+            (eventId && (
+              <RosterPanel
+                key={eventId}
+                rpc={rpc}
+                eventId={eventId}
+                roster={roster}
+                onRosterChange={setRoster}
+                registry={lists.registry}
+                registryFailure={lists.registryFailure}
+                onRegistryChange={lists.setRegistry}
+                onRetryRegistry={lists.retryRegistry}
+              />
+            )))}
+        {tab === 'matches' &&
+          (eventGate('Matches') ??
+            (eventId && (
+              <MatchesPanel
+                rpc={rpc}
+                eventId={eventId}
+                roster={roster}
+                matches={matches}
+                onMatchesChange={setMatches}
+                onRosterChange={setRoster}
+                saves={saves}
+              />
+            )))}
       </div>
-    </main>
-  );
-}
-
-/** A list the page needs and could not get: the connection state, or the server's own line. */
-function LoadFailure({
-  what,
-  failure,
-  onRetry,
-}: {
-  what: 'Seasons' | 'Events';
-  failure: Failure;
-  onRetry: () => void;
-}) {
-  return failure.unreachable ? (
-    <StateMessage
-      variant="offline-needs-server"
-      headingLevel={2}
-      detail={`${what} live on the server, and this device cannot reach it right now.`}
-      action={{ label: 'Try again', onClick: onRetry }}
-    />
-  ) : (
-    <StateMessage
-      variant="failed"
-      headingLevel={2}
-      title={`${what} did not load`}
-      detail={failure.line}
-      action={{ label: 'Try again', onClick: onRetry }}
-    />
-  );
-}
-
-function NoSeasonYet({ onGoToSeasons }: { onGoToSeasons: () => void }) {
-  return (
-    <StateMessage
-      variant="no-data"
-      title="Create a season first"
-      detail="Events belong to a season. Add one on the Seasons tab, then come back here."
-      action={{ label: 'Seasons', onClick: onGoToSeasons }}
-    />
-  );
-}
-
-/**
- * The gate the Roster and Matches tabs share (task 1.21 addendum item 2): "create a season
- * first", then "create an event first", then the one plain `<select>` labelled "Event" that
- * both tabs manage through — a management selector only, never the context switcher
- * (SPEC-FINAL 6.3's no-dropdown rule is for the context page).
- */
-function ManagedEventGate({
-  managedSeasonId,
-  seasonsGate,
-  events,
-  eventsFailure,
-  onRetryEvents,
-  managedEventId,
-  onEventChange,
-  onGoToSeasons,
-  onGoToEvents,
-  children,
-}: {
-  managedSeasonId: string | null;
-  /** Set while the seasons are loading or failed to; the gate shows it before anything else. */
-  seasonsGate: ReactNode;
-  events: EventRow[] | null;
-  eventsFailure: Failure | null;
-  onRetryEvents: () => void;
-  managedEventId: string | null;
-  onEventChange: (eventId: string) => void;
-  onGoToSeasons: () => void;
-  onGoToEvents: () => void;
-  children: (eventId: string) => ReactNode;
-}) {
-  if (!managedSeasonId) {
-    return seasonsGate ?? <NoSeasonYet onGoToSeasons={onGoToSeasons} />;
-  }
-  if (events === null) {
-    return eventsFailure ? (
-      <LoadFailure what="Events" failure={eventsFailure} onRetry={onRetryEvents} />
-    ) : (
-      <p className="text-text-muted">Loading the events…</p>
-    );
-  }
-  if (!managedEventId) {
-    return (
-      <StateMessage
-        variant="no-data"
-        title="Create an event first"
-        detail="Teams, rosters and matches belong to an event. Add one on the Events tab, then come back here."
-        action={{ label: 'Events', onClick: onGoToEvents }}
+      <UnsavedConfirm
+        open={pendingSwitch !== null}
+        action="switch"
+        matches={matches}
+        unsaved={saves.held}
+        onStay={() => setPendingSwitch(null)}
+        onGo={() => {
+          pendingSwitch?.();
+          setPendingSwitch(null);
+        }}
       />
-    );
-  }
-  return (
-    <>
-      {events && events.length > 1 && (
-        <EventSelect events={events} value={managedEventId} onChange={onEventChange} />
-      )}
-      {children(managedEventId)}
-    </>
-  );
-}
-
-/**
- * Which season's events this screen manages — a plain management selector, not the
- * context switcher (SPEC-FINAL 6.3's no-dropdown rule is for the context page). Choosing
- * a season here changes nothing on the server.
- */
-function SeasonSelect({
-  seasons,
-  value,
-  onChange,
-}: {
-  seasons: SeasonRow[];
-  value: string;
-  onChange: (seasonId: string) => void;
-}) {
-  const id = useId();
-  return (
-    <div className="mb-4 max-w-xs">
-      <Label htmlFor={id}>Season</Label>
-      <NativeSelect
-        id={id}
-        value={value}
-        wrapperClassName="mt-1.5"
-        onChange={(e) => onChange(e.target.value)}
-      >
-        {seasons.map((season) => (
-          <option key={season.id} value={season.id} dir="auto">
-            {season.year} — {season.game_name}
-          </option>
-        ))}
-      </NativeSelect>
-    </div>
-  );
-}
-
-/** The Roster/Matches tabs' shared event picker (task 1.21). Same non-context idiom. */
-function EventSelect({
-  events,
-  value,
-  onChange,
-}: {
-  events: EventRow[];
-  value: string;
-  onChange: (eventId: string) => void;
-}) {
-  const id = useId();
-  return (
-    <div className="mb-4 max-w-xs">
-      <Label htmlFor={id}>Event</Label>
-      <NativeSelect
-        id={id}
-        value={value}
-        wrapperClassName="mt-1.5"
-        onChange={(e) => onChange(e.target.value)}
-      >
-        {events.map((event) => (
-          <option key={event.id} value={event.id} dir="auto">
-            {event.name}
-          </option>
-        ))}
-      </NativeSelect>
-    </div>
+      <LeaveGuard matches={matches} unsaved={saves.held} />
+    </main>
   );
 }

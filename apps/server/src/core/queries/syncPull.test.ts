@@ -102,6 +102,74 @@ describe('syncPull', () => {
     expect(res.complete).toBe(true);
   });
 
+  describe('deleted matches (UF.1, SPEC-FINAL 9.3 v1.18)', () => {
+    const tombstone = (matchId: string, eventId: string, at: string) =>
+      ctx.matchDeletions.set(matchId, { event_id: eventId, deleted_at: at });
+
+    it('a delta pull names the event’s matches deleted after `since`, and no others', async () => {
+      tombstone('m-old', EVENT, '2026-11-14T08:00:00.000Z');
+      tombstone('m-new', EVENT, '2026-11-14T09:00:20.000Z');
+      tombstone('m-other-event', 'ev-2', '2026-11-14T09:00:20.000Z');
+      const res = await syncPull(
+        scouter,
+        { event_id: EVENT, since: '2026-11-14T09:00:15.000Z' },
+        ctx,
+      );
+      expect(res.deleted_matches).toEqual(['m-new']);
+    });
+
+    it('a full pull names none: its dataset already leaves them out', async () => {
+      tombstone('m-new', EVENT, '2026-11-14T09:00:20.000Z');
+      const res = await syncPull(scouter, { event_id: EVENT }, ctx);
+      expect(res.deleted_matches).toEqual([]);
+    });
+
+    it('names them on the first page of a delta pull only', async () => {
+      tombstone('m-new', EVENT, '2026-11-14T09:00:20.000Z');
+      const res = await syncPull(
+        scouter,
+        {
+          event_id: EVENT,
+          since: '2026-11-14T09:00:15.000Z',
+          cursor: btoa('{"entityIndex":0,"offset":0}'),
+        },
+        ctx,
+      );
+      expect(res.deleted_matches).toEqual([]);
+    });
+
+    it('moves the watermark past a deletion newer than every row', async () => {
+      tombstone('m-new', EVENT, '2026-11-14T10:00:00.000Z');
+      const res = await syncPull(
+        scouter,
+        { event_id: EVENT, since: '2026-11-14T09:00:15.000Z' },
+        ctx,
+      );
+      expect(res.watermark).toBe('2026-11-14T09:59:55.000Z');
+    });
+
+    it('follows the store: a match deleted through it is named, one created again is not', async () => {
+      ctx.knownEvents.add(EVENT);
+      const match = await ctx.store.insertMatch({
+        id: 'm-9',
+        event_id: EVENT,
+        match_type: 'qualification',
+        number: 9,
+      });
+      ctx.nowValue = new Date('2026-11-14T11:00:00.000Z');
+      await ctx.store.deleteMatch(match.id);
+      const since = { event_id: EVENT, since: '2026-11-14T10:00:00.000Z' };
+      expect((await syncPull(scouter, since, ctx)).deleted_matches).toEqual(['m-9']);
+      await ctx.store.insertMatch({
+        id: 'm-9',
+        event_id: EVENT,
+        match_type: 'qualification',
+        number: 9,
+      });
+      expect((await syncPull(scouter, since, ctx)).deleted_matches).toEqual([]);
+    });
+  });
+
   it('reports not-found when the event no longer exists, so the client can wipe its cache', async () => {
     ctx.knownEvents.clear();
     await expect(syncPull(scouter, { event_id: EVENT }, ctx)).rejects.toMatchObject({

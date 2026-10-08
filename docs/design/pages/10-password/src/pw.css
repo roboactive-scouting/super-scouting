@@ -1,0 +1,25 @@
+/* Change password round. Colours only from theme.css. Builds on 04-login/src/login.css + a.css. */
+.lead2 { color: var(--muted); font-size: 14px; line-height: 1.45; margin-top: 8px; }
+.ghost2 { margin-top: 10px; height: 48px; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 15px; color: var(--ink-2); }
+.rules { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.rules span { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.rules span i { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--control-border); display: grid; place-items: center; flex: none; }
+.rules span.ok { color: var(--accent-ink); }
+.rules span.ok i { background: var(--accent); border-color: var(--accent); color: #fff; }
+.rules span.no { color: var(--warn); }
+.rules span.no i { border-color: var(--warn); color: var(--warn); }
+.rules i svg { width: 11px; height: 11px; stroke-width: 3; }
+.fbadge { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: var(--radius-pill); background: var(--warn-tint); color: var(--warn); font-size: 12.5px; font-weight: 700; margin-bottom: 10px; }
+.pwcard { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 22px 24px; }
+.scrim5 { position: absolute; inset: 0; background: rgba(20, 24, 32, 0.45); }
+.main { position: relative; }
+.dlg2 { position: absolute; left: 50%; top: 80px; transform: translateX(-50%); width: 440px; background: var(--surface); border-radius: 16px; padding: 22px 24px; box-shadow: 0 24px 60px -20px rgba(20, 24, 32, 0.45); }
+.dlg2 .hd { display: flex; align-items: center; }
+.dlg2 .hd b { font-size: 20px; font-weight: 750; }
+.dlg2 .hd svg { width: 20px; height: 20px; margin-left: auto; color: var(--muted); }
+.sheet3 { position: absolute; left: 0; right: 0; bottom: 0; background: var(--surface); border-radius: 20px 20px 0 0; padding: 10px 18px 24px; box-shadow: 0 -12px 40px -12px rgba(20, 24, 32, 0.4); }
+.sheet3 .grab { width: 40px; height: 4px; border-radius: 2px; background: var(--line); margin: 0 auto 12px; }
+.acctmenu { position: absolute; left: 14px; bottom: 76px; width: 204px; background: var(--surface); border-radius: 10px; box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.5); padding: 4px; z-index: 3; }
+.acctmenu div { padding: 9px 10px; border-radius: 6px; font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.acctmenu div.on { background: var(--accent-tint); color: var(--accent-ink); }
+.bgcard { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); }

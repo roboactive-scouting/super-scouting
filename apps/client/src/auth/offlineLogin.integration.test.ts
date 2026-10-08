@@ -416,10 +416,11 @@ describe('a connection that is there but is not our server', () => {
     const started = Date.now();
     const result = await signInWithFallback(SCOUTER.username, SCOUTER.password, {
       timeoutMs: 300,
+      retryTimeoutMs: 300, // online: one retry before the fallback (UF.2)
     });
     expect(Date.now() - started).toBeLessThan(3000);
     expect(result.offline).toBe(true);
-    await waitFor(() => expect(seen.aborted).toBeGreaterThan(before));
+    await waitFor(() => expect(seen.aborted).toBeGreaterThanOrEqual(before + 2));
   });
 
   it('never falls back on a definitive 401: a password an admin just reset stays reset', async () => {

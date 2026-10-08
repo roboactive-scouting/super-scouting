@@ -1,0 +1,65 @@
+/*
+ * Theme D1 "Pit Wall" — generated from docs/design/theme.css (THEME.md). The only file in
+ * the client that holds a colour value. Light is the default; `outdoor` is the
+ * high-contrast theme (SPEC-FINAL 17.4), switched by task 1.38.
+ */
+:root,
+[data-theme='light'] {
+  --bg: #f4f6f8;
+  --surface: #ffffff;
+  --line: #e3e7ec;
+  --line-2: #eef1f4;
+  --control-border: #808a96;
+  --ink: #141820;
+  --ink-2: #3a424e;
+  --muted: #5f6977;
+  --faint: #9aa3ae;
+  --rail: #161a21;
+  --rail-raised: #232933;
+  --rail-ink: #c9cfd8;
+  --rail-muted: #7d8693;
+  --rail-line: #262b34;
+  --accent: #12795b;
+  --accent-ink: #0b5a43;
+  --accent-tint: #e5f2ec;
+  --on-accent: #ffffff;
+  --warn: #94600f;
+  --warn-tint: #fbf1e1;
+  --alliance-red: #b53a33;
+  --alliance-red-tint: #fbeae8;
+  --alliance-blue: #2f62c8;
+  --alliance-blue-tint: #e8eefb;
+  --coverage-gap: #9ccbb8; /* Home coverage grid: "missing a robot" (THEME "Coverage grid") */
+  --scrim: rgb(20 24 32 / 0.45);
+  --shadow-float: 0 24px 60px -20px rgb(20 24 32 / 0.45);
+  --shadow-sheet: 0 -12px 40px -12px rgb(20 24 32 / 0.4);
+  --text-scale: 1;
+}
+
+[data-theme='outdoor'] {
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --line: #808a96;
+  --line-2: #e3e7ec;
+  --control-border: #3a424e;
+  --ink: #000000;
+  --ink-2: #141820;
+  --muted: #3a424e;
+  --faint: #5f6977;
+  --rail: #000000;
+  --rail-raised: #1c2027;
+  --rail-ink: #ffffff;
+  --rail-muted: #c9cfd8;
+  --rail-line: #3a424e;
+  --accent: #0b5a43;
+  --accent-ink: #063d2d;
+  --accent-tint: #dcefe6;
+  --on-accent: #ffffff;
+  --warn: #6b4409;
+  --warn-tint: #fbf1e1;
+  --alliance-red: #8e2b25;
+  --alliance-red-tint: #fbeae8;
+  --alliance-blue: #1f4a9e;
+  --alliance-blue-tint: #e8eefb;
+  --coverage-gap: #5fa88a;
+}

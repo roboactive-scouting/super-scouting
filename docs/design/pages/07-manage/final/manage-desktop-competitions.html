@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Manage — final, desktop, Competitions</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../src/manage.css"><link rel="stylesheet" href="../src/d.css">
+<style>body{background:var(--bg)}.desk.final{zoom:1;border-radius:0;box-shadow:none}</style>
+</head><body>
+<div class="desk final"><div data-desk-shell="manage" data-crumb="Admin / <b>Manage</b>">
+      <div class="mpad">
+        <div class="dhd"><div><div class="mh1">Season and event management</div><div class="msub">Seasons, events, rosters and matches. The default event is the one every device works on.</div></div></div>
+        <div class="tabsL" style="margin-top:14px"><span class="on">Competitions</span><span>Teams &amp; roster <span class="c">22</span></span><span>Matches <span class="c">10</span></span></div>
+        <div class="seasonchips"><span class="schip on"><span class="mono">2026</span> REBUILT · Active</span><span class="schip"><span class="mono">2025</span> REEFSCAPE</span><span class="schip"><span class="mono">2024</span> CRESCENDO</span><span class="schip" style="border-style:dashed;color:var(--accent-ink)"><i data-i="plus" style="width:15px"></i>New season</span></div>
+        <div class="seasoncard"><div class="img"></div><div><b style="font-size:16px"><span class="mono">2026</span> — REBUILT</b><div style="color:var(--muted);font-size:13px;margin-top:3px" class="mono">seasons/2026/field.png</div></div><span class="badge">Active season</span><span class="sp" style="flex:1"></span><span class="btn sm"><i data-i="pen"></i>Edit season</span></div>
+        <div style="display:flex;align-items:center;margin-top:16px"><b style="font-size:15px">Events</b><span style="color:var(--muted);font-size:12.5px;margin-left:10px">Order is display order only — every event counts equally.</span></div>
+        <div class="ecards" id="dc"></div>
+      </div>
+    </div></div>
+<script src="../src/manage.js"></script>
+<script>
+document.getElementById('dc').innerHTML = M.EVENTS.map(([n, d], i, a) => `<div class="ec ${d ? 'cur' : ''}"><div class="t"><b>${n}</b><span class="ord">#${i + 1}</span></div>
+  <div class="r2">${d ? `<span class="badge">${M.svg('check')}Default event</span>` : `<span class="btn sm">Make default</span>`}<span class="sp"></span><span class="ibtn ${i === 0 ? 'dim' : ''}">${M.svg('up')}</span><span class="ibtn ${i === a.length - 1 ? 'dim' : ''}">${M.svg('down')}</span><span class="ibtn">${M.svg('pen')}</span></div></div>`).join('') + `<div class="ec add">+ New event</div>`;
+M.icons();
+</script>
+<script src="../../shell.js"></script>
+</body></html>

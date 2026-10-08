@@ -1,0 +1,14 @@
+/* Users, closed variant C: the table page. Colours only from theme.css. */
+.fch{display:flex;gap:8px;align-items:center;margin-top:16px}
+.fchip{height:34px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;border-radius:999px;border:1px solid var(--control-border);background:var(--surface);font-size:13px;font-weight:600;color:var(--ink-2)}
+.fchip.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.fchip .c{font-family:var(--font-num);font-weight:500;opacity:.75}
+.tb td.n{font-family:var(--font-num);text-align:right;font-weight:600}
+.tb td.n.z{color:var(--warn)}
+.hov td{background:var(--bg)}
+.ra{display:flex;gap:6px;justify-content:flex-end}
+.ra .btn{height:32px;padding:0 10px;font-size:12.5px}
+.addrow td{background:var(--accent-tint);height:62px}
+.addrow .in{height:38px;background:var(--surface);width:100%}
+.addrow .sel{height:38px;min-width:0}
+.notefor td{height:auto;padding:0 12px 12px;background:var(--accent-tint)}

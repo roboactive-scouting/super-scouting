@@ -237,6 +237,160 @@ describe('POST /sync/push authenticates before it parses', () => {
   });
 });
 
+describe('POST /sync/push answers a malformed operation on its own (UF.12, SPEC-FINAL 9.3.1)', () => {
+  const DEVICE = '00000000-0000-4000-8000-0000000000d1';
+  const AUTHOR = '00000000-0000-4000-8000-0000000000a1';
+  const entryOp = (n: number, over: Record<string, unknown> = {}) => ({
+    op_id: `00000000-0000-4000-8000-00000000010${n}`,
+    entity: 'scouting_entry',
+    row_id: `00000000-0000-4000-8000-00000000020${n}`,
+    action: 'create',
+    base_version: null,
+    payload: {
+      form_version_id: 'fv-1',
+      form_kind: 'match',
+      event_id: 'ev-1',
+      match_id: 'm-1',
+      team_id: `t-${n}`,
+      alliance: 'red',
+      robot_status: 'played',
+      data: { auto_notes: 2 },
+    },
+    author_user_id: AUTHOR,
+    client_created_at: '2026-11-14T09:00:00.000Z',
+    client_updated_at: '2026-11-14T09:00:00.000Z',
+    seq: n,
+    ...over,
+  });
+  const push = async (body: unknown) =>
+    wired().request('/sync/push', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...auth(await issueToken(LEAD, config)),
+      },
+      body: JSON.stringify(body),
+    });
+
+  beforeEach(() => {
+    ctx.users.set(AUTHOR, { id: AUTHOR, role: 'scouter', disabled_at: null });
+  });
+
+  it.each([
+    ['an update with no base version', { action: 'update' }, 'base_version'],
+    ['a row id that is not a uuid', { row_id: 'row-9' }, 'row_id'],
+    ['a datetime that is not ISO', { client_created_at: '14/11/2026 09:00' }, 'client_created_at'],
+  ])(
+    'rejects %s as invalid, naming the field, and applies the good ops around it',
+    async (_, over, field) => {
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const bad = entryOp(2, over);
+      const res = await push({ device_id: DEVICE, operations: [entryOp(1), bad, entryOp(3)] });
+      const printed = logged.mock.calls.flat().map(String).join(' ');
+      logged.mockRestore();
+
+      expect(res.status).toBe(200);
+      const { results } = (await res.json()) as { results: Record<string, unknown>[] };
+      expect(results).toHaveLength(3);
+      const answer = results.find((r) => r.op_id === bad.op_id);
+      expect(answer).toMatchObject({ status: 'rejected', reason: 'invalid' });
+      expect(String(answer?.detail)).toContain(`${field}:`);
+      for (const good of [entryOp(1), entryOp(3)]) {
+        expect(results.find((r) => r.op_id === good.op_id)).toMatchObject({ status: 'applied' });
+        expect(ctx.rows.scouting_entries.get(good.row_id)).toBeDefined();
+      }
+      expect(ctx.rows.scouting_entries.size).toBe(2);
+      // The log names the op and the field, never a value from the operation.
+      expect(printed).toContain(bad.op_id);
+      expect(printed).toContain(field);
+      expect(printed).not.toContain(String(Object.values(over)[0]));
+      expect(printed).not.toContain('auto_notes');
+    },
+  );
+
+  it('never echoes a value in the detail, even where zod would', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const res = await push({
+      device_id: DEVICE,
+      operations: [entryOp(1, { action: 'upsert-secret' })],
+    });
+    logged.mockRestore();
+    const { results } = (await res.json()) as { results: Record<string, unknown>[] };
+    expect(results[0]).toMatchObject({ status: 'rejected', reason: 'invalid' });
+    expect(String(results[0]!.detail)).toContain('action: expected create | update | delete');
+    expect(JSON.stringify(results)).not.toContain('upsert-secret');
+  });
+
+  it('skips an operation with no op_id — it cannot be answered — and logs it', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { op_id: _dropped, ...noId } = entryOp(2);
+    const res = await push({ device_id: DEVICE, operations: [entryOp(1), noId, null] });
+    const printed = logged.mock.calls.flat().map(String).join(' ');
+    logged.mockRestore();
+
+    expect(res.status).toBe(200);
+    const { results } = (await res.json()) as { results: Record<string, unknown>[] };
+    expect(results).toEqual([
+      expect.objectContaining({ op_id: entryOp(1).op_id, status: 'applied' }),
+    ]);
+    expect(printed).toContain('skipped operation #1');
+    expect(printed).toContain('skipped operation #2');
+  });
+
+  it("accepts a pulled row's +00:00 timestamp and stores it as UTC Z", async () => {
+    const offset = entryOp(1, {
+      client_created_at: '2026-11-14T09:00:00.123456+00:00',
+      client_updated_at: '2026-11-14T11:00:00.5+02:00',
+    });
+    const res = await push({ device_id: DEVICE, operations: [offset] });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      results: [expect.objectContaining({ op_id: offset.op_id, status: 'applied' })],
+    });
+    expect(ctx.rows.scouting_entries.get(offset.row_id)).toMatchObject({
+      client_created_at: '2026-11-14T09:00:00.123Z',
+      client_updated_at: '2026-11-14T09:00:00.500Z',
+    });
+  });
+
+  // The self-edit window (SPEC-FINAL 7.6) compares instants, not strings: 11:03+02:00 is
+  // three minutes after 09:00Z, and 09:03-02:00 is two hours and three minutes after it,
+  // although as text it reads the other way round.
+  it.each([
+    ['2026-11-14T11:03:00+02:00', 'applied'],
+    ['2026-11-14T09:03:00-02:00', 'rejected'],
+  ])('measures a self-edit sent at %s by its instant: %s', async (updatedAt, status) => {
+    await push({ device_id: DEVICE, operations: [entryOp(1)] });
+    const edit = entryOp(1, {
+      op_id: '00000000-0000-4000-8000-000000000109',
+      action: 'update',
+      base_version: 1,
+      client_created_at: '2026-11-14T09:00:00+00:00',
+      client_updated_at: updatedAt,
+    });
+    const res = await push({ device_id: DEVICE, operations: [edit] });
+    const { results } = (await res.json()) as { results: Record<string, unknown>[] };
+    expect(results[0]).toMatchObject({ status });
+    if (status === 'rejected') expect(results[0]).toMatchObject({ reason: 'edit-window-expired' });
+  });
+
+  it.each([
+    ['no device_id', { operations: [entryOp(1)] }],
+    ['a device_id that is not a uuid', { device_id: 'phone', operations: [entryOp(1)] }],
+    ['operations that are not an array', { device_id: DEVICE, operations: entryOp(1) }],
+    [
+      'more than 200 operations',
+      { device_id: DEVICE, operations: Array.from({ length: 201 }, () => entryOp(1)) },
+    ],
+  ])('answers 400 for a malformed envelope: %s, and applies nothing', async (_, body) => {
+    const res = await push(body);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: { code: 'invalid' } });
+    expect(ctx.rows.scouting_entries.size).toBe(0);
+  });
+});
+
 describe('POST /api/login and /api/refreshToken over HTTP (SPEC-FINAL 7.5)', () => {
   const ALICE_ID = '00000000-0000-4000-8000-0000000000a1';
   beforeEach(async () => {

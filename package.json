@@ -20,6 +20,7 @@
     "season:images": "node scripts/season-images.mjs",
     "season:images:check": "node scripts/season-images.mjs --check",
     "docs:check": "node scripts/check-docs.mjs",
+    "bundle:check": "node scripts/check-bundle.mjs",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "vitest run",

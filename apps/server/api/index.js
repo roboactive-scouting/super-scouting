@@ -70,6 +70,10 @@ var listUsersOutput = z.object({
   items: z.array(publicUser),
   next_cursor: z.string().nullable()
 });
+var countEntriesByScouterInput = z.object({ season_id: z.string().uuid() });
+var countEntriesByScouterOutput = z.object({
+  items: z.array(z.object({ scouter_id: z.string().uuid(), count: z.number().int().min(0) }))
+});
 
 // ../../packages/shared/src/api/auth.ts
 var loginInput = z2.object({
@@ -159,6 +163,25 @@ var listEventsInput = z3.object({
 var listEventsOutput = z3.object({
   items: z3.array(eventRow),
   next_cursor: z3.string().nullable()
+});
+var deleteSeasonInput = z3.object({
+  season_id: uuid,
+  dry_run: z3.boolean().default(false),
+  confirm_name: z3.string().optional()
+}).strict();
+var deleteEventInput = z3.object({
+  event_id: uuid,
+  dry_run: z3.boolean().default(false),
+  confirm_name: z3.string().optional()
+}).strict();
+var SWITCH_SEASON_FIRST = "Switch the active season first.";
+var SWITCH_EVENT_FIRST = "Switch the default event first.";
+var deleteImpactOutput = z3.object({
+  deleted: z3.boolean(),
+  events: z3.number().int(),
+  matches: z3.number().int(),
+  entries: z3.number().int(),
+  forms: z3.number().int()
 });
 
 // ../../packages/shared/src/api/matches.ts
@@ -297,15 +320,18 @@ var API = {
   enableUser: { input: enableUserInput, output: publicUser },
   renameUser: { input: renameUserInput, output: publicUser },
   listUsers: { input: listUsersInput, output: listUsersOutput },
+  countEntriesByScouter: { input: countEntriesByScouterInput, output: countEntriesByScouterOutput },
   getActiveContext: { input: getActiveContextInput, output: activeContext },
   createSeason: { input: createSeasonInput, output: seasonRow },
   updateSeason: { input: updateSeasonInput, output: seasonRow },
   setActiveSeason: { input: setActiveSeasonInput, output: activeContext },
+  deleteSeason: { input: deleteSeasonInput, output: deleteImpactOutput },
   listSeasons: { input: listSeasonsInput, output: listSeasonsOutput },
   createEvent: { input: createEventInput, output: eventRow },
   updateEvent: { input: updateEventInput, output: eventRow },
   reorderEvents: { input: reorderEventsInput, output: reorderEventsOutput },
   setActiveEvent: { input: setActiveEventInput, output: activeContext },
+  deleteEvent: { input: deleteEventInput, output: deleteImpactOutput },
   listEvents: { input: listEventsInput, output: listEventsOutput },
   createTeam: { input: createTeamInput, output: teamRow },
   updateTeam: { input: updateTeamInput, output: teamRow },
@@ -382,6 +408,7 @@ var SEASON_IMAGE_MANIFEST = [
 ];
 
 // ../../packages/shared/src/forms/entryShape.ts
+var MAX_BREAKDOWN_SECONDS = 2147483647;
 function validateEntryShape(row) {
   const issues = [];
   if (row.form_kind === "match") {
@@ -400,6 +427,10 @@ function validateEntryShape(row) {
   }
   if (!brokeDown && row.breakdown_seconds !== null) {
     issues.push("breakdown time is recorded only when the robot broke down");
+  }
+  const seconds = row.breakdown_seconds;
+  if (seconds !== null && !(Number.isInteger(seconds) && seconds >= 0 && seconds <= MAX_BREAKDOWN_SECONDS)) {
+    issues.push("breakdown time must be a whole number of seconds, 0 or more");
   }
   return issues;
 }
@@ -525,7 +556,14 @@ var SYNC_ENTITIES = [
   "alliance_slot",
   "alliance_decline"
 ];
-var isoDateTime = z6.string().datetime({ offset: false });
+var isoDateTime = z6.string().datetime({ offset: true }).transform((value, ctx) => {
+  const ms = Date.parse(value);
+  if (Number.isNaN(ms)) {
+    ctx.addIssue({ code: "custom", message: "Invalid datetime" });
+    return z6.NEVER;
+  }
+  return new Date(ms).toISOString();
+});
 var operationSchema = z6.object({
   op_id: z6.string().min(1),
   entity: z6.enum(SYNC_ENTITIES),
@@ -570,6 +608,17 @@ var pushRequestSchema = z7.object({
   device_id: z7.string().uuid(),
   operations: z7.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
 });
+var pushEnvelopeSchema = z7.object({
+  device_id: z7.string().uuid(),
+  operations: z7.array(z7.unknown()).max(MAX_OPERATIONS_PER_PUSH)
+});
+var PARENT_DELETED_DETAIL = {
+  event: "the event no longer exists",
+  match: "the match no longer exists",
+  team: "the team no longer exists",
+  form_version: "the form version no longer exists",
+  other: "a record this one belongs to no longer exists"
+};
 var PULL_ENTITY_KEYS = [
   "app_settings",
   "seasons",
@@ -981,7 +1030,24 @@ function supabaseStore(db) {
     },
     async putRow(entity, id, row) {
       const { error } = await db.from(TABLE[entity]).upsert({ ...row, id });
-      if (error) throw new Error(error.message);
+      if (error) throw dbError(error);
+    },
+    // Three reads, together; the order of the answer is the order of the checks. An event
+    // delete cascades to its matches, so a gone event is reported as the event.
+    async missingParent(parents) {
+      if (!UUID.test(parents.event_id)) return "event";
+      if (parents.match_id !== null && !UUID.test(parents.match_id)) return "match";
+      if (!UUID.test(parents.team_id)) return "team";
+      const [event, match, team] = await Promise.all([
+        db.from("events").select("id").eq("id", parents.event_id).maybeSingle(),
+        parents.match_id === null ? Promise.resolve({ data: { id: null }, error: null }) : db.from("matches").select("id").eq("id", parents.match_id).maybeSingle(),
+        db.from("teams").select("id").eq("id", parents.team_id).maybeSingle()
+      ]);
+      for (const result of [event, match, team]) if (result.error) throw dbError(result.error);
+      if (event.data === null) return "event";
+      if (match.data === null) return "match";
+      if (team.data === null) return "team";
+      return null;
     },
     async getFormFields(formVersionId) {
       const { data, error } = await db.from("form_fields").select("*").eq("form_version_id", formVersionId);
@@ -1000,6 +1066,19 @@ function supabaseStore(db) {
       return { eventId: data.id, seasonId: data.season_id };
     },
     pullEntity,
+    // UF.1. Paged by deleted_at: PostgREST caps a read at max_rows = 1000
+    // (packages/db/supabase/config.toml), and a truncated list would leave matches behind.
+    async listMatchDeletions(eventId, since) {
+      const PAGE = 1e3;
+      const out = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await db.from("match_deletions").select("match_id, deleted_at").eq("event_id", eventId).gt("deleted_at", since).order("deleted_at", { ascending: true }).order("match_id", { ascending: true }).range(from, from + PAGE - 1);
+        if (error) throw dbError(error);
+        out.push(...data ?? []);
+        if ((data ?? []).length < PAGE) break;
+      }
+      return out;
+    },
     // Task 1.17b, ahead of the rest of 1.18. The singleton row is created by the skeleton
     // migration on every project; a missing one reads as nothing set up. THROWS on a
     // database error: swallowed, a blip would tell every device no competition exists.
@@ -1096,6 +1175,26 @@ function supabaseStore(db) {
       const { count, error: countError } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).in("event_id", eventIds);
       if (countError) throw dbError(countError);
       return count ?? 0;
+    },
+    // RB.13: live entries per scouter across the season, for the Users page. Two reads, no
+    // join, like countEntriesBySeason. PostgREST caps a read at max_rows = 1000
+    // (packages/db/supabase/config.toml), so the entries are paged, ordered by id.
+    async countEntriesByScouterForSeason(seasonId) {
+      const { data: events, error } = await db.from("events").select("id").eq("season_id", seasonId);
+      if (error) throw dbError(error);
+      const eventIds = (events ?? []).map((e) => e.id);
+      if (eventIds.length === 0) return [];
+      const PAGE = 1e3;
+      const counts = /* @__PURE__ */ new Map();
+      for (const chunk of chunks(eventIds)) {
+        for (let from = 0; ; from += PAGE) {
+          const { data, error: readError } = await db.from("scouting_entries").select("scouter_id").in("event_id", chunk).is("deleted_at", null).order("id").range(from, from + PAGE - 1);
+          if (readError) throw dbError(readError);
+          for (const r of data ?? []) counts.set(r.scouter_id, (counts.get(r.scouter_id) ?? 0) + 1);
+          if ((data ?? []).length < PAGE) break;
+        }
+      }
+      return [...counts].map(([scouter_id, count]) => ({ scouter_id, count }));
     },
     // Task 1.19: teams, the roster, matches and their slots. Every method THROWS on a
     // database error, keeping Postgres's code (dbError), as the season and event methods
@@ -1287,6 +1386,41 @@ function supabaseStore(db) {
       const { error } = await db.from("matches").delete().eq("id", id);
       if (error) throw dbError(error);
     },
+    // RB.20: the hard cascade deletes (SPEC-FINAL 3.9). One SQL function each (migration
+    // 20261007120000_delete_cascade.sql): the entries go first, then the parent, all or nothing.
+    async deleteSeason(id) {
+      const { error } = await db.rpc("delete_season_cascade", { p_season_id: id });
+      if (error) throw dbError(error);
+    },
+    async deleteEvent(id) {
+      const { error } = await db.rpc("delete_event_cascade", { p_event_id: id });
+      if (error) throw dbError(error);
+    },
+    // Head counts only, no rows read. Live entries: a soft-deleted one is already gone to
+    // the admin. The event ids go out in chunks, like every `in` filter here.
+    async countDeleteImpact(kind, id) {
+      let eventIds = [id];
+      let forms = 0;
+      if (kind === "season") {
+        const { data, error } = await db.from("events").select("id").eq("season_id", id);
+        if (error) throw dbError(error);
+        eventIds = (data ?? []).map((e) => e.id);
+        const counted = await db.from("forms").select("id", { count: "exact", head: true }).eq("season_id", id);
+        if (counted.error) throw dbError(counted.error);
+        forms = counted.count ?? 0;
+      }
+      let matches = 0;
+      let entries = 0;
+      for (const chunk of chunks(eventIds)) {
+        const m = await db.from("matches").select("id", { count: "exact", head: true }).in("event_id", chunk);
+        if (m.error) throw dbError(m.error);
+        const e = await db.from("scouting_entries").select("id", { count: "exact", head: true }).in("event_id", chunk).is("deleted_at", null);
+        if (e.error) throw dbError(e.error);
+        matches += m.count ?? 0;
+        entries += e.count ?? 0;
+      }
+      return { events: eventIds.length, matches, entries, forms };
+    },
     // The remaining methods start as loud stubs, exactly as the fake does. Each later
     // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
     // without these the file does not compile at all.
@@ -1313,11 +1447,8 @@ function supabaseStore(db) {
       "queryEntries",
       "entriesForScope",
       "listTeamEvents",
-      "deleteSeason",
-      "deleteEvent",
       "deleteFormCascade",
-      "deleteFormVersion",
-      "countDeleteImpact"
+      "deleteFormVersion"
     ])
     // The spread above only carries an index signature (its keys come from a plain
     // string[]), so TS can't see that it supplies the remaining named Store methods;
@@ -2270,6 +2401,48 @@ async function setEventRoster(caller, input, ctx) {
   return { items: (await ctx.store.getRoster(event.id)).map(toRosterRow) };
 }
 
+// src/core/commands/deleteCompetition.ts
+var TYPE_NAME_EXACTLY = "Type the name exactly to delete.";
+function refuseActive(message, details) {
+  return new AppError("conflict", message, details);
+}
+function assertConfirmed(typed, name) {
+  if (typed !== name) throw new AppError("invalid", TYPE_NAME_EXACTLY);
+}
+async function deleteSeason(caller, input, ctx) {
+  assertCan(caller, "delete_objects");
+  const parsed = parseInput(deleteSeasonInput, input);
+  const season = await seasonOrNotFound(ctx, parsed.season_id);
+  const active = await ctx.store.getActiveContext();
+  let holdsDefault = false;
+  if (active.active_event_id !== null) {
+    const event = await ctx.store.getEvent(active.active_event_id);
+    holdsDefault = event?.season_id === season.id;
+  }
+  if (active.active_season_id === season.id || holdsDefault) {
+    throw refuseActive(SWITCH_SEASON_FIRST, { season_id: season.id });
+  }
+  const impact = await ctx.store.countDeleteImpact("season", season.id);
+  if (parsed.dry_run) return { deleted: false, ...impact };
+  assertConfirmed(parsed.confirm_name, String(season.year));
+  await ctx.store.deleteSeason(season.id);
+  return { deleted: true, ...impact };
+}
+async function deleteEvent(caller, input, ctx) {
+  assertCan(caller, "delete_objects");
+  const parsed = parseInput(deleteEventInput, input);
+  const event = await eventOrNotFound(ctx, parsed.event_id);
+  const active = await ctx.store.getActiveContext();
+  if (active.active_event_id === event.id) {
+    throw refuseActive(SWITCH_EVENT_FIRST, { event_id: event.id });
+  }
+  const impact = await ctx.store.countDeleteImpact("event", event.id);
+  if (parsed.dry_run) return { deleted: false, ...impact };
+  assertConfirmed(parsed.confirm_name, event.name);
+  await ctx.store.deleteEvent(event.id);
+  return { deleted: true, ...impact };
+}
+
 // src/core/queries/context.ts
 async function getActiveContext(caller, input, ctx) {
   void caller;
@@ -2281,6 +2454,14 @@ async function getActiveContext(caller, input, ctx) {
     active_season_id: current.active_season_id,
     active_event_id: eventLives ? eventId : null
   };
+}
+
+// src/core/queries/countEntriesByScouter.ts
+async function countEntriesByScouter(caller, input, ctx) {
+  void caller;
+  const { season_id } = parseInput(countEntriesByScouterInput, input);
+  const rows = await ctx.store.countEntriesByScouterForSeason(season_id);
+  return { items: [...rows].sort((a, b) => b.count - a.count) };
 }
 
 // src/core/queries/listUsers.ts
@@ -2385,6 +2566,13 @@ var REGISTRY = {
     input: API.listUsers.input,
     output: API.listUsers.output,
     handler: listUsers
+  },
+  countEntriesByScouter: {
+    kind: "query",
+    description: "Entries per scouter across a season's events, live entries only. Feeds the Users page.",
+    input: API.countEntriesByScouter.input,
+    output: API.countEntriesByScouter.output,
+    handler: countEntriesByScouter
   },
   getActiveContext: {
     kind: "query",
@@ -2519,6 +2707,20 @@ var REGISTRY = {
     output: API.deleteMatch.output,
     handler: deleteMatch
   },
+  deleteSeason: {
+    kind: "command",
+    description: "Admin only: hard-delete a season with its events, matches, entries and forms, irreversibly. dry_run answers the counts and deletes nothing; the real delete needs confirm_name equal to the year. The active season is refused.",
+    input: API.deleteSeason.input,
+    output: API.deleteSeason.output,
+    handler: deleteSeason
+  },
+  deleteEvent: {
+    kind: "command",
+    description: "Admin only: hard-delete an event with its matches, entries, roster, pick lists and bracket, irreversibly. dry_run answers the counts and deletes nothing; the real delete needs confirm_name equal to the event name. The default event is refused.",
+    input: API.deleteEvent.input,
+    output: API.deleteEvent.output,
+    handler: deleteEvent
+  },
   listMatches: {
     kind: "query",
     description: "An event's matches with their filled slots: practice, then qualification, then playoff, each by number, paginated.",
@@ -2591,12 +2793,47 @@ var SERVER_OWNED_KEYS = /* @__PURE__ */ new Set([
   "client_created_at",
   "client_updated_at"
 ]);
+function foreignKeyDetail(message) {
+  const column = /_(event|match|team|form_version)_id_fkey/.exec(message)?.[1];
+  return column ? PARENT_DELETED_DETAIL[column] : PARENT_DELETED_DETAIL.other;
+}
 var withoutServerOwnedKeys = (payload) => Object.fromEntries(Object.entries(payload).filter(([key2]) => !SERVER_OWNED_KEYS.has(key2)));
 var callerOf = (author) => ({
   kind: "user",
   userId: author.id,
   role: author.role
 });
+function describeIssue(issue) {
+  const path = issue.path.join(".") || "operation";
+  const message = issue.code === "invalid_enum_value" ? `expected ${issue.options.join(" | ")}` : issue.message;
+  return `${path}: ${message}`;
+}
+var opIdOf = (candidate) => {
+  if (typeof candidate !== "object" || candidate === null) return null;
+  const opId = candidate.op_id;
+  return typeof opId === "string" && opId.length > 0 ? opId : null;
+};
+function screenOperations(raw) {
+  const operations = [];
+  const rejections = [];
+  raw.forEach((candidate, index) => {
+    const parsed = operationSchema.safeParse(candidate);
+    if (parsed.success) {
+      operations.push(parsed.data);
+      return;
+    }
+    const { issues } = parsed.error;
+    const codes = issues.map((i) => `${i.path.join(".") || "operation"} ${i.code}`).join(", ");
+    const opId = opIdOf(candidate);
+    if (opId === null) {
+      console.error(`syncPush: skipped operation #${index}, which has no op_id: ${codes}`);
+      return;
+    }
+    console.error(`syncPush: op ${opId} is malformed: ${codes}`);
+    rejections.push(rejected(opId, "invalid", issues.map(describeIssue).join("; ")));
+  });
+  return { operations, rejections };
+}
 async function syncPush(caller, input, ctx) {
   const ordered = [...input.operations].sort((a, b) => a.seq - b.seq);
   const results = [];
@@ -2606,7 +2843,9 @@ async function syncPush(caller, input, ctx) {
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       console.error(`syncPush: op ${op.op_id} (${op.entity} ${op.action}) failed: ${message}`);
-      results.push(rejected(op.op_id, "invalid", "unexpected server error"));
+      results.push(
+        pgCode(e) === "23503" ? rejected(op.op_id, "parent-deleted", foreignKeyDetail(message)) : rejected(op.op_id, "invalid", "unexpected server error")
+      );
     }
   }
   return { results };
@@ -2660,7 +2899,9 @@ async function applyBareMatch(op, author, ctx) {
     result = await ensureMatch(callerOf(author), bareMatchInput(op), ctx);
   } catch (e) {
     if (!(e instanceof AppError)) throw e;
-    return rejected(op.op_id, REASON_FOR[e.code] ?? "invalid", e.message);
+    const reason = REASON_FOR[e.code] ?? "invalid";
+    const detail = reason === "parent-deleted" ? PARENT_DELETED_DETAIL.event : e.message;
+    return rejected(op.op_id, reason, detail);
   }
   await ctx.store.markApplied(op.op_id);
   return {
@@ -2720,6 +2961,18 @@ async function applyEntry(op, author, ctx) {
     breakdown_seconds: payload.breakdown_seconds ?? null
   });
   if (shapeIssues.length > 0) return rejected(op.op_id, "invalid", shapeIssues.join("; "));
+  const { event_id: eventId, match_id: matchId, team_id: teamId } = payload;
+  if (typeof eventId !== "string") return rejected(op.op_id, "invalid", "event_id is required");
+  if (typeof teamId !== "string") return rejected(op.op_id, "invalid", "team_id is required");
+  if (matchId != null && typeof matchId !== "string") {
+    return rejected(op.op_id, "invalid", "match_id must be an id or null");
+  }
+  const gone = await ctx.store.missingParent({
+    event_id: eventId,
+    match_id: matchId ?? null,
+    team_id: teamId
+  });
+  if (gone !== null) return rejected(op.op_id, "parent-deleted", PARENT_DELETED_DETAIL[gone]);
   const fields = await ctx.store.getFormFields(formVersionId);
   const status = payload.robot_status ?? "played";
   const data = payload.data ?? {};
@@ -2790,8 +3043,21 @@ async function syncPull(caller, input, ctx) {
     }
     if (nextCursor !== null) break;
   }
+  const deletedMatches = [];
+  if (input.since !== void 0 && input.cursor === void 0) {
+    for (const deletion of await ctx.store.listMatchDeletions(input.event_id, input.since)) {
+      deletedMatches.push(deletion.match_id);
+      if (deletion.deleted_at > newest) newest = deletion.deleted_at;
+    }
+  }
   const watermark = newest === "" ? input.since ?? new Date(ctx.now().getTime() - WATERMARK_OVERLAP_MS).toISOString() : new Date(new Date(newest).getTime() - WATERMARK_OVERLAP_MS).toISOString();
-  return { watermark, next_cursor: nextCursor, complete: nextCursor === null, entities };
+  return {
+    watermark,
+    next_cursor: nextCursor,
+    complete: nextCursor === null,
+    entities,
+    deleted_matches: deletedMatches
+  };
 }
 
 // src/routes/sync.ts
@@ -2803,11 +3069,17 @@ function syncRoutes(deps) {
     if (!caller) return c.json(UNAUTHENTICATED, 401);
     if (refreshedToken) c.header("X-Refreshed-Token", refreshedToken);
     const body = await c.req.json().catch(() => null);
-    const parsed = pushRequestSchema.safeParse(body);
+    const parsed = pushEnvelopeSchema.safeParse(body);
     if (!parsed.success) {
       return c.json({ error: { code: "invalid", message: parsed.error.message } }, 400);
     }
-    return c.json(await syncPush(caller, parsed.data, deps.ctx));
+    const { operations, rejections } = screenOperations(parsed.data.operations);
+    const { results } = await syncPush(
+      caller,
+      { device_id: parsed.data.device_id, operations },
+      deps.ctx
+    );
+    return c.json({ results: [...results, ...rejections] });
   });
   app2.get("/sync/pull", async (c) => {
     const { caller, refreshedToken } = await deps.callerFor(c.req.raw);

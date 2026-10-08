@@ -356,7 +356,16 @@ export type FakeContext = UseCaseContext & {
   conflicts: Map<string, FakeRow>;
   pullRows: Map<string, Record<string, unknown>[]>;
   knownEvents: Set<string>;
+  /**
+   * Ids `missingParent` reports as gone. A test adds an event, match or team id here; a
+   * match is also gone once `matchDeletions` holds it.
+   */
   missingParents: Set<string>;
+  /**
+   * The `match_deletions` tombstones (UF.1): written by deleteMatch and by an event
+   * delete's cascade, cleared when insertMatch creates the id again, as the two triggers do.
+   */
+  matchDeletions: Map<string, { event_id: string; deleted_at: string }>;
   entryCountsByMatch: Map<string, number>;
   entryCountsBySeason: Map<string, number>;
   entryCountsByVersion: Map<string, number>;
@@ -557,6 +566,7 @@ export function makeFakeContext(): FakeContext {
     pullRows,
     knownEvents,
     missingParents: new Set<string>(),
+    matchDeletions: new Map(),
     entryCountsByMatch: new Map(),
     entryCountsBySeason: new Map(),
     entryCountsByVersion: new Map(),
@@ -586,6 +596,33 @@ export function makeFakeContext(): FakeContext {
       throw new Error('lands with task 1.57');
     },
   } as unknown as FakeContext;
+
+  // UF.1: the AFTER DELETE trigger on matches (migration 20261008090000_match_deletions.sql).
+  const recordMatchDeletion = (matchId: string, eventId: string): void => {
+    fake.matchDeletions.set(matchId, {
+      event_id: eventId,
+      deleted_at: fake.nowValue.toISOString(),
+    });
+  };
+
+  // RB.20: what delete_event_cascade leaves behind (Store.deleteEvent, and each event of
+  // Store.deleteSeason). Entries first, then the event with everything that cascades from it.
+  const dropEvent = (id: string): void => {
+    const matchIds = new Set(
+      [...rows.matches.values()].filter((m) => m.event_id === id).map((m) => m.id),
+    );
+    for (const [k, row] of rows.scouting_entries) {
+      if (row.event_id === id) rows.scouting_entries.delete(k);
+    }
+    for (const matchId of matchIds) {
+      rows.matches.delete(matchId);
+      recordMatchDeletion(matchId, id);
+    }
+    for (const [k, row] of matchTeams) if (matchIds.has(row.match_id)) matchTeams.delete(k);
+    for (const [k, row] of eventTeams) if (row.event_id === id) eventTeams.delete(k);
+    events.delete(id);
+    if (activeContext.active_event_id === id) activeContext.active_event_id = null;
+  };
 
   // Typed separately, rather than inline in the Object.assign below: Object.assign's
   // generic inference does not flow FakeContext's `store: Store` field back in as a
@@ -696,6 +733,25 @@ export function makeFakeContext(): FakeContext {
     async resolveScope(eventId) {
       return { eventId, seasonId: 'se-1' };
     },
+    // UF.1. The entry fixtures name ids no map holds ('m-1', 't-1'), so a parent exists
+    // unless a test says otherwise: by `missingParents`, an unknown event, or a tombstone.
+    async missingParent({ event_id, match_id, team_id }) {
+      if (fake.missingParents.has(event_id) || !eventIsReal(event_id)) return 'event';
+      if (
+        match_id !== null &&
+        (fake.missingParents.has(match_id) || fake.matchDeletions.has(match_id))
+      ) {
+        return 'match';
+      }
+      if (fake.missingParents.has(team_id)) return 'team';
+      return null;
+    },
+    async listMatchDeletions(eventId, since) {
+      return [...fake.matchDeletions]
+        .filter(([, d]) => d.event_id === eventId && d.deleted_at > since)
+        .sort(([a, x], [b, y]) => x.deleted_at.localeCompare(y.deleted_at) || a.localeCompare(b))
+        .map(([match_id, d]) => ({ match_id, deleted_at: d.deleted_at }));
+    },
     async getActiveContext() {
       return { ...activeContext };
     },
@@ -787,6 +843,19 @@ export function makeFakeContext(): FakeContext {
     async countEntriesBySeason(seasonId) {
       return fake.entryCountsBySeason.get(seasonId) ?? 0;
     },
+    // RB.13: live entries per scouter over the season's events, read from `rows` and `events`.
+    async countEntriesByScouterForSeason(seasonId) {
+      const eventIds = new Set(
+        [...events.values()].filter((e) => e.season_id === seasonId).map((e) => e.id),
+      );
+      const counts = new Map<string, number>();
+      for (const row of rows.scouting_entries.values()) {
+        if (!eventIds.has(row.event_id as string) || row.deleted_at != null) continue;
+        const scouter = row.scouter_id as string;
+        counts.set(scouter, (counts.get(scouter) ?? 0) + 1);
+      }
+      return [...counts].map(([scouter_id, count]) => ({ scouter_id, count }));
+    },
     // Task 1.19: teams, the roster, matches and their slots. Every write checks its
     // columns and raises Postgres's own codes, like the season and event writes.
     async getTeam(id) {
@@ -872,6 +941,8 @@ export function makeFakeContext(): FakeContext {
       if (rows.matches.has(match.id)) throw pgError('23505', 'matches_pkey');
       assertMatchKeyFree(match);
       rows.matches.set(match.id, match);
+      // The AFTER INSERT trigger: a match created again under its old id is live again.
+      fake.matchDeletions.delete(match.id);
       const at = fake.nowValue.toISOString();
       matchStamps.set(match.id, { created_at: at, updated_at: at });
       appliedOrder.push(match.id);
@@ -954,11 +1025,43 @@ export function makeFakeContext(): FakeContext {
       if ((fake.entryCountsByMatch.get(id) ?? 0) > 0) {
         throw pgError('23503', 'scouting_entries_match_id_fkey');
       }
+      const gone = rows.matches.get(id);
       rows.matches.delete(id);
       matchStamps.delete(id);
+      if (gone) recordMatchDeletion(id, String(gone.event_id));
       for (const [k, row] of matchTeams) {
         if (row.match_id === id) matchTeams.delete(k);
       }
+    },
+    // RB.20: the two cascade functions (see dropEvent). A season's forms cascade with it;
+    // the singleton's ids are ON DELETE SET NULL.
+    async deleteEvent(id) {
+      dropEvent(id);
+    },
+    async deleteSeason(id) {
+      for (const event of [...events.values()]) {
+        if (event.season_id === id) dropEvent(event.id);
+      }
+      for (const [k, form] of fake.forms) if (form.season_id === id) fake.forms.delete(k);
+      seasons.delete(id);
+      if (activeContext.active_season_id === id) activeContext.active_season_id = null;
+    },
+    async countDeleteImpact(kind, id) {
+      const eventIds = new Set(
+        kind === 'event'
+          ? [id]
+          : [...events.values()].filter((e) => e.season_id === id).map((e) => e.id),
+      );
+      const inScope = (row: Record<string, unknown>) => eventIds.has(row.event_id as string);
+      return {
+        events: eventIds.size,
+        matches: [...rows.matches.values()].filter(inScope).length,
+        entries: [...rows.scouting_entries.values()].filter(
+          (row) => inScope(row) && row.deleted_at == null,
+        ).length,
+        forms:
+          kind === 'season' ? [...fake.forms.values()].filter((f) => f.season_id === id).length : 0,
+      };
     },
     // Everything else on the Store starts as a loud stub; each later task
     // replaces the two or three entries it needs.
@@ -985,11 +1088,8 @@ export function makeFakeContext(): FakeContext {
       'queryEntries',
       'entriesForScope',
       'listTeamEvents',
-      'deleteSeason',
-      'deleteEvent',
       'deleteFormCascade',
       'deleteFormVersion',
-      'countDeleteImpact',
     ]),
   } as Store;
 

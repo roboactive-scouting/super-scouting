@@ -4,8 +4,9 @@ import {
   type FormFieldDefinition,
   type RobotStatus,
 } from '@frc/shared';
+import { notifyChanged } from '@/data/changes';
 import { db } from '@/data/db';
-import { enqueue, nextSeq } from '@/data/outbox';
+import { asUtcIso, enqueue, nextSeq } from '@/data/outbox';
 import { findLocalEntry } from './localEntries';
 
 export type SubmitEntryInput = {
@@ -18,7 +19,8 @@ export type SubmitEntryInput = {
   alliance: 'red' | 'blue' | null;
   authorUserId: string;
   robotStatus: RobotStatus | null;
-  breakdownSeconds?: number;
+  /** Null or absent while the scout has not given one. */
+  breakdownSeconds?: number | null;
   data: Record<string, unknown>;
   draftKey?: string;
   rowId?: string;
@@ -66,6 +68,9 @@ export async function submitEntry(input: SubmitEntryInput): Promise<{ row_id: st
   const rowId = input.rowId ?? crypto.randomUUID();
   const now = new Date().toISOString();
   const existingRow = input.rowId ? await db.rows.get(['scouting_entries', rowId]) : undefined;
+  // A pulled row's timestamp is Postgres's `…+00:00`, which the push protocol refuses.
+  const createdAt =
+    existingRow?.client_created_at == null ? now : asUtcIso(String(existingRow.client_created_at));
 
   const payload: Record<string, unknown> = {
     id: rowId,
@@ -93,7 +98,7 @@ export async function submitEntry(input: SubmitEntryInput): Promise<{ row_id: st
     base_version: existingRow ? Number(existingRow.version ?? 1) : null,
     payload,
     author_user_id: input.authorUserId,
-    client_created_at: String(existingRow?.client_created_at ?? now),
+    client_created_at: createdAt,
     client_updated_at: now,
     seq: await nextSeq(),
   });
@@ -104,11 +109,12 @@ export async function submitEntry(input: SubmitEntryInput): Promise<{ row_id: st
     entity: 'scouting_entries',
     id: rowId,
     version: Number(existingRow?.version ?? 1),
-    client_created_at: String(existingRow?.client_created_at ?? now),
+    client_created_at: createdAt,
     client_updated_at: now,
     updated_at: now,
     deleted_at: null,
   });
+  notifyChanged('rows');
 
   if (input.draftKey) await db.drafts.delete(input.draftKey);
 

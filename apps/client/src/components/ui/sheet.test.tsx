@@ -13,7 +13,7 @@ function Harness({ onClose }: { onClose?: () => void }) {
       </button>
       <Sheet
         open={open}
-        label="Menu"
+        title="Menu"
         onClose={() => {
           onClose?.();
           setOpen(false);
@@ -72,5 +72,75 @@ describe('Sheet', () => {
     await u.click(screen.getByRole('button', { name: 'Open the menu' }));
     await u.click(document.querySelector('[data-sheet-scrim]') as HTMLElement);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+});
+
+describe('Sheet (RB.3)', () => {
+  it('takes `title` as its name', () => {
+    render(
+      <Sheet open side="start" title="Menu" onClose={() => {}}>
+        <button type="button">A</button>
+      </Sheet>,
+    );
+    expect(screen.getByRole('dialog', { name: 'Menu' })).toBeInTheDocument();
+  });
+
+  it('a bottom sheet shows its title as the heading that names it', () => {
+    render(
+      <Sheet open side="bottom" title="Switch competition" onClose={() => {}}>
+        <button type="button">A</button>
+      </Sheet>,
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Switch competition' });
+    expect(dialog).toHaveAttribute('data-surface', 'sheet');
+    expect(screen.getByRole('heading', { name: 'Switch competition' })).toBeInTheDocument();
+  });
+
+  it('holds Escape and the scrim while not dismissible', async () => {
+    const onClose = vi.fn();
+    render(
+      <Sheet open side="bottom" title="Busy" dismissible={false} onClose={onClose}>
+        <button type="button">A</button>
+      </Sheet>,
+    );
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(document.querySelector('[data-sheet-scrim]') as HTMLElement);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("initialFocus 'panel' focuses the sheet itself; Tab goes in, focus goes back on close", async () => {
+    function PanelFirst() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Open the sheet
+          </button>
+          <Sheet
+            open={open}
+            side="bottom"
+            title="Edit Q10"
+            initialFocus="panel"
+            onClose={() => setOpen(false)}
+          >
+            <input aria-label="Red 1" />
+            <button type="button">Save changes</button>
+          </Sheet>
+        </>
+      );
+    }
+    render(<PanelFirst />);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole('button', { name: 'Open the sheet' }));
+    const sheet = screen.getByRole('dialog', { name: 'Edit Q10' });
+    expect(sheet).toHaveFocus();
+    expect(document.activeElement?.tagName).not.toBe('INPUT');
+    await u.tab();
+    expect(screen.getByLabelText('Red 1')).toHaveFocus();
+    sheet.focus();
+    await u.tab({ shift: true });
+    expect(screen.getByRole('button', { name: 'Save changes' })).toHaveFocus();
+    await u.keyboard('{Escape}');
+    expect(screen.getByRole('button', { name: 'Open the sheet' })).toHaveFocus();
   });
 });

@@ -594,6 +594,24 @@ export type Database = {
           },
         ]
       }
+      match_deletions: {
+        Row: {
+          deleted_at: string
+          event_id: string
+          match_id: string
+        }
+        Insert: {
+          deleted_at?: string
+          event_id: string
+          match_id: string
+        }
+        Update: {
+          deleted_at?: string
+          event_id?: string
+          match_id?: string
+        }
+        Relationships: []
+      }
       match_teams: {
         Row: {
           alliance: string
@@ -1185,7 +1203,11 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      delete_event_cascade: { Args: { p_event_id: string }; Returns: undefined }
+      delete_season_cascade: {
+        Args: { p_season_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never

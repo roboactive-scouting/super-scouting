@@ -1,6 +1,7 @@
 import { isDefinitive, loginOnline, offlineLogin } from './offlineLogin';
 import { pendingCredential } from './pendingCredential';
 import { onSessionExpired, session } from './session';
+import { recordTokenLoss } from './tokenLoss';
 
 /**
  * What one attempt to turn an offline session into a real one came to.
@@ -54,6 +55,8 @@ async function exchange(): Promise<ExchangeOutcome> {
     const status = (err as { status: number }).status;
     if (status === 429) return 'unreachable';
     if (pendingCredential.get() === credential) pendingCredential.clear();
+    // UF.2 diagnostics: the held password can no longer become a token.
+    await recordTokenLoss('reconnect-failed', 'login');
     return status === 403 ? 'disabled' : 'refused';
   }
 }

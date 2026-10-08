@@ -109,11 +109,28 @@ export type Store = {
   listConflicts(eventId: string, limit: number, cursor?: string): Promise<StoredRow[]>;
   getConflict(id: string): Promise<StoredRow | null>;
   resolveConflictRow(id: string, resolvedBy: string, at: string): Promise<void>;
+  /**
+   * UF.1 (SPEC-FINAL 9.3.1, v1.18): which of an entry's parents is gone, checked in this
+   * order — event, then match (skipped when null), then team — or null when all exist. An
+   * id that is not a uuid cannot name a row, so it reads as missing. THROWS on a database
+   * error: swallowed, a blip would read as a deleted parent.
+   */
+  missingParent(parents: {
+    event_id: string;
+    match_id: string | null;
+    team_id: string;
+  }): Promise<MissingParent | null>;
 
   // pull (task 1.4)
   eventExists(eventId: string): Promise<boolean>;
   resolveScope(eventId: string): Promise<PullScope>;
   pullEntity: PullEntitySource;
+  /**
+   * UF.1 (SPEC-FINAL 9.3, v1.18): the event's matches hard-deleted after `since`, from the
+   * `match_deletions` tombstones the delete trigger writes. A match created again under the
+   * same id has no tombstone. THROWS on a database error.
+   */
+  listMatchDeletions(eventId: string, since: string): Promise<MatchDeletion[]>;
 
   // users (tasks 1.3, 1.11, 1.12, 1.13)
   getUser(id: string): Promise<StoredUser | null>;
@@ -215,6 +232,10 @@ export type Store = {
   countEntriesByMatch(matchId: string): Promise<number>;
   /** Every entry of every event in the season, soft-deleted ones included (task 1.18). */
   countEntriesBySeason(seasonId: string): Promise<number>;
+  /** Live (not soft-deleted) entries per scouter across the season's events (RB.13). */
+  countEntriesByScouterForSeason(
+    seasonId: string,
+  ): Promise<{ scouter_id: string; count: number }[]>;
   /** A hard delete; its match_teams go with it (`on delete cascade`). '23503' on entries. */
   deleteMatch(id: string): Promise<void>;
 
@@ -245,13 +266,31 @@ export type Store = {
   entriesForScope(scope: { eventIds: string[]; teamId?: string }): Promise<StoredRow[]>;
   listTeamEvents(teamId: string): Promise<StoredRow[]>;
 
-  // deletes (task 1.60)
+  // deletes (task 1.60; the season and event ones landed with RB.20)
+  /**
+   * Hard cascade deletes (SPEC-FINAL 3.9), each ONE SQL function so it is all or nothing:
+   * the entries go first, because `scouting_entries.match_id` is `on delete restrict`.
+   */
   deleteSeason(id: string): Promise<void>;
   deleteEvent(id: string): Promise<void>;
   deleteFormCascade(id: string): Promise<void>;
   deleteFormVersion(id: string): Promise<void>;
-  countDeleteImpact(kind: 'season' | 'event' | 'form', id: string): Promise<Record<string, number>>;
+  /**
+   * What a season or event delete removes, as counts: its events (1 for an event), their
+   * matches, their LIVE entries (a soft-deleted one is already gone to the user), and the
+   * season's forms (0 for an event). The form delete widens `kind` when it lands.
+   */
+  countDeleteImpact(kind: 'season' | 'event', id: string): Promise<DeleteImpact>;
 };
+
+/** The parent `missingParent` found gone. */
+export type MissingParent = 'event' | 'match' | 'team';
+
+/** One `match_deletions` row (migration 20261008090000_match_deletions.sql). */
+export type MatchDeletion = { match_id: string; deleted_at: string };
+
+/** The counts `countDeleteImpact` answers. */
+export type DeleteImpact = { events: number; matches: number; entries: number; forms: number };
 
 export type UseCaseContext = {
   store: Store;

@@ -1,9 +1,11 @@
 import { MAX_OPERATIONS_PER_PUSH, PULL_ENTITY_KEYS, type PullEntityKey } from '@frc/shared';
 import { session } from '@/auth/session';
 import { cachedRows } from './cache';
+import { notifyChanged } from './changes';
 import { db, getMeta, setMeta } from './db';
-import { ackResults, pending } from './outbox';
+import { ackResults, matchIdsNeededByOutbox, pending } from './outbox';
 import { call } from './rpc';
+import { clearSyncFailure, recordSyncFailure } from './syncFailure';
 import type { Api } from './api';
 
 export type SyncDeps = {
@@ -34,9 +36,11 @@ function isUnauthenticated(e: unknown): boolean {
 
 /**
  * Ops acked by an earlier batch of this same sync stay acked (ackResults commits each
- * batch); everything unacked stays queued. A 401 simply stops the sync.
+ * batch); everything unacked stays queued. A 401 simply stops the sync. Why it failed is
+ * kept for the sync line (UF.13) until a sync succeeds.
  */
-function failure(e: unknown, fallback: string): SyncOutcome {
+async function failure(e: unknown, fallback: string): Promise<SyncOutcome> {
+  await recordSyncFailure(e);
   if (isUnauthenticated(e)) return { status: 'unauthenticated' };
   return { status: 'offline', reason: e instanceof Error ? e.message : fallback };
 }
@@ -82,7 +86,13 @@ export async function syncNow(deps: SyncDeps): Promise<SyncOutcome> {
         ...(since ? { since } : {}),
         ...(cursor ? { cursor } : {}),
       });
-      pulled += await upsertEntities(response.entities);
+      const applied = await upsertEntities(response.entities);
+      const pruned = await pruneDeletedMatches(
+        response.deleted_matches ?? [],
+        response.entities.matches ?? [],
+      );
+      pulled += applied;
+      if (applied > 0 || pruned > 0) notifyChanged('rows');
       if (bestWatermark === null || response.watermark > bestWatermark)
         bestWatermark = response.watermark;
       if (response.complete) {
@@ -100,6 +110,7 @@ export async function syncNow(deps: SyncDeps): Promise<SyncOutcome> {
       await setMeta(WATERMARK, bestWatermark);
       await setMeta(HYDRATED, deps.eventId);
       await setMeta('sync.last_success_at', new Date().toISOString());
+      notifyChanged('meta');
     }
     // SPEC-FINAL 7.5: the database is authoritative for role, on the client too.
     await session.refreshFromCache();
@@ -108,6 +119,7 @@ export async function syncNow(deps: SyncDeps): Promise<SyncOutcome> {
     return failure(e, 'pull failed');
   }
 
+  await clearSyncFailure();
   return { status: 'ok', pushed, pulled };
 }
 
@@ -127,10 +139,47 @@ async function upsertEntities(
   return count;
 }
 
+/**
+ * SPEC-FINAL 9.3 (amended v1.18): a hard-deleted match leaves this device's cache, with its
+ * lineup slots (match_teams cascade on the server). Kept: a match the same response
+ * delivered as a row (created again since), a match the outbox still needs — a queued entry
+ * recorded against it, or its own bare-match create — and a match an entry draft on this
+ * device is open on, because the rebuild of SPEC-FINAL 9.7 works from the cached row and an
+ * entry submitted from that draft would otherwise be stranded. Returns how many were dropped.
+ */
+export async function pruneDeletedMatches(
+  deletedIds: string[],
+  deliveredMatches: Record<string, unknown>[],
+): Promise<number> {
+  if (deletedIds.length === 0) return 0;
+  const delivered = new Set(deliveredMatches.map((row) => String(row.id)));
+  return db.transaction('rw', db.rows, db.outbox, db.drafts, async () => {
+    const needed = await matchIdsNeededByOutbox();
+    // EntryPage keys a draft `${formVersionId}:${matchId}:${teamId}`; uuids hold no colon.
+    for (const key of await db.drafts.toCollection().primaryKeys()) {
+      const matchId = String(key).split(':')[1];
+      if (matchId) needed.add(matchId);
+    }
+    const drop = deletedIds.filter((id) => !delivered.has(id) && !needed.has(id));
+    if (drop.length === 0) return 0;
+    await db.rows
+      .where('match_id')
+      .anyOf(drop)
+      .filter((row) => row.entity === 'match_teams')
+      .delete();
+    return db.rows
+      .where('id')
+      .anyOf(drop)
+      .filter((row) => row.entity === 'matches')
+      .delete();
+  });
+}
+
 async function wipeEvent(eventId: string): Promise<SyncOutcome> {
   await db.rows.where('event_id').equals(eventId).delete();
   await setMeta(WATERMARK, null);
   await setMeta(HYDRATED, null);
+  notifyChanged('rows');
   return { status: 'event-gone' };
 }
 

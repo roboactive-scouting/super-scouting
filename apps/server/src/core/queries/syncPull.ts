@@ -76,10 +76,27 @@ export async function syncPull(
     if (nextCursor !== null) break;
   }
 
+  // SPEC-FINAL 9.3 (v1.18): a delta pull also names the matches hard-deleted since `since`.
+  // Once per pull, on its first page: a later page could otherwise drop a match row that an
+  // earlier page of the same pull delivered. A full pull's dataset already leaves them out.
+  const deletedMatches: string[] = [];
+  if (input.since !== undefined && input.cursor === undefined) {
+    for (const deletion of await ctx.store.listMatchDeletions(input.event_id, input.since)) {
+      deletedMatches.push(deletion.match_id);
+      if (deletion.deleted_at > newest) newest = deletion.deleted_at;
+    }
+  }
+
   const watermark =
     newest === ''
       ? (input.since ?? new Date(ctx.now().getTime() - WATERMARK_OVERLAP_MS).toISOString())
       : new Date(new Date(newest).getTime() - WATERMARK_OVERLAP_MS).toISOString();
 
-  return { watermark, next_cursor: nextCursor, complete: nextCursor === null, entities };
+  return {
+    watermark,
+    next_cursor: nextCursor,
+    complete: nextCursor === null,
+    entities,
+    deleted_matches: deletedMatches,
+  };
 }

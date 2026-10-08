@@ -1,253 +1,201 @@
-import { useEffect, useId, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { formatCount } from '@frc/shared';
-import { ChoiceGroup } from '@/components/entry/ChoiceGroup';
-import { StickyActionBar } from '@/components/entry/StickyActionBar';
+import { ActionBar } from '@/components/ui/action-bar';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { NativeSelect } from '@/components/ui/native-select';
-import { Notice } from '@/components/ui/notice';
-import { cachedRows } from '@/data/cache';
-import { db } from '@/data/db';
-import { enqueue, nextSeq } from '@/data/outbox';
-import {
-  canSelfEdit,
-  editableUntil,
-  editsAnyTime,
-  localEntries,
-  type Editor,
-  type LocalEntry,
-} from './localEntries';
+import { Note, SuccessBanner } from '@/components/ui/notice';
+import { stationLabel, WarningFlag } from '@/components/ui/tag';
+import { setStation } from '@/data/station';
+import { matchLabel } from '@/lib/matchLabel';
 import { entryPath } from '@/lib/paths';
-
-type MatchRow = { id: string; event_id: string; match_type: string; number: number };
-type TeamRow = { id: string; number: number; name: string };
-type SlotRow = { match_id: string; alliance: 'red' | 'blue'; team_id: string };
-type RosterRow = { event_id: string; team_id: string; deleted_at: string | null };
+import { cn } from '@/lib/utils';
+import { ensureMatchLocally } from './bareMatch';
+import { LineupTiles, OtherStationDialog } from './LineupTiles';
+import { editableUntil, editsAnyTime, type Editor } from './localEntries';
+import { MatchFields } from './MatchFields';
+import { RosterHeading, RosterList } from './RosterList';
+import { hhmm } from './scoutChoice';
+import { StationHeading, StationSheet } from './StationSheet';
+import { useScoutSelection } from './useScoutSelection';
 
 /** What EntryRoute hands back through router state after a submit (SPEC-FINAL 8.1). */
-export type SavedNotice = { matchLabel: string; teamLabel: string; edited: boolean };
+export type SavedNotice = {
+  matchType: string;
+  number: number;
+  matchLabel: string;
+  teamLabel: string;
+  edited: boolean;
+};
 
-const ALLIANCES = [
-  { value: 'red', label: 'Red', ariaLabel: 'red', accent: 'var(--alliance-red)' },
-  { value: 'blue', label: 'Blue', ariaLabel: 'blue', accent: 'var(--alliance-blue)' },
-] as const;
+const TYPE_NAME: Record<string, string> = {
+  qualification: 'Qualification',
+  practice: 'Practice',
+  playoff: 'Playoff',
+};
 
 export function SelectRobotPage({ eventId, author }: { eventId: string; author: Editor }) {
   const navigate = useNavigate();
   const saved = (useLocation().state as { saved?: SavedNotice } | null)?.saved;
-  const [matches, setMatches] = useState<MatchRow[]>([]);
-  const [slots, setSlots] = useState<SlotRow[]>([]);
-  const [roster, setRoster] = useState<TeamRow[]>([]);
-  const [matchType, setMatchType] = useState('qualification');
-  const [number, setNumber] = useState('');
-  const [alliance, setAlliance] = useState<'red' | 'blue' | null>(null);
-  const [teamId, setTeamId] = useState('');
-  const [entries, setEntries] = useState<LocalEntry[]>([]);
-  const typeId = useId();
-  const numberId = useId();
-  const robotId = useId();
+  // SPEC-FINAL 8.1 (v1.17): after a new entry the type stays and the next number is offered,
+  // still editable and with no robot carried over; after an edit the number stays empty.
+  const next = saved && !saved.edited && saved.number ? saved : null;
+  const [matchType, setMatchType] = useState(next?.matchType ?? 'qualification');
+  const [number, setNumber] = useState(next ? String(next.number + 1) : '');
+  const [asking, setAsking] = useState<'auto' | 'open' | 'closed'>('auto');
+  const starting = useRef(false);
+  const pick = useScoutSelection(eventId, author, matchType, number);
+  const { station, parsed, valid, existing, chosen, notHere, showLineup } = pick;
 
-  useEffect(() => {
-    void (async () => {
-      // One read, one state update, so the page is never half-loaded.
-      const [allMatches, allSlots, teams, eventTeams, allEntries] = await Promise.all([
-        cachedRows<MatchRow>('matches'),
-        cachedRows<SlotRow>('match_teams'),
-        cachedRows<TeamRow>('teams'),
-        cachedRows<RosterRow>('event_teams'),
-        localEntries(eventId),
-      ]);
-      const teamById = new Map(teams.map((t) => [t.id, t]));
-      const live = eventTeams.filter((r) => r.event_id === eventId && r.deleted_at == null);
-      setMatches(allMatches.filter((m) => m.event_id === eventId));
-      setSlots(allSlots);
-      setRoster(live.map((r) => teamById.get(r.team_id)).filter((t): t is TeamRow => Boolean(t)));
-      setEntries(allEntries.filter((e) => e.form_kind === 'match'));
-    })();
-  }, [eventId]);
-
-  const parsed = Number(number);
-  const existing = matches.find((m) => m.match_type === matchType && m.number === parsed);
-  const listed = existing
-    ? slots
-        .filter((s) => s.match_id === existing.id && s.alliance === alliance)
-        .map((s) => s.team_id)
-    : [];
-  const choices = listed.length > 0 ? roster.filter((t) => listed.includes(t.id)) : roster;
-  const ready = alliance !== null && parsed > 0;
-
-  // A robot this device already holds an entry for, in this match, is never offered for
-  // a second one (SPEC-FINAL 8.1, following the super-entry rule): it opens the existing
-  // entry while the self-edit window (7.6) is open, and is shown locked after it.
-  // Cross-device duplicates are not visible here and stay with the conflict path (9.5).
-  const now = new Date();
-  const scouted = new Map(
-    existing ? entries.filter((e) => e.match_id === existing.id).map((e) => [e.team_id, e]) : [],
-  );
-  const isLocked = (id: string) => {
-    const entry = scouted.get(id);
-    return entry !== undefined && !canSelfEdit(entry, author, now);
-  };
-
-  // A robot chosen before the alliance or match changed may no longer be on the list.
-  const chosen = ready ? choices.find((t) => t.id === teamId && !isLocked(t.id)) : undefined;
-  const chosenEntry = chosen ? scouted.get(chosen.id) : undefined;
-
-  function optionLabel(team: TeamRow): string {
-    const name = `${formatCount(team.number)} ${team.name}`;
-    const entry = scouted.get(team.id);
-    if (!entry) return name;
-    if (isLocked(team.id)) return `${name} — already scouted, locked`;
-    // A lead or admin edits at any time (SPEC-FINAL 7.6): there is no window to name.
-    if (editsAnyTime(author)) return `${name} — already scouted`;
-    const until = editableUntil(entry).toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-    return `${name} — already scouted, editable until ${until}`;
-  }
-
+  /** One tap, one bare match and one outbox operation, however fast the second tap comes. */
   function start() {
-    if (!alliance || !chosen) return;
-    const team = chosen;
+    if (!chosen || starting.current) return;
+    starting.current = true;
+    const { team, entry } = chosen;
     // Editing keeps the alliance the entry was recorded with.
-    const side = chosenEntry?.alliance ?? alliance;
-    void ensureMatchLocally().then((matchId) => navigate(entryPath(matchId, team.id, side)));
+    const side = entry?.alliance ?? chosen.side;
+    ensureMatchLocally(existing, { eventId, matchType, number: parsed, author })
+      .then((matchId) => navigate(entryPath(matchId, team.id, side)))
+      .finally(() => {
+        starting.current = false;
+      });
   }
 
-  /**
-   * SPEC-FINAL 6.4: a system action, not an admin capability. It creates the minimal row
-   * — event, type, number, nothing else — rides the outbox, and works offline.
-   */
-  async function ensureMatchLocally(): Promise<string> {
-    if (existing) return existing.id;
-    const rowId = crypto.randomUUID();
-    const now = new Date().toISOString();
-    const payload = { event_id: eventId, match_type: matchType, number: parsed };
-    await enqueue({
-      op_id: crypto.randomUUID(),
-      entity: 'match',
-      row_id: rowId,
-      action: 'create',
-      base_version: null,
-      payload,
-      author_user_id: author.id,
-      client_created_at: now,
-      client_updated_at: now,
-      seq: await nextSeq(),
-    });
-    // Optimistic local write, so the picker and the entry screen see it at once.
-    const localMatch: MatchRow = { id: rowId, ...payload };
-    await db.rows.put({ ...localMatch, entity: 'matches', version: 1, updated_at: now });
-    setMatches((current) => [...current, localMatch]);
-    return rowId;
-  }
+  const shortMatch = valid ? matchLabel({ match_type: matchType, number: parsed }) : '';
+  const longMatch = `${TYPE_NAME[matchType] ?? matchType} ${formatCount(parsed)}`;
 
   return (
-    <main className="mx-auto w-full max-w-xl px-4 pt-6">
-      {saved && (
-        // Static on purpose (SPEC-FINAL 17.9): the confirmation stands still on the entry path.
-        // Submitting only queues the entry; the connection indicator owns sync state.
-        <Notice role="status" aria-label="Entry saved" tone="success" still className="mb-5">
-          <p className="font-semibold">
-            {saved.edited ? 'Changes saved on this device' : 'Entry saved on this device'}
-          </p>
-          <p className="mt-1">
-            {saved.matchLabel} · <span dir="auto">{saved.teamLabel}</span>
-          </p>
-          <p className="mt-1 text-text-muted">
-            It is queued to send and stays safe here with no network.
-          </p>
-        </Notice>
-      )}
-      <h1 className="text-2xl font-semibold tracking-tight">Scout a match</h1>
+    // data-pinned-foot: on a phone the page fills the height, so a short page still has its
+    // action bar at the bottom, flush on the bottom bar (THEME "Primary action bar").
+    <main
+      data-pinned-foot=""
+      className="mx-auto flex w-full max-w-[920px] flex-1 flex-col px-4 pt-3.5 lg:px-8 lg:pt-6"
+    >
+      <div className="flex-1">
+        {saved && (
+          // Static on purpose (SPEC-FINAL 17.9): the confirmation stands still on the entry path.
+          // Submitting only queues the entry; the connection indicator owns sync state.
+          <div role="status" aria-label="Entry saved" className="mb-4 lg:mb-[18px]">
+            <SuccessBanner
+              title={
+                <>
+                  {saved.edited ? 'Changes saved on this device' : 'Entry saved on this device'}
+                  <span className="font-normal text-ink-2">
+                    {' · '}
+                    {saved.matchLabel} · <span dir="auto">{saved.teamLabel}</span>
+                  </span>
+                </>
+              }
+            >
+              It is queued to send and stays safe here with no network.
+            </SuccessBanner>
+          </div>
+        )}
 
-      <div className="mt-6 grid grid-cols-2 gap-3">
-        <div>
-          <Label htmlFor={typeId}>Match type</Label>
-          <NativeSelect
-            id={typeId}
-            wrapperClassName="mt-1.5"
-            value={matchType}
-            onChange={(e) => setMatchType(e.target.value)}
-          >
-            <option value="qualification">Qualification</option>
-            <option value="practice">Practice</option>
-            <option value="playoff">Playoff</option>
-          </NativeSelect>
-        </div>
-        <div>
-          <Label htmlFor={numberId}>Match number</Label>
-          <Input
-            id={numberId}
-            type="number"
-            min={1}
-            inputMode="numeric"
-            className="mt-1.5 text-xl font-semibold tabular-nums"
-            value={number}
-            onChange={(e) => setNumber(e.target.value)}
+        {notHere ? (
+          <RosterHeading
+            sub={`${longMatch}${station ? ` · your station ${stationLabel(station)}` : ''}`}
+            onCancel={pick.closeNotHere}
           />
-        </div>
+        ) : (
+          <>
+            <StationHeading station={station} onChange={() => setAsking('open')} />
+            <MatchFields
+              matchType={matchType}
+              onMatchType={setMatchType}
+              number={number}
+              onNumber={setNumber}
+            />
+          </>
+        )}
+
+        {showLineup && (
+          <LineupTiles
+            tiles={pick.tiles}
+            mine={station ?? null}
+            selected={pick.selected}
+            onPick={pick.pickTile}
+            shortMatch={shortMatch}
+            longMatch={longMatch}
+            onNotHere={pick.openNotHere}
+          />
+        )}
+
+        {valid && !showLineup && (
+          <section className={cn('flex flex-col gap-3', notHere ? 'mt-3.5' : 'mt-3')}>
+            {!notHere &&
+              (existing ? (
+                <Note>
+                  {shortMatch} has no robots listed on this device. Choose the one you are watching.
+                </Note>
+              ) : (
+                <div role="status">
+                  <Note>
+                    Match {formatCount(parsed)} is not on this device yet. It will be created when
+                    you submit — keep scouting.
+                  </Note>
+                </div>
+              ))}
+            <RosterList
+              alliance={pick.alliance}
+              onAlliance={pick.onAlliance}
+              teams={pick.roster}
+              value={pick.rosterValue}
+              onChange={pick.pickTeam}
+              query={pick.query}
+              onQuery={pick.onQuery}
+            >
+              {pick.flagged && chosen && (
+                <Note className="mt-1">
+                  <WarningFlag>Not in line-up</WarningFlag>
+                  <span className="mt-1.5 block">
+                    {chosen.team.number} isn't in {shortMatch}'s line-up. The entry is saved with
+                    this mark so a lead can check it. The match itself doesn't change.
+                  </span>
+                </Note>
+              )}
+            </RosterList>
+          </section>
+        )}
+
+        {chosen?.entry && (
+          <Note className="mt-3">
+            {editsAnyTime(author)
+              ? 'This robot is already scouted in this match on this device. You can change that entry; a second one cannot be started.'
+              : `This robot is already scouted in this match on this device. You can change that entry until ${hhmm(
+                  editableUntil(chosen.entry),
+                )}; a second one cannot be started.`}
+          </Note>
+        )}
       </div>
 
-      {parsed > 0 && !existing && (
-        <Notice role="status" className="mt-4">
-          Match {formatCount(parsed)} is not on this device yet. It will be created when you submit
-          — keep scouting.
-        </Notice>
-      )}
-
-      <div className="mt-6">
-        <ChoiceGroup
-          legend="Alliance"
-          name="alliance"
-          value={alliance}
-          options={ALLIANCES}
-          onChange={(side) => setAlliance(side)}
-        />
-      </div>
-
-      <div className="mt-6">
-        <Label htmlFor={robotId}>Robot</Label>
-        {/* Native, so a phone shows its own picker rather than a 30-row scroll. */}
-        <NativeSelect
-          id={robotId}
-          wrapperClassName="mt-1.5"
-          value={chosen?.id ?? ''}
-          disabled={!ready}
-          onChange={(e) => setTeamId(e.target.value)}
-        >
-          <option value="" disabled>
-            {ready ? 'Choose a robot' : 'Choose a match and alliance first'}
-          </option>
-          {choices.map((team) => (
-            <option key={team.id} value={team.id} dir="auto" disabled={isLocked(team.id)}>
-              {optionLabel(team)}
-            </option>
-          ))}
-        </NativeSelect>
-      </div>
-
-      {chosenEntry && (
-        <p className="mt-3 text-sm text-text-muted">
-          {editsAnyTime(author)
-            ? 'This robot is already scouted in this match on this device. You can change that entry; a second one cannot be started.'
-            : `This robot is already scouted in this match on this device. You can change that entry until ${editableUntil(
-                chosenEntry,
-              ).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              })}; a second one cannot be started.`}
-        </p>
-      )}
-
-      <StickyActionBar>
+      {/* The primary action bar, pinned at every width: a long roster never hides it. */}
+      <ActionBar desktop="flat">
         <Button variant="primary" size="block" disabled={!chosen} onClick={start}>
-          {chosenEntry ? 'Edit the existing entry' : 'Start entry'}
+          {!chosen
+            ? 'Start entry'
+            : chosen.entry
+              ? 'Edit the existing entry'
+              : `Start entry · ${chosen.team.number} ${chosen.team.name}`}
         </Button>
-      </StickyActionBar>
+      </ActionBar>
+
+      <StationSheet
+        open={asking === 'open' || (asking === 'auto' && station === null)}
+        current={station ?? null}
+        onClose={() => setAsking('closed')}
+        onUse={(s) => {
+          setAsking('closed');
+          void setStation(s);
+        }}
+      />
+      {station && (
+        <OtherStationDialog
+          mine={station}
+          target={pick.confirming}
+          onKeep={pick.keepStation}
+          onScout={pick.scoutOther}
+        />
+      )}
     </main>
   );
 }

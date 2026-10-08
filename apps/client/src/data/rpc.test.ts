@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { pendingCredential } from '@/auth/pendingCredential';
 import { session } from '@/auth/session';
+import { lastTokenLoss } from '@/auth/tokenLoss';
 import { db } from './db';
 import { ADMIN_CALL_TIMEOUT_MS, adminRpc, call, rpc, RpcError } from './rpc';
 
@@ -113,6 +115,7 @@ describe('the RPC client (SPEC-FINAL 16.1, 7.5)', () => {
     });
     expect(expire).not.toHaveBeenCalled();
     expect(await session.token()).toBe('token-abc');
+    expect((await session.current())?.expired).toBe(false);
   });
 
   it('reports a network failure as status 0, code offline', async () => {
@@ -179,6 +182,130 @@ describe('the RPC client (SPEC-FINAL 16.1, 7.5)', () => {
     );
     const out = await call('login', { username: 'alice', password: 'pw' });
     expect(out.user).toEqual(user);
+  });
+});
+
+describe('an offline sign-in on an online device (UF.2)', () => {
+  let online = true;
+  const unauthenticated = () =>
+    json(401, { error: { code: 'unauthenticated', message: 'sign in again' } });
+  const urls = () => fetchMock.mock.calls.map(([url]) => String(url));
+
+  beforeEach(async () => {
+    online = true;
+    vi.spyOn(navigator, 'onLine', 'get').mockImplementation(() => online);
+    await session.signIn(user, null, true);
+    pendingCredential.set({ username: 'alice', password: 'pw' });
+  });
+
+  afterEach(() => pendingCredential.clear());
+
+  it('gets a token before an authenticated call, and sends the call with it', async () => {
+    fetchMock
+      .mockResolvedValueOnce(json(200, { token: 'tok-new', user }))
+      .mockResolvedValueOnce(json(200, { items: [] }));
+    await rpc.call('listUsers', {});
+    expect(urls()).toEqual(['https://api.test/api/login', 'https://api.test/api/listUsers']);
+    expect(headersOf(1).get('authorization')).toBe('Bearer tok-new');
+  });
+
+  it('with no password held: sends the call; our server’s 401 expires the session', async () => {
+    pendingCredential.clear();
+    fetchMock.mockResolvedValueOnce(unauthenticated());
+    await expect(rpc.call('listUsers', {})).rejects.toMatchObject({ status: 401 });
+    expect(urls()).toEqual(['https://api.test/api/listUsers']);
+    expect(await session.current()).toMatchObject({ user, token: null, expired: true });
+    expect(await lastTokenLoss()).toMatchObject({ reason: '401', path: 'listUsers' });
+  });
+
+  it('a 401 that is not our server’s (a portal) never expires the offline session', async () => {
+    pendingCredential.clear();
+    fetchMock.mockResolvedValueOnce(
+      new Response('<html>Sign in to Venue WiFi</html>', {
+        status: 401,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+    await expect(rpc.call('listUsers', {})).rejects.toMatchObject({ status: 401 });
+    expect(await session.current()).toMatchObject({ token: null, offline: true, expired: false });
+    expect(await lastTokenLoss()).toBeNull();
+  });
+
+  it('a 401 sent with no bearer tries the exchange again, and expires when it is refused', async () => {
+    fetchMock
+      .mockRejectedValueOnce(new TypeError('Failed to fetch')) // the first exchange: no answer
+      .mockResolvedValueOnce(unauthenticated()) // the call itself, with no bearer
+      .mockResolvedValueOnce(unauthenticated()); // the exchange on the 401: refused
+    await expect(rpc.call('removeTeamFromEvent', {})).rejects.toMatchObject({ status: 401 });
+    expect(urls()).toEqual([
+      'https://api.test/api/login',
+      'https://api.test/api/removeTeamFromEvent',
+      'https://api.test/api/login',
+    ]);
+    expect(headersOf(1).has('authorization')).toBe(false);
+    expect((await session.current())?.expired).toBe(true);
+    expect(await lastTokenLoss()).toMatchObject({ reason: '401', path: 'removeTeamFromEvent' });
+  });
+
+  it('a 401 sent with no bearer that then gets a token leaves the session signed in', async () => {
+    fetchMock
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(unauthenticated())
+      .mockResolvedValueOnce(json(200, { token: 'tok-new', user }));
+    await expect(rpc.call('listUsers', {})).rejects.toMatchObject({ status: 401 });
+    expect(await session.current()).toMatchObject({ token: 'tok-new', expired: false });
+    expect(await lastTokenLoss()).toBeNull();
+  });
+
+  it('a 403 sent with no bearer never expires anything', async () => {
+    fetchMock
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(json(403, { error: { code: 'forbidden', message: 'no' } }));
+    await expect(rpc.call('listUsers', {})).rejects.toMatchObject({ status: 403 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(await session.current()).toMatchObject({ token: null, offline: true, expired: false });
+    expect(await lastTokenLoss()).toBeNull();
+  });
+
+  it('offline: makes no exchange and never expires the session', async () => {
+    online = false;
+    pendingCredential.clear();
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await expect(rpc.call('listUsers', {})).rejects.toMatchObject({ status: 0 });
+    expect(urls()).toEqual(['https://api.test/api/listUsers']);
+    expect(await session.current()).toMatchObject({ token: null, offline: true, expired: false });
+  });
+});
+
+describe('the token-loss diagnostic on a real 401 (UF.2)', () => {
+  it('records a 401 that expires a session, with the route', async () => {
+    await session.signIn(user, 'token-abc');
+    fetchMock.mockResolvedValueOnce(
+      json(401, { error: { code: 'unauthenticated', message: 'sign in again' } }),
+    );
+    await expect(rpc.call('getUser', {})).rejects.toMatchObject({ status: 401 });
+    expect((await session.current())?.expired).toBe(true);
+    expect(await lastTokenLoss()).toMatchObject({ reason: '401', path: 'getUser' });
+  });
+
+  it('records nothing for a 401 to a token that is no longer the current one', async () => {
+    await session.signIn(user, 'token-abc');
+    let answer!: (r: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (answer = resolve)));
+    const pending = rpc.call('getUser', {}).catch((e: unknown) => e);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await session.signIn(user, 'token-fresh');
+    answer(json(401, { error: { code: 'unauthenticated', message: 'sign in again' } }));
+    await pending;
+    expect(await session.token()).toBe('token-fresh');
+    expect(await lastTokenLoss()).toBeNull();
+  });
+
+  it('records nothing on a 403', async () => {
+    await session.signIn(user, 'token-abc');
+    fetchMock.mockResolvedValueOnce(json(403, { error: { code: 'forbidden', message: 'no' } }));
+    await expect(rpc.call('listUsers', {})).rejects.toMatchObject({ status: 403 });
+    expect(await lastTokenLoss()).toBeNull();
   });
 });
 

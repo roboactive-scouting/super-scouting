@@ -14,6 +14,10 @@ export const NOT_ADMIN_EVENTS_LINE =
 export const ADMIN_UNREACHABLE_LINE =
   'Could not reach the server. Managing users needs it — try again when this device is online.';
 
+/** The same line for the Manage page (redesign RB.16/RB.17): it never says "users". */
+export const MANAGE_UNREACHABLE =
+  'Managing seasons, events, rosters and matches needs a connection — try again when this device is online.';
+
 /**
  * True when the answer did not come from this app's server: no network, a deadline, a
  * captive portal or a proxy page (RpcError.answered, task 1.16). The admin page is
@@ -44,7 +48,7 @@ export function adminErrorLine(e: unknown): string {
  * (SPEC-FINAL 6.4, 16.7), and `sentence()` capitalising it would misquote that path.
  */
 export function panelErrorLine(e: unknown): string {
-  if (unreachable(e)) return ADMIN_UNREACHABLE_LINE;
+  if (unreachable(e)) return MANAGE_UNREACHABLE;
   if (e instanceof RpcError && e.status === 403) return NOT_ADMIN_EVENTS_LINE;
   if (e instanceof Error && e.message) return e.message;
   return 'That did not work. Check the fields and try again.';

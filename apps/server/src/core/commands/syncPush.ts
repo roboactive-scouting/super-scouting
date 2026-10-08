@@ -3,6 +3,8 @@ import {
   can,
   ensureMatchInput,
   isUser,
+  operationSchema,
+  PARENT_DELETED_DETAIL,
   validateEntryData,
   withinSelfEditWindow,
   validateEntryShape,
@@ -15,7 +17,9 @@ import {
   type RejectionReason,
   type RobotStatus,
 } from '@frc/shared';
+import type { ZodIssue } from 'zod';
 import type { StoredUser, UseCaseContext } from '../context.js';
+import { pgCode } from '../seasonRows.js';
 import { ensureMatch } from './matches.js';
 
 const rejected = (opId: string, reason: RejectionReason, detail?: string): PushResult =>
@@ -40,6 +44,17 @@ const SERVER_OWNED_KEYS = new Set([
   'client_updated_at',
 ]);
 
+/**
+ * A foreign-key failure (Postgres '23503') as the parent it names. Only the constraint name
+ * is read, and only a fixed detail goes back: Postgres's own text never reaches the client.
+ */
+function foreignKeyDetail(message: string): string {
+  const column = /_(event|match|team|form_version)_id_fkey/.exec(message)?.[1];
+  return column
+    ? PARENT_DELETED_DETAIL[column as keyof typeof PARENT_DELETED_DETAIL]
+    : PARENT_DELETED_DETAIL.other;
+}
+
 const withoutServerOwnedKeys = (payload: Record<string, unknown>): Record<string, unknown> =>
   Object.fromEntries(Object.entries(payload).filter(([key]) => !SERVER_OWNED_KEYS.has(key)));
 
@@ -53,14 +68,62 @@ const callerOf = (author: StoredUser): Caller => ({
   role: author.role,
 });
 
+/** One zod issue as `path: message`, never with the value it was about. */
+function describeIssue(issue: ZodIssue): string {
+  const path = issue.path.join('.') || 'operation';
+  // invalid_enum_value's own message quotes the value received; name the options instead.
+  const message =
+    issue.code === 'invalid_enum_value' ? `expected ${issue.options.join(' | ')}` : issue.message;
+  return `${path}: ${message}`;
+}
+
+const opIdOf = (candidate: unknown): string | null => {
+  if (typeof candidate !== 'object' || candidate === null) return null;
+  const opId = (candidate as { op_id?: unknown }).op_id;
+  return typeof opId === 'string' && opId.length > 0 ? opId : null;
+};
+
+/**
+ * SPEC-FINAL 9.3.1 (UF.12): the route parses the push envelope strictly and each operation
+ * here, on its own. A malformed operation is answered `invalid` with the fields it got
+ * wrong, so it is parked on the device and shown, and every good operation in the batch
+ * is still applied. One with no op_id cannot be answered at all, so it is skipped. Either
+ * way the issue paths and codes are logged, keyed by op_id, never with a value.
+ */
+export function screenOperations(raw: unknown[]): {
+  operations: Operation[];
+  rejections: PushResult[];
+} {
+  const operations: Operation[] = [];
+  const rejections: PushResult[] = [];
+  raw.forEach((candidate, index) => {
+    const parsed = operationSchema.safeParse(candidate);
+    if (parsed.success) {
+      operations.push(parsed.data);
+      return;
+    }
+    const { issues } = parsed.error;
+    const codes = issues.map((i) => `${i.path.join('.') || 'operation'} ${i.code}`).join(', ');
+    const opId = opIdOf(candidate);
+    if (opId === null) {
+      console.error(`syncPush: skipped operation #${index}, which has no op_id: ${codes}`);
+      return;
+    }
+    console.error(`syncPush: op ${opId} is malformed: ${codes}`);
+    rejections.push(rejected(opId, 'invalid', issues.map(describeIssue).join('; ')));
+  });
+  return { operations, rejections };
+}
+
 /**
  * SPEC-FINAL 9.3.1. Operations are applied in seq order, each independently; a
  * rejection does not stop the batch. op_id is the idempotency key. Authorization is
  * per operation, against the operation's author_user_id and not against the bearer
  * (7.5) — which is what makes a shared collector tablet work at all.
  *
- * Divergence, duplicate and parent-deleted arrive in task 1.40. Until then a stale
- * base version is rejected as `invalid` rather than silently overwriting.
+ * Divergence and duplicate arrive in task 1.40. Until then a stale base version is
+ * rejected as `invalid` rather than silently overwriting. A missing parent is
+ * `parent-deleted` with a PARENT_DELETED_DETAIL naming it (UF.1).
  */
 export async function syncPush(
   caller: Caller,
@@ -80,7 +143,15 @@ export async function syncPush(
       // 500 hid a schema bug once — the Vercel runtime log is where to look now.)
       const message = e instanceof Error ? e.message : String(e);
       console.error(`syncPush: op ${op.op_id} (${op.entity} ${op.action}) failed: ${message}`);
-      results.push(rejected(op.op_id, 'invalid', 'unexpected server error'));
+      // 9.3.1 (v1.18): a missing parent is ALWAYS parent-deleted. The checks in applyEntry
+      // catch it first; this is a parent deleted between that check and the write. The
+      // generic answer is left for what is genuinely unexpected, because the client
+      // retries it silently for ever.
+      results.push(
+        pgCode(e) === '23503'
+          ? rejected(op.op_id, 'parent-deleted', foreignKeyDetail(message))
+          : rejected(op.op_id, 'invalid', 'unexpected server error'),
+      );
     }
   }
   return { results };
@@ -169,7 +240,10 @@ async function applyBareMatch(
     result = await ensureMatch(callerOf(author), bareMatchInput(op), ctx);
   } catch (e) {
     if (!(e instanceof AppError)) throw e;
-    return rejected(op.op_id, REASON_FOR[e.code] ?? 'invalid', e.message);
+    const reason = REASON_FOR[e.code] ?? 'invalid';
+    // ensureMatch's only not-found is its event.
+    const detail = reason === 'parent-deleted' ? PARENT_DELETED_DETAIL.event : e.message;
+    return rejected(op.op_id, reason, detail);
   }
   await ctx.store.markApplied(op.op_id);
   return {
@@ -246,6 +320,22 @@ async function applyEntry(
     breakdown_seconds: (payload.breakdown_seconds as number | null) ?? null,
   });
   if (shapeIssues.length > 0) return rejected(op.op_id, 'invalid', shapeIssues.join('; '));
+
+  // SPEC-FINAL 9.3.1 (v1.18): a missing parent is parent-deleted, named, before any write.
+  // Without this the insert hit the foreign key and the client was told "unexpected server
+  // error", which it retries silently for ever (UI-FIX-NOTES, Entry 4).
+  const { event_id: eventId, match_id: matchId, team_id: teamId } = payload;
+  if (typeof eventId !== 'string') return rejected(op.op_id, 'invalid', 'event_id is required');
+  if (typeof teamId !== 'string') return rejected(op.op_id, 'invalid', 'team_id is required');
+  if (matchId != null && typeof matchId !== 'string') {
+    return rejected(op.op_id, 'invalid', 'match_id must be an id or null');
+  }
+  const gone = await ctx.store.missingParent({
+    event_id: eventId,
+    match_id: matchId ?? null,
+    team_id: teamId,
+  });
+  if (gone !== null) return rejected(op.op_id, 'parent-deleted', PARENT_DELETED_DETAIL[gone]);
 
   const fields = await ctx.store.getFormFields(formVersionId);
   const status = (payload.robot_status as RobotStatus | null) ?? 'played';

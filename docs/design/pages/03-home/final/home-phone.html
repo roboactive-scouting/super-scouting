@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Home — final, phone</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../01-entry/src/entry.css"><link rel="stylesheet" href="../../01-entry/final/final.css"><link rel="stylesheet" href="../../02-scout/src/scout.css"><link rel="stylesheet" href="../../02-scout/src/e-station.css"><link rel="stylesheet" href="../src/home.css"><link rel="stylesheet" href="../src/b2.css"><link rel="stylesheet" href="../src/b3.css">
+<style>
+.canvas{height:940px}
+.frames{gap:22px;align-items:flex-start}
+.phone{zoom:.8}
+.longphone{zoom:.5;width:375px;height:1700px;border-radius:44px;overflow:hidden;background:var(--bg);box-shadow:0 0 0 10px #12161c;display:flex;flex-direction:column;margin:10px;flex:none}
+.card{padding:14px}
+.opts2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.opts2 .opt{min-height:96px;padding:12px}.opts2 .opt .oi{width:32px;height:32px;margin-bottom:4px}
+.duo{display:grid;grid-template-columns:1fr 1.5fr;gap:8px}
+.lastbox{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-card);padding:10px 12px;display:flex;flex-direction:column}
+.lastbox small{font-size:12px;color:var(--muted);font-weight:600}
+.lastbox b{font-size:15px;font-weight:650;margin-top:4px}
+.lastbox b .num{font-weight:600}
+.lastbox .row2{display:flex;justify-content:space-between;align-items:center;margin-top:2px;font-size:12px;color:var(--muted)}
+.syncsmall{font-size:12.5px;color:var(--ink-2);margin-top:8px;display:flex;align-items:center;gap:6px}
+.screen-line{border-top:2px dashed var(--alliance-red);position:relative;margin:6px -16px}
+.screen-line span{position:absolute;right:8px;top:-20px;font-size:11px;font-weight:700;color:var(--alliance-red)}
+</style>
+</head><body>
+<div class="canvas">
+  <div class="canvas-head"><b>Home — final · phone</b><span>The whole page as one scroll, then the first screen at full size, the switch-competition sheet and a scouter's view.</span></div>
+  <div class="frames">
+
+    <figure class="frame"><div class="longphone"><div data-phone-shell data-time="09:12" data-title="Home">
+      <div class="hpad top1"></div>
+      <div class="hpad" style="padding-top:0">
+        <div class="screen-line"><span>end of the first screen</span></div>
+        <div class="teamslot" style="margin-top:12px"></div>
+        <div class="card" style="margin-top:12px">
+          <div class="ch2"><b>Schedule coverage</b><span>4 missing</span></div>
+          <div class="cells cov" data-cols="12" data-count="72" style="margin-top:10px"></div>
+          <div class="legend2" style="flex-wrap:wrap;gap:10px"><span><i class="full"></i>All 6</span><span><i class="gap"></i>Missing a robot</span><span><i class="none"></i>Not played</span></div>
+          <div class="miss"><b>Missing a robot</b><span class="num">Q7 · Q19 · Q26 · Q31</span></div>
+        </div>
+        <div class="card" style="margin-top:12px">
+          <div class="ch2"><b>Top teams</b><span>avg points · last 5</span></div>
+          <div class="topteams" data-n="5" style="margin-top:4px"></div>
+          <div style="margin-top:8px"><span class="link">Full ranking</span></div>
+        </div>
+        <div style="margin:16px 0 8px;font-weight:700">Go to</div>
+        <div class="opts2 adm"></div>
+        <div class="foot-v">version 1.4.0</div>
+      </div>
+    </div></div><figcaption>1 · The whole page, top to bottom</figcaption></figure>
+
+    <figure class="frame"><div class="phone"><div data-phone-shell data-time="09:12" data-title="Home">
+      <div class="hpad top1"></div>
+      <div class="hpad" style="padding-top:0"><div class="teamslot"></div></div>
+    </div></div><figcaption>2 · First screen</figcaption></figure>
+
+    <figure class="frame"><div class="phone"><div data-phone-shell data-time="09:13" data-title="Home">
+      <div class="hpad top1"></div>
+      <div class="scrim"></div>
+      <div class="sheet"><div class="grab"></div>
+        <div style="font-size:20px;font-weight:750">Switch competition</div>
+        <div class="sub" style="margin-bottom:12px">Only for this session. Reopening the app returns to District #3.</div>
+        <div class="seasons1"></div>
+        <div class="evcards" style="grid-template-columns:1fr;margin-top:10px" id="ev3"></div>
+        <div style="padding:12px 0 26px"><a class="btn" style="width:100%;height:50px">Close</a></div>
+      </div>
+    </div></div><figcaption>3 · Switch competition (sheet)</figcaption></figure>
+
+    <figure class="frame"><div class="phone"><div data-phone-shell data-time="09:20" data-title="Home" data-sync='<span class="dot"></span>All sent'>
+      <div class="hpad top2"></div>
+      <div class="hpad" style="padding-top:0"><div style="margin:4px 0 8px;font-weight:700">Go to</div><div class="opts2 sc"></div></div>
+    </div></div><figcaption>4 · A scouter, scrolled to Go to (no admin tiles)</figcaption></figure>
+
+  </div>
+</div>
+<script>
+const TOP=(st,stc,last,lastName,ago,sync)=>`
+  <div class="eyebrow">This device is working on</div><div class="pevname">District #3 · Tel Aviv</div>
+  <a class="btn primary block" style="margin-top:12px"><span class="i-scout"></span>Scout a match</a>
+  <a class="btn" style="width:100%;margin-top:8px;height:46px">Switch competition</a>
+  <div class="duo" style="margin-top:12px">
+    <div class="stat" style="padding:10px 12px"><small>Your station</small><div style="margin-top:6px"><span class="stpill ${stc} pin" style="height:26px;padding:0 9px">${st}</span></div></div>
+    <div class="lastbox"><small>Your last entry</small><b><span class="num">${last}</span> · ${lastName}</b><div class="row2"><span>${ago}</span><span class="link" style="font-size:12.5px">Open ›</span></div></div>
+  </div>
+  <div class="syncsmall">${sync}</div>`;
+document.querySelectorAll('.top1').forEach(e=>e.innerHTML=TOP('Blue 2','b','Q38','5951 Tiny Titans','2 min ago','<span class="dot w"></span>3 entries waiting to send · last sync 09:08'));
+document.querySelectorAll('.top2').forEach(e=>e.innerHTML=TOP('Red 3','r','Q38','4319 Ladies FIRST','4 min ago','<span class="dot"></span>Everything is sent · last sync 09:19'));
+</script>
+<script src="../../01-entry/src/entry.js"></script><script src="../../02-scout/src/e-common.js"></script><script src="../src/home.js"></script><script src="../src/b2.js"></script><script src="../src/b3.js"></script><script src="../../shell.js"></script>
+<script>
+document.querySelectorAll('.adm').forEach(e=>{e.innerHTML=B3.opts(true,true).replace('<b>Manage</b><small>Seasons, events, teams and matches</small>','<b>Matches</b><small>Create matches and line-ups</small>');e.querySelectorAll('.opt').forEach(o=>{if(o.querySelector('b').textContent==='Users')o.remove();});});
+document.querySelectorAll('.sc').forEach(e=>e.innerHTML=B3.opts(false,true));
+document.querySelectorAll('.teamslot').forEach(e=>e.innerHTML=B3.team(false));
+document.querySelectorAll('.seasons1').forEach(e=>e.innerHTML=H.seasons());
+document.getElementById('ev3').innerHTML=H.evcards({limit:3});
+B2.fill(5);
+</script>
+</body></html>

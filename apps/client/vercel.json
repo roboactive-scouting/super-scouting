@@ -4,6 +4,12 @@
   "buildCommand": "cd ../.. && pnpm turbo run build --filter=@frc/client",
   "outputDirectory": "dist",
   "installCommand": "cd ../.. && pnpm install --frozen-lockfile",
+  "rewrites": [
+    {
+      "source": "/((?!assets/|brand/|icons/|seasons/|sw\\.js|workbox-|manifest\\.webmanifest).*)",
+      "destination": "/index.html"
+    }
+  ],
   "headers": [
     {
       "source": "/sw.js",

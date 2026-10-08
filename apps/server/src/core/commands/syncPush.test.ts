@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Caller, Operation } from '@frc/shared';
+import { PARENT_DELETED_DETAIL, type Caller, type Operation } from '@frc/shared';
 import { syncPush } from './syncPush.js';
 import { makeFakeContext, type FakeContext } from '../../test/fake-context.js';
 
@@ -243,6 +243,30 @@ describe('syncPush', () => {
       ctx,
     );
     expect(straySeconds.results[0]).toMatchObject({ status: 'rejected', reason: 'invalid' });
+  });
+
+  it('rejects a fractional or negative breakdown time as invalid, named, before any write', async () => {
+    for (const [i, seconds] of [2.5, -3].entries()) {
+      const res = await syncPush(
+        scouter,
+        {
+          device_id: 'd-1',
+          operations: [
+            op({
+              row_id: `b-frac-${i}`,
+              payload: { ...op().payload, robot_status: 'broke_down', breakdown_seconds: seconds },
+            }),
+          ],
+        },
+        ctx,
+      );
+      expect(res.results[0]).toMatchObject({
+        status: 'rejected',
+        reason: 'invalid',
+        detail: expect.stringContaining('whole number of seconds'),
+      });
+      expect(res.results[0]).not.toMatchObject({ detail: 'unexpected server error' });
+    }
   });
 
   it('is a noop when the bare match already exists', async () => {
@@ -703,5 +727,171 @@ describe('syncPush', () => {
     expect(ctx.rows.scouting_entries.get('e-a')?.scouter_id).toBe('u-scouter');
     expect(ctx.rows.scouting_entries.get('e-b')?.scouter_id).toBe('u-s2');
     expect(ctx.rows.scouting_entries.get('e-c')?.scouter_id).toBe('u-s3');
+  });
+  // --- UF.1: a missing parent is parent-deleted, never the transient error (SPEC-FINAL 9.3.1) ---
+
+  describe('a missing parent (UF.1, SPEC-FINAL 9.3.1 v1.18)', () => {
+    it.each([
+      ['match', 'm-1', PARENT_DELETED_DETAIL.match],
+      ['team', 't-1', PARENT_DELETED_DETAIL.team],
+      ['event', 'ev-1', PARENT_DELETED_DETAIL.event],
+    ])(
+      'rejects an entry whose %s is gone as parent-deleted, naming it, and writes nothing',
+      async (_kind, id, detail) => {
+        ctx.missingParents.add(id);
+        const res = await syncPush(scouter, { device_id: 'd-1', operations: [op()] }, ctx);
+        expect(res.results[0]).toEqual({
+          op_id: expect.any(String),
+          status: 'rejected',
+          reason: 'parent-deleted',
+          detail,
+        });
+        expect(ctx.rows.scouting_entries.size).toBe(0);
+        expect(ctx.ops.size).toBe(0);
+      },
+    );
+
+    it('names the event first when the event and its match are both gone', async () => {
+      ctx.missingParents.add('ev-1');
+      ctx.missingParents.add('m-1');
+      const res = await syncPush(scouter, { device_id: 'd-1', operations: [op()] }, ctx);
+      expect(res.results[0]).toMatchObject({ detail: PARENT_DELETED_DETAIL.event });
+    });
+
+    it('rejects an entry on a match an admin deleted, and lands it once the device rebuilds the match', async () => {
+      // The 2026-10-08 repro: the device cached a match the server then hard-deleted.
+      await syncPush(scouter, { device_id: 'd-1', operations: [bareMatch({ seq: 1 })] }, ctx);
+      await ctx.store.deleteMatch(M_1);
+      const entry = op({ seq: 2, payload: { ...op().payload, event_id: EV, match_id: M_1 } });
+      const first = await syncPush(scouter, { device_id: 'd-1', operations: [entry] }, ctx);
+      expect(first.results[0]).toMatchObject({
+        status: 'rejected',
+        reason: 'parent-deleted',
+        detail: PARENT_DELETED_DETAIL.match,
+      });
+      // SPEC-FINAL 9.7 (v1.18): the bare match again, under its cached id, ahead of the entry.
+      const rebuilt = bareMatch({ seq: 1 });
+      const again = await syncPush(
+        scouter,
+        { device_id: 'd-1', operations: [{ ...entry, seq: 3 }, rebuilt] },
+        ctx,
+      );
+      expect(again.results).toMatchObject([
+        { status: 'applied', row_id: M_1 },
+        { status: 'applied', row_id: 'e-1' },
+      ]);
+      expect(ctx.matchDeletions.has(M_1)).toBe(false);
+    });
+
+    it('rejects a match-less super entry only for its event and team', async () => {
+      ctx.missingParents.add('m-1');
+      const superEntry = op({
+        payload: {
+          ...op().payload,
+          form_kind: 'super',
+          match_id: null,
+          alliance: null,
+          robot_status: null,
+        },
+      });
+      const res = await syncPush(scouter, { device_id: 'd-1', operations: [superEntry] }, ctx);
+      expect(res.results[0]).toMatchObject({ status: 'applied' });
+    });
+
+    it('rejects an entry without an event or team id as invalid, before any lookup', async () => {
+      for (const missing of ['event_id', 'team_id'] as const) {
+        const payload = { ...op().payload, [missing]: undefined };
+        const res = await syncPush(
+          scouter,
+          { device_id: 'd-1', operations: [op({ payload })] },
+          ctx,
+        );
+        expect(res.results[0], missing).toMatchObject({ status: 'rejected', reason: 'invalid' });
+      }
+    });
+
+    it.each([
+      ['scouting_entries_match_id_fkey', PARENT_DELETED_DETAIL.match],
+      ['scouting_entries_team_id_fkey', PARENT_DELETED_DETAIL.team],
+      ['scouting_entries_event_id_fkey', PARENT_DELETED_DETAIL.event],
+      ['scouting_entries_form_version_id_fkey', PARENT_DELETED_DETAIL.form_version],
+      ['scouting_entries_scouter_id_fkey', PARENT_DELETED_DETAIL.other],
+    ])(
+      'maps a foreign-key failure on %s at the write (23503) to parent-deleted',
+      async (constraint, detail) => {
+        // A parent deleted between the check and the write.
+        ctx.store.putRow = async () => {
+          throw Object.assign(
+            new Error(
+              `insert or update on table "scouting_entries" violates foreign key constraint "${constraint}"`,
+            ),
+            { code: '23503' },
+          );
+        };
+        const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const res = await syncPush(scouter, { device_id: 'd-1', operations: [op()] }, ctx);
+        errors.mockRestore();
+        expect(res.results[0]).toMatchObject({
+          status: 'rejected',
+          reason: 'parent-deleted',
+          detail,
+        });
+        // Postgres's own text never reaches the client.
+        expect(JSON.stringify(res)).not.toContain('violates');
+      },
+    );
+
+    it('keeps the generic transient answer for an error that is not a foreign key', async () => {
+      ctx.store.putRow = async () => {
+        throw Object.assign(new Error('canceling statement due to statement timeout'), {
+          code: '57014',
+        });
+      };
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const res = await syncPush(scouter, { device_id: 'd-1', operations: [op()] }, ctx);
+      errors.mockRestore();
+      expect(res.results[0]).toEqual({
+        op_id: expect.any(String),
+        status: 'rejected',
+        reason: 'invalid',
+        detail: 'unexpected server error',
+      });
+    });
+
+    it('a failed parent lookup is the transient answer, never parent-deleted', async () => {
+      ctx.store.missingParent = async () => {
+        throw new Error('connection refused');
+      };
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const res = await syncPush(scouter, { device_id: 'd-1', operations: [op()] }, ctx);
+      errors.mockRestore();
+      expect(res.results[0]).toMatchObject({
+        reason: 'invalid',
+        detail: 'unexpected server error',
+      });
+    });
+
+    it('names the event in a bare match whose event is gone', async () => {
+      const res = await syncPush(
+        scouter,
+        {
+          device_id: 'd-1',
+          operations: [
+            bareMatch({
+              payload: {
+                event_id: '99999999-9999-4999-8999-999999999999',
+                match_type: 'qualification',
+                number: 21,
+              },
+            }),
+          ],
+        },
+        ctx,
+      );
+      expect(res.results[0]).toMatchObject({
+        reason: 'parent-deleted',
+        detail: PARENT_DELETED_DETAIL.event,
+      });
+    });
   });
 });

@@ -4,6 +4,7 @@ import { db } from '@/data/db';
 import { session } from './session';
 import {
   isDefinitive,
+  LOGIN_RETRY_TIMEOUT_MS,
   LOGIN_TIMEOUT_MS,
   NO_CACHED_ACCOUNTS_LINE,
   offlineLogin,
@@ -14,6 +15,7 @@ import {
 import { SERVER_UNREACHABLE_LINE } from './messages';
 import { pendingCredential } from './pendingCredential';
 import { RpcError } from '@/data/rpc';
+import { lastTokenLoss } from './tokenLoss';
 
 vi.mock('@/config', () => ({
   clientConfig: () => ({ apiBaseUrl: 'https://api.test', deviceWipeCode: 'w', appVersion: 't' }),
@@ -232,9 +234,10 @@ describe('which login outcomes fall back to the cached hash', () => {
         ),
     ],
   ])('falls back to the cached hash on %s', async (_name, answer) => {
-    fetchMock.mockImplementationOnce(answer);
+    fetchMock.mockImplementation(answer);
     const result = await signInWithFallback('alice', 'correct horse');
     expect(result.offline).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2); // online: one retry first (UF.2)
     const current = await session.current();
     expect(current?.user.id).toBe(ALICE_ID);
     expect(current?.token).toBeNull();
@@ -242,14 +245,18 @@ describe('which login outcomes fall back to the cached hash', () => {
   });
 
   it('falls back when the login hangs past its deadline, and aborts the request', async () => {
-    let signal: AbortSignal | undefined;
-    fetchMock.mockImplementationOnce((_url, init) => {
-      signal = init?.signal ?? undefined;
+    const signals: (AbortSignal | undefined)[] = [];
+    fetchMock.mockImplementation((_url, init) => {
+      signals.push(init?.signal ?? undefined);
       return new Promise<Response>(() => {}); // never answers
     });
-    const result = await signInWithFallback('alice', 'correct horse', { timeoutMs: 30 });
+    const result = await signInWithFallback('alice', 'correct horse', {
+      timeoutMs: 30,
+      retryTimeoutMs: 30,
+    });
     expect(result.offline).toBe(true);
-    expect(signal?.aborted).toBe(true);
+    expect(signals).toHaveLength(2);
+    expect(signals.every((s) => s?.aborted)).toBe(true);
   });
 
   it.each([
@@ -264,29 +271,88 @@ describe('which login outcomes fall back to the cached hash', () => {
       const error = await signInWithFallback('alice', 'correct horse').catch((e: unknown) => e);
       expect(error).toBeInstanceOf(RpcError);
       expect((error as RpcError).status).toBe(status);
+      expect(fetchMock).toHaveBeenCalledTimes(1); // never retried either (UF.2)
       expect(await session.current()).toBeNull();
       expect(pendingCredential.get()).toBeNull();
+      expect(await lastTokenLoss()).toBeNull();
     },
   );
 
   it('says the server is in trouble, not "connect", on our 5xx with nothing cached', async () => {
     await db.rows.clear();
-    fetchMock.mockResolvedValueOnce(json(503, { error: { code: 'internal', message: 'x' } }));
+    fetchMock.mockImplementation(async () =>
+      json(503, { error: { code: 'internal', message: 'x' } }),
+    );
     const error = await signInWithFallback('alice', 'correct horse').catch((e: unknown) => e);
     expect(error).toBeInstanceOf(RpcError);
     expect((error as RpcError).status).toBe(503);
   });
 
   it('refuses a wrong password on the fallback path too', async () => {
-    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
     await expect(signInWithFallback('alice', 'wrong')).rejects.toBeInstanceOf(OfflineLoginError);
     expect(await session.current()).toBeNull();
   });
 
   it('refuses a disabled user on the fallback path too', async () => {
-    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
     await expect(signInWithFallback('bob', 'other pass')).rejects.toThrow(/disabled/i);
     expect(await session.current()).toBeNull();
+  });
+});
+
+describe('the fallback only when really offline (UF.2)', () => {
+  let online = true;
+  beforeEach(() => {
+    online = true;
+    vi.spyOn(navigator, 'onLine', 'get').mockImplementation(() => online);
+  });
+
+  const unanswered = () => Promise.reject(new TypeError('Failed to fetch'));
+
+  it('online: retries once with the longer deadline, and a slow server still gives a token', async () => {
+    expect(LOGIN_RETRY_TIMEOUT_MS).toBe(12_000);
+    const timers = vi.spyOn(globalThis, 'setTimeout');
+    fetchMock
+      .mockImplementationOnce(unanswered)
+      .mockResolvedValueOnce(json(200, { token: 'tok-1', user: aliceOnline }));
+    const result = await signInWithFallback('alice', 'correct horse');
+    expect(result.offline).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(timers.mock.calls.some(([, ms]) => ms === LOGIN_RETRY_TIMEOUT_MS)).toBe(true);
+    expect(await session.token()).toBe('tok-1');
+    expect(pendingCredential.get()).toBeNull();
+    expect(await lastTokenLoss()).toBeNull();
+  });
+
+  it('online: retries once, not twice, then falls back and records why', async () => {
+    fetchMock.mockImplementation(unanswered);
+    const result = await signInWithFallback('alice', 'correct horse');
+    expect(result.offline).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(await lastTokenLoss()).toMatchObject({ reason: 'offline-fallback', path: 'login' });
+    expect(Date.parse((await lastTokenLoss())!.at)).not.toBeNaN();
+  });
+
+  it('offline: falls back at once with no retry, and records nothing', async () => {
+    online = false;
+    fetchMock.mockImplementation(unanswered);
+    const result = await signInWithFallback('alice', 'correct horse');
+    expect(result.offline).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await lastTokenLoss()).toBeNull();
+  });
+
+  it('a definitive 401 on the retry is final too: no fallback', async () => {
+    fetchMock
+      .mockImplementationOnce(unanswered)
+      .mockResolvedValueOnce(json(401, { error: { code: 'unauthenticated', message: 'no' } }));
+    const error = await signInWithFallback('alice', 'correct horse').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RpcError);
+    expect((error as RpcError).status).toBe(401);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(await session.current()).toBeNull();
+    expect(pendingCredential.get()).toBeNull();
   });
 });
 
@@ -332,7 +398,9 @@ describe('an online device that cannot reach the server (task 1.17b)', () => {
   });
 
   it('still says the server is in trouble on our own 5xx', async () => {
-    fetchMock.mockResolvedValueOnce(json(503, { error: { code: 'internal', message: 'x' } }));
+    fetchMock.mockImplementation(async () =>
+      json(503, { error: { code: 'internal', message: 'x' } }),
+    );
     const error = await signInWithFallback('alice', 'correct horse').catch((e: unknown) => e);
     expect(error).toBeInstanceOf(RpcError);
     expect(signInErrorLine(error)).toMatch(/server is having trouble/i);

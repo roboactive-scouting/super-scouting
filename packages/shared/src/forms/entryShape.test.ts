@@ -79,6 +79,16 @@ describe('validateEntryShape', () => {
     expect(issues).toEqual(['breakdown time is recorded only when the robot broke down']);
   });
 
+  it('rejects a breakdown time that is not a whole number of seconds, 0 or more', () => {
+    const brokeDown = (seconds: number) =>
+      validateEntryShape(matchEntry({ robot_status: 'broke_down', breakdown_seconds: seconds }));
+    for (const bad of [2.5, -3, Number.NaN, Infinity, 2_147_483_648])
+      expect(brokeDown(bad), String(bad)).toEqual([
+        'breakdown time must be a whole number of seconds, 0 or more',
+      ]);
+    for (const good of [0, 20, 2_147_483_647]) expect(brokeDown(good), String(good)).toEqual([]);
+  });
+
   it('accepts no_show with a null breakdown time', () => {
     expect(
       validateEntryShape(matchEntry({ robot_status: 'no_show', breakdown_seconds: null })),
