@@ -18,6 +18,12 @@ const ENTER_MS = 260;
 const SETTLE_MS = 200;
 /** A click this soon after a swipe's release is the swipe's own, not a tap. */
 const CLICK_AFTER_SWIPE_MS = 400;
+/**
+ * Chrome's touch tap slop: a press that never moved further than this still gets its click.
+ * A swipe that stays inside it is a wobbly tap: it springs back, never changes phase, and its
+ * click (a counter's +) goes through — a tap in a match must never be lost.
+ */
+const TAP_SLOP_PX = 16;
 
 type Swipe = {
   id: number;
@@ -26,6 +32,8 @@ type Swipe = {
   reduced: boolean;
   engaged: boolean;
   dx: number;
+  /** The furthest the finger got from where it went down. */
+  far: number;
   samples: DragSample[];
 };
 
@@ -129,6 +137,7 @@ export function PhaseTabs({
         reduced: prefersReducedMotion(),
         engaged: false,
         dx: 0,
+        far: 0,
         samples: [],
       };
     }
@@ -153,6 +162,7 @@ export function PhaseTabs({
         }
       }
       s.dx = dx;
+      s.far = Math.max(s.far, Math.hypot(dx, e.clientY - s.y));
       s.samples.push({ t: e.timeStamp, d: dx });
       if (s.samples.length > 8) s.samples.shift();
       if (!s.reduced) place(offset(dx), 0);
@@ -162,10 +172,11 @@ export function PhaseTabs({
       if (!s || e.pointerId !== s.id) return;
       swipe.current = null;
       if (!s.engaged) return;
-      swipedAt.current = performance.now();
+      const tap = s.far <= TAP_SLOP_PX;
+      if (!tap) swipedAt.current = performance.now();
       // The clipping box's width, padding included: a pane moved that far is out of sight.
       const width = pane.current?.parentElement?.offsetWidth ?? 0;
-      const step = swipeStep(s.dx, releaseVelocity(s.samples), width);
+      const step = tap ? 0 : swipeStep(s.dx, releaseVelocity(s.samples), width);
       const target = step === 0 ? undefined : phases[index + step];
       if (!target) return s.reduced ? undefined : place(0, SETTLE_MS);
       if (s.reduced || width === 0) return onChange(target.key);
@@ -178,7 +189,7 @@ export function PhaseTabs({
       if (!s || e.pointerId !== s.id) return;
       swipe.current = null;
       if (!s.engaged) return;
-      swipedAt.current = performance.now();
+      if (s.far > TAP_SLOP_PX) swipedAt.current = performance.now();
       if (!s.reduced) place(0, SETTLE_MS);
     }
     /** A swipe that began on a counter's button is not a tap on it. */

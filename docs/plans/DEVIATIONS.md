@@ -4948,3 +4948,40 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
 **What I did instead:** left it alone (out of scope) and reported it.
 
 **Risk:** UF.5's counter-tap-after-swipe e2e is red on the branch.
+
+## UF.5 (addendum 2) — the e2e counter tap missed a moving button; no app bug
+
+**Plan said:** the UF.5 e2e taps Auto's + right after clicking the Auto tab and expects the count to be 1.
+
+**What was wrong:** it failed reliably at `46df15a`: `Expected: "1" Received: "0"` on `Auto notes scored value`. One run also failed the review-sheet drag a few lines later: `expect(locator).toBeHidden() failed … Received: visible`. A temporary diagnostic spec (deleted) settled the cause.
+- `touchDrag` measured the + button at `x 277` straight after the tab click. Once settled it sits at `x 309`. That 32 px gap is the phase entrance (`translateX(±32px)`, 250 ms, `EASE_IN_PLACE`), which a tab tap plays.
+- `elementFromPoint` at the measured centre after the motion settles is `OUTPUT Auto notes scored value`, not the button. The touch landed on the number next to +.
+- The click guard is not involved. With a 400 ms wait before the same tap (same order: two committed swipes, a spring-back, a vertical drag, a mouse tab click), the event log shows `pointerdown touch path → pointerup → click`. The click reaches `document` with `defaultPrevented false`, and the count is 1.
+- The sheet failure is the same thing: the title was measured while the sheet was still rising.
+
+**What I did instead:**
+- Fixed the test, not the app. `e2e/touch.ts` `touchDrag` now waits until no finite animation is running before it measures, so the finger lands where the element is drawn. A person taps what they see, so this is not a phone regression.
+- Added an EntryPage regression test for the exact order: a committed swipe and one back, then a tap on + (counts). A spring-back, then a tap inside the 400 ms window (counts). A vertical drag, then a tap (counts). Mutation-checked: without the "new press re-opens clicks" reset in `PhaseTabs`, it fails.
+
+**Risk:** not fixed, a judgement call for the user. A swipe engages after 6 px of mostly-horizontal travel (`DRAG_SLOP_PX`), but Chrome still calls a touch a tap up to about 15 px. So a sloppy tap on a counter that wobbles 6–15 px sideways engages a swipe, springs back, and its click is then swallowed by the 400 ms guard. That is outside "no movement beyond DRAG_SLOP", which still always counts. If it shows up on a real device, the fix is to swallow the click only when the swipe moved past about 16 px, or to start the phase swipe from a larger slop.
+
+## UF.5 (addendum 3) — a wobbly tap on a counter is a tap
+
+**Plan said:** nothing. The orchestrator asked for it after addendum 2's risk: a tap that wobbles 6–16 px sideways engaged a phase swipe, sprang back, and the 400 ms guard swallowed its click.
+
+**What was wrong:** the guard was armed by any engaged swipe, and Chrome still treats a touch that moved up to about 16 px as a tap.
+
+**What I did instead:**
+- `PhaseTabs` adds `TAP_SLOP_PX = 16` (Chrome's touch tap slop) and tracks how far the finger got from its start (`far`, the maximum of `hypot(dx, dy)`).
+- A release with `far <= TAP_SLOP_PX` is a wobbly tap. The pane springs back, the click guard is not armed, and the click (a counter's +) goes through.
+- A wobbly tap also never changes phase, even when it is fast enough to read as a flick. This goes one step past the request: without it, a fast 11 px wobble on + would count and switch phase in the same tap.
+- Past 16 px, a spring-back still swallows its click, as before.
+- Tests:
+  - an 11 px sideways wobble on + counts, slow and fast, with no phase change and the pane following then settling;
+  - a 20 px drag on + that springs back does not count.
+- Mutation-checked, each one failing a test:
+  - arming the guard on every swipe;
+  - letting a wobble commit a flick;
+  - `TAP_SLOP_PX = 100`.
+
+**Risk (replaces addendum 2's):** a phase flick now needs more than 16 px of travel. A deliberate phase change is far longer than that, so this is not expected to matter. Initial JS is 203.6 KB gzip.

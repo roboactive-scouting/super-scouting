@@ -16,6 +16,14 @@ export async function touchDrag(
     stepMs = 30,
   }: { dx?: number; dy?: number; steps?: number; stepMs?: number },
 ) {
+  // A finger lands on what is on screen, not where a moving element was measured: wait out
+  // every finite animation first (a phase's 32 px entrance, a sheet rising), or the touch
+  // lands beside its target (UF.5 addendum: a tap on + hit the value next to it).
+  await page.waitForFunction(() =>
+    document
+      .getAnimations()
+      .every((a) => a.playState !== 'running' || a.effect?.getTiming().iterations === Infinity),
+  );
   const box = 'boundingBox' in from ? await from.boundingBox() : { ...from, width: 0, height: 0 };
   if (!box) throw new Error('touchDrag: the start element is not on screen');
   const x = box.x + box.width / 2;

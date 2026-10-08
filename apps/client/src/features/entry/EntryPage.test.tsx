@@ -572,6 +572,71 @@ describe('phase swipe on a phone (UF.5)', () => {
     expect(screen.getByLabelText('Auto notes value')).toHaveTextContent('1');
   });
 
+  it('a tap on a counter counts straight after any swipe: a commit, a spring-back, a scroll', async () => {
+    phone();
+    await played();
+    const main = screen.getByRole('main');
+    const plus = () => screen.getByRole('button', { name: 'Auto notes plus one' });
+    const tap = () => {
+      pointer(plus(), 'pointerdown', 300, 300);
+      pointer(plus(), 'pointerup', 300, 300, 50);
+      fireEvent.click(plus());
+    };
+    // a phase there and back, then a tab tap, then a tap on + (the e2e's own order)
+    stroke(main, slowSideways(-150));
+    await waitFor(() => expect(selected('Teleop')).toBeInTheDocument());
+    stroke(main, slowSideways(150));
+    await waitFor(() => expect(selected('Auto')).toBeInTheDocument());
+    tap();
+    expect(screen.getByLabelText('Auto notes value')).toHaveTextContent('1');
+    // within the 400 ms window of a spring-back: the new press is its own gesture
+    stroke(main, slowSideways(-60));
+    tap();
+    expect(screen.getByLabelText('Auto notes value')).toHaveTextContent('2');
+    // and after a vertical drag (a scroll)
+    stroke(main, [
+      [200, 300, 0],
+      [200, 320, 1000],
+      [210, 500, 2000],
+    ]);
+    tap();
+    expect(screen.getByLabelText('Auto notes value')).toHaveTextContent('3');
+  });
+
+  it('a wobbly tap on a counter (about 10 px sideways) still counts, even a fast one', async () => {
+    phone();
+    await played();
+    const plus = screen.getByRole('button', { name: 'Auto notes plus one' });
+    const value = () => screen.getByLabelText('Auto notes value');
+    for (const [i, ms] of [1000, 5].entries()) {
+      // slow, then fast enough to be a flick if it were a swipe
+      pointer(plus, 'pointerdown', 300, 300, 0);
+      pointer(plus, 'pointermove', 304, 300, ms);
+      pointer(plus, 'pointermove', 293, 301, 2 * ms);
+      pointer(plus, 'pointermove', 289, 300, 3 * ms);
+      expect(panel().style.transform).toBe('translateX(-11px)');
+      pointer(plus, 'pointerup', 289, 300, 3 * ms);
+      fireEvent.click(plus);
+      expect(value()).toHaveTextContent(String(i + 1));
+      expect(selected('Auto')).toBeInTheDocument();
+      expect(panel().style.transform).toBe('');
+    }
+  });
+
+  it('a drag past the tap slop (over 16 px) that springs back is not a tap', async () => {
+    phone();
+    await played();
+    const plus = screen.getByRole('button', { name: 'Auto notes plus one' });
+    stroke(plus, [
+      [300, 300, 0],
+      [290, 300, 1000],
+      [280, 300, 2000],
+    ]);
+    fireEvent.click(plus);
+    expect(selected('Auto')).toBeInTheDocument();
+    expect(screen.getByLabelText('Auto notes value')).toHaveTextContent('0');
+  });
+
   it('never starts from a focused text field', async () => {
     phone();
     await renderEntry();
