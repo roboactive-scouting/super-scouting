@@ -1,6 +1,7 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.6 · **Date:** 2026-10-08 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.7 · **Date:** 2026-10-08 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.7 (2026-10-08): the builder's remaining screens are designed (`docs/design/pages/12-form-builder/final/`, spec v0.70 / SPEC-FINAL v1.22). 1.31's export/import go through a 24-hour `form_exports` store, 1.32 gets its look and a standard-phases preset, and the form delete in 1.29 is confirmed by typing.*
 *v1.6 (2026-10-08): the forms list is designed (`docs/design/pages/13-forms/final/`, spec v0.69 / SPEC-FINAL v1.21). Task 1.29 builds it with the version timeline, the builder route takes `?version=n`, and it needs an entries-per-version count and `form_versions.updated_by`.*
 *v1.5 (2026-10-08): the form builder is designed (`docs/design/pages/12-form-builder/final/`, spec v0.68 / SPEC-FINAL v1.20). Tasks 1.29–1.31 point at it: `/admin/forms` is decided, a new field's key follows its label until the first save, the incomplete marker is the warning colour (never red), the canvas pages by phase and its Try it mode is the preview. Tasks 1.34–1.35 gain the map pop-up and the event log's optional "where?".*
 *v1.4 (2026-10-07): the redesign build RB.1 – RB.20 (`REDESIGN-BUILD-PLAN.md`) is coded; the execution-order note and the visual-reference banner point at it, and a release note records that the delete-cascade migration goes to production before the server.*
@@ -13118,6 +13119,7 @@ git add -A && git commit -m "feat(server): add the scoring-model editor and the 
 ## Task 1.29: Client — the form builder shell
 
 **Design (closed 2026-10-08) — match `docs/design/pages/12-form-builder/final/` and its README.** The three panes sit side by side (palette · canvas · settings). The canvas draws each field with the real `FieldInput`, **one phase at a time under the entry form's phase tabs** ("Phase n of 4", dots, ← →), with the key and points at each item's top right. An incomplete field shows the **warning-colour "Needs meaning" marker** with `sr-only` text "incomplete" — never a red dot (red is the red alliance). The top bar is Match timer · More (Edit as JSON · Export · Import · Delete form) · Save draft · Publish, with "Next incomplete →" when Publish is held.
+**Delete form (closed 2026-10-08, `form-builder-desktop-delete.png`):** the locked destructive confirmation naming the versions and entries removed, Export first, and a typed phrase (`delete match form`) before the filled-ink button enables. **Offline** (`-offline.png`): the builder pauses editing and keeps unsaved changes on screen.
 **Decided 2026-10-08 (spec v0.68):** nothing listed forms (living spec §4.3); this task also adds a minimal `/admin/forms` page (the season's match and super forms through `getFormByKind`), `PATHS.forms`, and `NAV_ITEMS` row `{ id: 'forms', label: 'Forms', icon: FileText, group: 'admin', bottomBar: null, visible: admin }`. **The list page is designed (closed 2026-10-08): match `docs/design/pages/13-forms/final/` and its README.** Per form: status, counts, last edited · who, and a version timeline whose rows open the builder on that version (Continue · Open · View, with Restore via `restoreFormVersion`). The builder route takes the version, `/admin/forms/:formId?version=n` (default: the draft if any, else the active version); an older published version opens read-only. **Two additions [RAISED BY ME]:** a migration adding `form_versions.updated_by uuid references users(id)`, stamped by the form use cases (task 1.27), and an entries-per-version count (grouped by the entry's form version) in the form read queries (task 1.28).
 
 **Files:**
@@ -13363,7 +13365,7 @@ git add -A && git commit -m "feat(client): add the builder settings pane with me
 - Create: `apps/client/src/features/builder/LivePreview.test.tsx`, `apps/client/src/features/builder/RawJsonEditor.test.tsx`
 
 **Interfaces:**
-- Produces: a preview rendering the form **at phone width** with the real `FieldInput` — imported, never duplicated; an "advanced" raw-JSON editor that round-trips the definition and refuses invalid JSON with a line number; export to a `.json` file and import from one.
+- Produces: a preview rendering the form **at phone width** with the real `FieldInput` — imported, never duplicated; an "advanced" raw-JSON editor that round-trips the definition and refuses invalid JSON with a line number; export into the 24-hour **Exports** store (with an optional `.json` download) and import from a saved export or a file.
 
 **Scope note.** At this point `FieldInput` still renders the four walking-skeleton types from task 1.7; task 1.33 widens it to all fourteen and the preview picks that up for free, because it imports the component rather than reimplementing it. This task's tests therefore use a four-type fixture form. Do not widen `FieldInput` here.
 
@@ -13375,7 +13377,7 @@ git add -A && git commit -m "feat(client): add the builder settings pane with me
 
 - [ ] **Step 2: Run, implement, re-run**
 
-`ImportExport` serialises exactly what `exportForm` returns and downloads it as `form-<kind>-<season>.json`; import reads a file, parses, validates, and shows a diff summary — *"adds 3 fields, changes 1 type, removes 0"* — before it is applied, because an import is a structural change and will fork a version.
+`ImportExport` (closed design: `form-builder-desktop-export.png`, `-import.png`, `-import-new-season.png`) lets the admin pick the version, then saves exactly what `exportForm` returns as a `form_exports` row (label "Match form 2026 · draft v4", kept 24 hours; expired rows are deleted whenever exports are listed or saved — **a migration adds the table, SPEC-FINAL v1.22 §3**), with an optional download as `form-<kind>-<season>-v<n>.json`; import lists the saved exports (or reads a file), parses, validates, and shows a diff summary — *"adds 3 fields, changes 1 type, removes 0"* — before it is applied, because an import is a structural change and will fork a version.
 
 ```bash
 pnpm --filter @frc/client exec vitest run src/features/builder && pnpm typecheck
@@ -13393,7 +13395,7 @@ git add -A && git commit -m "feat(client): add the builder live preview, raw JSO
 
 ## Task 1.32: The match-timer configuration editor
 
-**Design (redesign system).** Phases are a `Table` (numeric columns right-aligned) with `NumberField`s, and the add/remove row actions are icon `Button`s with their names in `aria-label`.
+**Design (closed 2026-10-08) — match `docs/design/pages/12-form-builder/final/form-builder-desktop-timer*.png`.** A dialog opened from the builder's **Match timer** button: phase rows (grip · phase select · seconds with m:ss · delete, names in `aria-label`), a proportional bar, "Match ends at 180 s (3:00)", and with no phases a one-click **Start from Auto 0:15 · Teleop 2:15 · Endgame 0:30**.
 
 **Files:**
 - Create: `packages/shared/src/forms/timer.ts`, `packages/shared/src/forms/timer.test.ts`

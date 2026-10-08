@@ -114,5 +114,7 @@ window.FINALS = (() => {
       <div class="canvas-head"><b>${title}</b><span>${desc}</span></div>
       <div class="frames" style="gap:22px">${list.map(([html, cap]) => `<figure class="frame"><div class="phone" style="zoom:.86">${html}</div><figcaption>${cap}</figcaption></figure>`).join('')}</div></div>`;
   };
-  return { desk, phones };
+  // The builder behind a dialog: [inner, menu, overlay] for a named view.
+  const view = (name) => VIEWS[name]();
+  return { desk, phones, view };
 })();

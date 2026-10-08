@@ -8,6 +8,7 @@
   - `-cycle.png`: a cycle path, with the More menu open
   - `-locked.png`: an ordinal select on the locked version, with points per option
   - `-try.png` and `-try-cycle.png`: Try it, with the map dialog open
+  - the remaining screens (added 2026-10-08): `-timer.png` and `-timer-empty.png` (Match timer), `-json.png` (Edit as JSON with an error), `-export.png`, `-import.png` (into an existing form), `-import-new-season.png` (on the Forms page, into an empty form), `-delete.png`, `-offline.png`
 - phone:
   - `form-builder-phone.png`: the desktop-only gate
   - `maps-phone.png`: **the scouter's map fields**, the brief for tasks 1.34–1.35
@@ -131,6 +132,37 @@ It is used by field position, event log "where?" and cycle path. On a phone it o
   - **Skip · no place** keeps the tap with its time only ("time is saved either way"); **Save tap** saves it
   - in the form, a tap chip carries a pin when it has a place
 
+## The remaining screens
+
+All are the locked Dialog over the builder, except Offline.
+
+- **Match timer** (task 1.32): one row per phase, each with a grip, the phase (a select), its length in seconds with m:ss beside it, and delete. **Add a phase.** A proportional bar and "Match ends at 180 s (3:00)". The Note: "Changing these is an in-place edit. It never creates a new form version." **Remove the timer** empties the list. With no phases: a dashed "This form has no match timer…", **Add a phase**, or **Start from Auto 0:15 · Teleop 2:15 · Endgame 0:30**.
+- **Edit as JSON** (More):
+  - a line-numbered mono editor
+  - an invalid line is marked with a `--warn` edge
+  - the Error line names the line and column: "Line 46, column 11: a comma is missing at the end of line 45. Nothing was changed."
+  - **Apply** stays disabled until the text is valid
+  - a renamed key is refused the same way
+  - Copy all.
+- **Export** (More, or Export on the Forms card):
+  - pick **which version** (the draft, or the active one; it starts on the draft)
+  - the dialog lists what is in the file and what is not (no entries, no other versions, no users or events)
+  - **Save export** keeps it in **Exports** for **24 hours**, then it is deleted
+  - **Also download a copy** saves a `.json` file for a long-term backup
+- **Import:**
+  - the picker lists the **saved exports** (form, season, version, who saved it and when, "deleted in 22 h"), and **Or a file from your computer** reads a downloaded copy.
+  - **Into an existing form:** counts and a list by key (added · type changed · removed · unchanged, the unchanged folded to one row); it replaces the draft.
+  - **Into an empty form** (the Forms card): the fields, how many have their meaning, how many are scored, and the timer; it creates the form as draft v1.
+- **Delete form:**
+  - the locked destructive confirmation: "Delete the match form?", then the name and what goes with it (versions, entries, scoring)
+  - "removed from every device at the next sync… can't be undone" with **Export it first**
+  - **type `delete match form` to confirm**
+  - Cancel is focused first, then the filled-ink "Delete Match form 2026".
+- **Offline:**
+  - the warning notice under the top bar: "You're offline. Form changes need a connection, so editing is paused…"
+  - the panes dim, and Save, Publish, Match timer and More are held
+  - the top bar chip says Offline
+
 ## The Timer field
 
 Shown in the canvas and on the scouter's phone (`timer-phone.png`, task 1.34).
@@ -159,6 +191,10 @@ The builder needs a computer. Below 1024 px it shows the locked "This needs a co
 | Map fields open a full-screen map on a phone and a dialog on a computer; tap a mark → ✕ Remove; Undo | Now |
 | Cycle path: routes only; Clear path restarts the path being drawn | Now |
 | Timer field: Start in the middle; running splits into Pause / Clear; Resume and ✎ when paused; green, not black | Now |
+| Export saves into Exports for 24 hours (then deleted); Import picks from the saved exports; "Also download a copy" and "Or a file from your computer" stay for backups [RAISED BY ME] | Now (user, 2026-10-08) |
+| Export chooses the version (draft or active) | Now |
+| Type "delete match form" to confirm a form delete | Now |
+| "Start from 0:15 · 2:15 · 0:30" on a form with no timer | Now |
 | The map is turned so the scout's own alliance end is at the bottom (phone) or on the left (computer) | Now |
 | Copy to Auto (duplicate a field into the other phase, variant B) | Not offered after the variant pick |
 | Phase pre-filled from the tab a field is dropped on (variant C) | Dropping on a tab puts the field in that phase, as above |

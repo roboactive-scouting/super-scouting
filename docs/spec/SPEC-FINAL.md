@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.21 · **Date:** 2026-10-08 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.22 · **Date:** 2026-10-08 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.22 amends §5.1 (exports are kept in the app for 24 hours, import picks from them; a form delete is confirmed by typing) and §3 (`form_exports`), and records the builder's remaining screens in §5.9. See the living spec's §21, 2026-10-08 (v0.70).*
 
 *v1.21 adds the forms list (`/admin/forms`): §5.9, §17.9's new Forms row, and `form_versions.updated_by` in §3. See the living spec's §21, 2026-10-08 (v0.69).*
 
@@ -272,6 +274,15 @@ form_versions (
   created_at, updated_at,
   unique (form_id, version_no)
 )
+
+form_exports (                         -- v1.22: saved exports, kept 24 hours
+  id           uuid primary key,
+  form_id      uuid references forms(id) on delete set null,
+  label        text not null,          -- e.g. 'Match form 2026 · draft v4'
+  definition   jsonb not null,         -- exactly what exportForm returns
+  created_by   uuid not null references users(id),
+  created_at   timestamptz not null default now()
+)                                      -- rows older than 24 hours are deleted whenever exports are listed or saved
 create index on form_versions (form_id, updated_at);
 
 form_fields (
@@ -614,8 +625,8 @@ Points are captured at field-creation time for the same reason as semantic metad
 - Entries collected under other versions still aggregate through shared field `key`s.
 - **Offline form editing is not allowed.** Form changes require connectivity.
 - **Form templates are admin-only.** Creating, importing, editing and deleting a form definition is admin-only; submitting entries against one is open to all roles.
-- **Deleting a form is a cascade delete behind an explicit warning, admin-only.**
-- **Export/import of a form definition as JSON** is supported. There is no "duplicate last year's form" feature.
+- **Deleting a form is a cascade delete behind an explicit warning, admin-only.** The warning names the versions and the entries it removes, offers Export first, and is confirmed by **typing `delete match form`** (or `delete super form`). *(amended 2026-10-08, v1.22)*
+- **Export/import of a form definition as JSON** is supported. There is no "duplicate last year's form" feature. *(Amended 2026-10-08, v1.22:)* **Export saves one chosen version** (the draft or the active one) **into Exports, kept 24 hours and then deleted**, with an optional download of the `.json` file for a long-term backup. **Import picks from the saved exports** (or a downloaded file), shows what it would add, change or remove, and becomes a draft: it replaces an existing form's draft, or creates an empty form as draft v1. Exporting one season's form and importing it into the next is how a new season starts from the old form.
 
 ### 5.2 Field type catalogue
 
@@ -743,7 +754,7 @@ Desktop only, **≥ 1024 px** (§17.2). Three panes:
 2. **Canvas** — the ordered field list, drag-reorderable, grouped by section.
 3. **Settings pane** — the selected field's configuration, semantic metadata and scoring, all in one place so metadata is filled *while* the field is created.
 
-*Closed design (2026-10-08, v1.20; `docs/design/pages/12-form-builder/final/`):* the canvas draws each field with the scouter's real controls and is **paged by phase like the entry form** (the phase tabs, "Phase n of 4", swipe or ← →); its **Try it** mode is the phone-width preview and shows **what the entry would save** and what the analysis gets. The top bar holds **Match timer** and **More** (Edit as JSON · Export · Import · Delete form), then Save draft / Publish; a held Publish says why, with "Next incomplete". A locked version shows a banner naming **how many entries use it**. An incomplete field is marked in the warning colour, never red. Reached from **`/admin/forms`** (v1.21; `docs/design/pages/13-forms/final/`): per season, a card per form (match, super) with its status, fields, entries, last edited (date · who) and a **version timeline** — entries per version, and a button per version that opens the builder on it: **Continue** (the draft), **Open** (the active version, in-place edits), **View** (an older version, read-only) with **Restore**. **Open builder** opens the draft if there is one, else the active version. A missing form offers Create or Import; a season with no published match form shows a warning. The builder route takes the version: `/admin/forms/:formId?version=n`.
+*Closed design (2026-10-08, v1.20; `docs/design/pages/12-form-builder/final/`):* the canvas draws each field with the scouter's real controls and is **paged by phase like the entry form** (the phase tabs, "Phase n of 4", swipe or ← →); its **Try it** mode is the phone-width preview and shows **what the entry would save** and what the analysis gets. The top bar holds **Match timer** and **More** (Edit as JSON · Export · Import · Delete form), then Save draft / Publish; a held Publish says why, with "Next incomplete". A locked version shows a banner naming **how many entries use it**. An incomplete field is marked in the warning colour, never red. Reached from **`/admin/forms`** (v1.21; `docs/design/pages/13-forms/final/`): per season, a card per form (match, super) with its status, fields, entries, last edited (date · who) and a **version timeline** — entries per version, and a button per version that opens the builder on it: **Continue** (the draft), **Open** (the active version, in-place edits), **View** (an older version, read-only) with **Restore**. **Open builder** opens the draft if there is one, else the active version. A missing form offers Create or Import; a season with no published match form shows a warning. The builder route takes the version: `/admin/forms/:formId?version=n`. *(v1.22)* The remaining screens are designed too: the **Match timer** editor (phase rows, a proportional bar, "match ends at", a one-click standard 0:15 · 2:15 · 0:30 when empty), **Edit as JSON** (a line-numbered editor; errors name line and column; Apply held until valid), **Export / Import** (above), **Delete form** (typed confirmation) and **offline** (editing paused, nothing lost).
 
 Plus:
 

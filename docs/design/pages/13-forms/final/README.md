@@ -24,7 +24,7 @@ Chosen: **variant A ("Two cards") with variant C's version timeline**, so that a
    - **The stat row:** Fields · Entries · Versions · Last edited (date · who).
    - **Versions:** a timeline, newest first. The draft has a dashed dot and the active version a filled green dot. Each row gives its dates, its field count and its **entries**.
    - **The actions:** **Open builder** (primary), Export, and "Open builder opens the draft if there is one".
-   - **A missing form** is a dashed card with Create and **Import a .json file**. For the match form it also says: "Every entry needs a match form… export it from 2026, then import the file."
+   - **A missing form** is a dashed card with Create and **Import**. Import picks one of the saved exports, which are kept 24 hours, or a file from your computer (see the builder README). For the match form it also says: "Every entry needs a match form… export it from 2026, then import the file."
 
 ## What each button opens
 

@@ -29,5 +29,6 @@ window.FORMS_FINAL = (() => {
   const gate = () => `<div class="gate"><div class="gi">${s('monitor')}</div><b>This needs a computer</b>
     <p>Open the forms page on a screen at least 1024 pixels wide. It is pre-season work, done sitting down. Phones do the competition job — entering, browsing and reading — and this is not one of those.</p>
     <span class="btn">Back to scouting</span></div>`;
-  return { desk, phone };
+  const view = (name) => VIEWS[name]();
+  return { desk, phone, view };
 })();

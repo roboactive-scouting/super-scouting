@@ -19,9 +19,9 @@ window.FL = (() => {
   const stats = () => `<div class="fl-stats"><div><small>Fields</small><b>15</b></div><div><small>Entries${NEW}</small><b>214</b></div><div><small>Versions</small><b>3</b></div><div style="flex:1.6"><small>Last edited${NEW}</small><b class="s">08/10 · Noa Levi</b></div></div>`;
   const draft = () => `<div class="fl-draft">${svg('file')}<span><b>Draft v4 in progress</b> · 2 fields added · not published yet</span><span class="r link">Continue ${svg('next')}</span></div>`;
   const acts = (o = {}) => `<div class="fl-acts"><span class="btn primary">${svg('eye')}Open builder</span><span class="btn">${svg('down')}Export</span>${o.extra || ''}</div>`;
-  const emptyActs = (what) => `<div class="fl-acts"><span class="btn primary">${svg('plus')}Create ${what}</span><span class="btn">${svg('up')}Import a .json file</span></div>`;
+  const emptyActs = (what) => `<div class="fl-acts"><span class="btn primary">${svg('plus')}Create ${what}</span><span class="btn">${svg('up')}Import</span></div>`;
   const superEmpty = (season) => `<div class="fl-empty">${superHead()}<p>No super form for ${season} yet. Super scouting is optional; the match form is enough to scout.</p>${emptyActs('super form')}</div>`;
-  const matchEmpty = () => `<div class="fl-empty">${matchHead({ dim: true, tag: tagNone, dots: false })}<p>Every entry needs a match form. Create it here, or <b>import</b> last season's: export it from 2026, then import the file.</p>${emptyActs('match form')}</div>`;
+  const matchEmpty = () => `<div class="fl-empty">${matchHead({ dim: true, tag: tagNone, dots: false })}<p>Every entry needs a match form. Create it here, or <b>import</b> last season's: export it from 2026, then pick it under Import.</p>${emptyActs('match form')}</div>`;
 
   // readiness (variant D)
   const ri = (state, text, side) => `<div class="fl-ri"><span class="c ${state}">${state === 'ok' ? svg('check') : state === 'no' ? '!' : ''}</span><b>${text}</b>${side || ''}</div>`;
