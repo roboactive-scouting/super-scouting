@@ -17755,7 +17755,7 @@ git add -A && git commit -m "docs(ops): record the phase 1 gate rehearsal result
 
 The order below is SPEC-FINAL §20.2's order. The gate is §20.4: *a strategy lead builds a metric and a chart unaided, and a pick list survives being edited offline and synced.*
 
-**Schedule checkpoint (§20.6).** The phase 1 gate should pass by **~2026-10-20**. **If it has not passed by 2026-11-01, phase 2 is cut to the metric builder and the configurable ranking dashboard** — everything below those two waits. Phase 1's fixed ranking table already works, so a cut ships a usable ranking either way. v1 ships on **2026-11-20** with less analysis rather than late with more.
+**Schedule checkpoint (§20.6, amended 2026-10-08 / SPEC-FINAL v1.19).** The phase 1 gate should pass by **~2026-11-01**. **No scope cut:** every phase 2 item is built, and v1 ships on **2026-12-01**. A slipped gate raises the pace, not the cut.
 
 1. **Metric builder and metric storage** — the menu builder of §11.2 (field(s) → aggregation → filters), `createMetric` / `updateMetric` / `deleteMetric`, and the `metrics` table that already exists from task 0.11.
 2. **The chart and dashboard builder** — the chart set of §12.2, the closed dimension vocabulary of §12.3, the 12-column grid of §12.4, the view-time metric selector and expand-to-stack of §12.5, and the mobile density rules of §12.10. Including the **heatmap, field-position scatter and cycle-path renderings** of phase 1's spatial data.

@@ -1,7 +1,7 @@
 # FRC Scouting Platform — Design Specification (Living Document)
 
-**Status:** DRAFT v0.35 — **topics 1–20 CLOSED; `SPEC-FINAL.md` written.** Every feature topic plus the system architecture, the deployment/operations model, the non-functional requirements and the delivery plan. Core forks decided (storage, versioning, offline stats, stack, access model, language, roles/auth, data-entry UX, offline-first & sync, realtime deferred → 45s refresh, dashboards & visualisation, search/ranking/browse, data quality, alliance selection, repo layout & services, environments & operations, performance/testing/privacy/deletion, phasing & delivery). **v1 = phases 0–2, due 2026-11-20** (§19.1). Topic 14 is closed as **deferred in full to §24**, and topic 20 as **setup only** with the LLM connection parked. **No live questions remain.** `docs/spec/SPEC-FINAL.md` (v1.0, 2026-09-02) is the distilled build input; **it carries 32 consolidation decisions (its Appendix D) that resolve gaps this document left unstated, and it supersedes this document wherever the two differ on a v1 requirement.** `docs/plans/IMPLEMENTATION-PLAN.md` (v1.1, 2026-09-03) covers phases 0–1 in full task detail and phase 2 as headings. **The spec phase is complete; the build phase begins at the provisioning gate.**
-**Last updated:** 2026-10-08 (v0.66)
+**Status:** DRAFT v0.35 — **topics 1–20 CLOSED; `SPEC-FINAL.md` written.** Every feature topic plus the system architecture, the deployment/operations model, the non-functional requirements and the delivery plan. Core forks decided (storage, versioning, offline stats, stack, access model, language, roles/auth, data-entry UX, offline-first & sync, realtime deferred → 45s refresh, dashboards & visualisation, search/ranking/browse, data quality, alliance selection, repo layout & services, environments & operations, performance/testing/privacy/deletion, phasing & delivery). **v1 = phases 0–2, due 2026-12-01** (§19, amended v0.67.1). Topic 14 is closed as **deferred in full to §24**, and topic 20 as **setup only** with the LLM connection parked. **No live questions remain.** `docs/spec/SPEC-FINAL.md` (v1.0, 2026-09-02) is the distilled build input; **it carries 32 consolidation decisions (its Appendix D) that resolve gaps this document left unstated, and it supersedes this document wherever the two differ on a v1 requirement.** `docs/plans/IMPLEMENTATION-PLAN.md` (v1.1, 2026-09-03) covers phases 0–1 in full task detail and phase 2 as headings. **The spec phase is complete; the build phase begins at the provisioning gate.**
+**Last updated:** 2026-10-08 (v0.67)
 **Owner:** (your name / team number)
 **Destination:** this document, once all topics are CLOSED, becomes the input spec for Claude Code to generate an implementation plan.
 
@@ -39,7 +39,7 @@ The document is split into **topics** (sections 2–19). Every topic contains:
 | 16 | UI/UX design system & responsive behaviour | CLOSED |
 | 17 | Non-functional requirements | CLOSED |
 | 18 | Deployment, environments & operations | CLOSED |
-| 19 | Delivery phases & priorities | CLOSED — v1 = phases 0–2, due 2026-11-20 |
+| 19 | Delivery phases & priorities | CLOSED — v1 = phases 0–2, due ~~2026-11-20~~ **2026-12-01** (v0.67, no scope cut) |
 | 20 | AI insights, LLM integration & MCP readiness | CLOSED — setup only; MCP/LLM connection parked |
 
 ### 0.3 Working agreement
@@ -1258,11 +1258,11 @@ Both Vercel projects build from the one repository, each with its own root direc
 
 ## 19. Delivery phases & priorities
 
-**CLOSED 2026-09-01.** v1 is phases 0–2, targeted at **2026-11-20**, built one gated phase at a time.
+**CLOSED 2026-09-01.** v1 is phases 0–2, targeted at ~~2026-11-20~~ **2026-12-01** *(amended 2026-10-08, v0.67)*, built one gated phase at a time.
 
 ### 19.1 What v1 is (confirmed)
 
-**v1 = phase 0 + phase 1 + phase 2. Target date 2026-11-20.** *(confirmed 2026-09-01, Q19.2 — this replaces the "soft target 2026-10-01" in §1.1, which predates the scope being fully known.)*
+**v1 = phase 0 + phase 1 + phase 2. Target date ~~2026-11-20~~ 2026-12-01** *(amended 2026-10-08, v0.67)*. *(confirmed 2026-09-01, Q19.2 — this replaces the "soft target 2026-10-01" in §1.1, which predates the scope being fully known.)*
 
 Everything that used to sit in phases 3–6 is **post-v1 and unscheduled**, because closed decisions had already removed each of those items from v1 — the old numbering had simply not been updated to match. Recorded in §19.5 so the labels stop contradicting the topics.
 
@@ -1346,7 +1346,7 @@ Kept only so the intent is not lost. Nothing here is committed to a date, and ea
 - **Tasks arrive finished.** Because there is no second developer to catch mistakes, each task uses parallel subagents where the work genuinely splits, and ends with an **automated review pass before the diff is presented** — the aim being a task that does not need a second round of fixes. *(Requested 2026-09-01.)*
 - **Tests are written with the task, never after** (§17.2).
 - **Surface:** the Claude Code desktop app. Its visual diff review is what `CLAUDE.md` rule 3 depends on; the CLI is the same agent and needs no separate install.
-- **Schedule checkpoint:** the **phase 1 gate should pass by ~2026-10-20**, leaving a month for phase 2. **If it has not passed by 2026-11-01, phase 2 is cut** to the metric builder and ranking table, and the chart/dashboard builder waits. v1 ships on 2026-11-20 with less analysis rather than late with more.
+- **Schedule checkpoint** *(amended 2026-10-08, v0.67)*: the **phase 1 gate should pass by ~2026-11-01**, leaving a month for phase 2. **No scope cut:** every phase 1 and phase 2 task is built, nothing skipped. A slipped gate raises the pace, not the cut. ~~If it has not passed by 2026-11-01, phase 2 is cut to the metric builder and ranking table.~~
 
 ### 19.7 If v1 is not ready in time (confirmed)
 
@@ -1487,6 +1487,7 @@ Decisions get recorded here as topics close, so Claude Code (and future you) can
 
 | Date | Topic | Decision | Rationale |
 |---|---|---|---|
+| 2026-10-08 | 19 | **v1 is due 2026-12-01, and nothing is cut.** Every remaining phase 1 task (1.24–1.64) and every phase 2 item is built in plan order. §20.6's "cut phase 2 if the gate slips" rule is removed; the checkpoint (phase 1 gate by ~2026-11-01) becomes an early warning that raises the pace. SPEC-FINAL v1.19 §20.1, §20.6. | The user set the date (1 December 2026) and asked for everything, with no skipping. Until each part lands the team works with what the app has, e.g. reading entries manually without dashboards. The pace this needs (about 1.5 tasks a day, with design rounds run one group ahead of the code) is tight but was shown possible by the overnight UI-fix run. |
 | 2026-10-08 | 9 | **[RAISED BY ME] Deleted matches reach devices; a missing match is rebuilt; a missing parent is never a silent transient error.** A delta pull also carries the ids of matches deleted since the watermark. The server reports any missing parent (including an FK failure) as `parent-deleted`. On `parent-deleted` for an entry whose only missing parent is its match, the client re-queues the bare match create ahead of the entry instead of discarding it (§9.7 still applies when the event, season or form version is gone). SPEC-FINAL v1.18 §9.3, §9.3.1, §9.7. | Found on a real phone in the UI fix round. Matches are hard-deleted (no `deleted_at`), so a device kept a match the server no longer had. Its entries hit an FK error, which the server reported as the generic transient error, and the client retried them silently for ever: three entries stuck in "waiting" with no reason shown. The same thing happens at a venue when an admin deletes a match another device still caches. A match is fully defined by event + type + number, so rebuilding it loses nothing, whereas discarding would destroy a scout's work for no reason. |
 | 2026-10-08 | 8 / 16 | **Scout pre-fills the next match number after a new entry; Home's station opens the station picker.** After submitting a new entry Scout keeps the match type and offers number + 1, editable, with no robot picked; after editing an older entry the number stays empty. Tapping the station on Home opens Scout's station sheet. SPEC-FINAL v1.17 §8.1, §17.9. | Found in the UI fix round on real phones: a scout usually watches the next match from the same station, so retyping the number every time is wasted effort. It's only a pre-fill, so a wrong guess costs one edit. Jumping to an old match + 1 after an edit would be confusing, so edits don't pre-fill. The station is shown on Home, so the user expected to change it there too. |
 | 2026-10-07 | 16 | **Contiguous 48 px full-width rows satisfy §17.7's 8 px spacing rule.** Desktop lists (Entries, Users, Manage) keep rows 48 px tall and touching. SPEC-FINAL v1.16 §17.7. | Raised while coding the shell (RB.6) **[RAISED BY ME]**: a literal 8 px gap between every row would turn each table into a stack of separate cards and undo the designs. A full-width row is one large target, not two adjacent small ones, so mis-taps between neighbours are no likelier. The user decided on 2026-10-07. |
@@ -1621,6 +1622,7 @@ Every edit is logged here so changes can be audited without reprinting the docum
 
 | Version | Date | Sections touched | Change |
 |---|---|---|---|
+| v0.67 | 2026-10-08 | header, 0 (status table), 19, 21, 23 · SPEC-FINAL v1.19 (scope line, §20.1, §20.6) | **v1 due 2026-12-01; no scope cut**, every phase 1 and phase 2 task is built. |
 | v0.66 | 2026-10-08 | header, 21, 23 · SPEC-FINAL v1.18 (§9.3, §9.3.1, §9.7) | **Sync fix**: deleted matches reach devices, a missing match is rebuilt, a missing parent is never a silent transient error. |
 | v0.65 | 2026-10-08 | header, 21, 23 · SPEC-FINAL v1.17 (§8.1, §17.9 Home) | **UI fix round**: Scout pre-fills the next match number after a new entry; Home's station opens the station picker. |
 | v0.64 | 2026-10-07 | header, 21, 23 · SPEC-FINAL v1.16 (§17.7, Appendix C) | **Redesign build closed out (RB.19)**: §17.7 note that contiguous 48 px rows satisfy the spacing rule; Appendix C gains `countEntriesByScouter` and lists `deleteSeason` / `deleteEvent` with `delete_objects`. |

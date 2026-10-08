@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.18 · **Date:** 2026-10-08 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.19 · **Date:** 2026-10-08 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.19 moves the v1 date to 2026-12-01 (scope line, §20.1) and removes §20.6's phase 2 cut: every phase 1 and phase 2 task is built. See the living spec's §21, 2026-10-08 (v0.67).*
 
 *v1.18 amends §9.3 (a delta pull also carries deleted matches), §9.3.1 (a missing parent is `parent-deleted`, never a transient error) and §9.7 (a deleted match is rebuilt, not discarded). See the living spec's §21, 2026-10-08 (v0.66).*
 
@@ -40,7 +42,7 @@
 
 **What this document is not.** It carries no rationale, no rejected options, no parked or deferred items, no decision log and no change history. Those live in `frc-scouting-app-spec.md`, which remains the archive of *why*.
 
-**Scope boundary.** Everything in this document is **v1 = phases 0–2, due 2026-11-20**. Appendix A lists what is deliberately excluded, so the plan never re-adds a deferred item.
+**Scope boundary.** Everything in this document is **v1 = phases 0–2, due 2026-12-01** (amended 2026-10-08, v1.19). Appendix A lists what is deliberately excluded, so the plan never re-adds a deferred item.
 
 ---
 
@@ -2125,7 +2127,7 @@ The Vercel, Supabase and GitHub accounts are currently **personal**, with the in
 
 ### 20.1 What v1 is
 
-**v1 = phase 0 + phase 1 + phase 2. Target date 2026-11-20.**
+**v1 = phase 0 + phase 1 + phase 2. Target date 2026-12-01** (amended 2026-10-08, v1.19).
 
 ### 20.2 The phases
 
@@ -2177,9 +2179,9 @@ A phase is finished when its gate passes, not when the code is written.
 
 ### 20.6 Schedule checkpoint
 
-**The phase 1 gate should pass by ~2026-10-20**, leaving a month for phase 2.
+**The phase 1 gate should pass by ~2026-11-01**, leaving a month for phase 2 (amended 2026-10-08, v1.19).
 
-**If it has not passed by 2026-11-01, phase 2 is cut to the metric builder and the configurable ranking dashboard** — the chart/dashboard builder, compare, match preview, operational statistics and alliance selection all wait. Phase 1's fixed ranking table already works, so a cut ships a usable ranking either way. v1 ships on 2026-11-20 with less analysis rather than late with more.
+**There is no scope cut.** Every phase 1 task and every phase 2 item is built, in plan order, with nothing skipped (amended 2026-10-08, v1.19); this replaces the earlier rule that cut phase 2 to the metric builder and the ranking dashboard if the gate slipped. The checkpoint is an early warning only: if the gate has not passed by ~2026-11-01, the pace is raised (more parallel design rounds, overnight build runs), not the scope. Until a part lands, the team works with what the app already has (for example, reading entries without dashboards).
 
 ### 20.7 Fallback if v1 is not ready
 
