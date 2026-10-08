@@ -490,6 +490,8 @@ describe('phase swipe on a phone (UF.5)', () => {
   });
 
   const selected = (name: string) => screen.getByRole('tab', { name, selected: true });
+  /** A phase change animates out, then in: give a loaded CI runner more than the 1 s default. */
+  const PHASE_WAIT = { timeout: 4000 };
   const panel = () => screen.getByRole('tabpanel');
 
   async function played() {
@@ -507,11 +509,11 @@ describe('phase swipe on a phone (UF.5)', () => {
     pointer(main, 'pointermove', 70, 600, 2000);
     expect(panel().style.transform).toBe('translateX(-130px)');
     pointer(main, 'pointerup', 70, 600, 2000);
-    await waitFor(() => expect(selected('Teleop')).toBeInTheDocument());
+    await waitFor(() => expect(selected('Teleop')).toBeInTheDocument(), PHASE_WAIT);
     expect(panel().style.transform).toBe('');
     // and a swipe right comes back
     stroke(main, slowSideways(130));
-    await waitFor(() => expect(selected('Auto')).toBeInTheDocument());
+    await waitFor(() => expect(selected('Auto')).toBeInTheDocument(), PHASE_WAIT);
   });
 
   it('springs back from a short drag, and gives only a rubber band before the first phase', async () => {
@@ -541,7 +543,7 @@ describe('phase swipe on a phone (UF.5)', () => {
       [180, 300, 20],
       [160, 300, 40],
     ]);
-    await waitFor(() => expect(selected('Teleop')).toBeInTheDocument());
+    await waitFor(() => expect(selected('Teleop')).toBeInTheDocument(), PHASE_WAIT);
   });
 
   it('leaves a mostly vertical gesture to scroll the page', async () => {
@@ -567,7 +569,7 @@ describe('phase swipe on a phone (UF.5)', () => {
 
     stroke(plus, slowSideways(-150));
     fireEvent.click(plus);
-    await waitFor(() => expect(selected('Teleop')).toBeInTheDocument());
+    await waitFor(() => expect(selected('Teleop')).toBeInTheDocument(), PHASE_WAIT);
     await userEvent.click(screen.getByRole('tab', { name: /Auto/ }));
     expect(screen.getByLabelText('Auto notes value')).toHaveTextContent('1');
   });
@@ -584,9 +586,9 @@ describe('phase swipe on a phone (UF.5)', () => {
     };
     // a phase there and back, then a tab tap, then a tap on + (the e2e's own order)
     stroke(main, slowSideways(-150));
-    await waitFor(() => expect(selected('Teleop')).toBeInTheDocument());
+    await waitFor(() => expect(selected('Teleop')).toBeInTheDocument(), PHASE_WAIT);
     stroke(main, slowSideways(150));
-    await waitFor(() => expect(selected('Auto')).toBeInTheDocument());
+    await waitFor(() => expect(selected('Auto')).toBeInTheDocument(), PHASE_WAIT);
     tap();
     expect(screen.getByLabelText('Auto notes value')).toHaveTextContent('1');
     // within the 400 ms window of a spring-back: the new press is its own gesture

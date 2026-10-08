@@ -5167,3 +5167,13 @@ and `z.string().datetime({ offset: false })` refuses it (`false false true` for 
 - Initial JS is 204.4 KB gzip, up 0.5 KB from 203.9 and 0.6 KB under the 205 budget. The next client task has little room.
 - After a failed sync the cached-data strip ("Working from data already on this device…") and this line can show together. They say different things (where the data comes from, and why it hasn't gone), but it is two lines.
 - The "first issue" detail is zod's English (e.g. "device_id: Invalid uuid"). Since UF.12 a 400 only means the envelope is malformed, which the current client cannot send. The detail is for a debugging lead, not a scouter.
+
+## UF.13 (follow-up) — a CI flake in the Entry swipe test was a stale-closure race
+
+**Plan said:** nothing. CI on `c9c84a7`, a docs-only commit, failed one unit test that passed on the previous run with the same code.
+
+**What was wrong:** `EntryPage.test.tsx:514`, `Unable to find role="tab" and name "Auto"`, in "a swipe left on the empty page below the form…". The swipe listeners in `PhaseTabs` are re-attached by a `useEffect` that depends on `index`. The test's first `waitFor` resolves on the render that selects Teleop, before that passive effect runs. On a loaded runner, the swipe back then reached the OLD listener, whose `index` was still Auto (no phase before it), so nothing happened.
+
+**What I did instead:** the listeners read the phase from a ref that is updated on every render (`current.current`), and `index` left the effect's dependencies. The test's phase waits also allow 4 s (`PHASE_WAIT`), because a loaded CI runner can exceed the 1 s default.
+
+**Risk:** none for users. A person can't swipe in the gap between a render and its effect, and the ref makes it impossible anyway.

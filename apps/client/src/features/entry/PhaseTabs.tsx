@@ -77,6 +77,10 @@ export function PhaseTabs({
     0,
     phases.findIndex((p) => p.key === value),
   );
+  // The swipe listeners re-attach after a render; a swipe in between must still see the
+  // phase on screen, not the one its closure was made with.
+  const current = useRef(index);
+  current.current = index;
   const previous = phases[index - 1];
   const next = phases[index + 1];
 
@@ -120,7 +124,7 @@ export function PhaseTabs({
     }
     /** 1:1 toward a phase that exists; a rubber band past the first or the last. */
     function offset(dx: number) {
-      if (phases[index + (dx < 0 ? 1 : -1)]) return dx;
+      if (phases[current.current + (dx < 0 ? 1 : -1)]) return dx;
       return -Math.sign(dx) * followOffset(-Math.abs(dx));
     }
 
@@ -177,7 +181,7 @@ export function PhaseTabs({
       // The clipping box's width, padding included: a pane moved that far is out of sight.
       const width = pane.current?.parentElement?.offsetWidth ?? 0;
       const step = tap ? 0 : swipeStep(s.dx, releaseVelocity(s.samples), width);
-      const target = step === 0 ? undefined : phases[index + step];
+      const target = step === 0 ? undefined : phases[current.current + step];
       if (!target) return s.reduced ? undefined : place(0, SETTLE_MS);
       if (s.reduced || width === 0) return onChange(target.key);
       place(-step * width, LEAVE_MS, 'ease-out');
@@ -218,7 +222,7 @@ export function PhaseTabs({
       area.removeEventListener('click', click, true);
       area.removeEventListener('touchmove', hold);
     };
-  }, [phone, swipeArea, phases, index, onChange]);
+  }, [phone, swipeArea, phases, onChange]);
 
   return (
     <div ref={root} className={cn(phone && 'flex flex-1 flex-col')}>
