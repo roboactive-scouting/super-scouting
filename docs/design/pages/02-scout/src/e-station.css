@@ -134,3 +134,13 @@
 .tlist .robot {
   min-height: 56px;
 }
+
+/* Picked tile, amended 2026-10-08: filled with its alliance colour (was --accent-tint).
+   White text on --alliance-red 5.80:1, on --alliance-blue 5.67:1. */
+.station.on.r, .station.on.b { box-shadow: none; color: #fff; }
+.station.on.r { background: var(--alliance-red); }
+.station.on.b { background: var(--alliance-blue); }
+.station.on.r *, .station.on.b * { color: #fff !important; }
+.station.on .you { background: #fff !important; }
+.station.on.r .you { color: var(--alliance-red) !important; }
+.station.on.b .you { color: var(--alliance-blue) !important; }
