@@ -5508,3 +5508,16 @@ and `z.string().datetime({ offset: false })` refuses it (`false false true` for 
 **What I did instead:** ran `pnpm --filter @frc/server build` (regenerating `apps/server/api/index.js` and `.map`; `bundle-drift.test.ts` passes), then `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, all green. `rpc.test.ts`'s command list (now thirty-four, with `setScoringRules`) and its full name list, and the shared `index.test.ts`, were extended by the seven new use cases.
 
 **Risk:** none.
+
+## Phase 1 D (tasks 1.24–1.28) — run end: verification against dev, docs
+
+**Plan said:** each task proves itself with its unit tests and `pnpm vitest run` / `pnpm typecheck`.
+
+**What was wrong:** nothing. The chat's prompt asked for the negatives to be proved, and BUILD-CONTEXT §10 asks for security-shaped checks from outside a browser session; unit tests against the in-memory fake do not exercise the Supabase store or the HTTP edge.
+
+**What I did instead:**
+- Re-ran `pnpm test && pnpm typecheck && pnpm lint && pnpm format:check` myself after every task before committing. Mutation check on 1.27: disabling the `key-change` guard in `saveDraftFields` fails exactly the test "a saved field's key change (same id, different key) is refused with reason key-change".
+- Ran the server locally (`tsx --env-file=.env src/dev-server.ts`, `SUPABASE_URL` checked to be the dev ref) and drove it with a throwaway Node script over HTTP, signing in as the seed accounts through the API (never a browser pane). 15/15 checks: a saved field's key change → 400 `invalid` / `key-change`; relabelling a select option on a locked v1 → no new version; reordering its options → draft v2; `listForms` newest first with `updated_by` named and v1 active and locked; `saveFormExport` label `Proof form 1905 · v1`, `expires_in_seconds` 86400; a 25-hour-old `form_exports` row inserted directly is gone after the next `listFormExports`; a lead and a scouter get 403 `forbidden` from `saveFormExport`, `listFormExports` and `getFormExport`; no token gets 401. The proof season (year 1905) and its exports were deleted afterwards; 0 forms left. A first run reported 3 false FAILs because the script read `body.code`; the wire envelope is `{ error: { code, message, details } }`. Fixed the script, re-ran.
+- `SPEC-FINAL.md` Appendix C gains `listForms`, `exportForm` / `listFormExports` / `getFormExport` (admin only, service refused), `saveDraftFields` / `importForm` and `saveFormExport`, noted in the v1.22 header line without a version bump. `IMPLEMENTATION-PLAN.md` gains a release note for the two migrations, beside the delete-cascade and match-deletions ones.
+
+**Risk:** `pnpm db:test` still fails `seed.itest.ts` ("expected 96 to be greater than or equal to 100"), logged under 1.27: the seed writes 90 entries since `1b7d24d`, and the test passes only while dev holds ten or more non-seed entries. Not touched in this run. Hard deletes of form fields, versions, forms and scoring rules leave no tombstone for the delta pull (logged under 1.27 and 1.28) — needs a decision before devices score offline.

@@ -2,7 +2,7 @@
 
 **Version:** 1.22 · **Date:** 2026-10-08 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
 
-*v1.22 amends §5.1 (exports are kept in the app for 24 hours, import picks from them; a form delete is confirmed by typing) and §3 (`form_exports`), and records the builder's remaining screens in §5.9. See the living spec's §21, 2026-10-08 (v0.70).*
+*v1.22 amends §5.1 (exports are kept in the app for 24 hours, import picks from them; a form delete is confirmed by typing) and §3 (`form_exports`), and records the builder's remaining screens in §5.9. See the living spec's §21, 2026-10-08 (v0.70). Appendix C gains the form use cases built by tasks 1.27–1.28 (`listForms`, `saveDraftFields`, `exportForm`, `importForm`, `saveFormExport`, `listFormExports`, `getFormExport`), with no version bump.*
 
 *v1.21 adds the forms list (`/admin/forms`): §5.9, §17.9's new Forms row, and `form_versions.updated_by` in §3. See the living spec's §21, 2026-10-08 (v0.69).*
 
@@ -2361,6 +2361,8 @@ The starting registry for phase 1. Every entry carries a Zod input schema, a Zod
 | `queryEntries` | Entry search for one event, filtered and paginated. |
 | `getEntry` | One entry, fully rendered with derived score and scouter name. |
 | `getForm` / `getFormVersion` / `getFormDictionary` | Form definition and the machine-readable field dictionary. |
+| `listForms` | The forms list (§5.9): a season's match and super forms, each with its versions newest first — status, lock, field count, entries per version, last edited and by whom — and the active version. |
+| `exportForm` / `listFormExports` / `getFormExport` | **Admin only — a `service` caller is refused.** One version's portable definition; the saved exports newest first (rows older than 24 hours are deleted first) with label, field count, author, and expires-in; one saved export with its definition. |
 | `getTeamStats` | All metrics for one team over a scope, plus the match-by-match series and its notes. |
 | `rankTeams` | The ranking table, with optional weighted composite and contribution breakdown. |
 | `compareTeams` | 2–6 teams over the compare metric set. |
@@ -2387,6 +2389,8 @@ The starting registry for phase 1. Every entry carries a Zod input schema, a Zod
 | `createMatch` / `updateMatch` / `setMatchTeams` / `deleteMatch` | admin |
 | **`ensureMatch`** | **any authenticated user** — the bare auto-creation of §6.4. Creates event + type + number only; a no-op if the match exists. |
 | `createForm` / `updateForm` / `publishFormVersion` / `restoreFormVersion` / `deleteForm` / `deleteFormVersion` | admin |
+| `saveDraftFields` / `importForm` | admin — a saved field's key change is refused; a structural change to a published version forks a draft (§5.1) |
+| `saveFormExport` | admin — saves one version (draft or active) into Exports for 24 hours; older rows are deleted first |
 | `setScoringRules` | admin |
 | `upsertEntry` | scouter (own, ≤ 5 min) / lead / admin |
 | `deleteEntry` | lead / admin |
