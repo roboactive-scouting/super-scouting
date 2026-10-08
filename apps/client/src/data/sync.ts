@@ -5,6 +5,7 @@ import { notifyChanged } from './changes';
 import { db, getMeta, setMeta } from './db';
 import { ackResults, matchIdsNeededByOutbox, pending } from './outbox';
 import { call } from './rpc';
+import { clearSyncFailure, recordSyncFailure } from './syncFailure';
 import type { Api } from './api';
 
 export type SyncDeps = {
@@ -35,9 +36,11 @@ function isUnauthenticated(e: unknown): boolean {
 
 /**
  * Ops acked by an earlier batch of this same sync stay acked (ackResults commits each
- * batch); everything unacked stays queued. A 401 simply stops the sync.
+ * batch); everything unacked stays queued. A 401 simply stops the sync. Why it failed is
+ * kept for the sync line (UF.13) until a sync succeeds.
  */
-function failure(e: unknown, fallback: string): SyncOutcome {
+async function failure(e: unknown, fallback: string): Promise<SyncOutcome> {
+  await recordSyncFailure(e);
   if (isUnauthenticated(e)) return { status: 'unauthenticated' };
   return { status: 'offline', reason: e instanceof Error ? e.message : fallback };
 }
@@ -116,6 +119,7 @@ export async function syncNow(deps: SyncDeps): Promise<SyncOutcome> {
     return failure(e, 'pull failed');
   }
 
+  await clearSyncFailure();
   return { status: 'ok', pushed, pulled };
 }
 

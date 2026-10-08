@@ -6,15 +6,17 @@ import { AccountBlock } from './AccountBlock';
 import { Brand } from './Brand';
 import { NavList } from './NavList';
 import type { NavAudience, NavItem } from './nav';
-import { SyncDot, syncLine, type SyncStatus } from './SyncPill';
+import { failureLine, SyncDot, syncLine, type SyncStatus } from './SyncPill';
 
 /** The menu's sync line: the state and what waits to send (SPEC-FINAL 9.10), then when it last synced. */
 function SyncLine({ status }: { status: SyncStatus }) {
   const { tone, text } = syncLine(status);
+  const failed = failureLine(status);
   return (
     <p className="mx-1.5 mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-[10px] bg-rail-raised px-2.5 py-[9px] text-[0.78125rem] text-surface">
       <SyncDot tone={tone} />
       {text}
+      {failed && <small className="ms-[15px] w-full text-xs text-surface">{failed}</small>}
       {status.lastSyncAt && (
         <small className="ms-[15px] w-full text-xs text-rail-ink">
           last sync {formatTime(status.lastSyncAt)}

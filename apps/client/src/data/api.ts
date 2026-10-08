@@ -21,6 +21,14 @@ export class ApiError extends Error {
   }
 }
 
+/** A sync request that hit its deadline: a plain Error to syncNow, but one the failure line can name. */
+export class SyncTimeoutError extends Error {
+  constructor() {
+    super('the server did not answer in time');
+    this.name = 'SyncTimeoutError';
+  }
+}
+
 /** The three things the transport needs from the session; tests may inject their own. */
 export type SessionPort = Pick<typeof session, 'token' | 'replaceToken' | 'expire'>;
 
@@ -55,7 +63,7 @@ export function apiClient(
     const route = path.split('?')[0] ?? path;
     // UF.2: an offline sign-in on an online device gets a token first, as rpc.ts does.
     const bearer = (await auth.token()) ?? (await ensureToken({ path: route }));
-    const limit = deadline(timeoutMs, () => new Error('the server did not answer in time'));
+    const limit = deadline(timeoutMs, () => new SyncTimeoutError());
     try {
       const res = await limit.race(
         fetch(`${config.apiBaseUrl}${path}`, {

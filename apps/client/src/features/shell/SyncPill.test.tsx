@@ -1,9 +1,18 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { compactSync, syncLine, SyncPill, type SyncStatus } from './SyncPill';
+import { formatTime } from '@frc/shared';
+import { compactSync, failureLine, syncLine, SyncPill, type SyncStatus } from './SyncPill';
 
 function status(over: Partial<SyncStatus>): SyncStatus {
-  return { waiting: 0, byAuthor: {}, lastSyncAt: null, online: true, syncing: false, ...over };
+  return {
+    waiting: 0,
+    byAuthor: {},
+    lastSyncAt: null,
+    lastFailure: null,
+    online: true,
+    syncing: false,
+    ...over,
+  };
 }
 
 /** SPEC-FINAL 9.10: three states in words — online, syncing, offline — plus the unsynced count. */
@@ -70,5 +79,28 @@ describe('SyncPill', () => {
     rerender(<SyncPill status={status({ online: false, waiting: 4 })} compact />);
     expect(screen.getByRole('status')).toHaveTextContent('Offline · 4');
     expect(container.querySelector('[aria-hidden="true"]')?.className).not.toContain('animate');
+  });
+});
+
+describe('failureLine (UF.13)', () => {
+  const lastFailure = {
+    at: '2026-03-17T09:41:00.000Z',
+    kind: 'offline' as const,
+    text: 'No connection to the server',
+  };
+  const line = `Last try failed: No connection to the server · ${formatTime(lastFailure.at)}`;
+
+  it('says why the last try failed, and when, only while something waits to send', () => {
+    expect(failureLine(status({ waiting: 3, lastFailure }))).toBe(line);
+    expect(failureLine(status({ waiting: 0, lastFailure }))).toBeNull();
+    expect(failureLine(status({ waiting: 3 }))).toBeNull();
+  });
+
+  it('desktop: beside the chips, and as the waiting chip’s tooltip', () => {
+    const { rerender } = render(<SyncPill status={status({ waiting: 3, lastFailure })} />);
+    expect(screen.getByRole('status')).toHaveTextContent(`${line}3 waiting to sendOnline`);
+    expect(screen.getByText('3 waiting to send')).toHaveAttribute('title', line);
+    rerender(<SyncPill status={status({ waiting: 0, lastFailure })} />);
+    expect(screen.getByRole('status')).toHaveTextContent(/^Online$/);
   });
 });

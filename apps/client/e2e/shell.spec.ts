@@ -154,3 +154,27 @@ test('sync indicator: syncing, then offline, keeping the count (SPEC-FINAL 9.10)
   await expect(menu.getByText('Offline · 3 waiting to send')).toBeVisible();
   await shoot(page, 'shell-offline-menu', 'phone');
 });
+
+test('a failed sync says why, while entries wait (UF.13)', async ({ page }) => {
+  await signIn(page, 'admin', {
+    overrides: { 'sync/push': { status: 503, code: 'unknown', message: 'Service Unavailable' } },
+  });
+  await page.setViewportSize({ width: 375, height: 812 });
+  // The sign-in sync must finish first (pulled, outbox empty), or the 503 lands on it and the
+  // competition never loads.
+  await page.waitForLoadState('networkidle');
+  await seedWaiting(page, 3);
+  await page.getByRole('button', { name: 'Open the menu' }).click();
+  const menu = page.getByRole('dialog', { name: 'Menu' });
+  await expect(menu.getByText('3 waiting to send')).toBeVisible();
+  const why = /^Last try failed: The server is having trouble · \d\d:\d\d$/;
+  await expect(menu.getByText(why)).toBeVisible();
+  await shoot(page, 'shell-sync-failed-menu', 'phone');
+  await page.keyboard.press('Escape');
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const bar = page.getByRole('banner');
+  await expect(bar.getByText(why)).toBeVisible();
+  await expect(bar.getByText('3 waiting to send')).toHaveAttribute('title', why);
+  await shoot(page, 'shell-sync-failed', 'desktop');
+});

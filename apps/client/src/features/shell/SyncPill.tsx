@@ -1,3 +1,4 @@
+import { formatTime } from '@frc/shared';
 import type { useSyncStatus } from '@/data/syncStatus';
 import { cn } from '@/lib/utils';
 
@@ -44,6 +45,17 @@ export function syncLine(status: Inputs): Summary {
   return summarise(status, spelt, spelt);
 }
 
+/**
+ * Why the last sync failed (UF.13), only while something waits to send: "Last try failed:
+ * No connection to the server · 09:41". Null otherwise — once nothing waits, it no longer
+ * matters, and the next sync that succeeds clears it.
+ */
+export function failureLine(status: Pick<SyncStatus, 'waiting' | 'lastFailure'>): string | null {
+  const failure = status.lastFailure;
+  if (status.waiting === 0 || !failure) return null;
+  return `Last try failed: ${failure.text} · ${formatTime(failure.at)}`;
+}
+
 export function SyncDot({ tone }: { tone: SyncTone }) {
   return <span aria-hidden="true" className={cn('size-[7px] shrink-0 rounded-full', DOT[tone])} />;
 }
@@ -70,10 +82,16 @@ export function SyncPill({ status, compact = false }: { status: SyncStatus; comp
     );
   }
   const connection: SyncTone = !status.online ? 'offline' : status.syncing ? 'syncing' : 'sent';
+  const failed = failureLine(status);
   return (
-    <span role="status" className="flex items-center gap-2.5">
+    <span role="status" className="flex min-w-0 items-center gap-2.5">
+      {failed && (
+        <span title={failed} className="min-w-0 truncate text-xs text-ink-2">
+          {failed}
+        </span>
+      )}
       {status.waiting > 0 && (
-        <span className={CHIP}>
+        <span className={CHIP} title={failed ?? undefined}>
           <SyncDot tone="waiting" />
           {status.waiting} waiting to send
         </span>

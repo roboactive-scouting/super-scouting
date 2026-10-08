@@ -5,9 +5,12 @@ import { StateMessage } from '@/components/StateMessage';
 import { buttonVariants } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { FilterChips } from '@/components/ui/filter-chips';
+import { Notice } from '@/components/ui/notice';
 import { SearchField } from '@/components/ui/search-field';
+import { useSyncStatus } from '@/data/syncStatus';
 import { useEventName } from '@/features/context/useEventName';
 import { useShellContext, useSignedInUser } from '@/features/shell/shellContext';
+import { failureLine } from '@/features/shell/SyncPill';
 import { usePageCrumb } from '@/lib/pageTitle';
 import { useIsDesktop } from '@/lib/useMediaQuery';
 import { PATHS } from '@/lib/paths';
@@ -24,6 +27,7 @@ export function EntriesPage({ eventId }: { eventId: string }) {
   const me = useSignedInUser().id;
   const desktop = useIsDesktop();
   const view = useEntriesView(eventId, me);
+  const failed = failureLine(useSyncStatus());
   const eventName = useEventName(eventId, useShellContext().gate);
   // The desktop crumb: "District #3 · Tel Aviv / Entries".
   usePageCrumb(eventName ? [eventName, 'Entries'] : null);
@@ -45,6 +49,13 @@ export function EntriesPage({ eventId }: { eventId: string }) {
             : 'On this device · newest first'}
         </p>
       </header>
+
+      {/* UF.13: why the waiting entries have not gone, in one quiet line. */}
+      {failed && (
+        <Notice tone="warning" role="status" still className="mt-4">
+          {failed}
+        </Notice>
+      )}
 
       {view.loading ? (
         <div className="mt-5">

@@ -1,6 +1,7 @@
 import { useOnline } from '@/lib/useOnline';
 import { connectionState } from './connection';
 import { db, getMeta } from './db';
+import { LAST_FAILURE, type SyncFailure } from './syncFailure';
 import { useDeviceQuery } from './useDeviceQuery';
 
 /** What the shell, Home and Switch scouter show about sending (SPEC-FINAL 9.10). Counts records, not bare matches. */
@@ -12,6 +13,7 @@ export async function readSyncStatus() {
     waiting: ops.length,
     byAuthor,
     lastSyncAt: await getMeta<string | null>('sync.last_success_at', null),
+    lastFailure: await getMeta<SyncFailure | null>(LAST_FAILURE, null),
   };
 }
 export function useSyncStatus() {
@@ -21,6 +23,7 @@ export function useSyncStatus() {
     waiting: status?.waiting ?? 0,
     byAuthor: status?.byAuthor ?? {},
     lastSyncAt: status?.lastSyncAt ?? null,
+    lastFailure: status?.lastFailure ?? null,
     online,
     syncing: connectionState() === 'syncing',
   };

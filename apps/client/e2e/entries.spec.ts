@@ -156,3 +156,21 @@ test('entries: an empty device says so and offers Scout a match', async ({ page 
   await expect(page.getByRole('link', { name: 'Scout a match' })).toBeVisible();
   await shoot(page, 'entries-empty', 'phone');
 });
+
+test('entries: a failed sync says why above the list (UF.13)', async ({ page }) => {
+  await setClock(page);
+  await signIn(page, 'lead', {
+    overrides: {
+      ...HOLD_PUSH.overrides,
+      'sync/push': { status: 400, code: 'invalid', message: 'Bad Request' },
+    },
+  });
+  // The sign-in sync must finish first (pulled, outbox empty), or the 400 lands on it and the
+  // competition never loads.
+  await page.waitForLoadState('networkidle');
+  await seedOutbox(page);
+  await page.goto('/entries');
+  const why = "Last try failed: The server refused this device's data · 12:00";
+  await expect(page.getByRole('main').getByText(why)).toBeVisible();
+  await shoot(page, 'entries-sync-failed');
+});

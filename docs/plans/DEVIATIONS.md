@@ -5126,3 +5126,44 @@ and `z.string().datetime({ offset: false })` refuses it (`false false true` for 
 - Low. The server is now more liberal, but only for zone-qualified ISO timestamps. Microseconds beyond the millisecond are dropped, and the client never sends them.
 - The client's own `newestFirst` still `localeCompare`s `client_created_at`, and a cache can hold both a pulled `+00:00` and a local `Z` value. Both are UTC, so the order is right to the second. Only two values within the same millisecond can tie the wrong way. Left as is: out of scope here and invisible in practice.
 - Initial JS 203.9 KB gzip (+0.1 KB, the transform is in the shared schema the client bundles).
+
+## UF.13 — the app says why the last sync failed
+
+**Plan said:** (coordinator, from the user's "a message why the sync failed") When a whole sync fails, record it in meta, clear it on the next success, and map it to one plain line (SPEC-FINAL 17.8). Show it, only while something waits to send, in the phone ☰ menu sync line, at the desktop sync chip, and above the Entries list (the `--warn` edge, never red).
+
+**What was wrong:** Nothing failed. Choices the brief left open:
+1. Telling a deadline apart from no connection. `api.ts` rejected both as a plain `Error`. The only difference was the deadline's message text.
+2. "The server refused this device's data — <first issue>". The route's 400 body (`pushEnvelopeSchema` since UF.12) carries zod's issues as a JSON string in `error.message`.
+3. Where the line goes on desktop: a tooltip alone is invisible on a touch laptop and to most screen readers.
+4. The e2e. A push override that fails also fails the sign-in's own first sync if the test seeds the outbox before that sync ends. The page then shows "This device has not loaded the competition yet", which happened on the first run.
+
+**What I did instead:**
+- `data/syncFailure.ts`:
+  - `describeSyncFailure(e)` maps an error to `{ kind, text }`:
+    - `SyncTimeoutError` → timeout, "The server didn't answer in time".
+    - Status 401 → signin, "Your sign-in expired".
+    - 5xx → server, "The server is having trouble".
+    - Other 4xx → refused, "The server refused this device's data", plus " — <path>: <message>" from the first zod issue when the message parses as zod's issue list. Any other body text is never shown.
+    - Anything else (a failed fetch, a portal's page) → offline, "No connection to the server".
+  - `recordSyncFailure` writes `sync.last_failure = { at, kind, text }`. `clearSyncFailure` writes only when one exists, so a good sync doesn't cause a re-render. Both swallow their own write errors: keeping the reason must never fail the sync.
+- `api.ts`: the deadline now rejects with `SyncTimeoutError extends Error`. It has the same message and is still not an `ApiError`, so `syncNow`'s outcomes are unchanged.
+- `sync.ts`: `failure()` records before it returns `offline` or `unauthenticated`, for both push and pull. The `ok` path clears. `event-gone` neither records nor clears, because the shell's gone notice speaks for it.
+- `syncStatus.ts` adds `lastFailure`. `SyncPill.tsx` adds `failureLine(status)`, which is null unless `waiting > 0`: "Last try failed: <text> · HH:MM". It is shown in three places:
+  - **Phone menu:** a line under "3 waiting to send", above "last sync".
+  - **Desktop crumb bar:** a truncating `text-ink-2` line beside the chips, which is also the waiting chip's `title`. It is inside the existing `role="status"`, so it is announced when it appears.
+  - **Entries:** one `Notice tone="warning" role="status" still` under the header, which is the 3 px `--warn` start edge with ink text. It is not `ErrorLine` (role=alert, bold), which would announce on every visit.
+- Tests:
+  - `syncFailure.test.ts`: each kind maps to its line, no raw code or server text appears, `syncNow` records push, pull and 401 failures, and a later success clears the record.
+  - `SyncPill.test.tsx`: the line appears only with waiting > 0, plus the desktop placement and tooltip.
+  - `EntriesPage.test.tsx`: the line appears with the warn edge, disappears after `clearSyncFailure`, and is absent with nothing waiting.
+  - `syncStatus.test.ts`: expectations updated.
+  - Mutations: dropping the `waiting === 0` guard fails 3 tests, and dropping the record call fails 3 tests.
+- e2e:
+  - `shell.spec` "a failed sync says why, while entries wait (UF.13)" pushes 503 and shoots `shell-sync-failed-menu-phone` and `shell-sync-failed-desktop`.
+  - `entries.spec` "entries: a failed sync says why above the list (UF.13)" pushes 400 and shoots `entries-sync-failed-phone` and `-desktop`.
+  - Both wait for `networkidle` (the sign-in sync done) before seeding the outbox.
+
+**Risk:**
+- Initial JS is 204.4 KB gzip, up 0.5 KB from 203.9 and 0.6 KB under the 205 budget. The next client task has little room.
+- After a failed sync the cached-data strip ("Working from data already on this device…") and this line can show together. They say different things (where the data comes from, and why it hasn't gone), but it is two lines.
+- The "first issue" detail is zod's English (e.g. "device_id: Invalid uuid"). Since UF.12 a 400 only means the envelope is malformed, which the current client cannot send. The detail is for a debugging lead, not a scouter.

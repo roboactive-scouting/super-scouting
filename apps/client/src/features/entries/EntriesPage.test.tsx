@@ -1,8 +1,9 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { db, type CachedRow } from '@/data/db';
+import { db, setMeta, type CachedRow } from '@/data/db';
+import { clearSyncFailure, LAST_FAILURE } from '@/data/syncFailure';
 import { EntriesPage } from './EntriesPage';
 
 const USERS: CachedRow[] = [
@@ -210,6 +211,33 @@ describe('EntriesPage', () => {
       if (code !== 'invalid') expect(document.body).not.toHaveTextContent(code);
     },
   );
+
+  describe('why the last sync failed (UF.13)', () => {
+    const failure = {
+      at: '2026-03-17T09:41:00.000Z',
+      kind: 'timeout',
+      text: "The server didn't answer in time",
+    };
+
+    it('shows one quiet line above the list while entries wait, and drops it after a sync succeeds', async () => {
+      await seedEntries({ waiting: ['e38'] });
+      await setMeta(LAST_FAILURE, failure);
+      renderEntries();
+      const line = await screen.findByText(/^Last try failed: The server didn't answer in time · /);
+      expect(line.closest('[role=status]')?.className).toContain('border-s-warn');
+
+      await clearSyncFailure();
+      await waitFor(() => expect(screen.queryByText(/Last try failed/)).not.toBeInTheDocument());
+    });
+
+    it('says nothing when nothing waits to send', async () => {
+      await seedEntries();
+      await setMeta(LAST_FAILURE, failure);
+      renderEntries();
+      await screen.findAllByRole('row');
+      expect(screen.queryByText(/Last try failed/)).not.toBeInTheDocument();
+    });
+  });
 
   it('shows no rejection line for an entry that synced', async () => {
     await seedEntries();

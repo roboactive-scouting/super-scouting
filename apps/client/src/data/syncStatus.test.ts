@@ -38,10 +38,16 @@ describe('readSyncStatus', () => {
       waiting: 3,
       byAuthor: { u1: 2, u2: 1 },
       lastSyncAt: '2026-10-06T10:00:00Z',
+      lastFailure: null,
     });
   });
   it('is empty on a fresh device', async () => {
-    expect(await readSyncStatus()).toEqual({ waiting: 0, byAuthor: {}, lastSyncAt: null });
+    expect(await readSyncStatus()).toEqual({
+      waiting: 0,
+      byAuthor: {},
+      lastSyncAt: null,
+      lastFailure: null,
+    });
   });
 });
 
