@@ -141,7 +141,10 @@ export function TeamField({
       onBlur={commitText}
       onKeyDown={onKeyDown}
       className={cn(
-        'relative [&_input]:pb-3.5 [&_input]:text-[0.9375rem] [&_input]:leading-tight [&_input]:font-semibold',
+        'relative [&_input]:pb-3.5 [&_input]:leading-tight [&_input]:font-semibold',
+        // The phone sheet's fields are 16 px: iOS Safari zooms the page into a smaller field
+        // on focus, and the zoomed sheet is wider than the screen (UF.9).
+        alliance ? '[&_input]:text-base' : '[&_input]:text-[0.9375rem]',
         // The desktop grid draws an empty cell dashed on --bg; the phone sheet (alliance-labelled
         // fields) keeps a white solid field showing "—" (07-manage phone final).
         empty && '[&_input]:placeholder:text-muted',

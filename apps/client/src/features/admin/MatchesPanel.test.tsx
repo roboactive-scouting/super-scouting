@@ -89,6 +89,37 @@ describe('MatchesPanel', () => {
     });
   });
 
+  it("filters the grid by match type with the phone's control; the toolbar's type follows", async () => {
+    const practice = { ...Q7_ONE_EMPTY, id: 'm-p1', match_type: 'practice' as const, number: 1 };
+    const call = renderPanel(async () => undefined, [practice, Q7_ONE_EMPTY, Q10_PARTIAL]);
+    const filter = screen.getByRole('radiogroup', { name: 'Show matches' });
+    expect(within(filter).getByRole('radio', { name: 'Qualification' })).toBeChecked();
+    expect(screen.getByRole('group', { name: 'Q7' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'P1' })).toBeNull();
+
+    await userEvent.click(within(filter).getByRole('radio', { name: 'Practice' }));
+    expect(screen.getByRole('group', { name: 'P1' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Q7' })).toBeNull();
+    expect(screen.getByLabelText('Match type')).toHaveValue('practice');
+
+    // The toolbar's select moves the filter too, so what it creates is in sight.
+    await userEvent.selectOptions(screen.getByLabelText('Match type'), 'playoff');
+    expect(within(filter).getByRole('radio', { name: 'Playoff' })).toBeChecked();
+    expect(screen.getByText('No matches yet.')).toBeInTheDocument();
+
+    // Typing into a filtered grid still saves that match's line-up.
+    await userEvent.click(within(filter).getByRole('radio', { name: 'Qualification' }));
+    await userEvent.type(screen.getByRole('combobox', { name: 'Q10 Red 3' }), '6230');
+    await userEvent.tab();
+    await waitFor(() =>
+      expect(call).toHaveBeenCalledWith(
+        'setMatchTeams',
+        expect.objectContaining({ match_id: Q10_PARTIAL.id }),
+      ),
+    );
+    expect(seen.matches).toHaveLength(3);
+  });
+
   it('adds an off-roster team to the roster from the problem summary', async () => {
     const call = renderPanel(
       async (name) => {

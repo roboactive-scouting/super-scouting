@@ -5027,3 +5027,29 @@ The script also accepted the real pair (`40e32bd` live, `a4c7717` expected) agai
 **What I did instead:** the orchestrator now finds the card by its text (`filter({ hasText: LONG_NAME })`). `entries.spec` gives 4 passed. Both shots were checked by eye: the long name wraps inside its card.
 
 **Risk:** none. This is a test-only change.
+
+## UF.9 — Matches filter on desktop; the phone edit sheet fits, opens at the top, focuses nothing
+
+**Plan said:** (1) give the desktop Matches tab the phone's filter, the same control with the same behaviour; (2) the phone edit sheet must never be wider than the screen, must open scrolled to the top with nothing focused, and must close on a swipe down.
+
+**What was wrong (1):** there was nothing wrong with the plan. One choice was left open. The desktop toolbar already has its own match-type `<select>`, which drives both create actions. The phone has the same split: the list's segmented filter, and the type in the Add sheet, which only starts from the filter's value.
+
+**What I did instead (1):**
+- The desktop grid now has the phone's `Segmented` control above it, labelled "Show matches". It filters with the phone's rule: the matches of the chosen type, plus any "Not saved" match of any type. That rule is now one helper, `matchesShown` in `matchOps.ts`, used by both views.
+- The toolbar's type is **the same state** as the filter (`MatchesToolbar` now takes `type` and `onTypeChange`). Choosing Playoff in either control shows playoffs and creates playoffs.
+- Rejected: keeping two separate type states, with the toolbar only starting from the filter as the phone's Add sheet does. A desktop admin could then create playoff matches while looking at the qualification grid and see nothing appear.
+- The problem summary and the tab count still cover every match, of every type.
+
+**What was wrong (2):** I could not reproduce the overflow or the scroll in Chromium, on the code before this task. I measured with mobile emulation, touch and a 3× scale, at 375×812, 360×400, 375×450, 320×640 and 300×600, and at 130 % and 160 % text size. The dialog's `scrollWidth` always equalled its `clientWidth` (for example 375/375), the document overflow was 0, `scrollTop` was 0, and no element ended past the panel's right edge. The one thing every run showed was focus: `"active":"INPUT combobox"`, `aria-expanded="true"`. On open, `useModalFocus` focused the first focusable control, which is the Red 1 station, and its suggestion list opened with it. That field's text is 15 px (`[&_input]:text-[0.9375rem]` in `TeamField`). iOS Safari zooms the page into any focused field under 16 px, and pans it to that field while the keyboard comes up. That matches all three things seen on the phone: the sheet wider than the screen (it is zoomed), the view moved away from the top, and the keyboard up.
+
+**What I did instead (2):**
+- `useModalFocus` and `Sheet` take `initialFocus: 'panel'`, alongside the existing ref option. The sheet focuses itself with `preventScroll`, so a screen reader still reads the dialog's name. `EditMatchSheet` uses it, so on open no field is focused, no keyboard comes up and nothing zooms or scrolls.
+- Focus trapping is kept. Tab from the panel goes to the first control and Shift+Tab to the last. Before this, Shift+Tab from a panel that held focus after a click on its text could leave the dialog; that now applies to every modal. Focus still goes back to the opener on close.
+- The sheet's station fields are 16 px (`alliance ? text-base : 15 px`), so tapping one later doesn't zoom iOS either. The desktop grid cells keep 15 px.
+- The sheet's type select wrapper gets `min-w-0` as a guard. It changed no measurement.
+- Swipe down: with nothing focused, a drag from the sheet's body works, not just from its handle. UF.4 never starts a drag on a focused text field. The e2e drags from the "Line-up" line.
+
+**Risk:**
+- I can't run iOS Safari here. The zoom cause comes from reasoning plus the Chromium measurements, not from a run on the device. Re-test on the phone: open a match, then tap a station.
+- If the phone is Android, the zoom does not apply, and the only remaining cause is the keyboard that the old focus brought up, which this task removes.
+- Initial JS is 203.9 KB gzip, 0.1 KB more than UF.8's 203.8, from the shared `useModalFocus` and `Sheet`. The filter itself lives in the lazy `ManagePage` chunk.

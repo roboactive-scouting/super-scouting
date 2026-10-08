@@ -80,7 +80,16 @@ export function EditMatchSheet({
 
   const line = localError ?? error;
   return (
-    <Sheet open side="bottom" title={`Edit ${label}`} onClose={onClose} dismissible={!busy}>
+    // initialFocus 'panel': nothing is focused on open, so no keyboard, no zoom and no scroll
+    // to a field (UF.9). The user picks what to edit.
+    <Sheet
+      open
+      side="bottom"
+      title={`Edit ${label}`}
+      onClose={onClose}
+      dismissible={!busy}
+      initialFocus="panel"
+    >
       <p className={SECTION}>Line-up · type a team number</p>
       <div className="grid grid-flow-col grid-cols-2 grid-rows-3 gap-2">
         {STATIONS.map(({ alliance, station, label: where }) => {
@@ -128,7 +137,7 @@ export function EditMatchSheet({
         <Select
           aria-label="Match type"
           value={type}
-          wrapperClassName="flex-1"
+          wrapperClassName="min-w-0 flex-1"
           onChange={(e) => setType(e.target.value as MatchType)}
         >
           {MATCH_TYPE_OPTIONS.map((o) => (

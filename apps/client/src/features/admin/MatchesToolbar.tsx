@@ -9,16 +9,20 @@ import type { MatchEditing } from './useMatchEditing';
 /**
  * The Matches tab's one toolbar (README "One toolbar"): the match type, which drives both
  * create actions (as today), a count with Create matches, and a number with Create match
- * (left empty, the next free number — the field's placeholder).
+ * (left empty, the next free number — the field's placeholder). The type is the panel's: the
+ * same one the grid's filter shows (UF.9), so what is created is in sight.
  */
 export function MatchesToolbar({
   matches,
   editing,
+  type,
+  onTypeChange,
 }: {
   matches: readonly MatchRow[];
   editing: MatchEditing;
+  type: MatchType;
+  onTypeChange: (type: MatchType) => void;
 }) {
-  const [type, setType] = useState<MatchType>('qualification');
   const [count, setCount] = useState('');
   const [number, setNumber] = useState('');
   const [busy, setBusy] = useState<'many' | 'one' | null>(null);
@@ -43,7 +47,7 @@ export function MatchesToolbar({
         aria-label="Match type"
         value={type}
         wrapperClassName="w-40"
-        onChange={(e) => setType(e.target.value as MatchType)}
+        onChange={(e) => onTypeChange(e.target.value as MatchType)}
       >
         {MATCH_TYPE_OPTIONS.map((o) => (
           <option key={o.key} value={o.key}>

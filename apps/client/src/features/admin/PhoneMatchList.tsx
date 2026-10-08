@@ -11,7 +11,13 @@ import { EditMatchSheet } from './EditMatchSheet';
 import { LeaveGuard } from './LeaveGuard';
 import { MatchCard } from './MatchCard';
 import { MatchErrors } from './MatchErrors';
-import { COMPUTER_LINE, DELETE_MATCH_BODY, MATCH_TYPE_OPTIONS, type MatchPatch } from './matchOps';
+import {
+  COMPUTER_LINE,
+  DELETE_MATCH_BODY,
+  MATCH_TYPE_OPTIONS,
+  matchesShown,
+  type MatchPatch,
+} from './matchOps';
 import { useMatchEditing } from './useMatchEditing';
 import { useOffRosterTeams } from './useOffRosterTeams';
 import type { usePhoneMatches } from './usePhoneMatches';
@@ -51,8 +57,7 @@ export function PhoneMatchList({
   const [confirming, setConfirming] = useState<MatchRow | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  // A "Not saved" match stays in sight, marked, whatever the type shown.
-  const shown = matches.filter((m) => m.match_type === type || editing.unsaved.has(m.id));
+  const shown = matchesShown(matches, type, editing.unsaved);
   const sheetOpen = open !== null || adding;
 
   async function save(match: MatchRow, slots: MatchSlot[], patch: MatchPatch) {

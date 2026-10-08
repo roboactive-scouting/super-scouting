@@ -107,4 +107,40 @@ describe('Sheet (RB.3)', () => {
     await userEvent.click(document.querySelector('[data-sheet-scrim]') as HTMLElement);
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it("initialFocus 'panel' focuses the sheet itself; Tab goes in, focus goes back on close", async () => {
+    function PanelFirst() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Open the sheet
+          </button>
+          <Sheet
+            open={open}
+            side="bottom"
+            title="Edit Q10"
+            initialFocus="panel"
+            onClose={() => setOpen(false)}
+          >
+            <input aria-label="Red 1" />
+            <button type="button">Save changes</button>
+          </Sheet>
+        </>
+      );
+    }
+    render(<PanelFirst />);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole('button', { name: 'Open the sheet' }));
+    const sheet = screen.getByRole('dialog', { name: 'Edit Q10' });
+    expect(sheet).toHaveFocus();
+    expect(document.activeElement?.tagName).not.toBe('INPUT');
+    await u.tab();
+    expect(screen.getByLabelText('Red 1')).toHaveFocus();
+    sheet.focus();
+    await u.tab({ shift: true });
+    expect(screen.getByRole('button', { name: 'Save changes' })).toHaveFocus();
+    await u.keyboard('{Escape}');
+    expect(screen.getByRole('button', { name: 'Open the sheet' })).toHaveFocus();
+  });
 });

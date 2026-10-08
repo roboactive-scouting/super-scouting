@@ -52,6 +52,18 @@ export function sortMatches(items: readonly MatchRow[]): MatchRow[] {
   });
 }
 
+/**
+ * The match-type filter of both Matches views (phone list, desktop grid; UF.9): the matches
+ * of `type`, plus any "Not saved" match, which stays in sight, marked, whatever the type shown.
+ */
+export function matchesShown(
+  matches: readonly MatchRow[],
+  type: MatchType,
+  unsaved: ReadonlySet<string>,
+): MatchRow[] {
+  return matches.filter((m) => m.match_type === type || unsaved.has(m.id));
+}
+
 /** Every match of one event, following the cursor. A match missing `slots` has none. */
 export async function loadAllMatches(rpc: Rpc, eventId: string): Promise<MatchRow[]> {
   const matches: MatchRow[] = [];

@@ -1,9 +1,9 @@
 import { X } from 'lucide-react';
-import { useId, type ReactNode, type RefObject } from 'react';
+import { useId, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { useDragDismiss } from './drag-dismiss';
-import { useModalFocus } from './useModalFocus';
+import { useModalFocus, type InitialFocus } from './useModalFocus';
 
 export type SheetProps = {
   open: boolean;
@@ -17,8 +17,11 @@ export type SheetProps = {
   width?: number;
   /** `dark` is the phone menu on `--rail`; `light` is everything else. */
   tone?: 'light' | 'dark';
-  /** First focus goes here instead of the first focusable element. */
-  initialFocus?: RefObject<HTMLElement | null>;
+  /**
+   * First focus goes here instead of the first focusable element. `'panel'` focuses the sheet
+   * itself, so nothing inside is focused (no keyboard on a sheet of text fields).
+   */
+  initialFocus?: InitialFocus;
   /** `false` holds Escape and the scrim tap (an action in flight). Default true. */
   dismissible?: boolean;
   /** The id of the element that describes the sheet (aria-describedby). */

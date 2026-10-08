@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   bulkResultLine,
   checkCreateField,
+  matchesShown,
   matchPatch,
   missingLine,
   nextNumber,
@@ -94,5 +95,18 @@ describe('matchOps', () => {
     expect([...toggled(before, 'b', true)]).toEqual(['a', 'b']);
     expect([...toggled(before, 'a', false)]).toEqual([]);
     expect([...before]).toEqual(['a']);
+  });
+
+  it('filters by match type, keeping a "Not saved" match of any type in sight', () => {
+    const practice = { ...Q7_ONE_EMPTY, id: 'm-p1', match_type: 'practice' as const, number: 1 };
+    const all = [practice, Q7_ONE_EMPTY, Q10_PARTIAL];
+    expect(matchesShown(all, 'qualification', new Set()).map((m) => m.id)).toEqual([
+      Q7_ONE_EMPTY.id,
+      Q10_PARTIAL.id,
+    ]);
+    expect(matchesShown(all, 'practice', new Set()).map((m) => m.id)).toEqual(['m-p1']);
+    expect(matchesShown(all, 'playoff', new Set([Q10_PARTIAL.id])).map((m) => m.id)).toEqual([
+      Q10_PARTIAL.id,
+    ]);
   });
 });

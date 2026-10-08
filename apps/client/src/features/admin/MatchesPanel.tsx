@@ -1,25 +1,38 @@
 import { useState } from 'react';
-import type { Alliance, MatchRow } from '@frc/shared';
+import type { Alliance, MatchRow, MatchType } from '@frc/shared';
 import { DestructiveConfirm } from '@/components/ui/destructive-confirm';
+import { Segmented } from '@/components/ui/segmented';
 import { matchLabel } from '@/lib/matchLabel';
 import { EditMatchDialog } from './EditMatchDialog';
 import { LineupGrid } from './LineupGrid';
 import { MatchErrors } from './MatchErrors';
 import { MatchesToolbar } from './MatchesToolbar';
-import { DELETE_MATCH_BODY, notOnRosterLine, type Station, type Typed } from './matchOps';
+import {
+  DELETE_MATCH_BODY,
+  MATCH_TYPE_OPTIONS,
+  matchesShown,
+  notOnRosterLine,
+  type Station,
+  type Typed,
+} from './matchOps';
 import { ProblemBar } from './ProblemBar';
 import { useMatchEditing, type MatchEditingProps } from './useMatchEditing';
 import { useOffRosterTeams } from './useOffRosterTeams';
 
 /**
  * The Matches tab (README "Matches", SPEC-FINAL 6.4): the toolbar, the problem summary
- * and the typed line-up grid. ManagePage owns the lists (so the tab counts stay right);
- * every change is reported through `onMatchesChange` / `onRosterChange`.
+ * and the typed line-up grid, filtered by match type like the phone list (UF.9): the same
+ * segmented control and the same rule (a "Not saved" match stays in sight). The toolbar's
+ * type is the filter's, so a match just created is on screen. ManagePage owns the lists (so
+ * the tab counts stay right); every change is reported through `onMatchesChange` /
+ * `onRosterChange`.
  */
 export function MatchesPanel(props: MatchEditingProps) {
   const { rpc, matches, roster } = props;
   const editing = useMatchEditing(props);
   const { rosterIds, byId } = useOffRosterTeams(rpc, matches, roster, editing.savedCount);
+  const [type, setType] = useState<MatchType>('qualification');
+  const shown = matchesShown(matches, type, editing.unsaved);
   const [editingMatch, setEditingMatch] = useState<MatchRow | null>(null);
   const [confirming, setConfirming] = useState<MatchRow | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -49,7 +62,7 @@ export function MatchesPanel(props: MatchEditingProps) {
 
   return (
     <section aria-label="Matches" className="relative rounded-card border border-line bg-surface">
-      <MatchesToolbar matches={matches} editing={editing} />
+      <MatchesToolbar matches={matches} editing={editing} type={type} onTypeChange={setType} />
       <ProblemBar
         matches={matches}
         rosterIds={rosterIds}
@@ -62,11 +75,19 @@ export function MatchesPanel(props: MatchEditingProps) {
         </p>
       )}
       <MatchErrors editing={editing} showError={!editingMatch} className="mx-3.5 mt-3" />
-      {matches.length === 0 ? (
+      <div className="max-w-md px-3.5 pt-3">
+        <Segmented
+          label="Show matches"
+          options={MATCH_TYPE_OPTIONS}
+          value={type}
+          onChange={setType}
+        />
+      </div>
+      {shown.length === 0 ? (
         <p className="px-3.5 py-6 text-muted">No matches yet.</p>
       ) : (
         <LineupGrid
-          matches={matches}
+          matches={shown}
           roster={roster}
           teams={byId}
           rosterIds={rosterIds}

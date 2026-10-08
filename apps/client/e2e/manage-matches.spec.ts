@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './api-mock';
 import { MATCHES } from './fixtures';
 import { shoot } from './shoot';
+import { touchDrag } from './touch';
 
 /**
  * Manage → Matches (RB.17): the typed line-up grid on a desktop, and the matches-only view
@@ -65,4 +66,62 @@ test('manage matches, phone: list, edit sheet, add sheet', async ({ page }) => {
   await add.getByLabel('How many qualification matches?').fill('72');
   await expect(add.getByRole('button', { name: 'Create 72 matches' })).toBeVisible();
   await shoot(page, 'manage-phone-add', 'phone');
+});
+
+test("manage matches, desktop: the phone's match-type filter above the grid", async ({ page }) => {
+  // Two practice matches beside the ten qualification ones, so the filter has something to show.
+  const practice = MATCHES.slice(0, 2).map((m, i) => ({
+    ...m,
+    // A uuid of its own (the mock checks every answer against its schema).
+    id: m.id.replace(/^0/, '9'),
+    match_type: 'practice' as unknown as 'qualification',
+    number: i + 1,
+  }));
+  await signIn(page, 'admin', {
+    overrides: {
+      listMatches: { items: [...practice, ...MATCHES.slice(0, 10)], next_cursor: null },
+    },
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/admin/manage');
+  await page.getByRole('tab', { name: /Matches/ }).click();
+  const filter = page.getByRole('radiogroup', { name: 'Show matches' });
+  await expect(filter.getByRole('radio', { name: 'Qualification' })).toBeChecked();
+  await expect(page.getByRole('group', { name: 'Q1', exact: true })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'P1', exact: true })).toHaveCount(0);
+  await filter.getByRole('radio', { name: 'Practice' }).click();
+  await expect(page.getByRole('group', { name: 'P1', exact: true })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'P2', exact: true })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Q1', exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('Match type')).toHaveValue('practice');
+  await shoot(page, 'manage-filter', 'desktop');
+});
+
+test('manage matches, phone: the edit sheet fits, opens at the top, focuses nothing, drags closed', async ({
+  page,
+}) => {
+  await openManage(page, 375, 812);
+  await page.getByRole('button', { name: /^Q7/ }).click();
+  const edit = page.getByRole('dialog', { name: 'Edit Q7' });
+  await expect(edit).toBeVisible();
+  await shoot(page, 'manage-phone-edit-open', 'phone');
+  const state = await edit.evaluate((panel) => ({
+    pageOverflow: document.documentElement.scrollWidth - window.innerWidth,
+    panelOverflow: panel.scrollWidth - panel.clientWidth,
+    panelRight: Math.round(panel.getBoundingClientRect().right),
+    scrollTop: panel.scrollTop,
+    active: document.activeElement?.tagName,
+    activeIsPanel: document.activeElement === panel,
+  }));
+  expect(state).toEqual({
+    pageOverflow: 0,
+    panelOverflow: 0,
+    panelRight: 375,
+    scrollTop: 0,
+    active: 'DIV',
+    activeIsPanel: true,
+  });
+  // A drag down from the sheet's body (not only its handle) closes it: no field holds focus.
+  await touchDrag(page, edit.getByText('Line-up · type a team number'), { dy: 240 });
+  await expect(edit).toHaveCount(0);
 });

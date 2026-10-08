@@ -117,6 +117,20 @@ describe('ManageRoute', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('the edit sheet opens at the top with nothing in it focused (no keyboard)', async () => {
+    setWidth(375);
+    renderManageRoute({ role: 'admin' });
+    await userEvent.click(await screen.findByRole('button', { name: /^Q10/ }, LAZY));
+    const sheet = screen.getByRole('dialog', { name: 'Edit Q10' });
+    expect(sheet).toHaveFocus();
+    expect(document.activeElement?.tagName).not.toBe('INPUT');
+    expect(within(sheet).queryByRole('listbox')).toBeNull();
+    expect(sheet.scrollTop).toBe(0);
+    // Tab still goes in, to the first station.
+    await userEvent.tab();
+    expect(within(sheet).getByRole('combobox', { name: 'Red 1' })).toHaveFocus();
+  });
+
   it('Save changes stops while a station holds a number not on the roster', async () => {
     setWidth(375);
     const call = renderManageRoute({ role: 'admin' });

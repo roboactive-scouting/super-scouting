@@ -10,16 +10,29 @@ const FOCUSABLE =
  * Not a native <dialog>: jsdom has no `showModal`, and the tests must exercise the same
  * rules the app ships. First written for the confirm dialog (redesign task R.3).
  *
+ * `initial = 'panel'` puts first focus on the panel itself (UF.9): a phone sheet of text
+ * fields then opens with no keyboard, no iOS zoom and no scroll to a field. Tab from the panel
+ * goes to the first control, Shift+Tab to the last, and a screen reader reads the dialog name.
+ *
  * The panel itself must carry `tabIndex={-1}` (redesign review): a click on text inside it
  * then focuses the panel, not <body>, so Escape and the Tab trap keep working.
  */
-export function useModalFocus(onEscape: () => void, initial?: RefObject<HTMLElement | null>) {
+/** Where a modal surface puts first focus: an element, or `'panel'` (the surface itself). */
+export type InitialFocus = RefObject<HTMLElement | null> | 'panel';
+
+export function useModalFocus(onEscape: () => void, initial?: InitialFocus) {
   const panel = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
-    const first = initial?.current ?? panel.current?.querySelector<HTMLElement>(FOCUSABLE) ?? null;
-    first?.focus();
+    if (initial === 'panel') {
+      // preventScroll: a sheet may still be sliding in; nothing inside it should move.
+      panel.current?.focus({ preventScroll: true });
+    } else {
+      const first =
+        initial?.current ?? panel.current?.querySelector<HTMLElement>(FOCUSABLE) ?? null;
+      first?.focus();
+    }
     return () => {
       if (opener && opener.isConnected) opener.focus();
     };
@@ -37,10 +50,12 @@ export function useModalFocus(onEscape: () => void, initial?: RefObject<HTMLElem
     const first = items[0];
     const last = items[items.length - 1];
     if (!first || !last) return;
-    if (e.shiftKey && document.activeElement === first) {
+    // From the panel itself (first focus 'panel', or a click on its text) Tab goes inside.
+    const onPanel = document.activeElement === panel.current;
+    if (e.shiftKey && (onPanel || document.activeElement === first)) {
       e.preventDefault();
       last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
+    } else if (!e.shiftKey && (onPanel || document.activeElement === last)) {
       e.preventDefault();
       first.focus();
     }
