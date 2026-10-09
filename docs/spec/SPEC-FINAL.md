@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.24 · **Date:** 2026-10-09 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.25 · **Date:** 2026-10-09 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.25 adds the Settings page (§8.6, §17.9). See the living spec's §21, 2026-10-09 (v0.76).*
 
 *v1.24 adds the super-scouting page's design to §8.1. See the living spec's §21, 2026-10-09 (v0.75).*
 
@@ -961,6 +963,7 @@ All of the following ship:
 - Large touch targets — **minimum 48 × 48 px with ≥ 8 px between adjacent targets**.
 - **Outdoor-readable high-contrast theme** (§17.4).
 - **Large-text option** — an in-app multiplier on top of the OS text size.
+- *(v1.25)* These live on a **Settings** page (`/settings`, a "This device" nav group, every role; `docs/design/pages/16-settings/final/`): rows for Theme (Light · Outdoor) and Text size (100 · 115 · 130 · 150%), each choice opening with a **live example** of real entry controls in the picked theme or size; Keep the screen on; Vibrate on taps (disabled where the phone cannot vibrate); the device's sign-in, competition and version; and Wipe this device (§9.9), shown held while anything waits to send.
 - **Haptic feedback** on taps.
 - **Screen wake lock** — no dimming mid-match.
 - **Thumb-reachable primary actions.**
@@ -1966,6 +1969,7 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 | Users (`/admin/users`) | Added 2026-10-07, v1.12. Desktop only. Search; filter chips **All · Scouters · Leads · Admins · Disabled** with counts; a table of name, username, role, status, **entries this season** and row quick actions (**Reset password**, **Disable** — Disable still confirms). A row opens the account. **Add a user** is a dialog: full name, a username suggested from it, the role as three described choices, an initial password with **Generate**, "ask them to change it"; after creating, the dialog shows the password once to hand over. Not offered on a phone at all. |
 | User detail (`/admin/users/:id`) | Added 2026-10-07, v1.13. Desktop only. One column: who it is (with "This is you" on your own account); **Role** as three described choices that **save on pick, with no Save button** ("Saving…", then a "Saved" line; a refusal shows the server's sentence and restores the role); Rename; Reset password with **Generate** and the one-time handover; **Disable** behind the destructive confirmation. A disabled account shows only **Enable account**. |
 | Change password (`/change-password`) | Added 2026-10-07, v1.14. The sign-in frame. Forced after sign-in ("Choose a new password", no way back) or by choice ("Change your password", Back to scouting). Current, new and confirm, each with **show / hide**; **live checks** for "at least 8 characters" and "both new passwords match"; offline is said first and the button is held. Reached by choice from the **account menu** (the sidebar's account corner: Switch scouter · Change password · Sign out; on a phone, the drawer's account section). |
+| Settings (`/settings`) | Added 2026-10-09, v1.25. Every role, any width; in a "This device" nav group. Rows with their values (Theme, Text size; Keep the screen on, Vibrate on taps; this device's facts and Wipe). Theme and Text size open a sheet (phone) or dialog (computer) with a live example. Saved per device. |
 | Phone data entry | One job on screen. Primary actions stay thumb-reachable. Counters are a − / value / + triplet, never a text input. The sticky timer never fights the page scroll. |
 | Forms list (`/admin/forms`) | Added 2026-10-08, v1.21. Desktop only; admins; not in the phone menu. Season chips (a plain label, a dot on the active season); per form a card with status, counts, last edited · who, and the version timeline with Continue / Open / View and Restore; Open builder; Create or Import for a missing form; a warning while no match form is published. |
 | Form builder | Three panes: palette → canvas → settings. Semantic metadata lives in the settings pane so it is filled *while* the field is created. *(Amended 2026-10-08, v1.20.)* Desktop only. The canvas draws the real entry controls, paged by phase like the entry form; **Try it** replaces a separate preview and shows the data the entry would save. Top bar: version chip, Match timer, More (Edit as JSON · Export · Import · Delete form), Save draft / Publish. Map fields are buttons that open the map dialog. |

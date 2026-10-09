@@ -97,3 +97,35 @@ body {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
+
+/* The outdoor high-contrast theme (SPEC-FINAL §8.6, §17.4), copied from apps/client/src/styles/theme.css
+   (decided in RB.1) so mockups can be drawn in it. The app's file is the source for these values. */
+[data-theme='outdoor'] {
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --line: #808a96;
+  --line-2: #e3e7ec;
+  --control-border: #3a424e;
+  --ink: #000000;
+  --ink-2: #141820;
+  --muted: #3a424e;
+  --faint: #5f6977;
+  --rail: #000000;
+  --rail-raised: #1c2027;
+  --rail-ink: #ffffff;
+  --rail-muted: #c9cfd8;
+  --rail-line: #3a424e;
+  --accent: #0b5a43;
+  --accent-ink: #063d2d;
+  --accent-tint: #dcefe6;
+  --on-accent: #ffffff;
+  --warn: #6b4409;
+  --warn-tint: #fbf1e1;
+  --alliance-red: #8e2b25;
+  --alliance-red-tint: #fbeae8;
+  --alliance-blue: #1f4a9e;
+  --alliance-blue-tint: #e8eefb;
+  --alliance-red-strong: #8e2b25; /* the outdoor alliance colour itself: already darker than light's strong */
+  --alliance-blue-strong: #1f4a9e;
+  --coverage-gap: #5fa88a;
+}

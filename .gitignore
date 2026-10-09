@@ -12,3 +12,6 @@ coverage/
 # database dumps — they contain every user row and never belong in the repository.
 # Deliberately NOT *.sql: packages/db/supabase/migrations/*.sql must be committed.
 *.backup.sql
+
+# Outdoor-theme check renders (regenerate with the command in that folder's README)
+docs/design/pages/16-settings/outdoor-check/*.png
