@@ -6674,3 +6674,13 @@ Phone: Manage below 1024 px is the matches-only view (`ManagePhone`), so event c
 Rejected: keeping ↑ ↓ beside the grip as a keyboard path — the keyboard sensor already moves by arrows from the grip, and the user asked for the arrows to go.
 
 **Risk:** `manage-desktop-competitions.png` still shows ↑ ↓ (the README says so); in the 2- and 3-column grid an arrow key moves to the card in that direction (ArrowDown goes a row down, not one place).
+
+## Phase 1 D client — `entries.spec.ts` "a failed sync says why" marked slow
+
+**Plan said:** nothing; the test is UF.13's, with the suite's 30 s timeout.
+
+**What was wrong:** in every whole-suite e2e run after the forms specs landed it failed: `Test timeout of 30000ms exceeded.` Run alone it passes (`1 passed`, the test itself 14.1 s). It signs in, waits for the sign-in sync, then holds a push — about half its budget alone — and the 19 builder specs now run beside it in parallel. Nothing it exercises changed in this run (the branch touched only `RpcError`'s new `details` on that path).
+
+**What I did instead:** `test.slow()` on that one test (3× the timeout), with a comment saying why. Rejected: raising the suite's timeout (hides slow tests everywhere), and fewer workers (slows every run).
+
+**Risk:** a real slowdown in that flow would now take 90 s to fail instead of 30 s.

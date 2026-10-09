@@ -158,6 +158,9 @@ test('entries: an empty device says so and offers Scout a match', async ({ page 
 });
 
 test('entries: a failed sync says why above the list (UF.13)', async ({ page }) => {
+  // About 14 s alone (a sign-in sync, then a held push); beside the builder specs in a full
+  // parallel run it passed 30 s (Phase 1 D client, DEVIATIONS).
+  test.slow();
   await setClock(page);
   await signIn(page, 'lead', {
     overrides: {
