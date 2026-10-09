@@ -55,6 +55,19 @@ async function expectClearOfBar(page: Page, what: ReturnType<Page['getByRole']>)
   expect(box.y + box.height).toBeLessThanOrEqual(bar.y);
 }
 
+/**
+ * The picked tile is filled with its alliance's strong colour, never the accent tint
+ * (THEME "Station tile", amended 2026-10-08). The tokens' light values, as the browser computes them.
+ */
+const RED_STRONG = 'rgb(154, 47, 41)';
+const BLUE_STRONG = 'rgb(37, 81, 170)';
+const ACCENT_TINT = 'rgb(229, 242, 236)';
+async function expectPickedFill(tile: ReturnType<Page['getByRole']>, fill: string) {
+  await expect(tile).toHaveCSS('background-color', fill);
+  await expect(tile).not.toHaveCSS('background-color', ACCENT_TINT);
+  await expect(tile).toHaveCSS('color', 'rgb(255, 255, 255)');
+}
+
 const scrollToEnd = (page: Page) =>
   page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
 
@@ -75,6 +88,12 @@ test('scout: choose a station, the line-up, and a team not in it', async ({ page
   await expect(page.getByRole('radio', { name: /YOUR STATION/ })).toBeChecked();
   await expect(page.getByRole('radio', { name: /YOUR STATION/ })).toContainText('4590');
   await expect(page.getByRole('button', { name: /^Start entry · 4590/ })).toBeEnabled();
+  await expectPickedFill(page.getByRole('radio', { name: /BLUE 2/ }), BLUE_STRONG);
+  await expect(page.getByText('YOUR STATION', { exact: true })).toHaveCSS(
+    'background-color',
+    'rgb(255, 255, 255)',
+  );
+  await expect(page.getByText('YOUR STATION', { exact: true })).toHaveCSS('color', BLUE_STRONG);
   await shoot(page, 'scout');
   await expectTagBesideLabel(page);
   await expectBarFlushOnNav(page);
@@ -92,6 +111,20 @@ test('scout: choose a station, the line-up, and a team not in it', async ({ page
   await expect(ask).toContainText('Your station stays Blue 2.');
   await ask.getByRole('button', { name: 'Keep Blue 2' }).click();
   await expect(ask).toBeHidden();
+  await expectPickedFill(page.getByRole('radio', { name: /BLUE 2/ }), BLUE_STRONG);
+
+  // Scouting Red 1 instead fills Red 1 in the red strong colour; Blue 2 returns to its tint.
+  await page.getByRole('radio', { name: /RED 1/ }).click();
+  await ask.getByRole('button', { name: 'Scout Red 1' }).click();
+  await expect(ask).toBeHidden();
+  const red = page.getByRole('radio', { name: /RED 1/ });
+  await expect(red).toBeChecked();
+  await expectPickedFill(red, RED_STRONG);
+  await expect(page.getByRole('radio', { name: /BLUE 2/ })).not.toHaveCSS(
+    'background-color',
+    BLUE_STRONG,
+  );
+  await shoot(page, 'scout-red');
 
   await page.getByRole('button', { name: /Team not here\?/ }).click();
   await expect(page.getByRole('heading', { name: 'Which team are you watching?' })).toBeVisible();

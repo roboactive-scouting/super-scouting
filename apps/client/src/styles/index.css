@@ -30,6 +30,8 @@
   --color-alliance-red-tint: var(--alliance-red-tint);
   --color-alliance-blue: var(--alliance-blue);
   --color-alliance-blue-tint: var(--alliance-blue-tint);
+  --color-alliance-red-strong: var(--alliance-red-strong);
+  --color-alliance-blue-strong: var(--alliance-blue-strong);
   --color-coverage-gap: var(--coverage-gap);
 
   --font-ui: 'Schibsted Grotesk Variable', 'Noto Sans Hebrew', system-ui, sans-serif;

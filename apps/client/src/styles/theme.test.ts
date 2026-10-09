@@ -33,6 +33,8 @@ const TOKENS = [
   '--alliance-red-tint',
   '--alliance-blue',
   '--alliance-blue-tint',
+  '--alliance-red-strong',
+  '--alliance-blue-strong',
 ];
 
 describe('theme tokens (THEME.md, SPEC-FINAL 17.4)', () => {
@@ -62,7 +64,7 @@ describe('theme tokens (THEME.md, SPEC-FINAL 17.4)', () => {
     });
     const names = reds.map(([, name]) => name!);
     // Positive control: the scan must actually see the alliance red, or it passes vacuously.
-    expect(names).toEqual(['alliance-red']);
+    expect(names).toEqual(['alliance-red', 'alliance-red-strong']);
     expect(names.filter((n) => !n.startsWith('alliance-red'))).toEqual([]);
   });
 });
