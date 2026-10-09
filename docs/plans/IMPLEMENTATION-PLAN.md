@@ -14015,7 +14015,7 @@ git add -A && git commit -m "feat: add the position picker and cycle path with a
 
 - [ ] **Step 2: Implement**
 
-**The super-scouting entry point (SPEC-FINAL §8.1).** A second, separate route at `/super`, because a super record is one per **(team, event)**, not per match. **Design closed 2026-10-09 — match `docs/design/pages/15-super/final/` and its README:** a Super scouting card at the foot of Scout; the picker = "Watching Q41" (Scout's next match, changeable) with that match's six station tiles (display only), the progress line, search, To do / Done / All chips and the roster list ordered by matches seen on this device; the form header with the SUPER tag and "Seen here in …" chips; the confirmation states no match is recorded. All of it is derived from what the device holds — no new server query. It asks for three things and no more:
+**The super-scouting entry point (SPEC-FINAL §8.1).** A second, separate route at `/super`, because a super record is one per **(team, event)**, not per match. **Design closed 2026-10-09 — match `docs/design/pages/15-super/final/` and its README:** a Super scouting card at the foot of Scout; the picker = the progress line, search, To do / Done / All chips and the roster list ordered by matches seen on this device; the form header with the SUPER tag and "Seen here in …" chips; the confirmation states no match is recorded. All of it is derived from what the device holds — no new server query. It asks for three things and no more:
 
 1. the active season's `super` form, resolved by `kind` — never chosen by the scouter;
 2. the **team**, from the event roster;

@@ -11,8 +11,8 @@ const scout = P.screen({ title: 'Scout', body: `<div class="su-pad"><div class="
 const pick = P.screen({ title: 'Super scouting', body: U.pickFinal(), bar: false });
 const conf = P.screen({ title: 'Super scouting', body: U.formBody({ edit: false }), over: U.confirm(), bar: false });
 const fig = (h, c) => `<figure class="frame"><div class="phone" style="zoom:.78">${h}</div><figcaption>${c}</figcaption></figure>`;
-document.getElementById('root').innerHTML = `<div class="canvas" style="height:940px"><div class="canvas-head"><b>Super scouting — final · phone</b><span>Variant A with C's "Watching" tiles. One entry per team for the whole event: no match, alliance, robot status or timer.</span></div>
-  <div class="frames" style="gap:14px">${fig(scout, '1 · The way in: a card at the foot of Scout')}${fig(pick, '2 · The match you watch, then the to-do list')}${fig(U.form(), '3 · The super form')}${fig(U.form({ edit: true, time: '11:51' }), '4 · A done team reopens its entry')}${fig(conf, '5 · Confirm names team and event, no match')}</div></div>`;
+document.getElementById('root').innerHTML = `<div class="canvas" style="height:940px"><div class="canvas-head"><b>Super scouting — final · phone</b><span>Variant A. One entry per team for the whole event: no match, alliance, robot status or timer.</span></div>
+  <div class="frames" style="gap:14px">${fig(scout, '1 · The way in: a card at the foot of Scout')}${fig(pick, '2 · Pick a team: to do first, most seen first')}${fig(U.form(), '3 · The super form')}${fig(U.form({ edit: true, time: '11:51' }), '4 · A done team reopens its entry')}${fig(conf, '5 · Confirm names team and event, no match')}</div></div>`;
 
 </script>
 <script src="../../shell.js"></script>

@@ -919,7 +919,7 @@ This is where 95% of usage happens: a student in a loud arena, phone in one hand
 
 If a super entry for that (team, event) already exists on the device, the app opens it for editing rather than starting a second one. The duplicate path of §9.5 exists for the case two devices create one independently.
 
-*Design (v1.24, `docs/design/pages/15-super/final/`):* reached from a **Super scouting** card on Scout. The picker shows the six teams of the match being watched (the next after the last Scout match, changeable) as station tiles — **choosing which teams to show only; the entry stores no match** — then a progress line ("6 of 20 super-scouted on this device"), search and **To do · Done · All** chips over the roster, to-do teams ordered by how many matches this device saw them in. The form's header names the team, the event, and the matches this device scouted the team in ("Seen here in Q12 · Q19…"); a reopened entry says so. The confirmation names the team and the event and says no match is recorded.
+*Design (v1.24, `docs/design/pages/15-super/final/`):* reached from a **Super scouting** card on Scout. The picker shows a progress line ("6 of 20 super-scouted on this device"), search and **To do · Done · All** chips over the roster, to-do teams ordered by how many matches this device saw them in. The form's header names the team, the event, and the matches this device scouted the team in ("Seen here in Q12 · Q19…"); a reopened entry says so. The confirmation names the team and the event and says no match is recorded.
 
 ### 8.2 The entry form
 

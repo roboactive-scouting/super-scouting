@@ -78,11 +78,9 @@ window.SU = (() => {
   };
   const card = (items, layout) => `<div class="su-card"><h4>New in this variant</h4><p>Not in the spec today. For each: now · not now, but wanted · not at all.</p><ol>${items.map((i) => `<li><span>${i}</span></li>`).join('')}</ol><div class="lay">${layout}</div></div>`;
   const deskForm = (o = {}) => `<div class="card">${head(o)}${tabs3(1)}<div class="pane">${phead3('Teleop', 2)}${teleop(o)}</div><div class="ebar"><a class="btn primary block">Review entry</a></div></div>`;
-  // Final picker (A + C's watching tiles), chosen 2026-10-09.
+  // Final picker: variant A (2026-10-09; C's watching tiles added, then removed by the user the same day).
   const pickFinal = (o = {}) => `<div class="su-pad">${title()}
-      <div class="su-mline">Watching<span class="mn"><span>Q</span>41</span><span style="color:var(--muted);font-size:12px">next after your last Scout match</span><span class="link">Change</span></div>
-      <div class="cols">${lineupSuper()}</div>
-      ${prog()}${search(o.q)}${chips(o.filter || 'To do')}<div class="su-list">${(o.filter === 'Done' ? TEAMS.filter((t) => t[3]) : TEAMS.filter((t) => !t[3]).sort((a, b) => b[2] - a[2])).slice(0, o.n || 3).map(li).join('')}</div></div>`;
+      ${prog()}${search(o.q)}${chips(o.filter || 'To do')}<div class="su-list">${(o.filter === 'Done' ? TEAMS.filter((t) => t[3]) : TEAMS.filter((t) => !t[3]).sort((a, b) => b[2] - a[2])).slice(0, o.n || 7).map(li).join('')}</div></div>`;
   const confirm = () => `<div class="px-scrim"></div><div class="px-sheet"><span class="grab"></span><h3>Submit the super entry?</h3>
       <p><b style="color:var(--ink)">1690 Orbit</b> · ${EVENT} · the whole event. No match is recorded.</p>
       <div class="px-probs">

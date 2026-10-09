@@ -14,7 +14,7 @@ const fields = row('Driver skill', 'Across every match you watched', ctl(P.stars
   row('Penalties seen', 'Pick any that apply', ctl(P.multi('', ['Pinning', 'Contact', 'Over limit'], [])));
 const tabs3 = `<div class="ptabs" style="grid-template-columns:repeat(3,1fr)"><span>Auto</span><span class="on">Teleop</span><span>Notes</span></div>`;
 const form = `<div class="card">${U.head()}${tabs3}<div class="pane"><div class="phead"><b>Teleop</b><span class="pos">Phase 2 of 3</span><span class="dots"><i class="done"></i><i class="on"></i><i></i></span></div>${fields}</div><div class="ebar"><a class="btn primary block">Review entry</a></div></div>`;
-document.getElementById('root').innerHTML = `<div class="desk final"><div data-desk-shell="scout" data-crumb="Scout / <b>Super scouting</b>"><div class="su-desk"><div>${U.pickFinal({ n: 4 })}</div>${form}</div></div></div>`;
+document.getElementById('root').innerHTML = `<div class="desk final"><div data-desk-shell="scout" data-crumb="Scout / <b>Super scouting</b>"><div class="su-desk"><div>${U.pickFinal({ n: 8 })}</div>${form}</div></div></div>`;
 
 </script>
 <script src="../../shell.js"></script>
