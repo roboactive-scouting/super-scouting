@@ -1,6 +1,14 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.18 · **Date:** 2026-10-08 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.22 · **Date:** 2026-10-08 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.22 amends §5.1 (exports are kept in the app for 24 hours, import picks from them; a form delete is confirmed by typing) and §3 (`form_exports`), and records the builder's remaining screens in §5.9. See the living spec's §21, 2026-10-08 (v0.70). Appendix C gains the form use cases built by tasks 1.27–1.28 (`listForms`, `saveDraftFields`, `exportForm`, `importForm`, `saveFormExport`, `listFormExports`, `getFormExport`), with no version bump.*
+
+*v1.21 adds the forms list (`/admin/forms`): §5.9, §17.9's new Forms row, and `form_versions.updated_by` in §3. See the living spec's §21, 2026-10-08 (v0.69).*
+
+*v1.20 adds the form builder's closed design: §5.1 (a new field's key follows its label until the first save; select-option changes are structural), §5.2 / §5.3 / §5.6 (an event-log field may ask where each tap happened), §5.9 (the builder's layout), §8.2 (map fields open a full-screen map) and §17.9's Form builder row. See the living spec's §21, 2026-10-08 (v0.68).*
+
+*v1.19 moves the v1 date to 2026-12-01 (scope line, §20.1) and removes §20.6's phase 2 cut: every phase 1 and phase 2 task is built. See the living spec's §21, 2026-10-08 (v0.67).*
 
 *v1.18 amends §9.3 (a delta pull also carries deleted matches), §9.3.1 (a missing parent is `parent-deleted`, never a transient error) and §9.7 (a deleted match is rebuilt, not discarded). See the living spec's §21, 2026-10-08 (v0.66).*
 
@@ -40,7 +48,7 @@
 
 **What this document is not.** It carries no rationale, no rejected options, no parked or deferred items, no decision log and no change history. Those live in `frc-scouting-app-spec.md`, which remains the archive of *why*.
 
-**Scope boundary.** Everything in this document is **v1 = phases 0–2, due 2026-11-20**. Appendix A lists what is deliberately excluded, so the plan never re-adds a deferred item.
+**Scope boundary.** Everything in this document is **v1 = phases 0–2, due 2026-12-01** (amended 2026-10-08, v1.19). Appendix A lists what is deliberately excluded, so the plan never re-adds a deferred item.
 
 ---
 
@@ -262,9 +270,19 @@ form_versions (
   version_no    integer not null,
   published_at  timestamptz,           -- null = draft
   is_locked     boolean not null default false,
+  updated_by    uuid references users(id),   -- who last saved it; shown on the forms list (v1.21)
   created_at, updated_at,
   unique (form_id, version_no)
 )
+
+form_exports (                         -- v1.22: saved exports, kept 24 hours
+  id           uuid primary key,
+  form_id      uuid references forms(id) on delete set null,
+  label        text not null,          -- e.g. 'Match form 2026 · draft v4'
+  definition   jsonb not null,         -- exactly what exportForm returns
+  created_by   uuid not null references users(id),
+  created_at   timestamptz not null default now()
+)                                      -- rows older than 24 hours are deleted whenever exports are listed or saved
 create index on form_versions (form_id, updated_at);
 
 form_fields (
@@ -599,16 +617,16 @@ Points are captured at field-creation time for the same reason as semantic metad
 ### 5.1 Versioning
 
 - A form belongs to a **season**. A season may hold several forms (one `match`, one `super`). Every event in that season uses them.
-- **A new form version is created only by a structural change**: adding a field, removing/deprecating a field, or changing a field's type.
+- **A new form version is created only by a structural change**: adding a field, removing/deprecating a field, or changing a field's type. **Adding, removing or reordering a select option is structural too**; renaming an option's label is in place. *(amended 2026-10-08, v1.20)*
 - **These edits happen in place and create no version:** a field's `label`, its help text, its `min`/`max`/`step` range, its `expected_range`, its display order, its section, its semantic metadata, its scoring, and the form's `timer_config`. A range change applies to new entries only and never retroactively invalidates data already collected.
-- **Field `key`s are permanent.** Labels change freely; keys never.
+- **Field `key`s are permanent.** Labels change freely; keys never. A new field's key is generated from its label and **follows the label until the field is first saved**; from that save on it never changes. *(amended 2026-10-08, v1.20)*
 - Deleting a field marks it `deprecated` in the new version. Historical data is retained.
 - A form has one **active version** (`forms.active_version_id`) plus restorable secondary version snapshots. Statistics always compute against the **active** version's field set.
 - Entries collected under other versions still aggregate through shared field `key`s.
 - **Offline form editing is not allowed.** Form changes require connectivity.
 - **Form templates are admin-only.** Creating, importing, editing and deleting a form definition is admin-only; submitting entries against one is open to all roles.
-- **Deleting a form is a cascade delete behind an explicit warning, admin-only.**
-- **Export/import of a form definition as JSON** is supported. There is no "duplicate last year's form" feature.
+- **Deleting a form is a cascade delete behind an explicit warning, admin-only.** The warning names the versions and the entries it removes, offers Export first, and is confirmed by **typing `delete match form`** (or `delete super form`). *(amended 2026-10-08, v1.22)*
+- **Export/import of a form definition as JSON** is supported. There is no "duplicate last year's form" feature. *(Amended 2026-10-08, v1.22:)* **Export saves one chosen version** (the draft or the active one) **into Exports, kept 24 hours and then deleted**, with an optional download of the `.json` file for a long-term backup. **Import picks from the saved exports** (or a downloaded file), shows what it would add, change or remove, and becomes a draft: it replaces an existing form's draft, or creates an empty form as draft v1. Exporting one season's form and importing it into the next is how a new season starts from the old form.
 
 ### 5.2 Field type catalogue
 
@@ -625,7 +643,7 @@ All of the following ship in v1.
 | **Short text** | Free text. |
 | **Long text** | Notes / comments. |
 | **Timer** | Accumulating stopwatch. **Editable after stop** (to correct a late stop) and **nullable via an "unsure — no time" toggle** (submits no value rather than a wrong number). |
-| **Event log** | Scouter-defined event buttons. Each tap is stored as `{type, t}` where `t` is seconds from match start (§5.5). Taps are deletable before submit. |
+| **Event log** | Scouter-defined event buttons. Each tap is stored as `{type, t}` where `t` is seconds from match start (§5.5). Taps are deletable before submit. **Optionally, per field, each tap also asks where** (`ask_position`): the map opens after the tap, and the tap stores `{type, t, x, y}`, or `{type, t}` when the scouter skips. *(amended 2026-10-08, v1.20)* |
 | **Field-position picker** | Tap the season game image; stores normalized `{x, y}` in 0–1. One point or a list per entry. Alliance-normalized (§5.6). |
 | **Cycle path** | Tap an **ordered sequence of points** per cycle; an entry holds a **list of cycles**. **Low fidelity by design** — a configurable cap on points per cycle, defaulting to 6, keeps the payload light. It is a rough sketch, not a trajectory. Same alliance normalization (§5.6). |
 | **Computed** | Read-only, derived from other fields by a small typed expression (§5.7). |
@@ -643,7 +661,7 @@ Every field carries: `key`, `label`, help text, `type`, `required`, `default_val
 | Rating | `max` (default 5), `style` (`stars` \| `slider`) |
 | Single / Multi select | `options: [{value, label}]`, `is_ordinal` |
 | Timer | `allow_unsure` (always true in v1) |
-| Event log | `event_types: [{value, label}]` |
+| Event log | `event_types: [{value, label}]`, `ask_position` (bool, default false), `mirror_axis` (used when `ask_position` is on) |
 | Field-position picker | `multi_point` (bool), `mirror_axis` ∈ `none` \| `horizontal` \| `vertical` \| `both` |
 | Cycle path | `max_points_per_cycle` (default 6), `mirror_axis` |
 | Computed | `expression` (§5.7), `result_type` ∈ `float` \| `string` |
@@ -695,7 +713,7 @@ Derived series available to the metric engine per event type: **cycle count**, *
 
 ### 5.6 Alliance normalization for spatial fields
 
-Field-position picker and Cycle-path fields store normalized `{x, y}` in 0–1 against the **season game image**.
+Field-position picker and Cycle-path fields, and Event-log taps with a place, store normalized `{x, y}` in 0–1 against the **season game image**.
 
 - The **red** alliance keeps raw coordinates.
 - The **blue** alliance is mirrored on the field's configured `mirror_axis` (`horizontal`, `vertical`, `both`, or `none`), so both alliances map to a single canonical frame.
@@ -735,6 +753,8 @@ Desktop only, **≥ 1024 px** (§17.2). Three panes:
 1. **Field palette** — the type catalogue, dragged onto the canvas.
 2. **Canvas** — the ordered field list, drag-reorderable, grouped by section.
 3. **Settings pane** — the selected field's configuration, semantic metadata and scoring, all in one place so metadata is filled *while* the field is created.
+
+*Closed design (2026-10-08, v1.20; `docs/design/pages/12-form-builder/final/`):* the canvas draws each field with the scouter's real controls and is **paged by phase like the entry form** (the phase tabs, "Phase n of 4", swipe or ← →); its **Try it** mode is the phone-width preview and shows **what the entry would save** and what the analysis gets. The top bar holds **Match timer** and **More** (Edit as JSON · Export · Import · Delete form), then Save draft / Publish; a held Publish says why, with "Next incomplete". A locked version shows a banner naming **how many entries use it**. An incomplete field is marked in the warning colour, never red. Reached from **`/admin/forms`** (v1.21; `docs/design/pages/13-forms/final/`): per season, a card per form (match, super) with its status, fields, entries, last edited (date · who) and a **version timeline** — entries per version, and a button per version that opens the builder on it: **Continue** (the draft), **Open** (the active version, in-place edits), **View** (an older version, read-only) with **Restore**. **Open builder** opens the draft if there is one, else the active version. A missing form offers Create or Import; a season with no published match form shows a warning. The builder route takes the version: `/admin/forms/:formId?version=n`. *(v1.22)* The remaining screens are designed too: the **Match timer** editor (phase rows, a proportional bar, "match ends at", a one-click standard 0:15 · 2:15 · 0:30 when empty), **Edit as JSON** (a line-numbered editor; errors name line and column; Apply held until valid), **Export / Import** (above), **Delete form** (typed confirmation) and **offline** (editing paused, nothing lost).
 
 Plus:
 
@@ -904,6 +924,7 @@ If a super entry for that (team, event) already exists on the device, the app op
 - **Conditional fields** appear and disappear per §5.8.
 - **Hard range block** on submit: a numeric value outside its field's `expected_range` blocks submission (§15.1).
 - **Undo** is available on every repeatable input: counters, event-log taps, position-picker points (undo last point / clear all), multi-select, and timer reset.
+- **Map fields** (position picker, cycle path, and an event log that asks where) are one button in the form showing what is marked. It opens the map **full screen on a phone** and **as a dialog on a computer**, drawn with **the scout's own alliance end at the bottom** (phone) or on the left (computer); only the drawing turns, never the stored coordinates. Tap to add; tap a mark to select it and **✕ Remove** it; Undo. A cycle path shows only the routes: while drawing, **Clear path** restarts the path being drawn. An event log's "where?" can be skipped, keeping the tap's time. *(added 2026-10-08, v1.20)*
 - **Explicit submit.** Submitting shows a **confirmation summary of the whole entry** before it commits. Nothing reaches the shared data on a stray tap.
 
 ### 8.3 Never lose data
@@ -1939,7 +1960,8 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 | User detail (`/admin/users/:id`) | Added 2026-10-07, v1.13. Desktop only. One column: who it is (with "This is you" on your own account); **Role** as three described choices that **save on pick, with no Save button** ("Saving…", then a "Saved" line; a refusal shows the server's sentence and restores the role); Rename; Reset password with **Generate** and the one-time handover; **Disable** behind the destructive confirmation. A disabled account shows only **Enable account**. |
 | Change password (`/change-password`) | Added 2026-10-07, v1.14. The sign-in frame. Forced after sign-in ("Choose a new password", no way back) or by choice ("Change your password", Back to scouting). Current, new and confirm, each with **show / hide**; **live checks** for "at least 8 characters" and "both new passwords match"; offline is said first and the button is held. Reached by choice from the **account menu** (the sidebar's account corner: Switch scouter · Change password · Sign out; on a phone, the drawer's account section). |
 | Phone data entry | One job on screen. Primary actions stay thumb-reachable. Counters are a − / value / + triplet, never a text input. The sticky timer never fights the page scroll. |
-| Form builder | Three panes: palette → canvas → settings. Semantic metadata lives in the settings pane so it is filled *while* the field is created. A preview toggle renders the form at phone width. |
+| Forms list (`/admin/forms`) | Added 2026-10-08, v1.21. Desktop only; admins; not in the phone menu. Season chips (a plain label, a dot on the active season); per form a card with status, counts, last edited · who, and the version timeline with Continue / Open / View and Restore; Open builder; Create or Import for a missing form; a warning while no match form is published. |
+| Form builder | Three panes: palette → canvas → settings. Semantic metadata lives in the settings pane so it is filled *while* the field is created. *(Amended 2026-10-08, v1.20.)* Desktop only. The canvas draws the real entry controls, paged by phase like the entry form; **Try it** replaces a separate preview and shows the data the entry would save. Top bar: version chip, Match timer, More (Edit as JSON · Export · Import · Delete form), Save draft / Publish. Map fields are buttons that open the map dialog. |
 | Team page | Sticky team header, horizontal tab strip, stat rows as label → value → inline bar. Readable in one thumb scroll. |
 | Dashboards & builder | A panel grid with a pinned scope/filter bar; a builder order a non-programmer can follow; KPI stat tiles above the charts. |
 | Ranking table | Column sort, column visibility, sticky header, no pagination for 50 teams. Rank column, medals on the top 3. |
@@ -2125,7 +2147,7 @@ The Vercel, Supabase and GitHub accounts are currently **personal**, with the in
 
 ### 20.1 What v1 is
 
-**v1 = phase 0 + phase 1 + phase 2. Target date 2026-11-20.**
+**v1 = phase 0 + phase 1 + phase 2. Target date 2026-12-01** (amended 2026-10-08, v1.19).
 
 ### 20.2 The phases
 
@@ -2177,9 +2199,9 @@ A phase is finished when its gate passes, not when the code is written.
 
 ### 20.6 Schedule checkpoint
 
-**The phase 1 gate should pass by ~2026-10-20**, leaving a month for phase 2.
+**The phase 1 gate should pass by ~2026-11-01**, leaving a month for phase 2 (amended 2026-10-08, v1.19).
 
-**If it has not passed by 2026-11-01, phase 2 is cut to the metric builder and the configurable ranking dashboard** — the chart/dashboard builder, compare, match preview, operational statistics and alliance selection all wait. Phase 1's fixed ranking table already works, so a cut ships a usable ranking either way. v1 ships on 2026-11-20 with less analysis rather than late with more.
+**There is no scope cut.** Every phase 1 task and every phase 2 item is built, in plan order, with nothing skipped (amended 2026-10-08, v1.19); this replaces the earlier rule that cut phase 2 to the metric builder and the ranking dashboard if the gate slipped. The checkpoint is an early warning only: if the gate has not passed by ~2026-11-01, the pace is raised (more parallel design rounds, overnight build runs), not the scope. Until a part lands, the team works with what the app already has (for example, reading entries without dashboards).
 
 ### 20.7 Fallback if v1 is not ready
 
@@ -2339,6 +2361,8 @@ The starting registry for phase 1. Every entry carries a Zod input schema, a Zod
 | `queryEntries` | Entry search for one event, filtered and paginated. |
 | `getEntry` | One entry, fully rendered with derived score and scouter name. |
 | `getForm` / `getFormVersion` / `getFormDictionary` | Form definition and the machine-readable field dictionary. |
+| `listForms` | The forms list (§5.9): a season's match and super forms, each with its versions newest first — status, lock, field count, entries per version, last edited and by whom — and the active version. |
+| `exportForm` / `listFormExports` / `getFormExport` | **Admin only — a `service` caller is refused.** One version's portable definition; the saved exports newest first (rows older than 24 hours are deleted first) with label, field count, author, and expires-in; one saved export with its definition. |
 | `getTeamStats` | All metrics for one team over a scope, plus the match-by-match series and its notes. |
 | `rankTeams` | The ranking table, with optional weighted composite and contribution breakdown. |
 | `compareTeams` | 2–6 teams over the compare metric set. |
@@ -2365,6 +2389,8 @@ The starting registry for phase 1. Every entry carries a Zod input schema, a Zod
 | `createMatch` / `updateMatch` / `setMatchTeams` / `deleteMatch` | admin |
 | **`ensureMatch`** | **any authenticated user** — the bare auto-creation of §6.4. Creates event + type + number only; a no-op if the match exists. |
 | `createForm` / `updateForm` / `publishFormVersion` / `restoreFormVersion` / `deleteForm` / `deleteFormVersion` | admin |
+| `saveDraftFields` / `importForm` | admin — a saved field's key change is refused; a structural change to a published version forks a draft (§5.1) |
+| `saveFormExport` | admin — saves one version (draft or active) into Exports for 24 hours; older rows are deleted first |
 | `setScoringRules` | admin |
 | `upsertEntry` | scouter (own, ≤ 5 min) / lead / admin |
 | `deleteEntry` | lead / admin |

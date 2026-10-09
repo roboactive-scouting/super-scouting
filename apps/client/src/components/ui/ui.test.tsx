@@ -37,6 +37,14 @@ describe('design-system primitives (SPEC-FINAL 17.4, 17.7)', () => {
     );
   });
 
+  it('keeps an inline link button on the floor through its ::after, with no box of its own', () => {
+    const link = buttonVariants({ variant: 'link', size: 'inline' }).split(' ');
+    expect(link).toEqual(
+      expect.arrayContaining(['tap-target', 'min-h-0', 'after:absolute', 'after:-inset-y-3.5']),
+    );
+    expect(link).toContain('text-accent-ink');
+  });
+
   it('defaults a Button to type="button", never an accidental submit', () => {
     render(<Button>Save</Button>);
     expect(screen.getByRole('button', { name: 'Save' })).toHaveAttribute('type', 'button');

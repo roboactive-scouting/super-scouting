@@ -296,11 +296,11 @@ This section applies to every client task that adds or changes a screen, whether
    why. The user checks these screens on dev at the end of the part. The report is the
    list they work from.
 5. **Build on the shared component system** *(redesign build RB.1–RB.20, 2026-10-07)*. Every later task uses these rather than inventing its own:
-   - `components/ui/*`: `action-bar`, `alliance-buttons`, `button`, `card`, `counter`, `described-choice`, `destructive-confirm`, `dialog`, `empty-state`, `filter-chips`, `goto-tile`, `handover`, `initials`, `input`, `label`, `live-checks`, `notice`, `option-buttons`, `password-input`, `responsive-dialog`, `search-field`, `segmented`, `select`, `sheet`, `stat-tile`, `station-pill`, `suggest-input`, `switch`, `table`, `tabs`, `tag`, `textarea` (plus the `useModalFocus` hook). Beside them: `StateMessage`, `Skeleton`, `DesktopOnly`.
+   - `components/ui/*`: `action-bar`, `action-menu`, `alliance-buttons`, `button`, `card`, `counter`, `described-choice`, `destructive-confirm`, `dialog`, `empty-state`, `filter-chips`, `goto-tile`, `handover`, `initials`, `input`, `label`, `live-checks`, `notice`, `option-buttons`, `password-input`, `responsive-dialog`, `search-field`, `segmented`, `select`, `sheet`, `sortable-grip`, `stat-tile`, `station-pill`, `suggest-input`, `switch`, `table`, `tabs`, `tag`, `textarea` (plus the `useModalFocus` hook). Beside them: `StateMessage`, `Skeleton`, `DesktopOnly`.
    - `lib/paths.ts`: every path, written once.
    - `features/shell/nav.ts`: one row per nav destination. Never hand-write a shell link.
    - Anything that moves respects `prefers-reduced-motion`: reduced motion gets still screens.
-   - **Guards:** `pnpm bundle:check` (run after `pnpm build`; initial JS at most 205 KB gzip; it deletes the build manifest) and the `styles/classes.test.ts` test (no palette colours, retired tokens or unguarded motion classes).
+   - **Guards:** `pnpm bundle:check` (run after `pnpm build`; initial JS at most 212 KB gzip (raised from 205 by the user, 2026-10-09); it deletes the build manifest) and the `styles/classes.test.ts` test (no palette colours, retired tokens or unguarded motion classes).
    - **Pinned foot:** a page with an `ActionBar` marks its `<main>` with `data-pinned-foot` and `flex flex-1 flex-col`, so a short page still has the bar at the bottom.
 
    **One copy of each nav destination is in the DOM at a time.** jsdom has no `matchMedia`, so the shell renders its desktop layout under test.

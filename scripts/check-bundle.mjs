@@ -1,13 +1,13 @@
 // The initial-JS budget (RB.18): the entry chunk and its static imports, gzipped, must stay
-// at or under BUDGET_KB. 205 KB = measured 199.4 KB + headroom (user decision 2026-10-07):
-// react-dom, dexie and react-router (~128 KB) are needed at first paint on the offline
+// at or under BUDGET_KB. 212 KB = measured 208.1 KB + headroom (user decision 2026-10-09; was 205 KB,
+// measured 199.4 KB + headroom, 2026-10-07; the form schemas in the shared API map outgrew it): react-dom, dexie and react-router (~128 KB) are needed at first paint on the offline
 // competition path, and the service worker fetches the app once, before the venue. Every lazy chunk is printed and must be in the service worker's
 // precache, so a lazy route still opens offline. Run after `pnpm build`.
 import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
-const BUDGET_KB = 205;
+const BUDGET_KB = 212;
 
 const dist = 'apps/client/dist';
 const manifestPath = join(dist, '.vite/manifest.json');

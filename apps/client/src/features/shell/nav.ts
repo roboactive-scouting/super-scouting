@@ -1,6 +1,14 @@
-import { Calendar, ClipboardCheck, House, List, Users, type LucideIcon } from 'lucide-react';
+import {
+  Calendar,
+  ClipboardCheck,
+  FileText,
+  House,
+  List,
+  Users,
+  type LucideIcon,
+} from 'lucide-react';
 import type { Role } from '@frc/shared';
-import { canManageEvents, canManageUsers } from '@/features/admin/AdminOnly';
+import { canManageEvents, canManageForms, canManageUsers } from '@/features/admin/AdminOnly';
 import { PATHS } from '@/lib/paths';
 
 /** Who is looking: what decides which destinations show (convenience only, SPEC-FINAL 7.4). */
@@ -103,6 +111,16 @@ export const NAV_ITEMS: readonly NavItem[] = [
     group: 'admin',
     bottomBar: null,
     visible: (who) => !who.expired && canManageEvents(who.user),
+  },
+  {
+    id: 'forms',
+    label: 'Forms',
+    to: PATHS.forms,
+    icon: FileText,
+    group: 'admin',
+    bottomBar: null,
+    desktopOnly: true,
+    visible: (who) => !who.expired && canManageForms(who.user),
   },
 ];
 

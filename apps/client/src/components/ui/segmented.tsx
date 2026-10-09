@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent } from 'react';
+import { useRef, type AriaAttributes, type KeyboardEvent } from 'react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -7,19 +7,21 @@ import { cn } from '@/lib/utils';
  * ring). The WAI-ARIA radiogroup pattern: only the chosen segment is in the Tab order (the
  * first, when none is chosen); the arrows, Home and End move focus AND choose, so selection
  * follows focus; Left / Right flip in a right-to-left page. Presentation only: the page
- * keeps the value.
+ * keeps the value, which may be null (nothing chosen yet). The form builder (task 1.30) passes
+ * `aria-required` / `aria-invalid` / `aria-describedby`; a disabled fieldset holds the segments.
  */
 export function Segmented<K extends string>({
   label,
   options,
   value,
   onChange,
+  ...aria
 }: {
   label: string;
   options: readonly { key: K; label: string }[];
-  value: K;
+  value: K | null;
   onChange: (key: K) => void;
-}) {
+} & Pick<AriaAttributes, 'aria-required' | 'aria-invalid' | 'aria-describedby'>) {
   const group = useRef<HTMLDivElement>(null);
   const chosenIndex = options.findIndex((o) => o.key === value);
   const tabbable = chosenIndex >= 0 ? chosenIndex : 0;
@@ -53,6 +55,7 @@ export function Segmented<K extends string>({
       ref={group}
       role="radiogroup"
       aria-label={label}
+      {...aria}
       onKeyDown={onKeyDown}
       className="grid auto-cols-fr grid-flow-col gap-0 rounded-control bg-line-2 p-[3px]"
     >

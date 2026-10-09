@@ -41,6 +41,8 @@
   --alliance-red-tint: #fbeae8;
   --alliance-blue: #2f62c8;
   --alliance-blue-tint: #e8eefb;
+  --alliance-red-strong: #9a2f29;   /* a picked station tile's fill (2026-10-08) */
+  --alliance-blue-strong: #2551aa;
 
   /* Type */
   --font-ui: 'Schibsted Grotesk', system-ui, sans-serif;

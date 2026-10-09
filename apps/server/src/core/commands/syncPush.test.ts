@@ -728,6 +728,99 @@ describe('syncPush', () => {
     expect(ctx.rows.scouting_entries.get('e-b')?.scouter_id).toBe('u-s2');
     expect(ctx.rows.scouting_entries.get('e-c')?.scouter_id).toBe('u-s3');
   });
+
+  describe('an in-place edit never invalidates a collected entry (SPEC-FINAL 5.1, 15.1)', () => {
+    // fv-1's only field, after an admin narrowed it IN PLACE (no new version): max 10 → 5,
+    // expected_range 0–10 → 0–5, and made it required. The device collected under the old
+    // definition: auto_notes 9, or nothing at all.
+    beforeEach(() => {
+      ctx.formVersions.set('fv-1', { id: 'fv-1', version: 1, form_id: 'form-1', version_no: 1 });
+      ctx.formFields.set('fv-1:auto_notes', {
+        id: 'f1',
+        key: 'auto_notes',
+        label: 'Auto notes',
+        type: 'counter',
+        display_order: 1,
+        required: true,
+        config: { min: 0, max: 5, step: 1 },
+        section: null,
+        help_text: null,
+        default_value: 0,
+        visibility_condition: null,
+        deprecated: false,
+        description: 'x',
+        unit: 'count',
+        phase: 'auto',
+        direction: 'higher_is_better',
+        category: null,
+        expected_range: { min: 0, max: 5 },
+        include_in_ai_context: null,
+        is_ordinal: null,
+      });
+    });
+
+    it('applies a queued create that was valid under the old range, and one with the now-required field absent', async () => {
+      const res = await syncPush(
+        scouter,
+        {
+          device_id: 'd-1',
+          operations: [
+            op({ row_id: 'e-1', seq: 1, payload: { ...op().payload, data: { auto_notes: 9 } } }),
+            op({ row_id: 'e-2', seq: 2, payload: { ...op().payload, data: {} } }),
+          ],
+        },
+        ctx,
+      );
+      expect(res.results.map((r) => r.status)).toEqual(['applied', 'applied']);
+      expect(ctx.rows.scouting_entries.get('e-1')?.data).toEqual({ auto_notes: 9 });
+    });
+
+    it('applies an edit of an old entry that keeps its old-range value', async () => {
+      ctx.rows.scouting_entries.set('e-1', {
+        id: 'e-1',
+        version: 1,
+        form_version_id: 'fv-1',
+        scouter_id: 'u-scouter',
+        client_created_at: '2026-11-14T09:00:00.000Z',
+        data: { auto_notes: 9 },
+      });
+      const res = await syncPush(
+        scouter,
+        {
+          device_id: 'd-1',
+          operations: [
+            op({
+              action: 'update',
+              base_version: 1,
+              client_updated_at: '2026-11-14T09:02:00.000Z',
+              payload: { ...op().payload, data: { auto_notes: 8 } },
+            }),
+          ],
+        },
+        ctx,
+      );
+      expect(res.results[0]).toMatchObject({ status: 'applied', new_version: 2 });
+    });
+
+    it('still refuses a value of the wrong type, and data on a no-show', async () => {
+      const res = await syncPush(
+        scouter,
+        {
+          device_id: 'd-1',
+          operations: [
+            op({ row_id: 'e-1', seq: 1, payload: { ...op().payload, data: { auto_notes: 'x' } } }),
+            op({
+              row_id: 'e-2',
+              seq: 2,
+              payload: { ...op().payload, robot_status: 'no_show', data: { auto_notes: 0 } },
+            }),
+          ],
+        },
+        ctx,
+      );
+      expect(res.results.map((r) => r.status)).toEqual(['rejected', 'rejected']);
+    });
+  });
   // --- UF.1: a missing parent is parent-deleted, never the transient error (SPEC-FINAL 9.3.1) ---
 
   describe('a missing parent (UF.1, SPEC-FINAL 9.3.1 v1.18)', () => {

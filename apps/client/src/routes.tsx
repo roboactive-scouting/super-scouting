@@ -30,6 +30,13 @@ const UsersPage = lazy(() =>
 const UserDetailPage = lazy(() =>
   import('@/features/admin/UserDetailPage').then((m) => ({ default: m.UserDetailPage })),
 );
+const FormsPage = lazy(() =>
+  import('@/features/forms/FormsPage').then((m) => ({ default: m.FormsPage })),
+);
+// The builder's chunk carries @dnd-kit: it never reaches the initial bundle (task 1.29).
+const BuilderPage = lazy(() =>
+  import('@/features/builder/BuilderPage').then((m) => ({ default: m.BuilderPage })),
+);
 const ManageRoute = lazy(() =>
   import('@/features/admin/ManageRoute').then((m) => ({ default: m.ManageRoute })),
 );
@@ -178,6 +185,34 @@ export function routeTree(): RouteObject[] {
             <Loading>
               <ManageRoute />
             </Loading>
+          ),
+        },
+        // Task 1.29: the forms list and the form builder (SPEC-FINAL 5.9). Computer work for
+        // admins (17.2); they read no event data, so an install with no competition reaches them.
+        {
+          path: 'admin/forms',
+          handle: named({ title: 'Forms', crumb: ['Admin'] }, NO_HYDRATION),
+          element: (
+            <DesktopOnly what="the forms page">
+              <Loading>
+                <FormsPage />
+              </Loading>
+            </DesktopOnly>
+          ),
+        },
+        {
+          path: 'admin/forms/:formId',
+          // The page names the form (usePageCrumb): "Admin / Forms / Match form 2026".
+          handle: named(
+            { title: 'Form builder', phoneTitle: 'Forms', crumb: ['Admin', 'Forms'] },
+            NO_HYDRATION,
+          ),
+          element: (
+            <DesktopOnly what="the form builder">
+              <Loading>
+                <BuilderPage />
+              </Loading>
+            </DesktopOnly>
           ),
         },
       ],

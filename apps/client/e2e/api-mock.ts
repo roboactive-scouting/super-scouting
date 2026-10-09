@@ -1,6 +1,7 @@
 import type { Page, Route } from '@playwright/test';
 import { API, loginOutput } from '@frc/shared';
 import { FIXTURE, TEST_PASSWORD, userByName } from './fixtures';
+import { FORMS_RPC } from './formFixtures';
 
 export type Role = 'scouter' | 'lead' | 'admin';
 const USER: Record<Role, ReturnType<typeof userByName>> = {
@@ -29,7 +30,10 @@ const isError = (v: unknown): v is MockError =>
 export type MockOptions = {
   role?: Role;
   mustChange?: boolean;
-  /** By use-case name (`login`, `sync/pull`, `listUsers`, ...). A MockError answers with that error. */
+  /**
+   * By use-case name (`login`, `sync/pull`, `listUsers`, ...). A MockError answers with that
+   * error; a function is called with the call's input and its result is the answer.
+   */
   overrides?: Record<string, unknown>;
 };
 
@@ -59,6 +63,10 @@ export async function mockApi(page: Page, opts: MockOptions = {}) {
         error: { code: override.code, message: override.message },
       });
     }
+    if (typeof override === 'function') {
+      const input = (route.request().postDataJSON() ?? {}) as Record<string, unknown>;
+      return fulfill(200, (override as (input: Record<string, unknown>) => unknown)(input));
+    }
     if (override !== undefined) return fulfill(200, override);
     if (name === 'sync/pull') return fulfill(200, FIXTURE.pull);
     if (name === 'sync/push') {
@@ -78,7 +86,8 @@ export async function mockApi(page: Page, opts: MockOptions = {}) {
       const user = { ...USER[role], must_change_password: Boolean(opts.mustChange) };
       return fulfill(200, loginOutput.parse({ token: 'test-token', user }));
     }
-    const answer = FIXTURE.rpc[name];
+    // The forms use cases (task 1.29) answer from their own fixture.
+    const answer = FIXTURE.rpc[name] ?? FORMS_RPC[name];
     if (answer === undefined) {
       return fulfill(404, { error: { code: 'not_found', message: `no mock for ${name}` } });
     }

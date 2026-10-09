@@ -29,6 +29,8 @@
   --alliance-red-tint: #fbeae8;
   --alliance-blue: #2f62c8;
   --alliance-blue-tint: #e8eefb;
+  --alliance-red-strong: #9a2f29; /* A picked station tile's fill (Scout); white text on it, 7.47:1 */
+  --alliance-blue-strong: #2551aa; /* 7.40:1 */
   --coverage-gap: #9ccbb8; /* Home coverage grid: "missing a robot" (THEME "Coverage grid") */
   --scrim: rgb(20 24 32 / 0.45);
   --shadow-float: 0 24px 60px -20px rgb(20 24 32 / 0.45);
@@ -61,5 +63,7 @@
   --alliance-red-tint: #fbeae8;
   --alliance-blue: #1f4a9e;
   --alliance-blue-tint: #e8eefb;
+  --alliance-red-strong: #8e2b25; /* the outdoor alliance colour itself: already darker than light's strong */
+  --alliance-blue-strong: #1f4a9e;
   --coverage-gap: #5fa88a;
 }

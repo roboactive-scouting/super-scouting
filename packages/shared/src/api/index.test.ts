@@ -2,6 +2,42 @@ import { describe, expect, it } from 'vitest';
 import { API } from './index';
 import { loginInput, loginOutput, refreshTokenInput } from './auth';
 import {
+  createFormInput,
+  createFormOutput,
+  deleteFormInput,
+  deleteFormOutput,
+  deleteFormVersionInput,
+  deleteFormVersionOutput,
+  exportFormInput,
+  exportSummary,
+  formDefinition,
+  formRow,
+  getFormDictionaryInput,
+  getFormDictionaryOutput,
+  getFormExportInput,
+  getFormExportOutput,
+  getFormInput,
+  getFormOutput,
+  getFormVersionInput,
+  getFormVersionOutput,
+  importFormInput,
+  importFormOutput,
+  listFormExportsInput,
+  listFormExportsOutput,
+  listFormsInput,
+  listFormsOutput,
+  publishFormVersionInput,
+  publishFormVersionOutput,
+  restoreFormVersionInput,
+  restoreFormVersionOutput,
+  saveDraftFieldsInput,
+  saveDraftFieldsOutput,
+  saveFormExportInput,
+  setScoringRulesInput,
+  setScoringRulesOutput,
+  updateFormInput,
+} from './forms';
+import {
   activeContext,
   createEventInput,
   createSeasonInput,
@@ -64,34 +100,51 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
       'changeOwnPassword',
       'countEntriesByScouter',
       'createEvent',
+      'createForm',
       'createMatch',
       'createSeason',
       'createTeam',
       'createUser',
       'deleteEvent',
+      'deleteForm',
+      'deleteFormVersion',
       'deleteMatch',
       'deleteSeason',
       'disableUser',
       'enableUser',
       'ensureMatch',
+      'exportForm',
       'getActiveContext',
+      'getForm',
+      'getFormDictionary',
+      'getFormExport',
+      'getFormVersion',
+      'importForm',
       'listEventRoster',
       'listEvents',
+      'listFormExports',
+      'listForms',
       'listMatches',
       'listSeasons',
       'listTeams',
       'listUsers',
       'login',
+      'publishFormVersion',
       'refreshToken',
       'renameUser',
       'reorderEvents',
       'resetPassword',
+      'restoreFormVersion',
+      'saveDraftFields',
+      'saveFormExport',
       'setActiveEvent',
       'setActiveSeason',
       'setEventRoster',
       'setMatchTeams',
+      'setScoringRules',
       'setUserRole',
       'updateEvent',
+      'updateForm',
       'updateMatch',
       'updateSeason',
       'updateTeam',
@@ -136,5 +189,46 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
     expect(API.deleteMatch).toEqual({ input: deleteMatchInput, output: deleteMatchOutput });
     expect(API.listMatches).toEqual({ input: listMatchesInput, output: listMatchesOutput });
     expect(API.ensureMatch).toEqual({ input: ensureMatchInput, output: ensureMatchOutput });
+    expect(API.createForm).toEqual({ input: createFormInput, output: createFormOutput });
+    expect(API.updateForm).toEqual({ input: updateFormInput, output: formRow });
+    expect(API.saveDraftFields).toEqual({
+      input: saveDraftFieldsInput,
+      output: saveDraftFieldsOutput,
+    });
+    expect(API.publishFormVersion).toEqual({
+      input: publishFormVersionInput,
+      output: publishFormVersionOutput,
+    });
+    expect(API.restoreFormVersion).toEqual({
+      input: restoreFormVersionInput,
+      output: restoreFormVersionOutput,
+    });
+    expect(API.deleteFormVersion).toEqual({
+      input: deleteFormVersionInput,
+      output: deleteFormVersionOutput,
+    });
+    expect(API.deleteForm).toEqual({ input: deleteFormInput, output: deleteFormOutput });
+    expect(API.exportForm).toEqual({ input: exportFormInput, output: formDefinition });
+    expect(API.saveFormExport).toEqual({ input: saveFormExportInput, output: exportSummary });
+    expect(API.importForm).toEqual({ input: importFormInput, output: importFormOutput });
+    expect(API.setScoringRules).toEqual({
+      input: setScoringRulesInput,
+      output: setScoringRulesOutput,
+    });
+    expect(API.listForms).toEqual({ input: listFormsInput, output: listFormsOutput });
+    expect(API.getForm).toEqual({ input: getFormInput, output: getFormOutput });
+    expect(API.getFormVersion).toEqual({
+      input: getFormVersionInput,
+      output: getFormVersionOutput,
+    });
+    expect(API.getFormDictionary).toEqual({
+      input: getFormDictionaryInput,
+      output: getFormDictionaryOutput,
+    });
+    expect(API.listFormExports).toEqual({
+      input: listFormExportsInput,
+      output: listFormExportsOutput,
+    });
+    expect(API.getFormExport).toEqual({ input: getFormExportInput, output: getFormExportOutput });
   });
 });

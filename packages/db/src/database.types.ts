@@ -422,6 +422,48 @@ export type Database = {
           },
         ]
       }
+      form_exports: {
+        Row: {
+          created_at: string
+          created_by: string
+          definition: Json
+          form_id: string | null
+          id: string
+          label: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          definition: Json
+          form_id?: string | null
+          id: string
+          label: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          definition?: Json
+          form_id?: string | null
+          id?: string
+          label?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "form_exports_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "form_exports_form_id_fkey"
+            columns: ["form_id"]
+            isOneToOne: false
+            referencedRelation: "forms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       form_fields: {
         Row: {
           category: string | null
@@ -516,6 +558,7 @@ export type Database = {
           is_locked: boolean
           published_at: string | null
           updated_at: string
+          updated_by: string | null
           version_no: number
         }
         Insert: {
@@ -525,6 +568,7 @@ export type Database = {
           is_locked?: boolean
           published_at?: string | null
           updated_at?: string
+          updated_by?: string | null
           version_no: number
         }
         Update: {
@@ -534,6 +578,7 @@ export type Database = {
           is_locked?: boolean
           published_at?: string | null
           updated_at?: string
+          updated_by?: string | null
           version_no?: number
         }
         Relationships: [
@@ -542,6 +587,13 @@ export type Database = {
             columns: ["form_id"]
             isOneToOne: false
             referencedRelation: "forms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "form_versions_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]

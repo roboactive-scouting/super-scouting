@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeAll } from 'vitest';
 import { serviceClient } from './client';
-import { SEED } from '../src/seed/fixtures';
+import { SCOUTED_MATCHES, SEED } from '../src/seed/fixtures';
 import { seedDevDatabase } from '../src/seed/seed';
 
 const db = serviceClient();
@@ -60,12 +60,16 @@ describe('dev seed (SPEC-FINAL 19.7)', () => {
     expect(fields.data!.map((f) => f.key).sort()).toEqual(['driver_skill', 'super_notes']);
   });
 
-  it('creates about a hundred scouting entries, all bound to a form version', async () => {
+  it('creates ninety scouting entries, all bound to a form version', async () => {
     const entries = await db
       .from('scouting_entries')
       .select('id, form_version_id')
       .eq('event_id', SEED.event);
-    expect(entries.data!.length).toBeGreaterThanOrEqual(100);
+    // Only the seed's own rows: rehearsals and smoke runs leave other entries at this event,
+    // and counting those made the test pass or fail on whatever litter dev held. The prefix
+    // is filtered here, not with `.like()`, which fails silently on a uuid column.
+    const seeded = entries.data!.filter((e) => e.id.startsWith('00000000-0000-4000-8000-'));
+    expect(seeded).toHaveLength(SCOUTED_MATCHES * 6);
     expect(entries.data!.every((e) => e.form_version_id !== null)).toBe(true);
   });
 

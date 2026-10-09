@@ -27,12 +27,12 @@ describe('the nav registry (redesign R.5)', () => {
     expect(ids(navItemsFor(who('lead')))).toEqual(['home', 'scout', 'entries']);
   });
 
-  it('gives an admin Users and Manage too, grouped under Admin', () => {
+  it('gives an admin Users, Manage and Forms too, grouped under Admin', () => {
     const items = navItemsFor(who('admin'));
-    expect(ids(items)).toEqual(['home', 'scout', 'entries', 'users', 'manage']);
+    expect(ids(items)).toEqual(['home', 'scout', 'entries', 'users', 'manage', 'forms']);
     expect(groupsOf(items).map((g) => [g.group, ids(g.items)])).toEqual([
       ['competition', ['home', 'scout', 'entries']],
-      ['admin', ['users', 'manage']],
+      ['admin', ['users', 'manage', 'forms']],
     ]);
   });
 
@@ -80,9 +80,10 @@ describe('navigation (spec v1.15)', () => {
     expect(bar.middle?.id).toBe('scout');
     expect(bar.right.map((i) => i.id)).toEqual(['entries']);
   });
-  it('the phone menu never offers Users, and calls Manage "Matches"', () => {
+  it('the phone menu never offers Users or Forms, and calls Manage "Matches"', () => {
     const items = menuItemsFor(admin, false);
     expect(items.map((i) => i.id)).not.toContain('users');
+    expect(items.map((i) => i.id)).not.toContain('forms');
     expect(items.find((i) => i.id === 'manage')?.phoneLabel).toBe('Matches');
   });
   it('the desktop sidebar offers both admin places to an admin, none to a scouter', () => {
@@ -90,8 +91,23 @@ describe('navigation (spec v1.15)', () => {
       menuItemsFor(admin, true)
         .filter((i) => i.group === 'admin')
         .map((i) => i.id),
-    ).toEqual(['users', 'manage']);
+    ).toEqual(['users', 'manage', 'forms']);
     expect(menuItemsFor(scouter, true).filter((i) => i.group === 'admin')).toEqual([]);
+  });
+  it('Forms is computer work for admins only (task 1.29): /admin/forms, never in the bottom bar', () => {
+    const forms = NAV_ITEMS.find((i) => i.id === 'forms');
+    expect(forms).toMatchObject({
+      to: '/admin/forms',
+      group: 'admin',
+      bottomBar: null,
+      desktopOnly: true,
+    });
+    for (const role of ['scouter', 'lead'] as const) {
+      expect(ids(menuItemsFor(who(role), true))).not.toContain('forms');
+    }
+    expect(ids(navItemsFor(who('admin', { expired: true })))).not.toContain('forms');
+    const bar = bottomBar(admin, false);
+    expect([...bar.left, ...bar.right].map((i) => i.id)).not.toContain('forms');
   });
   it('keeps one row per destination', () => {
     expect(new Set(NAV_ITEMS.map((i) => i.id)).size).toBe(NAV_ITEMS.length);

@@ -5177,3 +5177,1530 @@ and `z.string().datetime({ offset: false })` refuses it (`false false true` for 
 **What I did instead:** the listeners read the phase from a ref that is updated on every render (`current.current`), and `index` left the effect's dependencies. The test's phase waits also allow 4 s (`PHASE_WAIT`), because a loaded CI runner can exceed the 1 s default.
 
 **Risk:** none for users. A person can't swipe in the gap between a render and its effect, and the ref makes it impossible anyway.
+
+## Phase 1 D (shared + server half, tasks 1.24–1.28) — run start
+
+**Plan said:** start from `develop` at `d028913` and `main` at `59ed359`; branch `feat/phase-1d-forms` from `design/form-builder` at `6582a1f`. Task 1.28 commits as `feat(server): add the scoring-model editor and the form read queries`.
+
+**What was wrong:** nothing blocking. The local `develop` and `main` refs were stale (`9b102cd`, `bebcad6`); `origin/develop` is `d028913` and `origin/main` is `59ed359`, as stated, and `origin/develop` is an ancestor of `6582a1f`. The chat's prompt names 1.28's commit `feat(server): add scoring rules and the form read queries`.
+
+**What I did instead:** branched from `6582a1f` after `git fetch`. Baseline `pnpm test`: 136 files, 1710 tests, all green — the floor for this run. 1.28 uses the prompt's commit message (prompt outranks the plan, BUILD-CONTEXT §9). Skill instructions set aside, per §9's precedence: `subagent-driven-development`'s "the implementer commits" (BUILD-CONTEXT: the orchestrator commits), `executing-plans`' "stop and ask" (the prompt: do not stop), and the worktree skill (`CLAUDE.md`: a single working copy).
+
+**Risk:** none.
+
+## Task 1.24 — event log config and taps carry an optional place (SPEC-FINAL v1.20)
+
+**Plan said:** `event_log` config is `{ event_types }` only, and `EventLogTap = { type: string; t: number }`; `validateEntryData` checks a tap's type is allowed, `t` is a number and `t` ascends.
+
+**What was wrong:** SPEC-FINAL v1.20 (§5.2, §5.3, §5.6) postdates the plan: an event log may ask where each tap happened. Nothing failed; the plan text is simply behind the spec.
+
+**What I did instead:**
+- `config.ts`: `event_log` config is `{ event_types (min 1), ask_position?: boolean (default false), mirror_axis?: 'none'|'horizontal'|'vertical'|'both' }`, still `.strict()`, with a `superRefine` that raises an issue at `config.mirror_axis` when `ask_position` is true and `mirror_axis` is absent. `FIELD_TYPE_CONFIG.event_log` is therefore a refined (effects) schema, still typed `z.ZodType`.
+- `types.ts`: `EventLogTap = { type: string; t: number; x?: number; y?: number }`.
+- `validate.ts`: a tap is `{type, t}` or `{type, t, x, y}`. It is rejected when it is not a plain object, carries a key other than `type|t|x|y`, has only one of x/y, or has x/y that is not a finite number in 0..1. A tap with x/y is accepted whether or not `ask_position` is on at validation time, so an in-place config edit never invalidates collected or queued data (SPEC §5.1).
+- Tests added in `config.test.ts` (ask_position + mirror_axis valid; ask_position without mirror_axis invalid at `config.mirror_axis`; plain valid; unknown key and empty list still refused) and `validate.test.ts` (accepted `{type,t,x,y}`, accepted with ask_position off, one-of-x/y, out of range, non-number, extra key, non-object tap).
+
+**Risk:** a stored `ask_position: true` event log whose config predates `mirror_axis` would now fail `validateFieldDefinition`; no such field exists (the type did not exist before this task).
+
+## Task 1.24 — smaller departures from the plan's literal text
+
+**Plan said:** (a) `validate.test.ts` gets a second `import` block and its own `describe`; (b) the `switch` snippet groups `case 'number':` with `case 'rating':` while its comment says number is "identical to counter"; (c) `validateFieldDefinition` reports a config issue at `config.${issue.path.join('.')}`; (d) validators run on `value as ...` casts.
+
+**What was wrong:** (a) a second `import` of the same names and a second top-level `f`/`ok` would collide with the existing file's imports; (b) the snippet contradicts its own comment — `rating` needs `1..max`, a counter needs the min/max/`expected_range` blocks; (c) a root-level config problem (config not an object) produced the path `config.` with a trailing dot; (d) `value as Point[]` etc. would throw on `null` elements or non-object cycles instead of returning an issue.
+
+**What I did instead:**
+- (a) Appended the plan's tests to the existing `validate.test.ts` with no second import; helper names `f` and `ok` do not clash with the existing file's `fields`.
+- (b) `case 'counter': case 'number':` share the counter body (including the §15.1 `expected_range` block); `rating` is its own case.
+- (c) A root-level issue is reported at path `config`; nested ones are still `config.<path>`.
+- (d) The new cases guard each element (`isRecord`, `inUnitSquare`, `Array.isArray`) so a malformed payload yields a `wrong-type` issue, never a throw. `inUnitSquare` and `validTap` are private to `validate.ts`; nothing else needed them. Also: `computed` and `section` are skipped at the top of the per-field loop (before the `missing`/required check), so they are never required and never validated; a present computed key was already "known", so `unknown-field` did not need a change.
+- Extra tests beyond the plan: `number` behaves like a counter, `short_text`, a cycle path with an out-of-range point or a flat (non-nested) list, and `multi_select` given a bare string.
+- `short_text` and `long_text` share one case and check only that the value is a string. `max_length` is NOT enforced: the plan is silent, and a later in-place edit to it must not retroactively invalidate data (SPEC §5.1).
+- Rating and timer require a finite number; rating is not required to be an integer (the plan does not say so).
+
+**Risk:** low. `max_length` unenforced means an over-long short text is accepted server-side; the client control should cap it when it is built.
+
+## Task 1.24 — regenerated the bundled server function
+
+**Plan said:** the task's files are all under `packages/shared/src/forms/` (plus `index.ts`).
+
+**What was wrong:** `apps/server/src/bundle-drift.test.ts` inlines `@frc/shared` into `apps/server/api/index.js`, so any shared change fails it: `expect(readFileSync(outfile, 'utf8')).toBe(committed)`.
+
+**What I did instead:** ran `pnpm --filter @frc/server build` and left the regenerated `apps/server/api/index.js` and `index.js.map` in the working tree for the orchestrator to commit in the same diff (BUILD-CONTEXT §6). I also added `export * from './forms/config'` to `packages/shared/src/index.ts`.
+
+**Risk:** the bundle will need regenerating again on every later shared or server task in this run.
+
+## Task 1.25 — computed `expression` is shape-checked in the field config
+
+**Plan said:** Task 1.25 creates only `expression.ts`/`expression.test.ts` and exports from `index.ts`; `FIELD_TYPE_CONFIG.computed` (Task 1.24) keeps `expression: z.unknown()`.
+
+**What was wrong:** with `z.unknown()`, `validateFieldDefinition` accepts any junk as an expression (`{kind:'call'}`, a string), so a malformed tree would only be caught if the server remembered to parse it separately. Orchestrator decision.
+
+**What I did instead:** `config.ts` now imports `exprSchema` and declares `expression: exprSchema.nullable()` (null = not written yet, allowed in a draft). `expression.ts` imports only types from `config.ts` (`import type`), so there is no runtime cycle. Cross-field checks (unknown key, another computed field, mixed types) stay in `validateExpr` because they need the sibling fields. Tests added to `config.test.ts` (valid tree passes, `{kind:'call'}` fails under `config.expression`, `null` passes). Rejected: parsing the tree inside `validateExpr` only, which would leave the field-config check silent on shape.
+
+**Risk:** `z.unknown()` let the `expression` key be absent; `exprSchema.nullable()` does not, so a computed config without the `expression` key now fails (`Required`). Builders must write `expression: null` explicitly for a blank draft.
+
+## Task 1.25 — `validateExpr` takes an optional `resultType`
+
+**Plan said:** `validateExpr(expr, fields): DefinitionIssue[]`.
+
+**What was wrong:** nothing errored, but the plan never checks the expression's type against the field's own `result_type`, so a numeric expression on a `string` field would pass.
+
+**What I did instead:** added a third optional parameter `resultType?: 'float' | 'string'`. When the static type is valid but differs, it pushes `{ path: 'expression', message: 'the expression gives a <x>, but the field says <y>' }`. It is skipped when the expression already has an error, so one mistake gives one message. Tests cover both directions, the matching case, and no stacking. Orchestrator decision.
+
+**Risk:** the server (Task 1.27) must pass `config.result_type` or the check does not run.
+
+## Task 1.25 — smaller departures from the plan's literal text
+
+**Plan said:** (a) `evaluateExpr` reads a field value only if it is a finite number or a string; (b) the plan's test file is laid out on single long lines; (c) `index.ts` is the only other file modified.
+
+**What was wrong:** (a) `staticType` types a `toggle` field as `float`, but a toggle's stored value is a boolean, which the plan's evaluator turns into `null`, so a validated `auto + climbed` expression would always evaluate to null; (b) Prettier would reformat them (`pnpm format:check`); (c) `config.ts` also needs editing (see above), and the bundle drifts.
+
+**What I did instead:** (a) a boolean field value evaluates to 1 or 0, with a test; (b) the plan's tests are written in Prettier's layout, with the same cases plus the extras named above; (c) `export * from './forms/expression'` added to `packages/shared/src/index.ts`, and `pnpm --filter @frc/server build` run, leaving the regenerated `apps/server/api/index.js` and `index.js.map` in the working tree (BUILD-CONTEXT §6).
+
+**Risk:** low. The float/string rule for a field is derived from `unit`, so a `number` field with `unit: 'enum'` or `'text'` is typed as a string; the plan fixed this and the builder should offer a numeric unit for numeric fields.
+
+## Task 1.26 — `validateEntryData` does not require a hidden field
+
+**Plan said:** Task 1.26 creates only `visibility.ts` and its test; `validate.ts` is not touched.
+
+**What was wrong:** `validateEntryData` reports `required` for every live required field with no value. A required field behind a condition has no value whenever it is hidden, so it would block every submit where it is hidden (SPEC-FINAL 5.8: a hidden field records no value). Orchestrator decision.
+
+**What I did instead:** in `validate.ts` the `required` issue is raised only when `isVisible(field, data)`, judged on the submitted `data`. A value present for a hidden field is still not rejected (and is still type-checked like any other), because a `visibility_condition` is an in-place edit (SPEC-FINAL 5.1) and must never make a queued offline entry fail; stripping it is the client's job (`stripHiddenValues`). Three tests added to `validate.test.ts`: hidden and required passes, shown and empty is `required`, hidden with a value passes. Rejected: rejecting a value present for a hidden field, which would fail queued entries after a condition edit.
+
+**Risk:** a controlling value that is absent hides the field (`isVisible` returns false on `undefined`). If the client leaves a never-touched toggle out of `data` instead of submitting its default, the fields it controls are treated as hidden and not required. The client must submit toggle and counter defaults, or `default_value` must fill them before validation.
+
+## Task 1.26 — `stripHiddenValues` added
+
+**Plan said:** Task 1.26 produces `isVisible` and `visibleFields`; the test named "strips the values of hidden fields" only calls `visibleFields`.
+
+**What was wrong:** nothing errored, but the plan's test title promises a strip that no function performs, so nothing would honour "a hidden field records no value" at submit. Orchestrator decision.
+
+**What I did instead:** added `stripHiddenValues(fields, data): Record<string, unknown>` to `visibility.ts`. It returns a copy of `data` without the keys of hidden fields, every condition judged on the submitted `data` (not on the progressively stripped copy, which matches the no-chain rule); keys that belong to no field are kept, so `validateEntryData` still reports `unknown-field`. The plan's test was retitled "hides the fields whose condition is not met, because a hidden field records no value", since it exercises `visibleFields`; `stripHiddenValues` has its own five tests.
+
+**Risk:** low. The client's submit must call it before sending; it does not remove a key for a field that is absent from `fields`.
+
+## Task 1.26 — `validateVisibilityCondition` added
+
+**Plan said:** nothing validates a visibility condition; Task 1.24's `validateFieldDefinition` does not look at `visibility_condition`.
+
+**What was wrong:** a condition pointing at a missing, deprecated, section or own key, or with an ordering operator and a non-numeric value, would be saved and then hide the field forever (or never evaluate). Orchestrator decision.
+
+**What I did instead:** added `validateVisibilityCondition(field, fields): DefinitionIssue[]` to `visibility.ts`. A null condition gives `[]`. Otherwise issues with path `visibility_condition` for: the key is the field's own; the key is not a non-deprecated sibling; the sibling is a `section`; the `op` is not one of `= != > < >= <=`; or an ordering op with a `value` that is not a finite number. A self-reference gives one issue, not also "not a sibling". `=` and `!=` accept any value. Tests cover each case.
+
+**Risk:** it is a separate function, not folded into `validateFieldDefinition`, because it needs the sibling fields; Task 1.27 must call it for every field on save. It does not check that the value suits the controlling field's type (e.g. `= 'x'` against a toggle), nor that a condition does not form a cycle (a field controlled by one that is controlled by it): with raw-value judging a cycle is harmless but pointless.
+
+## Task 1.26 — smaller departures from the plan's literal text
+
+**Plan said:** (a) the test file is laid out on single long lines; (b) only `visibility.ts` and its test are created; (c) the plan's operator set is written `≠ ≥ ≤` in the spec and `!= >= <=` in the code.
+
+**What was wrong:** (a) Prettier would reformat them (`pnpm format:check`); (b) `index.ts` needs the export, and the bundle drifts (`bundle-drift.test.ts` failed until rebuilt).
+
+**What I did instead:** (a) the tests are written in Prettier's layout, with the same cases plus the extras above and one added case (an ordering operator is false when the controlling value is a string); (b) `export * from './forms/visibility'` added to `packages/shared/src/index.ts`, and `pnpm --filter @frc/server build` run, leaving the regenerated `apps/server/api/index.js` and `index.js.map` in the working tree (BUILD-CONTEXT section 6); (c) the code's ASCII operators are kept, and `validateVisibilityCondition` rejects `≠ ≥ ≤`.
+
+**Risk:** the builder and any JSON import must write ASCII operators; the unicode forms in the spec are display only.
+
+## Task 1.27 — two migrations: `form_versions.updated_by` and `form_exports`
+
+**Plan said:** Task 1.27 modifies `forms.ts`, its test, `store.ts`, `registry.ts` and `fake-context.ts`; no migration.
+
+**What was wrong:** SPEC-FINAL v1.21 adds `form_versions.updated_by` and v1.22 adds the `form_exports` table (§3.3), after the plan text was written; neither existed in the database. Orchestrator decision A.
+
+**What I did instead:** `20261008100000_form_versions_updated_by.sql` (`alter table public.form_versions add column updated_by uuid references public.users(id)`, nullable, no ON DELETE action because users are never deleted) and `20261008101000_form_exports.sql` (exactly §3.3's columns; `form_id … on delete set null`; plus an index on `created_at` for the 24-hour purge; no `updated_at`, no `deleted_at`, no RLS, not in `PULL_ENTITY_KEYS`). Checked `packages/db/supabase/.temp/project-ref` printed `oqvoqddoizhhwvjwejtm`; `npx -y supabase@latest db push --linked --dry-run` listed exactly the two; `npx -y supabase@latest db push --linked --yes` applied them (no password asked). `database.types.ts` regenerated with the workspace CLI (`pnpm --filter @frc/db exec supabase gen types typescript --linked --schema public`, v2.117.0), as UF.1 did, because `types-drift.itest.ts` compares against it; the diff is the new table and the new column only. `forms.itest.ts` gained a describe block proving: `updated_by` records a user, may be null and refuses an unknown user (23503); `form_exports` takes a row and refuses an unknown author (23503); and `delete from forms where id = …` (the statement `deleteFormCascade` sends) removes the form's versions, fields, scoring rules and an entry, and sets the export's `form_id` null. Its fixture cleans up after itself. Rejected: adding `updated_at`/`deleted_at` to `form_exports` (it is never synced or edited), and an RLS policy (the project has none).
+
+**Risk:** production needs the same two migrations, applied by hand by the user, before a server carrying task 1.27 deploys to production: the use cases write `updated_by` and `form_exports`, and would fail with "column does not exist" against an un-migrated database.
+
+## Task 1.27 — `isStructuralChange` lives in `core/forms/version.ts`, and options are structural
+
+**Plan said:** `FieldDraft` and `isStructuralChange` sit in `commands/forms.ts`; structural is "adding a field, removing/deprecating a field, or changing a field's type".
+
+**What was wrong:** SPEC-FINAL v1.20 §5.1 makes adding, removing or reordering a select option structural too (renaming an option's label is in place); and task 1.29 needs the function in the client. Orchestrator decision B.
+
+**What I did instead:** `apps/server/src/core/forms/version.ts` holds only `FieldDraft` and `isStructuralChange`, importing only a type from `@frc/shared`, with no relative import and no Node API, so 1.29 can `git mv` it to `packages/shared/src/forms/`. For `single_select`/`multi_select` the ORDERED list of option values is compared; a field marked `deprecated` in `next` counts as removed. `version.test.ts` (13 tests) covers each case, including "reorder two options → structural" and "relabel an option → not structural", and that an event-log button change is in place. Its import of `./version` is extensionless, unlike the rest of `apps/server`, so the pair moves without an edit (a test is never bundled). Rejected: putting it straight into `packages/shared` (1.29's move, per the decision).
+
+**Risk:** when it moves, its `from '@frc/shared'` import must become relative inside `packages/shared`. An event log's `event_types` list is treated as in place (only selects are named by the spec); entries carrying a removed button's value would then fail `validateEntryData` on a later edit.
+
+## Task 1.27 — field identity: an optional `id`, and `writeFormFields` replaces `replaceFormFields`
+
+**Plan said:** fields are sent without ids; step 3 rejects "a key that is not in the current version and collides with a deprecated key from an earlier version"; the store's `replaceFormFields(formVersionId, fields)`.
+
+**What was wrong:** with no id the server cannot tell a renamed key from a new field, so "a saved field's key is never accepted as changed" (v1.20 §5.1) cannot be enforced; and a delete-all-then-insert `replaceFormFields` re-ids every field on every save, so an id could never be trusted. Orchestrator decision C.
+
+**What I did instead:** a request field is `FormFieldInput` = the definition plus an optional `id`. In order: a key twice → `invalid` `duplicate-key` (and an id twice → `duplicate-field-id`); an `id` that names no LIVE field of the target → `invalid` `unknown-field-id`; an `id` whose key differs → `AppError('invalid', "a saved field's key never changes", { reason: 'key-change', field_id, key_was, key_now })`; no id and a live key → that field; no id and a key used by any row of any version of the form but not live in the target → `invalid` `key-retired`. The Store method is now `writeFormFields(formVersionId, rows, deleteKeys)`: deletes the named keys, then one upsert on `(form_version_id, key)` with each row carrying its id; the use case sends only rows that changed (compared with a key-sorted JSON, so jsonb's key order is not a change). The response returns the version's fields with their ids. **Beyond the decision:** a field removed from an unpublished draft is DELETED only when no other version of the form has its key (born in this draft, so its key becomes free again); one carried from an earlier version is kept, `deprecated: true`, as the fork that made the draft would have left it. Rejected: deleting carried fields too (the draft would stop describing keys its predecessor's entries carry), and upserting on `id` (the decision names the key).
+
+**Risk:** `writeFormFields` is not one transaction (delete, then upsert); a failure between leaves a draft missing a removed field, which the same save re-sent completes. Reading every version's fields to know the keys ever used is one query per version: fine for a handful of versions.
+
+## Task 1.27 — a draft saves with "needs meaning"; publish refuses it
+
+**Plan said:** step 2 refuses any `validateFieldDefinition` issue on every save, and the test "refuses to publish a version whose fields fail the semantic-metadata rule" only checks that a draft save with `description: ''` is refused.
+
+**What was wrong:** the closed builder design (12-form-builder, 2026-10-08) has Save draft work while fields show "Needs meaning" and holds only Publish. Orchestrator decision D.
+
+**What I did instead:** issues on `description`, `unit`, `phase`, `direction` are "incomplete"; every other issue (key pattern, config shape, section metadata, `is_ordinal`, `validateVisibilityCondition`, and `validateExpr(expr, liveFields, result_type)` when the computed config parses and its expression is non-null) is a "definition" issue. A save landing in an unpublished draft (target, fork or import) refuses definition issues and returns the incomplete ones as `incomplete: [{ field_key, path, message }]`; an in-place save to a published version refuses both. `publishFormVersion` refuses either kind, a computed field whose expression is null (`path: 'config.expression'`), and a version with no live non-section field (`field_key: null, path: 'fields'`). Every refusal is `AppError('invalid', <one line>, { reason: 'invalid-definition', issues })`. `validateExpr`'s `expression` path is reported as `config.expression`, matching `validateFieldDefinition`'s `config.*` paths. The plan's test was rewritten to do what its title says (draft save succeeds with `incomplete` naming the field; publish refused), and tests were added for a definition issue refused on a draft save and blank meaning refused on an in-place save to a published version. The plan's "never renames a key" test (`'AUTO NOTES'` without an id) is kept and still refused, by the key pattern.
+
+**Risk:** the zod input lets `unit`, `phase` and `direction` be null but not `''`; the builder must send null for an unset choice.
+
+## Task 1.27 — locking and forking
+
+**Plan said:** fork only when the target "is locked"; an unlocked target is written in place whatever the change.
+
+**What was wrong:** devices may hold queued entries for any PUBLISHED version, locked or not, so a structural edit in place to a published version could break them; nothing in the codebase sets `is_locked`. Orchestrator decision E.
+
+**What I did instead:** a structural change to any published version forks draft `max(version_no)+1` (carrying every field of the target, applying the new set, marking carried fields absent from it `deprecated: true`, all with new ids); an unpublished draft takes structural edits in place; non-structural edits to a published version are written in place, in the plan's column list, creating no version. A structural change while the form has an unpublished draft → `AppError('conflict', 'draft vN already exists; edit it', { reason: 'draft-exists', draft_version_id, version_no })`. A save that finds entries bound to the target while `is_locked` is false stamps it true. The fork deletes the version row it inserted when the field write fails, then rethrows (tested by making `writeFormFields` throw); a second `insertFormVersion` racing on `(form_id, version_no)` (23505) reads as `conflict` `version-race`.
+
+**Risk:** if the compensating delete also fails, an empty or partial draft is left; the admin sees it as the form's draft and can delete it (no entries). A DRAFT that somehow has entries bound to it still takes structural edits in place.
+
+## Task 1.27 — `updated_by` stamped by every form write
+
+**Plan said:** nothing (the column did not exist).
+
+**What was wrong:** SPEC-FINAL v1.21 §3: the forms list shows who last saved each version. Orchestrator decision F.
+
+**What I did instead:** `createForm` stamps draft v1; `saveDraftFields` the version it wrote (the target, or the fork — not the published version a fork came from); `publishFormVersion` and `restoreFormVersion` that version; `importForm` the draft it writes; `updateForm` the form's draft if any, else its active version, else nothing. A test per use case, with a second admin so the stamp visibly changes.
+
+**Risk:** none known. A lock stamp (`is_locked: true`) is written without `updated_by`: it is not an edit.
+
+## Task 1.27 — the remaining use cases: shapes, plus `deleteForm` and `saveFormExport`
+
+**Plan said:** produces `createForm`, `updateForm`, `saveDraftFields`, `publishFormVersion`, `restoreFormVersion`, `deleteFormVersion`, `deleteForm`, `importForm`, `exportForm`; `exportForm`/`importForm` serialise `{ kind, name, timer_config, fields, scoring_rules }`; the whole-form delete is described as task 1.60's cascade.
+
+**What was wrong:** SPEC-FINAL v1.22 adds 24-hour saved exports and a delete warning that names versions and entries; the plan gave no shapes. Orchestrator decision G.
+
+**What I did instead:** shapes exactly as the decision (listed in the task report). In detail: `createForm` refuses a second form of a kind with `conflict` `form-exists`, an unknown season with `not-found`, and deletes the form again if its draft cannot be inserted. `updateForm` validates `timer_config` with a strict zod schema: each phase from the field-phase vocabulary, whole seconds 1..3600, at most 8 phases, **and no phase named twice** (my addition: a timer with two Auto phases has no meaning). `publishFormVersion` refuses an already-published version (`already-published`) and moves `active_version_id` only when the version is the newest. `restoreFormVersion` refuses a draft (`not-published`). `deleteFormVersion` checks entries first (the plan's message, with `has-entries` and the count; "1 entry" in the singular), then refuses the active version (`active-version`). `deleteForm({ form_id, dry_run })` returns `{ versions, entries, deleted }`, where `entries` counts every entry bound to any version, soft-deleted ones included (they are deleted too); the real delete is `Store.deleteFormCascade`, ONE `delete from forms where id = …` (checked: nothing references `scouting_entries`; `form_versions`, `form_fields`, `scoring_rules`, `metrics.form_id` and `scouting_entries.form_version_id` cascade; `forms.active_version_id` and `form_exports.form_id` set null; integration-tested against dev). `exportForm` returns `{ format: 1, kind, name, timer_config, fields, scoring_rules }`, fields being the version's live fields without id/version/timestamps/`deprecated`, in display order, and scoring rules **only for the exported version's live keys**, sorted by key (my addition: a rule for a key the version lacks would make the export fail its own import). Only the draft or the active version exports (`not-exportable`). `saveFormExport` purges exports created before `now − FORM_EXPORT_TTL_MS` through `Store.purgeFormExports(olderThan)`, then inserts; the label is `${name} · draft v${n}` or `${name} · v${n}`. `importForm` parses `definition` strictly first and refuses with `invalid-definition` and positioned issues; checks scoring keys; creates a new form (draft v1, with name, timer, fields and scoring; compensated by `deleteFormCascade` on a later failure) or writes the existing form's draft (replacing its fields, or forking from the newest version — from nothing when the form has no version left), leaving name, timer and scoring untouched; with `form_id` given, a form of another season or kind is `invalid` `kind-mismatch`.
+
+**Risk:** over HTTP, `rpc.ts` parses the input with the shared schema BEFORE the use case, so a malformed `definition` sent to `/api/importForm` comes back as a 400 `invalid` with zod's message and no `details.issues`; the client's `call()` also pre-parses. The builder should validate a file locally with the exported `formDefinition` schema to show positioned problems. The decision's "→ invalid with issues" holds for direct calls. `field_count` counts every field of the definition, sections included.
+
+## Task 1.27 — the contract: `packages/shared/src/api/forms.ts`, and `exportForm` registered as a query
+
+**Plan said:** modify `registry.ts`; no shared schema file named.
+
+**What was wrong:** every registry entry's schemas come from the shared `API` map (SPEC-FINAL 16.1), and the plan names none. Orchestrator decision H.
+
+**What I did instead:** `packages/shared/src/api/forms.ts` holds every input and output schema (strict inputs) plus `FORM_EXPORT_TTL_MS`, `FORM_DEFINITION_FORMAT`, `timerConfig`, `formFieldInput`, `formFieldDraft`, `formFieldRow`, `formIssue`, `formRow`, `formDefinition`, `exportSummary`; exported from `@frc/shared`; ten rows added to `API`, and the ten use cases registered. `rpc.ts` does nothing with `kind` (it is metadata for readers and a future MCP list), so a query can be admin-gated in its handler: `exportForm` is registered `kind: 'query'` (it reads) and refuses a service caller itself, tested by name. The other nine are commands, so `rpc.test.ts`'s every-command-refuses-a-service-caller loop covers them; its two name lists and the shared `index.test.ts` list were extended (thirty-three authenticated commands). Rejected: registering `exportForm` as a command (it writes nothing).
+
+**Risk:** a future reader who assumes "every query is service-callable" (permissions.ts says query use cases must not gate on `can()`) will find `exportForm` an exception; its description says so.
+
+## Task 1.27 — the Store's form methods are typed, and two methods are added
+
+**Plan said:** the Store's form methods return `StoredRow`; the interface is fixed ("a task that wants a method not on this list has drifted").
+
+**What was wrong:** `StoredRow` requires a `version` column that `forms`, `form_versions` and `scoring_rules` do not have; the decisions need a field write that keeps ids and two export methods.
+
+**What I did instead:** `StoredForm`, `StoredFormVersion` (with `updated_by`), `StoredScoringRule`, `StoredFormExport` in `core/context.ts`, used by `getForm`, `getFormByKind`, `insertForm`, `updateForm`, `getFormVersion`, `listFormVersions` (by version_no), `insertFormVersion`, `updateFormVersion`, `getScoringRules`; `replaceFormFields` is gone, replaced by `writeFormFields`; `insertFormExport` and `purgeFormExports` added. `getFormFields` now orders by `display_order`, then `key`. `replaceScoringRules` is implemented (delete of the form's other keys, then upsert on `(form_id, field_key)`) because `importForm` writes a new form's scoring; `countEntriesByFormVersion`, `deleteFormCascade` and `deleteFormVersion` are implemented. Supabase-store unit tests were added for each, and a throwaway script (deleted afterwards) drove the real Supabase store through the use cases against dev: id survival on upsert, draft deletion, a fork with a deprecated field, `updated_by`, scoring upsert, export label and author, purge count, export → import → export equality, and the one-statement delete all passed, and it cleaned up.
+
+**Risk:** `replaceScoringRules`' delete filter interpolates field keys into a PostgREST list; keys are `[a-z0-9_]` by `validateFieldDefinition`, but task 1.28 must keep it fed only with validated keys.
+
+## Task 1.27 — the fake context
+
+**Plan said:** the tests use `ctx.forms`, `ctx.formVersions`, `ctx.formFields` (keyed `${versionId}:${key}`) and `ctx.entryCountsByVersion`.
+
+**What was wrong:** the fake's form methods were stubs, and its `getFormFields` answered the sync tests' skeleton fixture for every version.
+
+**What I did instead:** every form method implemented over those maps, with column checks and Postgres codes like the other fakes (23503 on an unknown season, form or user — `updated_by` and `created_by` included; 23505 on a second form of a kind or a duplicate version number). Added `ctx.formExports`. `deleteFormCascade` and `deleteFormVersion` cascade exactly as the database does (fields, entries in `rows.scouting_entries`, scoring rules, `active_version_id` and an export's `form_id` set null); `deleteSeason`'s fake now drops forms through the same cascade. `countEntriesByFormVersion` is the version's rows in `rows.scouting_entries` PLUS `entryCountsByVersion` (a test's shorthand). `updateFormVersion` mutates the stored row in place, so a test holding it (to set `is_locked`) keeps seeing it. `formVersionWrites` counts every insert, update and delete of a version (task 1.28 asserts on it). `getFormFields` answers a version's own rows, and still the skeleton fixture for a version the fake has never heard of, which the sync tests rely on (`'fv-1'`).
+
+**Risk:** the skeleton fallback means a test that forgets to create its version silently gets the sync fixture's one field.
+
+## Task 1.27 — the plan's test file, literally
+
+**Plan said:** callers `u-a`/`u-l`, season ids `se-1`/`se-2`, imports without `.js`, `imported.id`, single long lines.
+
+**What was wrong:** the use cases parse their input with the strict shared schemas (wire ids are uuids), the fake's foreign keys need real seasons and users, `apps/server` imports carry `.js`, `importForm` returns `form_id` (decision G), and Prettier reformats long lines.
+
+**What I did instead:** uuid constants and seeded seasons; `u-admin` (a fake fixture user) and a second admin `u-admin-2` for the stamp tests; `.js` imports; `imported.form_id`; the plan's cases kept (the round trip extended: it also sets a timer, a select and a scoring rule and compares `scoring_rules`), in Prettier's layout, plus the decision's named tests and the authorization loop over all ten use cases for a lead, a scouter and a service caller. 58 tests in `forms.test.ts`.
+
+**Risk:** none.
+
+## Task 1.27 — `pnpm db:test` has one failure that predates this task
+
+**Plan said:** (decision A) run `pnpm db:test` after the migration.
+
+**What was wrong:** `test/seed.itest.ts > creates about a hundred scouting entries` fails: `AssertionError: expected 96 to be greater than or equal to 100`. The seed writes 15 scouted matches × 6 = 90 entries since commit `1b7d24d` ("leave the last five matches unscouted"); the test passes only while at least ten non-seed entries litter the dev event, and dev now holds six. Nothing in this task touches the seed, its event or its entries.
+
+**What I did instead:** nothing; out of scope. Every other integration test passes (67 of 68), including the extended `forms.itest.ts` (13 of 13) and `types-drift.itest.ts`.
+
+**Risk:** the threshold should be 90 (or the seed's own count); until it is changed, `db:test` reads red whenever dev is clean.
+
+## Task 1.28 — the plan's test file, literally
+
+**Plan said:** `scoring.test.ts` with callers `u-a`/`u-l`, form `'f-1'`, version `'fv-1'` (no `form_versions` row), imports without `.js`, and `forms.test.ts` (queries) asserting display order, scoring attached, service may call all three, dictionary excludes deprecated.
+
+**What was wrong:** the use case parses its input with the strict shared schema (wire ids are uuids), `apps/server` imports carry `.js`, and Prettier reformats the long lines — the same three facts 1.27 logged.
+
+**What I did instead:** uuid constants, real `forms`/`form_versions` rows in the fake, `u-admin`/`u-lead` fixture users, `.js` imports, Prettier's layout. Every plan case is kept with its assertion (`/long_text/`, `/moon/`, `formVersionWrites` unchanged, the one key `${FORM}:auto_notes`, a lead refused). Added: replace semantics, sorted output, empty set clears, draft ∪ active, a draft retype judged by the draft's type, positioned `invalid-scoring` issues, option points off a select, points on a select, not-found / malformed input, scouter and service refused, and that a kept rule is sent with its existing id. `queries/forms.test.ts` builds its fixture through the real 1.27 use cases (createForm → saveDraftFields → publish → setScoringRules → a forking save by a second admin) and holds the decision's named tests. 18 + 21 tests, plus 5 in `packages/shared/src/forms/scoring.test.ts` and one import test in `commands/forms.test.ts`.
+
+**Risk:** none.
+
+## Task 1.28 — the scoring validator lives in `packages/shared`, and a select's `points` must be 0
+
+**Plan said:** create `commands/scoring.ts`; decision A: "put the rule validator in one exported function and make 1.27's `importForm` use it".
+
+**What was wrong:** nothing; a placement choice. The builder (task 1.29) needs the same rules to show the points input only where a rule is allowed and to check a rule before saving, and 1.27 already had to plan a `git mv` for `version.ts`.
+
+**What I did instead:** `packages/shared/src/forms/scoring.ts` (pure, browser-safe, exported from `@frc/shared`): `SCORABLE_FIELD_TYPES` (toggle, counter, number, single_select, multi_select), `isScorable(type)`, `validateScoringRules(rules, liveFields, { prefix, noun })` → `ScoringIssue[]` (`{ field_key, path, message }`, path `<prefix>.<i>.field_key | points | option_points | option_points.<value>`), and `countDataFields(fields)`. Rules, in order per rule: a key named twice; a key that is not a live field ("…not a field of this form/definition"); an unscorable type (the message names the type); points negative or non-finite; option_points off a select; an option value the field lacks (the message names it); a negative or non-finite option score. **My addition:** on a select, `points` other than 0 is refused (`<prefix>.<i>.points`) — a select scores by option, so a non-zero `points` would be stored and silently never used. `commands/scoring.ts` holds `setScoringRules` and `toScoringRuleRow`. `importForm`'s `checkScoring` now calls the validator with prefix `scoring_rules` against the definition's fields, still refusing as `invalid-definition` (1.27's ghost-key test unchanged; one test added for a long_text rule).
+
+**Risk:** an import whose definition has `points > 0` on a select is now refused; no such export can exist (exports are at most 24 h old and none was written with one). Rejected: the validator in `commands/scoring.ts` (the client would duplicate it).
+
+## Task 1.28 — `setScoringRules`: replace semantics, shape-only schema, draft ∪ active, ids kept
+
+**Plan said:** `setScoringRules({ form_id, rules })`; the plan's tests only; no output named.
+
+**What was wrong:** the plan gave no semantics for a key not named, no output and no field universe; decision A fixed them.
+
+**What I did instead:** admin only (`assertCan(caller, 'manage_forms')`, which refuses a service caller). The rules REPLACE the form's set (`replaceScoringRules`), and the answer is `{ rules: [{ field_key, points, option_points }] }` read back, sorted by key, `option_points` null off the selects (forced null on write too). A rule may name a live field of the draft or of the active version; where both have the key, **the draft's definition wins** (my choice: it is newer and is what the builder edits) — tested with a draft that retyped a counter to short_text. **`setScoringRulesInput` checks shape only** (`points: z.number().finite()`, `option_points: record(finite).nullable().optional()`); non-negativity and the rest are the validator's, so over HTTP a negative point comes back as `invalid` with `details: { reason: 'invalid-scoring', issues }` instead of a bare 400 zod message (1.27's logged risk for `importForm`). **Beyond the decision:** a rule whose key already has a row is sent with that row's id. The Supabase upsert writes every column given, `id` included, so a fresh uuid per save would re-key the row — and a device pulling `scoring_rules` by delta would then hold two rules for one key, the stale one never tombstoned. As decided, nothing writes `form_versions` (not even `updated_by`), so **a scoring edit does not move the forms list's "last edited"**.
+
+**Risk:** a rule REMOVED by replace is hard-deleted, and `scoring_rules` has no `deleted_at`, so a device that already pulled it keeps it until a full re-hydration (see the task report).
+
+## Task 1.28 — read query shapes: `getFormVersion` is a superset, the dictionary carries `description` and `is_ordinal`
+
+**Plan said:** produces `getForm`, `getFormVersion`, `getFormDictionary`; decision B gives their shapes.
+
+**What was wrong:** nothing; two small widenings.
+
+**What I did instead:** `getFormVersion` answers the `VersionSummary` (id, version_no, `status`, published_at, `is_active`, effective is_locked, `field_count`, entry_count, updated_at, updated_by) plus `form_id` and `fields` — a superset of the decision's list, so the builder can choose Continue/Open/View from one call, and the summary comes from the one helper `listForms` uses. Each field is 1.27's `FormFieldRow` plus `points: number | null` and `option_points: Record<string, number> | null`. `getForm`'s `versions` are newest first, like `listForms`. `getFormDictionary` adds `description` ("what the number actually means", §5.4 — the most useful column for a machine reader) and `is_ordinal` (the option order is a rank) to the decision's columns; `options` is a select's `{ value, label }[]` in order, null on every other type (an event log's buttons are not options). The four are `query` kind and never call `can()`; tested for a scouter, a lead and a service caller.
+
+**Risk:** none known.
+
+## Task 1.28 — the effective lock costs one more head count for an unstamped version with no live entry
+
+**Plan said:** (decision B) `is_locked` is the effective lock, `is_locked || entries > 0` (1.27's rule); `entry_count` counts live entries; add `countLiveEntriesByFormVersions`.
+
+**What was wrong:** 1.27's lock counts every bound entry, soft-deleted ones included (`countEntriesByFormVersion`, as `deleteFormVersion` does); the new batch counts live ones only, so a version whose only entries are soft-deleted would read as unlocked from it.
+
+**What I did instead:** `is_locked || live > 0 || countEntriesByFormVersion(id) > 0`, the last asked only when the first two are false (usually just the draft). Tested: a draft with one soft-deleted entry reads `is_locked: true, entry_count: 0`.
+
+**Risk:** one extra head count per such version; a form has a handful.
+
+## Task 1.28 — four Store methods added
+
+**Plan said:** the Store interface is fixed; decision B allows `countLiveEntriesByFormVersions` and "one batched user lookup".
+
+**What was wrong:** the batched name lookup and the two export reads had no method.
+
+**What I did instead:** `countLiveEntriesByFormVersions(ids)` — one PostgREST head count per id, in parallel (`eq form_version_id`, `is deleted_at null`), chosen over reading `form_version_id` rows and counting in JS because it reads no rows and has no 1000-row cap to page around; every id asked is in the map. `listUserNames(ids)` — `select('id, full_name').in('id', chunk)` in chunks of 100 (no `password_hash` leaves the store). `listFormExports()` — newest first, then id, `limit(200)` (exports live 24 hours). `getFormExport(id)`. All throw with Postgres's code; the fake implements each (its live count adds `entryCountsByVersion`, as `countEntriesByFormVersion` does); store tests pin each query's chain.
+
+**Risk:** none known.
+
+## Task 1.28 — `field_count` of a saved export no longer counts sections
+
+**Plan said:** (1.27) `field_count` counts every field of the definition, sections included.
+
+**What was wrong:** decision B: one definition of `field_count` everywhere — live, non-section fields.
+
+**What I did instead:** `toExportSummary` uses the shared `countDataFields`; the forms list uses it too. 1.27's `saveFormExport` test (two counters) is unchanged; a definition with sections now reports fewer fields than before.
+
+**Risk:** none: no client shows the number yet.
+
+## Task 1.28 — `listFormExports` and `getFormExport`
+
+**Plan said:** nothing (decision B adds them).
+
+**What was wrong:** nothing.
+
+**What I did instead:** both admin only through `assertCan(caller, 'manage_forms')` and registered `kind: 'query'` (as 1.27's `exportForm`; `rpc.ts` ignores kind), so `rpc.test.ts`'s every-command loop does not cover them — `queries/forms.test.ts` refuses a lead, a scouter and a service caller on both and on `saveFormExport`. `listFormExports({})` purges rows created before `now − FORM_EXPORT_TTL_MS`, then lists, also dropping a row exactly at its expiry instant. `getFormExport({ export_id })` treats `created_at + 24 h <= now` as `not-found` (`details: { export_id }`) and does NOT purge (tested: the row is still there). Its `definition` is re-parsed with `formDefinition` on the way out. Names come from `listUserNames`, not `getFullUser`.
+
+**Risk:** a stored definition that somehow fails `formDefinition` makes `getFormExport` a 500, not a clean error; only `saveFormExport` writes the table.
+
+## Task 1.28 — verification and the bundle
+
+**Plan said:** run `pnpm --filter @frc/server exec vitest run && pnpm typecheck`.
+
+**What was wrong:** nothing; the brief asks for the full four, and BUILD-CONTEXT §6 for the bundle.
+
+**What I did instead:** ran `pnpm --filter @frc/server build` (regenerating `apps/server/api/index.js` and `.map`; `bundle-drift.test.ts` passes), then `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, all green. `rpc.test.ts`'s command list (now thirty-four, with `setScoringRules`) and its full name list, and the shared `index.test.ts`, were extended by the seven new use cases.
+
+**Risk:** none.
+
+## Phase 1 D (tasks 1.24–1.28) — run end: verification against dev, docs
+
+**Plan said:** each task proves itself with its unit tests and `pnpm vitest run` / `pnpm typecheck`.
+
+**What was wrong:** nothing. The chat's prompt asked for the negatives to be proved, and BUILD-CONTEXT §10 asks for security-shaped checks from outside a browser session; unit tests against the in-memory fake do not exercise the Supabase store or the HTTP edge.
+
+**What I did instead:**
+- Re-ran `pnpm test && pnpm typecheck && pnpm lint && pnpm format:check` myself after every task before committing. Mutation check on 1.27: disabling the `key-change` guard in `saveDraftFields` fails exactly the test "a saved field's key change (same id, different key) is refused with reason key-change".
+- Ran the server locally (`tsx --env-file=.env src/dev-server.ts`, `SUPABASE_URL` checked to be the dev ref) and drove it with a throwaway Node script over HTTP, signing in as the seed accounts through the API (never a browser pane). 15/15 checks: a saved field's key change → 400 `invalid` / `key-change`; relabelling a select option on a locked v1 → no new version; reordering its options → draft v2; `listForms` newest first with `updated_by` named and v1 active and locked; `saveFormExport` label `Proof form 1905 · v1`, `expires_in_seconds` 86400; a 25-hour-old `form_exports` row inserted directly is gone after the next `listFormExports`; a lead and a scouter get 403 `forbidden` from `saveFormExport`, `listFormExports` and `getFormExport`; no token gets 401. The proof season (year 1905) and its exports were deleted afterwards; 0 forms left. A first run reported 3 false FAILs because the script read `body.code`; the wire envelope is `{ error: { code, message, details } }`. Fixed the script, re-ran.
+- `SPEC-FINAL.md` Appendix C gains `listForms`, `exportForm` / `listFormExports` / `getFormExport` (admin only, service refused), `saveDraftFields` / `importForm` and `saveFormExport`, noted in the v1.22 header line without a version bump. `IMPLEMENTATION-PLAN.md` gains a release note for the two migrations, beside the delete-cascade and match-deletions ones.
+
+**Risk:** `pnpm db:test` still fails `seed.itest.ts` ("expected 96 to be greater than or equal to 100"), logged under 1.27: the seed writes 90 entries since `1b7d24d`, and the test passes only while dev holds ten or more non-seed entries. Not touched in this run. Hard deletes of form fields, versions, forms and scoring rules leave no tombstone for the delta pull (logged under 1.27 and 1.28) — needs a decision before devices score offline.
+
+## Phase 1 D (after the run) — `seed.itest.ts` counted litter, not the seed
+
+**Plan said:** nothing; the test is task 0.14's. It asserted at least 100 `scouting_entries` at the seed event.
+
+**What was wrong:** `pnpm db:test` failed: `AssertionError: expected 96 to be greater than or equal to 100`. Since `1b7d24d` the seed writes 15 scouted matches × 6 = 90 entries, and the query counted every entry at the event, so the test passed only while dev held ten or more non-seed entries from rehearsals and smoke runs. `pnpm db:clean` would have made it fail permanently.
+
+**What I did instead:** the test now keeps only the seed's own rows (ids in the deterministic `00000000-0000-4000-8000-` space, filtered in JS because `.like()` fails silently on a uuid column, BUILD-CONTEXT §10) and expects exactly `SCOUTED_MATCHES * 6`. `SCOUTED_MATCHES` moved from a local inside `seedDevDatabase` to an export of `fixtures.ts`, which both the seed and the test read, so the two cannot drift. The every-entry-bound-to-a-version check still runs over all of the event's entries. Rejected: lowering the threshold to 90 (it still counts litter, so it can pass with a broken seed), and a literal `15 * 6` in the test (it goes stale the day the seed changes).
+
+**Risk:** none for the app; the seed writes the same rows.
+
+## Phase 1 D review — in-place edits invalidated stored and queued entries (#1)
+
+**Plan said:** `syncPush` validates a pushed entry's `data` with `validateEntryData` against its version's fields (task 1.8), and 1.27 lets an admin edit a published version's `config`, `expected_range`, `required` and `visibility_condition` in place.
+
+**What was wrong:** the reviewer's scenario — a counter with `max: 10`, an entry of 9 collected offline, the admin narrows `max` to 5 in place, the device pushes — is rejected `invalid` ("Auto notes must be between 0 and 5"), and so is any later edit of that entry. That contradicts SPEC-FINAL 5.1 ("never retroactively invalidates data") and 15.1 (the range block is ENTRY-TIME). The same held for `expected_range`, a field made `required`, a lowered rating max, `multi_point` turned off, a lowered cycle cap and a removed event type.
+
+**What I did instead:** `validateEntryData(fields, status, data, options?: { mode?: 'submit' | 'stored' })`, default `'submit'` (the client's `submitEntry` and the e2e fixtures call it with three arguments and are unchanged). `'stored'` skips config min/max, `expected_range`, `required`, the rating's upper bound (a finite number ≥ 1 is still demanded), `multi_point`'s one-point limit, the cycle cap and event-type membership (a non-empty string is still demanded); it keeps value types, select option membership, the unit square, tap shape and time order, `unknown-field` and the dead-robot rule. `syncPush` calls it with `{ mode: 'stored' }`. Tests: the seven scenarios in `validate.test.ts` ("validateEntryData 'stored' mode …"), and three syncPush tests on a narrowed in-place `fv-1` (a queued create of 9 and one with the now-required field absent are applied; an edit of an old entry is applied; a wrong type and data on a no-show are still rejected). Every older syncPush test was checked: they push `auto_notes: 2` / `5` against the skeleton (still valid) or data on a no-show (still rejected by the kept dead-robot rule), so each still means what it says. Rejected: validating a push against the field definitions as they were at collection time — the server keeps no history of in-place edits, so there is nothing to validate against.
+
+**Risk:** the server now accepts a pushed value the client's own submit would refuse (e.g. 12 on a counter whose max has always been 10) from a client that skips its own check. Only the in-place-movable rules are relaxed; types, options and the dead-robot rule still hold. The scouter-facing block (15.1) is the client's, as before.
+
+## Phase 1 D review — only a draft can be deleted as a single version (#2)
+
+**Plan said:** `deleteFormVersion` deletes a version with no entries bound to it that is not the active one (task 1.27).
+
+**What was wrong:** a published, non-active version with zero entries ON THE SERVER was deleted, though a device may still hold queued entries for any published version it has (SPEC-FINAL 3.3) — those would then push against a missing version.
+
+**What I did instead:** every published version is refused `invalid` with `details.reason: 'published'`. The order is `has-entries` (so a version with entries still says how many) → `published` → `active-version`. The last is unreachable through the use cases (an active version is always published) and is kept as a backstop for a form row pointing at a draft; its test sets that row directly and says so. The old test "refuses the form's active version" became "refuses every published version, active or not, even with no entries on the server" (`reason: 'published'` for the active v1, and again for v1 after v2 is published and active); new: "names entries first: a published version with entries is has-entries", "still refuses a draft the form row points at as active". A whole form still goes through `deleteForm`.
+
+**Risk:** an admin cannot tidy away an unwanted published version; restoring another and leaving it is the way. Client contract: a new `details.reason` value, `'published'`.
+
+## Phase 1 D review — a field is never hard-deleted from a draft (#3)
+
+**Plan said:** a field removed from a draft it was born in is deleted; one carried from an earlier version is kept deprecated (task 1.27, step 4).
+
+**What was wrong:** devices pull draft rows, and the delta pull cannot see a hard delete, so a device kept a field the draft no longer had.
+
+**What I did instead:** `writeFieldSet` marks every removed draft field `deprecated: true` (same id), born there or carried, and passes `[]` as `deleteKeys`. Tests changed to match: "deprecates a field removed from a draft — born there or carried — and never deletes its row" (was "deletes a field removed from the draft it was born in, …"; the old "its key is free" tail is now covered by review #6's revive), and the import test now expects the draft-born `c` deprecated. `Store.writeFormFields`' `deleteKeys` parameter is now unused by every use case (forms.ts passes `[]` everywhere; nothing else calls it with keys); the store method, its fake and `store.test.ts` are left alone, as the brief asked — it can be dropped in a later tidy-up.
+
+**Risk:** a draft accumulates deprecated rows for fields that never held data; they show in the builder as retired and never export (export reads live fields).
+
+## Phase 1 D review — an in-place fix to a published version reaches the open draft (#4)
+
+**Plan said:** a non-structural save to a published version writes it in place (task 1.27, step 5); nothing about a draft.
+
+**What was wrong:** with draft v2 open, fixing v1's description or expected_range in place left v2 with its fork-time copy, so publishing v2 silently undid the fix.
+
+**What I did instead:** in the same save, after writing and stamping the published version, `carryToDraft` writes each in-place column whose value CHANGED in this save to the draft's live field with the same key AND type (skipped otherwise), and stamps the draft's `updated_by` (only when it wrote something). Every other column of the draft is left alone. One refinement past the brief, for `config`: it is carried per top-level config key the save changed, not as a whole, and a choice list (`options`, `event_types`) the draft has reshaped (other values or another order) takes only relabels, by value. Without this, relabelling an option on v1 would have replaced v2's whole option list and dropped an option v2 had added — the same silent undo, the other way. Tests: "copies the columns the save changed onto the draft's field, and keeps the draft's own edits" (v1's description and expected_range reach v2; v2's earlier label edit survives; v2 stamped by the saver); "skips a draft field whose type the draft changed, and a key the draft removed"; "a relabelled option reaches a draft that added an option, without dropping it"; "copies nothing, and does not stamp the draft, when the save changed nothing". Rejected: copying the whole `config` column (drops the draft's structural option edits), and copying every in-place column (overwrites the draft's own edits).
+
+**Risk:** not one transaction: if the draft write fails, v1 is fixed and the draft is not (the error reaches the admin). A carried `visibility_condition` or computed expression is not re-checked against the draft's field set; if the draft removed its target, the draft's next save or its publish reports the definition issue, positioned. An event type ADDED on v1 does not reach a draft that reshaped its event types (relabels only). Stamping the draft moves its `updated_at`, so a builder holding the draft with a `base_updated_at` gets `stale-version` and reloads — intended.
+
+## Phase 1 D review — a null unit no longer blocks Save draft through a computed field (#5)
+
+**Plan said:** a computed expression is typed by its referenced fields' `unit` (task 1.25).
+
+**What was wrong:** a draft field whose unit is still null (allowed: "needs meaning" only blocks publish) read as `string`, so `counter + computed` became a DEFINITION error ("operands must be the same type…") and blocked Save draft.
+
+**What I did instead:** `staticType` falls back to the field type when `unit` is null: counter, number, rating, timer, toggle → float; everything else → string. Tests in `expression.test.ts`: "types a %s with no unit as a number, so it does not block Save draft" (five types) and "types a %s with no unit as a string" (three).
+
+**Risk:** none; a set unit still decides, as before.
+
+## Phase 1 D review — a removed key can come back under its key (#6)
+
+**Plan said:** a key not live in the target but ever used in this form is `key-retired` (task 1.27, step 3).
+
+**What was wrong:** with #3 deprecating draft-born fields, a field removed by mistake could never come back, and a key from a later version could not return after restoring an earlier one.
+
+**What I did instead:** `resolveIdentity` takes `lastType` (key → its type in the newest version holding it, deprecated rows included). A key not live in the target may come back when its type equals that type; otherwise `key-retired` (now with `details.last_type`). In a draft holding the key as a deprecated row, that row is revived (same id, `deprecated: false`); passing that row's `id` works too (a deprecated id of the target is accepted when the key matches; another key under it is still `key-change`). On a published version a revive is a live field added, so it forks as usual. Tests ("a removed key can come back with the type it last had (review #6)"): revive by key, same id; revive by id, and not under another key; a different type by key or by id → `key-retired`; a key of v2 re-added to restored v1 forks v3 with it, and a different type is refused; the MOST RECENT type decides (counter → number → removed: counter refused, number accepted). The old "refuses a key retired in an earlier version of this form" now re-adds with a different type.
+
+**Risk:** a revived key's column (in analytics and the dictionary) mixes data from before and after the gap, under one meaning — the reason the type must match. Client contract: `details.last_type` on `key-retired`; a deprecated field's id is now a valid `id` in `saveDraftFields`.
+
+## Phase 1 D review — garbage definitions refused; `[]` is missing for a required list (#7)
+
+**Plan said:** the type configs of SPEC-FINAL 5.3, shape only (task 1.24).
+
+**What was wrong:** `{min: 10, max: 5}`, a select or event log naming one value twice, and a `default_value` the field cannot hold all saved; and `[]` satisfied `required` on a multi select, event log, position and cycle path.
+
+**What I did instead:** in `validateFieldDefinition` (so the builder gets them too): counter/number `min ≤ max` when both given (issue at `config.max`); options and event types unique by value (issue at the duplicate, e.g. `config.options.2.value`); a non-null `default_value` is checked with `validateEntryData` for that one field in `'submit'` mode, with its `required` and condition set aside and only when the config parsed (issue at `default_value`). In `validateEntryData`, `'submit'` only: `[]` on a required multi_select, event_log, position or cycle_path is `required`. Small widening: the brief said "position (multi)"; `[]` counts as missing for a single-point position too, since it holds no point either. Tests: "garbage definitions are refused (review #7)" in `config.test.ts`, "an empty list does not satisfy a required list field at submit" in `validate.test.ts`, and "definition checks reach the server (review #7)" in `forms.test.ts`.
+
+**Risk:** a default outside `expected_range` is now refused, since the submit rules apply; a client that pre-fills defaults would otherwise pre-fill a value the submit refuses. A definition already stored with one of these problems now fails its next save (and publish) until fixed; I did not check the dev database for any (no database access in this fix).
+
+## Phase 1 D review — scoring options while a draft exists (#9)
+
+**Plan said:** where draft and active version share a key, the draft's definition wins (task 1.28, decision A).
+
+**What was wrong:** a draft that dropped option X forced deleting X's points, which the active version's entries still score.
+
+**What I did instead:** `scorableUniverse` keeps the draft's type for scorability, but when both versions' fields are selects (single or multi, in either combination), the options are the union — the draft's first, then the active version's not already there. A rule naming an option of neither is still refused. Tests: "accepts option points for an option the draft dropped but the active version still has, and one the draft added (review #9)"; "takes options from both when the draft made a single select multi, and the draft's type for scorability". The existing "judges a key the draft retyped by the draft's type" still holds.
+
+**Risk:** points for an option the draft dropped stay on the rule after the draft is published; harmless (no entry of the new version can select it) and they keep scoring old entries.
+
+## Phase 1 D review — optimistic concurrency on saveDraftFields (#10)
+
+**Plan said:** nothing; a save overwrote whatever another admin saved in between.
+
+**What was wrong:** two admins editing one version: the later save silently replaced the earlier one's fields.
+
+**What I did instead:** `saveDraftFieldsInput` takes an optional `base_updated_at` (`z.string().datetime({ offset: true })`). When given and not the same instant as the target's current `updated_at`, the save is refused before any write: `conflict`, "someone else saved this version; reload it", `details: { reason: 'stale-version', updated_at }`. Absent → no check. `saveDraftFieldsOutput` gains `updated_at`, read back after the save's stamp (the forked draft's on a fork). Compared as instants, not strings, so `…Z` and `…+00:00` notations of one moment agree. Tests: "saveDraftFields: optimistic concurrency (review #10)" — output `updated_at` equals the version row's; a current base saves; a stale base is refused writing nothing; no base saves; a non-timestamp base is `invalid`.
+
+**Risk:** `Date.parse` is millisecond-precise while Postgres keeps microseconds: two saves inside one millisecond are not told apart. Client contract: new optional input `base_updated_at`, new output field `updated_at`, new `details.reason` `'stale-version'` (code `conflict`). Note #4: an in-place fix carried to the draft moves the draft's `updated_at` too.
+
+## Phase 1 D review — verification of the fixes
+
+**Plan said:** nothing; this is the final whole-branch review the user asked for after the run.
+
+**What was wrong:** an Opus reviewer read the whole branch and reported 1 Critical, 3 Important and 6 Minor findings (the nine entries above record each fix). Finding #8 — flipping `is_ordinal` on a select changes what its data means, so it arguably should fork like reordering options — was **not** fixed: the plan's in-place column list names `is_ordinal`, so it is the user's call. While re-proving against dev, the first local server from the earlier proof was still listening on port 3000 (stopping its `npx` parent left the `tsx` child running), so the new server died with `EADDRINUSE` and the first re-run hit the OLD code: 16/19, with the old `key-retired` message. Found by reading that message.
+
+**What I did instead:** killed the stale process by its port (`Get-NetTCPConnection -LocalPort 3000`), restarted, and re-ran the proof script with four new checks: 19/19 — a field removed from a draft keeps its row as `deprecated` with the same id; re-adding it with the same type revives that row; a published version cannot be deleted alone (`reason: 'published'`); plus the original fifteen. Mutation check: switching `syncPush` back to `'submit'` fails exactly the two new "an in-place edit never invalidates a collected entry" tests. The seed's seven field definitions pass the tightened `validateFieldDefinition`. Full gate: 144 files, 1955 tests, typecheck, lint, format and docs checks green.
+
+**Risk:** a local server must be stopped by port, not by stopping its `npx` wrapper, or a later proof silently tests stale code.
+
+## Task 1.29 — a neutral placeholder for the field types `FieldInput` cannot draw yet
+
+**Plan said:** the canvas draws each field with the real `FieldInput`.
+
+**What was wrong:** `FieldInput` draws counter, toggle, single select and long text only; the other ten types arrive with tasks 1.33–1.35 (it returns nothing for them). Orchestrator decision.
+
+**What I did instead:** `features/builder/FieldPreview.tsx` draws those four with the real `FieldInput` (inert, value = the field's default), a `section` as its heading, and every other type as a neutral dashed card on `--bg` (`--control-border` edge, `--ink` label, `--muted` help and the line "Shown on the phone once tasks 1.33–1.35 land"); the key and points sit in the item's bar as for every field. `FieldInput` is not widened. Rejected: drawing mock controls for the missing types (they would drift from the phone's real ones).
+
+**Risk:** the line names task numbers to the admin until 1.33–1.35 replace the placeholder; each of those tasks must add its type to `DRAWN_TYPES` in `FieldPreview.tsx`.
+
+## Task 1.29 — `/admin/forms` reads `listForms`, every season's
+
+**Plan said:** the list page reads "the season's match and super forms through `getFormByKind`".
+
+**What was wrong:** `getFormByKind` is a Store method, not a use case; the server registered `listForms { season_id }` (task 1.28).
+
+**What I did instead:** `useFormsList` calls `listSeasons` + `getActiveContext`, then `listForms` once per season in parallel, so each season chip can say "no forms yet". Restore re-reads only that season. The stat row follows the image rather than a sum: **Fields and Entries are the active version's** (the image shows 214, v3's, beside 38 and 12 in the timeline), **Versions counts published versions** (3 beside draft v4), Last edited is the newest `updated_at` with its `updated_by`. The draft's timeline row says "not published yet · 17 fields" without "2 fields added": the summary has only field counts, and a count difference is not an "added" (one removed and three added also reads +2). The builder's change line does say it, from the two versions' keys. Rejected: `getForm` per kind (two calls per season and no "no forms yet" on the other chips).
+
+**Risk:** one `listForms` per season on every visit; a team keeps a handful of seasons.
+
+## Task 1.29 — the list's Export, Import and ⋯ and the builder's Match timer, More and Try it are left out
+
+**Plan said:** the card has Export and ⋯ (Delete form); a missing form has Import; the top bar has Match timer and More; the canvas has Edit · Try it.
+
+**What was wrong:** those belong to tasks 1.31 (Export, Import, Delete form, Edit as JSON, Try it) and 1.32 (Match timer). Orchestrator split.
+
+**What I did instead:** no dead buttons: Export, Import, ⋯, Match timer and More are not rendered (1.31/1.32 add them). Try it is rendered **disabled** beside Edit, so the canvas head keeps the design's shape and 1.31 only enables it. The missing match form's line drops the design's "or import last season's…" sentence (it names a button that is not there yet): "Every entry needs a match form. Create it here, then publish it from the form builder." Rejected: rendering Export/Import/More disabled (a control that does nothing, with no reason given).
+
+**Risk:** 1.31 must restore the design's import sentence on the missing match form card.
+
+## Task 1.29 — `useBuilderState`: the plan's tests typed, its interface, and how keys are made
+
+**Plan said:** an untyped `initial` literal; the hook has `addField`, `selectField`, `updateField`, `reorder`, `removeField`, `dirty`, `save`; "a field's key is the label's slug (deduplicated with `_2`, `_3`)".
+
+**What was wrong:** (a) the untyped literal widens `type: 'counter'` to `string` and fails `pnpm typecheck`; (b) the plan gives `save` no signature; (c) the design's keys carry the phase (`tele_pieces_dropped` "follows the label", `end_climb`, `post_driver`), which a bare slug never gives.
+
+**What I did instead:** (a) every plan test kept with its assertions, the fixture typed `const initial: BuilderInitial`; the "clean after save" half of the dirty test is now asserted (the plan's test stopped before saving), plus 10 tests of mine. (b) `save(write)` sends the whole live set (`toSaveInput()`: every live field, `id` only on a saved one, column by column so nothing a read added — `form_version_id`, `points`, `deprecated` — rides along) through `write`, and `markSaved(rows)` makes the answer the new baseline. Also exposed: `selectedField`, `isSaved`, `incomplete` (fields holding Publish, in display order), `hasDataField`, `baseline`. `is_locked` means "edits land on a published version": the builder passes `status === 'published'` (decision E: any published version forks, locked or not). (c) `keyFromLabel`: the label's slug led by the phase's prefix (`auto_`, `tele_`, `end_`, `post_`) unless the slug already starts with it, `f_` when it would start with a digit, the type's name for a label with no Latin letters (Hebrew), at most 63 characters, then `_2`, `_3`… against every other live key **and every deprecated key of the version** (so a new field never walks into `key-retired` by accident). A patch never carries `id` or `key`; a saved field's key never moves. A new field's label starts as its type's name ("Counter"), its phase as the tab it was added on, its config as one `validateFieldDefinition` accepts (`defaultConfig`: a select with "Option 1"/"Option 2", an event log with "Event 1", a computed `expression: null`), so Save draft takes it at once and only its meaning is missing (design: "⚠ 3 missing" of 4). `issuesFor(key)` is what holds Publish on the server: `validateFieldDefinition`, `validateVisibilityCondition`, and for a computed field a null expression or `validateExpr`. Rejected: a bare slug (the plan's own `pieces_dropped` test still holds: it adds with no phase).
+
+**Risk:** a key used by another *version* of the form (not this one) is unknown to the builder; the server's `key-retired` refusal names it and the sentence tells the admin to change the label.
+
+## Task 1.29 — the Publish-held line, and "Needs a fix"
+
+**Plan said:** "⚠ 1 field needs its meaning before v4 can be published · Next incomplete →".
+
+**What was wrong:** the line is designed for one field; the dispatch decided the wording for several.
+
+**What I did instead:** one incomplete field: "“Pieces dropped” needs its meaning before v4 can be published"; several: "3 fields need their meaning before v4 can be published, starting with “Pieces dropped”". When a field's problem is not its meaning (a computed field with no expression, a bad condition) the words are "needs a fix" / "need a fix", and its canvas tag says "⚠ Needs a fix" (the same `--warn` tag, sr-only "incomplete"). A draft with no data field: "Add a field before v1 can be published". Next incomplete → selects the incomplete field after the selected one (cycling), switches the phase tab and scrolls it into view. Save draft is disabled while nothing has changed.
+
+**Risk:** "Needs a fix" is my wording; the design shows only "Needs meaning".
+
+## Task 1.29 — the settings pane slot shows the label too
+
+**Plan said:** the settings pane is task 1.30; 1.29 renders a minimal pane (type, label, key line).
+
+**What was wrong:** without one editable control, the key that "follows the label until the first save" cannot be shown working, and the new-field screen cannot be drawn.
+
+**What I did instead:** `SettingsPane.tsx`: the head (type icon, type name, the label), the key line ("Key `tele_pieces_dropped` follows the label until the first save, then it is permanent" / "🔒 Key `end_climb` · permanent, never changes") and a **Label** input (read-only on an older version). Nothing else. 1.30 replaces it.
+
+**Risk:** none.
+
+## Task 1.29 — section-type fields carry no phase, so the canvas places them
+
+**Plan said:** the canvas shows a phase's fields "under their section headings".
+
+**What was wrong:** `validateFieldDefinition` refuses any semantic metadata, `phase` included, on a `section` field, so a section heading cannot say which phase page it belongs to.
+
+**What I did instead:** headings come from the `section` column (a heading wherever it changes within a phase) and from `section`-type fields, which sit on the page of the data field after them, else the one before (`phaseAt`). A section added to a phase goes at the head of that phase's run (`insertIndexFor`). Rejected: storing a phase on a section (the server refuses it).
+
+**Risk:** a section added to an empty phase lands on the next phase's page. 1.30 should revisit if sections matter.
+
+## Task 1.29 — `isStructuralChange` moved, and three validators split out of their modules for the bundle
+
+**Plan said:** move `isStructuralChange` to `packages/shared/src/forms/version.ts`; `pnpm build && pnpm bundle:check` must pass.
+
+**What was wrong:** (a) the move itself went as 1.27 prepared it; (b) after this task's first build, `pnpm bundle:check` said `initial JS 208.8 KB gzip` / `initial JS over 205 KB gzip`. Measuring HEAD (`8c59c4a`, this task's `apps/client/src` changes stashed, then popped) gave **207.0 KB: over the 205 KB budget before task 1.29** — the form schemas tasks 1.24–1.28 added to the shared `API` map ship in the entry chunk (204.4 KB was the last figure logged before them). Of this task's +1.8 KB, about 1.2 KB was `validateFieldDefinition`, `validateExpr` and `validateVisibilityCondition`: their modules (`config.ts`, `expression.ts`, `visibility.ts`) are in the entry chunk for the entry form, and a bundler places a module whole, so once the lazy builder used those functions they shipped in the initial JS.
+
+**What I did instead:** (a) `git mv` of `version.ts` and its test into `packages/shared/src/forms/`, the `@frc/shared` imports made relative, `export * from './forms/version'`, the server's import pointed at `@frc/shared`, the bundle rebuilt. (b) The three validators moved unchanged into `forms/definition.ts`, `forms/expressionCheck.ts` and `forms/visibilityCheck.ts` (exported from the index under the same names; the server unaffected; the three shared tests' imports updated). Also kept out of the entry chunk: the form tags (`components/ui/version-tag.tsx`, not `tag.tsx`), the forms gate's words (`features/forms/formsGate.ts`, not `AdminOnly.tsx`), the lock icon (`Note` takes an icon component). Initial JS is now **207.5 KB: +0.5 KB over HEAD, 2.5 KB over budget**; `pnpm bundle:check` fails, as it did at HEAD. Its precache check passes. Rejected: lazy-loading the admin use cases' schemas out of `API` (an architecture change to `call()` that is not this task's), and raising the budget (the user's decision, 2026-10-07).
+
+**Risk:** **`pnpm bundle:check` is red until the user decides**: raise the budget, or split the `API` map so admin-only schemas load with their pages. Every later client task adds to it.
+
+## Task 1.29 — shared UI additions
+
+**Plan said:** nothing about shared components.
+
+**What was wrong:** the builder and the list need pieces the component system did not have.
+
+**What I did instead:** `components/ui/season-chips.tsx` (THEME "Season chips (labelled)"); `components/ui/version-tag.tsx` (`VersionTag`, `NotCreatedTag`: the version chip's look and the card's status tag); `Tabs` gains `flagged` + `flagLabel` (a `--warn` ⚠ after the count, sr-only words; a test added); `Note`'s `icon` also takes a component; `AdminOnly` takes a `gate` (`allow`, `title`, `detail`; default the Users gate, so its callers are unchanged) and `canManageForms` joins `canManageUsers`/`canManageEvents`. `RpcError` gains `details` (5th constructor argument, `undefined` unless our server answered; a test added). `features/builder/formErrors.ts` maps every reason in the contract to one sentence (20 tests). Rejected: a builder-local season chip (THEME locks it as a shared component).
+
+**Risk:** none.
+
+## Task 1.29 — the builder's own leave guard, and its drag-and-drop
+
+**Plan said:** use `features/admin/LeaveGuard.tsx` if it fits; "drag onto the canvas or onto a phase tab with @dnd-kit, and a click/Enter also adds".
+
+**What was wrong:** `LeaveGuard` takes match rows and its dialog names line-ups, so it does not fit a form.
+
+**What I did instead:** `BuilderLeaveGuard.tsx`: the same pattern (`useBlocker` + `beforeunload`, the destructive confirm "Leave without saving?", Stay first), blocking a change of path **or of `?version=`**, and skipped on purpose when a save forked and the builder moves to the new draft. Drag-and-drop: one `DndContext`; palette rows are `useDraggable` with only the pointer listener spread, so Enter/Space stay the button's own and add the field to the phase on screen; canvas items are `useSortable` with the grip as the explicit activator (keyboard sorting through `sortableKeyboardCoordinates`); the phase column and four transparent drop zones laid over the tabs are droppables. A palette drag collides by pointer (an item before the column); a field drag only with fields. Dropped on a tab, a type joins that phase and the tab opens; on an item, it goes before it; on the column, at the end of the phase. dnd-kit's announcements name fields and phases, never ids. ← / → on the canvas (not in an input or the tablist, not mid-drag) and a sideways trackpad swipe (80 px of `deltaX`, one phase per swipe) change phase. Proven in the e2e by a real mouse drag of Counter onto the Teleop tab.
+
+**Risk:** dropping a field (not a type) onto another phase's tab does nothing; changing a field's phase is the settings pane's (1.30).
+
+## Task 1.29 — e2e fixtures
+
+**Plan said:** extend `e2e/api-mock.ts` with form fixtures.
+
+**What was wrong:** nothing; a placement choice.
+
+**What I did instead:** the data is `e2e/formFixtures.ts` (the 2026 match form: draft v4 with 17 fields over the active, locked v3 with 15 and 214 entries, v2, v1; fields across Auto/Teleop/Endgame/Notes, the four drawn types plus position, cycle path, event log, timer, rating and computed; a "Defence" section); `api-mock.ts` answers `listForms`/`getForm`/`getFormVersion` from it after the shared fixture's answers, and an override may now be a function of the call's input. The 2027 season with no forms comes through a `listSeasons` override in `forms.spec.ts`, so the shared `SEASONS` (and Manage's screenshots) are unchanged.
+
+**Risk:** none.
+
+## Task 1.29 — the initial-JS budget was already broken before this task
+
+**Plan said:** `pnpm build && pnpm bundle:check` must pass (initial JS at most 205 KB gzip, BUILD-CONTEXT §12).
+
+**What was wrong:** `pnpm bundle:check` prints `initial JS 207.5 KB gzip` / `initial JS over 205 KB gzip`. HEAD (`8c59c4a`) was already at **207.0 KB**: the orchestrator re-measured it by stashing this task and building. This task adds 0.5 KB, to **207.5 KB**, and the review's fix round kept it there. The cause is the form schemas that chat 1 (tasks 1.24–1.28) added to the shared `API` map. That map ships in the entry chunk, so every admin-only form schema is in the initial JS.
+
+**What I did instead:** kept this task's own cost down. The three validators the builder uses (`validateFieldDefinition`, `validateExpr`, `validateVisibilityCondition`) moved into their own modules (`forms/definition.ts`, `forms/expressionCheck.ts`, `forms/visibilityCheck.ts`), so the lazy builder no longer pulls them into the entry chunk. No other code change for the budget. Rejected: raising `BUDGET_KB`, because the 205 KB budget is the user's decision of 2026-10-07 and only the user changes it. Also rejected: splitting the admin schemas out of `API` so they load with their pages. That is an architecture change to `call()`, outside tasks 1.29–1.32.
+
+**Risk:** `pnpm bundle:check` stays red until the user chooses: raise the budget, or split admin-only schemas out of `API`. Phase 1 E adds code on the entry path, so the user must choose before Phase 1 E starts.
+
+## Task 1.29 — fix round 1: Restore waits while there are unsaved changes
+
+**Plan said:** the version menu restores an older published version (`restoreFormVersion`).
+
+**What was wrong:** say an admin is on the active v3 with unsaved edits and picks Restore v2. The builder reloads, v3 remounts read-only, and the edits are gone. The leave guard does not ask, because the route does not change.
+
+**What I did instead:** while `state.dirty`, every Restore in the version menu is disabled. The menu shows the reason as visible `--warn` text, "Save or undo your changes first", and each disabled Restore points to that text through `aria-describedby`. The text sits in the popup, outside the `role="menu"` list, so the menu holds only menu items. Tested in `BuilderPage.test.tsx`. Rejected: asking through the leave-guard dialog. The resolution chose a held action.
+
+**Risk:** none.
+
+## Task 1.29 — fix round 1: on the active version while a draft exists, structural edits are held
+
+**Plan said:** a structural edit to a published version forks a new draft (SPEC-FINAL 5.1).
+
+**What was wrong:** when a draft already exists, the server refuses that save with `draft-exists`. The builder still offered the palette and Save changes, so the admin hit a dead end.
+
+**What I did instead:** on the active version while a draft vN exists:
+- The palette is disabled. Its head says "New fields go in draft vN", in `--warn`, in place of "drag onto the form".
+- If `willForkNewVersion` is still true (for example, a field removed or a type changed through the settings pane in task 1.30), Save changes is held. Under it is the line "This change belongs in draft vN · Open draft vN →", which links to `?version=N`. The "● Unsaved changes" line no longer repeats "this change belongs in draft vN".
+- In-place edits still save.
+- With every row disabled, the palette's list takes focus itself (`tabIndex=0`, named "Field types") so it still scrolls from the keyboard. axe's `scrollable-region-focusable` flagged it in `builder-locked` without this.
+
+Tests: the palette case in `BuilderPage.test.tsx`. The held-Save case is in the new `BuilderTopBar.test.tsx`, because task 1.29 has no UI that removes a field or changes its type.
+
+**Risk:** when task 1.30 adds Remove field and type changes, it should check that the held line appears through the page.
+
+## Task 1.29 — fix round 1: a new field's key avoids every saved key of the version
+
+**Plan said:** a generated key is deduplicated against the live keys and the retired keys (the earlier 1.29 entry on `useBuilderState`).
+
+**What was wrong:** a saved field removed in the same session is neither live nor retired yet. So a new field could take its key, perhaps with a different type. The server then sees the old key come back as another type.
+
+**What I did instead:** `takenBy` now includes every key in the baseline, live and deprecated, as well as the other live keys. Test: remove the saved counter `auto_high`, add a toggle labelled "high" in Auto, and the key is `auto_high_2` (`useBuilderState.test.ts`).
+
+**Risk:** none. A key the admin really wants back can come back by undoing the removal.
+
+## Task 1.29 — fix round 1: the fork keeps the editor busy; more refusals offer Reload; the list's failed re-read
+
+**Plan said:** a fork switches to the new version and reads it again. Refusals are mapped to one sentence.
+
+**What was wrong:**
+1. During a fork, the old editor was live again until the new draft loaded.
+2. `version-race`, `already-published` and `duplicate-field-id` told the admin to "reload" but gave no Reload button.
+3. On the forms list, a successful restore followed by a failed re-read showed up as a failed restore.
+
+**What I did instead:**
+1. After a fork, `busy` stays set (Save and Publish held, panes inert) until the editor remounts on the new draft. The fork test now returns v4 after the save and asserts the busy editor, the second `getFormVersion` call (v4) and the "Draft v4" chip.
+2. `formErrors.ts` gains `offersReload(e)` (six reasons), which the builder uses. Tested in `formErrors.test.ts`.
+3. `FormsPage` catches the re-read on its own. The card says "vN is restored. The list did not read again, so it may be out of date. …" and gets a Try again button (`FormCard`'s new `onRetry`) that reads the season again. Tested in `FormsPage.test.tsx`.
+
+**Risk:** none.
+
+## Task 1.29 — fix round 1: "made from vN" only when the source is certain
+
+**Plan said:** the top bar shows "made from v3 · 2 fields added" (design 12-form-builder).
+
+**What was wrong:** the source was taken to be the newest published version below the draft. After a restore (v2 active, v3 newest published) the draft may come from either version, so the line could name the wrong one.
+
+**What I did instead:** `useBuilderLoad` gives a draft a `previous` only when the newest published version is the active one. Otherwise `previous` is null, nothing extra is read, and the change line is left out. It never guesses. Tested in `BuilderPage.test.tsx`. Rejected: recording the source on the version (a server column). That is not part of this task.
+
+**Risk:** after a restore, a draft shows no "made from" line until it is published.
+
+## Task 1.29 — fix round 1: shared pieces for the canvas marker, the version chip and the ghost; the Edit / Try it pills
+
+**Plan said:** BUILD-CONTEXT §12: build from the shared components.
+
+**What was wrong:**
+- The "Needs meaning" chip duplicated `WarningFlag`.
+- The version chip button re-implemented `VersionTag`'s classes.
+- `PaletteGhost` hard-coded `rgba(20,24,32,0.45)`.
+- The Edit / Try it pills were hand-styled.
+
+**What I did instead:**
+- The canvas uses `WarningFlag`, which gains an optional `icon` (default `Flag`) so the builder keeps the design's ⚠. The sr-only "incomplete" stays.
+- `version-tag.tsx` exports `versionTagClass(tone)`, which both `VersionTag` and the chip button use.
+- The ghost's shadow is `var(--shadow-float)`.
+- The Edit / Try it pills stay hand-styled. `Segmented` does not fit: it is a radiogroup of 46 px segments in which selection follows focus, it has no disabled segment, and its look (an accent-tint track) is not the design's ink-filled pills. `FilterChips` matches the look, but it has no disabled option either, and it sits in the entry chunk. Rejected: adding a `disabled` option to `FilterChips` for a control whose second half is a placeholder until task 1.31.
+
+**Risk:** when task 1.31 makes Try it live, it should move the pair onto `FilterChips`, which then needs no disabled option.
+
+## Task 1.29 — fix round 1: a field added to a phase joins the last field's section; the sticky phase header
+
+**Plan said:** a type dropped on a phase tab joins that phase (design 12-form-builder `-new-field`, where the new field sits second in Teleop).
+
+**What was wrong:**
+1. The new field went after the phase's last field with `section: null`. The canvas draws a heading only when `section` changes from the field before. So the new field sat under the last section's heading (Defence) and looked part of it, while its data said it was not.
+2. The sticky "Teleop · Phase 2 of 4" header overlapped the first item's key line while the column scrolled.
+
+**What I did instead:**
+1. The canvas groups by the `section` column, not by section-type heading rows, so the first option of the resolution applies. A field added to a phase without an explicit index goes after that phase's last field and inherits that field's `section`. This covers a tab drop, a column drop and a palette click or Enter. Nothing is inherited when the phase has no fields, when the field before is a section-type row, or when the added field is itself a section. The field is still placed last, not second as in the design. Tested in `useBuilderState.test.ts`. A drop on a given item (explicit index) is unchanged.
+2. The sticky header stays opaque (`--line-2`) and gains bottom padding (`pb-2.5`, was `pb-1.5`). Once the column is scrolled, it also shows a 1 px `--line` rule along its bottom edge (a box-shadow, so nothing shifts). Items scroll into view with `scroll-mt-[4.5rem]` (was `scroll-mt-14`), so a selected item clears the header. Checked in `builder-new-field-desktop.png`: the first item's key line, `tele_cycle_routes`, now reads in full below the header.
+
+**Risk:** the new field joins a section the admin may not have meant. Moving it out is the settings pane's Section field (task 1.30).
+
+## Task 1.30 — the settings pane's props: pure, with the points in the same patch
+
+**Plan said:** the tests render `<SettingsPane field allFields onChange seasonImagePath? />`; the orchestrator: keep that pure shape, wire it to `state.updateField` "and a scoring callback", and adapt the plan's tests only where the scoring callback needs a prop.
+
+**What was wrong:** nothing; a shape had to be chosen. A separate scoring callback would have needed a prop the plan's tests do not pass, and test 3 ("offers scoring for a counter") expects `onChange` itself to fire when points are typed.
+
+**What I did instead:** `SettingsPane({ field: PaneField | null, allFields, onChange(patch: PanePatch), seasonImagePath?, editable?, saved?, published?, forkNote?, savedOptionValues?, issues?, scoringIssues?, onRemove? })`. `PaneField` is the definition plus its `points` / `option_points` (a `ScoredFieldRow`'s shape); `PanePatch` is a `FieldPatch` plus `points` / `option_points`. `BuilderPage.onPaneChange` splits the patch: the points go to the builder's scoring (`useScoring`), every other column to `state.updateField(key, columns)`. A phase change also moves the canvas to that phase. All optional props default to the plain case (editable, saved, a draft), so the plan's eight cases run unchanged, except one (next entry).
+
+**Risk:** none known. Rejected: an `onScoring` prop (the plan's counter test would then need it).
+
+## Task 1.30 — the plan's test file: one regex anchored, 1.29's page tests unfold the Field group
+
+**Plan said:** test 2 checks `getByLabelText(/unit/i)` is required, and test 3 types into `getByLabelText(/points per unit/i)`, both on the same counter.
+
+**What was wrong:** both labels are on the page at once, so `/unit/i` finds two elements: `TestingLibraryElementError: Found multiple elements with the text of: /unit/i`.
+
+**What I did instead:**
+- Test 2 uses `/^unit$/i`, with a comment. Every other plan case is verbatim; `field()` is cast to `PaneField`.
+- 1.29's page tests typed into the settings pane's Label at once. A saved, complete field's Field group now starts folded (the design), so a helper `labelBox(u)` unfolds it first (7 call sites).
+- Two 1.29 page tests now take longer under a full parallel run, because the pane makes the page's DOM larger (role queries are slower in jsdom). "a new field from the palette is incomplete…" took 4.8 s against the 5 s default, and "asks before another page…" missed its dialog within the 1 s `findByRole` default. They get `15_000` and a `5_000` `findByRole` timeout, each with a comment. Both pass alone in 1.7 s and 0.75 s.
+
+**Risk:** the suite is slower: the builder page file takes about 13 s alone.
+
+## Task 1.30 — the scoring matrix against one rule per field
+
+**Plan said:** "Scoring is a phase × value matrix" (design: Auto · Teleop · Endgame columns).
+
+**What was wrong:** a scoring rule holds one `points` (or one `option_points` map) per field, and a field has one phase (SPEC-FINAL 4.1 rule 2).
+
+**What I did instead (orchestrator decision):** the matrix stays. The column of the field's own phase holds the inputs. The other two are greyed boxes with sr-only "not this field's phase" (no inputs). A field with no phase, or in Notes, shows one "Points" column, with the line "Once its meaning names a phase, the points sit in that column." when the phase is blank. Rows: "Each piece" for a counter or number (input "Points per unit"), "Yes" for a toggle ("Points for yes"), one row per option for a select ("Points for <label>"). A select's change sends `points: 0` with its `option_points`. Inputs refuse negatives (shown invalid, nothing sent). A 0 cell is greyed (`--bg` fill, `--muted` text: `--faint` failed axe colour-contrast). "in place · no new version" shows on a published version. A type that is not scored has the Scoring group with a Note that says why: rating, timer, short text, long text, event log, position, cycle path and computed each have a sentence.
+
+**Risk:** none known.
+
+## Task 1.30 — persisting scoring: the whole rule set, read from both versions, after the fields
+
+**Plan said (orchestrator):** hold the form's full rule set locally, seeded from `version.fields`' points; on Save, `saveDraftFields` first, then `setScoringRules` with the whole set when it changed. Rules that are 0 everywhere are dropped. Validate with `validateScoringRules` first. A failure of the second call says the fields were saved and the points were not.
+
+**What was wrong:** `version.fields` is not the whole rule set. `setScoringRules` replaces every rule of the form, and its universe is the live fields of the draft and of the active version (task 1.28, review #9). A rule on a key only the OTHER version has (for example a field draft v4 added, while v3 is open) is not in this version's rows, so a set built from them alone would delete it.
+
+**What I did instead:**
+- `scoringRules.ts` holds one rule per field id (a new field's key still follows its label), from the loaded rows, deprecated ones included. `dirty` compares against what was loaded or last sent.
+- When the scoring changed, Save first reads the other version: the active version for a draft, or the draft for the active version (one more `getFormVersion`).
+- `wholeRuleSet` builds the set by key. It takes this version's live fields, then its other rows (retired, or removed in this session), then the other version's rows for keys this version lacks.
+- `scoringUniverse` builds the universe the way the server does. The draft's type wins, and two selects' options are a union. On the active version, if the save forks, the new draft is the live set and the active version is the baseline.
+- Only keys in that universe are sent. A select keeps option points only for options either version still has.
+- The set is checked with `validateScoringRules`. Any problem stops the whole save, with nothing sent: an error line names the field, and the problem shows in that field's Scoring group.
+- Then `saveDraftFields` runs, if the fields changed. A new field's points follow its server id (`rekey`). Then `setScoringRules`.
+- If `setScoringRules` fails after a field save, the line says "The fields were saved; the points were not. <reason>", and the points stay unsaved. If the save forked first, that line is carried to the new draft's page by a ref in `BuilderScreen`, which outlives the remounted editor. Router state was rejected: `useLocation` added an export to the initial chunk.
+- Publish saves first when either the fields or the points changed.
+- The canvas's points tags follow the points being edited.
+
+**Risk:**
+- A rule whose key is live in neither version (a key retired from both) cannot be sent (the server refuses it). So it is dropped by the next scoring save, and it no longer scores old entries of older versions. This is a consequence of 1.28's replace semantics, not new here.
+- Two tabs editing scoring still last-write-win (`setScoringRules` has no `base_updated_at`).
+
+## Task 1.30 — groups, folding, and what each group holds
+
+**Plan said:** one `Card` with the key line, then `SectionHeader level={3}` groups Field · Configuration · Meaning · Scoring · Show when; a complete group folds to a one-line summary. Fields from `features/admin/fields.tsx` and `Textarea`; errors are `FormError`.
+
+**What was wrong:**
+- No `SectionHeader` and no `FormError` component exist.
+- `features/admin/fields.tsx`'s `TextField` is a 48 px block with its own `mt-4` and hint layout, not the pane's `.fb-f` rows.
+- The design's images fold only Field and Meaning. Configuration, Scoring and Show when never have a "complete" state.
+
+**What I did instead:**
+- Each group is a `<section>` with an `h3` (`paneParts.PaneGroup`). Field and Meaning fold once complete: the `h3` holds a button with `aria-expanded`, and the folded line is the summary, e.g. "Teleop · not required · help: “…”" or "count · Teleop · higher is better · Scoring", with "✓ Complete".
+- A saved, complete field starts folded. A new (unsaved) field starts with everything open, to be filled now. An incomplete Meaning never folds.
+- Errors are `ErrorLine` (the 3 px `--warn` line).
+- Controls are `Input`, `Textarea`, `Select`, `Switch` and `Segmented` from `components/ui` in a pane-local row (`PaneRow`: 12 px / 650 label, a muted "required", "Needed to publish" in `--warn` linked by `aria-describedby`). `TextField` is not used.
+- **Field:** Label, Help text, **Type** (not in the design; next entry), Section (an `Input` with a `datalist` of the form's section names), Required.
+- **Meaning:** "4 required" and "⚠ N missing" (`WarningFlag`) or "✓ Complete". The Note "This cannot be added later. Nobody goes back and describes 80 fields." Description (`Textarea`, `required`), Unit (`Select`, `required`), Category (`Select`: the spec's five examples plus any the form already uses), Phase and Direction (`Segmented`, `aria-required`). A blank required control has a 2 px `--warn` edge or ring and "Needed to publish". The phase segments read Auto · Teleop · Endgame · Notes (the tabs' words, `PHASE_TAB`), not the image's "After".
+- Expected range is shown for counter and number only: the entry validator holds only those two to it (SPEC-FINAL 15.1). It has the line "A value outside it is blocked when the scouter enters it." Half a range writes `null`, with "Give both ends of the range, or neither."
+- **Configuration:**
+  - Counter and number: min, max, step and default; a blank one drops the key.
+  - Selects: Ordered ("the list order is the rank, worst → best"), WORST / BEST, and on a published version "Adding an option <starts|belongs in> draft vN". Options are reordered with ↑ ↓ buttons and removed with ✕ (never below one), not dragged by the design's grips. A saved option's value is permanent; a new one's follows its label.
+  - Event log: Buttons, "Ask where on the field" (turning it on sets `mirror_axis`, default left ↔ right), the mirror control and preview, and the Note on what a tap saves.
+  - Rating: highest rating and Stars / Slider.
+  - Text: the longest answer.
+  - Timer: a Note on "Unsure — no time".
+  - Position: One point / A list of points, mirror, preview.
+  - Cycle path: − n + (at least 2), mirror, preview.
+  - Computed: below.
+  - Toggle has no Configuration group.
+- A section-type field shows only its Label and a Note ("holds no data, so it has no meaning, scoring or condition").
+- Read-only (an older version): each group's controls sit in a disabled `fieldset`, the fold buttons stay usable, and the ⋯ menu is hidden.
+- The pane's inputs keep the 48 px floor (SPEC-FINAL 17.7), not the images' 38 px and 32 px, so the pane is longer than the images and scrolls sooner.
+- The unit is not filled in from the type. The new-field image shows "count" already chosen; the meaning is chosen by the admin at creation, never guessed.
+
+**Risk:** the design's drag grips on options are not built. ↑ ↓ does the same job with keyboard access.
+
+## Task 1.30 — changing a type, removing a field, and the ⋯ menu
+
+**Plan said:** nothing about a type control; the README: "a ⋯ menu (Remove field, which deprecates it in the next version)". Orchestrator: changing a type is allowed on a draft and forks on the active version, with 1.29's hold while a draft exists.
+
+**What was wrong:** the design draws no control that changes a type.
+
+**What I did instead:**
+- A **Type** `Select` in the Field group lists the 13 data types; a section cannot change type. On a published version its hint is "Changing the type <starts|belongs in> draft vN."
+- A change resets `config` to the type's default and sets `default_value: null`, `unit: null` (the meaning is re-chosen) and `is_ordinal` (false for a select, else null). It also drops the field's points, since a rule belongs to the type it was written for.
+- ⋯ is a small menu button ("Field actions: <label>") with one item, Remove field. It says what removing does here: "Retired in the next version: removing it starts draft vN" on a published version; "Retired from this draft…" on a saved draft field; "never saved, so it simply goes" on a new one. It calls `state.removeField`.
+- On the active version while a draft exists, a removal or a type change shows 1.29's held line "This change belongs in draft vN · Open draft vN" (now tested on the page).
+- A field dropped onto an item still gets `section: null` (1.29's note). The Section box is now where the admin sets it; `addField` is unchanged.
+
+**Risk:** resetting the unit on a type change makes a published field incomplete until its unit is chosen again.
+
+## Task 1.30 — the computed field's editor offers common shapes
+
+**Plan said (orchestrator):** the smallest honest editor that writes a valid `Expr`, validated live with `validateExpr`; `null` until written; if a full editor is too large, offer the common shapes and log what is not offered.
+
+**What was wrong:** nothing; this records the scope.
+
+**What I did instead:** `expressionShapes.ts`. "Worked out as" offers a sum of fields (two or more, "Add a field"), a difference, a product or a ratio (first a field; second a field or a number), and text joined (two text fields). `result_type` follows the shape: `string` for a join, `float` otherwise, so there is no separate control. Until every operand is chosen, `expression` stays `null`, with the line "Until every operand is chosen the expression stays empty, and the form can't be published." `validateExpr` issues show live as an `ErrorLine`. A complete expression is shown as text ("Saves `auto_high + tele_high` as a number").
+**Not offered:** nested mixes (`(a + b) / c`), a number on the left, a literal string, and a sum that mixes in a number. An expression of another shape (from JSON or an import) is shown as text with "Replace it", which starts a sum.
+
+**Risk:** an admin who needs `(a + b) / c` must use Edit as JSON (task 1.31).
+
+## Task 1.30 — Show when: one condition, written when complete
+
+**Plan said:** one condition, never a list.
+
+**What was wrong:** nothing; this records the choices.
+
+**What I did instead:**
+- A dashed "Show this field only when…" button opens one row: "When field" (the form's other live fields that hold one value: counter, number, rating, timer, toggle, single select, short and long text, computed), "Is" (ASCII `=` `!=`, plus `>` `<` `>=` `<=` for a number), and "Value".
+- The value control follows the field: Yes / No for a toggle, the options for a select, a number box, or text.
+- The condition is written only when a field and a value are chosen. Until then it stays `null`, with "Until a field and a value are chosen, this field always shows." A toggle or a select starts on its first answer, so it is written at once.
+- "Remove the condition" writes `null`.
+- Multi select, event log, position and cycle path are not offered as targets: they hold lists, and `isVisible` compares one value.
+
+**Risk:** none known.
+
+## Task 1.30 — the mirroring preview uses the season's game image
+
+**Plan said:** a mirroring preview over the season game image (§5.6).
+
+**What was wrong:** nothing; the image's source had to be found.
+
+**What I did instead:**
+- `useBuilderLoad` already reads `listSeasons`. `BuilderData` gains `fieldImage`: the season row's `field_image_path`, or null.
+- `MirrorPreview` draws that image, `/<path>` from the build (`season/images`), twice: "A blue scout taps", then "Saved as (red's side)". The marks are positioned in percentages over the image: two spots, or a three-point route for a cycle path.
+- When the path is not in this build, or the image fails to load, it draws a neutral outline: a red end on the left, a blue end on the right.
+- The whole preview is `role="img"`, named "Mirroring preview". The line under it says "Red is saved as tapped; **blue is mirrored** <axis words>…", or "nothing is mirrored" for None.
+- The line "Game image: `<path>`, set on the season in Manage." follows.
+
+**Risk:** the preview is a sketch for checking the axis, not the scouter's map (tasks 1.34–1.35).
+
+## Task 1.30 — `Segmented` and `Switch` widened by types and aria only; the bundle
+
+**Plan said:** BUILD-CONTEXT §12: use the shared components; `pnpm build && pnpm bundle:check`. Orchestrator: initial JS must stay ≤ 207.5 KB.
+
+**What was wrong:**
+1. A blank meaning control needs `Segmented` with no value, `aria-required`, `aria-invalid` and `aria-describedby`, a warn ring, and a held state. The builder's switches put the switch first, with a bold lead word.
+2. The first build measured `initial JS 208.2 KB gzip`. `packages/shared/src/forms/scoring.ts` had `const SCORABLE = new Set(SCORABLE_FIELD_TYPES)`. Rollup treats a `Set` built from a variable as a side effect, so the module stayed in the entry chunk, and `validateScoringRules`, which the lazy builder now uses, shipped in the initial JS (the 1.29 "shared module rule").
+3. After that fix: `207.6 KB` (212 565 B against HEAD's 212 522 B). Each name the lazy chunk imports from the entry adds an export there.
+
+**What I did instead:**
+1. `Segmented`: `value: K | null` and `aria-required` / `aria-invalid` / `aria-describedby` spread onto the radiogroup. `Switch`: `label: ReactNode`. Nothing else in either. The warn ring, the dimming of a held group and the switch-first layout live in builder-only wrappers (`paneParts.PaneSegmented`, `LeadSwitch`). A disabled `fieldset` disables the segments.
+2. `scoring.ts` keeps `SCORABLE` as the array and uses `.includes`. Nothing else changes, and the server bundle (`apps/server/api/index.js`) is regenerated.
+3. The builder avoids new entry exports:
+   - ✕ / + / − are text glyphs, not lucide `X` / `Plus` / `Minus`.
+   - Reordering uses `MoveUp` / `MoveDown`, which only the builder uses.
+   - The fold chevron is the entry's `ChevronDown`, rotated.
+   - The type list comes from `FIELD_TYPE_INFO`, not `FIELD_TYPES`.
+   - A local `optionsOf` replaces `selectOptions`.
+   - The fork notice is a ref, not router state.
+
+   Result: `initial JS 207.5 KB gzip` (212 517 B, 5 B under HEAD). `BuilderPage` grows from 28.7 KB to 40.9 KB (lazy, precached).
+
+**Risk:** the 205 KB budget line stays red, as decided by the user. Rejected: adding `className` / `lead` props to `Switch` and `Segmented` (dropping them took the entry chunk from 212 543 B to 212 517 B), and a separate `scoringCheck.ts` module (the array fix was smaller and kept one home for the rules).
+
+## Task 1.30 — fix round 1: a type change keeps the points it can carry (I1)
+
+**Plan said:** nothing on scoring across a type change. Round 0 (entry "changing a type, removing a field, and the ⋯ menu") zeroed the field's rule on every type change.
+
+**What was wrong:** review I1. The zero rule marked the key as seen in `wholeRuleSet`, so the partner version's rule was not re-added and `setScoringRules` (which replaces the whole set) deleted it. Scenario: draft `tele_high`, live in active v3 at 4/ea; counter → number in the draft; v3's entries stop scoring silently.
+
+**What I did instead:**
+- `changeType` no longer touches the rule. The page keeps the rule by field id.
+- `scoringRules.ruleLost(type, rule)`: a rule that scores something but that the type cannot carry — the type is not scored, or select ↔ non-select. A counter's points carry to a number or a toggle; a single select's option points to a multi select.
+- `useScoring(rows, live)` now takes the live fields: a lost rule counts as removed in `dirty`, so the type change alone makes the scoring dirty and the save sends the set without it. `markSent(types)` drops lost rules from the local map once sent (the server no longer has them), so the warning goes and changing the type back does not bring back points that were deleted.
+- Before the save, the Type control's hint (wired as its `aria-describedby`) says "Its points are removed for every version of this form." The canvas's points tag is hidden for a lost rule. Changing the type back before saving brings the points back untouched.
+- `onPaneChange` merges a patch that carries only `points` or only `option_points` into the current rule.
+
+**Risk:** dropping a lost rule still deletes it for every version, including the active version whose entries scored it; the hint is the only guard. Rejected: a `points: null` "drop" signal in the patch (it needs the page to remember the pre-change rule to show the hint), and zeroing only when lost (the hint then has nothing to read from once the rule is gone).
+
+## Task 1.30 — fix round 1: a new option's points follow its value (I2)
+
+**Plan said:** nothing.
+
+**What was wrong:** review I2. Relabelling a new option changed its value (`option_1` → `low`), but `option_points` kept `option_1: 5`. The save then filtered the orphaned key out, losing the points.
+
+**What I did instead:** `ChoiceList.onItems(next, change)` reports `{ from, to }` for a value that moved and `{ from, to: null }` for a removed one. The select's handler renames or removes the `option_points` key in the same patch as the config, **only for an option not yet saved**. A saved option removed from the list keeps its points: its value is still the other version's (and the save's union universe keeps it), and `wholeRuleSet` already drops points for an option no version has.
+
+**Risk:** a saved option removed in a draft that is the form's only version keeps a dead key in the local rule until the save filters it. Harmless: it is never sent.
+
+## Task 1.30 — fix round 1: references follow a new field's key (I3)
+
+**Plan said:** a new field's key follows its label until the first save (1.29).
+
+**What was wrong:** review I3. `updateField` re-derives an unsaved field's key on a label or phase change. Another field's `visibility_condition.field_key` and a computed field's expression held the old key string, so they dangled.
+
+**What I did instead:** `useBuilderState.renameReferences(field, from, to)` (exported). In the same state update that moves a key, every field's condition and computed expression naming the old key is rewritten. The scoring rule needs nothing: it is held by field id, not key. The pane's local Show-when and computed drafts belong to the selected field only, and a key moves only while its own field is selected, so they never hold a stale key.
+
+**Risk:** none known.
+
+## Task 1.30 — fix round 1: `scoringUniverse` moved to `@frc/shared`; `isSelectType` shared (I4)
+
+**Plan said:** the client mirrored the server's `scorableUniverse`.
+
+**What was wrong:** review I4. There were two copies of one rule, so they could drift. The client also had local `optionsOf` / `options()` / `isSelectType`, kept only to save entry-chunk bytes.
+
+**What I did instead:**
+- `packages/shared/src/forms/scoring.ts` exports `scoringUniverse<F>(active, draft)`, `SELECT_FIELD_TYPES` and `isSelectType`. The validator uses `isSelectType`. The select list is an array with `.includes`, per the shared-module rule.
+- The server's `scorableUniverse` reads both versions' fields and calls it. Its behaviour is unchanged: the active version first, then the draft; the draft's type wins; two selects union their options. Server tests pass unchanged, and `apps/server/api/index.js` is regenerated.
+- `selectOptions` now takes `Pick<FormFieldDefinition, 'config'>`, which is wider and changes nothing at runtime.
+- The client uses `selectOptions`, `isSelectType` and `scoringUniverse` from `@frc/shared`. `optionsOf` and the local copies are gone. The universe test moved to `packages/shared/src/forms/scoring.test.ts`.
+
+**Risk:** none. The server comment said "so long as the draft's type is a select", but the code required both to be selects; the shared function keeps the code's behaviour, and its comment now says so.
+
+## Task 1.30 — fix round 1: shared components in the pane (I4, I5)
+
+**Plan said:** BUILD-CONTEXT §12.1: build from `components/ui/*`.
+
+**What was wrong:** review I4/I5:
+- the pane was a hand-styled `<section>`
+- the scoring matrix was a raw `<table>`
+- icon and text actions were hand-styled `<button>`s with text glyphs ✕ / + / −
+- `LeadSwitch` restyled `Switch` internals with descendant selectors
+- the fork notice rode a ref
+
+**What I did instead:**
+- The pane is `Card as="section"`, with `p-0` because the pane scrolls inside.
+- The matrix is `Table` / `TableHeader` / `TableBody` / `TableRow` / `TableHead` / `TableCell`, drawn as the design's points grid through `className`: no row dividers or hover, 3 px row padding, 11.5 px bold headers. Rows are keyed by option value. `Table` itself is unchanged.
+- `Button` gains a size `icon-sm`: 32 px drawn, with a 48 px hit area through `::after`. It is for the dense rows: move ↑ / ↓, remove, and the ⋯ menu. The cycle's − / + are `Button size="icon"` (48 px, secondary).
+- The ghost buttons are "Add an option / a button", "Add a field" and "Remove the condition". "Show this field only when…" is a secondary button with a dashed edge.
+- The glyphs are lucide `X`, `Plus` and `Minus`.
+- `Switch` gains `lead` (the track before the words), and dims with a not-allowed cursor when a disabled fieldset holds it. That applies to every `Switch`; no other screen disables one today. `LeadSwitch` is gone.
+- The fork notice is router navigation state (`{ notice }`) on the navigate to the new draft. The new editor reads it at mount and replaces the history entry without it, so a reload does not repeat it.
+
+**Risk:** the entry chunk is 212 630 B, +108 B over HEAD's 212 522 B, within the revised allowance of about 1 KB. The 205 KB line stays red, as decided by the user. `BuilderPage` is 41.5 KB (lazy, precached). Rejected: restyling `Table` itself (it would change every data table).
+
+## Task 1.30 — fix round 1: the minor findings
+
+**Plan said:** the plan's tests assert the counter's patch, and a toggle's single row.
+
+**What was wrong:** review minors:
+- the mirror image was cropped to the 2026 aspect
+- the matrix was keyed by its aria-label
+- Step and Default had no guards
+- `exprText` printed `(a + b) + c`
+- `is_ordinal` was `null` from the palette but `false` after a type change
+- the heading was empty with a blank label
+- the ⋯ menu stayed open on Tab
+- tests were loose
+
+**What I did instead:**
+- `MirrorPreview`'s image is `h-auto w-full` at its natural aspect (no `aspect-[2000/812]`, no `object-cover`), so the dots stay true for any season's image.
+- Step refuses 0 and below (`NumberInput positive`, the config's `positive()`). A counter's Default refuses a fraction (`integer`); a counter counts whole pieces, although the schema alone does not require it. The config does not require any other guard here.
+- `exprText` reads a `+` chain flat: "a + b + c". Other nesting keeps its brackets.
+- `is_ordinal` is `null` after a type change, as a palette field starts and as the server stores an unset value (`field.is_ordinal ?? null`). "Ordered" reads `=== true`, so null shows unordered.
+- A blank label names the head and the ⋯ menu by the type ("Counter").
+- The ⋯ menu closes on Tab (focus moves on) as well as Escape (focus returns to ⋯).
+- Tests:
+  - the counter test asserts `{ points: 5, option_points: null }`
+  - the toggle test counts two rows (the header and Yes) and one row header
+  - new tests: counter → number keeps 4/ea (pane and page; no `setScoringRules`); counter → long text shows the hint and sends the set without `tele_high`; a new option's points are renamed and removed; a saved option's points stay; a step of 0 and a fractional counter default are refused; the ⋯ menu closes on Escape and Tab; a blank label shows the type; references follow a moved key; `exprText` flattens; the fork + failed-points notice shows on the new draft and is cleared from history
+
+**Risk:** before the game image loads, the preview has no height (no reserved aspect). The e2e shot waits for `networkidle`.
+
+## Task 1.31 — Try it is the canvas's mode; the "Match clock running" switch is left out
+
+**Plan said:** a preview at phone width rendering the real `FieldInput`, the settings pane showing what the entry would save and what the analysis gets. The design's Try it pane also has a "Match clock running · 1:12, Teleop" switch, and its analysis rows are taps, time to first, cycle times and cycle-path counts.
+
+**What was wrong:** nothing on the canvas reads the match clock today. `FieldInput` draws counter, toggle, single select and long text (task 1.33 widens it); the event log, its taps, the timer and the map fields arrive in tasks 1.33–1.35. A clock switch would change nothing on screen, and tap or cycle numbers would be made up.
+
+**What I did instead:**
+- Try it is the canvas's own mode (`BuilderCanvas` `mode` / `onMode` / `tryIt`), drawn in the same 410 px column as Edit. Grips, keys, points tags and selection go. The real `FieldInput` draws the four types it knows. Every other type is the neutral placeholder (`FieldPreview`, DEVIATIONS 1.29). `FieldInput` is not widened.
+- The settings pane becomes `TryItPane`, "What this entry would save":
+  - the Note "**Nothing is saved or sent.**"
+  - **Saved data**, the entry's JSON as it would sync: `previewData` = the shared `stripHiddenValues`, then the shared `evaluateExpr` for each computed field, then `stripHiddenValues` again, so a computed field hidden by its own condition goes too
+  - **What the analysis gets**: one row per field in the data, the value in words (Yes / No, the option's label, the number, the text). Two fields with the same label get their phase ("Pieces scored high · Auto").
+  - one line saying taps, time to first, cycle times and route counts appear once event logs and map fields can be filled (tasks 1.34–1.35), shown only when the form has such a field
+  - **Start over** empties what was filled
+- The values start as each control is drawn (`seedValues`): `default_value` where set, a toggle off, a counter at its `min` (else 0). So a controlling toggle is never undefined.
+- A field hidden by its condition is not drawn. Visibility is judged on the would-be-saved data, so what is drawn and what is saved agree, also for a condition chained through a hidden field.
+- Try it's values live in `BuilderEditor` state only. Nothing reaches `useDraft`, `submitEntry`, IndexedDB or the server. Tested: no call after load, `db.outbox`, `db.drafts` and `db.practiceDrafts` empty, Save draft still disabled.
+- The "Match clock running" switch is left out.
+- The Edit / Try it pair moved onto the shared `FilterChips` (two `aria-pressed` pills, one always on), as the 1.29 fix round recommended. It is 34 px, not the design's 30 px.
+- Adding a field from the palette while in Try it switches back to Edit. Drops onto the canvas and the tabs are off in Try it.
+
+**Risk:**
+- The entry page today leaves an untouched counter or toggle out of its data. Try it seeds them, as the orchestrator decided. Task 1.33 should settle one rule for both, or Try it's "Saved data" will differ from a real entry for untouched controls.
+- The map dialogs in Try it are tasks 1.34–1.35.
+
+Rejected: a separate phone frame (ruled out); a "Match clock running" switch that changes nothing.
+
+## Task 1.31 — the More menu, and the shared `ActionMenu`
+
+**Plan said:** the raw-JSON editor "opens closed, behind an 'Advanced' toggle"; export and import are `Button`s.
+
+**What was wrong:** the design puts all four behind the top bar's **More ▾** (Edit as JSON · Export · Import · divider · Delete form). Edit as JSON's row reads "Advanced: the whole form as text…". The design's Export and Import rows say "Download this form as a .json file" and "Load a .json file", which the 24-hour Exports decision (2026-10-08) replaced.
+
+**What I did instead:**
+- New `features/builder/ActionMenu.tsx`: a `Button` that opens a `role="menu"` of rows (icon, bold title, a line). Arrows move, Escape closes and returns focus, Tab and a click outside close it. A held row stays in the list, `aria-disabled`, and shows its reason in `--warn` in place of its line. The menu closes, and stays closed, while the page holds the button.
+- The "Advanced toggle" is the More menu's Edit as JSON row.
+- `BuilderTopBar` takes `more?: ActionItem[]` and draws **More ▾** and a divider before Save / Publish. It is held offline and while a save, publish or restore is in flight.
+- The rows' holds:
+  - Edit as JSON on a read-only older version: "This version is read-only: open the draft to edit it."
+  - Import while there are unsaved changes: `RESTORE_HELD`, because an import rewrites the draft and reloads the builder.
+  - Export and Delete form are never held per row: Export offers the draft or the active version whichever is open, and Delete is the form's.
+- The copy follows the Exports decision:
+  - Export: "Save this form in Exports for 24 hours, e.g. to start next season from it."
+  - Import: "Load a saved export or a .json file. Shows what it adds and removes first."
+- The forms card's ⋯ is the same `ActionMenu` with one row, Delete form.
+
+**Risk:** `ActionMenu` lives in `features/builder` and the Forms page imports it, so both lazy chunks share it. If a third page needs it, move it to `components/ui`.
+
+## Task 1.31 — Edit as JSON: the fields and the rule set only, matched by key
+
+**Plan said:** an editor that "round-trips the definition and refuses invalid JSON with a line number"; a definition failing `validateFieldDefinition` is refused with the field key named.
+
+**What was wrong:** the definition (`formDefinition`) also holds `format`, `kind`, `name` and `timer_config`. The Forms page owns the name and kind, and Match timer (task 1.32) owns the timer. `JSON.parse`'s own messages differ between engines and rarely name a line. A renamed key cannot be told from a remove plus an add when fields are matched by key.
+
+**What I did instead:**
+- The text is `{ fields, scoring_rules }` in the export's shapes (`formFieldDraft` columns in their order; `definitionScoringRule` by key, only rules that score, sorted by key) for this version's LIVE fields. Any other top-level name is refused: "“name” cannot be edited here: the text holds “fields” and “scoring_rules” only…".
+- `jsonPosition.ts`: a small scanner walks the text as `JSON.parse` does and names the first problem by line and column ("Line 46, column 11: a comma is missing at the end of line 45."). `JSON.parse` stays the judge of validity; when the scanner finds nothing, the engine's "position N" is used. One `Notice tone="danger" role="alert"` says it, with "Nothing was changed. Fix it, then apply again." The line's number turns bold `--warn`, and a band with a 3 px `--warn` edge marks it under the text. Apply is disabled until the text is valid.
+- The checks, as the server's save would make them (`checkDefinitionText`):
+  - the shapes (zod), naming the field's key
+  - no key twice
+  - no retired key with another type
+  - each field by `validateFieldDefinition` (meaning issues excepted: a draft saves with them and Publish waits), `validateVisibilityCondition`, and `validateExpr` for a written expression
+  - the rules by `validateScoringRules`
+  - the first problem is named, with the field's key and its line marked when it has one
+- Fields are matched to the builder's by key: a live field keeps its id, a key of the version's saved rows (removed or retired) revives that row's id, and anything else is a new field.
+- A saved key absent from the JSON is a removed field, unless a field with the same type and label now has a key the version never had. That is a rename and is refused: "The field “Teleop high” has the key “tele_high”, and a saved field's key never changes. Put “tele_high” back as its key."
+- The list's order is the form's order: `display_order` is renumbered from it, and the dialog says so.
+- **Apply** replaces the builder's LOCAL fields (`useBuilderState.replaceFields`, new) and each field's rule (`scoring.setRule`), unsaved and dirty. **Save draft** then saves through the existing paths: `saveDraftFields` with the whole set first, then `setScoringRules` with the whole rule set built by `wholeRuleSet` (tested in that order). Apply is held offline, like every edit.
+- **Copy all** writes the text to the clipboard; with no clipboard it selects the text.
+- The editor is the shared `Textarea` (mono, no wrap) beside an `aria-hidden` line-number gutter kept in step with its scroll.
+
+**Risk:**
+- The rename rule is a heuristic. Changing a saved field's key AND its label passes as a remove plus an add, as it does in the settings pane.
+- A key typed for a new field follows its label as soon as the label is edited in the pane, as every new field's key does until its first save.
+
+Rejected:
+- a full definition with `kind` / `name` / `timer_config` that Apply ignores (the text would claim to change what it cannot)
+- the engine's message alone (no line in Chrome before V8 12, none in Firefox)
+
+## Task 1.31 — Export saves first; the download is offered only after
+
+**Plan said:** pick the version, save what `exportForm` returns as a `form_exports` row, "with an optional download"; the design shows **Also download a copy** beside **Save export** from the start.
+
+**What was wrong:** the orchestrator's rule is "export saves before any download is offered"; never download-only.
+
+**What I did instead:**
+- `ExportDialog`:
+  - "Which version" is the shared `DescribedChoice`: the draft first, then the active version, with their field counts. It starts on the draft.
+  - "In the file" / "Not in the file" lists.
+  - The line "Saved to **Exports** as `Match form 2026 · draft v4` · **deleted after 24 hours**. A download is offered once it is saved."
+  - Footer: Cancel and **Save export**, which calls `saveFormExport`.
+  - Once saved, a `SuccessBanner` ("Saved to Exports as “…”", and when it is deleted), then the ghost **Also download a copy** and **Done**.
+- The download calls `exportForm` for the same version and saves `form-<kind>-<season>-v<n>.json` through an object URL.
+- It opens from More and from the forms card's Export (new, beside Open builder).
+- Offline holds Save export and the download, with "You're offline: … waits for the connection."
+
+**Risk:** the image's footer (download and Save export side by side) differs before the save. Rejected: a download button that saves first (it still offers a download before anything is saved).
+
+## Task 1.31 — the export's label names the season (server)
+
+**Plan said:** the label "Match form 2026 · draft v4".
+
+**What was wrong:** `saveFormExport` (task 1.28) labelled it `${form.name} · draft v4`, and form names carry no year ("Match form"). `ExportSummary` has no season, so the Import picker could not show which season an export came from (the design's "Match form 2026 · v3", "Super form 2025 · v2").
+
+**What I did instead:**
+- `apps/server/src/core/commands/forms.ts` `saveFormExport` reads the form's season (`ctx.store.getSeason`) and labels the export `${form.name} ${year} · draft v4` (without the year if the season is missing).
+- The two server tests now expect "Match 2026 · draft v1" and "Match 2026 · v1".
+- `apps/server/api/index.js` (+ map) are rebuilt.
+
+**Risk:** exports saved before this change keep their old label for at most 24 hours. Rejected: a `season` column on `exportSummary` (a contract change, and the label is what the picker shows).
+
+## Task 1.31 — Import: the picker, a file read here, and the diff
+
+**Plan said:** import lists the saved exports (or reads a file), parses, validates, and shows a diff summary ("adds 3 fields, changes 1 type, removes 0") before it is applied.
+
+**What I did instead:** `ImportDialog`:
+- The saved exports (`listFormExports`) are radio rows: the label, "N fields · saved by Noa Levi, 2 hours ago", and "deleted in 22 h" in mono. It is a hand-built radio list: `DescribedChoice` lays its options side by side, and the design stacks them.
+- The newest export of the form's kind is picked and read (`getFormExport`).
+- An export of the other kind is refused here, "That export is a super form. It imports only into the super form.", because `importForm` without a `form_id` would put it into the season's OTHER form.
+- **Or a file from your computer** reads the file in the browser. `readDefinition`:
+  - `jsonProblem` gives line and column
+  - then `formDefinition.safeParse` lists each problem by position ("“auto_high” (field 2) · type: …", up to six)
+  - over HTTP a malformed file is a bare 400, so nothing is sent while there is a problem (tested)
+  - a file of the other kind is refused too
+- Into an existing form (More):
+  - the source is a compact line with "Choose another export"
+  - four `StatTile`s (Adds · Changes type · Removes · Unchanged)
+  - the list by key: + added "Counter · new", ⇄ type changed "Timer → **Number**", − removed, and the unchanged folded to "15 fields unchanged" with Show
+  - "Unchanged" means same key and same type
+  - The diff is against the draft's saved fields (read with `getFormVersion`), or the newest version's when there is no draft, because that is what `importForm` replaces or forks.
+  - The Note says it replaces draft vN (or starts it), and that the file's match timer and scoring are not imported.
+  - **Import as draft vN** sends `form_id`. After it, the builder reads the draft again: `reload` when the draft is open, otherwise it navigates to `?version=N`.
+- Into an empty form (the Forms page's missing card, Import is new there):
+  - the list stays open
+  - tiles: Fields · With meaning · Scored · Match timer (m:ss, or None)
+  - the Note "This creates the 2027 match form as draft v1 with the file's fields, scoring and match timer…"
+  - **Import as draft v1** opens the builder on the new form's v1
+- The missing match form card has the design's sentence back: "Every entry needs a match form. Create it here, or **import** last season's: export it from 2026, then pick it under Import."
+- Refusals (`kind-mismatch`, `form-exists`, `draft-exists`, `invalid-definition`, `key-retired`…) are one sentence by `formErrorLine`, naming a field by its label from the definition.
+
+**Risk:** the design's "~" mark is lucide's `ArrowRightLeft` (lucide has no tilde). The design's Note line "Nothing from 2026's entries comes with it" names a source season the definition does not carry, so the line says "No entries come with it."
+
+## Task 1.31 — Delete form: the locked confirmation, its counts read first; `DestructiveConfirm` gains `held`
+
+**Plan said:** not in the plan; the orchestrator added Delete form (More and the card's ⋯).
+
+**What was wrong:** `DestructiveConfirm` could only hold its confirm with `busy`, which also holds Cancel and Escape. Its confirm must wait while the counts are read and while offline, and Cancel must stay available.
+
+**What I did instead:**
+- `components/ui/destructive-confirm.tsx` gains `held?: string | null`. While it is set, only the confirm holds, and the line says why. Nothing else changes, and the existing tests pass.
+- `DeleteFormDialog`:
+  - `deleteForm { dry_run: true }` on open
+  - title "Delete the match form?"; the object "Match form 2026"; "and everything scouted with it:"
+  - **4** versions (3 published, 1 draft), split from the version list; **264** entries from the 2026 events, from the dry run; the scoring of its fields
+  - the Note "It is removed from every device at the next sync and **can't be undone**. **Export it first** if you might need it." Export it first closes this and opens Export.
+  - type `delete match form` (`delete super form`) to confirm; Cancel focused first; the filled-ink "Delete Match form 2026" with the trash icon, disabled (`aria-disabled`) until the phrase matches exactly (near misses tested: a trailing space, a capital, the other kind)
+  - after the delete, the builder goes to `/admin/forms` (the leave guard is told), and the Forms page reads the season again
+- The device half: SPEC §7.5 item 5 says a form delete reaches no device until task 1.40. The copy says "at the next sync" as the design does; that becomes true with 1.40.
+
+**Risk:**
+- The locked component's layout differs from the image: the object name is its own bold line above "and everything scouted with it:", there is no ×, it is 460 px wide, and the phrase is not in mono.
+- The entry count is every entry bound to any version, soft-deleted ones too (the server's dry run).
+
+## Task 1.31 — the bundle
+
+**Plan said:** builder code stays lazy; `pnpm build && pnpm bundle:check`.
+
+**What I did instead:**
+- Everything new is in the lazy `BuilderPage` chunk (42.0 KB) or shared with `FormsPage` (4.7 KB).
+- The entry chunk is 212 930 B, +300 B over 1.30's 212 630 B: `stripHiddenValues` and `evaluateExpr`, whose modules the entry already holds, and `DestructiveConfirm`'s `held`. That is within the ~1 KB allowance.
+- `bundle:check` prints 207.9 KB and exits 1 on the 205 KB line, which stays red pending the user's decision. There is no "not precached" line.
+
+**Risk:** every client task still adds to the red line.
+
+## Task 1.31 — test harness and e2e fixtures
+
+**Plan said:** `LivePreview.test.tsx` and `RawJsonEditor.test.tsx` with a four-type fixture form.
+
+**What I did instead:**
+- `src/test/builderHarness.tsx`: the four-type form (toggle; a counter shown only when the toggle is on; a counter; a single select; a computed total, drawn as the placeholder; long text), a scripted server recording every call, and a router with both pages. Used by the three new suites. `BuilderPage.test.tsx` keeps its own.
+- `ImportExport.test.tsx` covers:
+  - More held offline, and Edit as JSON held on an older version
+  - export saving before any download, and the file name
+  - import's diff counts and list, the replaced draft, a malformed file's positioned problems with no call, the empty-form import, the kind refusal, `form-exists`
+  - Delete's counts, first focus and exact phrase
+  - the card's ⋯ and Export it first
+- The e2e `formFixtures.ts` adds `listFormExports`, `getFormExport`, `saveFormExport`, `exportForm`, `importForm` and `deleteForm`. Every answer passes the API's output schema in `api-mock`.
+- Three saved exports at the design's clock (`EXPORTS_NOW`). The newest is draft v4 with three fields added and Climb time changed to a number, so the import shows adds 3 · changes 1 · removes 0.
+- `FormsPage.test.tsx`'s two "no dead buttons" assertions now assert Export, ⋯ and Import.
+
+## Task 1.31 — fix round 1: the import diff compares sections on both sides
+
+**Plan said:** the import shows a diff summary ("adds 3 fields, changes 1 type, removes 0") before it is applied.
+
+**What was wrong:** review I1. The base was `out.fields.filter((f) => !f.deprecated)`, which keeps Section headings, while the file's side was `ready.fields.filter((f) => f.type !== 'section')`. So every Section heading of the form read as "− removed", even when a form's own export was imported back.
+
+**What I did instead:**
+- Both sides keep their sections: `importDiff(base, ready.fields)`. A section is a field with a key, so a section added or removed is reported as itself ("Section · new" / "Section · removed").
+- "Unchanged" (and "N fields unchanged") counts sections too.
+- `ImportExport.test.tsx` has a fixture form with a Section heading. Re-importing that form's own export reads Adds 0 · Changes type 0 · Removes 0 · Unchanged 7. A file without the section reports it removed.
+
+**Rejected:** dropping sections from both sides. A file that drops or adds a heading would then show no change, although the import does change the form.
+
+**Risk:** the e2e fixture form has no Section field, so the e2e import screen's counts did not move (15 unchanged).
+
+## Task 1.31 — fix round 1: Next incomplete leaves Try it
+
+**Plan said:** nothing. Task 1.29 gave the held Publish a "Next incomplete →" link that selects the field.
+
+**What was wrong:** review I2. In Try it the canvas draws no selection and the settings pane is "What this entry would save". Next incomplete changed the selection and the phase, and nothing visible happened.
+
+**What I did instead:** `nextIncomplete` switches the canvas to Edit. Adding a field already did. Nothing else selects a field while Try it is on. Tested in `LivePreview.test.tsx`.
+
+**Risk:** none known.
+
+## Task 1.31 — fix round 1: Edit as JSON calls it a rename only on type, label, phase and section
+
+**Plan said:** "keys are permanent"; a renamed key of a saved field is refused.
+
+**What was wrong:** review I3. The check called it a rename when a removed saved key and a new key had the same type and label. The design's form has "Pieces scored high" in Auto and in Teleop. Removing saved `tele_high` and adding an Endgame counter "Pieces scored high" in one Apply was refused as a rename.
+
+**What I did instead:** it is a rename only when type, label, phase **and** section all match (null phase / section compared as null). Anything less is a removal and an addition, which a draft may make. The test covers the review's case (accepted), the true rename (refused), and the same rename under another section heading (accepted).
+
+**Rejected:** dropping the check, and leaving the refusal to the server. Edit as JSON matches by key and sends no ids, so the server would see a plain removal and an addition, and the saved field's entries would lose their key without a word.
+
+**Risk:** a rename that also moves the field to another phase or section gets through as a removal plus an addition; the draft's change line counts it as removed.
+
+## Task 1.31 — fix round 1: Try it drops a value whose field changed type
+
+**Plan said:** nothing.
+
+**What was wrong:** review M1. Try it kept each value by key. After a type change (settings pane, Edit as JSON, an import), the control got a value of another type, for example a counter's number in a text box.
+
+**What I did instead:**
+- `BuilderPage` keeps each tried value with the type it was filled as. A value is used only while its field still has that type.
+- Edit as JSON's Apply also prunes values whose key is gone or whose type changed.
+- An import re-reads the draft, and the builder is remounted, so nothing carries over.
+- Tested in `LivePreview.test.tsx`: Notes long text → short text and Teleop high counter → number, by Apply. Both values go.
+
+**Risk:** a type changed and changed back within one visit drops the value at the change, so the field starts again from its seed.
+
+## Task 1.31 — fix round 1: an import from the Forms page opens the draft when it made no form
+
+**Plan said:** importing into an empty form opens the builder on draft v1.
+
+**What was wrong:** review M2. `onImported` always opened `?version=1`, even when `importForm` answered `created: false`, that is, when it imported into a form that already existed.
+
+**What I did instead:** `formBuilderPath(out.form_id, out.created ? 1 : undefined)`. With no version, the builder opens the draft. Tested both ways.
+
+**Risk:** none known.
+
+## Task 1.31 — fix round 1: Delete holds until the counts are read, and a failed count offers Try again
+
+**Plan said:** the delete confirmation names what goes with the form (SPEC-FINAL 17.8).
+
+**What was wrong:** review M3. When the dry run failed, the list still said "its entries (counting…)" beside the failure line.
+
+**What I did instead:**
+- When the count fails, the entries line says "its entries (not counted)".
+- An error line in the body says "What goes with it could not be counted." with the reason and **Try again**. Try again runs the dry run again. It is held offline.
+- The confirm stays held ("Deleting waits until what goes with it is counted.") until the counts are read, even with the phrase typed, because the confirmation must name what goes.
+
+**Risk:** none known. The failure no longer uses `DestructiveConfirm`'s `error` slot, which stays for a failed delete.
+
+## Task 1.31 — fix round 1: Export says unsaved changes are not in it
+
+**Plan said:** nothing. The design's export image has a clean builder.
+
+**What was wrong:** review M4. Export from a builder with unsaved changes exported the saved version without saying so.
+
+**What I did instead:** `ExportDialog` takes `unsaved`. When it is set, and before the save, a `WarningNotice` reads "**Unsaved changes are not in the export.** Save first to include them." The builder passes `dirty`. The Forms page has no unsaved state, so it never shows the line.
+
+**Rejected:** holding Export while dirty. An admin may want the saved version on purpose. Import is held while dirty because it rewrites the draft.
+
+**Risk:** none known.
+
+## Task 1.31 — fix round 1: the saved-exports picker is `DescribedChoice`, stacked
+
+**Plan said:** §12: build from the shared components.
+
+**What was wrong:** review M5. `PickRow` was a hand-made `role="radio"` row with no roving tabindex and no arrow keys.
+
+**What I did instead:**
+- `components/ui/described-choice.tsx` gains `stacked` (the options one under another at full width) and an option's `aside` (mono `--muted` at its end, with room kept for it).
+- The picker is `<DescribedChoice stacked>`. Each option has the label, "N fields · saved by …, 2 hours ago" as its description, and "deleted in 22 h" as its aside.
+- `PickRow` is gone.
+- Existing users of `DescribedChoice` are unchanged (side by side).
+
+**Rejected:**
+- A roving tabindex on `PickRow`: a second radio pattern beside the shared one.
+- Adding arrow keys to `DescribedChoice` itself: that changes every existing user (Add user, Role), which is outside this task.
+
+**Risk:**
+- The design's radio dot is gone, as on Export's version choice (already logged). The chosen row is the accent edge and tint.
+- `DescribedChoice` options are each a tab stop, as before.
+
+## Task 1.31 — fix round 1: "Export it first" is `Button variant="link"`; `ActionMenu` moves to `components/ui`
+
+**Plan said:** §12.1 and §12.5: shared components in `components/ui/`.
+
+**What was wrong:** review M5.
+- Delete's "Export it first" was a hand-styled `<button>`.
+- `ActionMenu` lived in `features/builder`, although the Forms page uses it too.
+
+**What I did instead:**
+- `components/ui/button.tsx` gains:
+  - the variant `link`: accent-ink 650 text, underlined on hover, no veil
+  - the size `inline`: no box, `min-h-0`, `align-baseline`, with an `::after` growing the hit area by 14 px above and below
+- "Export it first" is `<Button variant="link" size="inline">`. `ui.test.tsx` checks that the pair keeps `tap-target` and the `::after` inset.
+- `features/builder/ActionMenu.tsx` is now `components/ui/action-menu.tsx`, unchanged. `BuilderTopBar`, `BuilderPage` and `FormCard` import it from there.
+
+**Risk:** BUILD-CONTEXT §12.5's component list does not name `action-menu` yet. It is a binding document, so this task does not edit it.
+
+## Task 1.31 — fix round 1: the type-to-confirm phrase in mono, in the shared `DestructiveConfirm`
+
+**Plan said:** THEME "Type to confirm": "Type `delete match form` to confirm", with the phrase in mono on `--line-2`.
+
+**What was wrong:** review M8, and this task's own logged gap. The phrase was plain text, so the admin could not see exactly what to type.
+
+**What I did instead:** `DestructiveConfirm` draws the phrase as `<code>` with `font-num`, `bg-line-2`, 4 px radius and 1 × 5 px padding (design `states.css` `.fs-type label code`). It is in the shared component, so Delete competition's season-name phrase gets it too. The label's text is unchanged, so `getByLabelText(/Type … to confirm/)` still finds the input. `destructive-confirm.test.tsx` checks the `<code>`.
+
+**Risk:** Delete competition's dialog changes look (its phrase in mono) without its own re-shoot in this task.
+
+## Task 1.31 — fix round 1: `TryItPane` takes the data; an unreadable file is said
+
+**Plan said:** nothing.
+
+**What was wrong:** review M7.
+- `TryItPane` worked out `previewData` again, although the page already had it.
+- `readFile` awaited `file.text()` with no catch, so a file the browser could not read left the dialog waiting.
+
+**What I did instead:**
+- `TryItPane({ fields, data, onStartOver })`: the page passes `tryData`.
+- `readFile` clears the previous pick and catches a rejected read. It then says "“name” could not be read on this computer. Pick it again, or another file." in an error line, and Import stays held.
+- A newer pick (a file or an export) wins over a read still in flight. `pickExport` now counts its read before the kind check too.
+- Tested.
+
+**Risk:** none known.
+
+## Task 1.32 — `timerConfigSchema` is `updateForm`'s schema, not a second one
+
+**Plan said:** create `packages/shared/src/forms/timer.ts` with its own `timerConfigSchema = z.object({ phases: z.array(z.object({ phase: z.enum([...]), seconds: z.number().positive() })) })` and `type TimerConfig`.
+
+**What was wrong:** chat 1 already wrote the stricter schema the server checks, `timerConfig` in `packages/shared/src/api/forms.ts` (phases from `FIELD_PHASES`, each named once, whole seconds 1–3600, at most 8, `.strict()`), with `type TimerConfig`. A second, looser definition would let the editor accept a timer the server refuses (1.5 s, a phase named twice).
+
+**What I did instead:** (orchestrator decision) `timer.ts` exports `timerConfigSchema = timerConfig` (the same object; a test asserts `toBe`), `matchEndSeconds` and `phaseAt` as the plan writes them, `type TimerPhaseName`, and `formatClock(seconds)` (m:ss). `TimerConfig` stays exported from `api/forms.ts` only, so `export *` in `index.ts` has one source for it. Every plan test case is kept and passes; three more cover the identity, duplicates / fractions / 3601, and m:ss. `ImportExport.tsx`'s own m:ss sum now uses `matchEndSeconds` + `formatClock`.
+
+Rejected: renaming either `phaseAt`. The client's `phaseAt(fields, index)` in `useBuilderState.ts` is imported only by relative path, so nothing is ambiguous; renaming it would churn three files for no gain.
+
+**Risk:** none known. The server bundle is byte-identical (the server does not import the new helpers).
+
+## Task 1.32 — the Match timer dialog: copy, phase names and tones
+
+**Plan said:** one row per phase with a phase `<select>` and a seconds input, add / remove / reorder, the total "match ends at 180 s (3:00)", the note "Changing these is an in-place edit. It never creates a new form version.", and for an empty list "This form has no match timer. The sticky timer will not be shown."
+
+**What was wrong:** nothing; the closed design (`-timer.png`, `-timer-empty.png`, source `src/states.js`) is more exact than the plan, and the design's copy is used where they differ.
+
+**What I did instead:**
+- The subtitle "The phases run in this order. The timer pinned at the top of the scouter's screen counts them down, and event-log taps are timed from **Start match**."
+- The empty line is the design's: "**This form has no match timer.** The sticky timer is not shown, and each event log times its taps from its own first tap."
+- With phases, the Note adds the design's "…, and entries already scouted keep their times."; with none it is the plan's sentence.
+- `post_match` is "After match" in the phase select and the bar (the design's `PH` map), not the entry tab's "Notes": the timer names a stretch of the clock, not the tab where notes are written.
+- Tones: Auto `--line-2`, Teleop `--accent-tint`, Endgame `bg-accent/15` (the design's raw `#d8ebe2` is not a token; 15 % accent on white is within a step of it), After match `--bg`.
+- A narrow bar segment (under 12 % of the match) shows its first letter only, as the design's "A".
+- An added phase starts at its standard length (Auto 15, Teleop 135, Endgame 30, After match 30 s), and Add offers the first unused phase in play order. Each row's select still lists all four, so a duplicate can be made and is refused live.
+- Save is disabled until something changed (as the empty design's Save), so the e2e opens the standard timer with Teleop at 120 and types 135, to shoot the design's state with Save enabled.
+
+**Risk:** "Add a phase" picks the next unused phase rather than asking which; the select beside it changes it in one step.
+
+## Task 1.32 — saving the timer keeps the builder's save base
+
+**Plan said:** nothing about the version's `updated_at`.
+
+**What was wrong:** `updateForm` stamps the form's draft (else its active version) with `updated_by`, and the `set_updated_at` trigger then moves that version's `updated_at` (DEVIATIONS 1.27, migration `20261008100000`). The builder sends that `updated_at` as `base_updated_at` with every field save, so after a timer save the next Save draft would be refused as `stale-version` — and the only way out, Reload, would drop unsaved field edits.
+
+**What I did instead:** `BuilderPage.saveTimer`:
+1. reads the open version; if its `updated_at` is not the builder's base, someone else saved it since, and the save is refused before anything is sent with the stale-version sentence (`formErrorLine`), so their save is never adopted unseen;
+2. sends `updateForm { form_id, timer_config }`, and keeps the returned `timer_config` as the builder's own (`timer` state; the editor is not re-mounted, so unsaved field edits stay);
+3. reads the version again and takes its `updated_at` as the new base. If only this read fails, the timer is saved and the page's error line says so, with Reload.
+Tested: after a timer save over unsaved edits, Save draft sends the new `updated_at`; a stale pre-read sends no `updateForm`.
+
+Rejected:
+- `reload()` after the save: re-mounts the editor (its key includes the version's `updated_at`) and loses unsaved edits.
+- Holding the timer's Save while the builder has unsaved changes (as Import does): safe, but the design shows the dialog over "Unsaved changes" with Save live.
+- Adopting the re-read `updated_at` with no check first: would silently take another admin's save as the base and let the next field save overwrite it.
+
+**Risk:** a save by someone else in the milliseconds between step 1 and step 2 is still adopted. Two extra reads per timer save.
+
+## Task 1.32 — the timer on a read-only version, and offline
+
+**Plan said:** nothing.
+
+**What was wrong:** the timer belongs to the form, not to a version, so it could be changed from any version the builder opens.
+
+**What I did instead:** (orchestrator recommendation) editable only where the builder is editable (the draft, or the active version). On an older version the button still opens the dialog, view-only: a Note "v2 is an older version, so the timer is shown read-only. The timer belongs to the form: change it from draft v4." (or "the active version"), every control disabled, no grips, Add, Remove or Save, and one Close. Offline (and while the builder is busy) the Match timer button is held like More; an open dialog holds Save with "You're offline: Save waits for the connection." Editing in the open dialog stays possible offline.
+
+**Risk:** none known.
+
+## Task 1.32 — reorder: dnd-kit inside the dialog, keyboard tested with laid-out rows
+
+**Plan said:** add / remove / reorder.
+
+**What was wrong:** nothing.
+
+**What I did instead:** the dialog has its own `DndContext` + `SortableContext` (the canvas's is outside the portal). The grip is the activator, named "Move Auto"; pointer drag after 4 px, and the keyboard sensor (Space, arrows, Space). Announcements name the phase and its place, and dnd-kit's live region is put inside the dialog (`accessibility.container`), so `aria-modal` does not hide it. Escape and × are held while a drag is in flight, so Escape cancels the drag rather than closing the dialog. The unit test stubs `getBoundingClientRect` per row (jsdom lays nothing out) and drives the keyboard sensor.
+
+**Risk:** none known.
+
+## Task 1.32 — the bundle
+
+**Plan said:** nothing.
+
+**What was wrong:** nothing.
+
+**What I did instead:** the editor is in the lazy builder chunk (42.0 → 44.9 KB gzip). Entry: 213 007 B, +8 B over 1.31's 212 999 B. `bundle:check` still exits 1 on the 205 KB line, which stays red pending the user's decision.
+
+**Risk:** none known.
+
+## Task 1.32 — fix round 1: the timer save decides the new base by content
+
+**Plan said:** nothing about the version's `updated_at` (see "Task 1.32 — saving the timer keeps the builder's save base").
+
+**What was wrong:** review finding: the old `saveTimer` read the version, compared its `updated_at` with the builder's base, sent `updateForm`, then read the version again and adopted its `updated_at`. That leaves two windows, each a round trip — between the pre-read and `updateForm`, and between `updateForm` and the re-read — in which another admin's field save is adopted as this builder's base unseen, so the next Save draft would silently overwrite it. And an `updateForm` that the server applied but whose answer timed out (`RpcError('timeout')`) left the base stale, so the next field save was refused as `stale-version` and Reload dropped unsaved edits.
+
+**What I did instead:** `saveTimer` decides by content, not by timestamp. No pre-read. It sends `updateForm`, then reads the version once (`getFormVersion`) and compares its fields with the builder's saved baseline (`state.baseline`) using the new `sameRows` (`useBuilderState.ts`): each row normalised by `definitionOf` (as the initial load does), rows matched by id, object keys in order. Equal → only the timer's stamp moved, so its `updated_at` becomes the base and unsaved edits stay. Different → someone else saved: the base is not moved, the page's error line says "The match timer was saved." plus the stale-version sentence, with Reload; unsaved edits stay on screen. An `updateForm` that failed with `timeout` gets the same re-read and compare (it may have landed), and then its failure is shown in the dialog. If the re-read fails after a successful save, the page says the timer was saved and why the read failed, with Reload. The redundant `editable &&` guard went with the pre-read (the dialog has no Save on a read-only version). Tested (`TimerConfigEditor.test.tsx`): adopt when unchanged; refuse to adopt when another save landed (the next Save draft still sends the loaded `updated_at`); timeout-then-applied (the base still moves); the re-read failing after a save. `sameRows` has its own unit test.
+
+Rejected:
+- Keeping the timestamp pre-check and adding a post-check: the post-read's `updated_at` always differs (the timer's own stamp), so a timestamp cannot tell the stamp from another save.
+- Comparing the re-read's `updated_at` with the `updateForm` answer: `updateForm` returns the form row, not the version's new `updated_at`.
+
+**Risk:**
+- Another admin's save whose fields equal this builder's baseline (a no-op save, or one that put everything back) is adopted. Harmless: the content is the same.
+- **Remaining server-side risk (a decision for the user, not made here):** `updateForm` stamps the form's draft, else its active version (moving that version's `updated_at`), for a form-level change — a timer edit, or a rename. Any *other* open builder on that version (another tab, another admin's browser) becomes stale: its next Save draft is refused as `stale-version`, and its Reload drops its unsaved edits. Only the server can fix that, by not stamping a version for a form-level edit. Not changed here.
+
+## Task 1.32 — fix round 1: the smaller review findings
+
+**Plan said:** nothing.
+
+**What was wrong:** review findings: (a) `TimerConfigEditor` repeated the shared schema's limits as literals (8 phases, 3600 s); (b) the client's `phaseAt(fields, index)` in `useBuilderState.ts` shared its name with `@frc/shared`'s new `phaseAt(config, t)`; (c) dnd-kit puts an inline `transition` on a sortable row that slides into place, unguarded by reduced motion, in the timer dialog's rows and the builder canvas's fields; (d) a test clicked a disabled Save.
+
+**What I did instead:** (a) imports `TIMER_PHASES_MAX` and `TIMER_PHASE_SECONDS_MAX` from `@frc/shared`; (b) renamed the client's helper `phaseOfIndex` (callers in `BuilderCanvas`, `BuilderPage`, `useBuilderState` and its test); (c) both `useSortable` calls pass `transition: null` when `prefersReducedMotion()` (`lib/animate`) — rows then jump to their places. Tested in the timer dialog both ways (a mid-move row has a timed transition with motion, none under reduced motion); (d) the click is gone, and the test asserts Save is held.
+
+**Risk:** `prefersReducedMotion()` is read on render, so a change of the OS setting applies at the next render, not mid-drag.
+
+## Scout tile — the picked station tile is filled with its alliance's strong colour
+
+**Plan said:** the picked station tile on `/scout` is `--accent-tint` with a 2 px `--accent` ring and a `--accent` "YOUR STATION" tag (Scout README 3, as built in the redesign).
+
+**What was wrong:** the user amended the design on 2026-10-08: the picked tile is filled with its alliance's colour, not green. The lighter `--alliance-red` / `--alliance-blue` give white-text contrast of only 5.80 / 5.67, so THEME.md added two darker tokens, `--alliance-red-strong` `#9A2F29` (white on it 7.47:1) and `--alliance-blue-strong` `#2551AA` (7.40:1). The final Scout PNGs were rendered with the lighter alliance colours and were deliberately not re-rendered, so for the tile's fill the tokens win over the image. THEME.md's "Station tile" row still said the tag was "on `--accent` when picked", contradicting its own amendment.
+
+**What I did instead:** `LineupTiles.tsx`: a picked tile is `bg-alliance-red-strong` / `bg-alliance-blue-strong` with `text-on-accent` (white) on every line of it, the ✓ / lock mark included; its "YOUR STATION" tag is `bg-on-accent` with the strong colour as its text. No accent colour is left on a picked tile. The tokens are in `apps/client/src/styles/theme.css` (light and outdoor) and registered as `--color-alliance-*-strong` in `index.css`; `docs/design/theme.css` already held the light pair and has no outdoor block. Outdoor values: `#8e2b25` and `#1f4a9e`, the outdoor `--alliance-red` / `--alliance-blue` themselves (white on them 8.33:1 and 8.30:1, darker than light's strong, so nothing darker was needed). Tests: the contrast test holds white on each strong and the tag's strong-on-white pair in both themes and asserts the light ratios round to 7.47 and 7.40; `theme.test.ts` lists the tokens and now expects the red scan to find `alliance-red` and `alliance-red-strong`; `LineupTiles.render.test.tsx` checks the classes; `scout.spec.ts` proves the computed fill (`rgb(154, 47, 41)` on a picked red tile, `rgb(37, 81, 170)` on a blue one, never the accent tint) and re-shoots Scout with a red pick (`scout-red`). THEME.md's clause now reads "white with the strong colour's text when picked".
+- The `mine` dashed outline: the picked tile drops the dashed outline, as the design shows (its "YOUR STATION" tag already marks it). An unpicked own-station tile keeps the alliance-coloured dashes.
+- The keyboard focus ring is unchanged: the global 2 px `--accent` outline sits 2 px outside the tile, on the card's white, so it is visible against the strong fill and does not paint on the picked tile itself.
+
+Rejected: reusing `--alliance-red` / `--alliance-blue` for the fill (white on them is 5.80 / 5.67, under the 7:1 the user asked for); a strong-colour dashed outline on the picked tile (invisible on its own fill); a white dashed outline (reads as clutter on the fill and is not in the design); an outside dashed outline (the focus ring takes the same outline slot while focused).
+
+**Risk:** the committed Scout PNGs in `docs/design/pages/02-scout/final/` still show the lighter colours, by request; the app's tile is darker than the image. In the outdoor theme the picked tile's fill equals the alliance colour, so it is told from an unpicked tile by its fill, not by a darker shade.
+
+## Phase 1 D client — final review: a palette field's id is never reused, and its points go with it (I1)
+
+**Plan said:** nothing about new-field ids across saves; task 1.30 keeps the builder's points per field id.
+
+**What was wrong:** review finding I1: `stateFrom` reset the `new-n` counter to 1 on every save (`markSaved`), and removing a field never removed its points, and `markSent` kept any rule whose id it did not know. Add a counter (`new-1`), give it 5 points, remove it, add another field, Save draft: the next palette field was `new-1` again and showed (and would send) 5 points. Edit as JSON's Apply that left out an unsaved field left the same orphan, and the page said "● Unsaved changes" with nothing to save.
+
+**What I did instead:** `markSaved` carries `next` on (`stateFrom(rows, selectedKey, next)`); removing a field that was never saved (the settings pane's Remove field, or Apply leaving it out of the text) clears its rule (`scoring.setRule(id, null)`); `markSent(sentTypes, known, sentRules?)` drops a rule whose id is neither a live field nor one of the version's rows before the save (`known` = the baseline's ids). Tests: `useBuilderState.test.ts` (a later palette field never gets a removed one's id), `scoringRules.test.ts` (markSent prunes), `BuilderPage.test.tsx` (remove → nothing unsaved; the full scenario never shows 5/ea again), `RawJsonEditor.test.tsx` (Apply leaving out the field leaves nothing unsaved). Each fails with its fix taken out.
+
+**Risk:** none known.
+
+## Phase 1 D client — final review: Reload asks first, and "Check again" after the timer saved (I2)
+
+**Plan said:** the stale-version refusal offers Reload (task 1.29); the timer save's failed re-read offered Reload too (DEVIATIONS 1.32 fix round 1).
+
+**What was wrong:** review finding I2: the error line's Reload threw away unsaved edits without asking — worst after "The match timer was saved…" when only the re-read failed, where nothing on the server had moved and Reload was not needed at all.
+
+**What I did instead:** the error line carries an `action` (`'reload' | 'check' | null`). Reload, when there are unsaved changes, opens the locked `DestructiveConfirm` "Reload and lose your unsaved changes?" (Cancel = "Keep my changes", confirm = "Reload and lose changes"); with nothing unsaved it reloads at once. After a timer save whose re-read failed the line offers **Check again**, which runs the same read-and-compare (`checkBase`: `getFormVersion` + `sameRows`) and keeps the edits: equal → the new `updated_at` becomes the base and the line goes; different → the stale-version line with Reload. Every completed read now replaces the editor (it is keyed on the read, `useBuilderLoad().key`, not on the version's columns), so a confirmed Reload always starts from the server even when nothing on the version moved. Tests in `TimerConfigEditor.test.tsx`: Keep my changes keeps them and reads nothing; the confirmed Reload reads the form again and the edits are gone; Check again re-reads only the version, the line clears, the edits stay.
+
+Rejected: a plain `window.confirm` (not the app's destructive pattern); keeping Reload beside Check again on the re-read failure (it was the trap).
+
+**Risk:** none known.
+
+## Phase 1 D client — final review: a key set in Edit as JSON is pinned (I3)
+
+**Plan said:** a new field's key follows its label until the first save (SPEC-FINAL 5.1).
+
+**What was wrong:** review finding I3: `updateField` re-derived every unsaved field's key on any patch, so a key typed in Edit as JSON was silently rewritten by the next settings-pane edit (a description, a config value), and every reference to it with it.
+
+**What I did instead:** the edit model keeps `follows` — the ids of fields added from the palette (`addField`). Only those re-derive their key, and only when the label or the phase changes. Apply keeps a palette field in `follows` when the text left it under its key (it keeps its `new-n` id); a field the text gave a new key gets a new `json-n` id and is pinned. A save clears `follows` (every key is then permanent). The settings pane's key line says "set in Edit as JSON · permanent from the first save" for a pinned unsaved key (`keyFollows` from the hook). Tests: `useBuilderState.test.ts` (description, label and phase edits leave a JSON key alone; a palette key moves on a label change only), `RawJsonEditor.test.tsx` (a key given in the text survives a label edit in the pane).
+
+Rejected: pinning every field on any Apply — a palette field the text did not touch would stop following its label for no visible reason.
+
+**Risk:** an import does not go through here (it writes on the server, and the builder re-reads saved fields), so nothing else needed pinning.
+
+## Phase 1 D client — final review: the whole rule set is built from the server as it is now (I4)
+
+**Plan said:** DEVIATIONS 1.30: `setScoringRules` replaces the form's whole rule set, so the other version's rows are read to keep the rules of keys this version does not have.
+
+**What was wrong:** review finding I4: the other version was found in `form.versions` as loaded, and every key's rule came from the load-time map. A draft another admin opened after this page loaded was not read, so its draft-only rules were dropped; another admin's points change since load was reverted to the loaded value.
+
+**What I did instead:** `rulesToSend` reads `getForm` again to find the partner (the draft for the active version, the active one for a draft), then this version's rows and the partner's (`getFormVersion` ×2, in parallel). `useScoring` now keeps `edited` — the ids whose rule this session changed (a `setRule` that changes nothing is not counted, so Edit as JSON's Apply only marks what it really changed) — and a field's rule is this session's only when it is edited or the field is new; every other field's is the server's fresh one. After the send, `markSent` takes what was sent as the local set and clears `edited`. Tests in `BuilderPage.test.tsx`: a draft opened after load keeps `end_climb`'s option points; another admin's `tele_high` 9 is sent as 9, not the loaded 4; the reads before the send are `getForm`, `getFormVersion`, `getFormVersion`.
+
+Rejected: reading only the partner again (another admin's change to a key this version has would still be reverted).
+
+**Risk:** one more round trip (`getForm`) before a points save. An admin who changes the same field's points as another admin wins with their own value, as before.
+
+## Phase 1 D client — final review: option and button lists reorder by the 6-dot grip (U1, reverses task 1.30's ↑/↓)
+
+**Plan said:** the design's option rows (`-desktop.png`, `-desktop-locked.png`): grip · label · mono value · ✕. Task 1.30 departed from it with ↑/↓ buttons ("## Task 1.30" entry).
+
+**What was wrong:** the user asked for the design's drag grips in place of ↑/↓ in the settings pane's select options and event-log Buttons.
+
+**What I did instead:** **the task 1.30 ↑/↓ departure is reversed at the user's request.** `ChoiceList` (`ConfigFields.tsx`) has its own `DndContext` + `SortableContext` (nested inside the canvas's; dnd-kit isolates them). Each row is grip (lucide `GripVertical`, the activator, named "Move <option label>") · rank (ordered selects) · label · mono value · ✕. Pointer drag after 4 px; the keyboard sensor with `sortableKeyboardCoordinates` (focus the grip, Space picks up, arrows move, Space drops). Announcements name the option and its place. Rows have stable ids kept through a reorder (so the moved row keeps its focus and its input), reset when the list changes from outside. Reduced motion: `transition: null` under `prefersReducedMotion()`, as the timer rows and canvas do. Reordering stays structural (it forks on a published version, as before). Tests: `SettingsPane.test.tsx` (keyboard reorder sends the new order; the grip keeps focus; no ↑ button), `BuilderPage.test.tsx` (on published v3, a keyboard reorder makes "saving starts draft v4"); e2e `builder-locked` checks the grip and the absence of ↑/↓.
+
+**Risk:** the grip is 28 px like the timer's (desktop-only page), not the 48 px touch target.
+
+## Phase 1 D client — final review: the forms list at 1024 px, the import hint's season, back to the season after Delete (D1–D3)
+
+**Plan said:** 13-forms: card head = icon, name over meaning, status tag and ⋯ at the end; the missing match card says "export it from <last year>"; Delete form returns to Forms.
+
+**What was wrong:** the live check on dev: (D1) at 1024 px each card's name and meaning wrapped one word per line, squeezed by the tag and ⋯; (D2) the empty match card said "export it from 2095" for 2096, a season that does not exist; (D3) after Delete form in the builder, the list opened on the active season, not the deleted form's.
+
+**What I did instead:** (D1) the head wraps: icon + name/meaning ask for their one-line width (`flex-[1_1_auto]`), and the tag and ⋯ move under them only when the row has no room. The version timeline's rows had the same squeeze at 1024 px (v2's "Published 20/09 · 14 fields" one word a line beside its count, View and Restore), so they wrap the same way (`VersionTimeline.tsx`). An e2e at 1024×768 measures each name as one line, each meaning at most two, and v2's timeline line as one, and writes `forms-laptop.png` (`shoot(page, name, 'laptop')`, a new opt-in width in `e2e/shoot.ts`). (D2) `MissingFormCard` takes `previousYear`: the newest earlier season (from the seasons list) whose forms include a match form — "import last season's: export it from 2025" (or "an earlier season's" when it is not the year before); none → "import one: export it from another season, then import the file." (D3) the builder's Delete goes to `formsSeasonPath(year)` = `/admin/forms?season=2026` (new in `lib/paths.ts`); the list preselects the season named by `?season=`, and drops the parameter once another chip is picked. Tests: `FormsPage.test.tsx` (names 2026 for 2027; names no season when only a later season has one; opens on `?season=2027`), `ImportExport.test.tsx` (Delete lands on `?season=2026`).
+
+Rejected (D3): router state instead of the query — lost on a reload of the page and not visible in the address.
+
+**Risk:** a builder whose seasons did not load (year unknown) still goes to `/admin/forms` (the active season).
+
+## Phase 1 D client — final review: the minor findings
+
+**Plan said:** nothing.
+
+**What was wrong:** review minors: (M1) `useBuilderLoad` kept the old editor live and editable while another version loaded ("Open vN", "Open draft"), and Publish/Restore's `finally { setBusy(null) }` re-enabled it before the re-read replaced it (a second Publish → `already-published`); (M2) Export always started on the draft; (M3) dead code — `useBuilderLoad`'s unused `attempt`, `useBuilderState`'s `markSaved`/`toSaveInput` returns, `plural` defined four times, ~30 builder exports nothing imported; (M5) the locked banner read `is_locked` from load, stale after an in-place save that the server stamps locked; a test gap: Save changes held offline on the active version, and the desktop-only gate at 1023 px.
+
+**What I did instead:** (M1) `useBuilderLoad` returns `pending` (a read in flight with the last data on screen) and `key` (the read on screen); the editor is keyed on `key` and, while `pending`, its panes are inert and the top bar holds (`busy: 'loading'`); Publish and Restore clear `busy` only on failure. (M2) `ExportDialog` takes `versionId` and starts on it when it is one of the choices (the builder passes its own). (M3) `attempt` removed; `markSaved`/`toSaveInput` no longer returned (the test now captures the save's input through `save`); one `plural` in `lib/plural.ts`; un-exported what nothing outside its file imports (`definitionOf`, `renameReferences`, `chooseVersion`, `BuilderLoad`, `tabDropId`, `TryValues`, `paletteDragId`, `exportLabel`, `savedWhen`, `ImportDiff`, `ImportTarget`, `UNITS`, `CATEGORIES`, `DIRECTION_NAME`, `meaningSummary`, `mirrorPoint`, `rulesOf`, `definitionText`, `draftOf`, `JsonCheck`, `JsonContext`, `checkDefinitionText`, `NOT_SCORED`, `TIMER_PHASE_NAME`, `FormRefusal`, `refusalOf`, `FormErrorContext`, `JsonProblem`, `dayMonth`, `draftOf`/`activeOf` in `formsView`, `TimelineRow`); what tests import (`reasonOf`, `ruleOf`, `keyFromLabel`, `insertIndexFor`, `pointsTag`, `exportFileName`, `importDiff`, `readDefinition`, `deletedIn`, `STANDARD_TIMER`, `timerProblem`, …) stays exported. `checkDefinitionText` is un-exported (its behaviour is tested through the dialog). (M5) after a successful in-place field save on a published version with entries, the page shows it locked (`lockedNow`) in the banner and the version chip. Tests for each: M1 (Publish held until the re-read; Open v3 holds the draft's editor until v3 is read), M2, M5, Save changes held offline, the 1023 px gate.
+
+**Risk:** none known.
+
+## Phase 1 D client — final review: the entry's starting values and saved data move to `features/entry` (for task 1.33)
+
+**Plan said:** task 1.31 put `seedValues` and `previewData` in the builder's `LivePreview.tsx`.
+
+**What was wrong:** review note: the entry runtime (task 1.33) and Try it must share one definition of a scouter's starting values and of what an entry saves.
+
+**What I did instead:** moved, unchanged, to `apps/client/src/features/entry/entryValues.ts` (with `withComputed`); their tests moved to `entryValues.test.ts`. The builder imports them from there. The entry page does not use them yet — it adopts them in task 1.33; no entry behaviour changed now. `@frc/shared` was not used: the entry chunk stays as it is, since nothing in it imports the module yet.
+
+**Risk:** none; task 1.33 must switch the entry page to these, not write its own.
+
+## Manage — event order moves by drag grip, not ↑ ↓ (user request)
+
+**Plan said:** 07-manage final README, Competitions: each event card has "↑ ↓ to move it (disabled at the ends)"; `EventCard.tsx` drew two 36 px icon buttons calling `onMove(±1)`.
+
+**What was wrong:** the user, 2026-10-09: "move all the reordering/sorting that you were supposed/did use the up/down arrows to the 6 points drag. and do it in this pr". The event order was the last ↑ ↓ reorder in the client (the builder's option and event-log Button lists moved to grips in the final fix round; the timer rows and canvas already had them).
+
+**What I did instead:** each event card has a six-dot grip (lucide `GripVertical`) at its start edge, 28 × 48 px drawn with an `::after` growing the target to 48 px wide (SPEC-FINAL 17.7); ↑ ↓ are gone. `CompetitionsPanel` wraps the card grid in a `DndContext` + `SortableContext` (`rectSortingStrategy`, since the cards are a 1/2/3-column grid): pointer drag after 4 px, the keyboard sensor with `sortableKeyboardCoordinates` (focus the grip, Space/Enter picks up, arrows move, Space/Enter drops, Escape puts back), announcements naming the event and its position. A drop sends the whole new order through the same `move` → `reorderEvents` path (optimistic, rolled back with the existing error line on refusal). Every grip is held while `busy` (where ↑ ↓ were disabled) via `useSortable({ disabled })`: dnd-kit drops the listeners and sets `aria-disabled`, so the grip keeps focus after a keyboard drop rather than losing it to an HTML `disabled`. The ends need no hold (a drag past the end does nothing). Offline is not held, as ↑ ↓ were not. Reduced motion: `transition: null` under `prefersReducedMotion()`. The grip is a new shared `components/ui/sortable-grip.tsx` (type-only import of `@dnd-kit/sortable`, so it carries no dnd-kit code), and the builder's three grips (`ConfigFields`, `TimerConfigEditor`, `BuilderCanvas`) now render it with their own size and place; the only change to them is `touch-none` on the grip. README event-card line updated ("changed 2026-10-09 at the user's request"); BUILD-CONTEXT §12.5 lists `sortable-grip`. Tests (`CompetitionsPanel.test.tsx`): a keyboard move sends the same `reorderEvents` payload, rolls back on refusal, every grip is `aria-disabled` while a move is in flight and a second move does not go out, the slide is off under reduced motion; no ↑ ↓ buttons remain.
+
+Phone: Manage below 1024 px is the matches-only view (`ManagePhone`), so event cards never render on a phone; no touch delay was added. A touch screen at 1024 px or wider drags the grip by the PointerSensor (`touch-none` on the grip only, so the page still scrolls elsewhere).
+
+Rejected: keeping ↑ ↓ beside the grip as a keyboard path — the keyboard sensor already moves by arrows from the grip, and the user asked for the arrows to go.
+
+**Risk:** `manage-desktop-competitions.png` still shows ↑ ↓ (the README says so); in the 2- and 3-column grid an arrow key moves to the card in that direction (ArrowDown goes a row down, not one place).
+
+## Phase 1 D client — `entries.spec.ts` "a failed sync says why" marked slow
+
+**Plan said:** nothing; the test is UF.13's, with the suite's 30 s timeout.
+
+**What was wrong:** in every whole-suite e2e run after the forms specs landed it failed: `Test timeout of 30000ms exceeded.` Run alone it passes (`1 passed`, the test itself 14.1 s). It signs in, waits for the sign-in sync, then holds a push — about half its budget alone — and the 19 builder specs now run beside it in parallel. Nothing it exercises changed in this run (the branch touched only `RpcError`'s new `details` on that path).
+
+**What I did instead:** `test.slow()` on that one test (3× the timeout), with a comment saying why. Rejected: raising the suite's timeout (hides slow tests everywhere), and fewer workers (slows every run).
+
+**Risk:** a real slowdown in that flow would now take 90 s to fail instead of 30 s.
+
+## Phase 1 D — the initial-JS budget raised to 212 KB (user decision)
+
+**Plan said:** `pnpm bundle:check` holds initial JS at or under 205 KB gzip (RB.18, user decision 2026-10-07).
+
+**What was wrong:** `initial JS 208.1 KB gzip` / `initial JS over 205 KB gzip`. It was already 207.0 KB at `8c59c4a` (the form schemas the server half added to the shared `API` map ship in the entry chunk); the client half, kept lazy, added 1.1 KB.
+
+**What I did instead:** at the user's word ("increase the budget if you need"), `BUDGET_KB` is 212 — the measured 208.1 KB plus headroom, the way 205 was set — in `scripts/check-bundle.mjs` and BUILD-CONTEXT §12.5; the living spec's decision log has the row (v0.73). Rejected: splitting admin-only schemas out of `API` (an architecture change to the typed client, SPEC-FINAL 16.1, for about 3 KB).
+
+**Risk:** Phase 1 E puts the entry renderers on the initial path; it will need watching against 212.
+
+## Phase 1 D — `is_ordinal` stays an in-place edit (user decision)
+
+**Plan said:** `is_ordinal` is in the in-place column list (task 1.27); the Phase 1 D review (#8) left open whether flipping it should fork like reordering options.
+
+**What was wrong:** nothing failed; it was an open question.
+
+**What I did instead:** nothing in code — the user decided it stays in place ("I do not think the is_ordinal should create new version"); recorded in the living spec's decision log (v0.73). The builder already treats it as in place (no fork warning), and the server writes it in place.
+
+**Risk:** an analysis already computed with the old reading (rank or not) differs from one computed after the flip; the values themselves never change.
