@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.22 · **Date:** 2026-10-08 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.23 · **Date:** 2026-10-09 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.23 amends §8.2 (phases are tabs, not collapsible sections; the desktop field row; how blocking problems are shown), §8.3 (Discard), §8.4 (the timer's look and reset with undo), §8.5 (the way into practice) and §15.1 (the range block is marked as you type and listed on Review). See the living spec's §21, 2026-10-09 (v0.74).*
 
 *v1.22 amends §5.1 (exports are kept in the app for 24 hours, import picks from them; a form delete is confirmed by typing) and §3 (`form_exports`), and records the builder's remaining screens in §5.9. See the living spec's §21, 2026-10-08 (v0.70). Appendix C gains the form use cases built by tasks 1.27–1.28 (`listForms`, `saveDraftFields`, `exportForm`, `importForm`, `saveFormExport`, `listFormExports`, `getFormExport`), with no version bump.*
 
@@ -917,31 +919,32 @@ If a super entry for that (team, event) already exists on the device, the app op
 
 ### 8.2 The entry form
 
-- **Collapsible phase sections** — Autonomous → Teleop → Endgame → Post-match, ordered by the fields' `phase` metadata. The scouter can **open, close and reopen** any section at will. This is not one-way paging.
+- **Phase tabs** — Autonomous → Teleop → Endgame → Post-match, ordered by the fields' `phase` metadata: one phase at a time under tabs, with a sideways swipe on a phone. The scouter can **go to any phase at will**; it is not one-way paging. *(amended 2026-10-09, v1.23; was "collapsible phase sections", superseded by the Entry design of 2026-10-06, `docs/design/pages/01-entry/final/`)*
+- **Layout** *(v1.23)*: a phone stacks fields; on a computer each field is a row, name on the left and control on the right (`docs/design/pages/14-entry-parts/final/`).
 - **Mandatory robot status**, chosen **before** the scoring fields: `played` · `no_show` · `disabled` · `broke_down`.
   - For **`no_show`** and **`disabled`** every field is **hidden**. No zeros are ever entered. The entry is submitted with **`data = {}`**, required-field validation is bypassed, and the range block of §15.1 does not run. The entry records only the status.
   - **`broke_down`** additionally captures the breakdown time in seconds from match start, stored in `breakdown_seconds`. All fields remain visible and are filled normally.
 - **Conditional fields** appear and disappear per §5.8.
-- **Hard range block** on submit: a numeric value outside its field's `expected_range` blocks submission (§15.1).
+- **Hard range block** on submit: a numeric value outside its field's `expected_range` blocks submission (§15.1). Unanswered **required** fields block it too. Review entry then lists every blocking problem with its phase and a **Go to** link instead of the confirmation *(v1.23)*.
 - **Undo** is available on every repeatable input: counters, event-log taps, position-picker points (undo last point / clear all), multi-select, and timer reset.
 - **Map fields** (position picker, cycle path, and an event log that asks where) are one button in the form showing what is marked. It opens the map **full screen on a phone** and **as a dialog on a computer**, drawn with **the scout's own alliance end at the bottom** (phone) or on the left (computer); only the drawing turns, never the stored coordinates. Tap to add; tap a mark to select it and **✕ Remove** it; Undo. A cycle path shows only the routes: while drawing, **Clear path** restarts the path being drawn. An event log's "where?" can be skipped, keeping the tap's time. *(added 2026-10-08, v1.20)*
 - **Explicit submit.** Submitting shows a **confirmation summary of the whole entry** before it commits. Nothing reaches the shared data on a stray tap.
 
 ### 8.3 Never lose data
 
-Every interaction writes a **local draft immediately** to IndexedDB. The draft survives a browser crash, a dead battery and an accidental back-swipe, and is offered for recovery on next open. An explicit submit promotes the draft into the sync outbox and clears it.
+Every interaction writes a **local draft immediately** to IndexedDB. The draft survives a browser crash, a dead battery and an accidental back-swipe, and is offered for recovery on next open. An explicit submit promotes the draft into the sync outbox and clears it. *(v1.23)* The recovery offer (at the top of Scout) has **Resume** and **Discard**; Discard deletes the draft, with an undo.
 
 ### 8.4 The sticky match timer
 
 - **Pinned to the top of the screen, visible while scrolling.**
 - Its **phases and their countdown durations are part of the form definition** — `forms.timer_config`, shaped `{"phases": [{"phase": "auto", "seconds": 15}, {"phase": "teleop", "seconds": 135}, {"phase": "endgame", "seconds": 30}]}`, using the same phase vocabulary as field metadata. Phases run consecutively in list order. **Match end (`t_end`) is the sum of the phase durations.** Editing durations is an in-place edit and creates **no** form version. An empty `phases` list means the form has no timer and the sticky timer is not rendered.
-- A **manual "Start match" button** starts it. There is no field hookup.
+- A **manual "Start match" button** starts it. There is no field hookup. *(v1.23)* While running it shows the phase, the time left in it, the total and a bar of the phases; the last 10 s of a phase are marked; a **reset** can be undone; at match end it says the match is over and entry continues. Look: `docs/design/pages/14-entry-parts/final/`.
 - It is **display-only guidance**: it does not open or close phase sections, does not lock or gate any field, and does not auto-submit.
 - It supplies `t = 0` for Event-log taps and the match-end boundary for the final derived cycle (§5.5).
 
 ### 8.5 Practice / training mode
 
-A mode that renders a **real form** without polluting the database.
+A mode that renders a **real form** without polluting the database. *(v1.23)* It is entered from **Practice a match** on Scout; while it is on, a strip on every screen says nothing is saved, with **Exit practice**, and Review entry becomes **Finish practice**.
 
 - Practice entries are marked as practice, are **never written to `scouting_entries`**, and **never enter the outbox**.
 - Their drafts are written to a **separate IndexedDB store (`practice_drafts`)**, so a crash mid-practice does not lose the screen.
@@ -1700,7 +1703,7 @@ One **"Alliance selection"** area with three tab-switched pages. All three work 
 
 ### 15.1 Entry-time validation
 
-**Hard range block only.** Submission is **blocked** when a numeric value falls **outside its field's declared `expected_range`**. Fields without an `expected_range` have no block.
+**Hard range block only.** Submission is **blocked** when a numeric value falls **outside its field's declared `expected_range`**. Fields without an `expected_range` have no block. *(v1.23)* The field is marked **as it is typed** (the warning colour, never red, and the limit in words) and the value is kept; Review entry lists it with a Go to link (§8.2).
 
 There are **no cross-field rules and no outlier blocking** in v1. Nothing is ever auto-excluded or silently averaged out.
 

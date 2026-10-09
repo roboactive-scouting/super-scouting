@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Entry parts — sticky match timer</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../01-entry/src/entry.css"><link rel="stylesheet" href="../../01-entry/final/final.css"><link rel="stylesheet" href="../src/parts.css">
+</head><body>
+<div id="root"></div>
+<script src="../../01-entry/src/entry.js"></script><script src="../src/parts.js"></script>
+<script>
+const P = PX;
+const body = (n, name, fields) => P.tabs(n - 1, n - 1) + `<div class="pane">${P.phead(name, n)}${fields}</div>`;
+const auto = P.counter('Pieces scored high', 2, 'Upper goal') + P.counter('Pieces scored low', 0, 'Lower goal');
+const tele = P.counter('Pieces scored high', 4, 'Upper goal') + P.counter('Pieces scored low', 1, 'Lower goal');
+const climb = P.select('Climb level', ['None', 'Parked', 'Low', 'High'], 'High', { req: true });
+const t1 = P.screen({ top: P.timer('ready'), body: P.head() + body(1, 'Autonomous', auto) });
+const t2 = P.screen({ top: P.timer('run', { phase: 0, left: '0:09', fill: 0.4, total: '0:06' }), body: P.head() + body(1, 'Autonomous', auto) });
+const t3 = P.screen({ time: '11:45', top: P.timer('run', { phase: 1, left: '1:42', fill: 0.25, total: '0:48' }), body: `<div style="margin-top:-120px">${P.head()}${body(2, 'Teleop', tele + P.multi('Scored from', ['Near', 'Mid', 'Far'], ['Near']))}</div>` });
+const t4 = P.screen({ time: '11:46', top: P.timer('run', { phase: 2, left: '0:08', fill: 0.73, total: '2:52', warn: true }), body: P.head() + body(3, 'Endgame', climb), over: '<div class="px-toast">Match timer reset<b>Undo</b></div>' });
+const t5 = P.screen({ time: '11:47', top: P.timer('over'), body: P.head() + body(3, 'Endgame', climb) });
+P.page('Entry parts · 2 of 4 — the sticky match timer (task 1.34)', 'Pinned under the top bar on the entry screen; guidance only — it never opens, locks or submits anything (§8.4).', [
+  P.fig(t1, '1 · Before the match: one Start match button'),
+  P.fig(t2, '2 · Running: phase, time left in it, the match bar'),
+  P.fig(t3, '3 · Scrolled: the timer stays, the page moves'),
+  P.fig(t4, '4 · Last 10 s amber; ↺ reset can be undone'),
+  P.fig(t5, '5 · Match over: it stops; keep entering'),
+]);
+</script>
+<script src="../../shell.js"></script>
+</body></html>

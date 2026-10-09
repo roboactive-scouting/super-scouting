@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Entry parts — range block and required</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../01-entry/src/entry.css"><link rel="stylesheet" href="../../01-entry/final/final.css"><link rel="stylesheet" href="../src/parts.css">
+</head><body>
+<div id="root"></div>
+<script src="../../01-entry/src/entry.js"></script><script src="../src/parts.js"></script>
+<script>
+const P = PX;
+const tele = P.counter('Pieces scored high', 4, 'Upper goal') + P.number('Cycle estimate', { hint: 'Your best guess of seconds per cycle', v: 140, unit: 'seconds', bad: 'Most is 60 seconds — check this number' });
+const r1 = P.screen({ body: P.tabs(1, 1) + `<div class="pane">${P.phead('Teleop', 2)}${tele}</div>` });
+const sheet = `<div class="px-scrim"></div><div class="px-sheet"><span class="grab"></span><h3>2 things to fix first</h3><p>The entry can’t be submitted yet. Everything else is saved on this device.</p>
+  <div class="px-probs">
+    <div class="px-prob"><span class="ic">${P.I.warn}</span><span class="t"><b>Cycle estimate</b><small>Teleop · 140 is over the most, 60</small></span><span class="go">Go to ›</span></div>
+    <div class="px-prob"><span class="ic">${P.I.warn}</span><span class="t"><b>Climb level</b><small>Endgame · required, not answered</small></span><span class="go">Go to ›</span></div>
+  </div><a class="btn">Keep editing</a></div>`;
+const r2 = P.screen({ body: P.tabs(1, 1) + `<div class="pane">${P.phead('Teleop', 2)}${tele}</div>`, over: sheet });
+const r3 = P.screen({ body: P.tabs(2, 2) + `<div class="pane">${P.phead('Endgame', 3)}${P.select('Climb level', ['None', 'Parked', 'Low', 'High'], null, { req: true, bad: 'Required — pick one' })}${P.stars('Climb stability', 0)}</div>` });
+P.page('Entry parts · 3 of 4 — the range block and required fields (task 1.36)', 'A value outside its expected range blocks submitting (§15.1); a required field must be answered. Never red: red is the red alliance.', [
+  P.fig(r1, '1 · Out of range: amber edge and the limit, as you type'),
+  P.fig(r2, '2 · Review entry: what blocks it, each with Go to'),
+  P.fig(r3, '3 · Go to lands on the field, marked'),
+], P.card('Rules', [
+  '<b>As you type:</b> a number outside its expected range gets the amber edge and one line with the limit ("Most is 60 seconds — check this number"). It is kept; nothing is cleared.',
+  '<b>Review entry</b> stays pressable. If something blocks it, a sheet lists each problem with its phase and <b>Go to ›</b>, instead of the confirmation.',
+  '<b>Go to</b> switches to that phase and marks the field. A missed required field says "Required — pick one".',
+  '<b>No show / Disabled</b> skip all of this, as today: no fields, no checks (§8.2).',
+  'Task 1.36’s text asks for a "danger" notice; it becomes this amber treatment.',
+]));
+</script>
+<script src="../../shell.js"></script>
+</body></html>

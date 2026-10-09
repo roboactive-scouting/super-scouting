@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Entry parts — desktop review problems</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../01-entry/src/entry.css"><link rel="stylesheet" href="../../01-entry/final/final.css"><link rel="stylesheet" href="../src/parts.css"><link rel="stylesheet" href="../src/desk.css">
+</head><body>
+<div id="root"></div>
+<script src="../../01-entry/src/entry.js"></script><script src="../src/parts.js"></script><script src="../src/desk.js"></script>
+<script>
+const { row, ctl, timer, page, P } = DX;
+const fields =
+  row('Pieces scored high', 'Upper goal', ctl(P.counter('', 4))) +
+  row('Cycle estimate', 'Your best guess of seconds per cycle', ctl(P.number('', { v: 140, unit: 'seconds', bad: 'Most is 60 seconds — check this number' })));
+const dlg = `<div class="dx-scrim"><div class="dx-dlg"><h3>2 things to fix first</h3><p>The entry can’t be submitted yet. Everything else is saved on this device.</p>
+  <div class="px-probs">
+    <div class="px-prob"><span class="ic">${P.I.warn}</span><span class="t"><b>Cycle estimate</b><small>Teleop · 140 is over the most, 60</small></span><span class="go">Go to ›</span></div>
+    <div class="px-prob"><span class="ic">${P.I.warn}</span><span class="t"><b>Climb level</b><small>Endgame · required, not answered</small></span><span class="go">Go to ›</span></div>
+  </div><div class="acts"><a class="btn">Keep editing</a></div></div></div>`;
+document.getElementById('root').innerHTML = page({ cur: 1, phase: 'Teleop', timer: timer(1, '1:12', 0.47, '1:18'), fields, warnTele: true, warnEnd: true, over: dlg });
+</script>
+<script src="../../shell.js"></script>
+</body></html>

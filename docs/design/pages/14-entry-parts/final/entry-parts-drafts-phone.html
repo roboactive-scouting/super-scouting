@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Entry parts — drafts and practice</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../01-entry/src/entry.css"><link rel="stylesheet" href="../../01-entry/final/final.css"><link rel="stylesheet" href="../src/parts.css">
+</head><body>
+<div id="root"></div>
+<script src="../../01-entry/src/entry.js"></script><script src="../src/parts.js"></script>
+<script>
+const P = PX;
+const scoutTop = `<div class="ehead" style="padding-bottom:4px"><h1 style="font-size:22px">Scout a match</h1></div>`;
+const draft = `<div class="px-draft"><div class="t">${P.I.draft}<span><b>You have an unfinished entry:</b> Q39 · 1690 Orbit, Red 1 — last change 11:42, on this device.</span></div><div class="a"><a class="btn">Discard</a><a class="btn primary">Resume</a></div></div>`;
+const rest = `<div style="padding:14px 16px 0;font-size:13px;color:var(--muted)">Your station, the match number and the line-up, as today</div>
+  <div style="margin:10px 16px 0;height:150px;border:1px dashed var(--line);border-radius:12px;display:grid;place-items:center;color:var(--faint);font-size:13px">line-up tiles</div>`;
+const prac = `<div class="px-praclink"><span class="ic">${P.I.flask}</span><span class="t"><b>Practice a match</b><small>Try the real form. Nothing is saved or sent.</small></span><span class="chev">›</span></div>`;
+const d1 = P.screen({ title: 'Scout', body: scoutTop + draft + rest + prac, barText: 'Start entry', barDisabled: true });
+const strip = `<div class="px-prac"><span class="tag warn">PRACTICE</span><span><b>Nothing is saved</b></span><span class="x">Exit practice</span></div>`;
+const d2 = P.screen({ top: strip, body: P.head({ meta: 'Practice · not saved' }) + P.tabs(1, 1) + `<div class="pane">${P.phead('Teleop', 2)}${P.counter('Pieces scored high', 4, 'Upper goal')}${P.counter('Pieces scored low', 1, 'Lower goal')}</div>`, barText: 'Finish practice' });
+const doneSheet = `<div class="px-scrim"></div><div class="px-sheet"><span class="grab"></span><div class="px-done"><span class="ic">${P.I.flask}</span><h3>Practice finished</h3><p>Nothing was saved or sent.</p></div>
+  <a class="btn primary">Practice another match</a><a class="btn">Exit practice</a></div>`;
+const d3 = P.screen({ top: strip, body: P.head({ meta: 'Practice · not saved' }) + P.tabs(3, 3) + `<div class="pane">${P.phead('Notes', 4)}</div>`, over: doneSheet, bar: false });
+P.page('Entry parts · 4 of 4 — draft recovery and practice mode (task 1.37)', 'An unfinished entry is offered back on the next open (§8.3); practice renders the real form and saves nothing (§8.5).', [
+  P.fig(d1, '1 · Scout: the unfinished entry, and Practice'),
+  P.fig(d2, '2 · Practice: a strip on every screen'),
+  P.fig(d3, '3 · Finishing practice saves nothing'),
+], P.card('Drafts and practice', [
+  '<b>Draft recovery</b> is a Note at the top of Scout: which entry, when, on this device. <b>Resume</b> opens it where it was. <b>Discard</b> <span class="new">NEW</span> deletes it, with an Undo toast, so an abandoned draft does not stay forever.',
+  '<b>Practice a match</b> <span class="new">NEW</span> is the way in: a dashed card at the foot of Scout. The plan names the route, not where it is reached from.',
+  '<b>In practice</b> an amber strip with a PRACTICE tag sits under the top bar on every screen, with <b>Exit practice</b>. The header says "Practice · not saved", and Review entry becomes <b>Finish practice</b>.',
+  '<b>Finishing</b> says nothing was saved and offers another practice match or exit. Exit clears the practice store (§8.5).',
+]));
+</script>
+<script src="../../shell.js"></script>
+</body></html>

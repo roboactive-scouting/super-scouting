@@ -1,6 +1,7 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.7 · **Date:** 2026-10-08 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.8 · **Date:** 2026-10-09 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.8 (2026-10-09): Phase 1 E's small parts are designed (`docs/design/pages/14-entry-parts/final/`, spec v0.74 / SPEC-FINAL v1.23). 1.33, 1.34, 1.36 and 1.37 point at them; 1.36 drops the `<details>` phase cards (the entry form uses phase tabs) and the "danger" range notice (it is amber).*
 *v1.7 (2026-10-08): the builder's remaining screens are designed (`docs/design/pages/12-form-builder/final/`, spec v0.70 / SPEC-FINAL v1.22). 1.31's export/import go through a 24-hour `form_exports` store, 1.32 gets its look and a standard-phases preset, and the form delete in 1.29 is confirmed by typing.*
 *v1.6 (2026-10-08): the forms list is designed (`docs/design/pages/13-forms/final/`, spec v0.69 / SPEC-FINAL v1.21). Task 1.29 builds it with the version timeline, the builder route takes `?version=n`, and it needs an entries-per-version count and `form_versions.updated_by`.*
 *v1.5 (2026-10-08): the form builder is designed (`docs/design/pages/12-form-builder/final/`, spec v0.68 / SPEC-FINAL v1.20). Tasks 1.29–1.31 point at it: `/admin/forms` is decided, a new field's key follows its label until the first save, the incomplete marker is the warning colour (never red), the canvas pages by phase and its Try it mode is the preview. Tasks 1.34–1.35 gain the map pop-up and the event log's optional "where?".*
@@ -13510,7 +13511,7 @@ This group replaces the walking skeleton's four-type entry screen with the real 
 
 ## Task 1.33: The entry renderer — every simple field type
 
-**Design (redesign system).** Build every type from `components/entry`:
+**Design (closed 2026-10-09) — match `docs/design/pages/14-entry-parts/final/entry-parts-fields-phone.png` and `entry-parts-desktop.png`, README there.** Rating stars are boxed stars with a word under each (Poor · Weak · OK · Good · Great); on a computer each field is a row with the control in a 440 px column. Build every type from `components/entry`:
 - counter → `CounterControl`;
 - toggle → `ToggleField` (a native checkbox);
 - single_select → `ChoiceGroup`;
@@ -13677,7 +13678,7 @@ git add -A && git commit -m "feat(client): render every simple field type in the
 
 ## Task 1.34: The sticky match timer, the Timer field and the Event-log field
 
-**Design (redesign system).** The sticky timer sits under the phone top bar and stays visible while the form scrolls. Event-log buttons are `Button`s, and taps show as `Badge` chips with undo. **Closed 2026-10-08 (`docs/design/pages/12-form-builder/final/maps-phone.png`):** an event-log field with `ask_position` on opens the map after each tap ("High goal · where?", earlier taps grey); **Skip · no place** keeps `{type, t}`, **Save tap** stores `{type, t, x, y}` (alliance-normalized like §5.6); a chip with a place carries a pin. **The Timer field** (`timer-phone.png`): one centred green Start; running shows the time with Pause and Clear; paused shows Resume, Clear and ✎ to correct the time; "Unsure — no time" records no value.
+**Design (redesign system).** The sticky timer sits under the phone top bar and stays visible while the form scrolls. **Its look is closed (2026-10-09): `docs/design/pages/14-entry-parts/final/entry-parts-timer-phone.png`, at the smaller sizes in that README and THEME.md "Sticky match timer" (they win over the image); on a computer a slim bar across the top of the form card; reset has an Undo toast.** Event-log buttons are `Button`s, and taps show as `Badge` chips with undo. **Closed 2026-10-08 (`docs/design/pages/12-form-builder/final/maps-phone.png`):** an event-log field with `ask_position` on opens the map after each tap ("High goal · where?", earlier taps grey); **Skip · no place** keeps `{type, t}`, **Save tap** stores `{type, t, x, y}` (alliance-normalized like §5.6); a chip with a place carries a pin. **The Timer field** (`timer-phone.png`): one centred green Start; running shows the time with Pause and Clear; paused shows Resume, Clear and ✎ to correct the time; "Unsure — no time" records no value.
 
 **Files:**
 - Create: `apps/client/src/features/entry/MatchTimer.tsx`, `apps/client/src/features/entry/MatchTimer.test.tsx`
@@ -13896,7 +13897,7 @@ git add -A && git commit -m "feat: add the position picker and cycle path with a
 
 ## Task 1.36: The entry form's rules — phases, status, conditions, range block, confirmation
 
-**Design (redesign system).** Phase sections are R.10's `<details>` cards. The range block is a `Notice tone="danger" role="alert"`, and the confirmation is R.10's `ReviewDialog`. `/super` → add `PATHS.super`, and add `'/super'` to `ENTRY_PATH_PREFIXES`. It is **not** a nav row: it is linked from `/scout`.
+**Design (closed 2026-10-09) — match `docs/design/pages/14-entry-parts/final/entry-parts-rules-phone.png` and `entry-parts-desktop-review.png`.** Phases are the Entry page's **phase tabs** (not `<details>` cards: superseded by the Entry design, SPEC-FINAL v1.23 §8.2). An out-of-range number is marked **as it is typed** — the `--warn` edge and one line naming the limit, never `tone="danger"` (red is the red alliance) — and a missed required field says "Required — pick one". Review entry, when anything blocks it, opens the problems list (sheet / dialog) with **Go to** per problem instead of R.10's `ReviewDialog`; with nothing blocking, the `ReviewDialog` confirmation as today. `/super` → add `PATHS.super`, and add `'/super'` to `ENTRY_PATH_PREFIXES`. It is **not** a nav row: it is linked from `/scout`.
 
 **Files:**
 - Modify: `apps/client/src/features/entry/EntryPage.tsx`, `apps/client/src/features/entry/EntryPage.test.tsx`, `apps/client/src/routes.tsx`
@@ -14059,7 +14060,7 @@ git add -A && git commit -m "feat(client): finish the entry form rules — phase
 
 ## Task 1.37: Drafts, recovery and practice mode
 
-**Design (redesign system).** `DraftRecovery` is a `Notice` with its one action. Practice mode is a persistent `Notice tone="warning"` strip in the shell's notices (AppShell `notices`), so no screen can be mistaken for a real entry.
+**Design (closed 2026-10-09) — match `docs/design/pages/14-entry-parts/final/entry-parts-drafts-phone.png`.** `DraftRecovery` is the Note at the top of Scout with **Resume** and **Discard** (Discard deletes the draft, with an Undo toast). Practice is entered from a **"Practice a match"** card at the foot of Scout. Practice mode is a persistent `Notice tone="warning"` strip in the shell's notices (AppShell `notices`) — PRACTICE tag, "Nothing is saved", Exit practice — so no screen can be mistaken for a real entry; Review entry becomes **Finish practice**, which ends in a "Practice finished" sheet.
 
 **Files:**
 - Create: `apps/client/src/features/entry/practice.ts`, `apps/client/src/features/entry/practice.test.ts`
