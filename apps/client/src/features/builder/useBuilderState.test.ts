@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { FormFieldDefinition, FormFieldInput } from '@frc/shared';
 import {
+  changedPhase,
   insertIndexFor,
   keyFromLabel,
   phaseOfIndex,
@@ -400,5 +401,46 @@ describe('useBuilderState — final review fixes', () => {
     expect(result.current.selectedKey).toBe('tele_counter');
     act(() => result.current.updateField('tele_counter', { label: 'Dropped' }));
     expect(result.current.selectedKey).toBe('tele_dropped');
+  });
+});
+
+describe('useBuilderState: undo snapshots (UF.14)', () => {
+  it('a snapshot brings back the fields, the selection and a following key; `next` never goes back', () => {
+    const { result } = renderHook(() => useBuilderState(initial));
+    const before = result.current.snapshot();
+    act(() => result.current.addField('counter', { phase: 'teleop' }));
+    act(() => result.current.updateField('tele_counter', { label: 'Drops' }));
+    expect(result.current.selectedKey).toBe('tele_drops');
+    const after = result.current.snapshot();
+    act(() => result.current.restore(before));
+    expect(result.current.fields.map((f) => f.key)).toEqual(['auto_notes']);
+    expect(result.current.selectedKey).toBeNull();
+    act(() => result.current.restore(after));
+    expect(result.current.selectedKey).toBe('tele_drops');
+    // Still following its label after a redo.
+    act(() => result.current.updateField('tele_drops', { label: 'Dropped' }));
+    expect(result.current.selectedKey).toBe('tele_dropped');
+    // A palette field added after an undo never takes an earlier one's id.
+    act(() => result.current.restore(before));
+    act(() => result.current.addField('toggle'));
+    expect(result.current.selectedField!.id).toBe('new-2');
+  });
+
+  it('never changes a saved field’s key, whatever a snapshot holds', () => {
+    const { result } = renderHook(() => useBuilderState(initial));
+    const forged = result.current.snapshot();
+    const fields = forged.fields.map((f) => ({ ...f, key: 'auto_other', label: 'Other' }));
+    act(() => result.current.restore({ ...forged, fields }));
+    expect(result.current.fields[0]).toMatchObject({ key: 'auto_notes', label: 'Other' });
+  });
+
+  it('changedPhase names the page where two lists first differ', () => {
+    const base = initial.fields;
+    const tele = { ...base[0]!, id: 'b', key: 'tele_x', phase: 'teleop' as const };
+    expect(changedPhase(base, base)).toBeNull();
+    expect(changedPhase(base, [...base, tele])).toBe('teleop');
+    expect(changedPhase([...base, tele], base)).toBe('teleop');
+    expect(changedPhase([tele], [{ ...tele, label: 'X' }])).toBe('teleop');
+    expect(changedPhase([base[0]!, tele], [tele, base[0]!])).toBe('teleop');
   });
 });

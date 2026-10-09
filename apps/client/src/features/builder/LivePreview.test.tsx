@@ -102,7 +102,7 @@ describe('Try it: the live preview (task 1.31)', () => {
     expect(screen.getByRole('region', { name: 'Field settings' })).toBeInTheDocument();
     await u.click(within(canvas()).getByRole('button', { name: 'Try it' }));
     expect(saved().post_notes).toBe('Fast');
-    await u.click(within(pane()).getByRole('button', { name: 'Start over' }));
+    await u.click(within(pane()).getByRole('button', { name: 'Clear test values' }));
     expect(saved().post_notes).toBeUndefined();
     expect(calls.slice(before)).toEqual([]);
   });
@@ -158,5 +158,44 @@ describe('Try it: fix round 1 (task 1.31)', () => {
     expect(saved()).not.toHaveProperty('post_notes');
     expect(saved()).not.toHaveProperty('tele_high');
     expect(saved()).toEqual({ auto_leave: false });
+  });
+});
+
+describe('Try it explains itself (UF.15, UF.16, UF.17)', { timeout: 10_000 }, () => {
+  it('says what it is for at the top, names its reset "Clear test values", and explains the analysis', async () => {
+    await openBuilder(draftPath, server().rpc);
+    const u = await tryIt();
+    const note = within(pane()).getByText(/Fill the form as a scouter would/);
+    expect(note).toHaveTextContent(
+      'Fill the form as a scouter would, to check what each field records. Nothing is saved or sent.',
+    );
+    // It comes first in the pane's body, above the saved data.
+    expect(
+      note.compareDocumentPosition(within(pane()).getByRole('heading', { name: 'Saved data' })) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(within(pane()).queryByRole('button', { name: 'Start over' })).toBeNull();
+    const analysis = within(pane()).getByRole('table', { name: 'What the analysis gets' });
+    expect(analysis).toHaveAccessibleDescription(
+      'Each value as the analysis reads it: one row per field and phase.',
+    );
+
+    await u.click(within(canvas()).getByRole('switch', { name: 'Left the start zone' }));
+    expect(saved().auto_leave).toBe(true);
+    await u.click(within(pane()).getByRole('button', { name: 'Clear test values' }));
+    expect(saved().auto_leave).toBe(false);
+  });
+
+  it('the head’s eye is a plain icon, and the analysis rows do not change on hover', async () => {
+    await openBuilder(draftPath, server().rpc);
+    await tryIt();
+    const icon = pane().querySelector('[data-pane-icon]')!;
+    expect(icon.tagName.toLowerCase()).toBe('svg');
+    for (const el of [icon, icon.parentElement!]) {
+      expect(el.getAttribute('class') ?? '').not.toMatch(/(^|\s)(bg-|rounded)/);
+    }
+    const rows = within(within(pane()).getByRole('table')).getAllByRole('row');
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) expect(row.className).not.toMatch(/hover:/);
   });
 });

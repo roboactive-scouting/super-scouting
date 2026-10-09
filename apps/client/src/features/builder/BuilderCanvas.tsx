@@ -1,7 +1,7 @@
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { TriangleAlert } from 'lucide-react';
-import { useRef, useState, type KeyboardEvent, type WheelEvent } from 'react';
+import { useMemo, useRef, useState, type KeyboardEvent, type WheelEvent } from 'react';
 import type { FieldPhase, FormFieldDefinition } from '@frc/shared';
 import { FilterChips } from '@/components/ui/filter-chips';
 import { SortableGrip } from '@/components/ui/sortable-grip';
@@ -88,6 +88,14 @@ export function BuilderCanvas({
   const previous = PHASE_ORDER[at - 1];
   const next = PHASE_ORDER[at + 1];
   const page = pages[phase];
+  /**
+   * The page's ids for the SortableContext, the same array while they are the same (UF.20).
+   * dnd-kit tells `items` apart by reference: a new array on every render — and the canvas
+   * renders on every pointer move of a drag — read to it as a changed list, so it switched the
+   * other fields' transitions off and they jumped into place instead of sliding.
+   */
+  const idList = page.map(({ field }) => field.id).join(' ');
+  const sortableIds = useMemo(() => (idList === '' ? [] : idList.split(' ')), [idList]);
   const column = useDroppable({ id: CANVAS_DROP, disabled: !editable || trying });
   const wheel = useRef({ dx: 0, at: 0 });
   /** The column is scrolled: the sticky phase header shows a rule, so items pass under an edge. */
@@ -216,7 +224,7 @@ export function BuilderCanvas({
             </p>
           ) : (
             <SortableContext
-              items={page.map(({ field }) => field.id)}
+              items={sortableIds}
               strategy={verticalListSortingStrategy}
               disabled={!editable}
             >
@@ -332,20 +340,30 @@ function CanvasItem({
   const incomplete = issues.length > 0;
   const needsMeaning = issues.some((p) => MEANING_PATHS.has(p));
   const t = sortable.transform;
+  const lifted = sortable.isDragging;
   return (
     <div
       ref={sortable.setNodeRef}
       data-field-key={field.key}
+      data-dragging={lifted || undefined}
       style={{
         transform: t ? `translate3d(${t.x}px, ${t.y}px, 0)` : undefined,
-        transition: sortable.transition ?? undefined,
+        // The lifted item follows the pointer exactly; the others slide out of its way and it
+        // settles into its place on the drop (UF.20). Reduced motion: no slide, they jump.
+        transition: lifted ? undefined : (sortable.transition ?? undefined),
       }}
       className={cn(
         'relative scroll-mt-[4.5rem] scroll-mb-4 rounded-[10px] border border-line bg-surface px-3.5 pt-2 pb-1.5',
         selected &&
           'border-accent shadow-[inset_0_0_0_1px_var(--accent),0_0_0_3px_var(--accent-tint)]',
         incomplete && 'border-s-4 border-s-warn ps-[11px]',
-        sortable.isDragging && 'z-10 opacity-80',
+        // Lifted, as Manage's event cards are: solid, above the others, with the float shadow
+        // (the selected ring kept with it). Not scaled: a scaled card measures taller, and the
+        // others would move by the wrong distance.
+        lifted &&
+          (selected
+            ? 'z-10 shadow-[inset_0_0_0_1px_var(--accent),0_0_0_3px_var(--accent-tint),var(--shadow-float)]'
+            : 'z-10 shadow-[var(--shadow-float)]'),
       )}
     >
       {editable && (

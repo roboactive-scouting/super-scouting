@@ -167,7 +167,7 @@ describe('HomePage (Home README, RB.10)', () => {
     expect(await screen.findByText('2 matches are missing a robot')).toBeInTheDocument();
     expect(screen.getByText('Q2 · Q3')).toBeInTheDocument();
     expect(
-      screen.getByRole('img', { name: /1 All 6 robots, 2 Missing a robot, 7 Not played yet/ }),
+      screen.getByRole('group', { name: /1 All 6 robots, 2 Missing a robot, 7 Not played yet/ }),
     ).toBeInTheDocument();
   });
 

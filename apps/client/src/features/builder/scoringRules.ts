@@ -162,10 +162,46 @@ export function useScoring(
     [],
   );
 
+  /**
+   * What undo keeps of the scoring (UF.14): the rules and which of them this session changed.
+   * Not `sent`: what was last loaded or sent does not move with an undo.
+   */
+  const snapshot = useCallback(
+    (): ScoringSnapshot => ({ rules: state.rules, edited: state.edited }),
+    [state.rules, state.edited],
+  );
+  const restore = useCallback((snap: ScoringSnapshot) => {
+    setState((s) => ({ ...s, rules: snap.rules, edited: snap.edited }));
+  }, []);
+
   const dirty = useMemo(() => signature(state.rules, types) !== state.sent, [state, types]);
   const ruleFor = useCallback((id: string) => state.rules.get(id) ?? null, [state.rules]);
 
-  return { rules: state.rules, edited: state.edited, ruleFor, setRule, rekey, markSent, dirty };
+  return {
+    rules: state.rules,
+    edited: state.edited,
+    ruleFor,
+    setRule,
+    rekey,
+    markSent,
+    dirty,
+    snapshot,
+    restore,
+  };
+}
+
+/** The scoring an undo step brings back with the fields (UF.14). */
+export type ScoringSnapshot = Pick<ScoringState, 'rules' | 'edited'>;
+
+/** Two rule sets that score the same: an undo step between them would change nothing. */
+export function sameRules(a: ReadonlyMap<string, Rule>, b: ReadonlyMap<string, Rule>): boolean {
+  if (a === b) return true;
+  const text = (rules: ReadonlyMap<string, Rule>) =>
+    [...rules]
+      .map(([id, rule]) => `${id}=${ruleText(rule)}`)
+      .sort()
+      .join('|');
+  return text(a) === text(b);
 }
 
 export type Scoring = ReturnType<typeof useScoring>;

@@ -104,6 +104,10 @@ test('builder: the draft by default, an event log field selected', async ({ page
     settings(page).getByRole('switch', { name: /Ask where on the field/ }),
   ).toBeChecked();
   await expect(settings(page).getByText(/Event logs are not scored/)).toBeVisible();
+  // UF.14: the way back, and Undo / Redo held with nothing to undo yet.
+  await expect(page.getByRole('link', { name: 'Back to Forms' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Undo' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Redo' })).toBeDisabled();
   await shoot(page, 'builder', 'desktop');
 });
 
@@ -138,6 +142,31 @@ test('builder: a field dragged onto a phase tab joins it, missing its meaning, s
   await expect(settings(page).getByText('Needed to publish')).toHaveCount(3);
   await expect(settings(page).getByLabel('Points per unit')).toHaveValue('0');
   await shoot(page, 'builder-new-field', 'desktop');
+
+  // UF.19: the blank Unit beside Category: both boxes on one line, each label on one line, and
+  // "Needed to publish" under the Unit box.
+  const unit = settings(page).getByLabel('Unit', { exact: true });
+  const category = settings(page).getByLabel('Category');
+  await unit.scrollIntoViewIfNeeded();
+  const [u, c] = [(await unit.boundingBox())!, (await category.boundingBox())!];
+  expect(Math.abs(u.y - c.y)).toBeLessThan(1);
+  expect(Math.abs(u.height - c.height)).toBeLessThan(1);
+  for (const line of await settings(page).locator('[data-pane-label]').all()) {
+    if (await line.isVisible()) expect((await line.boundingBox())!.height).toBeLessThanOrEqual(19);
+  }
+  const needId = (await unit.getAttribute('aria-describedby'))!;
+  const unitNeed = page.locator(`[id="${needId}"]`);
+  await expect(unitNeed).toHaveText('Needed to publish');
+  const need = (await unitNeed.boundingBox())!;
+  expect(need.y).toBeGreaterThan(u.y + u.height - 1);
+  await shoot(page, 'builder-new-field-meaning', 'desktop');
+
+  // UF.14: the label and then the field itself go back, one step each.
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(settings(page).getByText('tele_counter')).toBeVisible();
+  await page.keyboard.press('Control+z');
+  await expect(canvas(page).getByText('tele_counter')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Redo' })).toBeEnabled();
 });
 
 test('builder: the locked active version names its entries', async ({ page }) => {
@@ -162,7 +191,93 @@ test('builder: the locked active version names its entries', async ({ page }) =>
   await expect(settings(page).getByRole('button', { name: /^Move .* up$/ })).toHaveCount(0);
   await expect(settings(page).getByText('in place · no new version')).toBeVisible();
   await settings(page).getByRole('heading', { name: 'Scoring' }).scrollIntoViewIfNeeded();
+  // UF.18: the canvas draws the four options as the phone does: two columns, each label on one
+  // line ("High bar" no longer wraps).
+  const climb = canvas(page).locator('[data-field-key="end_climb"]');
+  const cards = await climb.locator('label').all();
+  expect(cards).toHaveLength(4);
+  const boxes = await Promise.all(cards.map(async (c) => (await c.boundingBox())!));
+  expect(Math.abs(boxes[0]!.y - boxes[1]!.y)).toBeLessThan(1);
+  expect(boxes[2]!.y).toBeGreaterThan(boxes[0]!.y + boxes[0]!.height);
+  for (const card of cards) {
+    const text = (await card.locator('span').last().boundingBox())!;
+    expect(text.height).toBeLessThan(26);
+  }
   await shoot(page, 'builder-locked', 'desktop');
+});
+
+test('builder: Try it draws a four-option select as the phone does; a click shows no focus ring', async ({
+  page,
+}) => {
+  await openBuilder(page);
+  await canvas(page).getByRole('button', { name: 'Try it' }).click();
+  await canvas(page)
+    .getByRole('tab', { name: /Endgame/ })
+    .click();
+  const high = canvas(page).getByText('High bar', { exact: true });
+  await high.click();
+  const card = canvas(page).locator('label', {
+    has: page.getByRole('radio', { name: 'High bar' }),
+  });
+  await expect(page.getByRole('radio', { name: 'High bar' })).toBeChecked();
+  // The ✓ sits inside the card, clear of its edge.
+  const tile = (await card.boundingBox())!;
+  const mark = (await card.locator('[data-chosen-mark]').boundingBox())!;
+  expect(tile.x + tile.width - (mark.x + mark.width)).toBeGreaterThanOrEqual(12);
+  expect((await high.boundingBox())!.height).toBeLessThan(26);
+  // A mouse click: only the chosen border, no focus ring around it.
+  await expect(card).toHaveCSS('outline-style', 'none');
+  const pane = page.getByRole('region', { name: 'What this entry would save' });
+  await expect(pane.getByRole('button', { name: 'Clear test values' })).toBeVisible();
+  await expect(pane.getByText('one row per field and phase')).toBeVisible();
+  await shoot(page, 'builder-try-select', 'desktop');
+  // The keyboard brings the ring back.
+  await page.keyboard.press('ArrowLeft');
+  const low = canvas(page).locator('label', { has: page.getByRole('radio', { name: 'Low bar' }) });
+  await expect(page.getByRole('radio', { name: 'Low bar' })).toBeChecked();
+  await expect(low).toHaveCSS('outline-style', 'solid');
+});
+
+test('builder: a field dragged by its grip shows the move before the drop', async ({ page }) => {
+  await openBuilder(page);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await canvas(page)
+    .getByRole('tab', { name: /Teleop/ })
+    .click();
+  const keys = () =>
+    canvas(page)
+      .locator('[data-field-key]')
+      .evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.fieldKey));
+  expect((await keys()).slice(0, 3)).toEqual(['tele_high', 'tele_low', 'tele_shots']);
+  const grip = canvas(page).getByRole('button', { name: 'Move Pieces scored high' });
+  const from = (await grip.boundingBox())!;
+  const x = from.x + from.width / 2;
+  const y = from.y + from.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  for (let i = 1; i <= 20; i++) await page.mouse.move(x, y + i * 12);
+  // Mid-drag: the lifted field follows the pointer, the two it passed have slid up.
+  const lifted = canvas(page).locator('[data-field-key="tele_high"]');
+  await expect(lifted).toHaveAttribute('data-dragging', 'true');
+  for (const key of ['tele_low', 'tele_shots']) {
+    await expect(canvas(page).locator(`[data-field-key="${key}"]`)).toHaveCSS(
+      'transform',
+      /matrix\(1, 0, 0, 1, 0, -1\d\d/,
+    );
+  }
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: 'e2e/__screens__/builder-drag-desktop.png' });
+  await page.mouse.up();
+  await expect
+    .poll(keys)
+    .toEqual([
+      'tele_low',
+      'tele_shots',
+      'tele_high',
+      'tele_cycle_routes',
+      'tele_defence',
+      'tele_fouls',
+    ]);
 });
 
 test('builder: a field position shows its blue-mirror preview over the game image', async ({

@@ -83,9 +83,36 @@ export function CompleteMark() {
 }
 
 /**
- * One control with its label (12 px / 650), a muted "required" beside it, and — when a required
- * control is blank — "Needed to publish" in `--warn` at the end of the line, linked to the
- * control by `needId`. A control that names itself (a radiogroup) passes no `htmlFor`.
+ * Controls side by side (Unit · Category, Min · Max · Step · Default, …): a grid whose cells
+ * start at the top. Every `PaneRow` label is one line of the same height, and what a control
+ * says under itself ("Needed to publish", a hint) comes after it, so paired controls share
+ * their top edge whatever their labels say (UF.19). The caller adds the columns.
+ */
+export const PANE_PAIR = 'grid items-start gap-2';
+
+/** The label line's height: one 12 px line, the same in every row so controls line up. */
+const LABEL_LINE =
+  'flex h-[18px] min-w-0 items-center gap-1.5 overflow-hidden text-xs leading-[18px] font-[650] whitespace-nowrap text-ink-2';
+
+/**
+ * A control that has no label of its own (a switch) beside a labelled one: an empty label line,
+ * then the control centred on a 48 px control's height, so it sits level with its neighbour.
+ */
+export function PaneBeside({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-[5px]">
+      <div aria-hidden="true" className={LABEL_LINE} />
+      <div className="flex min-h-12 items-center">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * One control with its label (12 px / 650, always one line: a long one is cut with an ellipsis)
+ * and a muted "required" beside it. When a required control is blank, "Needed to publish" sits
+ * under the control as a small `--warn` line, linked to it by `needId` — never in the label line,
+ * where it pushed the label onto two lines and its control out of line with the next (UF.19). A
+ * control that names itself (a radiogroup) passes no `htmlFor`.
  */
 export function PaneRow({
   label,
@@ -110,16 +137,20 @@ export function PaneRow({
   const Tag = htmlFor ? 'label' : 'span';
   return (
     <div className={cn('flex min-w-0 flex-col gap-[5px]', className)}>
-      <div className="flex items-baseline gap-1.5 text-xs font-[650] text-ink-2">
-        <Tag htmlFor={htmlFor}>{label}</Tag>
-        {required && <span className="text-[0.71875rem] font-semibold text-muted">required</span>}
-        {needId && (
-          <span id={needId} className="ms-auto text-[0.71875rem] font-bold text-warn">
-            Needed to publish
-          </span>
+      <div data-pane-label="" className={LABEL_LINE}>
+        <Tag htmlFor={htmlFor} className="min-w-0 truncate">
+          {label}
+        </Tag>
+        {required && (
+          <span className="shrink-0 text-[0.71875rem] font-semibold text-muted">required</span>
         )}
       </div>
       {children}
+      {needId && (
+        <p id={needId} className="text-[0.71875rem] leading-4 font-bold text-warn">
+          Needed to publish
+        </p>
+      )}
       {hint && (
         <p id={hintId} className="text-xs leading-snug text-muted">
           {hint}

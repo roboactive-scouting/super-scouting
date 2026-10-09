@@ -827,3 +827,86 @@ describe('SettingsPane: computed fields and Show when (task 1.30)', () => {
     });
   });
 });
+
+describe('SettingsPane: the head and paired fields (UF.16, UF.19)', () => {
+  it('the head’s type icon is a plain icon, not a button-like square', () => {
+    render(<SettingsPane field={field()} allFields={[field()]} onChange={vi.fn()} />);
+    const icon = screen
+      .getByRole('region', { name: 'Field settings' })
+      .querySelector('[data-pane-icon]')!;
+    expect(icon.tagName.toLowerCase()).toBe('svg');
+    // Straight in the head row beside the title: no tile, background or radius around it.
+    const head = icon.parentElement!;
+    expect(head).toContainElement(screen.getByRole('heading', { level: 2, name: 'Auto notes' }));
+    for (const el of [icon, head]) {
+      expect(el.getAttribute('class') ?? '').not.toMatch(/(^|\s)(bg-|rounded)/);
+    }
+  });
+
+  /** The grid that holds the row a control with this label sits in. */
+  const pairOf = (label: string) =>
+    screen.getByLabelText(label).closest('[data-pane-label] ~ *, div')!.closest('.grid')!;
+  const labelLine = (label: string) =>
+    screen.getByText(label, { selector: 'label, span' }).closest('[data-pane-label]')!;
+
+  it('Unit and Category line up by their boxes: one-line labels, "Needed to publish" under the box', () => {
+    render(<SettingsPane field={field()} allFields={[field()]} onChange={vi.fn()} />);
+    const unit = screen.getByLabelText(/^unit$/i);
+    const category = screen.getByLabelText('Category');
+    const grid = unit.closest('.grid')!;
+    expect(grid).toContainElement(category);
+    // Cells start at the top, so the boxes share a top edge when the label lines match.
+    expect(grid.className).toMatch(/(^|\s)items-start(\s|$)/);
+    for (const name of ['Unit', 'Category']) {
+      const line = labelLine(name);
+      expect(line.className).toMatch(/(^|\s)whitespace-nowrap(\s|$)/);
+      expect(line.className).toMatch(/(^|\s)h-\[18px\](\s|$)/);
+      expect(line).not.toHaveTextContent('Needed to publish');
+    }
+    // The blank Unit says so under its box, as a small warn line still describing it.
+    const need = within(grid as HTMLElement).getByText('Needed to publish');
+    expect(unit).toHaveAccessibleDescription('Needed to publish');
+    expect(unit.compareDocumentPosition(need) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(need.className).toMatch(/(^|\s)text-warn(\s|$)/);
+    expect(pairOf('Category')).toBe(grid);
+  });
+
+  it('the warn edge is drawn inside the box, so it never changes the box’s size', () => {
+    render(<SettingsPane field={field()} allFields={[field()]} onChange={vi.fn()} />);
+    const unit = screen.getByLabelText(/^unit$/i);
+    expect(unit.className).toContain('shadow-[inset_0_0_0_1px_var(--warn)]');
+    expect(unit.className).not.toMatch(/(^|\s)border-(2|4)(\s|$)/);
+  });
+
+  it('every two-across row starts its cells at the top: Min · Max · Step · Default, Section · Required', () => {
+    render(
+      <SettingsPane
+        field={field({ unit: 'count' })}
+        allFields={[field()]}
+        onChange={vi.fn()}
+        saved={false}
+      />,
+    );
+    const counter = screen.getByLabelText('Min').closest('.grid')!;
+    for (const name of ['Max', 'Step', 'Default']) {
+      expect(counter).toContainElement(screen.getByLabelText(name));
+    }
+    expect(counter.className).toMatch(/(^|\s)items-start(\s|$)/);
+    const section = screen.getByLabelText('Section').closest('.grid')!;
+    expect(section).toContainElement(screen.getByRole('switch', { name: 'Required' }));
+    expect(section.className).toMatch(/(^|\s)items-start(\s|$)/);
+    // The switch sits under an empty label line, level with the Section box.
+    const beside = screen.getByRole('switch', { name: 'Required' }).closest('.min-h-12')!;
+    expect(beside.previousElementSibling).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('the scoring matrix is read-only: its rows do not change on hover (UF.17)', () => {
+    render(
+      <SettingsPane field={field({ phase: 'auto' })} allFields={[field()]} onChange={vi.fn()} />,
+    );
+    const matrix = screen.getByLabelText('Points per unit').closest('table')!;
+    for (const row of matrix.querySelectorAll('tr')) {
+      expect(row.className).not.toMatch(/hover:/);
+    }
+  });
+});

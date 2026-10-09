@@ -6704,3 +6704,93 @@ Rejected: keeping ↑ ↓ beside the grip as a keyboard path — the keyboard se
 **What I did instead:** nothing in code — the user decided it stays in place ("I do not think the is_ordinal should create new version"); recorded in the living spec's decision log (v0.73). The builder already treats it as in place (no fork warning), and the server writes it in place.
 
 **Risk:** an analysis already computed with the old reading (rank or not) differs from one computed after the flip; the values themselves never change.
+
+## UF.14 — Undo / redo: history since the last load or save, fields and points as one step
+
+**Plan said:** undo / redo of every builder edit (fields, settings pane, options and buttons, scoring, JSON Apply), Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y and two top-bar buttons held when empty; typing is one step per pause; the history covers the changes since the last load or save (orchestrator's call; the user was asked and did not choose); a "← Forms" link; dialogs close with Esc and Cancel.
+
+**What was wrong:** nothing failed; the plan names no mechanism, and the builder's state lives in two hooks (`useBuilderState` for the fields, `useScoring` for the points, held by field id), so an undo of one alone could split a field from its points.
+
+**What I did instead:** a page-level `useUndoHistory` (new, `features/builder/useUndoHistory.ts`) over one snapshot of both: `state.snapshot()` (fields, selection, which keys still follow their labels) and `scoring.snapshot()` (rules, `edited`). The page calls `history.record(group?)` just before each edit — `add`, a canvas reorder, every settings-pane patch (`onPaneChange`, which carries option, button, meaning and points edits), Remove field, and Edit as JSON's Apply — and `history.clear()` after a field save lands and after the rule set is sent, so a save always starts a new history; a load (another version, Reload, Publish, Restore, a fork) is a new editor and so a new history already. Not snapshotted, on purpose: the baseline and the saved ids (they do not change within a history), `next` (a palette field's `new-n` is never reused, undone or not: final review I1), `sent` (what was last sent), Try it's values and the form-level match timer (saved on the server at once). `restore` pins every saved field's key to its saved key (unreachable in practice, since a history never spans a save; tested with a forged snapshot). Coalescing: an edit typed into the same text box (input or textarea, told apart by the focused element) within 800 ms (`PAUSE_MS`) of the last joins its step; a switch, select or segment is always a step of its own. A step that changed nothing (choosing what was already chosen) is never one to undo. After an undo or redo the canvas turns to the phase the step changed (`changedPhase`), the selection comes back with the step, and the pane's three local drafts (Show when, the expected range, the computed editor) remount through a `revision` key so they show the field as it now is; the label box and the option rows stay mounted, so typing then Ctrl+Z keeps focus. Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y (⌘ too) work anywhere on the builder, text boxes included (the builder's own step, with `preventDefault`), but never inside a dialog (Edit as JSON's editor keeps its native text undo), and never while editing is paused (offline, a save or a read in flight), a dialog is open or a drag runs; the buttons hold in the same cases. An older, read-only version shows no Undo / Redo. "← Forms" is a ghost-button `Link` (accessible name "Back to Forms") leading the top bar, to the forms list on the form's season (`formsSeasonPath`); the existing leave guard asks when something is unsaved. Every dialog (Match timer, Edit as JSON, Export, Import, Delete form) was checked by a test to close with Esc and with Cancel: all did, nothing changed there. Rejected: undo across a save (it would bring back fields the server has already given ids); one history per hook (an undo could split a field from its points); remounting the whole settings pane on every undo (focus and the folds would be lost); a step per keystroke.
+
+**Risk:** a box inside a remounted draft (Show when, expected range, computed) loses focus on an undo. The history is in memory only: a reload starts empty, as decided.
+
+## UF.15 — Try it: the one line is the existing Note, rewritten
+
+**Plan said:** one plain line at the top of the pane on what Try it is for; "Start over" becomes "Clear test values"; a one-line explanation under "What the analysis gets".
+
+**What was wrong:** the pane already opened with a Note (THEME "Note"; the design's "**Nothing is saved or sent.**"), in three sentences.
+
+**What I did instead:** kept the locked Note at the top and made it the one line: "Fill the form as a scouter would, to check what each field records. **Nothing is saved or sent.**" The button reads "Clear test values" (`TryItPane`'s prop `onStartOver` is now `onClear`). Under "What the analysis gets": "Each value as the analysis reads it: one row per field and phase.", also the table's `aria-describedby`.
+
+**Risk:** none known.
+
+## UF.17 — Read-only rows: `Table readOnly`, and header rows never hover
+
+**Plan said:** an opt-out in `components/ui/table` that the Entries table's `STATIC_ROW` can move onto, without changing clickable tables.
+
+**What was wrong:** nothing; the plan leaves the shape open.
+
+**What I did instead:** `Table` takes `readOnly` and hands it to its rows by context; `TableRow` takes `readOnly` too, for one row. A read-only row carries neither `hover:bg-bg` nor its transition. `TableHeader` makes its rows read-only always, so the Users header no longer needs `hover:bg-transparent`. Moved onto it: Entries (`STATIC_ROW` deleted), the scoring matrix, Try it's analysis table. Users (clickable rows) keeps its hover. The import diff list is a plain list with no hover, and the forms pages have no table: checked, nothing to change.
+
+**Risk:** none known.
+
+## UF.18 — Option buttons by their own width; no ring after a click
+
+**Plan said:** entry controls lay out by their own width (container queries); a mouse click on an option shows only the chosen border; the ✓ never touches the tile's edge.
+
+**What was wrong:** `sm:grid-cols-4` read the window, so the builder's 410 px column drew four squeezed columns ("High / bar"). The ring: a label click focuses its radio, and the card's `has-[:focus-visible]` ring then showed after a mouse click too.
+
+**What I did instead:** the grid sits in an `@container` wrapper and goes to four columns at `@lg` (32 rem of its own width): two in the canvas, in Try it and on a phone; four on a 768 px tablet and on a computer, as before. The ring classes apply unless the last input in the group was a pointer (`onPointerDown`); a key in the group, or focus leaving it (not the blur the press itself causes, which is ignored until its click), brings them back. The label span is `min-w-0` with `overflow-wrap: anywhere` and the card `min-w-0`, so a long label wraps inside the card and the ✓ (`shrink-0`) stays inside the padding. No other control `FieldInput` draws, nor the `components/ui` pieces it uses, had a window-width class (a test now checks every drawn type).
+
+**Risk:** the 32 rem threshold scales with the app's text size; at a large text size a tablet may draw two columns, which reads better anyway.
+
+## UF.19 — Paired controls: one-line labels, the warn line under the control
+
+**Plan said:** a label always fits on one line; "Needed to publish" moves under the control as a small `--warn` line; side-by-side fields align by their controls; the 2 px warning edge does not change the control's size.
+
+**What was wrong:** the last point already held: `NEED_EDGE` is the 1 px border plus a 1 px inset shadow, which never changes a control's size. Kept, and now guarded by a test.
+
+**What I did instead:** `PaneRow`'s label line is one 18 px line (`whitespace-nowrap`; the label is cut with an ellipsis if it is ever too long), and "Needed to publish" is a small `--warn` line under the control, still its `aria-describedby`. `PANE_PAIR` (`grid items-start gap-2`) is the one class for every two-across row: Unit · Category, Min · Max · Step · Default, When field · Is, Section · Required. The Required switch sits in `PaneBeside` (an empty label line, then the switch centred on a 48 px box), level with the Section box. The expected range was already one row of its own.
+
+**Risk:** a label longer than its column is cut rather than wrapped; none in the pane is today.
+
+## UF.20 — The canvas drag: why the fields jumped, and the lifted look
+
+**Plan said:** (added to this run by the user, 2026-10-09) dragging a field by its grip shows the move live, like Manage's event cards: the dragged field follows the pointer, lifted, the others slide out of the way, the drop settles without a jump; keyboard reorder, palette drops, reduced motion and the selected ring stay.
+
+**What was wrong:** measured in Chrome mid-drag: the other fields did get their transforms, but with dnd-kit's 0 ms "disabled" transition (`transform 0ms linear`), so they jumped rather than slid. The cause: the canvas passed `items={page.map(...)}`, a new array on every render, and the canvas renders on every pointer move of a drag (it uses `useDroppable`). dnd-kit's `useSortable` compares `items` by reference (`items !== previous.current.items`) and switches transitions off whenever they "changed". Manage's panel does not re-render during a drag, so the same inline array works there. Also, the dragged card was drawn at 80 % opacity with no shadow, and kept the 200 ms transition, so it trailed the pointer as a faint ghost.
+
+**What I did instead:** the page's ids are memoised (`useMemo` over the joined ids), so the list stays the same array while it holds the same fields. The dragged card (`data-dragging`) is drawn solid, above the others, with the float shadow (the selected ring kept with it), like an event card, and with no transition, so it follows the pointer exactly; dnd-kit's own transition settles it on the drop. Under reduced motion the others still make room at once (a clear gap where it will land), with no slide. Rejected: a slight scale on the lifted card (a scaled card measures taller, and the others moved by the wrong distance); a `DragOverlay` copy (the palette's overlay already lives in the same context, and the card in place keeps its selected ring and real content).
+
+**Risk:** any other sortable list that re-renders during a drag with an inline `items` array would jump the same way; `ChoiceList` and the Match timer keep their row ids in state, so they do not.
+
+## UF.21 — Home coverage: a bubble above the square, the nearest square takes the tap
+
+**Plan said:** tapping a coverage square on the phone shows "Q12 · 4 scouted" (no "of 6"); another tap moves it, a tap elsewhere closes it; a computer shows the same on hover and focus; the count comes from `lib/derive/coverage.ts`, passed through `CoverageCell`; the ~18 px squares get an easier hit without overlap, logged; the squares are focusable and announced.
+
+**What was wrong:** two things the plan's words did not settle. The grid was `role="img"`, whose children are presentational: focusable buttons inside it are hidden from screen readers and fail axe's nested-interactive rule. And the count needed a choice when an entry's robot is not in the line-up (the fixture's Q37 has 3316 scouted at Blue 2 off its line-up).
+
+**What I did instead:** `coverage()` keeps the scouted robots per match (a map of team-id sets instead of a `match:team` set) and returns `scouted`, that set's size; `coverageCells` passes it to `CoverageCell.scouted`, and `cellText()` writes "Q12 · 4 scouted". The count is every distinct robot with a live match entry in that match, line-up or not — what was scouted, not what was planned (state is unchanged and still judged against the line-up). The label is a small `--ink` bubble above the square, centred and kept inside the grid's width, drawn over the row above (or the card's header, for the first row); chosen over a line under the grid because it points at its square and moves nothing below it. The squares are `<button>`s named by that text, one tab stop with the arrow keys and Home/End moving between them (roving `tabindex`); focus shows the bubble, Escape closes it. The grid became `role="group"` named by the same summary ("30 All 6 robots, 8 Missing a robot, 2 Not played yet"). The tap rule: the hit area is a band of the grid plus 8 px above and below and the card's side padding (layout unchanged: the margins around it shrank by the same 8 px), and a tap anywhere in it, gaps included, goes to the nearest square by distance to its edges; so no dead zone and no overlapping targets. The tapped square gets a 2 px `--ink` outline. Hover is mouse-only (`pointerType`), and leaving the grid falls back to the focused square, if any. The bubble is hand-built in `CoverageCard`: `components/ui` has no tooltip, and a shared one would cost initial JS on Home for one use. Nothing moves, so reduced motion needs nothing. Rejected: 48 px squares or invisible 48 px hit boxes (12 per row cannot fit 48 px each on a 375 px phone, and boxes that size would overlap); the browser `title` (no tap, no keyboard).
+
+**Risk:** a square's effective target is its share of the band (about 26 × 21 px on a phone), still under 48 px: with 12 squares a row nothing larger fits without overlap. A match whose line-up has fewer than six robots reads with its real count ("Q10 · 2 scouted" on a full square in the e2e fixture).
+
+## UF.14 review — Undo keys: not in Try it; a text box's own undo when its typing is not the step (corrects the UF.14 entry)
+
+**Plan said:** Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y undo and redo the builder's edits; the UF.14 entry above says they work "anywhere on the builder, text boxes included (the builder's own step, with `preventDefault`)".
+
+**What was wrong:** review I1: in Try it, Ctrl+Z in a test box (a typo in Notes) silently undid the last builder edit, and `preventDefault` blocked the box's own undo; the top-bar buttons stayed live too. Review I2: typing one end of the expected range (or picking a Show when field with no value yet) records no step, so Ctrl+Z in that box undid the step before it (possibly another field's) and the `revision` remount threw the typed draft away.
+
+**What I did instead:** Try it holds undo and redo: the keys do nothing there (the browser's own undo runs) and the Undo / Redo buttons are held (`historyHeld` includes `mode === 'try'`). In a text box (`typingGroup()` of the focused element, grouped with the selected field's id as the pane records it), the keys are the builder's only when the step they would take is that box's typing (`useUndoHistory().groupOf('undo' | 'redo')`, the group recorded with the step; an edit that changed nothing hands its place, and its group, to the next one), or when the last builder undo key was pressed in that same box (`keyedFrom`; any new edit ends the run), so a run of Ctrl+Z in the Label or Points box keeps walking the history. Otherwise nothing is prevented and the box's own undo runs. Boxes that commit every keystroke (Label, Points, option labels) keep the builder's undo; a half-filled draft keeps its text. Outside a text box (a select, a segment, the canvas) nothing changed. The listener is now bound once and calls the current render's handler through a ref (review M1), and `canUndo` is memoised on the history and `watch: [state.fields, scoring.rules]` instead of a capture and two canonical copies on every render. Rejected: a box's own undo whenever focus is in any text box (Ctrl+Z after typing a label would no longer take back the burst, which UF.14 asked for); tracking `input` events per box (a Show when value box that was only focused would still lose its draft).
+
+**Risk:** in a text box whose typing is not the step on top (one only clicked into, say), Ctrl+Z is the browser's undo, which usually has nothing to undo there; the top-bar Undo still works, and so does Ctrl+Z with focus outside a text box.
+
+## UF.18 review — Option buttons: two columns on a small desktop too (corrects the UF.18 entry)
+
+**Plan said:** entry controls lay out by their own width; the UF.18 entry above says the grid goes to four columns "on a 768 px tablet and on a computer, as before".
+
+**What was wrong:** review M2: between about 1024 and 1200 px the entry screen's main column is about 330 px, under the 32 rem (512 px) `@lg` threshold, so a four-option select there draws two columns where it drew four before UF.18. "On a computer, as before" holds only for a wide one (1440 px).
+
+**What I did instead:** kept the behaviour (orchestrator's call): it is the same squeeze UF.18 fixed in the builder, and two columns of whole labels read better than four cut ones. `entry.spec.ts` now asserts two columns at 1100 × 800 and shoots `entry-endgame-small.png` there (`shoot.ts` gained the `'small'` width, 1100 × 800).
+
+**Risk:** a scouter on a small laptop sees a four-option select as 2 × 2, so the entry screen is a little taller there.

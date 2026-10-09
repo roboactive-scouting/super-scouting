@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { IssueLines } from './ConfigFields';
-import { NumberInput, PaneGroup, PaneRow } from './paneParts';
+import { NumberInput, PANE_PAIR, PaneGroup, PaneRow } from './paneParts';
 import type { PanePatch } from './SettingsPane';
 
 /*
@@ -154,7 +154,7 @@ export function ShowWhenFields({
         </Button>
       ) : (
         <>
-          <div className="grid grid-cols-[1fr_5.5rem] gap-2">
+          <div className={`${PANE_PAIR} grid-cols-[1fr_5.5rem]`}>
             <PaneRow label="When field" htmlFor={`${id}-field`}>
               <Select
                 id={`${id}-field`}

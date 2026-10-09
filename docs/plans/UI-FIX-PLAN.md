@@ -264,3 +264,78 @@ format (`+00:00`), which the op schema refused, and that one op made the whole b
 9. **Finals not re-rendered.** The Scout and Home final READMEs were updated, but their
    PNGs still show the old link text, the unpinned desktop button and the always-raised
    Scout. The shell final, which was re-rendered, is what counts for the bar.
+
+---
+
+# UI fix round 2 — form builder (UF.14–UF.21)
+
+**Input:** the user's notes from testing the merged Phase 1 D builder on dev (2026-10-09).
+**Binding:** `docs/ops/BUILD-CONTEXT.md`. Branch `feat/builder-ui-round-2`, cut from `develop`
+(`73775de`). Looks: `docs/design/pages/12-form-builder/final/` and THEME.md "Locked components".
+One fix agent for all six, reviewed, then a PR into `develop`. Departures go in `DEVIATIONS.md`.
+
+## UF.14 — Going back in the builder (user: "go backwards in the form builder … easily")
+- **Undo / redo** of builder edits: adding, removing, reordering, retyping a field; every
+  settings-pane change; option and button edits; scoring; JSON Apply. Ctrl+Z / Ctrl+Shift+Z
+  (and Ctrl+Y), plus Undo and Redo buttons in the top bar, held when there is nothing to undo.
+  Typing in one input is one step per pause, not one per keystroke.
+- **History covers the changes since the last load or save** (orchestrator's call, the user was
+  asked and did not choose): a save, a reload, a fork or a version switch starts a new history.
+  Rejected: undo across a save — it would recreate fields the server has already given ids.
+- A clear **"← Forms"** back link in the builder's top bar (the leave guard still asks when
+  something is unsaved). Dialogs already close with Esc and Cancel; check each does.
+
+## UF.15 — Try it explains itself (user asked what Start over and the pane are)
+- One plain line at the top of the pane: what Try it is for (fill the form as a scouter would,
+  check what each field records; nothing is saved or sent).
+- "Start over" becomes **"Clear test values"**.
+- "What the analysis gets" gets a one-line explanation (the values as analysis reads them,
+  one row per field and phase). Kept, not dropped.
+
+## UF.16 — The pane head's icon is not a button
+- The head icon (the eye in Try it, the type icon in Edit) no longer sits in a button-like
+  square: a plain icon beside the title, so nothing looks clickable that is not.
+
+## UF.17 — No hover on rows that cannot be clicked
+- Read-only table rows do not change on hover: the Try it analysis rows, the scoring matrix,
+  the import diff list, and any other read-only table in the builder and forms pages. Do it
+  once in `components/ui/table` (an opt-out the Entries table's `STATIC_ROW` can move onto),
+  without changing clickable tables.
+
+## UF.18 — The canvas draws the form as the phone does
+- `OptionButtons` switches 2 → 4 columns on the **window** width (`sm:grid-cols-4`), so in the
+  builder's 410 px column it squeezes four columns and wraps every label ("No / climb").
+  Entry controls lay out by **their own width** (CSS container queries), so the canvas and Try
+  it match the phone. Check every `FieldInput` control and `components/entry` piece for
+  window-width classes.
+- A mouse click on an option shows only the chosen border, never a second (focus) ring;
+  keyboard focus keeps its ring.
+- The ✓ never touches the tile's edge.
+- Verify the real Scout entry screen at 375 px, a tablet width and 1440 px is unchanged or
+  better (e2e shots).
+
+## UF.19 — Settings pane: paired fields line up
+- A label always fits on one line; "Needed to publish" moves under the control as a small
+  `--warn` line, not inside the label.
+- Fields side by side align by their controls, whatever their labels say; the 2 px warning
+  edge does not change the control's size.
+- Every two-across row: Unit / Category, Min / Max / Step / Default, expected range, and the rest.
+
+## UF.20 — Reordering fields in the canvas shows the move live (user, 2026-10-09)
+- Dragging a field by its grip should look like reordering events on Manage → Competitions:
+  the dragged field follows the pointer, lifted, and the others slide out of the way while
+  dragging, so the landing place is visible before the drop — not a swap at the end.
+- Keyboard reorder, palette drops, reduced motion (a clear drop indicator, no sliding) and the
+  selected ring stay.
+
+## UF.21 — Home: tapping a coverage square names the match (user, 2026-10-09)
+- On the phone's Home → Schedule coverage, tapping a square shows a small label with the match
+  number and how many of its robots are scouted, kept short: "Q12 · 4 scouted" (no "of 6" —
+  the user: every match has six). Tapping another
+  square moves it; tapping elsewhere closes it. A computer shows the same text on hover/focus
+  (today the `title` is only the match name).
+- The count already exists inside `lib/derive/coverage.ts` (the scouted set per match); pass it
+  through `CoverageCell` instead of recomputing.
+- The squares are ~18 px, under the 48 px tap rule (SPEC-FINAL §17.7): make them easy to hit
+  without overlap (e.g. tap resolves to the nearest square, or a row-level hit area) and log
+  the choice. Keyboard: the squares are focusable and the label is announced.

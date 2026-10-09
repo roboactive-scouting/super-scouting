@@ -94,18 +94,21 @@ function analysisValue(field: FormFieldDefinition, value: unknown): string {
 const LATER = new Set(['event_log', 'cycle_path', 'position', 'timer']);
 
 /**
- * The settings pane in Try it: "What this entry would save" — the Note that nothing is saved
- * or sent, the entry's data as it would sync, and what the analysis gets from it.
+ * The settings pane in Try it: "What this entry would save" — one line on what Try it is for
+ * (nothing is saved or sent), the entry's data as it would sync, and what the analysis gets
+ * from it, each explained in a line (UF.15). The head's eye is a plain icon, not a button-like
+ * square (UF.16).
  */
 export function TryItPane({
   fields,
   data,
-  onStartOver,
+  onClear,
 }: {
   fields: readonly FormFieldDefinition[];
   /** The entry's data as it would sync (`previewData`), worked out once by the page. */
   data: Record<string, unknown>;
-  onStartOver: () => void;
+  /** Clear test values: every control back to how it starts. */
+  onClear: () => void;
 }) {
   const rows = fields.filter((f) => f.type !== 'section' && f.key in data);
   const later = fields.some((f) => LATER.has(f.type));
@@ -120,12 +123,7 @@ export function TryItPane({
       className="flex min-h-0 flex-col overflow-hidden p-0"
     >
       <div className="flex flex-none items-center gap-2.5 border-b border-line-2 px-4 py-3">
-        <span
-          aria-hidden="true"
-          className="grid size-8 shrink-0 place-items-center rounded-lg bg-line-2 text-ink-2"
-        >
-          <Eye className="size-[17px]" />
-        </span>
+        <Eye data-pane-icon="" aria-hidden="true" className="size-5 shrink-0 text-ink-2" />
         <div className="min-w-0">
           <p className="text-xs text-muted">Try it</p>
           <h2 className="text-base font-[750]">What this entry would save</h2>
@@ -133,9 +131,8 @@ export function TryItPane({
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-3.5">
         <Note icon="info">
-          You are filling the form as a scouter would.{' '}
-          <b className="text-ink">Nothing is saved or sent.</b> Use it to check that each field
-          records what you meant.
+          Fill the form as a scouter would, to check what each field records.{' '}
+          <b className="text-ink">Nothing is saved or sent.</b>
         </Note>
         <section aria-labelledby="try-saved" className="flex flex-col gap-2">
           <div className="flex items-baseline gap-2">
@@ -143,9 +140,9 @@ export function TryItPane({
               Saved data
             </h3>
             <span className="text-xs text-muted">as it would sync</span>
-            <Button variant="ghost" size="sm" className="ms-auto" onClick={onStartOver}>
+            <Button variant="ghost" size="sm" className="ms-auto" onClick={onClear}>
               <RotateCcw aria-hidden="true" />
-              Start over
+              Clear test values
             </Button>
           </div>
           <pre
@@ -159,8 +156,16 @@ export function TryItPane({
           <h3 id="try-analysis" className="text-sm font-bold">
             What the analysis gets
           </h3>
+          <p id="try-analysis-what" className="-mt-1 text-xs leading-snug text-muted">
+            Each value as the analysis reads it: one row per field and phase.
+          </p>
           {rows.length > 0 ? (
-            <Table aria-labelledby="try-analysis" className="rounded-control border border-line">
+            <Table
+              readOnly
+              aria-labelledby="try-analysis"
+              aria-describedby="try-analysis-what"
+              className="rounded-control border border-line"
+            >
               <TableBody>
                 {rows.map((field) => (
                   <TableRow key={field.key}>

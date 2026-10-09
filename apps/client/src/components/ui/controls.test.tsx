@@ -116,3 +116,78 @@ describe('Switch', () => {
     expect(onChange).toHaveBeenCalledWith(true);
   });
 });
+
+describe('OptionButtons in a narrow column (UF.18)', () => {
+  const four = [
+    { value: 'none', label: 'No climb' },
+    { value: 'park', label: 'Parked' },
+    { value: 'low', label: 'Low rung' },
+    { value: 'high', label: 'High rung' },
+  ];
+  /** Window-width variants (`sm:` … `2xl:`, `max-lg:`); container ones start with `@`. */
+  const WINDOW_VARIANT = /(^|\s)(max-)?(sm|md|lg|xl|2xl):/;
+
+  it('lays four options out by the group’s own width, never the window’s', () => {
+    const { container } = render(
+      <OptionButtons legend="Climb" value={null} onChange={vi.fn()} options={four} columns={4} />,
+    );
+    const grid = container.querySelector<HTMLElement>('[data-option-grid]')!;
+    // Two columns unless the group itself is wide: a container query on its wrapper.
+    expect(grid.className).toMatch(/(^|\s)grid-cols-2(\s|$)/);
+    expect(grid.className).toMatch(/(^|\s)@lg:grid-cols-4(\s|$)/);
+    expect(grid.parentElement!.className).toMatch(/(^|\s)@container(\s|$)/);
+    for (const el of container.querySelectorAll<HTMLElement>('*')) {
+      expect(el.getAttribute('class') ?? '', el.tagName).not.toMatch(WINDOW_VARIANT);
+    }
+  });
+
+  it('a click shows only the chosen border; a key brings the focus ring back', async () => {
+    function Harness() {
+      const [value, setValue] = useState<string | null>(null);
+      return (
+        <>
+          <OptionButtons legend="Climb" value={value} onChange={setValue} options={four} />
+          <button type="button">After</button>
+        </>
+      );
+    }
+    render(<Harness />);
+    const card = (name: string) => screen.getByRole('radio', { name }).closest('label')!;
+    const RING = 'has-[:focus-visible]:outline-2';
+    expect(card('Parked').className).toContain(RING);
+    const u = userEvent.setup();
+    await u.click(card('Parked'));
+    expect(screen.getByRole('radio', { name: 'Parked' })).toBeChecked();
+    for (const option of four) expect(card(option.label).className).not.toContain(RING);
+    // The arrow keys move the choice: the keyboard's ring is back.
+    await u.keyboard('{ArrowRight}');
+    expect(card('Low rung').className).toContain(RING);
+    // A click, then focus leaves the group: coming back by Tab shows the ring.
+    await u.click(card('High rung'));
+    expect(card('High rung').className).not.toContain(RING);
+    await u.tab();
+    expect(screen.getByRole('button', { name: 'After' })).toHaveFocus();
+    expect(card('High rung').className).toContain(RING);
+  });
+
+  it('a long label wraps inside its card, the ✓ kept clear of the edge', () => {
+    render(
+      <OptionButtons
+        legend="Climb"
+        value="long"
+        onChange={vi.fn()}
+        options={[
+          { value: 'long', label: 'Hanging from the highest rung of all' },
+          { value: 'none', label: 'No climb' },
+        ]}
+      />,
+    );
+    const card = screen.getByRole('radio', { name: /Hanging/ }).closest('label')!;
+    const text = screen.getByText('Hanging from the highest rung of all');
+    expect(text.className).toMatch(/(^|\s)min-w-0(\s|$)/);
+    expect(text.className).toContain('[overflow-wrap:anywhere]');
+    expect(card.className).toMatch(/(^|\s)min-w-0(\s|$)/);
+    const check = card.querySelector('[data-chosen-mark]')!;
+    expect(check.getAttribute('class')).toMatch(/(^|\s)shrink-0(\s|$)/);
+  });
+});

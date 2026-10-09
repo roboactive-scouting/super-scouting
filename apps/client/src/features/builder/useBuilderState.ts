@@ -62,6 +62,9 @@ type State = {
   next: number;
 };
 
+/** The part of the edit model an undo step brings back (UF.14). */
+export type FieldsSnapshot = Pick<State, 'fields' | 'selected' | 'follows'>;
+
 const KEY_MAX = 63;
 
 /** The key's lead-in for a phase, as the design names its keys (`tele_high`, `end_climb`). */
@@ -118,6 +121,29 @@ export function phaseOfIndex(fields: readonly FormFieldDefinition[], index: numb
     if (fields[i]!.type !== 'section') return fields[i]!.phase ?? 'post_match';
   }
   return 'post_match';
+}
+
+/**
+ * The phase page where two field lists first differ — a field changed, moved, added or removed —
+ * as `to` places it (or `from`, for a field `to` no longer has); null when they are the same.
+ * An undo or redo turns the canvas to it, so the change it makes is on screen (UF.14).
+ */
+export function changedPhase(
+  from: readonly FormFieldDefinition[],
+  to: readonly FormFieldDefinition[],
+): FieldPhase | null {
+  const kept = new Set(to.map((f) => f.id));
+  const gone = from.findIndex((f) => !kept.has(f.id));
+  if (gone !== -1) return phaseOfIndex(from, gone);
+  const was = new Map(from.map((f) => [f.id, f]));
+  for (let i = 0; i < to.length; i++) {
+    const field = to[i]!;
+    const before = was.get(field.id);
+    if (!before || from[i]?.id !== field.id || canonical(before) !== canonical(field)) {
+      return phaseOfIndex(to, i);
+    }
+  }
+  return null;
 }
 
 const rank = (phase: FieldPhase) => PHASE_ORDER.indexOf(phase);
@@ -245,6 +271,14 @@ const canonical = (value: unknown): string =>
         )
       : v,
   );
+
+/** Two lists of the same fields, column for column, whatever order each object's keys are in. */
+export function sameFieldList(
+  a: readonly FormFieldDefinition[],
+  b: readonly FormFieldDefinition[],
+): boolean {
+  return a === b || (a.length === b.length && canonical(a) === canonical(b));
+}
 
 /**
  * Whether two reads of a version's rows hold the same fields: each row normalised as the
@@ -490,6 +524,47 @@ export function useBuilderState(initial: BuilderInitial) {
     );
   }, []);
 
+  /**
+   * What undo keeps of the edit model (UF.14): the live fields, the selection and which keys
+   * still follow their labels. Not the baseline or the saved ids (history starts again at every
+   * load and save), and not `next`: a palette field's `new-n` is never reused, undone or not.
+   */
+  const snapshot = useCallback(
+    (): FieldsSnapshot => ({
+      fields: state.fields,
+      selected: state.selected,
+      follows: state.follows,
+    }),
+    [state.fields, state.selected, state.follows],
+  );
+
+  /**
+   * Back to a snapshot (undo, redo). A saved field's key never changes: should a snapshot ever
+   * hold another key for a saved field, the saved key stands, and what referred to the other
+   * key is pointed back at it.
+   */
+  const restore = useCallback((snap: FieldsSnapshot) => {
+    setState((s) => {
+      const savedKey = new Map(s.baseline.map((f) => [f.id, f.key]));
+      let fields = snap.fields;
+      for (const f of snap.fields) {
+        const key = savedKey.get(f.id);
+        if (key !== undefined && key !== f.key) {
+          fields = fields.map((g) =>
+            renameReferences(g.id === f.id ? { ...g, key } : g, f.key, key),
+          );
+        }
+      }
+      const ids = new Set(fields.map((f) => f.id));
+      return {
+        ...s,
+        fields,
+        selected: snap.selected !== null && ids.has(snap.selected) ? snap.selected : null,
+        follows: new Set([...snap.follows].filter((id) => ids.has(id) && !s.saved.has(id))),
+      };
+    });
+  }, []);
+
   /** The whole live set, as `saveDraftFields` takes it (with `id` on every saved field). */
   const toSaveInput = useCallback(
     () => state.fields.map((f) => toInput(f, state.saved)),
@@ -562,6 +637,8 @@ export function useBuilderState(initial: BuilderInitial) {
     reorder,
     removeField,
     replaceFields,
+    snapshot,
+    restore,
     save,
     dirty,
     willForkNewVersion,

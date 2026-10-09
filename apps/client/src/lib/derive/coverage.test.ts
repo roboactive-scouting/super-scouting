@@ -35,4 +35,13 @@ describe('schedule coverage (Home README)', () => {
     const all = slots.map((s) => ({ match_id: 'q1', team_id: s.team_id, form_kind: 'super' }));
     expect(coverage(M, slots, all)[0]!.state).toBe('none');
   });
+  it('counts the robots scouted in each match, once per robot (UF.21)', () => {
+    const four = ['a', 'b', 'c', 'd'].map((t) => ({ match_id: 'q1', team_id: t }));
+    const twice = [...four, { match_id: 'q1', team_id: 'a' }];
+    const dropped = [...four, { match_id: 'q1', team_id: 'e', deleted_at: '2026-10-06T00:00:00Z' }];
+    expect(coverage(M, slots, twice).map((c) => c.scouted)).toEqual([4, 0]);
+    expect(coverage(M, slots, dropped)[0]!.scouted).toBe(4);
+    const all = slots.map((s) => ({ match_id: 'q1', team_id: s.team_id }));
+    expect(coverage(M, slots, all)[0]).toMatchObject({ state: 'full', scouted: 6 });
+  });
 });
