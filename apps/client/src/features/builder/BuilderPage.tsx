@@ -59,11 +59,27 @@ import { typeName } from './fieldTypes';
 import { ExportDialog, ImportDialog } from './ImportExport';
 import { TryItPane } from './LivePreview';
 import { RawJsonEditor } from './RawJsonEditor';
-import { ruleLost, ruleOf, useScoring, wholeRuleSet, type Rule } from './scoringRules';
+import {
+  ruleLost,
+  ruleOf,
+  sameRules,
+  useScoring,
+  wholeRuleSet,
+  type Rule,
+  type ScoringSnapshot,
+} from './scoringRules';
 import { SettingsPane, type PanePatch } from './SettingsPane';
 import { TimerConfigEditor } from './TimerConfigEditor';
 import { useBuilderLoad, type BuilderData } from './useBuilderLoad';
-import { phaseOfIndex, sameRows, useBuilderState } from './useBuilderState';
+import {
+  changedPhase,
+  phaseOfIndex,
+  sameFieldList,
+  sameRows,
+  useBuilderState,
+  type FieldsSnapshot,
+} from './useBuilderState';
+import { typingGroup, useUndoHistory } from './useUndoHistory';
 import { versionLabel } from './VersionMenu';
 
 /**
@@ -195,6 +211,22 @@ type ForkState = { notice: string | null } | null;
  */
 type PageError = { line: string; action: 'reload' | 'check' | null };
 
+/** One undo step: the fields and their points together, so an undo never splits them (UF.14). */
+type Step = { fields: FieldsSnapshot; scoring: ScoringSnapshot };
+
+/** Two steps the admin could not tell apart: the same fields and the same points. */
+const sameStep = (a: Step, b: Step) =>
+  sameFieldList(a.fields.fields, b.fields.fields) && sameRules(a.scoring.rules, b.scoring.rules);
+
+/** Ctrl+Z undoes; Ctrl+Shift+Z and Ctrl+Y redo (⌘ on a Mac). Anything else: null. */
+function historyKey(e: KeyboardEvent): 'undo' | 'redo' | null {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return null;
+  const key = e.key.toLowerCase();
+  if (key === 'z') return e.shiftKey ? 'redo' : 'undo';
+  if (key === 'y' && !e.shiftKey) return 'redo';
+  return null;
+}
+
 function BuilderEditor({
   data,
   rpc,
@@ -267,6 +299,32 @@ function BuilderEditor({
   const [timer, setTimer] = useState<TimerConfig>(form.timer_config);
   /** Set before the builder moves on purpose, so the leave guard lets it. */
   const leaving = useRef(false);
+  /** Moves on every undo and redo, so the pane's half-filled drafts start again (UF.14). */
+  const [revision, setRevision] = useState(0);
+
+  /**
+   * Undo and redo (UF.14): every edit since this version was loaded or last saved — fields and
+   * their points as one step. A save starts a new history (an undo past it would bring back
+   * fields the server has already given ids), and so does a load: another version, a reload, a
+   * publish or a fork is a new editor. The canvas turns to the phase the step changes.
+   */
+  const history = useUndoHistory<Step>({
+    capture: () => ({ fields: state.snapshot(), scoring: scoring.snapshot() }),
+    restore: (step) => {
+      const where = changedPhase(state.fields, step.fields.fields);
+      state.restore(step.fields);
+      scoring.restore(step.scoring);
+      setScoringIssues([]);
+      setRevision((r) => r + 1);
+      if (where) setPhase(where);
+    },
+    same: sameStep,
+  });
+  /** Before an edit from the settings pane: typing in one box is one step per pause. */
+  const recordPane = (fieldId: string) => {
+    const box = typingGroup();
+    history.record(box === undefined ? undefined : `${fieldId}:${box}`);
+  };
 
   const title = `${form.name}${year !== null ? ` ${year}` : ''}`;
   usePageTitle(title);
@@ -474,6 +532,7 @@ function BuilderEditor({
           if (was && was !== row.id) ids.set(was, row.id);
         }
         scoring.rekey(ids);
+        history.clear();
       }
     }
     const saved = out as SaveDraftFieldsOutput | null;
@@ -488,6 +547,7 @@ function BuilderEditor({
           known,
           new Map([...send.byId].map(([id, rule]) => [ids.get(id) ?? id, rule])),
         );
+        history.clear();
       } catch (e) {
         const why = formErrorLine(e, { labelOf });
         notice = fieldsDirty ? `The fields were saved; the points were not. ${why}` : why;
@@ -515,6 +575,7 @@ function BuilderEditor({
   function onPaneChange(patch: PanePatch) {
     const field = state.selectedField;
     if (!field) return;
+    recordPane(field.id);
     const { points: p, option_points: op, ...columns } = patch;
     if (p !== undefined || op !== undefined) {
       // A patch may carry one of the two (an option renamed carries only its points).
@@ -570,6 +631,7 @@ function BuilderEditor({
   }
 
   function add(type: FieldTypeName, to: FieldPhase, index?: number) {
+    history.record();
     state.addField(type, index === undefined ? { phase: to } : { phase: to, index });
     setPhase(to);
     // A new field is arranged in Edit.
@@ -639,6 +701,7 @@ function BuilderEditor({
 
   /** Edit as JSON's Apply: the local fields and their points, unsaved until Save. */
   function applyJson(fields: FormFieldDefinition[], rules: Map<string, Rule>) {
+    history.record();
     // A field never saved that the text left out goes with its points (final review, I1).
     const kept = new Set(fields.map((f) => f.id));
     for (const field of state.fields) {
@@ -724,7 +787,10 @@ function BuilderEditor({
     }
     const from = state.fields.findIndex((f) => f.id === active.id);
     const to = state.fields.findIndex((f) => f.id === overId);
-    if (from !== -1 && to !== -1) state.reorder(from, to);
+    if (from !== -1 && to !== -1 && from !== to) {
+      history.record();
+      state.reorder(from, to);
+    }
   }
 
   /** What a screen reader hears during a drag: names, never ids. */
@@ -752,6 +818,24 @@ function BuilderEditor({
   // Until another read replaces this editor (Open vN, a publish, a restore), it stays held.
   const paused = !online || busy !== null || pending;
   const entries = version.entry_count;
+  /** Undo and redo hold while editing is paused, a dialog is open or a drag is running. */
+  const historyHeld = paused || !editable || dialog !== null || askReload || dragging;
+
+  // Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y anywhere on the builder, a text box included (the builder's
+  // own step, so typing then Ctrl+Z takes back the whole burst). Never inside a dialog: Edit as
+  // JSON's editor keeps its own text undo.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const which = historyKey(e);
+      if (!which || historyHeld) return;
+      if ((e.target as Element | null)?.closest?.('[role="dialog"], [role="alertdialog"]')) return;
+      e.preventDefault();
+      if (which === 'undo') history.undo();
+      else history.redo();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   return (
     <main className={PAGE}>
@@ -775,6 +859,17 @@ function BuilderEditor({
         onNextIncomplete={nextIncomplete}
         onTimer={() => setDialog('timer')}
         more={more}
+        backTo={year !== null ? formsSeasonPath(year) : PATHS.forms}
+        history={
+          editable
+            ? {
+                canUndo: history.canUndo && !historyHeld,
+                canRedo: history.canRedo && !historyHeld,
+                onUndo: history.undo,
+                onRedo: history.redo,
+              }
+            : undefined
+        }
       />
       {!online && (
         <WarningNotice className="mx-6 mt-3 flex-none rounded-control" lead="You're offline.">
@@ -890,7 +985,7 @@ function BuilderEditor({
             }}
           />
           {mode === 'try' ? (
-            <TryItPane fields={state.fields} data={tryData} onStartOver={() => setTried({})} />
+            <TryItPane fields={state.fields} data={tryData} onClear={() => setTried({})} />
           ) : (
             <SettingsPane
               field={selected}
@@ -907,8 +1002,10 @@ function BuilderEditor({
               scoringIssues={scoringIssues
                 .filter((i) => i.field_key === selected?.key)
                 .map((i) => i.message)}
+              revision={revision}
               onRemove={() => {
                 if (!selected) return;
+                history.record();
                 // A field never saved goes with its points (final review, I1).
                 if (!state.isSaved(selected)) scoring.setRule(selected.id, null);
                 state.removeField(selected.key);

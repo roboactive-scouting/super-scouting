@@ -11,6 +11,7 @@ import {
   CompleteMark,
   NEED_EDGE,
   NumberInput,
+  PANE_PAIR,
   PaneGroup,
   PaneRow,
   PaneSegmented,
@@ -141,6 +142,7 @@ export function MetadataFields({
   editable,
   open,
   onToggle,
+  revision = 0,
 }: {
   field: FormFieldDefinition;
   allFields: readonly FormFieldDefinition[];
@@ -148,6 +150,8 @@ export function MetadataFields({
   editable: boolean;
   open: boolean;
   onToggle: () => void;
+  /** Moves on every undo and redo: the expected range starts again from the field (UF.14). */
+  revision?: number;
 }) {
   const id = useId();
   const missing = missingMeaning(field);
@@ -197,7 +201,7 @@ export function MetadataFields({
           className={cn('min-h-16', need('description') && NEED_EDGE)}
         />
       </PaneRow>
-      <div className="grid grid-cols-2 gap-2">
+      <div className={`${PANE_PAIR} grid-cols-2`}>
         <PaneRow label="Unit" htmlFor={`${id}-unit`} required needId={need('unit')}>
           <Select
             id={`${id}-unit`}
@@ -256,7 +260,7 @@ export function MetadataFields({
           need={!!need('direction')}
         />
       </PaneRow>
-      {RANGED.has(field.type) && <ExpectedRange field={field} onChange={onChange} />}
+      {RANGED.has(field.type) && <ExpectedRange key={revision} field={field} onChange={onChange} />}
     </PaneGroup>
   );
 }

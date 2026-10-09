@@ -103,3 +103,36 @@ describe('design-system primitives (SPEC-FINAL 17.4, 17.7)', () => {
     expect(screen.getByRole('heading', { level: 3, name: 'Role' })).toBeInTheDocument();
   });
 });
+
+describe('Table rows and hover (UF.17)', () => {
+  const rows = (readOnly: boolean) =>
+    render(
+      <Table readOnly={readOnly}>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow>
+            <TableCell>One</TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>,
+    );
+
+  it('a read-only table’s rows do not change on hover; a header row never does', () => {
+    rows(true);
+    for (const row of screen.getAllByRole('row')) {
+      expect(row.className).not.toMatch(/hover:/);
+      expect(row.className).not.toMatch(/transition/);
+    }
+  });
+
+  it('a clickable table keeps the hover tint on its body rows', () => {
+    rows(false);
+    const [head, body] = screen.getAllByRole('row');
+    expect(body!.className).toMatch(/(^|\s)hover:bg-bg(\s|$)/);
+    expect(head!.className).not.toMatch(/hover:/);
+  });
+});

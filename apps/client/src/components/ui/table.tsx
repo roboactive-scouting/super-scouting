@@ -1,5 +1,12 @@
-import type { ComponentProps } from 'react';
+import { createContext, useContext, type ComponentProps } from 'react';
 import { cn } from '@/lib/utils';
+
+/**
+ * Rows that open nothing do not change on hover (UF.17): a read-only table says so once, on
+ * `Table`, and every row in it drops the hover tint. A header row never takes it. A clickable
+ * table (Users) keeps it.
+ */
+const ReadOnlyRows = createContext(false);
 
 /*
  * THEME "Data table": header 12 px / 650 `--muted`, 46 px rows, `--line-2` dividers, numbers
@@ -9,12 +16,19 @@ import { cn } from '@/lib/utils';
 export function Table({
   className,
   containerClassName,
+  readOnly = false,
   ...props
-}: ComponentProps<'table'> & { containerClassName?: string }) {
+}: ComponentProps<'table'> & {
+  containerClassName?: string;
+  /** Its rows open nothing: none of them changes on hover. */
+  readOnly?: boolean;
+}) {
   return (
-    <div className={cn('relative w-full overflow-x-auto', containerClassName)}>
-      <table className={cn('w-full border-collapse text-start text-sm', className)} {...props} />
-    </div>
+    <ReadOnlyRows.Provider value={readOnly}>
+      <div className={cn('relative w-full overflow-x-auto', containerClassName)}>
+        <table className={cn('w-full border-collapse text-start text-sm', className)} {...props} />
+      </div>
+    </ReadOnlyRows.Provider>
   );
 }
 
@@ -24,14 +38,16 @@ export function TableHeader({
   ...props
 }: ComponentProps<'thead'> & { sticky?: boolean }) {
   return (
-    <thead
-      className={cn(
-        '[&_tr]:border-b [&_tr]:border-line',
-        sticky && 'sticky top-0 z-10 bg-surface',
-        className,
-      )}
-      {...props}
-    />
+    <ReadOnlyRows.Provider value>
+      <thead
+        className={cn(
+          '[&_tr]:border-b [&_tr]:border-line',
+          sticky && 'sticky top-0 z-10 bg-surface',
+          className,
+        )}
+        {...props}
+      />
+    </ReadOnlyRows.Provider>
   );
 }
 
@@ -39,10 +55,24 @@ export function TableBody({ className, ...props }: ComponentProps<'tbody'>) {
   return <tbody className={cn('[&_tr:last-child]:border-0', className)} {...props} />;
 }
 
-export function TableRow({ className, ...props }: ComponentProps<'tr'>) {
+/**
+ * A row: the `--bg` hover tint, unless its table is read-only (or the row says so itself) —
+ * a row that opens nothing never looks as if it would.
+ */
+export function TableRow({
+  className,
+  readOnly,
+  ...props
+}: ComponentProps<'tr'> & { readOnly?: boolean }) {
+  const inReadOnly = useContext(ReadOnlyRows);
+  const still = readOnly ?? inReadOnly;
   return (
     <tr
-      className={cn('motion-safe:transition border-b border-line-2 hover:bg-bg', className)}
+      className={cn(
+        'border-b border-line-2',
+        !still && 'motion-safe:transition hover:bg-bg',
+        className,
+      )}
       {...props}
     />
   );

@@ -36,7 +36,7 @@ const NOT_SCORED: Partial<Record<FieldTypeName, string>> = {
  * The matrix is the data table (BUILD-CONTEXT 12.1) drawn as the design's points grid: no row
  * dividers or hover, compact 3 px rows, 11.5 px headers (fix round 1, I5).
  */
-const ROW = 'border-0 hover:bg-transparent';
+const ROW = 'border-0';
 const CELL = 'h-auto px-0 py-[3px]';
 
 /** The matrix's phase columns: a field scores in its own phase only (SPEC-FINAL 4.1, rule 2). */
@@ -124,7 +124,7 @@ export function ScoringFields({
       }
       disabled={!editable}
     >
-      <Table className="text-[0.8125rem]">
+      <Table readOnly className="text-[0.8125rem]">
         <TableHeader className="[&_tr]:border-0">
           <TableRow className={ROW}>
             <TableCell className={CELL} />

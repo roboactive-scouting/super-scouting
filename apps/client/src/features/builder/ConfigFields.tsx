@@ -46,7 +46,7 @@ import {
 } from './expressionShapes';
 import { typeName } from './fieldTypes';
 import { MirrorPreview, type MirrorAxis } from './MirrorPreview';
-import { NumberInput, PaneGroup, PaneRow, PaneSegmented } from './paneParts';
+import { NumberInput, PANE_PAIR, PaneGroup, PaneRow, PaneSegmented } from './paneParts';
 import type { PaneField, PanePatch } from './SettingsPane';
 
 /*
@@ -545,6 +545,7 @@ export function ConfigFields({
   savedOptionValues,
   seasonImagePath,
   issues,
+  revision = 0,
 }: {
   field: PaneField;
   allFields: readonly FormFieldDefinition[];
@@ -555,6 +556,8 @@ export function ConfigFields({
   savedOptionValues?: readonly string[];
   seasonImagePath: string | null;
   issues: readonly FormIssue[];
+  /** Moves on every undo and redo: the computed editor starts again from the field (UF.14). */
+  revision?: number;
 }) {
   const id = useId();
   const config = field.config;
@@ -587,7 +590,7 @@ export function ConfigFields({
         </PaneRow>
       );
       body = (
-        <div className="grid grid-cols-4 gap-2">
+        <div className={`${PANE_PAIR} grid-cols-4`}>
           {box('Min', 'min')}
           {box('Max', 'max')}
           {box('Step', 'step')}
@@ -829,7 +832,9 @@ export function ConfigFields({
       break;
     }
     case 'computed':
-      body = <ComputedEditor field={field} allFields={allFields} onChange={onChange} />;
+      body = (
+        <ComputedEditor key={revision} field={field} allFields={allFields} onChange={onChange} />
+      );
       break;
     default:
       return null;

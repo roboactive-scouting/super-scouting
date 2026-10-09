@@ -47,7 +47,7 @@ export function UsersTable({
   return (
     <Table containerClassName="rounded-card border border-line bg-surface">
       <TableHeader>
-        <TableRow className="hover:bg-transparent">
+        <TableRow>
           <TableHead className="ps-4">Full name</TableHead>
           <TableHead>Username</TableHead>
           <TableHead>Role</TableHead>

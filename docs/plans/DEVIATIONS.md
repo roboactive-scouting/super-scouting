@@ -6704,3 +6704,63 @@ Rejected: keeping ↑ ↓ beside the grip as a keyboard path — the keyboard se
 **What I did instead:** nothing in code — the user decided it stays in place ("I do not think the is_ordinal should create new version"); recorded in the living spec's decision log (v0.73). The builder already treats it as in place (no fork warning), and the server writes it in place.
 
 **Risk:** an analysis already computed with the old reading (rank or not) differs from one computed after the flip; the values themselves never change.
+
+## UF.14 — Undo / redo: history since the last load or save, fields and points as one step
+
+**Plan said:** undo / redo of every builder edit (fields, settings pane, options and buttons, scoring, JSON Apply), Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y and two top-bar buttons held when empty; typing is one step per pause; the history covers the changes since the last load or save (orchestrator's call; the user was asked and did not choose); a "← Forms" link; dialogs close with Esc and Cancel.
+
+**What was wrong:** nothing failed; the plan names no mechanism, and the builder's state lives in two hooks (`useBuilderState` for the fields, `useScoring` for the points, held by field id), so an undo of one alone could split a field from its points.
+
+**What I did instead:** a page-level `useUndoHistory` (new, `features/builder/useUndoHistory.ts`) over one snapshot of both: `state.snapshot()` (fields, selection, which keys still follow their labels) and `scoring.snapshot()` (rules, `edited`). The page calls `history.record(group?)` just before each edit — `add`, a canvas reorder, every settings-pane patch (`onPaneChange`, which carries option, button, meaning and points edits), Remove field, and Edit as JSON's Apply — and `history.clear()` after a field save lands and after the rule set is sent, so a save always starts a new history; a load (another version, Reload, Publish, Restore, a fork) is a new editor and so a new history already. Not snapshotted, on purpose: the baseline and the saved ids (they do not change within a history), `next` (a palette field's `new-n` is never reused, undone or not: final review I1), `sent` (what was last sent), Try it's values and the form-level match timer (saved on the server at once). `restore` pins every saved field's key to its saved key (unreachable in practice, since a history never spans a save; tested with a forged snapshot). Coalescing: an edit typed into the same text box (input or textarea, told apart by the focused element) within 800 ms (`PAUSE_MS`) of the last joins its step; a switch, select or segment is always a step of its own. A step that changed nothing (choosing what was already chosen) is never one to undo. After an undo or redo the canvas turns to the phase the step changed (`changedPhase`), the selection comes back with the step, and the pane's three local drafts (Show when, the expected range, the computed editor) remount through a `revision` key so they show the field as it now is; the label box and the option rows stay mounted, so typing then Ctrl+Z keeps focus. Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y (⌘ too) work anywhere on the builder, text boxes included (the builder's own step, with `preventDefault`), but never inside a dialog (Edit as JSON's editor keeps its native text undo), and never while editing is paused (offline, a save or a read in flight), a dialog is open or a drag runs; the buttons hold in the same cases. An older, read-only version shows no Undo / Redo. "← Forms" is a ghost-button `Link` (accessible name "Back to Forms") leading the top bar, to the forms list on the form's season (`formsSeasonPath`); the existing leave guard asks when something is unsaved. Every dialog (Match timer, Edit as JSON, Export, Import, Delete form) was checked by a test to close with Esc and with Cancel: all did, nothing changed there. Rejected: undo across a save (it would bring back fields the server has already given ids); one history per hook (an undo could split a field from its points); remounting the whole settings pane on every undo (focus and the folds would be lost); a step per keystroke.
+
+**Risk:** a box inside a remounted draft (Show when, expected range, computed) loses focus on an undo. The history is in memory only: a reload starts empty, as decided.
+
+## UF.15 — Try it: the one line is the existing Note, rewritten
+
+**Plan said:** one plain line at the top of the pane on what Try it is for; "Start over" becomes "Clear test values"; a one-line explanation under "What the analysis gets".
+
+**What was wrong:** the pane already opened with a Note (THEME "Note"; the design's "**Nothing is saved or sent.**"), in three sentences.
+
+**What I did instead:** kept the locked Note at the top and made it the one line: "Fill the form as a scouter would, to check what each field records. **Nothing is saved or sent.**" The button reads "Clear test values" (`TryItPane`'s prop `onStartOver` is now `onClear`). Under "What the analysis gets": "Each value as the analysis reads it: one row per field and phase.", also the table's `aria-describedby`.
+
+**Risk:** none known.
+
+## UF.17 — Read-only rows: `Table readOnly`, and header rows never hover
+
+**Plan said:** an opt-out in `components/ui/table` that the Entries table's `STATIC_ROW` can move onto, without changing clickable tables.
+
+**What was wrong:** nothing; the plan leaves the shape open.
+
+**What I did instead:** `Table` takes `readOnly` and hands it to its rows by context; `TableRow` takes `readOnly` too, for one row. A read-only row carries neither `hover:bg-bg` nor its transition. `TableHeader` makes its rows read-only always, so the Users header no longer needs `hover:bg-transparent`. Moved onto it: Entries (`STATIC_ROW` deleted), the scoring matrix, Try it's analysis table. Users (clickable rows) keeps its hover. The import diff list is a plain list with no hover, and the forms pages have no table: checked, nothing to change.
+
+**Risk:** none known.
+
+## UF.18 — Option buttons by their own width; no ring after a click
+
+**Plan said:** entry controls lay out by their own width (container queries); a mouse click on an option shows only the chosen border; the ✓ never touches the tile's edge.
+
+**What was wrong:** `sm:grid-cols-4` read the window, so the builder's 410 px column drew four squeezed columns ("High / bar"). The ring: a label click focuses its radio, and the card's `has-[:focus-visible]` ring then showed after a mouse click too.
+
+**What I did instead:** the grid sits in an `@container` wrapper and goes to four columns at `@lg` (32 rem of its own width): two in the canvas, in Try it and on a phone; four on a 768 px tablet and on a computer, as before. The ring classes apply unless the last input in the group was a pointer (`onPointerDown`); a key in the group, or focus leaving it (not the blur the press itself causes, which is ignored until its click), brings them back. The label span is `min-w-0` with `overflow-wrap: anywhere` and the card `min-w-0`, so a long label wraps inside the card and the ✓ (`shrink-0`) stays inside the padding. No other control `FieldInput` draws, nor the `components/ui` pieces it uses, had a window-width class (a test now checks every drawn type).
+
+**Risk:** the 32 rem threshold scales with the app's text size; at a large text size a tablet may draw two columns, which reads better anyway.
+
+## UF.19 — Paired controls: one-line labels, the warn line under the control
+
+**Plan said:** a label always fits on one line; "Needed to publish" moves under the control as a small `--warn` line; side-by-side fields align by their controls; the 2 px warning edge does not change the control's size.
+
+**What was wrong:** the last point already held: `NEED_EDGE` is the 1 px border plus a 1 px inset shadow, which never changes a control's size. Kept, and now guarded by a test.
+
+**What I did instead:** `PaneRow`'s label line is one 18 px line (`whitespace-nowrap`; the label is cut with an ellipsis if it is ever too long), and "Needed to publish" is a small `--warn` line under the control, still its `aria-describedby`. `PANE_PAIR` (`grid items-start gap-2`) is the one class for every two-across row: Unit · Category, Min · Max · Step · Default, When field · Is, Section · Required. The Required switch sits in `PaneBeside` (an empty label line, then the switch centred on a 48 px box), level with the Section box. The expected range was already one row of its own.
+
+**Risk:** a label longer than its column is cut rather than wrapped; none in the pane is today.
+
+## UF.20 — The canvas drag: why the fields jumped, and the lifted look
+
+**Plan said:** (added to this run by the user, 2026-10-09) dragging a field by its grip shows the move live, like Manage's event cards: the dragged field follows the pointer, lifted, the others slide out of the way, the drop settles without a jump; keyboard reorder, palette drops, reduced motion and the selected ring stay.
+
+**What was wrong:** measured in Chrome mid-drag: the other fields did get their transforms, but with dnd-kit's 0 ms "disabled" transition (`transform 0ms linear`), so they jumped rather than slid. The cause: the canvas passed `items={page.map(...)}`, a new array on every render, and the canvas renders on every pointer move of a drag (it uses `useDroppable`). dnd-kit's `useSortable` compares `items` by reference (`items !== previous.current.items`) and switches transitions off whenever they "changed". Manage's panel does not re-render during a drag, so the same inline array works there. Also, the dragged card was drawn at 80 % opacity with no shadow, and kept the 200 ms transition, so it trailed the pointer as a faint ghost.
+
+**What I did instead:** the page's ids are memoised (`useMemo` over the joined ids), so the list stays the same array while it holds the same fields. The dragged card (`data-dragging`) is drawn solid, above the others, with the float shadow (the selected ring kept with it), like an event card, and with no transition, so it follows the pointer exactly; dnd-kit's own transition settles it on the drop. Under reduced motion the others still make room at once (a clear gap where it will land), with no slide. Rejected: a slight scale on the lifted card (a scaled card measures taller, and the others moved by the wrong distance); a `DragOverlay` copy (the palette's overlay already lives in the same context, and the card in place keeps its selected ring and real content).
+
+**Risk:** any other sortable list that re-renders during a drag with an inline `items` array would jump the same way; `ChoiceList` and the Match timer keep their row ids in state, so they do not.

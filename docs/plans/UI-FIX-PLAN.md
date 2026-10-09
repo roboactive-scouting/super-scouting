@@ -320,3 +320,22 @@ One fix agent for all six, reviewed, then a PR into `develop`. Departures go in 
 - Fields side by side align by their controls, whatever their labels say; the 2 px warning
   edge does not change the control's size.
 - Every two-across row: Unit / Category, Min / Max / Step / Default, expected range, and the rest.
+
+## UF.20 — Reordering fields in the canvas shows the move live (user, 2026-10-09)
+- Dragging a field by its grip should look like reordering events on Manage → Competitions:
+  the dragged field follows the pointer, lifted, and the others slide out of the way while
+  dragging, so the landing place is visible before the drop — not a swap at the end.
+- Keyboard reorder, palette drops, reduced motion (a clear drop indicator, no sliding) and the
+  selected ring stay.
+
+## UF.21 — Home: tapping a coverage square names the match (user, 2026-10-09)
+- On the phone's Home → Schedule coverage, tapping a square shows a small label with the match
+  number and how many of its robots are scouted, kept short: "Q12 · 4 scouted" (no "of 6" —
+  the user: every match has six). Tapping another
+  square moves it; tapping elsewhere closes it. A computer shows the same text on hover/focus
+  (today the `title` is only the match name).
+- The count already exists inside `lib/derive/coverage.ts` (the scouted set per match); pass it
+  through `CoverageCell` instead of recomputing.
+- The squares are ~18 px, under the 48 px tap rule (SPEC-FINAL §17.7): make them easy to hit
+  without overlap (e.g. tap resolves to the nearest square, or a row-level hit area) and log
+  the choice. Keyboard: the squares are focusable and the label is announced.

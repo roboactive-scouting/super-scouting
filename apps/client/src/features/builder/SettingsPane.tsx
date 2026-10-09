@@ -11,7 +11,7 @@ import { PHASE_TAB } from '@/features/entry/phases';
 import { ConfigFields } from './ConfigFields';
 import { defaultConfig, FIELD_TYPE_INFO, typeInfo, typeName } from './fieldTypes';
 import { MetadataFields, missingMeaning } from './MetadataFields';
-import { CompleteMark, PaneGroup, PaneRow } from './paneParts';
+import { CompleteMark, PANE_PAIR, PaneBeside, PaneGroup, PaneRow } from './paneParts';
 import { ruleLost } from './scoringRules';
 import { ScoringFields } from './ScoringFields';
 import { ShowWhenFields } from './ShowWhenFields';
@@ -152,6 +152,7 @@ export function SettingsPane({
   issues = [],
   scoringIssues = [],
   onRemove,
+  revision = 0,
 }: {
   field: PaneField | null;
   /** The form's live fields, for conditions, computed operands and section names. */
@@ -174,6 +175,11 @@ export function SettingsPane({
   issues?: readonly FormIssue[];
   scoringIssues?: readonly string[];
   onRemove?: () => void;
+  /**
+   * Moves on every undo and redo (UF.14): the drafts a group keeps while it is being filled (Show
+   * when, the expected range, a computed expression) start again from the field as it now is.
+   */
+  revision?: number;
 }) {
   if (!field) {
     return (
@@ -201,6 +207,7 @@ export function SettingsPane({
       issues={issues}
       scoringIssues={scoringIssues}
       onRemove={onRemove}
+      revision={revision}
     />
   );
 }
@@ -219,6 +226,7 @@ function FieldSettings({
   issues,
   scoringIssues,
   onRemove,
+  revision,
 }: {
   field: PaneField;
   allFields: readonly FormFieldDefinition[];
@@ -233,6 +241,7 @@ function FieldSettings({
   issues: readonly FormIssue[];
   scoringIssues: readonly string[];
   onRemove?: () => void;
+  revision: number;
 }) {
   const id = useId();
   const { name, icon: Icon } = typeInfo(field.type);
@@ -281,12 +290,13 @@ function FieldSettings({
   return (
     <Card as="section" aria-label="Field settings" className={PANE}>
       <div className="flex flex-none items-center gap-2.5 border-b border-line-2 px-3.5 py-3">
-        <span
+        {/* A plain icon beside the title, never a button-like square: it does nothing (UF.16). */}
+        <Icon
+          data-pane-icon=""
           aria-hidden="true"
-          className="grid size-[30px] shrink-0 place-items-center rounded-[7px] bg-line-2 text-ink-2"
-        >
-          <Icon className="size-4" strokeWidth={1.9} />
-        </span>
+          className="size-5 shrink-0 text-ink-2"
+          strokeWidth={1.9}
+        />
         <div className="min-w-0">
           <p className="text-xs font-semibold text-muted">{name}</p>
           <h2 className="truncate text-base font-[750]" dir="auto">
@@ -363,7 +373,7 @@ function FieldSettings({
                   ))}
                 </Select>
               </PaneRow>
-              <div className="grid grid-cols-2 items-end gap-2">
+              <div className={`${PANE_PAIR} grid-cols-2`}>
                 <PaneRow label="Section" htmlFor={`${id}-section`}>
                   <Input
                     id={`${id}-section`}
@@ -381,12 +391,14 @@ function FieldSettings({
                     ))}
                   </datalist>
                 </PaneRow>
-                <Switch
-                  lead
-                  label={<b className="font-[650] text-ink">Required</b>}
-                  checked={field.required}
-                  onChange={(required) => onChange({ required })}
-                />
+                <PaneBeside>
+                  <Switch
+                    lead
+                    label={<b className="font-[650] text-ink">Required</b>}
+                    checked={field.required}
+                    onChange={(required) => onChange({ required })}
+                  />
+                </PaneBeside>
               </div>
             </>
           )}
@@ -401,6 +413,7 @@ function FieldSettings({
         ) : (
           <>
             <ConfigFields
+              revision={revision}
               field={field}
               allFields={allFields}
               onChange={onChange}
@@ -411,6 +424,7 @@ function FieldSettings({
               issues={issues}
             />
             <MetadataFields
+              revision={revision}
               field={field}
               allFields={allFields}
               onChange={onChange}
@@ -426,6 +440,7 @@ function FieldSettings({
               issues={scoringIssues}
             />
             <ShowWhenFields
+              key={revision}
               field={field}
               allFields={allFields}
               onChange={onChange}

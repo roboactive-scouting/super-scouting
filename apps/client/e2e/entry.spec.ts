@@ -109,3 +109,42 @@ test('entry: a swipe on the empty page below the form changes phase', async ({ p
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await shoot(page, 'entry-auto', 'phone');
 });
+
+/**
+ * UF.18: the option buttons lay out by their own width. The Endgame climb select has four
+ * options: two columns on a phone, four on a tablet held upright and on a computer; the ✓ of the
+ * chosen one is clear of its card's edge, and a tap shows no focus ring.
+ */
+test('entry: a four-option select at phone, tablet and desktop widths', async ({ page }) => {
+  await signIn(page, 'scouter');
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.goto(`/entry/${matchId(39)}/${teamId(2630)}?alliance=red`);
+  await page.getByRole('radio', { name: 'Played' }).click();
+  await page.getByRole('tab', { name: 'Endgame' }).click();
+  await page.getByText('High rung', { exact: true }).click();
+  await expect(page.getByRole('radio', { name: 'High rung' })).toBeChecked();
+  const cards = page.getByRole('group', { name: /climb/i }).locator('label');
+  await expect(cards).toHaveCount(4);
+  const columns = async () => {
+    const ys = await cards.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().top));
+    return new Set(ys.map((y) => Math.round(y))).size === 1 ? 4 : 2;
+  };
+  const chosen = page.locator('label', { has: page.getByRole('radio', { name: 'High rung' }) });
+  const markClear = async () => {
+    const tile = (await chosen.boundingBox())!;
+    const mark = (await chosen.locator('[data-chosen-mark]').boundingBox())!;
+    return tile.x + tile.width - (mark.x + mark.width);
+  };
+  expect(await columns()).toBe(4);
+  expect(await markClear()).toBeGreaterThanOrEqual(12);
+  await expect(chosen).toHaveCSS('outline-style', 'none');
+  await shoot(page, 'entry-endgame', 'tablet');
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await columns()).toBe(2);
+  expect(await markClear()).toBeGreaterThanOrEqual(12);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  expect(await columns()).toBe(4);
+  expect(await markClear()).toBeGreaterThanOrEqual(12);
+  await shoot(page, 'entry-endgame');
+});
