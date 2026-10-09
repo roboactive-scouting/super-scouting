@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -126,6 +126,8 @@ async function labelBox(u: ReturnType<typeof userEvent.setup>) {
 }
 /** The top bar's saved / unsaved line (dnd-kit adds a live region of its own). */
 const saveState = () => document.querySelector<HTMLElement>('[data-save-state]')!;
+/** dnd-kit's keyboard sensor listens for the next key only after a tick. */
+const tick = () => act(() => new Promise((done) => setTimeout(done, 20)));
 
 describe('BuilderPage: the three panes (task 1.29)', () => {
   it('shows the palette, the canvas and the settings pane at 1280 px', async () => {
@@ -749,7 +751,29 @@ describe('BuilderPage: the settings pane and scoring (task 1.30)', () => {
     await u.click(within(settings()).getByRole('button', { name: 'Remove Option 3' }));
     expect(saveState()).not.toHaveTextContent('draft v4');
 
-    await u.click(within(settings()).getByRole('button', { name: 'Move High bar (top) up' }));
+    // Reordered by its 6-dot grip from the keyboard (final review, U1): Space picks the option
+    // up, ↑ moves it a place, Space drops it.
+    expect(within(settings()).queryByRole('button', { name: /^Move .* up$/ })).toBeNull();
+    const rect = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function (this: HTMLElement) {
+        const row = this.closest<HTMLElement>('[data-choice-row]');
+        const top = row ? Number(row.dataset.choiceRow) * 48 : 0;
+        return DOMRect.fromRect({ x: 0, y: top, width: 380, height: 48 });
+      });
+    const grip = within(settings()).getByRole('button', { name: 'Move High bar (top)' });
+    grip.focus();
+    fireEvent.keyDown(grip, { code: 'Space', key: ' ' });
+    await tick();
+    fireEvent.keyDown(document, { code: 'ArrowUp', key: 'ArrowUp' });
+    await tick();
+    fireEvent.keyDown(document, { code: 'Space', key: ' ' });
+    await tick();
+    rect.mockRestore();
+    await waitFor(() =>
+      expect(within(settings()).getByLabelText('Option 1 label')).toHaveValue('High bar (top)'),
+    );
+    expect(within(settings()).getByLabelText('Option 2 label')).toHaveValue('None');
     expect(saveState()).toHaveTextContent('saving starts draft v4');
   });
 
@@ -858,6 +882,194 @@ describe('BuilderPage: review fixes (task 1.30, fix round 1)', () => {
     // Carried as navigation state, and cleared once shown: a reload does not say it again.
     await waitFor(() => expect(router.state.location.state).toBeNull());
     expect(router.state.location.search).toBe('?version=4');
+  });
+});
+
+describe('BuilderPage: final review fixes', () => {
+  const noDraft = VERSIONS.slice(1);
+  /** The points box of the selected counter, set to `n`. */
+  async function setPoints(u: ReturnType<typeof userEvent.setup>, n: string) {
+    const box = within(settings()).getByLabelText('Points per unit');
+    await u.clear(box);
+    await u.type(box, n);
+  }
+
+  it('a palette field removed before saving takes its points with it (I1)', async () => {
+    const { rpc } = server({
+      saveDraftFields: savesFields,
+      setScoringRules: () => ({ rules: [] }),
+    });
+    await open(draftPath, rpc);
+    const u = userEvent.setup();
+    await u.click(await screen.findByRole('button', { name: /^Add Counter:/ }));
+    await setPoints(u, '5');
+    expect(within(canvas()).getByText('5/ea pts')).toBeVisible();
+    await u.click(within(settings()).getByRole('button', { name: 'Field actions: Counter' }));
+    await u.click(screen.getByRole('menuitem', { name: /Remove field/ }));
+    // Nothing is left to save: the field and its points went together.
+    expect(saveState()).not.toHaveTextContent('Unsaved');
+    // Another field, saved; then a palette field again: it never shows the removed one's 5.
+    await u.click(screen.getByRole('button', { name: /^Add Toggle:/ }));
+    await u.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => expect(saveState()).toHaveTextContent('Saved'));
+    await u.click(screen.getByRole('button', { name: /^Add Counter:/ }));
+    expect(within(canvas()).queryByText('5/ea pts')).toBeNull();
+    expect(within(settings()).getByLabelText('Points per unit')).toHaveValue('0');
+  });
+
+  it('a draft someone opened after load keeps its draft-only points when the active version saves (I4)', async () => {
+    let reads = 0;
+    const { rpc, calls } = server(
+      {
+        // At load there is no draft; by the save, another admin has opened draft v4.
+        getForm: () => formOut(reads++ === 0 ? noDraft : VERSIONS),
+        getFormVersion: (input) => {
+          const row = VERSIONS.find((v) => v.id === input.form_version_id)!;
+          return versionOut(row, row.version_no === 4 ? draftFields() : v3Fields());
+        },
+        setScoringRules: () => ({ rules: [] }),
+      },
+      noDraft,
+    );
+    await open(`/admin/forms/${FORM_ID}?version=3`, rpc);
+    const u = userEvent.setup();
+    await u.click(within(canvas()).getByRole('button', { name: 'Pieces scored high, Counter' }));
+    await setPoints(u, '8');
+    await u.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(calls.some((c) => c.name === 'setScoringRules')).toBe(true));
+    const rules = calls.find((c) => c.name === 'setScoringRules')!.input.rules;
+    expect(rules).toContainEqual({ field_key: 'auto_high', points: 8 });
+    // end_climb is only in the new draft: its points are kept.
+    expect(rules).toContainEqual({
+      field_key: 'end_climb',
+      points: 0,
+      option_points: { none: 0, high: 12 },
+    });
+  });
+
+  it("another admin's points change since load is kept, not reverted (I4)", async () => {
+    let fresh = false;
+    // One set of rows per version, as the server keeps its field ids.
+    const v4Rows = draftFields();
+    const v3Rows = v3Fields();
+    const theirs = (rows: ScoredFieldRow[]) =>
+      rows.map((f) => (fresh && f.key === 'tele_high' ? { ...f, points: 9 } : f));
+    const { rpc, calls } = server({
+      getFormVersion: (input) => {
+        const row = VERSIONS.find((v) => v.id === input.form_version_id)!;
+        return versionOut(row, theirs(row.version_no === 4 ? v4Rows : v3Rows));
+      },
+      setScoringRules: () => ({ rules: [] }),
+    });
+    await open(`/admin/forms/${FORM_ID}?version=3`, rpc);
+    fresh = true;
+    const u = userEvent.setup();
+    await u.click(within(canvas()).getByRole('button', { name: 'Pieces scored high, Counter' }));
+    await setPoints(u, '8');
+    await u.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(calls.some((c) => c.name === 'setScoringRules')).toBe(true));
+    const rules = calls.find((c) => c.name === 'setScoringRules')!.input.rules;
+    expect(rules).toContainEqual({ field_key: 'auto_high', points: 8 });
+    expect(rules).toContainEqual({ field_key: 'tele_high', points: 9 });
+    // The form and both versions were read again for the send.
+    const names = calls.map((c) => c.name);
+    const reads = calls.slice(names.lastIndexOf('getForm'));
+    expect(reads.map((c) => c.name)).toEqual([
+      'getForm',
+      'getFormVersion',
+      'getFormVersion',
+      'setScoringRules',
+    ]);
+  });
+
+  it('after Publish the editor stays held until the form is read again (M1)', async () => {
+    let release!: () => void;
+    const reread = new Promise<void>((resolve) => (release = resolve));
+    let published = false;
+    const { rpc } = server({
+      getForm: async () => {
+        if (published) await reread;
+        return formOut(VERSIONS);
+      },
+      publishFormVersion: () => {
+        published = true;
+        return { form_version_id: V.v4, published_at: 'x', active_version_id: V.v4 };
+      },
+    });
+    await open(draftPath, rpc);
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Publish v4' }));
+    await waitFor(() => expect(published).toBe(true));
+    await tick();
+    expect(screen.getByRole('button', { name: 'Publishing…' })).toBeDisabled();
+    expect(screen.getByRole('region', { name: 'Fields' }).parentElement).toHaveAttribute('inert');
+    release();
+    await waitFor(() =>
+      expect(screen.getByRole('region', { name: 'Fields' }).parentElement).not.toHaveAttribute(
+        'inert',
+      ),
+    );
+  });
+
+  it('opening another version holds the editor until that version is read (M1)', async () => {
+    let release!: () => void;
+    const v3Read = new Promise<void>((resolve) => (release = resolve));
+    let held = false;
+    const { rpc } = server({
+      getFormVersion: async (input) => {
+        const row = VERSIONS.find((v) => v.id === input.form_version_id)!;
+        if (held && row.id === V.v3) await v3Read;
+        return versionOut(row, row.version_no === 4 ? draftFields() : v3Fields());
+      },
+    });
+    const router = await open(draftPath, rpc);
+    held = true;
+    await act(() => router.navigate(`/admin/forms/${FORM_ID}?version=3`));
+    // The draft's editor is still on screen, held: no edit lands on the wrong version.
+    expect(screen.getByRole('button', { name: /Draft v4 · not published/ })).toBeVisible();
+    expect(screen.getByRole('region', { name: 'Fields' }).parentElement).toHaveAttribute('inert');
+    expect(screen.getByRole('button', { name: 'Publish v4' })).toBeDisabled();
+    release();
+    expect(await screen.findByRole('button', { name: /v3 · Published · Locked/ })).toBeVisible();
+  });
+
+  it('an in-place save on a published version with entries shows it locked (M5)', async () => {
+    const unlocked = noDraft.map((v) => (v.version_no === 3 ? { ...v, is_locked: false } : v));
+    const { rpc } = server({ saveDraftFields: savesFields }, unlocked);
+    await open(`/admin/forms/${FORM_ID}?version=3`, rpc);
+    expect(screen.getByText('v3 is published.')).toBeVisible();
+    const u = userEvent.setup();
+    await u.click(within(canvas()).getByRole('button', { name: 'Left the start zone, Toggle' }));
+    await u.type(await labelBox(u), '!');
+    await u.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(
+      await screen.findByText('v3 is locked: 214 entries were scouted with it.'),
+    ).toBeVisible();
+  });
+
+  it('offline holds Save changes on the active version, and keeps the edit', async () => {
+    await open(`/admin/forms/${FORM_ID}?version=3`, server({}, noDraft).rpc);
+    const u = userEvent.setup();
+    await u.click(within(canvas()).getByRole('button', { name: 'Left the start zone, Toggle' }));
+    await u.type(await labelBox(u), '!');
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
+    goOffline();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled(),
+    );
+    expect(saveState()).toHaveTextContent('● Unsaved changes');
+  });
+
+  it('just under 1024 px (1023) the builder is the desktop-only panel', async () => {
+    await db.delete();
+    await db.open();
+    await session.signIn(admin, 'token-abc');
+    setWidth(1023);
+    const router = createMemoryRouter(routeTree(), { initialEntries: [draftPath] });
+    const { unmount } = render(<RouterProvider router={router} />);
+    expect(await screen.findByRole('heading', { name: 'This needs a computer' })).toBeVisible();
+    expect(screen.queryByRole('region', { name: 'Fields' })).toBeNull();
+    unmount();
+    await session.signOut();
   });
 });
 

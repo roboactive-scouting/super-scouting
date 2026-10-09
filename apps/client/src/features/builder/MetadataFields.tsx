@@ -23,7 +23,7 @@ import type { PanePatch } from './SettingsPane';
  * required on every data field; category and the expected range are optional.
  */
 
-export const UNITS: readonly FieldUnit[] = [
+const UNITS: readonly FieldUnit[] = [
   'count',
   'seconds',
   'points',
@@ -34,9 +34,9 @@ export const UNITS: readonly FieldUnit[] = [
 ];
 
 /** SPEC-FINAL 5.4's examples; a category the form already holds is offered too. */
-export const CATEGORIES = ['scoring', 'defence', 'reliability', 'movement', 'driver skill'];
+const CATEGORIES = ['scoring', 'defence', 'reliability', 'movement', 'driver skill'];
 
-export const DIRECTION_NAME: Record<FieldDirection, string> = {
+const DIRECTION_NAME: Record<FieldDirection, string> = {
   higher_is_better: 'Higher is better',
   lower_is_better: 'Lower is better',
   neutral: 'Neutral',
@@ -61,7 +61,7 @@ export function missingMeaning(field: FormFieldDefinition): number {
 }
 
 /** The folded line: "count · Teleop · higher is better · Scoring". */
-export function meaningSummary(field: FormFieldDefinition): string {
+function meaningSummary(field: FormFieldDefinition): string {
   return [
     field.unit,
     field.phase ? PHASE_TAB[field.phase] : null,

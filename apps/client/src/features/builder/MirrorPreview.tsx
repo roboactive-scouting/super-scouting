@@ -8,7 +8,7 @@ export type MirrorAxis = 'none' | 'horizontal' | 'vertical' | 'both';
 type Pt = readonly [number, number];
 
 /** Where a blue tap at (x, y) is saved (SPEC-FINAL 5.6): red keeps raw coordinates. */
-export function mirrorPoint([x, y]: Pt, axis: MirrorAxis): Pt {
+function mirrorPoint([x, y]: Pt, axis: MirrorAxis): Pt {
   const flipX = axis === 'horizontal' || axis === 'both';
   const flipY = axis === 'vertical' || axis === 'both';
   return [flipX ? 1 - x : x, flipY ? 1 - y : y];

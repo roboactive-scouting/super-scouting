@@ -85,7 +85,8 @@ export function BuilderTopBar({
   year: number | null;
   editable: boolean;
   online: boolean;
-  busy: 'save' | 'publish' | 'restore' | null;
+  /** What is in flight; `loading` while the page reads another version: everything holds. */
+  busy: 'save' | 'publish' | 'restore' | 'loading' | null;
   dirty: boolean;
   changeLine: string | null;
   /** On a published version, when the unsaved change is structural: where it will go. */

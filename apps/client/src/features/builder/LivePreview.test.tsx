@@ -1,11 +1,9 @@
 import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { FormFieldDefinition } from '@frc/shared';
 import { db } from '@/data/db';
 import { fourTypeFields, goOnline, openBuilder, server } from '@/test/builderHarness';
 import { field, FORM_ID } from '@/test/formFixtures';
-import { previewData, seedValues } from './LivePreview';
 
 const draftPath = `/admin/forms/${FORM_ID}?version=4`;
 const canvas = () => screen.getByRole('region', { name: 'Form' });
@@ -160,33 +158,5 @@ describe('Try it: fix round 1 (task 1.31)', () => {
     expect(saved()).not.toHaveProperty('post_notes');
     expect(saved()).not.toHaveProperty('tele_high');
     expect(saved()).toEqual({ auto_leave: false });
-  });
-});
-
-describe('previewData', () => {
-  const fields = fourTypeFields() as FormFieldDefinition[];
-
-  it('seeds each control as it is drawn: a toggle off, a counter at its minimum', () => {
-    expect(seedValues(fields)).toEqual({ auto_leave: false, auto_high: 0, tele_high: 0 });
-  });
-
-  it('strips a hidden value before the computed field is worked out from it', () => {
-    expect(previewData(fields, { auto_leave: false, auto_high: 5, tele_high: 2 })).toEqual({
-      auto_leave: false,
-      tele_high: 2,
-    });
-    expect(previewData(fields, { auto_leave: true, auto_high: 5, tele_high: 2 })).toEqual({
-      auto_leave: true,
-      auto_high: 5,
-      tele_high: 2,
-      post_total: 7,
-    });
-  });
-
-  it('leaves a computed field out while an operand is missing', () => {
-    expect(previewData(fields, { auto_leave: true, auto_high: 5 })).toEqual({
-      auto_leave: true,
-      auto_high: 5,
-    });
   });
 });

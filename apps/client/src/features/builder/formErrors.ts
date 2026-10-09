@@ -8,13 +8,13 @@ import { typeName } from './fieldTypes';
  */
 
 /** What the server put in `details`, narrowed. Anything it did not send is undefined. */
-export type FormRefusal = {
+type FormRefusal = {
   code: string;
   reason: string | undefined;
   details: Record<string, unknown>;
 };
 
-export function refusalOf(e: unknown): FormRefusal | null {
+function refusalOf(e: unknown): FormRefusal | null {
   if (!(e instanceof RpcError)) return null;
   const details =
     typeof e.details === 'object' && e.details !== null
@@ -60,7 +60,7 @@ export const FORMS_FORBIDDEN =
   'Only an admin can edit forms, and the server says this account is not one now.';
 
 /** Optional context: a field's label by key, so a positioned problem names the field. */
-export type FormErrorContext = { labelOf?: (key: string) => string | undefined };
+type FormErrorContext = { labelOf?: (key: string) => string | undefined };
 
 const quote = (text: string) => `“${text}”`;
 

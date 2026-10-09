@@ -33,7 +33,7 @@ function server(over: Record<string, (input: Record<string, unknown>) => unknown
   return { rpc, calls, setForms: (next: typeof forms) => (forms = next) };
 }
 
-function renderForms(rpc: Rpc, role: Role = 'admin') {
+function renderForms(rpc: Rpc, role: Role = 'admin', path = '/admin/forms') {
   const user = { id: 'u-1', username: 'a', full_name: 'A', role, must_change_password: false };
   const router = createMemoryRouter(
     [
@@ -47,7 +47,7 @@ function renderForms(rpc: Rpc, role: Role = 'admin') {
         ],
       },
     ],
-    { initialEntries: ['/admin/forms'] },
+    { initialEntries: [path] },
   );
   render(<RouterProvider router={router} />);
   return router;
@@ -162,6 +162,39 @@ describe('the forms list (/admin/forms, task 1.29)', () => {
     expect(screen.getByText("Scouts can't open an entry until one is.")).toBeVisible();
     expect(screen.getByRole('button', { name: 'Create match form' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Create super form' })).toBeVisible();
+  });
+
+  it('a missing match form names the newest earlier season that has one to export from (D2)', async () => {
+    renderForms(server().rpc);
+    await userEvent.setup().click(await screen.findByRole('button', { name: '2027 no forms yet' }));
+    const card = screen.getByRole('region', { name: 'Match form (not created)' });
+    expect(card).toHaveTextContent(
+      "import last season's: export it from 2026, then pick it under Import.",
+    );
+  });
+
+  it('with no earlier season that has a match form, names no season (D2)', async () => {
+    const srv = server();
+    // Only a later season (2027) has a match form: nothing earlier to export from.
+    srv.setForms({ [SEASON_2026]: [], [SEASON_2027]: [MATCH_FORM] });
+    renderForms(srv.rpc);
+    const card = await screen.findByRole('region', { name: 'Match form (not created)' });
+    expect(card).toHaveTextContent(
+      'import one: export it from another season, then import the file.',
+    );
+    expect(card).not.toHaveTextContent('2025');
+  });
+
+  it('opens on the season named in the address, ?season=2027 (D3)', async () => {
+    renderForms(server().rpc, 'admin', '/admin/forms?season=2027');
+    expect(await screen.findByRole('button', { name: '2027 no forms yet' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: '2026 active' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
   });
 
   it('Restore makes an older version active and reads the season again', async () => {

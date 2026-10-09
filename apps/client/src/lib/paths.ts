@@ -27,6 +27,11 @@ export function formBuilderPath(formId: string, version?: number): string {
   return version === undefined ? base : `${base}?version=${version}`;
 }
 
+/** The forms list on one season, by its year (`?season=2026`); the list honours it on arrival. */
+export function formsSeasonPath(year: number): string {
+  return `${PATHS.forms}?season=${year}`;
+}
+
 /** The entry route's pattern, for `matchPath` and the route tree. */
 export const ENTRY_ROUTE = '/entry/:matchId/:teamId';
 

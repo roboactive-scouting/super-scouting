@@ -266,3 +266,62 @@ describe('jsonProblem', () => {
     expect(jsonProblem('{"a": [1, 2]}')).toBeNull();
   });
 });
+
+describe('Edit as JSON: final review fixes', () => {
+  const settings = () => screen.getByRole('region', { name: 'Field settings' });
+
+  it('Apply that leaves out a field never saved drops its points too: nothing is left unsaved (I1)', async () => {
+    await openBuilder(draftPath, server().rpc);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole('button', { name: /^Add Counter:/ }));
+    const box = within(settings()).getByLabelText('Points per unit');
+    await u.clear(box);
+    await u.type(box, '5');
+    expect(saveState()).toHaveTextContent('● Unsaved changes');
+    await openJson();
+    const parsed = JSON.parse((editor() as HTMLTextAreaElement).value) as {
+      fields: { key: string }[];
+      scoring_rules: { field_key: string }[];
+    };
+    // The text as it was before the counter was added.
+    setText(
+      JSON.stringify({
+        fields: parsed.fields.filter((f) => f.key !== 'auto_counter'),
+        scoring_rules: parsed.scoring_rules.filter((r) => r.field_key !== 'auto_counter'),
+      }),
+    );
+    await u.click(apply());
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(within(canvas()).queryByText('auto_counter')).toBeNull();
+    expect(saveState()).not.toHaveTextContent('Unsaved');
+  });
+
+  it('a key given in the text stays when the field is edited in the settings pane (I3)', async () => {
+    await openBuilder(draftPath, server().rpc);
+    const u = await openJson();
+    const parsed = JSON.parse((editor() as HTMLTextAreaElement).value) as {
+      fields: Record<string, unknown>[];
+      scoring_rules: unknown[];
+    };
+    const leave = parsed.fields[0]!;
+    setText(
+      JSON.stringify({
+        fields: [
+          leave,
+          { ...leave, key: 'auto_parked', label: 'Parked', display_order: 2 },
+          ...parsed.fields.slice(1),
+        ],
+        scoring_rules: parsed.scoring_rules,
+      }),
+    );
+    await u.click(apply());
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await u.click(within(canvas()).getByRole('button', { name: 'Parked, Toggle' }));
+    expect(
+      within(settings()).getByText('set in Edit as JSON · permanent from the first save'),
+    ).toBeVisible();
+    await u.type(within(settings()).getByLabelText('Label'), ' fully');
+    expect(within(settings()).getByText('auto_parked')).toBeVisible();
+    expect(within(canvas()).getByText('auto_parked')).toBeVisible();
+  });
+});

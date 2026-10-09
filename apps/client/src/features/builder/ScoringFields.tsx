@@ -20,7 +20,7 @@ import { NumberInput, PaneGroup } from './paneParts';
 import type { PaneField, PanePatch } from './SettingsPane';
 
 /** Why a type holds no points (SPEC-FINAL 4.1), said instead of hiding the group. */
-export const NOT_SCORED: Partial<Record<FieldTypeName, string>> = {
+const NOT_SCORED: Partial<Record<FieldTypeName, string>> = {
   rating: "Ratings are not scored. They are a scout's judgement, not game points.",
   timer: 'Timers are not scored. They give times, not game points.',
   short_text: 'Short text fields are not scored.',

@@ -1,9 +1,12 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { FormFieldDefinition } from '@frc/shared';
 import { SettingsPane, type PaneField, type PanePatch } from './SettingsPane';
+
+/** dnd-kit's keyboard sensor listens for the next key only after a tick. */
+const tick = () => act(() => new Promise((done) => setTimeout(done, 20)));
 
 const field = (over: Record<string, unknown> = {}) =>
   ({
@@ -370,11 +373,31 @@ describe('SettingsPane: configuration (task 1.30)', () => {
     });
   });
 
-  it('options reorder with ↑ ↓ and are removed with ✕, never below one', async () => {
+  it('options reorder by their 6-dot grip from the keyboard, and are removed with ✕, never below one', async () => {
     const onPatch = vi.fn();
     const u = userEvent.setup();
     render(<Live start={climb()} onPatch={onPatch} />);
-    await u.click(screen.getByRole('button', { name: 'Move Parked up' }));
+    // No ↑ ↓ any more (final review, U1): the grip, named after its option, is the handle.
+    expect(screen.queryByRole('button', { name: 'Move Parked up' })).toBeNull();
+    const rect = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function (this: HTMLElement) {
+        const row = this.closest<HTMLElement>('[data-choice-row]');
+        const top = row ? Number(row.dataset.choiceRow) * 48 : 0;
+        return DOMRect.fromRect({ x: 0, y: top, width: 380, height: 48 });
+      });
+    const grip = screen.getByRole('button', { name: 'Move Parked' });
+    grip.focus();
+    fireEvent.keyDown(grip, { code: 'Space', key: ' ' });
+    await tick();
+    fireEvent.keyDown(document, { code: 'ArrowUp', key: 'ArrowUp' });
+    await tick();
+    fireEvent.keyDown(document, { code: 'Space', key: ' ' });
+    await tick();
+    rect.mockRestore();
+    await waitFor(() => expect(screen.getByLabelText('Option 1 label')).toHaveValue('Parked'));
+    // The moved row keeps its grip focused.
+    expect(screen.getByRole('button', { name: 'Move Parked' })).toHaveFocus();
     expect(onPatch).toHaveBeenLastCalledWith({
       config: {
         options: [

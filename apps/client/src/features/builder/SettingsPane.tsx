@@ -145,6 +145,7 @@ export function SettingsPane({
   seasonImagePath = null,
   editable = true,
   saved = true,
+  keyFollows = true,
   published = false,
   forkNote = null,
   savedOptionValues,
@@ -162,6 +163,8 @@ export function SettingsPane({
   editable?: boolean;
   /** The server knows the field: its key is permanent. */
   saved?: boolean;
+  /** A new field whose key follows its label; false when its key was set in Edit as JSON. */
+  keyFollows?: boolean;
   /** The version is published: scoring says it changes in place. */
   published?: boolean;
   /** Where a structural change goes on a published version: "starts draft v4". */
@@ -191,6 +194,7 @@ export function SettingsPane({
       seasonImagePath={seasonImagePath}
       editable={editable}
       saved={saved}
+      keyFollows={keyFollows}
       published={published}
       forkNote={forkNote}
       savedOptionValues={savedOptionValues}
@@ -208,6 +212,7 @@ function FieldSettings({
   seasonImagePath,
   editable,
   saved,
+  keyFollows,
   published,
   forkNote,
   savedOptionValues,
@@ -221,6 +226,7 @@ function FieldSettings({
   seasonImagePath: string | null;
   editable: boolean;
   saved: boolean;
+  keyFollows: boolean;
   published: boolean;
   forkNote: string | null;
   savedOptionValues?: readonly string[];
@@ -298,7 +304,9 @@ function FieldSettings({
         <span>
           {saved
             ? '· permanent, never changes'
-            : 'follows the label until the first save, then it is permanent'}
+            : keyFollows
+              ? 'follows the label until the first save, then it is permanent'
+              : 'set in Edit as JSON · permanent from the first save'}
         </span>
       </p>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3.5 pt-1 pb-3.5">

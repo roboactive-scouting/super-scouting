@@ -24,7 +24,7 @@ export type BuilderData = {
   previous: GetFormVersionOutput | null;
 };
 
-export type BuilderLoad =
+type BuilderLoad =
   | { status: 'loading' }
   | { status: 'unreachable' }
   | { status: 'missing'; versionNo: number }
@@ -36,7 +36,7 @@ export type BuilderLoad =
  * by `?version=n`; without it, the draft if there is one, else the active version, else the
  * newest. `undefined` when the named version does not exist.
  */
-export function chooseVersion(
+function chooseVersion(
   versions: readonly VersionSummary[],
   versionNo: number | null,
 ): VersionSummary | undefined {
@@ -52,13 +52,20 @@ export function chooseVersion(
  * The builder's data, from the server (form editing is online only, SPEC-FINAL 5.1): the form
  * and its versions, the chosen version's fields, the season's year and — for a draft — the
  * version it was made from. `reload` reads it all again (after a save that forked, a publish,
- * a restore, or a refused stale save).
+ * a restore, or a refused stale save). `pending` is true while a read is in flight with the
+ * last data still on screen (another version opened, a publish, a restore): the editor then
+ * stays held until it is replaced (final review, M1).
  */
 export function useBuilderLoad(rpc: Rpc, formId: string, versionNo: number | null) {
-  const [load, setLoad] = useState<BuilderLoad>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  const want = `${formId}:${versionNo ?? ''}:${attempt}`;
+  const [got, setGot] = useState<{ key: string; load: BuilderLoad }>({
+    key: want,
+    load: { status: 'loading' },
+  });
 
   useEffect(() => {
+    const setLoad = (load: BuilderLoad) => setGot({ key: want, load });
     let live = true;
     (async (): Promise<BuilderLoad> => {
       const form = (await rpc.call('getForm', { form_id: formId })) as GetFormOutput;
@@ -106,8 +113,10 @@ export function useBuilderLoad(rpc: Rpc, formId: string, versionNo: number | nul
     return () => {
       live = false;
     };
-  }, [rpc, formId, versionNo, attempt]);
+  }, [rpc, formId, versionNo, want]);
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
-  return { load, reload, attempt };
+  // `key` names the read on screen: every completed read is a new one, so the editor keyed on
+  // it starts from the server's data after any reload.
+  return { load: got.load, key: got.key, pending: got.key !== want, reload };
 }

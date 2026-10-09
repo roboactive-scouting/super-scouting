@@ -1,4 +1,21 @@
-import { Minus, MoveDown, MoveUp, Plus, X } from 'lucide-react';
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type Announcements,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { GripVertical, Minus, Plus, X } from 'lucide-react';
 import { useId, useState, type ReactNode } from 'react';
 import {
   validateExpr,
@@ -12,6 +29,8 @@ import { Input } from '@/components/ui/input';
 import { ErrorLine, Note } from '@/components/ui/notice';
 import { Select } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { prefersReducedMotion } from '@/lib/animate';
+import { cn } from '@/lib/utils';
 import {
   emptyShape,
   exprOf,
@@ -60,11 +79,17 @@ function valueFromLabel(label: string, taken: ReadonlySet<string>, fallback: str
   for (let n = 2; ; n++) if (!taken.has(`${base}_${n}`)) return `${base}_${n}`;
 }
 
+let madeIds = 0;
+const freshIds = (n: number) => Array.from({ length: n }, () => `choice-${++madeIds}`);
+
 /**
- * An ordered list of choices (a select's options, an event log's buttons): each row has its
- * rank when the list is ordered, its label, its value in mono, ↑ ↓ to reorder and × to remove.
- * A value already saved is permanent (it is what entries hold); a new one follows its label.
- * `onItems` also says which value moved or went (`change`), so a select's option points follow.
+ * An ordered list of choices (a select's options, an event log's buttons): each row has the
+ * design's 6-dot grip, its rank when the list is ordered, its label, its value in mono and ×
+ * to remove (`-desktop.png`, `-desktop-locked.png`). The grip drags the row to a new place; from
+ * the keyboard it is focused, Space picks the row up, the arrows move it and Space drops it
+ * (final review, U1: the user asked for the grips in place of ↑ ↓). A value already saved is
+ * permanent (it is what entries hold); a new one follows its label. `onItems` also says which
+ * value moved or went (`change`), so a select's option points follow.
  */
 function ChoiceList({
   items,
@@ -79,6 +104,19 @@ function ChoiceList({
   noun: 'Option' | 'Button';
   ranked: boolean;
 }) {
+  // Each row's own id, kept through a reorder, so a moved row keeps its focus and its input.
+  const [ids, setIds] = useState(() => freshIds(items.length));
+  let rowIds = ids;
+  if (ids.length !== items.length) {
+    // The list was changed from outside (Edit as JSON): its rows start again.
+    rowIds = freshIds(items.length);
+    setIds(rowIds);
+  }
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
   const others = (i: number) => new Set(items.filter((_, j) => j !== i).map((o) => o.value));
   const relabel = (i: number, label: string) => {
     const o = items[i]!;
@@ -90,77 +128,75 @@ function ChoiceList({
       value === o.value ? undefined : { from: o.value, to: value },
     );
   };
-  const move = (i: number, by: -1 | 1) => {
-    const next = [...items];
-    const [moved] = next.splice(i, 1);
-    next.splice(i + by, 0, moved!);
-    onItems(next);
+  const remove = (i: number) => {
+    setIds(rowIds.filter((_, j) => j !== i));
+    onItems(
+      items.filter((_, j) => j !== i),
+      { from: items[i]!.value, to: null },
+    );
   };
   const add = () => {
     const taken = new Set(items.map((o) => o.value));
     let n = items.length + 1;
     while (taken.has(`${noun.toLowerCase()}_${n}`)) n++;
+    setIds([...rowIds, ...freshIds(1)]);
     onItems([...items, { label: `${noun} ${n}`, value: `${noun.toLowerCase()}_${n}` }]);
   };
+
+  function onDragEnd({ active, over }: DragEndEvent) {
+    if (!over || active.id === over.id) return;
+    const from = rowIds.indexOf(String(active.id));
+    const to = rowIds.indexOf(String(over.id));
+    if (from === -1 || to === -1) return;
+    setIds(arrayMove(rowIds, from, to));
+    onItems(arrayMove([...items], from, to));
+  }
+
+  /** What a screen reader hears during a drag: the choice and its place, never an id. */
+  const placeOf = (id: string | number) => rowIds.indexOf(String(id));
+  const nameOf = (id: string | number) => {
+    const i = placeOf(id);
+    return items[i]?.label || `${noun} ${i + 1}`;
+  };
+  const announcements: Announcements = {
+    onDragStart: ({ active }) => `Picked up ${nameOf(active.id)}, place ${placeOf(active.id) + 1}.`,
+    onDragOver: ({ active, over }) =>
+      over
+        ? `${nameOf(active.id)} is at place ${placeOf(over.id) + 1}.`
+        : `${nameOf(active.id)} is over nothing.`,
+    onDragEnd: ({ active, over }) =>
+      over
+        ? `${nameOf(active.id)} is now place ${placeOf(over.id) + 1}.`
+        : `${nameOf(active.id)} was put back.`,
+    onDragCancel: ({ active }) => `${nameOf(active.id)} was put back.`,
+  };
+
   return (
     <div className="flex flex-col overflow-hidden rounded-control border border-line">
-      <ol>
-        {items.map((o, i) => (
-          <li
-            key={i}
-            className="flex min-h-12 items-center gap-2 border-b border-line-2 py-1 ps-2.5 pe-1.5"
-          >
-            {ranked && (
-              <span className="num w-3.5 shrink-0 text-xs text-muted" aria-hidden="true">
-                {i + 1}
-              </span>
-            )}
-            <Input
-              aria-label={`${noun} ${i + 1} label`}
-              dir="auto"
-              value={o.label}
-              onChange={(e) => relabel(i, e.target.value)}
-              className="min-h-10 border-transparent px-1.5 font-semibold hover:border-control-border"
-            />
-            <code className="num shrink-0 text-xs text-muted">{o.value}</code>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`Move ${o.label} up`}
-              disabled={i === 0}
-              onClick={() => move(i, -1)}
-              className={ROW_ICON}
-            >
-              <MoveUp aria-hidden="true" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`Move ${o.label} down`}
-              disabled={i === items.length - 1}
-              onClick={() => move(i, 1)}
-              className={ROW_ICON}
-            >
-              <MoveDown aria-hidden="true" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`Remove ${o.label}`}
-              disabled={items.length === 1}
-              onClick={() =>
-                onItems(
-                  items.filter((_, j) => j !== i),
-                  { from: o.value, to: null },
-                )
-              }
-              className={ROW_ICON}
-            >
-              <X aria-hidden="true" />
-            </Button>
-          </li>
-        ))}
-      </ol>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={onDragEnd}
+        accessibility={{ announcements }}
+      >
+        <SortableContext items={rowIds} strategy={verticalListSortingStrategy}>
+          <ol aria-label={noun === 'Option' ? 'Options' : 'Buttons'}>
+            {items.map((o, i) => (
+              <ChoiceRow
+                key={rowIds[i]}
+                id={rowIds[i]!}
+                index={i}
+                option={o}
+                noun={noun}
+                ranked={ranked}
+                canRemove={items.length > 1}
+                onLabel={(label) => relabel(i, label)}
+                onRemove={() => remove(i)}
+              />
+            ))}
+          </ol>
+        </SortableContext>
+      </DndContext>
       <Button
         variant="ghost"
         onClick={add}
@@ -170,6 +206,80 @@ function ChoiceList({
         {noun === 'Option' ? 'Add an option' : 'Add a button'}
       </Button>
     </div>
+  );
+}
+
+/** One choice: grip · rank · label · mono value · ×. */
+function ChoiceRow({
+  id,
+  index,
+  option,
+  noun,
+  ranked,
+  canRemove,
+  onLabel,
+  onRemove,
+}: {
+  id: string;
+  index: number;
+  option: SelectOption;
+  noun: 'Option' | 'Button';
+  ranked: boolean;
+  canRemove: boolean;
+  onLabel: (label: string) => void;
+  onRemove: () => void;
+}) {
+  // Reduced motion: rows jump to their places rather than slide (SPEC-FINAL 17.9).
+  const sortable = useSortable({ id, transition: prefersReducedMotion() ? null : undefined });
+  const t = sortable.transform;
+  const name = option.label || `${noun} ${index + 1}`;
+  return (
+    <li
+      ref={sortable.setNodeRef}
+      data-choice-row={index}
+      style={{
+        transform: t ? `translate3d(0, ${t.y}px, 0)` : undefined,
+        transition: sortable.transition ?? undefined,
+      }}
+      className={cn(
+        'relative flex min-h-12 items-center gap-1.5 border-b border-line-2 bg-surface py-1 ps-1 pe-1.5',
+        sortable.isDragging && 'z-10 shadow-[var(--shadow-float)]',
+      )}
+    >
+      <button
+        type="button"
+        ref={sortable.setActivatorNodeRef}
+        {...sortable.attributes}
+        {...sortable.listeners}
+        aria-label={`Move ${name}`}
+        className="grid size-7 shrink-0 cursor-grab place-items-center rounded-control text-muted hover:bg-line-2 disabled:cursor-default"
+      >
+        <GripVertical aria-hidden="true" className="size-[15px]" />
+      </button>
+      {ranked && (
+        <span className="num w-3.5 shrink-0 text-xs text-muted" aria-hidden="true">
+          {index + 1}
+        </span>
+      )}
+      <Input
+        aria-label={`${noun} ${index + 1} label`}
+        dir="auto"
+        value={option.label}
+        onChange={(e) => onLabel(e.target.value)}
+        className="min-h-10 border-transparent px-1.5 font-semibold hover:border-control-border"
+      />
+      <code className="num shrink-0 text-xs text-muted">{option.value}</code>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label={`Remove ${option.label}`}
+        disabled={!canRemove}
+        onClick={onRemove}
+        className={ROW_ICON}
+      >
+        <X aria-hidden="true" />
+      </Button>
+    </li>
   );
 }
 

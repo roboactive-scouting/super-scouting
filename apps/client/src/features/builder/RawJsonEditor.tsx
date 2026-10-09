@@ -54,12 +54,12 @@ const DRAFT_COLUMNS = [
   'is_ordinal',
 ] as const;
 
-export function draftOf(field: FormFieldDefinition): Record<string, unknown> {
+function draftOf(field: FormFieldDefinition): Record<string, unknown> {
   return Object.fromEntries(DRAFT_COLUMNS.map((c) => [c, field[c] ?? null]));
 }
 
 /** This version's rules by key, as the export writes them: only what scores, sorted by key. */
-export function rulesOf(
+function rulesOf(
   fields: readonly FormFieldDefinition[],
   ruleFor: (id: string) => Rule | null,
 ): DefinitionScoringRule[] {
@@ -72,7 +72,7 @@ export function rulesOf(
     .sort((a, b) => (a.field_key < b.field_key ? -1 : a.field_key > b.field_key ? 1 : 0));
 }
 
-export function definitionText(
+function definitionText(
   fields: readonly FormFieldDefinition[],
   ruleFor: (id: string) => Rule | null,
 ): string {
@@ -90,12 +90,12 @@ const editable = z
   })
   .strict();
 
-export type JsonCheck =
+type JsonCheck =
   | { ok: true; fields: FormFieldDefinition[]; rules: Map<string, Rule> }
   /** `line` is one sentence; `at` the 1-based line to mark, when there is one. */
   | { ok: false; line: string; at: number | null };
 
-export type JsonContext = {
+type JsonContext = {
   /** The builder's live fields now. */
   live: readonly FormFieldDefinition[];
   /** Every row of the version as loaded, deprecated ones included. */
@@ -120,7 +120,7 @@ function lineOfKey(text: string, key: unknown): number | null {
  * no retired key with another type, and the scoring by `validateScoringRules`. A field missing
  * only its meaning passes: a draft saves with it, and Publish waits (SPEC-FINAL 5.4).
  */
-export function checkDefinitionText(text: string, ctx: JsonContext): JsonCheck {
+function checkDefinitionText(text: string, ctx: JsonContext): JsonCheck {
   const problem = jsonProblem(text);
   if (problem) return { ok: false, line: problemLine(problem), at: problem.line };
   const raw = JSON.parse(text) as unknown;

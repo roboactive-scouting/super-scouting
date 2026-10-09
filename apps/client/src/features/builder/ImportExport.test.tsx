@@ -159,6 +159,20 @@ describe('the More menu (task 1.31)', () => {
 });
 
 describe('Export (task 1.31)', () => {
+  it('from the active version, starts on that version, not the draft (final review, M2)', async () => {
+    await openBuilder(`/admin/forms/${FORM_ID}?version=3`, server().rpc);
+    await more(/^Export/);
+    const dialog = screen.getByRole('dialog', { name: 'Export the match form' });
+    expect(within(dialog).getByRole('radio', { name: /v3 · active/ })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(within(dialog).getByRole('radio', { name: /Draft v4/ })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+  });
+
   it('starts on the draft, saves into Exports before any download is offered, then downloads a copy', async () => {
     const { rpc, calls } = server({
       saveFormExport: () => summary({ label: 'Match form 2026 · draft v4' }),
@@ -484,6 +498,8 @@ describe('Delete form (task 1.31)', () => {
     expect(confirm).not.toHaveAttribute('aria-disabled');
     await u.click(confirm);
     await waitFor(() => expect(router.state.location.pathname).toBe('/admin/forms'));
+    // Back on the deleted form's season, not the active one (final review, D3).
+    expect(router.state.location.search).toBe('?season=2026');
     expect(calls.filter((c) => c.name === 'deleteForm').at(-1)!.input).toEqual({
       form_id: FORM_ID,
     });

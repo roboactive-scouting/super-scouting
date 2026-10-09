@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   FORM_KINDS,
   type CreateFormOutput,
@@ -25,7 +25,7 @@ import { useFormsList, type FormsLoad } from './useFormsList';
 
 /**
  * `/admin/forms` (design 13-forms, variant A with C's version timeline; SPEC-FINAL 5.9, v1.21):
- * season chips (the active season preselected), a warning while the season has no published
+ * season chips (the season named by `?season=<year>`, else the active one, preselected), a warning while the season has no published
  * match form, then a card per form — match and super — with its versions. Every button opens
  * the builder on a version. Admin only; desktop only (the route's DesktopOnly); online only.
  */
@@ -91,8 +91,14 @@ function Seasons({
 }) {
   const online = useOnline();
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  // `?season=2026` (after Delete form in the builder, final review D3), else the active season.
   const [chosen, setChosen] = useState<string | null>(
-    () => load.activeSeasonId ?? load.seasons[0]?.id ?? null,
+    () =>
+      load.seasons.find((s) => String(s.year) === params.get('season'))?.id ??
+      load.activeSeasonId ??
+      load.seasons[0]?.id ??
+      null,
   );
   const [restoring, setRestoring] = useState<string | null>(null);
   const [creating, setCreating] = useState<FormKind | null>(null);
@@ -121,6 +127,11 @@ function Seasons({
   }
   const seasonId = season.id;
   const forms: FormListItem[] = load.forms.get(seasonId) ?? [];
+  // The newest earlier season with a match form: what an import would come from (D2).
+  const previousMatchYear =
+    load.seasons.find(
+      (s) => s.year < season.year && (load.forms.get(s.id) ?? []).some((f) => f.kind === 'match'),
+    )?.year ?? null;
 
   /** Reads the season's forms again; a failure says the list may be out of date. */
   async function refresh(kind: FormKind, lead: string) {
@@ -186,6 +197,8 @@ function Seasons({
           value={season.id}
           onChange={(id) => {
             setChosen(id);
+            // A season named in the address no longer applies once another is picked.
+            if (params.has('season')) setParams({}, { replace: true });
             setErrors({});
             setStale(null);
           }}
@@ -219,6 +232,7 @@ function Seasons({
               key={kind}
               kind={kind}
               year={season.year}
+              previousYear={kind === 'match' ? previousMatchYear : null}
               online={online}
               creating={creating === kind}
               error={errors[kind] ?? null}

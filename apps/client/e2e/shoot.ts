@@ -7,6 +7,9 @@ const WIDTHS = {
   phone: { width: 375, height: 812 },
 } as const;
 
+/** Shot only when asked for by name: 1024 x 768, the narrowest desktop (desktop-only pages). */
+const EXTRA = { laptop: { width: 1024, height: 768 } } as const;
+
 const screenPath = (file: string) =>
   fileURLToPath(new URL(`./__screens__/${file}.png`, import.meta.url));
 
@@ -48,10 +51,11 @@ async function settle(page: Page, timeout = 3_000) {
 export async function shoot(
   page: Page,
   name: string,
-  only?: keyof typeof WIDTHS,
+  only?: keyof typeof WIDTHS | keyof typeof EXTRA,
   opts: { long?: boolean } = {},
 ) {
-  for (const [label, size] of Object.entries(WIDTHS)) {
+  // `only: 'laptop'` writes `<name>-laptop.png` at 1024 x 768.
+  for (const [label, size] of Object.entries(only === 'laptop' ? EXTRA : WIDTHS)) {
     if (only && only !== label) continue;
     await page.setViewportSize(size);
     // The pointer would stay on the last control clicked and its hover veil would tint it.

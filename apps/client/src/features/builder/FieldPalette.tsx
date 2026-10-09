@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { FIELD_TYPE_INFO, typeInfo } from './fieldTypes';
 
 /** A palette row's drag id: `palette:<type>`. */
-export const paletteDragId = (type: FieldTypeName) => `palette:${type}`;
+const paletteDragId = (type: FieldTypeName) => `palette:${type}`;
 export const paletteTypeOf = (id: string | number): FieldTypeName | null =>
   typeof id === 'string' && id.startsWith('palette:') ? (id.slice(8) as FieldTypeName) : null;
 

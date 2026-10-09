@@ -16,7 +16,7 @@ import { MEANING_PATHS, phaseOfIndex, type BuilderState } from './useBuilderStat
 
 /** Drop targets: the phase column, and each phase tab (a field type dropped there joins it). */
 export const CANVAS_DROP = 'canvas';
-export const tabDropId = (phase: FieldPhase) => `tab:${phase}`;
+const tabDropId = (phase: FieldPhase) => `tab:${phase}`;
 
 /** The fields on each phase page, with their place in the whole list. */
 export function phasePages(
@@ -36,7 +36,7 @@ export function phasePages(
 export type CanvasMode = 'edit' | 'try';
 
 /** Try it's values: what the controls hold, and the data as it would save (for visibility). */
-export type TryValues = {
+type TryValues = {
   values: Record<string, unknown>;
   data: Record<string, unknown>;
   onChange: (key: string, value: unknown) => void;

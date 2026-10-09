@@ -82,28 +82,52 @@ function rulesFrom(rows: readonly ScoredFieldRow[]): Map<string, Rule> {
   return map;
 }
 
+/** One rule as text, for telling two apart: every rule that scores nothing is the same. */
+const ruleText = (rule: Rule | null | undefined) =>
+  !rule || isZeroRule(rule)
+    ? 'none'
+    : JSON.stringify([
+        rule.points,
+        Object.entries(rule.option_points ?? {}).sort(([a], [b]) => (a < b ? -1 : 1)),
+      ]);
+
+type ScoringState = {
+  rules: Map<string, Rule>;
+  /** What `dirty` compares against: the signature last loaded or sent. */
+  sent: string;
+  /**
+   * Ids whose rule this session changed since the last send. Every other id's rule is taken
+   * from the server's rows when the set is sent, so another admin's change is never reverted
+   * (final review, I4).
+   */
+  edited: ReadonlySet<string>;
+};
+
 /**
  * The builder's scoring: `ruleFor(id)`, `setRule(id, rule)`, `dirty` against what was loaded
- * or last sent, `rekey` after a save gives new fields their server ids, and `markSent`. `live`
- * is the live field set: a rule its field's type can no longer carry counts as removed, so a
- * type change that loses one makes the scoring dirty (fix round 1, I1).
+ * or last sent, `edited` (the ids this session changed), `rekey` after a save gives new fields
+ * their server ids, and `markSent`. `live` is the live field set: a rule its field's type can
+ * no longer carry counts as removed, so a type change that loses one makes the scoring dirty
+ * (fix round 1, I1).
  */
 export function useScoring(
   rows: readonly ScoredFieldRow[],
   live: readonly { id: string; type: FieldTypeName }[],
 ) {
-  const [state, setState] = useState(() => {
+  const [state, setState] = useState<ScoringState>(() => {
     const rules = rulesFrom(rows);
-    return { rules, sent: signature(rules, typesOf(rows)) };
+    return { rules, sent: signature(rules, typesOf(rows)), edited: new Set() };
   });
   const types = useMemo(() => typesOf(live), [live]);
 
+  /** A rule the field already has changes nothing, and is not counted as this session's. */
   const setRule = useCallback((id: string, rule: Rule | null) => {
     setState((s) => {
+      if (ruleText(s.rules.get(id)) === ruleText(rule)) return s;
       const rules = new Map(s.rules);
       if (rule) rules.set(id, rule);
       else rules.delete(id);
-      return { ...s, rules };
+      return { ...s, rules, edited: new Set([...s.edited, id]) };
     });
   }, []);
 
@@ -113,26 +137,35 @@ export function useScoring(
     setState((s) => {
       const rules = new Map<string, Rule>();
       for (const [id, rule] of s.rules) rules.set(ids.get(id) ?? id, rule);
-      return { ...s, rules };
+      return { ...s, rules, edited: new Set([...s.edited].map((id) => ids.get(id) ?? id)) };
     });
   }, []);
 
   /**
-   * The rule set was sent. A rule its field could not carry was left out of it, so the server
-   * no longer has it: it goes here too. `sentTypes` names each live field's type by its id
-   * after any `rekey`.
+   * The rule set was sent. `sentRules` (by id, after any `rekey`) is what was sent, the
+   * server's own rules included, and becomes the local set. A rule its field could not carry
+   * was left out of it, so the server no longer has it: it goes here too. A rule whose id is
+   * neither a live field (`sentTypes`) nor one of the version's rows (`known`) belonged to a
+   * field removed before it was ever saved, and goes as well (final review, I1).
    */
-  const markSent = useCallback((sentTypes: Types) => {
-    setState((s) => {
-      const rules = new Map([...s.rules].filter(([id, rule]) => !lostIn(sentTypes, id, rule)));
-      return { rules, sent: signature(rules, sentTypes) };
-    });
-  }, []);
+  const markSent = useCallback(
+    (sentTypes: Types, known: ReadonlySet<string>, sentRules?: ReadonlyMap<string, Rule>) => {
+      setState((s) => {
+        const rules = new Map(
+          [...(sentRules ?? s.rules)].filter(
+            ([id, rule]) => (sentTypes.has(id) || known.has(id)) && !lostIn(sentTypes, id, rule),
+          ),
+        );
+        return { rules, sent: signature(rules, sentTypes), edited: new Set() };
+      });
+    },
+    [],
+  );
 
   const dirty = useMemo(() => signature(state.rules, types) !== state.sent, [state, types]);
   const ruleFor = useCallback((id: string) => state.rules.get(id) ?? null, [state.rules]);
 
-  return { rules: state.rules, ruleFor, setRule, rekey, markSent, dirty };
+  return { rules: state.rules, edited: state.edited, ruleFor, setRule, rekey, markSent, dirty };
 }
 
 export type Scoring = ReturnType<typeof useScoring>;

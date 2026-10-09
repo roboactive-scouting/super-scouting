@@ -6,7 +6,7 @@
  * `JSON.parse` stays the judge of what is valid; the scanner only says where.
  */
 
-export type JsonProblem = { index: number; line: number; column: number; message: string };
+type JsonProblem = { index: number; line: number; column: number; message: string };
 
 /** 1-based line and column of a character index. */
 export function lineColumn(text: string, index: number): { line: number; column: number } {

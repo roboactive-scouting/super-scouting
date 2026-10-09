@@ -13,7 +13,7 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { CodeXml, Download, Lock, Trash2, Upload } from 'lucide-react';
+import { CodeXml, Download, Lock, RotateCcw, Trash2, Upload } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
@@ -23,6 +23,7 @@ import {
   type FieldTypeName,
   type FormFieldDefinition,
   type FormRowOutput,
+  type GetFormOutput,
   type GetFormVersionOutput,
   type SaveDraftFieldsOutput,
   type ScoredFieldRow,
@@ -35,14 +36,17 @@ import {
 import { Skeleton } from '@/components/Skeleton';
 import { StateMessage } from '@/components/StateMessage';
 import type { ActionItem } from '@/components/ui/action-menu';
-import { buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
+import { DestructiveConfirm } from '@/components/ui/destructive-confirm';
 import { ErrorLine, Note, WarningNotice } from '@/components/ui/notice';
 import { adminRpc, RpcError, type Rpc } from '@/data/rpc';
 import { AdminOnly } from '@/features/admin/AdminOnly';
 import { FORMS_GATE } from '@/features/forms/formsGate';
+import { previewData, seedValues } from '@/features/entry/entryValues';
 import { PHASE_NAME, PHASE_ORDER } from '@/features/entry/phases';
 import { usePageCrumb, usePageTitle } from '@/lib/pageTitle';
-import { formBuilderPath, PATHS } from '@/lib/paths';
+import { formBuilderPath, formsSeasonPath, PATHS } from '@/lib/paths';
+import { plural } from '@/lib/plural';
 import { useOnline } from '@/lib/useOnline';
 import { cn } from '@/lib/utils';
 import { BuilderCanvas, CANVAS_DROP, phasePages, type CanvasMode } from './BuilderCanvas';
@@ -53,9 +57,9 @@ import { FieldPalette, PaletteGhost, paletteTypeOf } from './FieldPalette';
 import { formErrorLine, offersReload } from './formErrors';
 import { typeName } from './fieldTypes';
 import { ExportDialog, ImportDialog } from './ImportExport';
-import { previewData, seedValues, TryItPane } from './LivePreview';
+import { TryItPane } from './LivePreview';
 import { RawJsonEditor } from './RawJsonEditor';
-import { ruleLost, useScoring, wholeRuleSet, type Rule } from './scoringRules';
+import { ruleLost, ruleOf, useScoring, wholeRuleSet, type Rule } from './scoringRules';
 import { SettingsPane, type PanePatch } from './SettingsPane';
 import { TimerConfigEditor } from './TimerConfigEditor';
 import { useBuilderLoad, type BuilderData } from './useBuilderLoad';
@@ -84,7 +88,7 @@ function BuilderScreen({ rpc }: { rpc: Rpc }) {
   const [params] = useSearchParams();
   const raw = params.get('version');
   const versionNo = raw !== null && /^\d+$/.test(raw) ? Number(raw) : null;
-  const { load, reload } = useBuilderLoad(rpc, formId, versionNo);
+  const { load, key, pending, reload } = useBuilderLoad(rpc, formId, versionNo);
 
   if (load.status === 'loading') {
     return (
@@ -125,14 +129,14 @@ function BuilderScreen({ rpc }: { rpc: Rpc }) {
       />
     );
   }
-  const { version } = load.data;
   return (
     <BuilderEditor
-      // A new version, a publish, a restore or someone else's save: start from the server's.
-      key={`${version.id}:${version.updated_at}:${version.status}:${version.is_active}`}
+      // Every read (another version, a publish, a restore, Reload): start from the server's.
+      key={key}
       data={load.data}
       rpc={rpc}
       reload={reload}
+      pending={pending}
     />
   );
 }
@@ -161,8 +165,6 @@ const STALE_LINE = formErrorLine(
   }),
 );
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-
 /** Keyboard reordering: only fields are places to go, never a tab or the column. */
 const collide: CollisionDetection = (args) => {
   if (paletteTypeOf(args.active.id)) {
@@ -186,7 +188,25 @@ const collide: CollisionDetection = (args) => {
  */
 type ForkState = { notice: string | null } | null;
 
-function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; reload: () => void }) {
+/**
+ * The page's error line and what it offers: Reload (read the version again; asks first when
+ * there are unsaved changes), or Check again (after the timer saved but its re-read failed:
+ * read the version again and keep the edits, final review I2).
+ */
+type PageError = { line: string; action: 'reload' | 'check' | null };
+
+function BuilderEditor({
+  data,
+  rpc,
+  reload,
+  pending,
+}: {
+  data: BuilderData;
+  rpc: Rpc;
+  reload: () => void;
+  /** Another read is in flight (another version, a publish, a restore): stay held until then. */
+  pending: boolean;
+}) {
   const { form, version, year, fieldImage, previous } = data;
   const navigate = useNavigate();
   const location = useLocation();
@@ -210,10 +230,17 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
   const [scoringIssues, setScoringIssues] = useState<ScoringIssue[]>([]);
   const [busy, setBusy] = useState<'save' | 'publish' | 'restore' | null>(null);
   // A save that forked and then failed to send the points says so on the new draft's page.
-  const [error, setError] = useState<{ line: string; reload: boolean } | null>(() => {
+  const [error, setError] = useState<PageError | null>(() => {
     const notice = (location.state as ForkState)?.notice;
-    return notice ? { line: notice, reload: false } : null;
+    return notice ? { line: notice, action: null } : null;
   });
+  /** Reload was asked for while there are unsaved changes: the confirm is open. */
+  const [askReload, setAskReload] = useState(false);
+  /**
+   * The version is locked: as loaded, or since an in-place save on a version with entries,
+   * which the server stamps locked (final review, M5).
+   */
+  const [lockedNow, setLockedNow] = useState(version.is_locked);
   useEffect(() => {
     // Said once: a reload of this page does not say it again.
     if ((location.state as ForkState)?.notice) {
@@ -319,35 +346,42 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
 
   const labelOf = (key: string) => state.fields.find((f) => f.key === key)?.label;
   const fail = (e: unknown) => {
-    setError({ line: formErrorLine(e, { labelOf }), reload: offersReload(e) });
+    setError({ line: formErrorLine(e, { labelOf }), action: offersReload(e) ? 'reload' : null });
   };
 
   /**
    * The form's whole rule set for `setScoringRules`, checked as the server will check it, or
-   * the problems that hold it. Scoring is per form and replaces every rule, so the other
-   * version's rows (the active one for a draft, the draft for the active one) are read to keep
-   * the rules of keys this version does not have (DEVIATIONS 1.30).
+   * the problems that hold it. Scoring is per form and replaces every rule, so it is built from
+   * the server as it is now, not as it was at load (final review, I4): the form is read again
+   * to find the other version (the active one for a draft, the draft for the active one — a
+   * draft someone opened since counts), and this version's and that version's rows are read.
+   * A rule this session changed is sent as edited; every other key's rule is the server's, so
+   * another admin's points change is kept and the other version's keys keep theirs.
    */
   async function rulesToSend(): Promise<
-    { rules: ScoringRuleInput[]; issues: ScoringIssue[] } | 'failed'
+    { rules: ScoringRuleInput[]; issues: ScoringIssue[]; byId: Map<string, Rule> } | 'failed'
   > {
-    const partnerSummary =
-      version.status === 'draft'
-        ? form.versions.find((v) => v.is_active && v.id !== version.id)
-        : form.versions.find((v) => v.status === 'draft');
+    let own: ScoredFieldRow[];
     let partner: ScoredFieldRow[] = [];
-    if (partnerSummary) {
-      try {
-        partner = (
-          (await rpc.call('getFormVersion', {
-            form_version_id: partnerSummary.id,
-          })) as GetFormVersionOutput
-        ).fields;
-      } catch (e) {
-        fail(e);
-        return 'failed';
-      }
+    try {
+      const fresh = (await rpc.call('getForm', { form_id: form.id })) as GetFormOutput;
+      const partnerSummary =
+        version.status === 'draft'
+          ? fresh.versions.find((v) => v.is_active && v.id !== version.id)
+          : fresh.versions.find((v) => v.status === 'draft');
+      const read = (id: string) =>
+        rpc.call('getFormVersion', { form_version_id: id }) as Promise<GetFormVersionOutput>;
+      const [ownOut, partnerOut] = await Promise.all([
+        read(version.id),
+        partnerSummary ? read(partnerSummary.id) : Promise.resolve(null),
+      ]);
+      own = ownOut.fields;
+      partner = partnerOut?.fields ?? [];
+    } catch (e) {
+      fail(e);
+      return 'failed';
     }
+    const serverRule = new Map(own.map((row) => [row.id, ruleOf(row)]));
     const live = state.fields;
     const liveIds = new Set(live.map((f) => f.id));
     const others = state.baseline.filter((f) => !liveIds.has(f.id));
@@ -361,9 +395,18 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
           ? [baselineLive, live]
           : [live, partner];
     const universe = scoringUniverse(active, draftSide);
-    const rules = wholeRuleSet({ live, others, partner, rules: scoring.rules, universe });
+    // This session's rule where it changed one (or the field is new); the server's otherwise.
+    const byId = new Map<string, Rule>();
+    for (const f of [...live, ...others]) {
+      const rule =
+        scoring.edited.has(f.id) || !serverRule.has(f.id)
+          ? scoring.ruleFor(f.id)
+          : serverRule.get(f.id)!;
+      if (rule) byId.set(f.id, rule);
+    }
+    const rules = wholeRuleSet({ live, others, partner, rules: byId, universe });
     const issues = validateScoringRules(rules, universe, { prefix: 'rules', noun: 'form' });
-    return { rules, issues };
+    return { rules, issues, byId };
   }
 
   /**
@@ -376,7 +419,7 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
     setError(null);
     setScoringIssues([]);
     const fieldsDirty = state.dirty;
-    let send: ScoringRuleInput[] | null = null;
+    let send: { rules: ScoringRuleInput[]; byId: Map<string, Rule> } | null = null;
     if (scoring.dirty) {
       const checked = await rulesToSend();
       if (checked === 'failed') {
@@ -388,18 +431,21 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
         setScoringIssues(checked.issues);
         setError({
           line: `Nothing was saved: the points for “${labelOf(first.field_key) ?? first.field_key}” are not valid (${first.message}).`,
-          reload: false,
+          action: null,
         });
         setBusy(null);
         return false;
       }
-      send = checked.rules;
+      send = checked;
     }
 
     let out: SaveDraftFieldsOutput | null = null;
     // A new field's `new-n` id → the id the server gave it.
     const ids = new Map<string, string>();
     const sentFields = state.fields;
+    // Ids the version's rows had before this save: a rule on any other id that is not a live
+    // field belonged to a field removed unsaved, and goes once the set is sent.
+    const known = new Set(state.baseline.map((f) => f.id));
     if (fieldsDirty) {
       const before = new Map(state.fields.map((f) => [f.key, f.id]));
       try {
@@ -420,6 +466,8 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
       const saved = out as SaveDraftFieldsOutput | null;
       if (saved && !saved.new_version_id) {
         setBase(saved.updated_at);
+        // The server stamps a published version with entries locked on an in-place save.
+        if (published && version.entry_count > 0) setLockedNow(true);
         // A new field's points follow it to the id the server gave it.
         for (const row of saved.fields) {
           const was = before.get(row.key);
@@ -434,13 +482,17 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
     let notice: string | null = null;
     if (send) {
       try {
-        await rpc.call('setScoringRules', { form_id: form.id, rules: send });
-        scoring.markSent(new Map(sentFields.map((f) => [ids.get(f.id) ?? f.id, f.type])));
+        await rpc.call('setScoringRules', { form_id: form.id, rules: send.rules });
+        scoring.markSent(
+          new Map(sentFields.map((f) => [ids.get(f.id) ?? f.id, f.type])),
+          known,
+          new Map([...send.byId].map(([id, rule]) => [ids.get(id) ?? id, rule])),
+        );
       } catch (e) {
         const why = formErrorLine(e, { labelOf });
         notice = fieldsDirty ? `The fields were saved; the points were not. ${why}` : why;
         if (forkedTo === null) {
-          setError({ line: notice, reload: offersReload(e) });
+          setError({ line: notice, action: offersReload(e) ? 'reload' : null });
           setBusy(null);
           return false;
         }
@@ -485,10 +537,10 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
     setError(null);
     try {
       await rpc.call('publishFormVersion', { form_version_id: version.id });
+      // Held until the form is read again and this editor is replaced (final review, M1).
       reload();
     } catch (e) {
       fail(e);
-    } finally {
       setBusy(null);
     }
   }
@@ -501,7 +553,6 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
       reload();
     } catch (e) {
       fail(e);
-    } finally {
       setBusy(null);
     }
   }
@@ -548,26 +599,51 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
       timedOut = e;
     }
     if (row) setTimer(row.timer_config);
-    const lead = row ? 'The match timer was saved. ' : '';
+    await checkBase(row ? 'The match timer was saved. ' : '', row !== null);
+    if (timedOut) throw timedOut;
+  }
+
+  /**
+   * Reads the version once and compares its fields with the saved baseline: the same → only
+   * the timer's stamp moved, so its `updated_at` becomes the base; different → someone else
+   * saved, and Reload is offered. A failed read after a save that landed (`saved`) says so and
+   * offers Check again, which runs this again and keeps the edits (final review, I2).
+   */
+  async function checkBase(lead: string, saved: boolean) {
     try {
       const fresh = (await rpc.call('getFormVersion', {
         form_version_id: version.id,
       })) as GetFormVersionOutput;
       if (sameRows(fresh.fields as FormFieldDefinition[], state.baseline)) {
         setBase(fresh.updated_at);
+        setError(null);
       } else {
-        setError({ line: `${lead}${STALE_LINE}`, reload: true });
+        setError({ line: `${lead}${STALE_LINE}`, action: 'reload' });
       }
     } catch (e) {
       // Saved; only the re-read failed. The next field save would be refused as stale: say so.
       // (After a timeout the dialog says it did not answer; a stale base then shows on Save.)
-      if (row) setError({ line: `${lead}${formErrorLine(e, { labelOf })}`, reload: true });
+      if (saved) setError({ line: `${lead}${formErrorLine(e, { labelOf })}`, action: 'check' });
     }
-    if (timedOut) throw timedOut;
+  }
+
+  /** The error line's Reload: drops unsaved changes, so it asks first when there are some. */
+  function reloadVersion() {
+    if (dirty) {
+      setAskReload(true);
+      return;
+    }
+    setError(null);
+    reload();
   }
 
   /** Edit as JSON's Apply: the local fields and their points, unsaved until Save. */
   function applyJson(fields: FormFieldDefinition[], rules: Map<string, Rule>) {
+    // A field never saved that the text left out goes with its points (final review, I1).
+    const kept = new Set(fields.map((f) => f.id));
+    for (const field of state.fields) {
+      if (!state.isSaved(field) && !kept.has(field.id)) scoring.setRule(field.id, null);
+    }
     state.replaceFields(fields);
     // Try it's values of a field that is gone, or now another type, go with it.
     const now = new Map(fields.map((f) => [f.key, f.type]));
@@ -673,18 +749,19 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
     onDragCancel: ({ active }) => `${nameOf(active.id)} was put back.`,
   };
 
-  const paused = !online || busy !== null;
+  // Until another read replaces this editor (Open vN, a publish, a restore), it stays held.
+  const paused = !online || busy !== null || pending;
   const entries = version.entry_count;
 
   return (
     <main className={PAGE}>
       <BuilderTopBar
         form={form}
-        version={version}
+        version={lockedNow === version.is_locked ? version : { ...version, is_locked: lockedNow }}
         year={year}
         editable={editable}
         online={online}
-        busy={busy}
+        busy={busy ?? (pending ? 'loading' : null)}
         dirty={dirty}
         changeLine={changeLine}
         forkLine={forkLine}
@@ -708,24 +785,42 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
       {error && (
         <ErrorLine className="mx-6 mt-3 flex-none">
           <span>{error.line}</span>
-          {error.reload && (
-            <button
-              type="button"
-              onClick={() => {
-                setError(null);
-                reload();
-              }}
-              className={cn(buttonVariants({ size: 'sm' }), 'ms-3 align-middle')}
-            >
+          {error.action === 'reload' && (
+            <Button size="sm" className="ms-3 align-middle" onClick={reloadVersion}>
               Reload
-            </button>
+            </Button>
+          )}
+          {error.action === 'check' && (
+            <Button
+              size="sm"
+              className="ms-3 align-middle"
+              disabled={!online}
+              onClick={() => void checkBase('The match timer was saved. ', true)}
+            >
+              Check again
+            </Button>
           )}
         </ErrorLine>
       )}
+      <DestructiveConfirm
+        open={askReload}
+        title="Reload and lose your unsaved changes?"
+        objectName={`${title} · ${versionLabel(version).split(' · ')[0]!.toLowerCase()}`}
+        body="Reloading reads this version from the server again. Your changes on this screen that are not saved go."
+        confirmLabel="Reload and lose changes"
+        cancelLabel="Keep my changes"
+        icon={RotateCcw}
+        onCancel={() => setAskReload(false)}
+        onConfirm={() => {
+          setAskReload(false);
+          setError(null);
+          reload();
+        }}
+      />
       {published && editable && (
         <Note icon={Lock} className="mx-6 mt-3 flex-none rounded-s-none py-2.5">
           <b className="font-bold text-ink">
-            {version.is_locked
+            {lockedNow
               ? entries > 0
                 ? `v${version.version_no} is locked: ${plural(entries, 'entry', 'entries')} ${entries === 1 ? 'was' : 'were'} scouted with it.`
                 : `v${version.version_no} is locked: entries were scouted with it.`
@@ -765,7 +860,7 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
       >
         <div
           inert={paused}
-          aria-busy={busy !== null || undefined}
+          aria-busy={busy !== null || pending || undefined}
           className={cn(
             'grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)_410px] gap-3.5 px-6 pt-3 pb-4',
             !online && 'opacity-55 grayscale-[0.2]',
@@ -804,6 +899,7 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
               seasonImagePath={fieldImage}
               editable={editable}
               saved={selected ? state.isSaved(selected) : true}
+              keyFollows={selected ? state.keyFollows(selected) : false}
               published={published}
               forkNote={structuralNote}
               savedOptionValues={savedOptionValues}
@@ -811,7 +907,12 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
               scoringIssues={scoringIssues
                 .filter((i) => i.field_key === selected?.key)
                 .map((i) => i.message)}
-              onRemove={() => selected && state.removeField(selected.key)}
+              onRemove={() => {
+                if (!selected) return;
+                // A field never saved goes with its points (final review, I1).
+                if (!state.isSaved(selected)) scoring.setRule(selected.id, null);
+                state.removeField(selected.key);
+              }}
             />
           )}
         </div>
@@ -855,6 +956,7 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
           rpc={rpc}
           online={online}
           unsaved={dirty}
+          versionId={version.id}
           onClose={() => setDialog(null)}
         />
       )}
@@ -882,7 +984,8 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
           onExportFirst={() => setDialog('export')}
           onDeleted={() => {
             leaving.current = true;
-            navigate(PATHS.forms);
+            // Back to the list on the deleted form's season (final review, D3).
+            navigate(year !== null ? formsSeasonPath(year) : PATHS.forms);
           }}
         />
       )}

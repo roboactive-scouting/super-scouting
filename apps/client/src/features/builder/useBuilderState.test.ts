@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { FormFieldDefinition } from '@frc/shared';
+import type { FormFieldDefinition, FormFieldInput } from '@frc/shared';
 import {
   insertIndexFor,
   keyFromLabel,
@@ -170,10 +170,16 @@ describe('useBuilderState — keys, saves and Publish (task 1.29)', () => {
     expect(result.current.fields.at(-1)!.label).toBe('Pieces lost');
   });
 
-  it('sends the whole live set, with ids only on saved fields and no deprecated flag', () => {
+  it('sends the whole live set, with ids only on saved fields and no deprecated flag', async () => {
     const { result } = renderHook(() => useBuilderState(initial));
     act(() => result.current.addField('computed'));
-    const input = result.current.toSaveInput();
+    let input: FormFieldInput[] = [];
+    await act(() =>
+      result.current.save(async (fields) => {
+        input = fields;
+        return null;
+      }),
+    );
     expect(input).toHaveLength(2);
     expect(input[0]).toMatchObject({ id: 'a', key: 'auto_notes' });
     expect(input[1]).not.toHaveProperty('id');
@@ -341,5 +347,58 @@ describe('useBuilderState — references follow a new key (task 1.30, fix round 
     expect(result.current.issuesFor(byId(b.id).key).map((i) => i.path)).not.toContain(
       'visibility_condition',
     );
+  });
+});
+
+describe('useBuilderState — final review fixes', () => {
+  /** The server's answer to a save: every field back with an id. */
+  const answer = async (fields: FormFieldInput[]) =>
+    fields.map(
+      (f, i) => ({ id: f.id ?? `srv-${i}`, deprecated: false, ...f }) as FormFieldDefinition,
+    );
+
+  it('never gives a later palette field the id of one removed before a save (I1)', async () => {
+    const { result } = renderHook(() => useBuilderState(initial));
+    act(() => result.current.addField('counter'));
+    const first = result.current.selectedField!.id;
+    act(() => result.current.removeField(result.current.selectedKey!));
+    act(() => result.current.addField('toggle'));
+    await act(() => result.current.save(answer));
+    act(() => result.current.addField('counter'));
+    expect(result.current.selectedField!.id).not.toBe(first);
+  });
+
+  it('a key set in Edit as JSON is pinned: no later edit rewrites it (I3)', () => {
+    const { result } = renderHook(() => useBuilderState(initial));
+    act(() =>
+      result.current.replaceFields([
+        ...result.current.fields,
+        {
+          ...initial.fields[0]!,
+          id: 'json-1',
+          key: 'my_own_key',
+          label: 'Balls lost',
+          phase: 'teleop',
+          display_order: 2,
+        },
+      ]),
+    );
+    act(() => result.current.updateField('my_own_key', { description: 'balls dropped' }));
+    expect(result.current.fields[1]!.key).toBe('my_own_key');
+    act(() => result.current.updateField('my_own_key', { label: 'Balls dropped' }));
+    act(() => result.current.updateField('my_own_key', { phase: 'auto' }));
+    expect(result.current.fields[1]!.key).toBe('my_own_key');
+    expect(result.current.keyFollows(result.current.fields[1]!)).toBe(false);
+  });
+
+  it("a palette field's key moves only on a label or phase change (I3)", () => {
+    const { result } = renderHook(() => useBuilderState(initial));
+    act(() => result.current.addField('counter', { phase: 'teleop' }));
+    expect(result.current.selectedKey).toBe('tele_counter');
+    expect(result.current.keyFollows(result.current.selectedField!)).toBe(true);
+    act(() => result.current.updateField('tele_counter', { description: 'pieces' }));
+    expect(result.current.selectedKey).toBe('tele_counter');
+    act(() => result.current.updateField('tele_counter', { label: 'Dropped' }));
+    expect(result.current.selectedKey).toBe('tele_dropped');
   });
 });

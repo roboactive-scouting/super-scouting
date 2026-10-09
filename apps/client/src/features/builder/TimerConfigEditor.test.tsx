@@ -297,10 +297,44 @@ describe('Match timer (task 1.32, SPEC-FINAL 8.4)', () => {
     // Their save is not adopted: unsaved edits stay, and a field save is still checked against
     // the version as it was read, so the server refuses it as stale.
     expect(screen.getByText('● Unsaved changes')).toBeVisible();
+    // Reload would drop the unsaved edits, so it asks first (final review, I2).
+    const forms = () => s.calls.filter((c) => c.name === 'getForm').length;
+    const loaded = forms();
+    await u.click(screen.getByRole('button', { name: 'Reload' }));
+    const ask = await screen.findByRole('dialog', {
+      name: 'Reload and lose your unsaved changes?',
+    });
+    await u.click(within(ask).getByRole('button', { name: 'Keep my changes' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByText('● Unsaved changes')).toBeVisible();
+    expect(forms()).toBe(loaded);
+
     await u.click(screen.getByRole('button', { name: 'Save draft' }));
     await waitFor(() => expect(s.calls.some((c) => c.name === 'saveDraftFields')).toBe(true));
     const save = s.calls.find((c) => c.name === 'saveDraftFields')!;
     expect(save.input.base_updated_at).toBe(LOADED_AT);
+  });
+
+  it('Reload with unsaved changes, confirmed, reads the version again and drops them (I2)', async () => {
+    const s = timerServer(STANDARD_TIMER, {
+      saveDraftFields: () => {
+        throw new RpcError('conflict', 'stale', 409, true, { reason: 'stale-version' });
+      },
+    });
+    const u = userEvent.setup();
+    await openBuilder(draftPath, s.rpc);
+    await u.click(screen.getByRole('button', { name: /^Add Toggle:/ }));
+    await u.click(screen.getByRole('button', { name: 'Save draft' }));
+    await u.click(await screen.findByRole('button', { name: 'Reload' }));
+    const ask = await screen.findByRole('dialog', {
+      name: 'Reload and lose your unsaved changes?',
+    });
+    const forms = s.calls.filter((c) => c.name === 'getForm').length;
+    await u.click(within(ask).getByRole('button', { name: 'Reload and lose changes' }));
+    await waitFor(() =>
+      expect(s.calls.filter((c) => c.name === 'getForm')).toHaveLength(forms + 1),
+    );
+    await waitFor(() => expect(screen.queryByText('● Unsaved changes')).toBeNull());
   });
 
   it('a send that timed out but landed: the dialog says so, and the base still moves', async () => {
@@ -344,13 +378,14 @@ describe('Match timer (task 1.32, SPEC-FINAL 8.4)', () => {
     expect(save.input.base_updated_at).toBe(STAMPED);
   });
 
-  it('saved, but the re-read failed: the page says the timer was saved and offers Reload', async () => {
+  it('saved, but the re-read failed: the page says so, and Check again keeps the edits (I2)', async () => {
     // One set of rows, as the server keeps its field ids.
     const rows = fourTypeFields();
     let sent = false;
+    let down = true;
     const s = timerServer(STANDARD_TIMER, {
       getFormVersion: (input: Record<string, unknown>) => {
-        if (sent) throw new RpcError('timeout', 'the server did not answer in time', 0);
+        if (sent && down) throw new RpcError('timeout', 'the server did not answer in time', 0);
         const row = VERSIONS.find((v) => v.id === input.form_version_id)!;
         return versionOut(row, rows);
       },
@@ -360,7 +395,11 @@ describe('Match timer (task 1.32, SPEC-FINAL 8.4)', () => {
         return { ...row, timer_config: input.timer_config };
       },
     });
-    const { u, dialog } = await openTimer(draftPath, s);
+    const u = userEvent.setup();
+    await openBuilder(draftPath, s.rpc);
+    await u.click(screen.getByRole('button', { name: /^Add Toggle:/ }));
+    await u.click(screen.getByRole('button', { name: 'Match timer' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Match timer' });
     await u.clear(lengthBox(dialog, 'Auto'));
     await u.type(lengthBox(dialog, 'Auto'), '20');
     await u.click(within(dialog).getByRole('button', { name: 'Save' }));
@@ -368,7 +407,15 @@ describe('Match timer (task 1.32, SPEC-FINAL 8.4)', () => {
     expect(
       screen.getByText(/^The match timer was saved\. Could not reach the server/),
     ).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Reload' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Reload' })).toBeNull();
+    // Check again reads the version and compares, without reloading: the edits stay.
+    down = false;
+    const forms = s.calls.filter((c) => c.name === 'getForm').length;
+    await u.click(screen.getByRole('button', { name: 'Check again' }));
+    await waitFor(() => expect(screen.queryByText(/The match timer was saved/)).toBeNull());
+    expect(s.calls.filter((c) => c.name === 'getForm')).toHaveLength(forms);
+    expect(s.calls.at(-1)).toEqual({ name: 'getFormVersion', input: { form_version_id: V.v4 } });
+    expect(screen.getByText('● Unsaved changes')).toBeVisible();
   });
 
   it('refuses a phase named twice, and holds Save', async () => {

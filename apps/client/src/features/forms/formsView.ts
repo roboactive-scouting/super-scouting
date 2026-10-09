@@ -1,4 +1,5 @@
 import { formatDate, type FormKind, type FormListItem, type VersionSummary } from '@frc/shared';
+import { plural } from '@/lib/plural';
 
 /**
  * What the forms list (design 13-forms) says about a form, worked out from `listForms`. Pure,
@@ -14,15 +15,12 @@ export const KIND_MEANING: Record<FormKind, string> = {
 };
 
 /** "08/10": the design's day and month (formatDate is DD/MM/YYYY). */
-export function dayMonth(iso: string): string {
+function dayMonth(iso: string): string {
   return formatDate(iso).slice(0, 5);
 }
 
-export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-
-export const draftOf = (form: FormListItem) => form.versions.find((v) => v.status === 'draft');
-export const activeOf = (form: FormListItem) =>
-  form.versions.find((v) => v.id === form.active_version_id);
+const draftOf = (form: FormListItem) => form.versions.find((v) => v.status === 'draft');
+const activeOf = (form: FormListItem) => form.versions.find((v) => v.id === form.active_version_id);
 
 /** The status tag: the active version, else the draft. */
 export function statusOf(form: FormListItem): {
@@ -66,7 +64,7 @@ export function statsOf(form: FormListItem): {
   };
 }
 
-export type TimelineRow = {
+type TimelineRow = {
   version: VersionSummary;
   kind: 'draft' | 'active' | 'older';
   title: string;

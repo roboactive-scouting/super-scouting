@@ -50,14 +50,19 @@ function CardHead({
   dim: boolean;
   tag: ReactNode;
 }) {
+  // The head wraps: when the card is too narrow for the name, its meaning and the tag on one
+  // line (1024 px), the tag and ⋯ move under them, so the name never breaks word by word
+  // (final review, D1). The name's box asks for its one-line width before anything wraps.
   return (
-    <div className="flex items-start gap-3">
-      <KindIcon kind={kind} dim={dim} />
-      <div className="min-w-0">
-        <h2 className="text-lg font-[750]" dir="auto">
-          {name}
-        </h2>
-        <p className="mt-0.5 text-[0.78125rem] text-muted">{KIND_MEANING[kind]}</p>
+    <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+      <div className="flex min-w-0 flex-[1_1_auto] items-start gap-3">
+        <KindIcon kind={kind} dim={dim} />
+        <div className="min-w-0">
+          <h2 className="text-lg font-[750]" dir="auto">
+            {name}
+          </h2>
+          <p className="mt-0.5 text-[0.78125rem] text-muted">{KIND_MEANING[kind]}</p>
+        </div>
       </div>
       <div className="ms-auto flex items-center gap-1.5">{tag}</div>
     </div>
@@ -207,6 +212,7 @@ export function FormCard({
 export function MissingFormCard({
   kind,
   year,
+  previousYear,
   online,
   creating,
   error,
@@ -215,6 +221,8 @@ export function MissingFormCard({
 }: {
   kind: FormKind;
   year: number;
+  /** The newest earlier season that has a match form, to export from; null when none has. */
+  previousYear: number | null;
   online: boolean;
   creating: boolean;
   error: string | null;
@@ -229,10 +237,18 @@ export function MissingFormCard({
       <CardHead kind={kind} name={KIND_NAME[kind]} dim tag={<NotCreatedTag />} />
       <p className="text-[0.84375rem] leading-normal text-muted">
         {kind === 'match' ? (
-          <>
-            Every entry needs a match form. Create it here, or <b className="text-ink">import</b>{' '}
-            last season's: export it from {year - 1}, then pick it under Import.
-          </>
+          previousYear !== null ? (
+            <>
+              Every entry needs a match form. Create it here, or <b className="text-ink">import</b>{' '}
+              {previousYear === year - 1 ? "last season's" : "an earlier season's"}: export it from{' '}
+              {previousYear}, then pick it under Import.
+            </>
+          ) : (
+            <>
+              Every entry needs a match form. Create it here, or <b className="text-ink">import</b>{' '}
+              one: export it from another season, then import the file.
+            </>
+          )
         ) : (
           `No super form for ${year} yet. Super scouting is optional; the match form is enough to scout.`
         )}

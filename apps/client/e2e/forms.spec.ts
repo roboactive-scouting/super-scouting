@@ -50,6 +50,29 @@ test('forms: the season with its match form and versions; a phone gets the gate'
   await shoot(page, 'forms-gate', 'phone');
 });
 
+test('forms: at 1024 px the card heads wrap whole: the name and its meaning never break word by word', async ({
+  page,
+}) => {
+  await signIn(page, 'admin', { overrides: OVERRIDES });
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.goto('/admin/forms');
+  const card = page.getByRole('region', { name: 'Match form' });
+  await expect(card.getByText('v3 · Published · Locked')).toBeVisible();
+  for (const region of [card, page.getByRole('region', { name: 'Super form (not created)' })]) {
+    const name = region.getByRole('heading', { level: 2 });
+    const meaning = name.locator('xpath=following-sibling::p[1]');
+    // The name on one line; the meaning on at most two, in a box wide enough for whole
+    // phrases (before the fix each was squeezed to one or two words a line).
+    expect((await name.boundingBox())!.height).toBeLessThan(32);
+    expect((await meaning.boundingBox())!.height).toBeLessThan(40);
+  }
+  // The version timeline's lines too: v2's stays one line, its count and buttons beside or under.
+  expect((await card.getByText('Published 20/09 · 14 fields').boundingBox())!.height).toBeLessThan(
+    24,
+  );
+  await shoot(page, 'forms', 'laptop');
+});
+
 test('forms: a new season with no forms warns and offers Create', async ({ page }) => {
   await signIn(page, 'admin', { overrides: OVERRIDES });
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -132,6 +155,11 @@ test('builder: the locked active version names its entries', async ({ page }) =>
   await expect(settings(page).getByRole('switch', { name: /Ordered/ })).toBeChecked();
   await expect(settings(page).getByText('Adding an option belongs in draft v4')).toBeVisible();
   await expect(settings(page).getByLabel('Points for High bar')).toHaveValue('12');
+  // Each option row leads with its 6-dot grip (final review, U1); no ↑ ↓.
+  await expect(
+    settings(page).getByRole('button', { name: 'Move High bar', exact: true }),
+  ).toBeVisible();
+  await expect(settings(page).getByRole('button', { name: /^Move .* up$/ })).toHaveCount(0);
   await expect(settings(page).getByText('in place · no new version')).toBeVisible();
   await settings(page).getByRole('heading', { name: 'Scoring' }).scrollIntoViewIfNeeded();
   await shoot(page, 'builder-locked', 'desktop');

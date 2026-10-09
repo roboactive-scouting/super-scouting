@@ -34,6 +34,7 @@ import { Dialog } from '@/components/ui/dialog';
 import { ErrorLine, Note, Notice, SuccessBanner, WarningNotice } from '@/components/ui/notice';
 import { StatTile } from '@/components/ui/stat-tile';
 import type { Rpc } from '@/data/rpc';
+import { plural } from '@/lib/plural';
 import { cn } from '@/lib/utils';
 import { typeName } from './fieldTypes';
 import { formErrorLine } from './formErrors';
@@ -56,10 +57,9 @@ export type FormRef = {
 };
 
 const kindWord = (kind: FormKind) => (kind === 'match' ? 'match' : 'super');
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** "Match form 2026 · draft v4": the label the server gives the saved export. */
-export function exportLabel(name: string, year: number | null, version: VersionSummary): string {
+function exportLabel(name: string, year: number | null, version: VersionSummary): string {
   const named = year !== null ? `${name} ${year}` : name;
   return `${named} · ${version.status === 'draft' ? 'draft ' : ''}v${version.version_no}`;
 }
@@ -123,7 +123,7 @@ const offlineLine = (what: string) => (
 
 /**
  * Export (design `-export.png`): pick the version — the draft or the active one, starting on
- * the draft — see what is in the file and what is not, then **Save export** (kept 24 hours).
+ * the one open in the builder, else the draft — see what is in the file and what is not, then **Save export** (kept 24 hours).
  * Once it is saved, **Also download a copy** saves the same definition as a `.json` file.
  */
 export function ExportDialog({
@@ -132,6 +132,7 @@ export function ExportDialog({
   rpc,
   online,
   unsaved = false,
+  versionId: opened,
   onClose,
 }: {
   form: FormRef;
@@ -140,12 +141,16 @@ export function ExportDialog({
   online: boolean;
   /** The builder holds changes not saved yet: the export is of the saved version, so say so. */
   unsaved?: boolean;
+  /** The version open in the builder: picked first when it is one of the choices (M2). */
+  versionId?: string;
   onClose: () => void;
 }) {
   const draft = form.versions.find((v) => v.status === 'draft');
   const active = form.versions.find((v) => v.is_active);
   const choices = [draft, active].filter((v): v is VersionSummary => v !== undefined);
-  const [versionId, setVersionId] = useState<string | null>(choices[0]?.id ?? null);
+  const [versionId, setVersionId] = useState<string | null>(
+    () => choices.find((v) => v.id === opened)?.id ?? choices[0]?.id ?? null,
+  );
   const [busy, setBusy] = useState<'save' | 'download' | null>(null);
   const [saved, setSaved] = useState<ExportSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -312,7 +317,7 @@ export function ExportDialog({
 
 type Keyed = { key: string; label: string; type: FieldTypeName };
 
-export type ImportDiff = {
+type ImportDiff = {
   added: Keyed[];
   typeChanged: (Keyed & { from: FieldTypeName })[];
   removed: Keyed[];
@@ -336,7 +341,7 @@ export function importDiff(base: readonly Keyed[], incoming: readonly Keyed[]): 
 }
 
 /** "2 hours ago", "yesterday 21:10": an export is at most a day old. */
-export function savedWhen(iso: string, now: Date = new Date()): string {
+function savedWhen(iso: string, now: Date = new Date()): string {
   const at = new Date(iso);
   const minutes = Math.max(0, Math.round((now.getTime() - at.getTime()) / 60_000));
   if (minutes < 1) return 'just now';
@@ -400,7 +405,7 @@ function textOf(file: File): Promise<string> {
 type Source = { from: 'export'; summary: ExportSummary } | { from: 'file'; name: string };
 
 /** The form an import goes into: an existing form (its draft is replaced), or none yet. */
-export type ImportTarget = {
+type ImportTarget = {
   kind: FormKind;
   seasonId: string;
   year: number | null;

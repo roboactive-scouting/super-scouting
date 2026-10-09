@@ -40,7 +40,7 @@ import { formErrorLine } from './formErrors';
  * The timer's word for each phase (design `-timer.png`). `post_match` is "After match" here:
  * a phase of the clock, where the entry's tab for the same fields is "Notes" (DEVIATIONS 1.32).
  */
-export const TIMER_PHASE_NAME: Record<FieldPhase, string> = {
+const TIMER_PHASE_NAME: Record<FieldPhase, string> = {
   auto: 'Auto',
   teleop: 'Teleop',
   endgame: 'Endgame',

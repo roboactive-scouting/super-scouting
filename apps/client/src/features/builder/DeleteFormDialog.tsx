@@ -5,10 +5,9 @@ import { DestructiveConfirm } from '@/components/ui/destructive-confirm';
 import { Button } from '@/components/ui/button';
 import { ErrorLine, Note } from '@/components/ui/notice';
 import type { Rpc } from '@/data/rpc';
+import { plural } from '@/lib/plural';
 import { formErrorLine } from './formErrors';
 import type { FormRef } from './ImportExport';
-
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /**
  * Delete form (design `-delete.png`; SPEC-FINAL 5.1, v1.22): the locked destructive

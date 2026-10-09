@@ -6572,3 +6572,91 @@ Rejected:
 Rejected: reusing `--alliance-red` / `--alliance-blue` for the fill (white on them is 5.80 / 5.67, under the 7:1 the user asked for); a strong-colour dashed outline on the picked tile (invisible on its own fill); a white dashed outline (reads as clutter on the fill and is not in the design); an outside dashed outline (the focus ring takes the same outline slot while focused).
 
 **Risk:** the committed Scout PNGs in `docs/design/pages/02-scout/final/` still show the lighter colours, by request; the app's tile is darker than the image. In the outdoor theme the picked tile's fill equals the alliance colour, so it is told from an unpicked tile by its fill, not by a darker shade.
+
+## Phase 1 D client — final review: a palette field's id is never reused, and its points go with it (I1)
+
+**Plan said:** nothing about new-field ids across saves; task 1.30 keeps the builder's points per field id.
+
+**What was wrong:** review finding I1: `stateFrom` reset the `new-n` counter to 1 on every save (`markSaved`), and removing a field never removed its points, and `markSent` kept any rule whose id it did not know. Add a counter (`new-1`), give it 5 points, remove it, add another field, Save draft: the next palette field was `new-1` again and showed (and would send) 5 points. Edit as JSON's Apply that left out an unsaved field left the same orphan, and the page said "● Unsaved changes" with nothing to save.
+
+**What I did instead:** `markSaved` carries `next` on (`stateFrom(rows, selectedKey, next)`); removing a field that was never saved (the settings pane's Remove field, or Apply leaving it out of the text) clears its rule (`scoring.setRule(id, null)`); `markSent(sentTypes, known, sentRules?)` drops a rule whose id is neither a live field nor one of the version's rows before the save (`known` = the baseline's ids). Tests: `useBuilderState.test.ts` (a later palette field never gets a removed one's id), `scoringRules.test.ts` (markSent prunes), `BuilderPage.test.tsx` (remove → nothing unsaved; the full scenario never shows 5/ea again), `RawJsonEditor.test.tsx` (Apply leaving out the field leaves nothing unsaved). Each fails with its fix taken out.
+
+**Risk:** none known.
+
+## Phase 1 D client — final review: Reload asks first, and "Check again" after the timer saved (I2)
+
+**Plan said:** the stale-version refusal offers Reload (task 1.29); the timer save's failed re-read offered Reload too (DEVIATIONS 1.32 fix round 1).
+
+**What was wrong:** review finding I2: the error line's Reload threw away unsaved edits without asking — worst after "The match timer was saved…" when only the re-read failed, where nothing on the server had moved and Reload was not needed at all.
+
+**What I did instead:** the error line carries an `action` (`'reload' | 'check' | null`). Reload, when there are unsaved changes, opens the locked `DestructiveConfirm` "Reload and lose your unsaved changes?" (Cancel = "Keep my changes", confirm = "Reload and lose changes"); with nothing unsaved it reloads at once. After a timer save whose re-read failed the line offers **Check again**, which runs the same read-and-compare (`checkBase`: `getFormVersion` + `sameRows`) and keeps the edits: equal → the new `updated_at` becomes the base and the line goes; different → the stale-version line with Reload. Every completed read now replaces the editor (it is keyed on the read, `useBuilderLoad().key`, not on the version's columns), so a confirmed Reload always starts from the server even when nothing on the version moved. Tests in `TimerConfigEditor.test.tsx`: Keep my changes keeps them and reads nothing; the confirmed Reload reads the form again and the edits are gone; Check again re-reads only the version, the line clears, the edits stay.
+
+Rejected: a plain `window.confirm` (not the app's destructive pattern); keeping Reload beside Check again on the re-read failure (it was the trap).
+
+**Risk:** none known.
+
+## Phase 1 D client — final review: a key set in Edit as JSON is pinned (I3)
+
+**Plan said:** a new field's key follows its label until the first save (SPEC-FINAL 5.1).
+
+**What was wrong:** review finding I3: `updateField` re-derived every unsaved field's key on any patch, so a key typed in Edit as JSON was silently rewritten by the next settings-pane edit (a description, a config value), and every reference to it with it.
+
+**What I did instead:** the edit model keeps `follows` — the ids of fields added from the palette (`addField`). Only those re-derive their key, and only when the label or the phase changes. Apply keeps a palette field in `follows` when the text left it under its key (it keeps its `new-n` id); a field the text gave a new key gets a new `json-n` id and is pinned. A save clears `follows` (every key is then permanent). The settings pane's key line says "set in Edit as JSON · permanent from the first save" for a pinned unsaved key (`keyFollows` from the hook). Tests: `useBuilderState.test.ts` (description, label and phase edits leave a JSON key alone; a palette key moves on a label change only), `RawJsonEditor.test.tsx` (a key given in the text survives a label edit in the pane).
+
+Rejected: pinning every field on any Apply — a palette field the text did not touch would stop following its label for no visible reason.
+
+**Risk:** an import does not go through here (it writes on the server, and the builder re-reads saved fields), so nothing else needed pinning.
+
+## Phase 1 D client — final review: the whole rule set is built from the server as it is now (I4)
+
+**Plan said:** DEVIATIONS 1.30: `setScoringRules` replaces the form's whole rule set, so the other version's rows are read to keep the rules of keys this version does not have.
+
+**What was wrong:** review finding I4: the other version was found in `form.versions` as loaded, and every key's rule came from the load-time map. A draft another admin opened after this page loaded was not read, so its draft-only rules were dropped; another admin's points change since load was reverted to the loaded value.
+
+**What I did instead:** `rulesToSend` reads `getForm` again to find the partner (the draft for the active version, the active one for a draft), then this version's rows and the partner's (`getFormVersion` ×2, in parallel). `useScoring` now keeps `edited` — the ids whose rule this session changed (a `setRule` that changes nothing is not counted, so Edit as JSON's Apply only marks what it really changed) — and a field's rule is this session's only when it is edited or the field is new; every other field's is the server's fresh one. After the send, `markSent` takes what was sent as the local set and clears `edited`. Tests in `BuilderPage.test.tsx`: a draft opened after load keeps `end_climb`'s option points; another admin's `tele_high` 9 is sent as 9, not the loaded 4; the reads before the send are `getForm`, `getFormVersion`, `getFormVersion`.
+
+Rejected: reading only the partner again (another admin's change to a key this version has would still be reverted).
+
+**Risk:** one more round trip (`getForm`) before a points save. An admin who changes the same field's points as another admin wins with their own value, as before.
+
+## Phase 1 D client — final review: option and button lists reorder by the 6-dot grip (U1, reverses task 1.30's ↑/↓)
+
+**Plan said:** the design's option rows (`-desktop.png`, `-desktop-locked.png`): grip · label · mono value · ✕. Task 1.30 departed from it with ↑/↓ buttons ("## Task 1.30" entry).
+
+**What was wrong:** the user asked for the design's drag grips in place of ↑/↓ in the settings pane's select options and event-log Buttons.
+
+**What I did instead:** **the task 1.30 ↑/↓ departure is reversed at the user's request.** `ChoiceList` (`ConfigFields.tsx`) has its own `DndContext` + `SortableContext` (nested inside the canvas's; dnd-kit isolates them). Each row is grip (lucide `GripVertical`, the activator, named "Move <option label>") · rank (ordered selects) · label · mono value · ✕. Pointer drag after 4 px; the keyboard sensor with `sortableKeyboardCoordinates` (focus the grip, Space picks up, arrows move, Space drops). Announcements name the option and its place. Rows have stable ids kept through a reorder (so the moved row keeps its focus and its input), reset when the list changes from outside. Reduced motion: `transition: null` under `prefersReducedMotion()`, as the timer rows and canvas do. Reordering stays structural (it forks on a published version, as before). Tests: `SettingsPane.test.tsx` (keyboard reorder sends the new order; the grip keeps focus; no ↑ button), `BuilderPage.test.tsx` (on published v3, a keyboard reorder makes "saving starts draft v4"); e2e `builder-locked` checks the grip and the absence of ↑/↓.
+
+**Risk:** the grip is 28 px like the timer's (desktop-only page), not the 48 px touch target.
+
+## Phase 1 D client — final review: the forms list at 1024 px, the import hint's season, back to the season after Delete (D1–D3)
+
+**Plan said:** 13-forms: card head = icon, name over meaning, status tag and ⋯ at the end; the missing match card says "export it from <last year>"; Delete form returns to Forms.
+
+**What was wrong:** the live check on dev: (D1) at 1024 px each card's name and meaning wrapped one word per line, squeezed by the tag and ⋯; (D2) the empty match card said "export it from 2095" for 2096, a season that does not exist; (D3) after Delete form in the builder, the list opened on the active season, not the deleted form's.
+
+**What I did instead:** (D1) the head wraps: icon + name/meaning ask for their one-line width (`flex-[1_1_auto]`), and the tag and ⋯ move under them only when the row has no room. The version timeline's rows had the same squeeze at 1024 px (v2's "Published 20/09 · 14 fields" one word a line beside its count, View and Restore), so they wrap the same way (`VersionTimeline.tsx`). An e2e at 1024×768 measures each name as one line, each meaning at most two, and v2's timeline line as one, and writes `forms-laptop.png` (`shoot(page, name, 'laptop')`, a new opt-in width in `e2e/shoot.ts`). (D2) `MissingFormCard` takes `previousYear`: the newest earlier season (from the seasons list) whose forms include a match form — "import last season's: export it from 2025" (or "an earlier season's" when it is not the year before); none → "import one: export it from another season, then import the file." (D3) the builder's Delete goes to `formsSeasonPath(year)` = `/admin/forms?season=2026` (new in `lib/paths.ts`); the list preselects the season named by `?season=`, and drops the parameter once another chip is picked. Tests: `FormsPage.test.tsx` (names 2026 for 2027; names no season when only a later season has one; opens on `?season=2027`), `ImportExport.test.tsx` (Delete lands on `?season=2026`).
+
+Rejected (D3): router state instead of the query — lost on a reload of the page and not visible in the address.
+
+**Risk:** a builder whose seasons did not load (year unknown) still goes to `/admin/forms` (the active season).
+
+## Phase 1 D client — final review: the minor findings
+
+**Plan said:** nothing.
+
+**What was wrong:** review minors: (M1) `useBuilderLoad` kept the old editor live and editable while another version loaded ("Open vN", "Open draft"), and Publish/Restore's `finally { setBusy(null) }` re-enabled it before the re-read replaced it (a second Publish → `already-published`); (M2) Export always started on the draft; (M3) dead code — `useBuilderLoad`'s unused `attempt`, `useBuilderState`'s `markSaved`/`toSaveInput` returns, `plural` defined four times, ~30 builder exports nothing imported; (M5) the locked banner read `is_locked` from load, stale after an in-place save that the server stamps locked; a test gap: Save changes held offline on the active version, and the desktop-only gate at 1023 px.
+
+**What I did instead:** (M1) `useBuilderLoad` returns `pending` (a read in flight with the last data on screen) and `key` (the read on screen); the editor is keyed on `key` and, while `pending`, its panes are inert and the top bar holds (`busy: 'loading'`); Publish and Restore clear `busy` only on failure. (M2) `ExportDialog` takes `versionId` and starts on it when it is one of the choices (the builder passes its own). (M3) `attempt` removed; `markSaved`/`toSaveInput` no longer returned (the test now captures the save's input through `save`); one `plural` in `lib/plural.ts`; un-exported what nothing outside its file imports (`definitionOf`, `renameReferences`, `chooseVersion`, `BuilderLoad`, `tabDropId`, `TryValues`, `paletteDragId`, `exportLabel`, `savedWhen`, `ImportDiff`, `ImportTarget`, `UNITS`, `CATEGORIES`, `DIRECTION_NAME`, `meaningSummary`, `mirrorPoint`, `rulesOf`, `definitionText`, `draftOf`, `JsonCheck`, `JsonContext`, `checkDefinitionText`, `NOT_SCORED`, `TIMER_PHASE_NAME`, `FormRefusal`, `refusalOf`, `FormErrorContext`, `JsonProblem`, `dayMonth`, `draftOf`/`activeOf` in `formsView`, `TimelineRow`); what tests import (`reasonOf`, `ruleOf`, `keyFromLabel`, `insertIndexFor`, `pointsTag`, `exportFileName`, `importDiff`, `readDefinition`, `deletedIn`, `STANDARD_TIMER`, `timerProblem`, …) stays exported. `checkDefinitionText` is un-exported (its behaviour is tested through the dialog). (M5) after a successful in-place field save on a published version with entries, the page shows it locked (`lockedNow`) in the banner and the version chip. Tests for each: M1 (Publish held until the re-read; Open v3 holds the draft's editor until v3 is read), M2, M5, Save changes held offline, the 1023 px gate.
+
+**Risk:** none known.
+
+## Phase 1 D client — final review: the entry's starting values and saved data move to `features/entry` (for task 1.33)
+
+**Plan said:** task 1.31 put `seedValues` and `previewData` in the builder's `LivePreview.tsx`.
+
+**What was wrong:** review note: the entry runtime (task 1.33) and Try it must share one definition of a scouter's starting values and of what an entry saves.
+
+**What I did instead:** moved, unchanged, to `apps/client/src/features/entry/entryValues.ts` (with `withComputed`); their tests moved to `entryValues.test.ts`. The builder imports them from there. The entry page does not use them yet — it adopts them in task 1.33; no entry behaviour changed now. `@frc/shared` was not used: the entry chunk stays as it is, since nothing in it imports the module yet.
+
+**Risk:** none; task 1.33 must switch the entry page to these, not write its own.

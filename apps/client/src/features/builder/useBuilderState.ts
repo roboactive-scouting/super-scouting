@@ -53,6 +53,12 @@ type State = {
   saved: ReadonlySet<string>;
   /** The selected field's id (stable while a new field's key follows its label). */
   selected: string | null;
+  /**
+   * Ids of the new fields whose key still follows their label: added from the palette and not
+   * pinned. A key that arrived through Edit as JSON is pinned (final review, I3).
+   */
+  follows: ReadonlySet<string>;
+  /** The next new field's number (`new-n`): never reused in a session (final review, I1). */
   next: number;
 };
 
@@ -152,7 +158,7 @@ function renameInExpr(expr: Expr, from: string, to: string): Expr {
  * new field's key moves with its label or phase, and what refers to it moves with it (task
  * 1.30, fix round 1, I3). The same object when nothing refers to it.
  */
-export function renameReferences(
+function renameReferences(
   field: FormFieldDefinition,
   from: string,
   to: string,
@@ -203,7 +209,7 @@ function toInput(field: FormFieldDefinition, saved: ReadonlySet<string>): FormFi
 }
 
 /** A row as the server sends it (FormFieldRow, ScoredFieldRow), as the builder holds it. */
-export function definitionOf(row: FormFieldDefinition): FormFieldDefinition {
+function definitionOf(row: FormFieldDefinition): FormFieldDefinition {
   return {
     id: row.id,
     key: row.key,
@@ -254,7 +260,11 @@ export function sameRows(
   return a.length === b.length && flat(a) === flat(b);
 }
 
-function stateFrom(given: readonly FormFieldDefinition[], selectedKey: string | null): State {
+function stateFrom(
+  given: readonly FormFieldDefinition[],
+  selectedKey: string | null,
+  next = 1,
+): State {
   const rows = given.map(definitionOf);
   const fields = renumber(
     rows.filter((f) => !f.deprecated).sort((a, b) => a.display_order - b.display_order),
@@ -264,7 +274,8 @@ function stateFrom(given: readonly FormFieldDefinition[], selectedKey: string | 
     fields,
     saved: new Set(rows.map((f) => f.id)),
     selected: fields.find((f) => f.key === selectedKey)?.id ?? null,
-    next: 1,
+    follows: new Set(),
+    next,
   };
 }
 
@@ -300,9 +311,9 @@ function fieldIssues(field: FormFieldDefinition, live: FormFieldDefinition[]): F
 }
 
 /**
- * The builder's local edit model (task 1.29). Fields are an array in display order; a new
- * field's key follows its label until the field is first saved, and a saved field's key never
- * changes (SPEC-FINAL 5.1). `willForkNewVersion` uses the server's own `isStructuralChange`.
+ * The builder's local edit model (task 1.29). Fields are an array in display order; a field
+ * added from the palette has a key that follows its label (and phase) until it is first saved,
+ * and a saved field's key never changes (SPEC-FINAL 5.1). `willForkNewVersion` uses the server's own `isStructuralChange`.
  */
 export function useBuilderState(initial: BuilderInitial) {
   const [state, setState] = useState<State>(() => stateFrom(initial.fields, null));
@@ -367,7 +378,13 @@ export function useBuilderState(initial: BuilderInitial) {
         }
         const next = [...s.fields];
         next.splice(Math.max(0, Math.min(at, next.length)), 0, field);
-        return { ...s, fields: renumber(next), selected: id, next: s.next + 1 };
+        return {
+          ...s,
+          fields: renumber(next),
+          selected: id,
+          follows: new Set([...s.follows, id]),
+          next: s.next + 1,
+        };
       });
     },
     [takenBy],
@@ -395,7 +412,12 @@ export function useBuilderState(initial: BuilderInitial) {
         };
         const before = s.fields[index]!;
         let after: FormFieldDefinition = { ...before, ...allowed };
-        if (!s.saved.has(before.id)) {
+        // Only a label or phase change moves a following key: any other edit (a description, a
+        // config) leaves the key as it is, and a pinned key never moves (final review, I3).
+        if (
+          s.follows.has(before.id) &&
+          (after.label !== before.label || after.phase !== before.phase)
+        ) {
           after = {
             ...after,
             key: keyFromLabel(after.label, after.phase, after.type, takenBy(s, before.id)),
@@ -427,10 +449,13 @@ export function useBuilderState(initial: BuilderInitial) {
     setState((s) => {
       const gone = s.fields.find((f) => f.key === key);
       if (!gone) return s;
+      const follows = new Set(s.follows);
+      follows.delete(gone.id);
       return {
         ...s,
         fields: renumber(s.fields.filter((f) => f !== gone)),
         selected: s.selected === gone.id ? null : s.selected,
+        follows,
       };
     });
   }, []);
@@ -438,19 +463,31 @@ export function useBuilderState(initial: BuilderInitial) {
   /**
    * The whole live set at once (Edit as JSON, task 1.31): in the order given, renumbered. The
    * baseline and the saved ids stay, so a saved field matched by its id keeps its permanent key
-   * and the next save is the usual whole-set save. The selection follows its key.
+   * and the next save is the usual whole-set save. The selection follows its key. A palette
+   * field the text left under its key still follows its label; a key the text gave (a new id)
+   * is pinned, so a later edit never rewrites it (final review, I3).
    */
   const replaceFields = useCallback((next: readonly FormFieldDefinition[]) => {
     setState((s) => {
       const fields = renumber(next.map((f) => ({ ...f, deprecated: false })));
       const selectedKey = s.fields.find((f) => f.id === s.selected)?.key;
-      return { ...s, fields, selected: fields.find((f) => f.key === selectedKey)?.id ?? null };
+      return {
+        ...s,
+        fields,
+        selected: fields.find((f) => f.key === selectedKey)?.id ?? null,
+        follows: new Set(fields.filter((f) => s.follows.has(f.id)).map((f) => f.id)),
+      };
     });
   }, []);
 
-  /** The server's answer to a save: the version's rows, deprecated ones included. */
+  /**
+   * The server's answer to a save: the version's rows, deprecated ones included. `next` carries
+   * on, so a later palette field never takes the id of one removed earlier (final review, I1).
+   */
   const markSaved = useCallback((rows: readonly FormFieldDefinition[]) => {
-    setState((s) => stateFrom(rows, s.fields.find((f) => f.id === s.selected)?.key ?? null));
+    setState((s) =>
+      stateFrom(rows, s.fields.find((f) => f.id === s.selected)?.key ?? null, s.next),
+    );
   }, []);
 
   /** The whole live set, as `saveDraftFields` takes it (with `id` on every saved field). */
@@ -517,14 +554,14 @@ export function useBuilderState(initial: BuilderInitial) {
     selectedKey: selectedField?.key ?? null,
     selectedField,
     isSaved: (field: FormFieldDefinition) => saved.has(field.id),
+    /** A new field whose key still follows its label (added from the palette, not pinned). */
+    keyFollows: (field: FormFieldDefinition) => state.follows.has(field.id),
     addField,
     selectField,
     updateField,
     reorder,
     removeField,
     replaceFields,
-    markSaved,
-    toSaveInput,
     save,
     dirty,
     willForkNewVersion,

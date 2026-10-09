@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom';
 import type { FormListItem, VersionSummary } from '@frc/shared';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { formBuilderPath } from '@/lib/paths';
+import { plural } from '@/lib/plural';
 import { cn } from '@/lib/utils';
-import { plural, timelineOf } from './formsView';
+import { timelineOf } from './formsView';
 
 /** The timeline's 32 px buttons, with the 48 px hit area grown by ::after. */
 const SMALL = 'min-h-8 gap-1.5 px-2.5 text-[0.78125rem] after:-inset-y-2 [&_svg]:size-[13px]';
@@ -54,8 +55,10 @@ export function VersionTimeline({
                 kind === 'draft' && 'border-dashed',
               )}
             />
-            <div className="flex min-w-0 flex-1 items-center gap-2.5">
-              <div className="min-w-0">
+            {/* Wraps like the card head: at 1024 px the count and buttons go under the line
+                rather than squeeze it to a word a line (final review, D1). */}
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1.5">
+              <div className="min-w-0 flex-[1_1_auto]">
                 <p className="text-[0.90625rem] font-bold">{title}</p>
                 <p className="mt-0.5 text-[0.78125rem] text-muted">{sub}</p>
               </div>

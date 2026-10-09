@@ -47,8 +47,49 @@ describe('scoring rules (task 1.30)', () => {
     rerender({ type: 'long_text' });
     expect(result.current.dirty).toBe(true);
     // Once the set is sent without it, the rule is gone here too, and nothing is unsent.
-    act(() => result.current.markSent(new Map<string, FieldTypeName>([[row.id, 'long_text']])));
+    act(() =>
+      result.current.markSent(
+        new Map<string, FieldTypeName>([[row.id, 'long_text']]),
+        new Set([row.id]),
+      ),
+    );
     expect(result.current.ruleFor(row.id)).toBeNull();
+    expect(result.current.dirty).toBe(false);
+  });
+
+  it('markSent drops the rule of a field removed before it was ever saved (final review, I1)', () => {
+    const row = field({ key: 'tele_high', points: 4 });
+    const { result } = renderHook(() => useScoring([row], [{ id: row.id, type: 'counter' }]));
+    // A palette field (new-1) got 5 points, then was removed: its rule is still held.
+    act(() => result.current.setRule('new-1', { points: 5, option_points: null }));
+    act(() =>
+      result.current.markSent(
+        new Map<string, FieldTypeName>([[row.id, 'counter']]),
+        new Set([row.id]),
+      ),
+    );
+    expect(result.current.ruleFor('new-1')).toBeNull();
+    expect(result.current.ruleFor(row.id)).toEqual({ points: 4, option_points: null });
+    expect(result.current.dirty).toBe(false);
+  });
+
+  it('counts only a rule that changed as this session’s; markSent takes what was sent (I4)', () => {
+    const row = field({ key: 'tele_high', points: 4 });
+    const { result } = renderHook(() => useScoring([row], [{ id: row.id, type: 'counter' }]));
+    act(() => result.current.setRule(row.id, { points: 4, option_points: null }));
+    expect(result.current.edited.size).toBe(0);
+    act(() => result.current.setRule(row.id, { points: 8, option_points: null }));
+    expect([...result.current.edited]).toEqual([row.id]);
+    const types = new Map<string, FieldTypeName>([[row.id, 'counter']]);
+    act(() =>
+      result.current.markSent(
+        types,
+        new Set([row.id]),
+        new Map([[row.id, { points: 9, option_points: null }]]),
+      ),
+    );
+    expect(result.current.ruleFor(row.id)).toEqual({ points: 9, option_points: null });
+    expect(result.current.edited.size).toBe(0);
     expect(result.current.dirty).toBe(false);
   });
 
