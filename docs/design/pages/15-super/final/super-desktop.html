@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Super scouting — final, desktop</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../01-entry/src/entry.css"><link rel="stylesheet" href="../../01-entry/final/final.css"><link rel="stylesheet" href="../../02-scout/src/scout.css"><link rel="stylesheet" href="../../02-scout/src/e-station.css"><link rel="stylesheet" href="../../14-entry-parts/src/parts.css"><link rel="stylesheet" href="../src/super.css"><link rel="stylesheet" href="../../14-entry-parts/src/desk.css">
+<style>body{background:var(--bg)}.desk.final{zoom:1;border-radius:0;box-shadow:none}.su-desk .dx-f{grid-template-columns:1fr 440px}.su-desk .px-hintline span:first-child{display:none}</style>
+</head><body>
+<div id="root"></div>
+<script>window.FINAL = true;</script><script src="../../01-entry/src/entry.js"></script><script src="../../14-entry-parts/src/parts.js"></script><script src="../src/super.js"></script><script src="../../14-entry-parts/src/desk.js"></script>
+<script>
+const U = SU, P = SU.P;
+
+const { row, ctl } = DX;
+const fields = row('Driver skill', 'Across every match you watched', ctl(P.stars('', 0))) +
+  row('Defence', '', ctl(P.select('', ['None', 'Some', 'Lots'], null))) +
+  row('Penalties seen', 'Pick any that apply', ctl(P.multi('', ['Pinning', 'Contact', 'Over limit'], [])));
+const tabs3 = `<div class="ptabs" style="grid-template-columns:repeat(3,1fr)"><span>Auto</span><span class="on">Teleop</span><span>Notes</span></div>`;
+const form = `<div class="card">${U.head()}${tabs3}<div class="pane"><div class="phead"><b>Teleop</b><span class="pos">Phase 2 of 3</span><span class="dots"><i class="done"></i><i class="on"></i><i></i></span></div>${fields}</div><div class="ebar"><a class="btn primary block">Review entry</a></div></div>`;
+document.getElementById('root').innerHTML = `<div class="desk final"><div data-desk-shell="scout" data-crumb="Scout / <b>Super scouting</b>"><div class="su-desk"><div>${U.pickFinal({ n: 4 })}</div>${form}</div></div></div>`;
+
+</script>
+<script src="../../shell.js"></script>
+</body></html>

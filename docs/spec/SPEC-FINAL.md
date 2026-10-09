@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.23 · **Date:** 2026-10-09 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.24 · **Date:** 2026-10-09 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.24 adds the super-scouting page's design to §8.1. See the living spec's §21, 2026-10-09 (v0.75).*
 
 *v1.23 amends §8.2 (phases are tabs, not collapsible sections; the desktop field row; how blocking problems are shown), §8.3 (Discard), §8.4 (the timer's look and reset with undo), §8.5 (the way into practice) and §15.1 (the range block is marked as you type and listed on Review). See the living spec's §21, 2026-10-09 (v0.74).*
 
@@ -916,6 +918,8 @@ This is where 95% of usage happens: a student in a loud arena, phone in one hand
 3. no match, no alliance, no robot status.
 
 If a super entry for that (team, event) already exists on the device, the app opens it for editing rather than starting a second one. The duplicate path of §9.5 exists for the case two devices create one independently.
+
+*Design (v1.24, `docs/design/pages/15-super/final/`):* reached from a **Super scouting** card on Scout. The picker shows the six teams of the match being watched (the next after the last Scout match, changeable) as station tiles — **choosing which teams to show only; the entry stores no match** — then a progress line ("6 of 20 super-scouted on this device"), search and **To do · Done · All** chips over the roster, to-do teams ordered by how many matches this device saw them in. The form's header names the team, the event, and the matches this device scouted the team in ("Seen here in Q12 · Q19…"); a reopened entry says so. The confirmation names the team and the event and says no match is recorded.
 
 ### 8.2 The entry form
 

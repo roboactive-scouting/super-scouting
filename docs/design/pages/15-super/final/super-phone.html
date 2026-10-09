@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Super scouting — final, phone</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../01-entry/src/entry.css"><link rel="stylesheet" href="../../01-entry/final/final.css"><link rel="stylesheet" href="../../02-scout/src/scout.css"><link rel="stylesheet" href="../../02-scout/src/e-station.css"><link rel="stylesheet" href="../../14-entry-parts/src/parts.css"><link rel="stylesheet" href="../src/super.css">
+</head><body>
+<div id="root"></div>
+<script>window.FINAL = true;</script><script src="../../01-entry/src/entry.js"></script><script src="../../14-entry-parts/src/parts.js"></script><script src="../src/super.js"></script>
+<script>
+const U = SU, P = SU.P;
+
+const scout = P.screen({ title: 'Scout', body: `<div class="su-pad"><div class="su-h1">Scout a match</div><div style="height:300px;border:1px dashed var(--line);border-radius:12px;display:grid;place-items:center;color:var(--faint);font-size:13px">station, match and line-up, as today</div>${U.link}</div>`, barText: 'Start entry' });
+const pick = P.screen({ title: 'Super scouting', body: U.pickFinal(), bar: false });
+const conf = P.screen({ title: 'Super scouting', body: U.formBody({ edit: false }), over: U.confirm(), bar: false });
+const fig = (h, c) => `<figure class="frame"><div class="phone" style="zoom:.78">${h}</div><figcaption>${c}</figcaption></figure>`;
+document.getElementById('root').innerHTML = `<div class="canvas" style="height:940px"><div class="canvas-head"><b>Super scouting — final · phone</b><span>Variant A with C's "Watching" tiles. One entry per team for the whole event: no match, alliance, robot status or timer.</span></div>
+  <div class="frames" style="gap:14px">${fig(scout, '1 · The way in: a card at the foot of Scout')}${fig(pick, '2 · The match you watch, then the to-do list')}${fig(U.form(), '3 · The super form')}${fig(U.form({ edit: true, time: '11:51' }), '4 · A done team reopens its entry')}${fig(conf, '5 · Confirm names team and event, no match')}</div></div>`;
+
+</script>
+<script src="../../shell.js"></script>
+</body></html>

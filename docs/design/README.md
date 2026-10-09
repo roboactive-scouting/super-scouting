@@ -46,6 +46,7 @@ Pages go **one at a time**. At this stage that means only the pages that exist t
 | 12 | Form builder (planned page) | `/admin/forms/:formId` | **Closed** 2026-10-08, variant D (+ the scouter's map pop-ups) | 1.29–1.32; maps in 1.34–1.35 |
 | 13 | Forms list (planned page) | `/admin/forms` | **Closed** 2026-10-08, A + C's versions | 1.29 |
 | 14 | Entry parts (Phase 1 E, on the Entry page) | `/entry/…`, `/scout` | **Closed** 2026-10-09: field types, match timer, range block, drafts and practice | 1.33, 1.34, 1.36, 1.37 |
+| 15 | Super scouting | `/super` | **Closed** 2026-10-09, A + C's "Watching" tiles | 1.36 |
 
 The phone shell (`pages/11-phone-shell/final/`, not a numbered route) is coded in RB.6. All were built in the redesign build (`docs/plans/REDESIGN-BUILD-PLAN.md`, RB.1–RB.20), and RB.19 reviewed each against its final images. `/context` is only a redirect to `/`. Update this table when a page closes.
 

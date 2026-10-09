@@ -1,6 +1,7 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.8 · **Date:** 2026-10-09 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.9 · **Date:** 2026-10-09 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.9 (2026-10-09): the super-scouting page is designed (`docs/design/pages/15-super/final/`, spec v0.75 / SPEC-FINAL v1.24); task 1.36 points at it.*
 *v1.8 (2026-10-09): Phase 1 E's small parts are designed (`docs/design/pages/14-entry-parts/final/`, spec v0.74 / SPEC-FINAL v1.23). 1.33, 1.34, 1.36 and 1.37 point at them; 1.36 drops the `<details>` phase cards (the entry form uses phase tabs) and the "danger" range notice (it is amber).*
 *v1.7 (2026-10-08): the builder's remaining screens are designed (`docs/design/pages/12-form-builder/final/`, spec v0.70 / SPEC-FINAL v1.22). 1.31's export/import go through a 24-hour `form_exports` store, 1.32 gets its look and a standard-phases preset, and the form delete in 1.29 is confirmed by typing.*
 *v1.6 (2026-10-08): the forms list is designed (`docs/design/pages/13-forms/final/`, spec v0.69 / SPEC-FINAL v1.21). Task 1.29 builds it with the version timeline, the builder route takes `?version=n`, and it needs an entries-per-version count and `form_versions.updated_by`.*
@@ -14014,7 +14015,7 @@ git add -A && git commit -m "feat: add the position picker and cycle path with a
 
 - [ ] **Step 2: Implement**
 
-**The super-scouting entry point (SPEC-FINAL §8.1).** A second, separate route at `/super`, because a super record is one per **(team, event)**, not per match. It asks for three things and no more:
+**The super-scouting entry point (SPEC-FINAL §8.1).** A second, separate route at `/super`, because a super record is one per **(team, event)**, not per match. **Design closed 2026-10-09 — match `docs/design/pages/15-super/final/` and its README:** a Super scouting card at the foot of Scout; the picker = "Watching Q41" (Scout's next match, changeable) with that match's six station tiles (display only), the progress line, search, To do / Done / All chips and the roster list ordered by matches seen on this device; the form header with the SUPER tag and "Seen here in …" chips; the confirmation states no match is recorded. All of it is derived from what the device holds — no new server query. It asks for three things and no more:
 
 1. the active season's `super` form, resolved by `kind` — never chosen by the scouter;
 2. the **team**, from the event roster;
