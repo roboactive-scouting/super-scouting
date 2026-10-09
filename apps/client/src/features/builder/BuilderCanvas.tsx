@@ -3,12 +3,14 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { GripVertical, TriangleAlert } from 'lucide-react';
 import { useRef, useState, type KeyboardEvent, type WheelEvent } from 'react';
 import type { FieldPhase, FormFieldDefinition } from '@frc/shared';
+import { FilterChips } from '@/components/ui/filter-chips';
 import { WarningFlag } from '@/components/ui/tag';
 import { Tabs } from '@/components/ui/tabs';
 import { PHASE_NAME, PHASE_ORDER, PHASE_TAB } from '@/features/entry/phases';
 import { cn } from '@/lib/utils';
 import { FieldPreview } from './FieldPreview';
 import { typeName } from './fieldTypes';
+import { LivePreviewColumn } from './LivePreview';
 import { MEANING_PATHS, phaseAt, type BuilderState } from './useBuilderState';
 
 /** Drop targets: the phase column, and each phase tab (a field type dropped there joins it). */
@@ -29,6 +31,16 @@ export function phasePages(
   return pages;
 }
 
+/** Edit draws the form to arrange it; Try it fills it as a scouter would (task 1.31). */
+export type CanvasMode = 'edit' | 'try';
+
+/** Try it's values: what the controls hold, and the data as it would save (for visibility). */
+export type TryValues = {
+  values: Record<string, unknown>;
+  data: Record<string, unknown>;
+  onChange: (key: string, value: unknown) => void;
+};
+
 /** How far a sideways trackpad swipe goes before the phase changes. */
 const WHEEL_STEP = 80;
 const WHEEL_REST_MS = 450;
@@ -38,7 +50,8 @@ const WHEEL_REST_MS = 450;
  * with counts and a ⚠ on a phase holding an incomplete field, "Phase n of 4" with pager dots,
  * then a 410 px column of the phase's fields drawn with the real entry controls, under their
  * section headings, each with its key and points at the top right; a foot naming the phases
- * either side. ← / →, a tab click or a sideways trackpad swipe changes phase.
+ * either side. ← / →, a tab click or a sideways trackpad swipe changes phase. Try it (task
+ * 1.31) draws the same column with the controls working, without grips, keys or selection.
  */
 export function BuilderCanvas({
   state,
@@ -47,6 +60,9 @@ export function BuilderCanvas({
   editable,
   points,
   dragging,
+  mode = 'edit',
+  onMode,
+  tryIt,
 }: {
   state: BuilderState;
   phase: FieldPhase;
@@ -56,7 +72,12 @@ export function BuilderCanvas({
   points: ReadonlyMap<string, string>;
   /** A drag is running: arrows belong to it, not to the phase pager. */
   dragging: boolean;
+  mode?: CanvasMode;
+  onMode?: (mode: CanvasMode) => void;
+  /** Try it's values; the mode is offered only with them. */
+  tryIt?: TryValues;
 }) {
+  const trying = mode === 'try' && tryIt !== undefined;
   const pages = phasePages(state.fields);
   const flagged = new Set(
     PHASE_ORDER.filter((p) => pages[p].some(({ field }) => state.issuesFor(field.key).length > 0)),
@@ -65,7 +86,7 @@ export function BuilderCanvas({
   const previous = PHASE_ORDER[at - 1];
   const next = PHASE_ORDER[at + 1];
   const page = pages[phase];
-  const column = useDroppable({ id: CANVAS_DROP, disabled: !editable });
+  const column = useDroppable({ id: CANVAS_DROP, disabled: !editable || trying });
   const wheel = useRef({ dx: 0, at: 0 });
   /** The column is scrolled: the sticky phase header shows a rule, so items pass under an edge. */
   const [scrolled, setScrolled] = useState(false);
@@ -108,24 +129,17 @@ export function BuilderCanvas({
       <div className="flex flex-none items-center gap-2 border-b border-line-2 px-3.5 py-2.5">
         <h2 className="text-sm font-bold">Form</h2>
         <span className="text-xs text-muted">as the scouter's phone shows it</span>
-        <div role="group" aria-label="Canvas mode" className="ms-auto flex gap-1.5">
-          <button
-            type="button"
-            aria-pressed="true"
-            className="min-h-[30px] rounded-full border border-ink bg-ink px-2.5 text-[0.78125rem] font-[650] text-surface"
-          >
-            Edit
-          </button>
-          {/* Try it arrives with task 1.31 (DEVIATIONS 1.29). Hand-styled pills, not Segmented:
-              see DEVIATIONS "Task 1.29 — fix round 1: the Edit / Try it pills". */}
-          <button
-            type="button"
-            aria-pressed="false"
-            disabled
-            className="min-h-[30px] rounded-full border border-control-border bg-surface px-2.5 text-[0.78125rem] font-[650] text-ink disabled:opacity-45"
-          >
-            Try it
-          </button>
+        {/* The shared FilterChips: two toggle pills, one always on (DEVIATIONS 1.31). */}
+        <div className="ms-auto">
+          <FilterChips
+            label="Canvas mode"
+            options={[
+              { key: 'edit' as const, label: 'Edit' },
+              { key: 'try' as const, label: 'Try it' },
+            ]}
+            value={trying ? 'try' : 'edit'}
+            onChange={(next) => onMode?.(next)}
+          />
         </div>
       </div>
       <div className="relative flex-none">
@@ -143,7 +157,7 @@ export function BuilderCanvas({
           className="pointer-events-none absolute inset-1.5 grid grid-cols-4 gap-1"
         >
           {PHASE_ORDER.map((p) => (
-            <TabDrop key={p} phase={p} disabled={!editable} />
+            <TabDrop key={p} phase={p} disabled={!editable || trying} />
           ))}
         </div>
       </div>
@@ -185,7 +199,14 @@ export function BuilderCanvas({
               ))}
             </span>
           </div>
-          {page.length === 0 ? (
+          {trying && tryIt ? (
+            <LivePreviewColumn
+              page={page.map(({ field }) => field)}
+              values={tryIt.values}
+              data={tryIt.data}
+              onChange={tryIt.onChange}
+            />
+          ) : page.length === 0 ? (
             <p className="rounded-card border border-dashed border-control-border bg-surface px-4 py-6 text-center text-[0.84375rem] text-muted">
               {editable
                 ? `No fields in ${PHASE_TAB[phase]} yet. Drag a field type here, or pick one under Fields.`

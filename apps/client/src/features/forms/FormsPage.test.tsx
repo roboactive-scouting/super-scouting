@@ -124,8 +124,12 @@ describe('the forms list (/admin/forms, task 1.29)', () => {
       'href',
       `/admin/forms/${FORM_ID}`,
     );
-    // Export and ⋯ Delete form arrive with task 1.31: no dead buttons now.
-    expect(within(card).queryByRole('button', { name: /Export|Delete|More/ })).toBeNull();
+    // Export beside Open builder, and the head's ⋯ holding Delete form (task 1.31).
+    expect(within(card).getByRole('button', { name: 'Export' })).toBeEnabled();
+    expect(within(card).getByRole('button', { name: 'Form actions: Match form' })).toHaveAttribute(
+      'aria-haspopup',
+      'menu',
+    );
   });
 
   it('a missing super form is a dashed card with Create, and Create opens the builder on the new draft', async () => {
@@ -136,7 +140,7 @@ describe('the forms list (/admin/forms, task 1.29)', () => {
     const card = await screen.findByRole('region', { name: 'Super form (not created)' });
     expect(within(card).getByText('Not created')).toBeVisible();
     expect(within(card).getByText(/No super form for 2026 yet\./)).toBeVisible();
-    expect(within(card).queryByRole('button', { name: /Import/ })).toBeNull();
+    expect(within(card).getByRole('button', { name: 'Import' })).toBeEnabled();
     await userEvent.setup().click(within(card).getByRole('button', { name: 'Create super form' }));
     await waitFor(() =>
       expect(router.state.location.pathname).toBe(

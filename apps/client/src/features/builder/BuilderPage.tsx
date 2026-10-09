@@ -13,7 +13,7 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { Lock } from 'lucide-react';
+import { CodeXml, Download, Lock, Trash2, Upload } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
@@ -32,6 +32,7 @@ import {
 } from '@frc/shared';
 import { Skeleton } from '@/components/Skeleton';
 import { StateMessage } from '@/components/StateMessage';
+import type { ActionItem } from '@/components/ui/action-menu';
 import { buttonVariants } from '@/components/ui/button';
 import { ErrorLine, Note, WarningNotice } from '@/components/ui/notice';
 import { adminRpc, type Rpc } from '@/data/rpc';
@@ -42,13 +43,17 @@ import { usePageCrumb, usePageTitle } from '@/lib/pageTitle';
 import { formBuilderPath, PATHS } from '@/lib/paths';
 import { useOnline } from '@/lib/useOnline';
 import { cn } from '@/lib/utils';
-import { BuilderCanvas, CANVAS_DROP, phasePages } from './BuilderCanvas';
+import { BuilderCanvas, CANVAS_DROP, phasePages, type CanvasMode } from './BuilderCanvas';
 import { BuilderLeaveGuard } from './BuilderLeaveGuard';
-import { BuilderTopBar, heldLine } from './BuilderTopBar';
+import { BuilderTopBar, heldLine, RESTORE_HELD } from './BuilderTopBar';
+import { DeleteFormDialog } from './DeleteFormDialog';
 import { FieldPalette, PaletteGhost, paletteTypeOf } from './FieldPalette';
 import { formErrorLine, offersReload } from './formErrors';
 import { typeName } from './fieldTypes';
-import { ruleLost, useScoring, wholeRuleSet } from './scoringRules';
+import { ExportDialog, ImportDialog } from './ImportExport';
+import { previewData, seedValues, TryItPane } from './LivePreview';
+import { RawJsonEditor } from './RawJsonEditor';
+import { ruleLost, useScoring, wholeRuleSet, type Rule } from './scoringRules';
 import { SettingsPane, type PanePatch } from './SettingsPane';
 import { useBuilderLoad, type BuilderData } from './useBuilderLoad';
 import { phaseAt, useBuilderState } from './useBuilderState';
@@ -209,6 +214,16 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
   const [base, setBase] = useState(version.updated_at);
   const [dragType, setDragType] = useState<FieldTypeName | null>(null);
   const [dragging, setDragging] = useState(false);
+  /** Edit, or Try it: the canvas filled as a scouter would, nothing saved (task 1.31). */
+  const [mode, setMode] = useState<CanvasMode>('edit');
+  /**
+   * What Try it holds, with the type each value was filled as: in memory only, never drafted,
+   * stored or sent. A value whose field has since changed type (in the settings pane, Edit as
+   * JSON or an import) is dropped, so a control never gets a value of another type.
+   */
+  const [tried, setTried] = useState<Record<string, { type: FieldTypeName; value: unknown }>>({});
+  /** The More menu's dialog, if one is open. */
+  const [dialog, setDialog] = useState<'json' | 'export' | 'import' | 'delete' | null>(null);
   /** Set before the builder moves on purpose, so the leave guard lets it. */
   const leaving = useRef(false);
 
@@ -485,12 +500,74 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
     state.selectField(target.key);
     const index = state.fields.findIndex((f) => f.key === target.key);
     setPhase(phaseAt(state.fields, index));
+    // A selection is shown in Edit: Try it draws no selection and no settings pane.
+    setMode('edit');
   }
 
   function add(type: FieldTypeName, to: FieldPhase, index?: number) {
     state.addField(type, index === undefined ? { phase: to } : { phase: to, index });
     setPhase(to);
+    // A new field is arranged in Edit.
+    setMode('edit');
   }
+
+  /** Edit as JSON's Apply: the local fields and their points, unsaved until Save. */
+  function applyJson(fields: FormFieldDefinition[], rules: Map<string, Rule>) {
+    state.replaceFields(fields);
+    // Try it's values of a field that is gone, or now another type, go with it.
+    const now = new Map(fields.map((f) => [f.key, f.type]));
+    setTried((was) =>
+      Object.fromEntries(
+        Object.entries(was).filter(([key, filled]) => now.get(key) === filled.type),
+      ),
+    );
+    for (const field of fields) scoring.setRule(field.id, rules.get(field.key) ?? null);
+    setScoringIssues([]);
+    setDialog(null);
+  }
+
+  // Try it: each control as it starts, then what was filled; the data as it would sync.
+  const typeOf = new Map(state.fields.map((f) => [f.key, f.type]));
+  const tryValues = { ...seedValues(state.fields) };
+  for (const [key, filled] of Object.entries(tried)) {
+    if (typeOf.get(key) === filled.type) tryValues[key] = filled.value;
+  }
+  const tryData = previewData(state.fields, tryValues);
+
+  const formRef = { id: form.id, name: form.name, kind: form.kind, versions: form.versions };
+  const more: ActionItem[] = [
+    {
+      key: 'json',
+      icon: CodeXml,
+      title: 'Edit as JSON',
+      detail: 'Advanced: the whole form as text. Refuses anything invalid and names the line.',
+      held: editable ? null : 'This version is read-only: open the draft to edit it.',
+      onSelect: () => setDialog('json'),
+    },
+    {
+      key: 'export',
+      icon: Download,
+      title: 'Export',
+      detail: 'Save this form in Exports for 24 hours, e.g. to start next season from it.',
+      onSelect: () => setDialog('export'),
+    },
+    {
+      key: 'import',
+      icon: Upload,
+      title: 'Import',
+      detail: 'Load a saved export or a .json file. Shows what it adds and removes first.',
+      held: dirty ? RESTORE_HELD : null,
+      onSelect: () => setDialog('import'),
+    },
+    {
+      key: 'delete',
+      icon: Trash2,
+      title: 'Delete form',
+      detail: 'Removes every version and its entries. Asks first.',
+      separated: true,
+      onSelect: () => setDialog('delete'),
+    },
+  ];
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -564,6 +641,7 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
         onRestore={(v) => void restore(v)}
         onOpenVersion={(n) => navigate(formBuilderPath(form.id, n))}
         onNextIncomplete={nextIncomplete}
+        more={more}
       />
       {!online && (
         <WarningNotice className="mx-6 mt-3 flex-none rounded-control" lead="You're offline.">
@@ -649,28 +727,96 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
             editable={editable}
             points={points}
             dragging={dragging}
+            mode={mode}
+            onMode={setMode}
+            tryIt={{
+              values: tryValues,
+              data: tryData,
+              onChange: (key, value) => {
+                const type = typeOf.get(key);
+                if (type) setTried((was) => ({ ...was, [key]: { type, value } }));
+              },
+            }}
           />
-          <SettingsPane
-            field={selected}
-            allFields={state.fields}
-            onChange={onPaneChange}
-            seasonImagePath={fieldImage}
-            editable={editable}
-            saved={selected ? state.isSaved(selected) : true}
-            published={published}
-            forkNote={structuralNote}
-            savedOptionValues={savedOptionValues}
-            issues={selected ? state.issuesFor(selected.key) : []}
-            scoringIssues={scoringIssues
-              .filter((i) => i.field_key === selected?.key)
-              .map((i) => i.message)}
-            onRemove={() => selected && state.removeField(selected.key)}
-          />
+          {mode === 'try' ? (
+            <TryItPane fields={state.fields} data={tryData} onStartOver={() => setTried({})} />
+          ) : (
+            <SettingsPane
+              field={selected}
+              allFields={state.fields}
+              onChange={onPaneChange}
+              seasonImagePath={fieldImage}
+              editable={editable}
+              saved={selected ? state.isSaved(selected) : true}
+              published={published}
+              forkNote={structuralNote}
+              savedOptionValues={savedOptionValues}
+              issues={selected ? state.issuesFor(selected.key) : []}
+              scoringIssues={scoringIssues
+                .filter((i) => i.field_key === selected?.key)
+                .map((i) => i.message)}
+              onRemove={() => selected && state.removeField(selected.key)}
+            />
+          )}
         </div>
         <DragOverlay dropAnimation={null}>
           {dragType ? <PaletteGhost type={dragType} /> : null}
         </DragOverlay>
       </DndContext>
+      {dialog === 'json' && (
+        <RawJsonEditor
+          versionName={
+            version.status === 'draft'
+              ? `Draft v${version.version_no}`
+              : `v${version.version_no}${version.is_active ? ' · active' : ''}`
+          }
+          fields={state.fields}
+          baseline={state.baseline}
+          isSaved={state.isSaved}
+          ruleFor={scoring.ruleFor}
+          online={online}
+          onApply={applyJson}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog === 'export' && (
+        <ExportDialog
+          form={formRef}
+          year={year}
+          rpc={rpc}
+          online={online}
+          unsaved={dirty}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog === 'import' && (
+        <ImportDialog
+          target={{ kind: form.kind, seasonId: form.season_id, year, form: formRef }}
+          rpc={rpc}
+          online={online}
+          onClose={() => setDialog(null)}
+          onImported={(_out, draftNo) => {
+            setDialog(null);
+            // The draft it wrote, read again from the server.
+            if (version.status === 'draft' && version.version_no === draftNo) reload();
+            else navigate(formBuilderPath(form.id, draftNo));
+          }}
+        />
+      )}
+      {dialog === 'delete' && (
+        <DeleteFormDialog
+          form={formRef}
+          year={year}
+          rpc={rpc}
+          online={online}
+          onClose={() => setDialog(null)}
+          onExportFirst={() => setDialog('export')}
+          onDeleted={() => {
+            leaving.current = true;
+            navigate(PATHS.forms);
+          }}
+        />
+      )}
       <BuilderLeaveGuard
         holding={dirty}
         name={`${title} · ${versionLabel(version).split(' · ')[0]!.toLowerCase()}`}

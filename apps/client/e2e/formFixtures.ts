@@ -285,6 +285,110 @@ const FORM_ROW = {
   updated_at: '2026-10-08T08:48:00.000Z',
 };
 
+/*
+ * Exports and import (task 1.31). The design's clock is 8 October 2026, 12:00 in Tel Aviv
+ * (`EXPORTS_NOW`): the newest export was saved two hours before it.
+ */
+export const EXPORTS_NOW = new Date('2026-10-08T09:00:00Z');
+const tamar = { id: userByName('tamar.m').id, full_name: 'Tamar Mizrahi' };
+
+/** A row as a definition carries it: no id, version, flag or points. */
+function draftOf(row: ScoredFieldRow) {
+  const {
+    id: _id,
+    form_version_id: _v,
+    deprecated: _d,
+    points: _p,
+    option_points: _o,
+    ...draft
+  } = row;
+  return draft;
+}
+
+function definitionOf(rows: ScoredFieldRow[], kind: 'match' | 'super' = 'match') {
+  return {
+    format: 1,
+    kind,
+    name: kind === 'match' ? 'Match form' : 'Super form',
+    timer_config: FORM_ROW.timer_config,
+    fields: rows.map(draftOf),
+    scoring_rules: rows
+      .filter((r) => (r.points ?? 0) > 0 || Object.values(r.option_points ?? {}).some((p) => p > 0))
+      .map((r) => ({ field_key: r.key, points: r.points ?? 0, option_points: r.option_points })),
+  };
+}
+
+/**
+ * The newest saved export: draft v4 as it was exported, plus three fields added and Climb time
+ * changed to a number since (design `-import.png`: adds 3, changes 1 type, removes 0).
+ */
+const EXPORTED_V4 = (() => {
+  const rows = FIELDS[4].map((f) =>
+    f.key === 'end_climb_time' ? { ...f, type: 'number' as const, config: { min: 0 } } : f,
+  );
+  const extra = rows.length;
+  const add = (
+    key: string,
+    label: string,
+    type: 'counter' | 'toggle',
+    phase: ScoredFieldRow['phase'],
+    i: number,
+  ) => ({
+    ...rows.find((f) => f.key === (type === 'toggle' ? 'auto_leave' : 'tele_high'))!,
+    id: uid(10, 900 + i),
+    key,
+    label,
+    help_text: null,
+    phase,
+    display_order: extra + i,
+    points: null,
+  });
+  return [
+    ...rows,
+    add('tele_traps', 'Trap scores', 'counter', 'teleop', 1),
+    add('end_harmony', 'Harmony', 'toggle', 'endgame', 2),
+    add('post_fouls', 'Fouls drawn', 'counter', 'post_match', 3),
+  ];
+})();
+
+const SUPER_ROWS: ScoredFieldRow[] = FIELDS[3]
+  .slice(0, 6)
+  .map((f) => ({ ...f, points: null, option_points: null }));
+
+const exportRow = (
+  n: number,
+  label: string,
+  kind: 'match' | 'super',
+  fieldCount: number,
+  by: { id: string; full_name: string },
+  savedAt: string,
+) => {
+  const created = Date.parse(savedAt);
+  const expires = created + 24 * 3600_000;
+  return {
+    id: uid(11, n),
+    form_id: kind === 'match' ? MATCH_FORM_ID : null,
+    kind,
+    label,
+    field_count: fieldCount,
+    created_by: by,
+    created_at: new Date(created).toISOString(),
+    expires_at: new Date(expires).toISOString(),
+    expires_in_seconds: Math.floor((expires - EXPORTS_NOW.getTime()) / 1000),
+  };
+};
+
+export const EXPORTS = [
+  exportRow(1, 'Match form 2026 · draft v4', 'match', 19, noa, '2026-10-08T07:00:00Z'),
+  exportRow(2, 'Match form 2026 · v3', 'match', 15, tamar, '2026-10-07T12:10:00Z'),
+  exportRow(3, 'Super form 2025 · v2', 'super', 6, tamar, '2026-10-07T11:40:00Z'),
+];
+const EXPORT_DEFINITION: Record<string, unknown> = {
+  [EXPORTS[0]!.id]: definitionOf(EXPORTED_V4),
+  [EXPORTS[1]!.id]: definitionOf(FIELDS[3]),
+  [EXPORTS[2]!.id]: definitionOf(SUPER_ROWS, 'super'),
+};
+
 /** The forms use cases, by name; a function receives the call's input. */
 export const FORMS_RPC: Record<string, (input: Record<string, unknown>) => unknown> = {
   listForms: (input) => ({
@@ -304,6 +408,27 @@ export const FORMS_RPC: Record<string, (input: Record<string, unknown>) => unkno
         : [],
   }),
   getForm: () => ({ ...FORM_ROW, versions: VERSIONS }),
+  listFormExports: () => ({ exports: EXPORTS }),
+  getFormExport: (input) => {
+    const row = EXPORTS.find((x) => x.id === input.export_id) ?? EXPORTS[0]!;
+    return { ...row, definition: EXPORT_DEFINITION[row.id] };
+  },
+  saveFormExport: (input) => {
+    const version = VERSIONS.find((v) => v.id === input.form_version_id)!;
+    const label = `Match form 2026 · ${version.status === 'draft' ? 'draft ' : ''}v${version.version_no}`;
+    return exportRow(9, label, 'match', version.field_count, tamar, EXPORTS_NOW.toISOString());
+  },
+  exportForm: (input) => {
+    const version = VERSIONS.find((v) => v.id === input.form_version_id) ?? VERSIONS[0]!;
+    return definitionOf(version.version_no === 4 ? FIELDS[4] : FIELDS[3]);
+  },
+  importForm: (input) => ({
+    form_id: (input.form_id as string | undefined) ?? uid(8, 27),
+    draft_version_id: VERSION_ID[4],
+    created: input.form_id === undefined,
+  }),
+  // 214 + 38 + 12 entries over four versions (13-forms).
+  deleteForm: (input) => ({ versions: 4, entries: 264, deleted: input.dry_run !== true }),
   getFormVersion: (input) => {
     const version = VERSIONS.find((v) => v.id === input.form_version_id) ?? VERSIONS[1]!;
     const fields = version.version_no === 4 ? FIELDS[4] : FIELDS[3];

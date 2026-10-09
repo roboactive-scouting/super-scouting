@@ -97,6 +97,10 @@ describe('DestructiveConfirm (SPEC-FINAL 17.8: the single destructive pattern)',
     await u.click(primary);
     expect(onConfirm).not.toHaveBeenCalled();
     const field = screen.getByLabelText(/type 2026 Reefscape to confirm/i);
+    // The phrase stands out in mono, so the exact text to type is plain (THEME "Type to confirm").
+    const phrase = document.querySelector(`label[for="${field.id}"] code`);
+    expect(phrase).toHaveTextContent('2026 Reefscape');
+    expect(phrase).toHaveClass('font-num', 'bg-line-2');
     await u.type(field, '2026 reefscape');
     expect(primary).toHaveAttribute('aria-disabled', 'true');
     await u.click(primary);

@@ -6114,3 +6114,342 @@ Tests: the palette case in `BuilderPage.test.tsx`. The held-Save case is in the 
   - new tests: counter → number keeps 4/ea (pane and page; no `setScoringRules`); counter → long text shows the hint and sends the set without `tele_high`; a new option's points are renamed and removed; a saved option's points stay; a step of 0 and a fractional counter default are refused; the ⋯ menu closes on Escape and Tab; a blank label shows the type; references follow a moved key; `exprText` flattens; the fork + failed-points notice shows on the new draft and is cleared from history
 
 **Risk:** before the game image loads, the preview has no height (no reserved aspect). The e2e shot waits for `networkidle`.
+
+## Task 1.31 — Try it is the canvas's mode; the "Match clock running" switch is left out
+
+**Plan said:** a preview at phone width rendering the real `FieldInput`, the settings pane showing what the entry would save and what the analysis gets. The design's Try it pane also has a "Match clock running · 1:12, Teleop" switch, and its analysis rows are taps, time to first, cycle times and cycle-path counts.
+
+**What was wrong:** nothing on the canvas reads the match clock today. `FieldInput` draws counter, toggle, single select and long text (task 1.33 widens it); the event log, its taps, the timer and the map fields arrive in tasks 1.33–1.35. A clock switch would change nothing on screen, and tap or cycle numbers would be made up.
+
+**What I did instead:**
+- Try it is the canvas's own mode (`BuilderCanvas` `mode` / `onMode` / `tryIt`), drawn in the same 410 px column as Edit. Grips, keys, points tags and selection go. The real `FieldInput` draws the four types it knows. Every other type is the neutral placeholder (`FieldPreview`, DEVIATIONS 1.29). `FieldInput` is not widened.
+- The settings pane becomes `TryItPane`, "What this entry would save":
+  - the Note "**Nothing is saved or sent.**"
+  - **Saved data**, the entry's JSON as it would sync: `previewData` = the shared `stripHiddenValues`, then the shared `evaluateExpr` for each computed field, then `stripHiddenValues` again, so a computed field hidden by its own condition goes too
+  - **What the analysis gets**: one row per field in the data, the value in words (Yes / No, the option's label, the number, the text). Two fields with the same label get their phase ("Pieces scored high · Auto").
+  - one line saying taps, time to first, cycle times and route counts appear once event logs and map fields can be filled (tasks 1.34–1.35), shown only when the form has such a field
+  - **Start over** empties what was filled
+- The values start as each control is drawn (`seedValues`): `default_value` where set, a toggle off, a counter at its `min` (else 0). So a controlling toggle is never undefined.
+- A field hidden by its condition is not drawn. Visibility is judged on the would-be-saved data, so what is drawn and what is saved agree, also for a condition chained through a hidden field.
+- Try it's values live in `BuilderEditor` state only. Nothing reaches `useDraft`, `submitEntry`, IndexedDB or the server. Tested: no call after load, `db.outbox`, `db.drafts` and `db.practiceDrafts` empty, Save draft still disabled.
+- The "Match clock running" switch is left out.
+- The Edit / Try it pair moved onto the shared `FilterChips` (two `aria-pressed` pills, one always on), as the 1.29 fix round recommended. It is 34 px, not the design's 30 px.
+- Adding a field from the palette while in Try it switches back to Edit. Drops onto the canvas and the tabs are off in Try it.
+
+**Risk:**
+- The entry page today leaves an untouched counter or toggle out of its data. Try it seeds them, as the orchestrator decided. Task 1.33 should settle one rule for both, or Try it's "Saved data" will differ from a real entry for untouched controls.
+- The map dialogs in Try it are tasks 1.34–1.35.
+
+Rejected: a separate phone frame (ruled out); a "Match clock running" switch that changes nothing.
+
+## Task 1.31 — the More menu, and the shared `ActionMenu`
+
+**Plan said:** the raw-JSON editor "opens closed, behind an 'Advanced' toggle"; export and import are `Button`s.
+
+**What was wrong:** the design puts all four behind the top bar's **More ▾** (Edit as JSON · Export · Import · divider · Delete form). Edit as JSON's row reads "Advanced: the whole form as text…". The design's Export and Import rows say "Download this form as a .json file" and "Load a .json file", which the 24-hour Exports decision (2026-10-08) replaced.
+
+**What I did instead:**
+- New `features/builder/ActionMenu.tsx`: a `Button` that opens a `role="menu"` of rows (icon, bold title, a line). Arrows move, Escape closes and returns focus, Tab and a click outside close it. A held row stays in the list, `aria-disabled`, and shows its reason in `--warn` in place of its line. The menu closes, and stays closed, while the page holds the button.
+- The "Advanced toggle" is the More menu's Edit as JSON row.
+- `BuilderTopBar` takes `more?: ActionItem[]` and draws **More ▾** and a divider before Save / Publish. It is held offline and while a save, publish or restore is in flight.
+- The rows' holds:
+  - Edit as JSON on a read-only older version: "This version is read-only: open the draft to edit it."
+  - Import while there are unsaved changes: `RESTORE_HELD`, because an import rewrites the draft and reloads the builder.
+  - Export and Delete form are never held per row: Export offers the draft or the active version whichever is open, and Delete is the form's.
+- The copy follows the Exports decision:
+  - Export: "Save this form in Exports for 24 hours, e.g. to start next season from it."
+  - Import: "Load a saved export or a .json file. Shows what it adds and removes first."
+- The forms card's ⋯ is the same `ActionMenu` with one row, Delete form.
+
+**Risk:** `ActionMenu` lives in `features/builder` and the Forms page imports it, so both lazy chunks share it. If a third page needs it, move it to `components/ui`.
+
+## Task 1.31 — Edit as JSON: the fields and the rule set only, matched by key
+
+**Plan said:** an editor that "round-trips the definition and refuses invalid JSON with a line number"; a definition failing `validateFieldDefinition` is refused with the field key named.
+
+**What was wrong:** the definition (`formDefinition`) also holds `format`, `kind`, `name` and `timer_config`. The Forms page owns the name and kind, and Match timer (task 1.32) owns the timer. `JSON.parse`'s own messages differ between engines and rarely name a line. A renamed key cannot be told from a remove plus an add when fields are matched by key.
+
+**What I did instead:**
+- The text is `{ fields, scoring_rules }` in the export's shapes (`formFieldDraft` columns in their order; `definitionScoringRule` by key, only rules that score, sorted by key) for this version's LIVE fields. Any other top-level name is refused: "“name” cannot be edited here: the text holds “fields” and “scoring_rules” only…".
+- `jsonPosition.ts`: a small scanner walks the text as `JSON.parse` does and names the first problem by line and column ("Line 46, column 11: a comma is missing at the end of line 45."). `JSON.parse` stays the judge of validity; when the scanner finds nothing, the engine's "position N" is used. One `Notice tone="danger" role="alert"` says it, with "Nothing was changed. Fix it, then apply again." The line's number turns bold `--warn`, and a band with a 3 px `--warn` edge marks it under the text. Apply is disabled until the text is valid.
+- The checks, as the server's save would make them (`checkDefinitionText`):
+  - the shapes (zod), naming the field's key
+  - no key twice
+  - no retired key with another type
+  - each field by `validateFieldDefinition` (meaning issues excepted: a draft saves with them and Publish waits), `validateVisibilityCondition`, and `validateExpr` for a written expression
+  - the rules by `validateScoringRules`
+  - the first problem is named, with the field's key and its line marked when it has one
+- Fields are matched to the builder's by key: a live field keeps its id, a key of the version's saved rows (removed or retired) revives that row's id, and anything else is a new field.
+- A saved key absent from the JSON is a removed field, unless a field with the same type and label now has a key the version never had. That is a rename and is refused: "The field “Teleop high” has the key “tele_high”, and a saved field's key never changes. Put “tele_high” back as its key."
+- The list's order is the form's order: `display_order` is renumbered from it, and the dialog says so.
+- **Apply** replaces the builder's LOCAL fields (`useBuilderState.replaceFields`, new) and each field's rule (`scoring.setRule`), unsaved and dirty. **Save draft** then saves through the existing paths: `saveDraftFields` with the whole set first, then `setScoringRules` with the whole rule set built by `wholeRuleSet` (tested in that order). Apply is held offline, like every edit.
+- **Copy all** writes the text to the clipboard; with no clipboard it selects the text.
+- The editor is the shared `Textarea` (mono, no wrap) beside an `aria-hidden` line-number gutter kept in step with its scroll.
+
+**Risk:**
+- The rename rule is a heuristic. Changing a saved field's key AND its label passes as a remove plus an add, as it does in the settings pane.
+- A key typed for a new field follows its label as soon as the label is edited in the pane, as every new field's key does until its first save.
+
+Rejected:
+- a full definition with `kind` / `name` / `timer_config` that Apply ignores (the text would claim to change what it cannot)
+- the engine's message alone (no line in Chrome before V8 12, none in Firefox)
+
+## Task 1.31 — Export saves first; the download is offered only after
+
+**Plan said:** pick the version, save what `exportForm` returns as a `form_exports` row, "with an optional download"; the design shows **Also download a copy** beside **Save export** from the start.
+
+**What was wrong:** the orchestrator's rule is "export saves before any download is offered"; never download-only.
+
+**What I did instead:**
+- `ExportDialog`:
+  - "Which version" is the shared `DescribedChoice`: the draft first, then the active version, with their field counts. It starts on the draft.
+  - "In the file" / "Not in the file" lists.
+  - The line "Saved to **Exports** as `Match form 2026 · draft v4` · **deleted after 24 hours**. A download is offered once it is saved."
+  - Footer: Cancel and **Save export**, which calls `saveFormExport`.
+  - Once saved, a `SuccessBanner` ("Saved to Exports as “…”", and when it is deleted), then the ghost **Also download a copy** and **Done**.
+- The download calls `exportForm` for the same version and saves `form-<kind>-<season>-v<n>.json` through an object URL.
+- It opens from More and from the forms card's Export (new, beside Open builder).
+- Offline holds Save export and the download, with "You're offline: … waits for the connection."
+
+**Risk:** the image's footer (download and Save export side by side) differs before the save. Rejected: a download button that saves first (it still offers a download before anything is saved).
+
+## Task 1.31 — the export's label names the season (server)
+
+**Plan said:** the label "Match form 2026 · draft v4".
+
+**What was wrong:** `saveFormExport` (task 1.28) labelled it `${form.name} · draft v4`, and form names carry no year ("Match form"). `ExportSummary` has no season, so the Import picker could not show which season an export came from (the design's "Match form 2026 · v3", "Super form 2025 · v2").
+
+**What I did instead:**
+- `apps/server/src/core/commands/forms.ts` `saveFormExport` reads the form's season (`ctx.store.getSeason`) and labels the export `${form.name} ${year} · draft v4` (without the year if the season is missing).
+- The two server tests now expect "Match 2026 · draft v1" and "Match 2026 · v1".
+- `apps/server/api/index.js` (+ map) are rebuilt.
+
+**Risk:** exports saved before this change keep their old label for at most 24 hours. Rejected: a `season` column on `exportSummary` (a contract change, and the label is what the picker shows).
+
+## Task 1.31 — Import: the picker, a file read here, and the diff
+
+**Plan said:** import lists the saved exports (or reads a file), parses, validates, and shows a diff summary ("adds 3 fields, changes 1 type, removes 0") before it is applied.
+
+**What I did instead:** `ImportDialog`:
+- The saved exports (`listFormExports`) are radio rows: the label, "N fields · saved by Noa Levi, 2 hours ago", and "deleted in 22 h" in mono. It is a hand-built radio list: `DescribedChoice` lays its options side by side, and the design stacks them.
+- The newest export of the form's kind is picked and read (`getFormExport`).
+- An export of the other kind is refused here, "That export is a super form. It imports only into the super form.", because `importForm` without a `form_id` would put it into the season's OTHER form.
+- **Or a file from your computer** reads the file in the browser. `readDefinition`:
+  - `jsonProblem` gives line and column
+  - then `formDefinition.safeParse` lists each problem by position ("“auto_high” (field 2) · type: …", up to six)
+  - over HTTP a malformed file is a bare 400, so nothing is sent while there is a problem (tested)
+  - a file of the other kind is refused too
+- Into an existing form (More):
+  - the source is a compact line with "Choose another export"
+  - four `StatTile`s (Adds · Changes type · Removes · Unchanged)
+  - the list by key: + added "Counter · new", ⇄ type changed "Timer → **Number**", − removed, and the unchanged folded to "15 fields unchanged" with Show
+  - "Unchanged" means same key and same type
+  - The diff is against the draft's saved fields (read with `getFormVersion`), or the newest version's when there is no draft, because that is what `importForm` replaces or forks.
+  - The Note says it replaces draft vN (or starts it), and that the file's match timer and scoring are not imported.
+  - **Import as draft vN** sends `form_id`. After it, the builder reads the draft again: `reload` when the draft is open, otherwise it navigates to `?version=N`.
+- Into an empty form (the Forms page's missing card, Import is new there):
+  - the list stays open
+  - tiles: Fields · With meaning · Scored · Match timer (m:ss, or None)
+  - the Note "This creates the 2027 match form as draft v1 with the file's fields, scoring and match timer…"
+  - **Import as draft v1** opens the builder on the new form's v1
+- The missing match form card has the design's sentence back: "Every entry needs a match form. Create it here, or **import** last season's: export it from 2026, then pick it under Import."
+- Refusals (`kind-mismatch`, `form-exists`, `draft-exists`, `invalid-definition`, `key-retired`…) are one sentence by `formErrorLine`, naming a field by its label from the definition.
+
+**Risk:** the design's "~" mark is lucide's `ArrowRightLeft` (lucide has no tilde). The design's Note line "Nothing from 2026's entries comes with it" names a source season the definition does not carry, so the line says "No entries come with it."
+
+## Task 1.31 — Delete form: the locked confirmation, its counts read first; `DestructiveConfirm` gains `held`
+
+**Plan said:** not in the plan; the orchestrator added Delete form (More and the card's ⋯).
+
+**What was wrong:** `DestructiveConfirm` could only hold its confirm with `busy`, which also holds Cancel and Escape. Its confirm must wait while the counts are read and while offline, and Cancel must stay available.
+
+**What I did instead:**
+- `components/ui/destructive-confirm.tsx` gains `held?: string | null`. While it is set, only the confirm holds, and the line says why. Nothing else changes, and the existing tests pass.
+- `DeleteFormDialog`:
+  - `deleteForm { dry_run: true }` on open
+  - title "Delete the match form?"; the object "Match form 2026"; "and everything scouted with it:"
+  - **4** versions (3 published, 1 draft), split from the version list; **264** entries from the 2026 events, from the dry run; the scoring of its fields
+  - the Note "It is removed from every device at the next sync and **can't be undone**. **Export it first** if you might need it." Export it first closes this and opens Export.
+  - type `delete match form` (`delete super form`) to confirm; Cancel focused first; the filled-ink "Delete Match form 2026" with the trash icon, disabled (`aria-disabled`) until the phrase matches exactly (near misses tested: a trailing space, a capital, the other kind)
+  - after the delete, the builder goes to `/admin/forms` (the leave guard is told), and the Forms page reads the season again
+- The device half: SPEC §7.5 item 5 says a form delete reaches no device until task 1.40. The copy says "at the next sync" as the design does; that becomes true with 1.40.
+
+**Risk:**
+- The locked component's layout differs from the image: the object name is its own bold line above "and everything scouted with it:", there is no ×, it is 460 px wide, and the phrase is not in mono.
+- The entry count is every entry bound to any version, soft-deleted ones too (the server's dry run).
+
+## Task 1.31 — the bundle
+
+**Plan said:** builder code stays lazy; `pnpm build && pnpm bundle:check`.
+
+**What I did instead:**
+- Everything new is in the lazy `BuilderPage` chunk (42.0 KB) or shared with `FormsPage` (4.7 KB).
+- The entry chunk is 212 930 B, +300 B over 1.30's 212 630 B: `stripHiddenValues` and `evaluateExpr`, whose modules the entry already holds, and `DestructiveConfirm`'s `held`. That is within the ~1 KB allowance.
+- `bundle:check` prints 207.9 KB and exits 1 on the 205 KB line, which stays red pending the user's decision. There is no "not precached" line.
+
+**Risk:** every client task still adds to the red line.
+
+## Task 1.31 — test harness and e2e fixtures
+
+**Plan said:** `LivePreview.test.tsx` and `RawJsonEditor.test.tsx` with a four-type fixture form.
+
+**What I did instead:**
+- `src/test/builderHarness.tsx`: the four-type form (toggle; a counter shown only when the toggle is on; a counter; a single select; a computed total, drawn as the placeholder; long text), a scripted server recording every call, and a router with both pages. Used by the three new suites. `BuilderPage.test.tsx` keeps its own.
+- `ImportExport.test.tsx` covers:
+  - More held offline, and Edit as JSON held on an older version
+  - export saving before any download, and the file name
+  - import's diff counts and list, the replaced draft, a malformed file's positioned problems with no call, the empty-form import, the kind refusal, `form-exists`
+  - Delete's counts, first focus and exact phrase
+  - the card's ⋯ and Export it first
+- The e2e `formFixtures.ts` adds `listFormExports`, `getFormExport`, `saveFormExport`, `exportForm`, `importForm` and `deleteForm`. Every answer passes the API's output schema in `api-mock`.
+- Three saved exports at the design's clock (`EXPORTS_NOW`). The newest is draft v4 with three fields added and Climb time changed to a number, so the import shows adds 3 · changes 1 · removes 0.
+- `FormsPage.test.tsx`'s two "no dead buttons" assertions now assert Export, ⋯ and Import.
+
+## Task 1.31 — fix round 1: the import diff compares sections on both sides
+
+**Plan said:** the import shows a diff summary ("adds 3 fields, changes 1 type, removes 0") before it is applied.
+
+**What was wrong:** review I1. The base was `out.fields.filter((f) => !f.deprecated)`, which keeps Section headings, while the file's side was `ready.fields.filter((f) => f.type !== 'section')`. So every Section heading of the form read as "− removed", even when a form's own export was imported back.
+
+**What I did instead:**
+- Both sides keep their sections: `importDiff(base, ready.fields)`. A section is a field with a key, so a section added or removed is reported as itself ("Section · new" / "Section · removed").
+- "Unchanged" (and "N fields unchanged") counts sections too.
+- `ImportExport.test.tsx` has a fixture form with a Section heading. Re-importing that form's own export reads Adds 0 · Changes type 0 · Removes 0 · Unchanged 7. A file without the section reports it removed.
+
+**Rejected:** dropping sections from both sides. A file that drops or adds a heading would then show no change, although the import does change the form.
+
+**Risk:** the e2e fixture form has no Section field, so the e2e import screen's counts did not move (15 unchanged).
+
+## Task 1.31 — fix round 1: Next incomplete leaves Try it
+
+**Plan said:** nothing. Task 1.29 gave the held Publish a "Next incomplete →" link that selects the field.
+
+**What was wrong:** review I2. In Try it the canvas draws no selection and the settings pane is "What this entry would save". Next incomplete changed the selection and the phase, and nothing visible happened.
+
+**What I did instead:** `nextIncomplete` switches the canvas to Edit. Adding a field already did. Nothing else selects a field while Try it is on. Tested in `LivePreview.test.tsx`.
+
+**Risk:** none known.
+
+## Task 1.31 — fix round 1: Edit as JSON calls it a rename only on type, label, phase and section
+
+**Plan said:** "keys are permanent"; a renamed key of a saved field is refused.
+
+**What was wrong:** review I3. The check called it a rename when a removed saved key and a new key had the same type and label. The design's form has "Pieces scored high" in Auto and in Teleop. Removing saved `tele_high` and adding an Endgame counter "Pieces scored high" in one Apply was refused as a rename.
+
+**What I did instead:** it is a rename only when type, label, phase **and** section all match (null phase / section compared as null). Anything less is a removal and an addition, which a draft may make. The test covers the review's case (accepted), the true rename (refused), and the same rename under another section heading (accepted).
+
+**Rejected:** dropping the check, and leaving the refusal to the server. Edit as JSON matches by key and sends no ids, so the server would see a plain removal and an addition, and the saved field's entries would lose their key without a word.
+
+**Risk:** a rename that also moves the field to another phase or section gets through as a removal plus an addition; the draft's change line counts it as removed.
+
+## Task 1.31 — fix round 1: Try it drops a value whose field changed type
+
+**Plan said:** nothing.
+
+**What was wrong:** review M1. Try it kept each value by key. After a type change (settings pane, Edit as JSON, an import), the control got a value of another type, for example a counter's number in a text box.
+
+**What I did instead:**
+- `BuilderPage` keeps each tried value with the type it was filled as. A value is used only while its field still has that type.
+- Edit as JSON's Apply also prunes values whose key is gone or whose type changed.
+- An import re-reads the draft, and the builder is remounted, so nothing carries over.
+- Tested in `LivePreview.test.tsx`: Notes long text → short text and Teleop high counter → number, by Apply. Both values go.
+
+**Risk:** a type changed and changed back within one visit drops the value at the change, so the field starts again from its seed.
+
+## Task 1.31 — fix round 1: an import from the Forms page opens the draft when it made no form
+
+**Plan said:** importing into an empty form opens the builder on draft v1.
+
+**What was wrong:** review M2. `onImported` always opened `?version=1`, even when `importForm` answered `created: false`, that is, when it imported into a form that already existed.
+
+**What I did instead:** `formBuilderPath(out.form_id, out.created ? 1 : undefined)`. With no version, the builder opens the draft. Tested both ways.
+
+**Risk:** none known.
+
+## Task 1.31 — fix round 1: Delete holds until the counts are read, and a failed count offers Try again
+
+**Plan said:** the delete confirmation names what goes with the form (SPEC-FINAL 17.8).
+
+**What was wrong:** review M3. When the dry run failed, the list still said "its entries (counting…)" beside the failure line.
+
+**What I did instead:**
+- When the count fails, the entries line says "its entries (not counted)".
+- An error line in the body says "What goes with it could not be counted." with the reason and **Try again**. Try again runs the dry run again. It is held offline.
+- The confirm stays held ("Deleting waits until what goes with it is counted.") until the counts are read, even with the phrase typed, because the confirmation must name what goes.
+
+**Risk:** none known. The failure no longer uses `DestructiveConfirm`'s `error` slot, which stays for a failed delete.
+
+## Task 1.31 — fix round 1: Export says unsaved changes are not in it
+
+**Plan said:** nothing. The design's export image has a clean builder.
+
+**What was wrong:** review M4. Export from a builder with unsaved changes exported the saved version without saying so.
+
+**What I did instead:** `ExportDialog` takes `unsaved`. When it is set, and before the save, a `WarningNotice` reads "**Unsaved changes are not in the export.** Save first to include them." The builder passes `dirty`. The Forms page has no unsaved state, so it never shows the line.
+
+**Rejected:** holding Export while dirty. An admin may want the saved version on purpose. Import is held while dirty because it rewrites the draft.
+
+**Risk:** none known.
+
+## Task 1.31 — fix round 1: the saved-exports picker is `DescribedChoice`, stacked
+
+**Plan said:** §12: build from the shared components.
+
+**What was wrong:** review M5. `PickRow` was a hand-made `role="radio"` row with no roving tabindex and no arrow keys.
+
+**What I did instead:**
+- `components/ui/described-choice.tsx` gains `stacked` (the options one under another at full width) and an option's `aside` (mono `--muted` at its end, with room kept for it).
+- The picker is `<DescribedChoice stacked>`. Each option has the label, "N fields · saved by …, 2 hours ago" as its description, and "deleted in 22 h" as its aside.
+- `PickRow` is gone.
+- Existing users of `DescribedChoice` are unchanged (side by side).
+
+**Rejected:**
+- A roving tabindex on `PickRow`: a second radio pattern beside the shared one.
+- Adding arrow keys to `DescribedChoice` itself: that changes every existing user (Add user, Role), which is outside this task.
+
+**Risk:**
+- The design's radio dot is gone, as on Export's version choice (already logged). The chosen row is the accent edge and tint.
+- `DescribedChoice` options are each a tab stop, as before.
+
+## Task 1.31 — fix round 1: "Export it first" is `Button variant="link"`; `ActionMenu` moves to `components/ui`
+
+**Plan said:** §12.1 and §12.5: shared components in `components/ui/`.
+
+**What was wrong:** review M5.
+- Delete's "Export it first" was a hand-styled `<button>`.
+- `ActionMenu` lived in `features/builder`, although the Forms page uses it too.
+
+**What I did instead:**
+- `components/ui/button.tsx` gains:
+  - the variant `link`: accent-ink 650 text, underlined on hover, no veil
+  - the size `inline`: no box, `min-h-0`, `align-baseline`, with an `::after` growing the hit area by 14 px above and below
+- "Export it first" is `<Button variant="link" size="inline">`. `ui.test.tsx` checks that the pair keeps `tap-target` and the `::after` inset.
+- `features/builder/ActionMenu.tsx` is now `components/ui/action-menu.tsx`, unchanged. `BuilderTopBar`, `BuilderPage` and `FormCard` import it from there.
+
+**Risk:** BUILD-CONTEXT §12.5's component list does not name `action-menu` yet. It is a binding document, so this task does not edit it.
+
+## Task 1.31 — fix round 1: the type-to-confirm phrase in mono, in the shared `DestructiveConfirm`
+
+**Plan said:** THEME "Type to confirm": "Type `delete match form` to confirm", with the phrase in mono on `--line-2`.
+
+**What was wrong:** review M8, and this task's own logged gap. The phrase was plain text, so the admin could not see exactly what to type.
+
+**What I did instead:** `DestructiveConfirm` draws the phrase as `<code>` with `font-num`, `bg-line-2`, 4 px radius and 1 × 5 px padding (design `states.css` `.fs-type label code`). It is in the shared component, so Delete competition's season-name phrase gets it too. The label's text is unchanged, so `getByLabelText(/Type … to confirm/)` still finds the input. `destructive-confirm.test.tsx` checks the `<code>`.
+
+**Risk:** Delete competition's dialog changes look (its phrase in mono) without its own re-shoot in this task.
+
+## Task 1.31 — fix round 1: `TryItPane` takes the data; an unreadable file is said
+
+**Plan said:** nothing.
+
+**What was wrong:** review M7.
+- `TryItPane` worked out `previewData` again, although the page already had it.
+- `readFile` awaited `file.text()` with no catch, so a file the browser could not read left the dialog waiting.
+
+**What I did instead:**
+- `TryItPane({ fields, data, onStartOver })`: the page passes `tryData`.
+- `readFile` clears the previous pick and catches a rejected read. It then says "“name” could not be read on this computer. Pick it again, or another file." in an error line, and Import stays held.
+- A newer pick (a file or an export) wins over a read still in flight. `pickExport` now counts its read before the kind check too.
+- Tested.
+
+**Risk:** none known.

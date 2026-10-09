@@ -1069,10 +1069,14 @@ export async function saveFormExport(
   const definition = await definitionOf(ctx, form, version);
   const now = ctx.now();
   await ctx.store.purgeFormExports(new Date(now.getTime() - FORM_EXPORT_TTL_MS));
+  // The picker names the form, its season and its version (design 12, "Import"; task 1.31):
+  // "Match form 2026 · draft v4". The season is read for its year only.
+  const season = await ctx.store.getSeason(form.season_id);
+  const name = season ? `${form.name} ${season.year}` : form.name;
   const label =
     version.published_at === null
-      ? `${form.name} · draft v${version.version_no}`
-      : `${form.name} · v${version.version_no}`;
+      ? `${name} · draft v${version.version_no}`
+      : `${name} · v${version.version_no}`;
   const row = await ctx.store.insertFormExport({
     id: crypto.randomUUID(),
     form_id: form.id,

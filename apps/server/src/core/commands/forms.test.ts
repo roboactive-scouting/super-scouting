@@ -1088,7 +1088,7 @@ describe('saveFormExport (24-hour Exports)', () => {
       id: expect.any(String),
       form_id: formId,
       kind: 'match',
-      label: 'Match · draft v1',
+      label: 'Match 2026 · draft v1',
       field_count: 2,
       created_by: { id: 'u-admin-2', full_name: 'Second Admin' },
       created_at: ctx.nowValue.toISOString(),
@@ -1103,7 +1103,7 @@ describe('saveFormExport (24-hour Exports)', () => {
   it('labels a published version without "draft"', async () => {
     await publishWith([counter('a')]);
     const summary = await saveFormExport(ADMIN, { form_id: formId, form_version_id: draftId }, ctx);
-    expect(summary.label).toBe('Match · v1');
+    expect(summary.label).toBe('Match 2026 · v1');
   });
 });
 

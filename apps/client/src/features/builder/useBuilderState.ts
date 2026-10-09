@@ -409,6 +409,19 @@ export function useBuilderState(initial: BuilderInitial) {
     });
   }, []);
 
+  /**
+   * The whole live set at once (Edit as JSON, task 1.31): in the order given, renumbered. The
+   * baseline and the saved ids stay, so a saved field matched by its id keeps its permanent key
+   * and the next save is the usual whole-set save. The selection follows its key.
+   */
+  const replaceFields = useCallback((next: readonly FormFieldDefinition[]) => {
+    setState((s) => {
+      const fields = renumber(next.map((f) => ({ ...f, deprecated: false })));
+      const selectedKey = s.fields.find((f) => f.id === s.selected)?.key;
+      return { ...s, fields, selected: fields.find((f) => f.key === selectedKey)?.id ?? null };
+    });
+  }, []);
+
   /** The server's answer to a save: the version's rows, deprecated ones included. */
   const markSaved = useCallback((rows: readonly FormFieldDefinition[]) => {
     setState((s) => stateFrom(rows, s.fields.find((f) => f.id === s.selected)?.key ?? null));
@@ -483,6 +496,7 @@ export function useBuilderState(initial: BuilderInitial) {
     updateField,
     reorder,
     removeField,
+    replaceFields,
     markSaved,
     toSaveInput,
     save,

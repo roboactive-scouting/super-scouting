@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { goOffline, signIn } from './api-mock';
-import { MATCH_FORM_ID, SEASONS_WITH_2027 } from './formFixtures';
+import { EXPORTS_NOW, MATCH_FORM_ID, SEASONS_WITH_2027 } from './formFixtures';
 import { shoot } from './shoot';
 
 /** The forms list and the form builder (task 1.29), against the design's 2026 match form. */
@@ -35,6 +35,14 @@ test('forms: the season with its match form and versions; a phone gets the gate'
   await expect(card.getByRole('link', { name: 'Continue Draft v4' })).toBeVisible();
   await expect(card.getByRole('button', { name: 'Restore v2' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Create super form' })).toBeVisible();
+  // Task 1.31: Export beside Open builder, Delete form behind the head's ⋯, Import on a missing card.
+  await expect(card.getByRole('button', { name: 'Export' })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Form actions: Match form' })).toBeVisible();
+  await expect(
+    page
+      .getByRole('region', { name: 'Super form (not created)' })
+      .getByRole('button', { name: 'Import' }),
+  ).toBeVisible();
   await shoot(page, 'forms', 'desktop');
 
   await page.setViewportSize({ width: 375, height: 812 });
@@ -49,6 +57,7 @@ test('forms: a new season with no forms warns and offers Create', async ({ page 
   await page.getByRole('button', { name: '2027 no forms yet' }).click();
   await expect(page.getByText('No match form is published for 2027.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Create match form' })).toBeVisible();
+  await expect(page.getByText('export it from 2026, then pick it under Import.')).toBeVisible();
   await shoot(page, 'forms-new-season', 'desktop');
 });
 
@@ -173,6 +182,123 @@ test('builder: offline pauses editing and keeps unsaved changes', async ({ page 
   await expect(page.getByRole('button', { name: 'Publish v4' })).toBeDisabled();
   await expect(page.getByText('● Unsaved changes')).toBeVisible();
   await shoot(page, 'builder-offline', 'desktop');
+});
+
+test('builder: Try it fills the form as a scouter would and shows what it would save', async ({
+  page,
+}) => {
+  await openBuilder(page);
+  await canvas(page).getByRole('button', { name: 'Try it' }).click();
+  await canvas(page).getByText('Left the start zone').click();
+  const plus = canvas(page).getByRole('button', { name: 'Pieces scored high plus one' });
+  for (let i = 0; i < 3; i++) await plus.click();
+  const pane = page.getByRole('region', { name: 'What this entry would save' });
+  await expect(pane.getByText('Nothing is saved or sent.')).toBeVisible();
+  await expect(pane.getByTestId('try-saved-data')).toContainText('"auto_high": 3');
+  await expect(canvas(page).getByText('auto_high')).toHaveCount(0);
+  await shoot(page, 'builder-try', 'desktop');
+});
+
+test('builder: More holds Edit as JSON, Export, Import and Delete form', async ({ page }) => {
+  await openBuilder(page);
+  await canvas(page)
+    .getByRole('tab', { name: /Teleop/ })
+    .click();
+  await canvas(page).getByRole('button', { name: 'Cycle routes, Cycle path' }).click();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  const menu = page.getByRole('menu', { name: 'More' });
+  await expect(menu.getByRole('menuitem')).toHaveCount(4);
+  await expect(menu.getByText('Advanced: the whole form as text.', { exact: false })).toBeVisible();
+  await shoot(page, 'builder-more', 'desktop');
+});
+
+test('builder: Edit as JSON names the line and column of a missing comma', async ({ page }) => {
+  await openBuilder(page);
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: /Edit as JSON/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit as JSON' });
+  const editor = dialog.getByRole('textbox', { name: 'The form as JSON' });
+  const lines = (await editor.inputValue()).split('\n');
+  // The comma after Shots' first button ("High goal"), as in the design.
+  const high = lines.findIndex((l) => l.includes('"label": "High goal"'));
+  const close = lines.findIndex((l, i) => i > high && l.trim() === '},');
+  lines[close] = lines[close]!.replace('},', '}');
+  await editor.fill(lines.join('\n'));
+  await expect(dialog.getByRole('alert')).toContainText(
+    `Line ${close + 2}, column 11: a comma is missing at the end of line ${close + 1}.`,
+  );
+  await expect(dialog.getByRole('button', { name: 'Apply' })).toBeDisabled();
+  await editor.evaluate((el, line) => {
+    el.scrollTop = Math.max(0, (line - 9) * 20);
+    el.dispatchEvent(new Event('scroll'));
+  }, close + 2);
+  await shoot(page, 'builder-json', 'desktop');
+});
+
+test('builder: Export picks the version and saves into Exports for 24 hours', async ({ page }) => {
+  await openBuilder(page);
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Export/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Export the match form' });
+  await expect(dialog.getByRole('radio', { name: /Draft v4/ })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await expect(dialog.getByText('Match form 2026 · draft v4')).toBeVisible();
+  await shoot(page, 'builder-export', 'desktop');
+  await dialog.getByRole('button', { name: 'Save export' }).click();
+  await expect(dialog.getByRole('button', { name: 'Also download a copy' })).toBeVisible();
+});
+
+test('builder: Import into this form shows what it adds, changes and removes', async ({ page }) => {
+  await page.clock.setFixedTime(EXPORTS_NOW);
+  await openBuilder(page);
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Import/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Import a form' });
+  await expect(dialog.getByText('Choose another export')).toBeVisible();
+  await expect(dialog.getByText('15 fields unchanged')).toBeVisible();
+  await expect(dialog.getByText('tele_traps')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Import as draft v4' })).toBeEnabled();
+  await shoot(page, 'builder-import', 'desktop');
+});
+
+test('builder: Delete form waits for the typed phrase', async ({ page }) => {
+  await openBuilder(page);
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: /Delete form/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Delete the match form?' });
+  await expect(dialog.getByText('264 entries from the 2026 events')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+  const confirm = dialog.getByRole('button', { name: 'Delete Match form 2026' });
+  await expect(confirm).toHaveAttribute('aria-disabled', 'true');
+  await dialog.getByLabel(/to confirm/).fill('delete match form');
+  await expect(confirm).not.toHaveAttribute('aria-disabled', 'true');
+  await shoot(page, 'builder-delete', 'desktop');
+});
+
+test('forms: Import into the new season shows the saved exports and what the file creates', async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(EXPORTS_NOW);
+  await signIn(page, 'admin', { overrides: OVERRIDES });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/admin/forms');
+  await page.getByRole('button', { name: '2027 no forms yet' }).click();
+  await page
+    .getByRole('region', { name: 'Match form (not created)' })
+    .getByRole('button', { name: 'Import' })
+    .click();
+  const dialog = page.getByRole('dialog', { name: 'Import the 2027 match form' });
+  await expect(dialog.getByRole('radio')).toHaveCount(3);
+  await expect(dialog.getByRole('radio', { name: /Match form 2026 · draft v4/ })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await expect(dialog.getByText('deleted in 22 h')).toBeVisible();
+  await expect(dialog.getByText('3:00')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Import as draft v1' })).toBeEnabled();
+  await shoot(page, 'forms-import-new-season', 'desktop');
 });
 
 test('builder: a phone gets the needs-a-computer panel', async ({ page }) => {

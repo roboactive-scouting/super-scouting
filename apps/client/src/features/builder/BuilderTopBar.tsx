@@ -1,6 +1,7 @@
-import { ArrowRight, Check, RotateCcw, TriangleAlert, WifiOff } from 'lucide-react';
+import { ArrowRight, Check, ChevronDown, RotateCcw, TriangleAlert, WifiOff } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { formatTime, type GetFormOutput, type VersionSummary } from '@frc/shared';
+import { ActionMenu, type ActionItem } from '@/components/ui/action-menu';
 import { Button } from '@/components/ui/button';
 import { formBuilderPath } from '@/lib/paths';
 import { MEANING_PATHS, type IncompleteField } from './useBuilderState';
@@ -47,7 +48,8 @@ export function heldLine(
  * (its chevron opens the version list), the change line, and "● Unsaved changes" or
  * "✓ Saved hh:mm". At the right: Save draft + Publish vN on a draft, Save changes on the active
  * version, Restore on an older one. A held Publish gets a `--warn` line with "Next incomplete →".
- * Match timer (task 1.32) and More (task 1.31) join the actions later.
+ * **More ▾** (task 1.31: Edit as JSON · Export · Import · Delete form) sits before them, held
+ * offline and while anything is in flight. Match timer (task 1.32) joins the actions later.
  */
 export function BuilderTopBar({
   form,
@@ -67,6 +69,7 @@ export function BuilderTopBar({
   onRestore,
   onOpenVersion,
   onNextIncomplete,
+  more,
 }: {
   form: GetFormOutput;
   version: VersionSummary;
@@ -90,6 +93,8 @@ export function BuilderTopBar({
   onRestore: (version: VersionSummary) => void;
   onOpenVersion: (versionNo: number) => void;
   onNextIncomplete: () => void;
+  /** The More menu's rows; no More without them. */
+  more?: readonly ActionItem[];
 }) {
   const draft = version.status === 'draft';
   const off = !online || busy !== null;
@@ -136,6 +141,15 @@ export function BuilderTopBar({
       </div>
       <div className="ms-auto flex flex-col items-end">
         <div className="flex items-center gap-1.5">
+          {more && (
+            <>
+              <ActionMenu label="More" items={more} disabled={off} className={BAR_BUTTON}>
+                More
+                <ChevronDown aria-hidden="true" />
+              </ActionMenu>
+              <span aria-hidden="true" className="mx-1.5 h-7 w-px bg-line" />
+            </>
+          )}
           {!editable ? (
             <Button
               variant="primary"

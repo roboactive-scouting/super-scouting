@@ -4021,7 +4021,9 @@ async function saveFormExport(caller, input, ctx) {
   const definition = await definitionOf(ctx, form, version);
   const now = ctx.now();
   await ctx.store.purgeFormExports(new Date(now.getTime() - FORM_EXPORT_TTL_MS));
-  const label = version.published_at === null ? `${form.name} \xB7 draft v${version.version_no}` : `${form.name} \xB7 v${version.version_no}`;
+  const season = await ctx.store.getSeason(form.season_id);
+  const name = season ? `${form.name} ${season.year}` : form.name;
+  const label = version.published_at === null ? `${name} \xB7 draft v${version.version_no}` : `${name} \xB7 v${version.version_no}`;
   const row = await ctx.store.insertFormExport({
     id: crypto.randomUUID(),
     form_id: form.id,

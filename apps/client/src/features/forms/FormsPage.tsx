@@ -14,7 +14,9 @@ import { SeasonChips } from '@/components/ui/season-chips';
 import { adminRpc, type Rpc } from '@/data/rpc';
 import { AdminOnly } from '@/features/admin/AdminOnly';
 import { FORMS_GATE } from '@/features/forms/formsGate';
+import { DeleteFormDialog } from '@/features/builder/DeleteFormDialog';
 import { formErrorLine } from '@/features/builder/formErrors';
+import { ExportDialog, ImportDialog } from '@/features/builder/ImportExport';
 import { formBuilderPath, PATHS } from '@/lib/paths';
 import { useOnline } from '@/lib/useOnline';
 import { FormCard, MissingFormCard } from './FormCard';
@@ -98,6 +100,11 @@ function Seasons({
   const [errors, setErrors] = useState<Partial<Record<FormKind, string>>>({});
   /** A card whose restore went through but whose list did not read again: offer Try again. */
   const [stale, setStale] = useState<FormKind | null>(null);
+  /** A card's dialog (task 1.31): Export or Delete form on a form, Import on a missing one. */
+  const [dialog, setDialog] = useState<{
+    what: 'export' | 'delete' | 'import';
+    kind: FormKind;
+  } | null>(null);
 
   const season = load.seasons.find((s) => s.id === chosen) ?? null;
   if (!season) {
@@ -204,6 +211,8 @@ function Seasons({
               error={errors[kind] ?? null}
               onRetry={stale === kind ? () => void refresh(kind, '') : undefined}
               onRestore={(version) => void restore(form, version)}
+              onExport={() => setDialog({ what: 'export', kind })}
+              onDelete={() => setDialog({ what: 'delete', kind })}
             />
           ) : (
             <MissingFormCard
@@ -214,10 +223,51 @@ function Seasons({
               creating={creating === kind}
               error={errors[kind] ?? null}
               onCreate={() => void create(kind)}
+              onImport={() => setDialog({ what: 'import', kind })}
             />
           );
         })}
       </div>
+      {cardDialog()}
     </>
   );
+
+  /** The open dialog, called (never mounted as a component) so its state survives renders. */
+  function cardDialog() {
+    if (!dialog) return null;
+    const close = () => setDialog(null);
+    const form = forms.find((f) => f.kind === dialog.kind);
+    if (dialog.what === 'import') {
+      return (
+        <ImportDialog
+          target={{ kind: dialog.kind, seasonId, year: season!.year, form: null }}
+          rpc={rpc}
+          online={online}
+          onClose={close}
+          // A new form opens on its v1; an import into a form already there opens its draft.
+          onImported={(out) => navigate(formBuilderPath(out.form_id, out.created ? 1 : undefined))}
+        />
+      );
+    }
+    if (!form) return null;
+    if (dialog.what === 'export') {
+      return (
+        <ExportDialog form={form} year={season!.year} rpc={rpc} online={online} onClose={close} />
+      );
+    }
+    return (
+      <DeleteFormDialog
+        form={form}
+        year={season!.year}
+        rpc={rpc}
+        online={online}
+        onClose={close}
+        onExportFirst={() => setDialog({ what: 'export', kind: form.kind })}
+        onDeleted={() => {
+          close();
+          void refresh(form.kind, `${KIND_NAME[form.kind]} ${season!.year} is deleted. `);
+        }}
+      />
+    );
+  }
 }

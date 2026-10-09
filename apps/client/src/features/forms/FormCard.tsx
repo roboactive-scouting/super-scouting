@@ -1,7 +1,18 @@
-import { Eye, FileText, Plus, Star, type LucideIcon } from 'lucide-react';
+import {
+  Download,
+  Ellipsis,
+  Eye,
+  FileText,
+  Plus,
+  Star,
+  Trash2,
+  Upload,
+  type LucideIcon,
+} from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { FormKind, FormListItem, VersionSummary } from '@frc/shared';
+import { ActionMenu } from '@/components/ui/action-menu';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { ErrorLine } from '@/components/ui/notice';
 import { NotCreatedTag, VersionTag } from '@/components/ui/version-tag';
@@ -78,7 +89,7 @@ function Stat({
 /**
  * THEME "Form card" (Forms list, 2026-10-08): the head (dark icon square, the name over its
  * meaning, the status tag), the stat row (Fields · Entries · Versions · Last edited), the version
- * timeline, then Open builder. Export (and ⋯ Delete form) arrive with task 1.31.
+ * timeline, then Open builder and Export (task 1.31). The head's ⋯ holds Delete form.
  */
 export function FormCard({
   form,
@@ -87,6 +98,8 @@ export function FormCard({
   error,
   onRetry,
   onRestore,
+  onExport,
+  onDelete,
 }: {
   form: FormListItem;
   restoring: string | null;
@@ -95,6 +108,8 @@ export function FormCard({
   /** The error line's Try again: read the list again (after a restore whose re-read failed). */
   onRetry?: () => void;
   onRestore: (version: VersionSummary) => void;
+  onExport: () => void;
+  onDelete: () => void;
 }) {
   const status = statusOf(form);
   const stats = statsOf(form);
@@ -108,9 +123,28 @@ export function FormCard({
         name={form.name}
         dim={false}
         tag={
-          <VersionTag tone={status.tone} locked={status.locked}>
-            {status.text}
-          </VersionTag>
+          <>
+            <VersionTag tone={status.tone} locked={status.locked}>
+              {status.text}
+            </VersionTag>
+            <ActionMenu
+              label={`Form actions: ${form.name}`}
+              size="icon-sm"
+              className="border-line text-ink-2"
+              disabled={!online}
+              items={[
+                {
+                  key: 'delete',
+                  icon: Trash2,
+                  title: 'Delete form',
+                  detail: 'Removes every version and its entries. Asks first.',
+                  onSelect: onDelete,
+                },
+              ]}
+            >
+              <Ellipsis aria-hidden="true" />
+            </ActionMenu>
+          </>
         }
       />
       <dl className="flex rounded-control border border-line">
@@ -154,6 +188,10 @@ export function FormCard({
           <Eye aria-hidden="true" />
           Open builder
         </Link>
+        <Button className="min-h-10 px-3.5 text-[0.84375rem]" disabled={!online} onClick={onExport}>
+          <Download aria-hidden="true" />
+          Export
+        </Button>
         <span className="ms-auto text-[0.78125rem] text-muted">
           Open builder opens the draft if there is one
         </span>
@@ -163,8 +201,8 @@ export function FormCard({
 }
 
 /**
- * A missing form (13-forms README): a dashed card on `--bg` with Create. Import arrives with
- * task 1.31.
+ * A missing form (13-forms README): a dashed card on `--bg` with Create and Import (a saved
+ * export or a file, task 1.31).
  */
 export function MissingFormCard({
   kind,
@@ -173,6 +211,7 @@ export function MissingFormCard({
   creating,
   error,
   onCreate,
+  onImport,
 }: {
   kind: FormKind;
   year: number;
@@ -180,6 +219,7 @@ export function MissingFormCard({
   creating: boolean;
   error: string | null;
   onCreate: () => void;
+  onImport: () => void;
 }) {
   return (
     <section
@@ -188,9 +228,14 @@ export function MissingFormCard({
     >
       <CardHead kind={kind} name={KIND_NAME[kind]} dim tag={<NotCreatedTag />} />
       <p className="text-[0.84375rem] leading-normal text-muted">
-        {kind === 'match'
-          ? 'Every entry needs a match form. Create it here, then publish it from the form builder.'
-          : `No super form for ${year} yet. Super scouting is optional; the match form is enough to scout.`}
+        {kind === 'match' ? (
+          <>
+            Every entry needs a match form. Create it here, or <b className="text-ink">import</b>{' '}
+            last season's: export it from {year - 1}, then pick it under Import.
+          </>
+        ) : (
+          `No super form for ${year} yet. Super scouting is optional; the match form is enough to scout.`
+        )}
       </p>
       {error && <ErrorLine>{error}</ErrorLine>}
       <div className="flex flex-wrap items-center gap-2">
@@ -204,6 +249,14 @@ export function MissingFormCard({
         >
           <Plus aria-hidden="true" />
           Create {KIND_NAME[kind].toLowerCase()}
+        </Button>
+        <Button
+          className="min-h-10 px-3.5 text-[0.84375rem]"
+          disabled={!online || creating}
+          onClick={onImport}
+        >
+          <Upload aria-hidden="true" />
+          Import
         </Button>
         {!online && (
           <span className="text-[0.78125rem] text-muted">Creating a form needs a connection.</span>
