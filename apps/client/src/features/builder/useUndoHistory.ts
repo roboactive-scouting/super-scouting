@@ -1,4 +1,4 @@
-import { useCallback, useReducer, useRef } from 'react';
+import { useCallback, useMemo, useReducer, useRef } from 'react';
 
 /**
  * Typing that pauses for this long starts a new undo step: a burst of keystrokes in one box is
@@ -30,6 +30,9 @@ export function typingGroup(): string | undefined {
   return `box-${n}`;
 }
 
+/** A recorded state, with the group of the edit that followed it (the edit an undo takes back). */
+type Entry<S> = { snap: S; group: string | undefined };
+
 /**
  * Undo and redo over snapshots of an edit model (UF.14). The page calls `record(group?)` just
  * before each edit, with the state as it is then; `undo` brings back the last recorded state
@@ -37,11 +40,16 @@ export function typingGroup(): string | undefined {
  * same `group` within `PAUSE_MS` of the last joins its step. A step that changed nothing (a
  * click on what was already chosen) is never one to undo. `clear` starts a new history: the
  * builder calls it on every save, and a load is a new editor with a new history.
+ *
+ * `watch` is what `capture` reads that moves with an edit: `canUndo` is worked out again only
+ * when the history or one of these changes, not on every render (a drag renders on every
+ * pointer move). `groupOf` names the group of the step an undo or a redo would take.
  */
 export function useUndoHistory<S>({
   capture,
   restore,
   same,
+  watch,
   now = () => Date.now(),
 }: {
   /** The state as it is now. */
@@ -50,12 +58,14 @@ export function useUndoHistory<S>({
   restore: (snap: S) => void;
   /** Two states the user could not tell apart. */
   same: (a: S, b: S) => boolean;
+  /** Every value `same` tells apart in what `capture` reads; the same length on every render. */
+  watch: readonly unknown[];
   now?: () => number;
 }) {
-  const past = useRef<S[]>([]);
-  const future = useRef<S[]>([]);
+  const past = useRef<Entry<S>[]>([]);
+  const future = useRef<Entry<S>[]>([]);
   const burst = useRef<{ group: string; at: number } | null>(null);
-  const [, changed] = useReducer((n: number) => n + 1, 0);
+  const [moves, changed] = useReducer((n: number) => n + 1, 0);
 
   const record = useCallback(
     (group?: string) => {
@@ -68,9 +78,11 @@ export function useUndoHistory<S>({
       burst.current = group === undefined ? null : { group, at };
       const current = capture();
       const top = past.current[past.current.length - 1];
-      // The step on top changed nothing: this edit takes its place rather than stack on it.
-      if (!(top !== undefined && same(top, current))) {
-        past.current = [...past.current, current].slice(-LIMIT);
+      if (top !== undefined && same(top.snap, current)) {
+        // The step on top changed nothing: this edit takes its place rather than stack on it.
+        past.current = [...past.current.slice(0, -1), { snap: top.snap, group }];
+      } else {
+        past.current = [...past.current, { snap: current, group }].slice(-LIMIT);
       }
       future.current = [];
       changed();
@@ -78,27 +90,36 @@ export function useUndoHistory<S>({
     [capture, same, now],
   );
 
+  /** The past with any step on top that changed nothing taken off (at most one). */
+  const effectivePast = useCallback(
+    (current: S) => {
+      const stack = [...past.current];
+      while (stack.length > 0 && same(stack[stack.length - 1]!.snap, current)) stack.pop();
+      return stack;
+    },
+    [same],
+  );
+
   const undo = useCallback(() => {
     burst.current = null;
     const current = capture();
-    const stack = [...past.current];
-    while (stack.length > 0 && same(stack[stack.length - 1]!, current)) stack.pop();
+    const stack = effectivePast(current);
     const target = stack.pop();
     past.current = stack;
     if (target !== undefined) {
-      future.current = [...future.current, current];
-      restore(target);
+      future.current = [...future.current, { snap: current, group: target.group }];
+      restore(target.snap);
     }
     changed();
-  }, [capture, restore, same]);
+  }, [capture, restore, effectivePast]);
 
   const redo = useCallback(() => {
     burst.current = null;
     const target = future.current[future.current.length - 1];
     if (target === undefined) return;
     future.current = future.current.slice(0, -1);
-    past.current = [...past.current, capture()];
-    restore(target);
+    past.current = [...past.current, { snap: capture(), group: target.group }];
+    restore(target.snap);
     changed();
   }, [capture, restore]);
 
@@ -110,11 +131,26 @@ export function useUndoHistory<S>({
     changed();
   }, []);
 
+  /** The group of the step `undo` or `redo` would take, if there is one and it had a group. */
+  const groupOf = useCallback(
+    (which: 'undo' | 'redo') => {
+      if (which === 'redo') return future.current[future.current.length - 1]?.group;
+      return effectivePast(capture()).pop()?.group;
+    },
+    [capture, effectivePast],
+  );
+
   // Only the top step can be one that changed nothing (`record` never stacks two equal ones).
-  const steps = past.current.length;
-  const top = past.current[steps - 1];
-  const canUndo = steps > 1 || (top !== undefined && !same(top, capture()));
+  const canUndo = useMemo(
+    () => {
+      const steps = past.current.length;
+      const top = past.current[steps - 1];
+      return steps > 1 || (top !== undefined && !same(top.snap, capture()));
+    },
+    // `capture` and `same` are new on every render; what they read is `watch`.
+    [moves, ...watch],
+  );
   const canRedo = future.current.length > 0;
 
-  return { record, undo, redo, clear, canUndo, canRedo };
+  return { record, undo, redo, clear, groupOf, canUndo, canRedo };
 }

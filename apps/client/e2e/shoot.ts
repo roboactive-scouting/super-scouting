@@ -8,12 +8,15 @@ const WIDTHS = {
 } as const;
 
 /**
- * Shot only when asked for by name: 1024 x 768, the narrowest desktop (desktop-only pages), and
- * 768 x 1024, a tablet held upright (UF.18: the entry controls between the phone and the desk).
+ * Shot only when asked for by name: 1024 x 768, the narrowest desktop (desktop-only pages),
+ * 768 x 1024, a tablet held upright (UF.18: the entry controls between the phone and the desk),
+ * and 1100 x 800, a small desktop whose entry column is under the option buttons' four-column
+ * width (UF.18 review).
  */
 const EXTRA = {
   laptop: { width: 1024, height: 768 },
   tablet: { width: 768, height: 1024 },
+  small: { width: 1100, height: 800 },
 } as const;
 
 const screenPath = (file: string) =>
@@ -60,8 +63,9 @@ export async function shoot(
   only?: keyof typeof WIDTHS | keyof typeof EXTRA,
   opts: { long?: boolean } = {},
 ) {
-  // `only: 'laptop'` writes `<name>-laptop.png` at 1024 x 768; `'tablet'`, 768 x 1024.
-  const extra = only === 'laptop' || only === 'tablet';
+  // `only: 'laptop'` writes `<name>-laptop.png` at 1024 x 768; `'tablet'`, 768 x 1024;
+  // `'small'`, 1100 x 800.
+  const extra = only !== undefined && only in EXTRA;
   for (const [label, size] of Object.entries(extra ? EXTRA : WIDTHS)) {
     if (only && only !== label) continue;
     await page.setViewportSize(size);

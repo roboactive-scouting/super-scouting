@@ -51,7 +51,13 @@ afterEach(() => {
 });
 
 /** A slow budget: under a full run these whole-builder flows outlast vitest's 5 s default. */
-const SLOW = { timeout: 20_000 };
+const SLOW = { timeout: 10_000 };
+
+/**
+ * Ctrl+Z pressed on an element, as the browser sends it: true when nothing prevented its
+ * default, so the box's own undo would run.
+ */
+const pressUndo = (el: Element) => fireEvent.keyDown(el, { key: 'z', code: 'KeyZ', ctrlKey: true });
 
 describe('Builder undo and redo (UF.14)', SLOW, () => {
   it('both are held on load; a field added from the palette is undone and redone', async () => {
@@ -189,6 +195,45 @@ describe('Builder undo and redo (UF.14)', SLOW, () => {
     expect(within(canvas()).getByText('5/ea pts')).toBeVisible();
   });
 
+  it('undoing Remove field on a field never saved brings it back with its points', async () => {
+    await openBuilder(draftPath, server().rpc);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole('button', { name: /^Add Counter:/ }));
+    const box = within(settings()).getByLabelText('Points per unit');
+    await u.clear(box);
+    await u.type(box, '5');
+    await u.click(within(settings()).getByRole('button', { name: 'Field actions: Counter' }));
+    await u.click(screen.getByRole('menuitem', { name: /Remove field/ }));
+    expect(canvasKeys()).not.toContain('auto_counter');
+
+    await u.click(undoButton());
+    expect(canvasKeys()).toContain('auto_counter');
+    expect(within(canvas()).getByText('5/ea pts')).toBeVisible();
+    expect(within(settings()).getByLabelText('Points per unit')).toHaveValue('5');
+    await u.click(redoButton());
+    expect(canvasKeys()).not.toContain('auto_counter');
+  });
+
+  it('undoing a retype brings back the type, its settings and the points it dropped', async () => {
+    await openBuilder(draftPath, server().rpc);
+    const u = userEvent.setup();
+    await u.click(within(canvas()).getByRole('tab', { name: /Teleop/ }));
+    await u.click(within(canvas()).getByRole('button', { name: 'Teleop high, Counter' }));
+    expect(within(canvas()).getByText('4/ea pts')).toBeVisible();
+    // Saved and complete, its Field group starts folded.
+    await u.click(within(settings()).getByRole('button', { name: 'Field', expanded: false }));
+    await u.selectOptions(within(settings()).getByLabelText('Type'), 'long_text');
+    expect(within(canvas()).getByRole('button', { name: 'Teleop high, Long text' })).toBeVisible();
+    expect(within(canvas()).queryByText('4/ea pts')).toBeNull();
+
+    await u.click(undoButton());
+    expect(within(canvas()).getByRole('button', { name: 'Teleop high, Counter' })).toBeVisible();
+    expect(within(settings()).getByLabelText('Type')).toHaveValue('counter');
+    expect(within(settings()).getByLabelText('Points per unit')).toHaveValue('4');
+    expect(within(canvas()).getByText('4/ea pts')).toBeVisible();
+    expect(saveState()).not.toHaveTextContent('Unsaved changes');
+  });
+
   it('Ctrl+Z inside a dialog is the dialog’s own: the builder’s edits stay', async () => {
     await openBuilder(draftPath, server().rpc);
     const u = userEvent.setup();
@@ -214,6 +259,7 @@ describe('Builder undo and redo (UF.14)', SLOW, () => {
     expect(paneKey()).toBe('auto_drops');
     await u.click(screen.getByRole('button', { name: 'Save draft' }));
     await waitFor(() => expect(saveState()).toHaveTextContent('Saved'));
+    await waitFor(() => expect(undoButton()).toBeDisabled());
 
     // Nothing to undo across the save: the field the server has given an id stays as saved.
     expect(undoButton()).toBeDisabled();
@@ -248,6 +294,71 @@ describe('Builder undo and redo (UF.14)', SLOW, () => {
     await screen.findByRole('button', { name: 'Save draft' });
     await waitFor(() => expect(redoButton()).toBeDisabled());
     expect(undoButton()).toBeDisabled();
+  });
+});
+
+describe('Builder undo keys and the box being typed in (UF.14 review)', SLOW, () => {
+  it('in Try it, Ctrl+Z is the test box’s own and Undo / Redo are held: the builder’s edits stay', async () => {
+    await openBuilder(draftPath, server().rpc);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole('button', { name: /^Add Counter:/ }));
+    expect(undoButton()).toBeEnabled();
+    await u.click(within(canvas()).getByRole('button', { name: 'Try it' }));
+    expect(undoButton()).toBeDisabled();
+    expect(redoButton()).toBeDisabled();
+    await u.click(within(canvas()).getByRole('tab', { name: /Notes/ }));
+    const notes = within(canvas()).getByRole('textbox', { name: 'Notes' });
+    await u.type(notes, 'Fast');
+    expect(pressUndo(notes)).toBe(true);
+    expect(notes).toHaveValue('Fast');
+
+    await u.click(within(canvas()).getByRole('button', { name: 'Edit' }));
+    expect(undoButton()).toBeEnabled();
+    expect(saveState()).toHaveTextContent('● Unsaved changes');
+    await u.click(within(canvas()).getByRole('tab', { name: /^Auto/ }));
+    expect(canvasKeys()).toContain('auto_counter');
+  });
+
+  it('Ctrl+Z in one end of a half-filled expected range is the box’s own: the draft and the label typed before it stay', async () => {
+    await openBuilder(draftPath, server().rpc);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole('button', { name: /^Add Counter:/ }));
+    const label = () => within(settings()).getByLabelText('Label');
+    await u.clear(label());
+    await u.type(label(), 'Drops');
+    const lowest = () => within(settings()).getByLabelText('Expected range, lowest');
+    await u.type(lowest(), '3');
+
+    // Typing one end commits nothing: the step on top is the label's, so the box keeps Ctrl+Z.
+    expect(pressUndo(lowest())).toBe(true);
+    expect(lowest()).toHaveValue('3');
+    expect(label()).toHaveValue('Drops');
+    expect(paneKey()).toBe('auto_drops');
+
+    // The label box commits every keystroke: there, Ctrl+Z is still the builder's.
+    await u.click(label());
+    expect(pressUndo(label())).toBe(false);
+    expect(label()).toHaveValue('Counter');
+    expect(paneKey()).toBe('auto_counter');
+  });
+
+  it('Ctrl+Z in a Show when value not yet given is the box’s own: the picked field and the earlier edit stay', async () => {
+    await openBuilder(draftPath, server().rpc);
+    const u = userEvent.setup();
+    await u.click(screen.getByRole('button', { name: /^Add Counter:/ }));
+    await u.click(within(settings()).getByRole('button', { name: /Show this field only when/ }));
+    await u.selectOptions(within(settings()).getByLabelText('When field'), 'auto_high');
+    const value = within(settings()).getByLabelText('Value');
+    await u.click(value);
+
+    expect(pressUndo(value)).toBe(true);
+    expect(within(settings()).getByLabelText('When field')).toHaveValue('auto_high');
+    expect(canvasKeys()).toContain('auto_counter');
+
+    // Outside a text box the builder's undo is unchanged.
+    await u.click(within(settings()).getByLabelText('When field'));
+    expect(pressUndo(within(settings()).getByLabelText('When field'))).toBe(false);
+    expect(canvasKeys()).not.toContain('auto_counter');
   });
 });
 

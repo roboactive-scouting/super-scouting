@@ -267,7 +267,7 @@ format (`+00:00`), which the op schema refused, and that one op made the whole b
 
 ---
 
-# UI fix round 2 — form builder (UF.14–UF.19)
+# UI fix round 2 — form builder (UF.14–UF.21)
 
 **Input:** the user's notes from testing the merged Phase 1 D builder on dev (2026-10-09).
 **Binding:** `docs/ops/BUILD-CONTEXT.md`. Branch `feat/builder-ui-round-2`, cut from `develop`

@@ -20,7 +20,7 @@ afterEach(() => {
   goOnline();
 });
 
-describe('Builder canvas: a field moved by its grip (UF.20)', { timeout: 20_000 }, () => {
+describe('Builder canvas: a field moved by its grip (UF.20)', { timeout: 10_000 }, () => {
   it('lifts while it moves: it carries a transform and the float shadow; the field it passes slides, not jumps', async () => {
     // Motion allowed (jsdom has no matchMedia, which reads as reduced motion), at a desktop width.
     window.matchMedia = ((query: string) => ({
@@ -68,8 +68,12 @@ describe('Builder canvas: a field moved by its grip (UF.20)', { timeout: 20_000 
   });
 });
 
-describe('Builder canvas under reduced motion (UF.20)', { timeout: 20_000 }, () => {
-  it('the passed field jumps to its new place: no slide', async () => {
+/*
+ * A guard, not UF.20's fix: reduced motion already switched dnd-kit's transition off before
+ * UF.20 (SPEC-FINAL 17.9), and it must stay off now that the others slide.
+ */
+describe('Builder canvas under reduced motion (SPEC-FINAL 17.9)', { timeout: 10_000 }, () => {
+  it('the field it passes still makes room for it, with no transition', async () => {
     await openBuilder(draftPath, server().rpc);
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
       this: HTMLElement,

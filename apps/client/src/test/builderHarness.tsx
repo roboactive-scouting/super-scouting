@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom';
 import { vi } from 'vitest';
 import type { Role, ScoredFieldRow, VersionSummary } from '@frc/shared';
@@ -169,12 +169,20 @@ export async function openBuilder(path: string, rpc: Rpc) {
   return router;
 }
 
+/**
+ * The browser going offline or back online. In `act`: the page's `useOnline` re-renders on the
+ * event, an `afterEach` included (the page is still mounted then).
+ */
 export function goOffline() {
   Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false });
-  window.dispatchEvent(new Event('offline'));
+  act(() => {
+    window.dispatchEvent(new Event('offline'));
+  });
 }
 
 export function goOnline() {
   Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => true });
-  window.dispatchEvent(new Event('online'));
+  act(() => {
+    window.dispatchEvent(new Event('online'));
+  });
 }

@@ -161,7 +161,7 @@ describe('Try it: fix round 1 (task 1.31)', () => {
   });
 });
 
-describe('Try it explains itself (UF.15, UF.16, UF.17)', { timeout: 20_000 }, () => {
+describe('Try it explains itself (UF.15, UF.16, UF.17)', { timeout: 10_000 }, () => {
   it('says what it is for at the top, names its reset "Clear test values", and explains the analysis', async () => {
     await openBuilder(draftPath, server().rpc);
     const u = await tryIt();

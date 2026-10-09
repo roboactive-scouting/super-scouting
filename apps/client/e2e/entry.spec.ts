@@ -112,8 +112,9 @@ test('entry: a swipe on the empty page below the form changes phase', async ({ p
 
 /**
  * UF.18: the option buttons lay out by their own width. The Endgame climb select has four
- * options: two columns on a phone, four on a tablet held upright and on a computer; the ✓ of the
- * chosen one is clear of its card's edge, and a tap shows no focus ring.
+ * options: two columns on a phone, four on a tablet held upright and on a wide computer; two on
+ * a small desktop (1100 px), where the entry's main column is narrower than on the tablet. The
+ * ✓ of the chosen one is clear of its card's edge, and a tap shows no focus ring.
  */
 test('entry: a four-option select at phone, tablet and desktop widths', async ({ page }) => {
   await signIn(page, 'scouter');
@@ -143,6 +144,10 @@ test('entry: a four-option select at phone, tablet and desktop widths', async ({
   await page.setViewportSize({ width: 375, height: 812 });
   expect(await columns()).toBe(2);
   expect(await markClear()).toBeGreaterThanOrEqual(12);
+  await page.setViewportSize({ width: 1100, height: 800 });
+  expect(await columns()).toBe(2);
+  expect(await markClear()).toBeGreaterThanOrEqual(12);
+  await shoot(page, 'entry-endgame', 'small');
   await page.setViewportSize({ width: 1440, height: 900 });
   expect(await columns()).toBe(4);
   expect(await markClear()).toBeGreaterThanOrEqual(12);
