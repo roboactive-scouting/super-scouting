@@ -6453,3 +6453,108 @@ Rejected:
 - Tested.
 
 **Risk:** none known.
+
+## Task 1.32 — `timerConfigSchema` is `updateForm`'s schema, not a second one
+
+**Plan said:** create `packages/shared/src/forms/timer.ts` with its own `timerConfigSchema = z.object({ phases: z.array(z.object({ phase: z.enum([...]), seconds: z.number().positive() })) })` and `type TimerConfig`.
+
+**What was wrong:** chat 1 already wrote the stricter schema the server checks, `timerConfig` in `packages/shared/src/api/forms.ts` (phases from `FIELD_PHASES`, each named once, whole seconds 1–3600, at most 8, `.strict()`), with `type TimerConfig`. A second, looser definition would let the editor accept a timer the server refuses (1.5 s, a phase named twice).
+
+**What I did instead:** (orchestrator decision) `timer.ts` exports `timerConfigSchema = timerConfig` (the same object; a test asserts `toBe`), `matchEndSeconds` and `phaseAt` as the plan writes them, `type TimerPhaseName`, and `formatClock(seconds)` (m:ss). `TimerConfig` stays exported from `api/forms.ts` only, so `export *` in `index.ts` has one source for it. Every plan test case is kept and passes; three more cover the identity, duplicates / fractions / 3601, and m:ss. `ImportExport.tsx`'s own m:ss sum now uses `matchEndSeconds` + `formatClock`.
+
+Rejected: renaming either `phaseAt`. The client's `phaseAt(fields, index)` in `useBuilderState.ts` is imported only by relative path, so nothing is ambiguous; renaming it would churn three files for no gain.
+
+**Risk:** none known. The server bundle is byte-identical (the server does not import the new helpers).
+
+## Task 1.32 — the Match timer dialog: copy, phase names and tones
+
+**Plan said:** one row per phase with a phase `<select>` and a seconds input, add / remove / reorder, the total "match ends at 180 s (3:00)", the note "Changing these is an in-place edit. It never creates a new form version.", and for an empty list "This form has no match timer. The sticky timer will not be shown."
+
+**What was wrong:** nothing; the closed design (`-timer.png`, `-timer-empty.png`, source `src/states.js`) is more exact than the plan, and the design's copy is used where they differ.
+
+**What I did instead:**
+- The subtitle "The phases run in this order. The timer pinned at the top of the scouter's screen counts them down, and event-log taps are timed from **Start match**."
+- The empty line is the design's: "**This form has no match timer.** The sticky timer is not shown, and each event log times its taps from its own first tap."
+- With phases, the Note adds the design's "…, and entries already scouted keep their times."; with none it is the plan's sentence.
+- `post_match` is "After match" in the phase select and the bar (the design's `PH` map), not the entry tab's "Notes": the timer names a stretch of the clock, not the tab where notes are written.
+- Tones: Auto `--line-2`, Teleop `--accent-tint`, Endgame `bg-accent/15` (the design's raw `#d8ebe2` is not a token; 15 % accent on white is within a step of it), After match `--bg`.
+- A narrow bar segment (under 12 % of the match) shows its first letter only, as the design's "A".
+- An added phase starts at its standard length (Auto 15, Teleop 135, Endgame 30, After match 30 s), and Add offers the first unused phase in play order. Each row's select still lists all four, so a duplicate can be made and is refused live.
+- Save is disabled until something changed (as the empty design's Save), so the e2e opens the standard timer with Teleop at 120 and types 135, to shoot the design's state with Save enabled.
+
+**Risk:** "Add a phase" picks the next unused phase rather than asking which; the select beside it changes it in one step.
+
+## Task 1.32 — saving the timer keeps the builder's save base
+
+**Plan said:** nothing about the version's `updated_at`.
+
+**What was wrong:** `updateForm` stamps the form's draft (else its active version) with `updated_by`, and the `set_updated_at` trigger then moves that version's `updated_at` (DEVIATIONS 1.27, migration `20261008100000`). The builder sends that `updated_at` as `base_updated_at` with every field save, so after a timer save the next Save draft would be refused as `stale-version` — and the only way out, Reload, would drop unsaved field edits.
+
+**What I did instead:** `BuilderPage.saveTimer`:
+1. reads the open version; if its `updated_at` is not the builder's base, someone else saved it since, and the save is refused before anything is sent with the stale-version sentence (`formErrorLine`), so their save is never adopted unseen;
+2. sends `updateForm { form_id, timer_config }`, and keeps the returned `timer_config` as the builder's own (`timer` state; the editor is not re-mounted, so unsaved field edits stay);
+3. reads the version again and takes its `updated_at` as the new base. If only this read fails, the timer is saved and the page's error line says so, with Reload.
+Tested: after a timer save over unsaved edits, Save draft sends the new `updated_at`; a stale pre-read sends no `updateForm`.
+
+Rejected:
+- `reload()` after the save: re-mounts the editor (its key includes the version's `updated_at`) and loses unsaved edits.
+- Holding the timer's Save while the builder has unsaved changes (as Import does): safe, but the design shows the dialog over "Unsaved changes" with Save live.
+- Adopting the re-read `updated_at` with no check first: would silently take another admin's save as the base and let the next field save overwrite it.
+
+**Risk:** a save by someone else in the milliseconds between step 1 and step 2 is still adopted. Two extra reads per timer save.
+
+## Task 1.32 — the timer on a read-only version, and offline
+
+**Plan said:** nothing.
+
+**What was wrong:** the timer belongs to the form, not to a version, so it could be changed from any version the builder opens.
+
+**What I did instead:** (orchestrator recommendation) editable only where the builder is editable (the draft, or the active version). On an older version the button still opens the dialog, view-only: a Note "v2 is an older version, so the timer is shown read-only. The timer belongs to the form: change it from draft v4." (or "the active version"), every control disabled, no grips, Add, Remove or Save, and one Close. Offline (and while the builder is busy) the Match timer button is held like More; an open dialog holds Save with "You're offline: Save waits for the connection." Editing in the open dialog stays possible offline.
+
+**Risk:** none known.
+
+## Task 1.32 — reorder: dnd-kit inside the dialog, keyboard tested with laid-out rows
+
+**Plan said:** add / remove / reorder.
+
+**What was wrong:** nothing.
+
+**What I did instead:** the dialog has its own `DndContext` + `SortableContext` (the canvas's is outside the portal). The grip is the activator, named "Move Auto"; pointer drag after 4 px, and the keyboard sensor (Space, arrows, Space). Announcements name the phase and its place, and dnd-kit's live region is put inside the dialog (`accessibility.container`), so `aria-modal` does not hide it. Escape and × are held while a drag is in flight, so Escape cancels the drag rather than closing the dialog. The unit test stubs `getBoundingClientRect` per row (jsdom lays nothing out) and drives the keyboard sensor.
+
+**Risk:** none known.
+
+## Task 1.32 — the bundle
+
+**Plan said:** nothing.
+
+**What was wrong:** nothing.
+
+**What I did instead:** the editor is in the lazy builder chunk (42.0 → 44.9 KB gzip). Entry: 213 007 B, +8 B over 1.31's 212 999 B. `bundle:check` still exits 1 on the 205 KB line, which stays red pending the user's decision.
+
+**Risk:** none known.
+
+## Task 1.32 — fix round 1: the timer save decides the new base by content
+
+**Plan said:** nothing about the version's `updated_at` (see "Task 1.32 — saving the timer keeps the builder's save base").
+
+**What was wrong:** review finding: the old `saveTimer` read the version, compared its `updated_at` with the builder's base, sent `updateForm`, then read the version again and adopted its `updated_at`. That leaves two windows, each a round trip — between the pre-read and `updateForm`, and between `updateForm` and the re-read — in which another admin's field save is adopted as this builder's base unseen, so the next Save draft would silently overwrite it. And an `updateForm` that the server applied but whose answer timed out (`RpcError('timeout')`) left the base stale, so the next field save was refused as `stale-version` and Reload dropped unsaved edits.
+
+**What I did instead:** `saveTimer` decides by content, not by timestamp. No pre-read. It sends `updateForm`, then reads the version once (`getFormVersion`) and compares its fields with the builder's saved baseline (`state.baseline`) using the new `sameRows` (`useBuilderState.ts`): each row normalised by `definitionOf` (as the initial load does), rows matched by id, object keys in order. Equal → only the timer's stamp moved, so its `updated_at` becomes the base and unsaved edits stay. Different → someone else saved: the base is not moved, the page's error line says "The match timer was saved." plus the stale-version sentence, with Reload; unsaved edits stay on screen. An `updateForm` that failed with `timeout` gets the same re-read and compare (it may have landed), and then its failure is shown in the dialog. If the re-read fails after a successful save, the page says the timer was saved and why the read failed, with Reload. The redundant `editable &&` guard went with the pre-read (the dialog has no Save on a read-only version). Tested (`TimerConfigEditor.test.tsx`): adopt when unchanged; refuse to adopt when another save landed (the next Save draft still sends the loaded `updated_at`); timeout-then-applied (the base still moves); the re-read failing after a save. `sameRows` has its own unit test.
+
+Rejected:
+- Keeping the timestamp pre-check and adding a post-check: the post-read's `updated_at` always differs (the timer's own stamp), so a timestamp cannot tell the stamp from another save.
+- Comparing the re-read's `updated_at` with the `updateForm` answer: `updateForm` returns the form row, not the version's new `updated_at`.
+
+**Risk:**
+- Another admin's save whose fields equal this builder's baseline (a no-op save, or one that put everything back) is adopted. Harmless: the content is the same.
+- **Remaining server-side risk (a decision for the user, not made here):** `updateForm` stamps the form's draft, else its active version (moving that version's `updated_at`), for a form-level change — a timer edit, or a rename. Any *other* open builder on that version (another tab, another admin's browser) becomes stale: its next Save draft is refused as `stale-version`, and its Reload drops its unsaved edits. Only the server can fix that, by not stamping a version for a form-level edit. Not changed here.
+
+## Task 1.32 — fix round 1: the smaller review findings
+
+**Plan said:** nothing.
+
+**What was wrong:** review findings: (a) `TimerConfigEditor` repeated the shared schema's limits as literals (8 phases, 3600 s); (b) the client's `phaseAt(fields, index)` in `useBuilderState.ts` shared its name with `@frc/shared`'s new `phaseAt(config, t)`; (c) dnd-kit puts an inline `transition` on a sortable row that slides into place, unguarded by reduced motion, in the timer dialog's rows and the builder canvas's fields; (d) a test clicked a disabled Save.
+
+**What I did instead:** (a) imports `TIMER_PHASES_MAX` and `TIMER_PHASE_SECONDS_MAX` from `@frc/shared`; (b) renamed the client's helper `phaseOfIndex` (callers in `BuilderCanvas`, `BuilderPage`, `useBuilderState` and its test); (c) both `useSortable` calls pass `transition: null` when `prefersReducedMotion()` (`lib/animate`) — rows then jump to their places. Tested in the timer dialog both ways (a mid-move row has a timed transition with motion, none under reduced motion); (d) the click is gone, and the test asserts Save is held.
+
+**Risk:** `prefersReducedMotion()` is read on render, so a change of the OS setting applies at the next render, not mid-drag.

@@ -12,9 +12,11 @@ import {
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import {
   countDataFields,
+  formatClock,
   formatDate,
   formatTime,
   formDefinition,
+  matchEndSeconds,
   type ExportSummary,
   type FieldTypeName,
   type FormDefinition,
@@ -353,9 +355,8 @@ export function deletedIn(seconds: number): string {
 
 /** m:ss of a timer's whole length, or null with no timer. */
 function timerLength(definition: FormDefinition): string | null {
-  const total = definition.timer_config.phases.reduce((sum, p) => sum + p.seconds, 0);
-  if (total === 0) return null;
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+  const end = matchEndSeconds(definition.timer_config);
+  return end === null ? null : formatClock(end);
 }
 
 /**

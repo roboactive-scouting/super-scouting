@@ -1,4 +1,12 @@
-import { ArrowRight, Check, ChevronDown, RotateCcw, TriangleAlert, WifiOff } from 'lucide-react';
+import {
+  ArrowRight,
+  Check,
+  ChevronDown,
+  Clock,
+  RotateCcw,
+  TriangleAlert,
+  WifiOff,
+} from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { formatTime, type GetFormOutput, type VersionSummary } from '@frc/shared';
 import { ActionMenu, type ActionItem } from '@/components/ui/action-menu';
@@ -48,8 +56,8 @@ export function heldLine(
  * (its chevron opens the version list), the change line, and "● Unsaved changes" or
  * "✓ Saved hh:mm". At the right: Save draft + Publish vN on a draft, Save changes on the active
  * version, Restore on an older one. A held Publish gets a `--warn` line with "Next incomplete →".
- * **More ▾** (task 1.31: Edit as JSON · Export · Import · Delete form) sits before them, held
- * offline and while anything is in flight. Match timer (task 1.32) joins the actions later.
+ * **Match timer** (task 1.32) and **More ▾** (task 1.31: Edit as JSON · Export · Import · Delete
+ * form) sit before them, both held offline and while anything is in flight.
  */
 export function BuilderTopBar({
   form,
@@ -69,6 +77,7 @@ export function BuilderTopBar({
   onRestore,
   onOpenVersion,
   onNextIncomplete,
+  onTimer,
   more,
 }: {
   form: GetFormOutput;
@@ -93,6 +102,8 @@ export function BuilderTopBar({
   onRestore: (version: VersionSummary) => void;
   onOpenVersion: (versionNo: number) => void;
   onNextIncomplete: () => void;
+  /** Opens the Match timer dialog; no button without it. */
+  onTimer?: () => void;
   /** The More menu's rows; no More without them. */
   more?: readonly ActionItem[];
 }) {
@@ -141,6 +152,12 @@ export function BuilderTopBar({
       </div>
       <div className="ms-auto flex flex-col items-end">
         <div className="flex items-center gap-1.5">
+          {onTimer && (
+            <Button className={BAR_BUTTON} disabled={off} onClick={onTimer}>
+              <Clock aria-hidden="true" />
+              Match timer
+            </Button>
+          )}
           {more && (
             <>
               <ActionMenu label="More" items={more} disabled={off} className={BAR_BUTTON}>

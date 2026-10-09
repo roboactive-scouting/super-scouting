@@ -1,14 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
 import { goOffline, signIn } from './api-mock';
-import { EXPORTS_NOW, MATCH_FORM_ID, SEASONS_WITH_2027 } from './formFixtures';
+import { EXPORTS_NOW, FORMS_RPC, MATCH_FORM_ID, SEASONS_WITH_2027 } from './formFixtures';
 import { shoot } from './shoot';
 
 /** The forms list and the form builder (task 1.29), against the design's 2026 match form. */
 const OVERRIDES = { listSeasons: { items: SEASONS_WITH_2027, next_cursor: null } };
 const BUILDER = `/admin/forms/${MATCH_FORM_ID}`;
 
-async function openBuilder(page: Page, path = BUILDER) {
-  await signIn(page, 'admin', { overrides: OVERRIDES });
+async function openBuilder(page: Page, path = BUILDER, overrides: Record<string, unknown> = {}) {
+  await signIn(page, 'admin', { overrides: { ...OVERRIDES, ...overrides } });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(path);
   await expect(page.getByRole('region', { name: 'Form' })).toBeVisible();
@@ -180,6 +180,8 @@ test('builder: offline pauses editing and keeps unsaved changes', async ({ page 
   await expect(page.getByText("You're offline.")).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save draft' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Publish v4' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Match timer' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'More', exact: true })).toBeDisabled();
   await expect(page.getByText('● Unsaved changes')).toBeVisible();
   await shoot(page, 'builder-offline', 'desktop');
 });
@@ -210,6 +212,55 @@ test('builder: More holds Edit as JSON, Export, Import and Delete form', async (
   await expect(menu.getByRole('menuitem')).toHaveCount(4);
   await expect(menu.getByText('Advanced: the whole form as text.', { exact: false })).toBeVisible();
   await shoot(page, 'builder-more', 'desktop');
+});
+
+/** The form as the server sends it, with another match timer (task 1.32). */
+const withTimer = (phases: { phase: string; seconds: number }[]) => ({
+  getForm: () => ({ ...(FORMS_RPC.getForm!({}) as object), timer_config: { phases } }),
+});
+
+/** The builder behind the timer dialog as in the design: Teleop, with Shots selected. */
+async function shotsSelected(page: Page) {
+  await canvas(page)
+    .getByRole('tab', { name: /Teleop/ })
+    .click();
+  await canvas(page).getByRole('button', { name: 'Shots, Event log' }).click();
+}
+
+test('builder: Match timer lists the phases with the bar, the match end and the in-place note', async ({
+  page,
+}) => {
+  await openBuilder(page, BUILDER, {
+    ...withTimer([
+      { phase: 'auto', seconds: 15 },
+      { phase: 'teleop', seconds: 120 },
+      { phase: 'endgame', seconds: 30 },
+    ]),
+    updateForm: (input: Record<string, unknown>) => ({
+      ...(FORMS_RPC.getForm!({}) as object),
+      timer_config: input.timer_config,
+    }),
+  });
+  await shotsSelected(page);
+  await page.getByRole('button', { name: 'Match timer' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Match timer' });
+  const teleop = dialog.getByRole('textbox', { name: 'Teleop length in seconds' });
+  await teleop.fill('135');
+  await expect(dialog.getByText(/Match ends at/)).toHaveText('Match ends at 180 s (3:00)');
+  await expect(dialog.getByRole('button', { name: 'Save' })).toBeEnabled();
+  await shoot(page, 'builder-timer', 'desktop');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(dialog).toBeHidden();
+});
+
+test('builder: a form with no match timer offers the standard three', async ({ page }) => {
+  await openBuilder(page, BUILDER, withTimer([]));
+  await shotsSelected(page);
+  await page.getByRole('button', { name: 'Match timer' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Match timer' });
+  await expect(dialog.getByText('This form has no match timer.')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Save' })).toBeDisabled();
+  await shoot(page, 'builder-timer-empty', 'desktop');
 });
 
 test('builder: Edit as JSON names the line and column of a missing comma', async ({ page }) => {

@@ -22,12 +22,14 @@ import {
   type FieldPhase,
   type FieldTypeName,
   type FormFieldDefinition,
+  type FormRowOutput,
   type GetFormVersionOutput,
   type SaveDraftFieldsOutput,
   type ScoredFieldRow,
   type ScoringField,
   type ScoringIssue,
   type ScoringRuleInput,
+  type TimerConfig,
   type VersionSummary,
 } from '@frc/shared';
 import { Skeleton } from '@/components/Skeleton';
@@ -35,7 +37,7 @@ import { StateMessage } from '@/components/StateMessage';
 import type { ActionItem } from '@/components/ui/action-menu';
 import { buttonVariants } from '@/components/ui/button';
 import { ErrorLine, Note, WarningNotice } from '@/components/ui/notice';
-import { adminRpc, type Rpc } from '@/data/rpc';
+import { adminRpc, RpcError, type Rpc } from '@/data/rpc';
 import { AdminOnly } from '@/features/admin/AdminOnly';
 import { FORMS_GATE } from '@/features/forms/formsGate';
 import { PHASE_NAME, PHASE_ORDER } from '@/features/entry/phases';
@@ -55,8 +57,9 @@ import { previewData, seedValues, TryItPane } from './LivePreview';
 import { RawJsonEditor } from './RawJsonEditor';
 import { ruleLost, useScoring, wholeRuleSet, type Rule } from './scoringRules';
 import { SettingsPane, type PanePatch } from './SettingsPane';
+import { TimerConfigEditor } from './TimerConfigEditor';
 import { useBuilderLoad, type BuilderData } from './useBuilderLoad';
-import { phaseAt, useBuilderState } from './useBuilderState';
+import { phaseOfIndex, sameRows, useBuilderState } from './useBuilderState';
 import { versionLabel } from './VersionMenu';
 
 /**
@@ -151,6 +154,13 @@ export function pointsTag(
     : `${row.points} pts`;
 }
 
+/** Someone else's save landed on this version: the stale-version refusal's own sentence. */
+const STALE_LINE = formErrorLine(
+  new RpcError('conflict', 'someone else saved this version', 409, true, {
+    reason: 'stale-version',
+  }),
+);
+
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** Keyboard reordering: only fields are places to go, never a tab or the column. */
@@ -222,8 +232,12 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
    * JSON or an import) is dropped, so a control never gets a value of another type.
    */
   const [tried, setTried] = useState<Record<string, { type: FieldTypeName; value: unknown }>>({});
-  /** The More menu's dialog, if one is open. */
-  const [dialog, setDialog] = useState<'json' | 'export' | 'import' | 'delete' | null>(null);
+  /** The Match timer's or a More menu's dialog, if one is open. */
+  const [dialog, setDialog] = useState<'timer' | 'json' | 'export' | 'import' | 'delete' | null>(
+    null,
+  );
+  /** The form's match timer: form-level, saved in place (SPEC-FINAL 8.4), so kept beside it. */
+  const [timer, setTimer] = useState<TimerConfig>(form.timer_config);
   /** Set before the builder moves on purpose, so the leave guard lets it. */
   const leaving = useRef(false);
 
@@ -499,7 +513,7 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
     const target = list[(at + 1) % list.length]!;
     state.selectField(target.key);
     const index = state.fields.findIndex((f) => f.key === target.key);
-    setPhase(phaseAt(state.fields, index));
+    setPhase(phaseOfIndex(state.fields, index));
     // A selection is shown in Edit: Try it draws no selection and no settings pane.
     setMode('edit');
   }
@@ -509,6 +523,47 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
     setPhase(to);
     // A new field is arranged in Edit.
     setMode('edit');
+  }
+
+  /**
+   * The Match timer's Save: `updateForm`, in place, no version. The server stamps the form's
+   * draft (else its active version), which moves that version's `updated_at` — the base every
+   * field save is checked against. So after the send the version is read once: if its fields
+   * are still the ones this builder last loaded or saved, only the stamp moved, and its
+   * `updated_at` becomes the base (the next field save is not refused as stale; unsaved edits
+   * stay). If they differ, someone else saved: their save is never adopted unseen, so the
+   * stale-version line offers Reload. A send that timed out may still have landed, so it is
+   * checked the same way before its failure is shown (DEVIATIONS 1.32, fix round 1).
+   */
+  async function saveTimer(config: TimerConfig) {
+    let row: FormRowOutput | null = null;
+    let timedOut: RpcError | null = null;
+    try {
+      row = (await rpc.call('updateForm', {
+        form_id: form.id,
+        timer_config: config,
+      })) as FormRowOutput;
+    } catch (e) {
+      if (!(e instanceof RpcError && e.code === 'timeout')) throw e;
+      timedOut = e;
+    }
+    if (row) setTimer(row.timer_config);
+    const lead = row ? 'The match timer was saved. ' : '';
+    try {
+      const fresh = (await rpc.call('getFormVersion', {
+        form_version_id: version.id,
+      })) as GetFormVersionOutput;
+      if (sameRows(fresh.fields as FormFieldDefinition[], state.baseline)) {
+        setBase(fresh.updated_at);
+      } else {
+        setError({ line: `${lead}${STALE_LINE}`, reload: true });
+      }
+    } catch (e) {
+      // Saved; only the re-read failed. The next field save would be refused as stale: say so.
+      // (After a timeout the dialog says it did not answer; a stale base then shows on Save.)
+      if (row) setError({ line: `${lead}${formErrorLine(e, { labelOf })}`, reload: true });
+    }
+    if (timedOut) throw timedOut;
   }
 
   /** Edit as JSON's Apply: the local fields and their points, unsaved until Save. */
@@ -641,6 +696,7 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
         onRestore={(v) => void restore(v)}
         onOpenVersion={(n) => navigate(formBuilderPath(form.id, n))}
         onNextIncomplete={nextIncomplete}
+        onTimer={() => setDialog('timer')}
         more={more}
       />
       {!online && (
@@ -763,6 +819,19 @@ function BuilderEditor({ data, rpc, reload }: { data: BuilderData; rpc: Rpc; rel
           {dragType ? <PaletteGhost type={dragType} /> : null}
         </DragOverlay>
       </DndContext>
+      {dialog === 'timer' && (
+        <TimerConfigEditor
+          config={timer}
+          online={online}
+          readOnly={
+            editable
+              ? null
+              : `v${version.version_no} is an older version, so the timer is shown read-only. The timer belongs to the form: change it from ${draft ? `draft v${draft.version_no}` : 'the active version'}.`
+          }
+          onSave={saveTimer}
+          onClose={() => setDialog(null)}
+        />
+      )}
       {dialog === 'json' && (
         <RawJsonEditor
           versionName={

@@ -101,7 +101,7 @@ export function keyFromLabel(
  * form does). A section heading holds no metadata (SPEC-FINAL 5.4), so it sits with the data
  * field after it, else the one before it.
  */
-export function phaseAt(fields: readonly FormFieldDefinition[], index: number): FieldPhase {
+export function phaseOfIndex(fields: readonly FormFieldDefinition[], index: number): FieldPhase {
   const own = fields[index];
   if (!own) return 'post_match';
   if (own.type !== 'section') return own.phase ?? 'post_match';
@@ -126,7 +126,7 @@ export function insertIndexFor(
   phase: FieldPhase,
   type: FieldTypeName,
 ): number {
-  const phases = fields.map((_, i) => phaseAt(fields, i));
+  const phases = fields.map((_, i) => phaseOfIndex(fields, i));
   if (type === 'section') {
     const first = phases.findIndex((p) => rank(p) >= rank(phase));
     return first === -1 ? fields.length : first;
@@ -226,6 +226,32 @@ export function definitionOf(row: FormFieldDefinition): FormFieldDefinition {
     include_in_ai_context: row.include_in_ai_context,
     is_ordinal: row.is_ordinal,
   };
+}
+
+/** A value as text with every object's keys in order, so two reads of one row compare equal. */
+const canonical = (value: unknown): string =>
+  JSON.stringify(value, (_key, v: unknown) =>
+    v !== null && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(
+          Object.entries(v as Record<string, unknown>).sort(([a], [b]) =>
+            a < b ? -1 : a > b ? 1 : 0,
+          ),
+        )
+      : v,
+  );
+
+/**
+ * Whether two reads of a version's rows hold the same fields: each row normalised as the
+ * builder's load normalises it (`definitionOf`), matched by id. The timer save uses it to tell
+ * its own stamp on the version from someone else's field save (DEVIATIONS 1.32 fix round 1).
+ */
+export function sameRows(
+  a: readonly FormFieldDefinition[],
+  b: readonly FormFieldDefinition[],
+): boolean {
+  const flat = (rows: readonly FormFieldDefinition[]) =>
+    canonical(rows.map(definitionOf).sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)));
+  return a.length === b.length && flat(a) === flat(b);
 }
 
 function stateFrom(given: readonly FormFieldDefinition[], selectedKey: string | null): State {
@@ -335,7 +361,7 @@ export function useBuilderState(initial: BuilderInitial) {
           type !== 'section' &&
           before &&
           before.type !== 'section' &&
-          phaseAt(s.fields, at - 1) === opts.phase
+          phaseOfIndex(s.fields, at - 1) === opts.phase
         ) {
           field.section = before.section;
         }

@@ -7,11 +7,12 @@ import { FilterChips } from '@/components/ui/filter-chips';
 import { WarningFlag } from '@/components/ui/tag';
 import { Tabs } from '@/components/ui/tabs';
 import { PHASE_NAME, PHASE_ORDER, PHASE_TAB } from '@/features/entry/phases';
+import { prefersReducedMotion } from '@/lib/animate';
 import { cn } from '@/lib/utils';
 import { FieldPreview } from './FieldPreview';
 import { typeName } from './fieldTypes';
 import { LivePreviewColumn } from './LivePreview';
-import { MEANING_PATHS, phaseAt, type BuilderState } from './useBuilderState';
+import { MEANING_PATHS, phaseOfIndex, type BuilderState } from './useBuilderState';
 
 /** Drop targets: the phase column, and each phase tab (a field type dropped there joins it). */
 export const CANVAS_DROP = 'canvas';
@@ -27,7 +28,7 @@ export function phasePages(
     endgame: [],
     post_match: [],
   };
-  fields.forEach((field, index) => pages[phaseAt(fields, index)].push({ field, index }));
+  fields.forEach((field, index) => pages[phaseOfIndex(fields, index)].push({ field, index }));
   return pages;
 }
 
@@ -321,7 +322,12 @@ function CanvasItem({
   editable: boolean;
   onSelect: () => void;
 }) {
-  const sortable = useSortable({ id: field.id, disabled: !editable });
+  // Reduced motion: fields jump to their places rather than slide (SPEC-FINAL 17.9).
+  const sortable = useSortable({
+    id: field.id,
+    disabled: !editable,
+    transition: prefersReducedMotion() ? null : undefined,
+  });
   const incomplete = issues.length > 0;
   const needsMeaning = issues.some((p) => MEANING_PATHS.has(p));
   const t = sortable.transform;

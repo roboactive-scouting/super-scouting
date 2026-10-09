@@ -4,7 +4,8 @@ import type { FormFieldDefinition } from '@frc/shared';
 import {
   insertIndexFor,
   keyFromLabel,
-  phaseAt,
+  phaseOfIndex,
+  sameRows,
   useBuilderState,
   type BuilderInitial,
 } from './useBuilderState';
@@ -268,7 +269,20 @@ describe('keys and phase placement', () => {
     expect(insertIndexFor(fields, 'teleop', 'section')).toBe(1);
     expect(insertIndexFor(fields, 'post_match', 'counter')).toBe(3);
     const withSection = [f('a1', 'auto'), f('s', null, 'section'), f('t1', 'teleop')];
-    expect(phaseAt(withSection, 1)).toBe('teleop');
+    expect(phaseOfIndex(withSection, 1)).toBe('teleop');
+  });
+
+  it('sameRows: two reads of one version match whatever their row and key order (fix round 1)', () => {
+    const a = { ...initial.fields[0]!, id: 'a', key: 'a', config: { min: 0, step: 1 } };
+    const b = { ...initial.fields[0]!, id: 'b', key: 'b' };
+    // The same rows, read again: another order, config keys in another order, extra columns.
+    const again = [
+      { ...b, points: 3 },
+      { ...a, config: { step: 1, min: 0 } },
+    ] as FormFieldDefinition[];
+    expect(sameRows([a, b], again)).toBe(true);
+    expect(sameRows([a, b], [a, { ...b, label: 'Theirs' }])).toBe(false);
+    expect(sameRows([a, b], [a])).toBe(false);
   });
 });
 

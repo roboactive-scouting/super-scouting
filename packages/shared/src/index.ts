@@ -16,6 +16,7 @@ export * from './forms/entryShape';
 export * from './forms/expression';
 export * from './forms/expressionCheck';
 export * from './forms/scoring';
+export * from './forms/timer';
 export * from './forms/types';
 export * from './forms/validate';
 export * from './forms/version';
