@@ -49,7 +49,7 @@ Chosen: **variant C ("Settings rows")** with **live examples** in the Theme and 
 
 - The values are the app's `[data-theme='outdoor']` (decided in RB.1, `apps/client/src/styles/theme.css`), now also in `docs/design/theme.css` for mockups.
 - Black on white, a darker accent and warning, darker alliance colours, and a black rail.
-- Every page's look in Outdoor is checked in `../outdoor-check/` (task 1.38's re-check).
+- Every closed page was rendered in Outdoor on 2026-10-09 (task 1.38's re-check, design side): nothing breaks. One finding: the match timer's literal colours become tokens with outdoor values (THEME.md "Sticky match timer").
 
 ## Features decided (2026-10-09)
 
