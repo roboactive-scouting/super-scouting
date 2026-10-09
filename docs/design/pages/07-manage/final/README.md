@@ -21,7 +21,7 @@ Chosen: **variant D, "Fast entry"**, with every one of its new features, plus a 
 - **Events**, with the note "Order is display order only — every event counts equally." Each event is a card showing:
   - its name and its position (#1…)
   - **Default event** badge, or **Make default**
-  - ↑ ↓ to move it (disabled at the ends)
+  - a six-dot drag grip at the card's start edge to move it: drag it, or focus it and use Space/Enter and the arrows (held while a change is in flight). *Changed 2026-10-09 at the user's request: the grip replaces the ↑ ↓ buttons shown in `manage-desktop-competitions.png`.*
   - ✎ to rename it
 - The current default event's card is accent-tinted. The last card is **+ New event**.
 - Make active, Make default and reordering update in place. Make active and Make default are disabled offline, as today.

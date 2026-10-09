@@ -15,7 +15,7 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { Clock, GripVertical, Plus, Trash2 } from 'lucide-react';
+import { Clock, Plus, Trash2 } from 'lucide-react';
 import { useId, useMemo, useRef, useState, type ComponentProps } from 'react';
 import {
   formatClock,
@@ -31,6 +31,7 @@ import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { ErrorLine, Note } from '@/components/ui/notice';
 import { Select } from '@/components/ui/select';
+import { SortableGrip } from '@/components/ui/sortable-grip';
 import { PHASE_ORDER } from '@/features/entry/phases';
 import { prefersReducedMotion } from '@/lib/animate';
 import { cn } from '@/lib/utils';
@@ -418,16 +419,7 @@ function PhaseRow({
       )}
     >
       {editable ? (
-        <button
-          type="button"
-          ref={sortable.setActivatorNodeRef}
-          {...sortable.attributes}
-          {...sortable.listeners}
-          aria-label={`Move ${name}`}
-          className="-ms-1 grid size-7 cursor-grab place-items-center rounded-control text-muted hover:bg-line-2"
-        >
-          <GripVertical aria-hidden="true" className="size-4" />
-        </button>
+        <SortableGrip sortable={sortable} label={`Move ${name}`} className="-ms-1 size-7" />
       ) : (
         <span />
       )}

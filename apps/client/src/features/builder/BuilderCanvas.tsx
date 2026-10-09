@@ -1,9 +1,10 @@
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { GripVertical, TriangleAlert } from 'lucide-react';
+import { TriangleAlert } from 'lucide-react';
 import { useRef, useState, type KeyboardEvent, type WheelEvent } from 'react';
 import type { FieldPhase, FormFieldDefinition } from '@frc/shared';
 import { FilterChips } from '@/components/ui/filter-chips';
+import { SortableGrip } from '@/components/ui/sortable-grip';
 import { WarningFlag } from '@/components/ui/tag';
 import { Tabs } from '@/components/ui/tabs';
 import { PHASE_NAME, PHASE_ORDER, PHASE_TAB } from '@/features/entry/phases';
@@ -348,16 +349,12 @@ function CanvasItem({
       )}
     >
       {editable && (
-        <button
-          type="button"
-          ref={sortable.setActivatorNodeRef}
-          {...sortable.attributes}
-          {...sortable.listeners}
-          aria-label={`Move ${field.label}`}
-          className="absolute top-1/2 -start-8 z-[2] grid size-7 -translate-y-1/2 cursor-grab place-items-center rounded-control text-muted hover:bg-surface"
-        >
-          <GripVertical aria-hidden="true" className="size-[18px]" />
-        </button>
+        <SortableGrip
+          sortable={sortable}
+          label={`Move ${field.label}`}
+          className="absolute top-1/2 -start-8 z-[2] size-7 -translate-y-1/2 hover:bg-surface"
+          iconClassName="size-[18px]"
+        />
       )}
       <button
         type="button"

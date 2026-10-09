@@ -1,3 +1,19 @@
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type Announcements,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  rectSortingStrategy,
+  SortableContext,
+  sortableKeyboardCoordinates,
+} from '@dnd-kit/sortable';
 import { useState, type ReactNode } from 'react';
 import { Plus } from 'lucide-react';
 import type { ActiveContext, EventRow, SeasonRow } from '@frc/shared';
@@ -28,8 +44,9 @@ const CHIP =
  * first; the active one filled ink, "+ New season" last), the chosen season's card, then
  * its events as cards in display order with "+ New event" last. Make active, make default
  * and reordering change in place at once and go back if the server refuses (today's
- * behaviour); the first two are off while offline. The page owns the lists. The Edit
- * dialogs carry Delete (RB.20).
+ * behaviour); the first two are off while offline. An event is moved by its grip, by pointer
+ * or keyboard (2026-10-09, replacing ↑ ↓); every grip is held while a change is in flight.
+ * The page owns the lists. The Edit dialogs carry Delete (RB.20).
  */
 export function CompetitionsPanel({
   rpc,
@@ -66,6 +83,10 @@ export function CompetitionsPanel({
   const [error, setError] = useState<string | null>(null);
   const season = seasons.find((s) => s.id === seasonId) ?? null;
   const close = () => setForm({ kind: 'none' });
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   /** Show the new active season or event at once; put the old one back on a refusal. */
   async function switchTo(id: string, next: ActiveContext, name: string, input: unknown) {
@@ -87,13 +108,12 @@ export function CompetitionsPanel({
   }
 
   // The whole new order goes out (display order only, never a re-weight).
-  async function move(list: EventRow[], index: number, delta: -1 | 1) {
-    if (!seasonId) return;
+  async function move(list: EventRow[], from: number, to: number) {
+    if (!seasonId || from === to) return;
     const forSeason = seasonId;
-    const order = [...list];
-    const [moved] = order.splice(index, 1);
+    const order = arrayMove(list, from, to);
+    const moved = order[to];
     if (!moved) return;
-    order.splice(index + delta, 0, moved);
     const ranked = (rows: EventRow[]) => rows.map((e, i) => ({ ...e, sort_order: i + 1 }));
     setBusyId(moved.id);
     setError(null);
@@ -111,6 +131,30 @@ export function CompetitionsPanel({
       setBusyId(null);
     }
   }
+
+  function onDragEnd({ active, over }: DragEndEvent) {
+    if (!events || !over || active.id === over.id) return;
+    const from = events.findIndex((e) => e.id === active.id);
+    const to = events.findIndex((e) => e.id === over.id);
+    if (from === -1 || to === -1) return;
+    void move(events, from, to);
+  }
+
+  /** What a screen reader hears during a drag: the event and its place, never an id. */
+  const placeOf = (id: string | number) => (events ?? []).findIndex((e) => e.id === id) + 1;
+  const nameOf = (id: string | number) => events?.find((e) => e.id === id)?.name ?? 'The event';
+  const announcements: Announcements = {
+    onDragStart: ({ active }) => `Picked up ${nameOf(active.id)}, position ${placeOf(active.id)}.`,
+    onDragOver: ({ active, over }) =>
+      over
+        ? `${nameOf(active.id)} is at position ${placeOf(over.id)}.`
+        : `${nameOf(active.id)} is over nothing.`,
+    onDragEnd: ({ active, over }) =>
+      over
+        ? `${nameOf(active.id)} is now position ${placeOf(over.id)}.`
+        : `${nameOf(active.id)} was put back.`,
+    onDragCancel: ({ active }) => `${nameOf(active.id)} was put back.`,
+  };
 
   return (
     <div>
@@ -174,36 +218,43 @@ export function CompetitionsPanel({
             {events === null ? (
               <div className="mt-3">{eventsGate}</div>
             ) : (
-              <div className="mt-3 grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3">
-                {events.map((event, index) => (
-                  <EventCard
-                    key={event.id}
-                    event={event}
-                    position={index + 1}
-                    count={events.length}
-                    isDefault={event.id === active.active_event_id}
-                    busy={busyId !== null}
-                    canSwitch={online}
-                    onMakeDefault={() =>
-                      void switchTo(
-                        event.id,
-                        { ...active, active_event_id: event.id },
-                        'setActiveEvent',
-                        { event_id: event.id },
-                      )
-                    }
-                    onMove={(delta) => void move(events, index, delta)}
-                    onRename={() => setForm({ kind: 'event', event })}
-                  />
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setForm({ kind: 'event', event: null })}
-                  className="hover-veil motion-safe:transition min-h-[110px] rounded-card border border-dashed border-control-border font-[650] text-accent-ink"
-                >
-                  + New event
-                </button>
-              </div>
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={onDragEnd}
+                accessibility={{ announcements }}
+              >
+                <SortableContext items={events.map((e) => e.id)} strategy={rectSortingStrategy}>
+                  <div className="mt-3 grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3">
+                    {events.map((event, index) => (
+                      <EventCard
+                        key={event.id}
+                        event={event}
+                        position={index + 1}
+                        isDefault={event.id === active.active_event_id}
+                        busy={busyId !== null}
+                        canSwitch={online}
+                        onMakeDefault={() =>
+                          void switchTo(
+                            event.id,
+                            { ...active, active_event_id: event.id },
+                            'setActiveEvent',
+                            { event_id: event.id },
+                          )
+                        }
+                        onRename={() => setForm({ kind: 'event', event })}
+                      />
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setForm({ kind: 'event', event: null })}
+                      className="hover-veil motion-safe:transition min-h-[110px] rounded-card border border-dashed border-control-border font-[650] text-accent-ink"
+                    >
+                      + New event
+                    </button>
+                  </div>
+                </SortableContext>
+              </DndContext>
             )}
           </section>
         </>

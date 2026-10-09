@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { ActiveContext, EventRow, SeasonRow } from '@frc/shared';
@@ -114,12 +114,44 @@ const cards = () => screen.getAllByRole('article').map((a) => a.querySelector('h
 const card = (name: string) =>
   screen.getAllByRole('article').find((a) => a.querySelector('h3')!.textContent === name)!;
 
+/** jsdom lays nothing out: give each card a place in one column, so the keyboard sensor can move. */
+function layOutCards() {
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    const article = this.closest('article');
+    const top = article ? [...article.parentElement!.children].indexOf(article) * 120 : 0;
+    return DOMRect.fromRect({ x: 0, y: top, width: 400, height: 120 });
+  });
+}
+
+/** dnd-kit's keyboard sensor listens for the next key only after a tick. */
+const tick = () => act(() => new Promise((done) => setTimeout(done, 20)));
+
+/** An event's grip: the one way to move it. */
+const grip = (name: string) => screen.getByRole('button', { name: `Move ${name}` });
+
+/** Moves an event one place by its grip from the keyboard: Space picks up, an arrow, Space drops. */
+async function moveByKeyboard(name: string, key: 'ArrowUp' | 'ArrowDown') {
+  const handle = grip(name);
+  handle.focus();
+  fireEvent.keyDown(handle, { code: 'Space', key: ' ' });
+  await tick();
+  fireEvent.keyDown(document, { code: key, key });
+  await tick();
+  fireEvent.keyDown(document, { code: 'Space', key: ' ' });
+  await tick();
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
+  // jsdom has no matchMedia (read as reduced motion).
+  delete (window as { matchMedia?: unknown }).matchMedia;
 });
 
 describe('CompetitionsPanel — events', () => {
-  it('moves an event up in place and reverts if the server refuses', async () => {
+  it('moves an event up by its grip in place and reverts if the server refuses', async () => {
+    layOutCards();
     const rpc = vi.fn(async (name: string) => {
       if (name === 'reorderEvents') throw new Error('refused');
     });
@@ -128,10 +160,12 @@ describe('CompetitionsPanel — events', () => {
     rpc.mockImplementation(async (name: string) => {
       if (name === 'reorderEvents') return new Promise((_, r) => (reject = r));
     });
-    await userEvent.click(
-      screen.getByRole('button', { name: "Move District #2 · Be'er Sheva up" }),
-    );
+    await moveByKeyboard("District #2 · Be'er Sheva", 'ArrowUp');
     expect(cards()[0]).toBe("District #2 · Be'er Sheva"); // moved in place at once
+    expect(rpc).toHaveBeenCalledWith('reorderEvents', {
+      season_id: 's-26',
+      event_ids: ['e-2', 'e-1', 'e-3', 'e-4', 'e-5'],
+    });
     await act(async () => reject(new Error('refused')));
     await waitFor(() => expect(cards()[0]).toBe('District #1 · Haifa')); // reverted
     expect(screen.getByRole('alert')).toHaveTextContent('refused');
@@ -146,18 +180,74 @@ describe('CompetitionsPanel — events', () => {
     ).toBeInTheDocument();
   });
 
-  it('disables up on the first card and down on the last', () => {
+  it('gives each event one grip named for it, and no ↑ ↓ buttons', () => {
     renderCompetitions({ rpc: serverLike() });
-    expect(screen.getByRole('button', { name: 'Move District #1 · Haifa up' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Move District #1 · Haifa down' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Move Israel Championship up' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Move Israel Championship down' })).toBeDisabled();
+    for (const e of FIVE_EVENTS) {
+      expect(within(card(e.name)).getByRole('button', { name: `Move ${e.name}` })).toHaveAttribute(
+        'aria-disabled',
+        'false',
+      );
+    }
+    expect(screen.queryByRole('button', { name: /^Move .* (up|down)$/ })).toBeNull();
   });
 
+  it('holds every grip while a move is in flight, and frees them when it lands', async () => {
+    layOutCards();
+    let resolve!: (out: unknown) => void;
+    const rpc = vi.fn((name: string) =>
+      name === 'reorderEvents' ? new Promise((r) => (resolve = r)) : Promise.resolve(undefined),
+    );
+    renderCompetitions({ rpc });
+    await moveByKeyboard('District #1 · Haifa', 'ArrowDown');
+    expect(rpc.mock.calls.filter(([n]) => n === 'reorderEvents')).toHaveLength(1);
+    for (const e of FIVE_EVENTS) {
+      expect(grip(e.name)).toHaveAttribute('aria-disabled', 'true');
+    }
+    // A held grip does not pick up: no second move goes out.
+    await moveByKeyboard('District #4 · Jerusalem', 'ArrowDown');
+    expect(rpc.mock.calls.filter(([n]) => n === 'reorderEvents')).toHaveLength(1);
+    expect(cards().slice(3)).toEqual(['District #4 · Jerusalem', 'Israel Championship']);
+    await act(async () => resolve(undefined));
+    await waitFor(() =>
+      expect(grip('District #1 · Haifa')).toHaveAttribute('aria-disabled', 'false'),
+    );
+  });
+
+  it.each([
+    { reduce: false, slides: true },
+    { reduce: true, slides: false },
+  ])(
+    'while an event is moved, the others slide only when motion is allowed (reduce: $reduce)',
+    async ({ reduce, slides }) => {
+      window.matchMedia = ((query: string) => ({
+        matches: query.includes('reduced-motion') ? reduce : true,
+        media: query,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      })) as unknown as typeof window.matchMedia;
+      layOutCards();
+      renderCompetitions({ rpc: serverLike() });
+      const handle = grip('District #1 · Haifa');
+      handle.focus();
+      fireEvent.keyDown(handle, { code: 'Space', key: ' ' });
+      await tick();
+      fireEvent.keyDown(document, { code: 'ArrowDown', key: 'ArrowDown' });
+      await tick();
+      // Mid-move: a card that slides has a timed transition; one that jumps has none.
+      const timed = screen
+        .getAllByRole('article')
+        .filter((a) => /[1-9]\d*ms/.test(a.style.transition));
+      expect(timed.length > 0).toBe(slides);
+      fireEvent.keyDown(document, { code: 'Escape', key: 'Escape' });
+      await tick();
+    },
+  );
+
   it('sends the whole new order once, and keeps the answer', async () => {
+    layOutCards();
     const rpc = serverLike();
     renderCompetitions({ rpc });
-    await userEvent.click(screen.getByRole('button', { name: 'Move District #1 · Haifa down' }));
+    await moveByKeyboard('District #1 · Haifa', 'ArrowDown');
     await waitFor(() =>
       expect(rpc).toHaveBeenCalledWith('reorderEvents', {
         season_id: 's-26',
@@ -261,13 +351,14 @@ describe('CompetitionsPanel — events', () => {
   });
 
   it('says Manage needs a connection when a save cannot reach the server', async () => {
+    layOutCards();
     renderCompetitions({
       rpc: serverLike({
         name: 'reorderEvents',
         error: new RpcError('offline', 'could not reach the server', 0),
       }),
     });
-    await userEvent.click(screen.getByRole('button', { name: 'Move District #1 · Haifa down' }));
+    await moveByKeyboard('District #1 · Haifa', 'ArrowDown');
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Managing seasons, events, rosters and matches needs a connection — try again when this device is online.',
     );

@@ -15,7 +15,7 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { GripVertical, Minus, Plus, X } from 'lucide-react';
+import { Minus, Plus, X } from 'lucide-react';
 import { useId, useState, type ReactNode } from 'react';
 import {
   validateExpr,
@@ -28,6 +28,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ErrorLine, Note } from '@/components/ui/notice';
 import { Select } from '@/components/ui/select';
+import { SortableGrip } from '@/components/ui/sortable-grip';
 import { Switch } from '@/components/ui/switch';
 import { prefersReducedMotion } from '@/lib/animate';
 import { cn } from '@/lib/utils';
@@ -246,16 +247,12 @@ function ChoiceRow({
         sortable.isDragging && 'z-10 shadow-[var(--shadow-float)]',
       )}
     >
-      <button
-        type="button"
-        ref={sortable.setActivatorNodeRef}
-        {...sortable.attributes}
-        {...sortable.listeners}
-        aria-label={`Move ${name}`}
-        className="grid size-7 shrink-0 cursor-grab place-items-center rounded-control text-muted hover:bg-line-2 disabled:cursor-default"
-      >
-        <GripVertical aria-hidden="true" className="size-[15px]" />
-      </button>
+      <SortableGrip
+        sortable={sortable}
+        label={`Move ${name}`}
+        className="size-7"
+        iconClassName="size-[15px]"
+      />
       {ranked && (
         <span className="num w-3.5 shrink-0 text-xs text-muted" aria-hidden="true">
           {index + 1}
