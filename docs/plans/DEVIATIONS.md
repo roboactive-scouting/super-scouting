@@ -6684,3 +6684,23 @@ Rejected: keeping ↑ ↓ beside the grip as a keyboard path — the keyboard se
 **What I did instead:** `test.slow()` on that one test (3× the timeout), with a comment saying why. Rejected: raising the suite's timeout (hides slow tests everywhere), and fewer workers (slows every run).
 
 **Risk:** a real slowdown in that flow would now take 90 s to fail instead of 30 s.
+
+## Phase 1 D — the initial-JS budget raised to 212 KB (user decision)
+
+**Plan said:** `pnpm bundle:check` holds initial JS at or under 205 KB gzip (RB.18, user decision 2026-10-07).
+
+**What was wrong:** `initial JS 208.1 KB gzip` / `initial JS over 205 KB gzip`. It was already 207.0 KB at `8c59c4a` (the form schemas the server half added to the shared `API` map ship in the entry chunk); the client half, kept lazy, added 1.1 KB.
+
+**What I did instead:** at the user's word ("increase the budget if you need"), `BUDGET_KB` is 212 — the measured 208.1 KB plus headroom, the way 205 was set — in `scripts/check-bundle.mjs` and BUILD-CONTEXT §12.5; the living spec's decision log has the row (v0.73). Rejected: splitting admin-only schemas out of `API` (an architecture change to the typed client, SPEC-FINAL 16.1, for about 3 KB).
+
+**Risk:** Phase 1 E puts the entry renderers on the initial path; it will need watching against 212.
+
+## Phase 1 D — `is_ordinal` stays an in-place edit (user decision)
+
+**Plan said:** `is_ordinal` is in the in-place column list (task 1.27); the Phase 1 D review (#8) left open whether flipping it should fork like reordering options.
+
+**What was wrong:** nothing failed; it was an open question.
+
+**What I did instead:** nothing in code — the user decided it stays in place ("I do not think the is_ordinal should create new version"); recorded in the living spec's decision log (v0.73). The builder already treats it as in place (no fork warning), and the server writes it in place.
+
+**Risk:** an analysis already computed with the old reading (rank or not) differs from one computed after the flip; the values themselves never change.
