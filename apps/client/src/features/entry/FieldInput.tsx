@@ -5,36 +5,46 @@ import { Counter } from '@/components/ui/counter';
 import { OptionButtons } from '@/components/ui/option-buttons';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { ComputedValue } from './inputs/ComputedValue';
+import { FieldLabel, FieldRow, ROW } from './inputs/FieldRow';
+import { MultiSelectInput } from './inputs/MultiSelectInput';
+import { NumberInput } from './inputs/NumberInput';
+import { RatingInput } from './inputs/RatingInput';
+import { SectionHeading } from './inputs/SectionHeading';
+import { ShortTextInput } from './inputs/ShortTextInput';
 
 type Props = {
   field: FormFieldDefinition;
   value: unknown;
   onChange: (value: unknown) => void;
+  /**
+   * The entry's current values, by field key: what a computed field is worked out from
+   * (SPEC-FINAL 5.7), so it follows the scout's taps. Other types ignore it.
+   */
+  siblingValues?: Record<string, unknown>;
 };
 
-/** One field row of a phase pane: 12 px above and below, a `--line-2` rule between rows. */
-const ROW = 'border-t border-line-2 py-3 first:border-t-0';
+const NO_VALUES: Record<string, unknown> = {};
 
-/** Big touch targets, never a keyboard where a counter will do (SPEC-FINAL 8.6, 17.7). */
-export function FieldInput({ field, value, onChange }: Props) {
+/**
+ * One field of the entry form, by type (SPEC-FINAL 5.2; entry parts, task 1.33). Big touch
+ * targets, never a keyboard where a counter will do (8.6, 17.7). On a phone (and in the
+ * builder's 410 px canvas and Try it) a field's name sits above its control; once the row's own
+ * box is wide (the desktop Entry card) it is one row, name left and control in a 440 px column
+ * right — a container query, never the window's width (UF.18). Timer, event log, position and
+ * cycle path arrive with tasks 1.34–1.35 and draw nothing here yet.
+ */
+export function FieldInput({ field, value, onChange, siblingValues = NO_VALUES }: Props) {
   const id = useId();
   switch (field.type) {
     case 'counter': {
       const current = typeof value === 'number' ? value : 0;
       const step = typeof field.config.step === 'number' ? field.config.step : 1;
-      // Entry README: label and hint on the left, a compact − / value / + on the right.
+      // Entry README: label and hint on the left, a compact − / value / + on the right, at the
+      // right edge on a computer too (entry parts, "Counters stay at the right edge").
       return (
         <div className={`${ROW} flex items-center justify-between gap-3`}>
-          <div className="min-w-0">
-            <span className="block text-[0.90625rem] font-semibold text-ink" dir="auto">
-              {field.label}
-            </span>
-            {field.help_text && (
-              <span className="mt-0.5 block text-[0.78125rem] text-muted" dir="auto">
-                {field.help_text}
-              </span>
-            )}
-          </div>
+          <FieldLabel field={field} />
           <Counter label={field.label} value={current} step={step} onChange={onChange} />
         </div>
       );
@@ -48,33 +58,46 @@ export function FieldInput({ field, value, onChange }: Props) {
     case 'single_select': {
       const options = selectOptions(field);
       return (
-        <div className={ROW}>
+        <FieldRow label={<FieldLabel field={field} />}>
           <OptionButtons
             legend={field.label}
+            showLegend={false}
             name={field.key}
             value={typeof value === 'string' ? value : null}
             options={options.map((o) => ({ value: o.value, label: o.label }))}
             columns={options.length > 2 ? 4 : 2}
             onChange={onChange}
           />
-        </div>
+        </FieldRow>
       );
     }
+    case 'multi_select':
+      return <MultiSelectInput field={field} value={value} onChange={onChange} />;
+    case 'number':
+      return <NumberInput field={field} value={value} onChange={onChange} />;
+    case 'rating':
+      return <RatingInput field={field} value={value} onChange={onChange} />;
+    case 'short_text':
+      return <ShortTextInput field={field} value={value} onChange={onChange} />;
     case 'long_text':
       return (
-        <div className={ROW}>
-          <label htmlFor={id} className="block text-[0.90625rem] font-semibold text-ink" dir="auto">
-            {field.label}
-          </label>
+        <FieldRow label={<FieldLabel field={field} htmlFor={id} helpId={`${id}-help`} />}>
           <Textarea
             id={id}
             dir="auto"
             rows={3}
-            className="mt-2 min-h-[5.25rem] rounded-control border-control-border bg-surface text-ink focus-visible:border-accent"
+            aria-describedby={field.help_text ? `${id}-help` : undefined}
+            className="min-h-[5.25rem] rounded-control border-control-border bg-surface text-ink focus-visible:border-accent"
             value={typeof value === 'string' ? value : ''}
             onChange={(e) => onChange(e.target.value)}
           />
-        </div>
+        </FieldRow>
       );
+    case 'computed':
+      return <ComputedValue field={field} siblingValues={siblingValues} />;
+    case 'section':
+      return <SectionHeading field={field} />;
+    default:
+      return null;
   }
 }

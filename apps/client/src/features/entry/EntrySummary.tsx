@@ -3,7 +3,7 @@ import { useId } from 'react';
 import { NO_VALUE, type FieldPhase, type RobotStatus } from '@frc/shared';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { filledCount, PHASE_NAME, STATUS_LABEL, type Phase } from './phases';
+import { filledCount, PHASE_NAME, scoutedFields, STATUS_LABEL, type Phase } from './phases';
 
 const ROW = 'grid grid-cols-[22px_1fr_auto] items-center gap-2.5 border-t border-line-2 text-sm';
 
@@ -84,7 +84,7 @@ export function EntrySummary({
                 state === 'current' ? 'font-semibold text-ink' : 'text-muted',
               )}
             >
-              {`${filledCount(phase, data)} of ${phase.fields.length}`}
+              {`${filledCount(phase, data)} of ${scoutedFields(phase).length}`}
             </small>
           </button>
         );

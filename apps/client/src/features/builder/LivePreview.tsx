@@ -57,6 +57,8 @@ export function LivePreviewColumn({
                   field={field}
                   value={values[field.key]}
                   onChange={(value) => onChange(field.key, value)}
+                  // What would be saved, so a computed field shows what the pane says it saves.
+                  siblingValues={data}
                 />
               ) : (
                 <div className="py-1.5">

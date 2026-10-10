@@ -71,19 +71,21 @@ export function ConfirmEntry(props: {
               {PHASE_NAME[phase.key]}
             </h3>
             <dl>
-              {phase.fields.map((field) => (
-                <div key={field.key} className={ROW}>
-                  <dt className="text-ink-2" dir="auto">
-                    {field.label}
-                  </dt>
-                  <dd
-                    className={`text-end font-semibold text-ink ${field.type === 'counter' ? 'num' : ''}`}
-                    dir="auto"
-                  >
-                    {displayValue(field, props.data[field.key])}
-                  </dd>
-                </div>
-              ))}
+              {phase.fields
+                .filter((field) => field.type !== 'section')
+                .map((field) => (
+                  <div key={field.key} className={ROW}>
+                    <dt className="text-ink-2" dir="auto">
+                      {field.label}
+                    </dt>
+                    <dd
+                      className={`text-end font-semibold text-ink ${field.type === 'counter' ? 'num' : ''}`}
+                      dir="auto"
+                    >
+                      {displayValue(field, props.data[field.key])}
+                    </dd>
+                  </div>
+                ))}
             </dl>
           </div>
         ))}

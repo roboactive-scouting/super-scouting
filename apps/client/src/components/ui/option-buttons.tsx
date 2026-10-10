@@ -24,8 +24,11 @@ export const OPTION_FOCUS_RING =
  *
  * Four columns follow the group's **own** width, not the window's (UF.18): a container query,
  * so the builder's 410 px canvas and Try it draw two columns as the phone does, and a tablet
- * or a computer gets four. A click or a tap shows only the chosen border: the focus ring is
- * for the keyboard, and comes back with the first key or when focus leaves the group.
+ * or a computer gets four. The step is 26 rem (416 px), under the entry's 440 px desktop
+ * control column (task 1.33), so four options sit in one row there. A click or a tap shows only
+ * the chosen border: the focus ring is for the keyboard, and comes back with the first key or
+ * when focus leaves the group. `showLegend={false}` when the page draws the name itself (the
+ * entry's field row, label on the left on a computer); the group keeps its name either way.
  */
 export function OptionButtons<V extends string>({
   legend,
@@ -35,6 +38,7 @@ export function OptionButtons<V extends string>({
   onChange,
   columns = 2,
   groupLabel,
+  showLegend = true,
 }: {
   legend: string;
   name?: string;
@@ -43,6 +47,7 @@ export function OptionButtons<V extends string>({
   onChange: (value: V) => void;
   columns?: 2 | 4;
   groupLabel?: string;
+  showLegend?: boolean;
 }) {
   const fallbackName = useId();
   /** The last input here was a pointer (a click, a tap): no focus ring until a key. */
@@ -75,15 +80,17 @@ export function OptionButtons<V extends string>({
         }
       }}
     >
-      <legend className="text-sm font-semibold text-ink" dir="auto">
-        {legend}
-      </legend>
-      <div className="@container mt-2">
+      {showLegend && (
+        <legend className="text-sm font-semibold text-ink" dir="auto">
+          {legend}
+        </legend>
+      )}
+      <div className={cn('@container', showLegend && 'mt-2')}>
         <div
           data-option-grid=""
           className={cn(
             'grid gap-2',
-            columns === 4 ? 'grid-cols-2 @lg:grid-cols-4' : 'grid-cols-2',
+            columns === 4 ? 'grid-cols-2 @min-[26rem]:grid-cols-4' : 'grid-cols-2',
           )}
         >
           {options.map((option) => (

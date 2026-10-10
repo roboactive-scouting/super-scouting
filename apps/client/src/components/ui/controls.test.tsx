@@ -134,7 +134,8 @@ describe('OptionButtons in a narrow column (UF.18)', () => {
     const grid = container.querySelector<HTMLElement>('[data-option-grid]')!;
     // Two columns unless the group itself is wide: a container query on its wrapper.
     expect(grid.className).toMatch(/(^|\s)grid-cols-2(\s|$)/);
-    expect(grid.className).toMatch(/(^|\s)@lg:grid-cols-4(\s|$)/);
+    // 26 rem: under the entry's 440 px desktop control column (task 1.33).
+    expect(grid.className).toMatch(/(^|\s)@min-\[26rem\]:grid-cols-4(\s|$)/);
     expect(grid.parentElement!.className).toMatch(/(^|\s)@container(\s|$)/);
     for (const el of container.querySelectorAll<HTMLElement>('*')) {
       expect(el.getAttribute('class') ?? '', el.tagName).not.toMatch(WINDOW_VARIANT);

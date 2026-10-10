@@ -34,9 +34,9 @@ export type Call = { name: string; input: Record<string, unknown> };
 export type Handler = (input: Record<string, unknown>) => unknown;
 
 /**
- * The four types `FieldInput` draws today (task 1.31's scope note), with one condition: the
+ * The four types `FieldInput` drew at task 1.31 (its scope note), with one condition: the
  * Auto counter shows only once "Left the start zone" is on. A computed total of the two
- * counters is drawn as the placeholder and saved as its value.
+ * counters is drawn as its read-only value row (task 1.33) and saved as its value.
  */
 export function fourTypeFields(): ScoredFieldRow[] {
   return [

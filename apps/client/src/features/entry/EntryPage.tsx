@@ -175,6 +175,8 @@ export function EntryPage(props: EntryPageProps) {
           field={field}
           value={data[field.key]}
           onChange={(value) => update({ data: { ...data, [field.key]: value } })}
+          // A computed field is worked out from the entry as it stands (SPEC-FINAL 5.7).
+          siblingValues={data}
         />
       ))}
     </PhaseTabs>

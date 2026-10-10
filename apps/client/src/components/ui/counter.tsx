@@ -9,7 +9,7 @@ const TICK: Keyframe[] = [
   { transform: 'scale(1)' },
 ];
 const BUTTON =
-  'hover-veil motion-safe:transition motion-safe:active:not-disabled:scale-[0.97] flex size-[3.125rem] shrink-0 items-center justify-center rounded-control border';
+  'tap-target hover-veil motion-safe:transition motion-safe:active:not-disabled:scale-[0.97] flex size-[3.125rem] shrink-0 items-center justify-center rounded-control border';
 
 /**
  * SPEC-FINAL 17.9: "Counters are a wide − / value / + triplet, never a text input."

@@ -131,6 +131,27 @@ describe('Try it: fix round 1 (task 1.31)', () => {
     );
   });
 
+  it('draws the computed total read-only, recomputed as the scouter taps (task 1.33)', async () => {
+    await openBuilder(draftPath, server().rpc);
+    const u = await tryIt();
+    await u.click(within(canvas()).getByRole('switch', { name: 'Left the start zone' }));
+    await u.click(within(canvas()).getByRole('button', { name: 'Pieces scored high plus one' }));
+    await u.click(within(canvas()).getByRole('tab', { name: /Teleop/ }));
+    const plus = within(canvas()).getByRole('button', { name: 'Teleop high plus one' });
+    await u.click(plus);
+    await u.click(plus);
+    await u.click(within(canvas()).getByRole('tab', { name: /Notes/ }));
+    // The value the pane says it saves, with no box to type it into.
+    expect(within(canvas()).getByLabelText('Total high')).toHaveTextContent('3');
+    expect(saved()).toMatchObject({ post_total: 3 });
+    expect(within(canvas()).queryByText(/Shown on the phone once/)).toBeNull();
+    // The Teleop page is drawn anew: its + is found again.
+    await u.click(within(canvas()).getByRole('tab', { name: /Teleop/ }));
+    await u.click(within(canvas()).getByRole('button', { name: 'Teleop high plus one' }));
+    await u.click(within(canvas()).getByRole('tab', { name: /Notes/ }));
+    expect(within(canvas()).getByLabelText('Total high')).toHaveTextContent('4');
+  });
+
   it("drops a tried value once its field's type changes (here by Edit as JSON's Apply)", async () => {
     await openBuilder(draftPath, server().rpc);
     const u = await tryIt();

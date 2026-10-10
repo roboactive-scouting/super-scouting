@@ -20,7 +20,11 @@ export function seedValues(fields: readonly FormFieldDefinition[]): Record<strin
     } else if (field.type === 'counter') {
       // The counter shows its minimum (else 0): what it shows is what it holds.
       values[field.key] = typeof field.config.min === 'number' ? field.config.min : 0;
+    } else if (field.type === 'multi_select') {
+      // Nothing ticked holds an empty list, which a required check reads as unanswered.
+      values[field.key] = [];
     }
+    // Number, rating, short text and long text start empty: nothing until the scout gives it.
   }
   return values;
 }
