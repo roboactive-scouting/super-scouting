@@ -6794,3 +6794,13 @@ Rejected: keeping ↑ ↓ beside the grip as a keyboard path — the keyboard se
 **What I did instead:** kept the behaviour (orchestrator's call): it is the same squeeze UF.18 fixed in the builder, and two columns of whole labels read better than four cut ones. `entry.spec.ts` now asserts two columns at 1100 × 800 and shoots `entry-endgame-small.png` there (`shoot.ts` gained the `'small'` width, 1100 × 800).
 
 **Risk:** a scouter on a small laptop sees a four-option select as 2 × 2, so the entry screen is a little taller there.
+
+## Phase 1 E (chat 1, 1.33–1.35) — the baseline suite times out on a throttled CPU
+
+**Plan said:** run `pnpm test` before changing anything; that count is the floor, and a failing suite stops the run (BUILD-CONTEXT §10).
+
+**What was wrong:** on `feat/phase-1e` at `ec008b6`, unchanged, `pnpm test` reported `Test Files  38 failed | 126 passed (164)` / `Tests  276 failed | 1993 passed (2269)` in 2268 s, and a second run `224 failed | 2045 passed`. Every failure was a wait running out (`Error: Test timed out in 5000ms.` ×149, `findBy…` "Unable to find role=…"). Windows' `% Processor Performance` read a steady 17 on mains power with the battery full and no tests running; one bcrypt compare at cost 10 took ~1.7 s (`login.test.ts`). The CPU is throttled; the code is not at fault.
+
+**What I did instead:** verified with longer waits and no committed change: a git-ignored wrapper (`apps/client/node_modules/.cache/slow/vitest.slow.config.ts`, the real client config merged with 180 s test/hook timeouts and a setup file setting Testing Library's `asyncUtilTimeout` to 30 s; `node_modules/.cache/slowtest.sh` runs the other projects with `--testTimeout=180000`). Floor on that wrapper: 164 files, 2269 tests (895 outside the client + 1374 client), 2252 passing. The 17 left fail only because their timeouts are written into the tests (`BuilderUndo.test.tsx` `SLOW = { timeout: 10_000 }`, `}, 15_000)` in `BuilderPage.test.tsx` and `UsersPage.test.tsx`, `LAZY = { timeout: 5000 }` in `ManageRoute.test.tsx`), which no CLI setting overrides. Rejected: raising timeouts in the repo (it would hide real slowness on CI and change committed tests to suit one machine); changing power settings (system settings are not an agent's to change; the user was told).
+
+**Risk:** a real regression in one of those 17 tests would hide behind its timeout here. They are re-run alone at the end of the chat, and CI re-runs the stock suite at full speed when chat 2 pushes.

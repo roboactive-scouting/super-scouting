@@ -246,6 +246,50 @@ describe('EntryPage', () => {
     await waitFor(async () => expect((await pending(10))[0]?.payload.data).toEqual({}));
   });
 
+  it('draws a section in the phase of the field after it, and a computed field that follows the taps (1.33)', async () => {
+    await db.rows.bulkPut([
+      field({
+        id: 'f0',
+        key: 'auto_section',
+        label: 'Scoring',
+        type: 'section',
+        display_order: 0,
+        phase: null,
+      }),
+      field({
+        id: 'f9',
+        key: 'auto_points',
+        label: 'Auto points',
+        type: 'computed',
+        display_order: 9,
+        phase: 'auto',
+        unit: 'points',
+        direction: 'higher_is_better',
+        config: {
+          result_type: 'float',
+          expression: {
+            kind: 'op',
+            op: '*',
+            left: { kind: 'field', key: 'auto_notes' },
+            right: { kind: 'literal', value: 5 },
+          },
+        },
+      }),
+    ]);
+    await renderEntry();
+    await userEvent.click(screen.getByRole('radio', { name: 'Played' }));
+    const pane = screen.getByRole('tabpanel', { name: 'Autonomous' });
+    expect(within(pane).getByRole('heading', { name: 'Scoring', level: 3 })).toBeInTheDocument();
+    expect(within(pane).getByLabelText('Auto points')).toHaveTextContent('—');
+    const plus = within(pane).getByRole('button', { name: 'Auto notes plus one' });
+    await userEvent.click(plus);
+    await userEvent.click(plus);
+    expect(within(pane).getByLabelText('Auto points')).toHaveTextContent('10');
+    // The section and the computed field are not fields to fill: Autonomous is 1 of 1.
+    const summary = screen.getByRole('button', { name: /Autonomous/ });
+    expect(summary).toHaveTextContent('1 of 1');
+  });
+
   it('increments a counter by tapping plus, and never renders a text input for it', async () => {
     const user = userEvent.setup();
     render(<EntryPage {...props} />);

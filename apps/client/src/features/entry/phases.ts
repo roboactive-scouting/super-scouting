@@ -38,21 +38,47 @@ export const STATUS_ORDER: readonly RobotStatus[] = ['played', 'broke_down', 'di
 
 export type Phase = { key: FieldPhase; fields: FormFieldDefinition[] };
 
-/** The form's phases in match order, each with its fields; a field without a phase is a note. */
-export function phasesOf(fields: readonly FormFieldDefinition[]): Phase[] {
-  return PHASE_ORDER.map((key) => ({
-    key,
-    fields: fields.filter((f) => (f.phase ?? 'post_match') === key),
-  })).filter((p) => p.fields.length > 0);
+/**
+ * The phase a field is drawn in. A data field: its `phase` (none → Notes). A section heading
+ * holds no metadata (SPEC-FINAL 5.4), so it sits with the data field after it, else the one
+ * before it — where the builder puts it (`phaseOfIndex`). A phase of headings alone gets no tab.
+ */
+function phaseAt(fields: readonly FormFieldDefinition[], index: number): FieldPhase {
+  const own = fields[index]!;
+  if (own.type !== 'section') return own.phase ?? 'post_match';
+  const after = fields.slice(index + 1).find((f) => f.type !== 'section');
+  const before = fields
+    .slice(0, index)
+    .reverse()
+    .find((f) => f.type !== 'section');
+  return (after ?? before)?.phase ?? 'post_match';
 }
 
-/** A field is filled once it holds anything: a 0 the scout chose counts, an empty text does not. */
+/** The form's phases in match order, each with its fields; a field without a phase is a note. */
+export function phasesOf(fields: readonly FormFieldDefinition[]): Phase[] {
+  const at = fields.map((_, i) => phaseAt(fields, i));
+  return PHASE_ORDER.map((key) => ({
+    key,
+    fields: fields.filter((_, i) => at[i] === key),
+  })).filter((p) => p.fields.some((f) => f.type !== 'section'));
+}
+
+/** The fields a scout fills: not a section (no value) nor a computed one (worked out). */
+export function scoutedFields(phase: Phase): FormFieldDefinition[] {
+  return phase.fields.filter((f) => f.type !== 'section' && f.type !== 'computed');
+}
+
+/**
+ * A field is filled once it holds anything: a 0 the scout chose counts, an empty text or an
+ * empty multi-select (every option taken back) does not.
+ */
 export function isFilled(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length > 0;
   return value !== undefined && value !== null && value !== '';
 }
 
 export function filledCount(phase: Phase, data: Record<string, unknown>): number {
-  return phase.fields.filter((f) => isFilled(data[f.key])).length;
+  return scoutedFields(phase).filter((f) => isFilled(data[f.key])).length;
 }
 
 /** The phases with at least one field set: each tab shows a ✓. */
@@ -88,5 +114,9 @@ export function displayValue(field: FormFieldDefinition, value: unknown): string
   if (field.type === 'toggle') return value === true ? 'Yes' : 'No';
   if (field.type === 'single_select')
     return selectOptions(field).find((o) => o.value === value)?.label ?? String(value);
+  if (field.type === 'multi_select' && Array.isArray(value)) {
+    const options = selectOptions(field);
+    return value.map((v) => options.find((o) => o.value === v)?.label ?? String(v)).join(', ');
+  }
   return String(value);
 }
