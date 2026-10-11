@@ -32,6 +32,12 @@
   --alliance-red-strong: #9a2f29; /* A picked station tile's fill (Scout); white text on it, 7.47:1 */
   --alliance-blue-strong: #2551aa; /* 7.40:1 */
   --coverage-gap: #9ccbb8; /* Home coverage grid: "missing a robot" (THEME "Coverage grid") */
+  /* Sticky match timer on --rail-raised (THEME, outdoor check 2026-10-09; task 1.34). The mockup's
+     literal #f2c36b / #3a414c / #6f7a88 are replaced: the bar's rest was 1.42:1 on the bar. */
+  --timer-warn: #f2c36b; /* a phase's last 10 s: 8.91:1 on --rail-raised */
+  --timer-bar-rest: #6f7a88; /* phases still to come: 3.35:1 */
+  --timer-bar-done: #c9cfd8; /* phases run: 9.33:1 */
+  --timer-bar-fill: #2fb386; /* the current phase filling: 5.51:1 (--accent is 2.72:1 here) */
   --scrim: rgb(20 24 32 / 0.45);
   --shadow-float: 0 24px 60px -20px rgb(20 24 32 / 0.45);
   --shadow-sheet: 0 -12px 40px -12px rgb(20 24 32 / 0.4);
@@ -66,4 +72,8 @@
   --alliance-red-strong: #8e2b25; /* the outdoor alliance colour itself: already darker than light's strong */
   --alliance-blue-strong: #1f4a9e;
   --coverage-gap: #5fa88a;
+  --timer-warn: #ffd27a; /* 11.48:1 on outdoor --rail-raised */
+  --timer-bar-rest: #7d8693; /* 4.44:1 */
+  --timer-bar-done: #d5dae1; /* 11.63:1 */
+  --timer-bar-fill: #4cc497; /* 7.51:1 (outdoor --accent is 1.99:1 here) */
 }

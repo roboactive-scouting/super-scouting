@@ -49,6 +49,7 @@ import { formBuilderPath, formsSeasonPath, PATHS } from '@/lib/paths';
 import { plural } from '@/lib/plural';
 import { useOnline } from '@/lib/useOnline';
 import { cn } from '@/lib/utils';
+import { EntryContext } from '@/features/entry/entryContext';
 import { BuilderCanvas, CANVAS_DROP, phasePages, type CanvasMode } from './BuilderCanvas';
 import { BuilderLeaveGuard } from './BuilderLeaveGuard';
 import { BuilderTopBar, heldLine, RESTORE_HELD } from './BuilderTopBar';
@@ -996,24 +997,27 @@ function BuilderEditor({
             held={draftHolds && draft ? `New fields go in draft v${draft.version_no}` : null}
             onAdd={(type) => add(type, phase)}
           />
-          <BuilderCanvas
-            state={state}
-            phase={phase}
-            onPhase={setPhase}
-            editable={editable}
-            points={points}
-            dragging={dragging}
-            mode={mode}
-            onMode={setMode}
-            tryIt={{
-              values: tryValues,
-              data: tryData,
-              onChange: (key, value) => {
-                const type = typeOf.get(key);
-                if (type) setTried((was) => ({ ...was, [key]: { type, value } }));
-              },
-            }}
-          />
+          {/* Try it draws the map fields as a red scout would, on this season's image. */}
+          <EntryContext value={{ alliance: 'red', station: null, fieldImagePath: fieldImage }}>
+            <BuilderCanvas
+              state={state}
+              phase={phase}
+              onPhase={setPhase}
+              editable={editable}
+              points={points}
+              dragging={dragging}
+              mode={mode}
+              onMode={setMode}
+              tryIt={{
+                values: tryValues,
+                data: tryData,
+                onChange: (key, value) => {
+                  const type = typeOf.get(key);
+                  if (type) setTried((was) => ({ ...was, [key]: { type, value } }));
+                },
+              }}
+            />
+          </EntryContext>
           {mode === 'try' ? (
             <TryItPane fields={state.fields} data={tryData} onClear={() => setTried({})} />
           ) : (

@@ -6894,3 +6894,133 @@ Rejected: keeping ↑ ↓ beside the grip as a keyboard path — the keyboard se
 **What I did instead:** raised `BUDGET_KB` to 215 in `scripts/check-bundle.mjs` and BUILD-CONTEXT §12.5, marked provisional and pending the user (the prompt: make the call, log it, keep going). 1.34/1.35 load the map pop-up as a lazy chunk (precached by the service worker, so it opens offline). Rejected: lazy-loading the rating slider (reaches exactly 212.0 with no headroom for 1.34) or any inline entry control: `routes.tsx` records that the competition path never waits on a chunk. Rejected: holding the run for an answer (the prompt forbids stopping).
 
 **Risk:** the budget is the user's to set; if they want 212 kept, the entry path has to shed about 0.5 KB plus whatever 1.34 adds, which means splitting it against the `routes.tsx` rule or cutting code elsewhere in the initial bundle.
+
+## Task 1.34 — 1.35's shared mirror file arrived one task early
+
+**Plan said:** `packages/shared/src/forms/mirror.ts` and `mirror.test.ts` are created by task 1.35.
+
+**What was wrong:** the event log's "where?" (this task) stores alliance-normalized taps (SPEC-FINAL 5.6) and needs `normalizeForAlliance` now.
+
+**What I did instead:** created both with 1.35's brief text verbatim (the four tests, the implementation, `denormalizeForAlliance = normalizeForAlliance`) and exported them from `packages/shared/src/index.ts` (`MirrorAxis` too). 1.35 should not recreate them. The builder's own `MirrorAxis` type in `features/builder/MirrorPreview.tsx` was left alone (same union).
+
+**Risk:** none; 1.35's step 1 test will already pass.
+
+## Task 1.34 — matchClock: one module origin per entry, observable and undoable
+
+**Plan said:** the brief's `matchClock` module (start, reset, isRunning, wasTimed, elapsed, tapTime).
+
+**What was wrong:** nothing in it, but the dispatch asked for it per entry, re-renderable and undoable, with `t = 0` written down.
+
+**What I did instead:** kept the brief's module singleton and API exactly (its five tests verbatim), and added `snapshot()` / `restore(origin)` (the reset's Undo) and `subscribe(listener)` (the sticky bar re-renders on an origin change; no component polls). `t = 0` is **the press of Start match** (timed) or **the first event-log tap of the entry, in any field** (un-timed), documented in `matchClock.ts`. `EntryPage` resets it, and the Timer fields' stopwatch store, on mount and on unmount, keyed by the draft key, so one entry's origin never leaks into the next. Every reading is `Date.now()` minus the origin, never summed ticks (a test moves only the wall clock).
+
+**Risk:** (1) Start match pressed *after* un-timed taps starts a new timed origin; the earlier taps keep their un-timed `t` (the brief's `start()` overwrites). (2) The origin is not in the draft: a reload mid-match goes back to Ready, and in un-timed mode the first tap after a reload is a new `t = 0`. Both are for task 1.37 (draft recovery) or a spec decision.
+
+## Task 1.34 — the sticky timer's ↺ is "Reset match timer", back to Ready
+
+**Plan said:** (brief) "pressing Start match starts it and the button becomes Restart".
+
+**What was wrong:** the design and THEME call it a reset (↺, "Match timer reset · Undo"); a restart-from-zero and a reset-to-Ready are different actions.
+
+**What I did instead:** ↺ (accessible name "Reset match timer", 32 px drawn on a phone and 28 px on a computer, 48 px hit area) puts the timer back to Ready, so the next Start match is the new `t = 0`; an 8 s toast "Match timer reset · Undo" restores the old origin. The over state has no ↺, as drawn. The test asserts Start match gives way to "Reset match timer". Other calls: the countdown is `ceil` of the time left (0:15 at the start of Auto, amber at ≤ 10 s); the phase tag is the phase tab's name in capitals (a `post_match` timer phase reads NOTES); the phone bar is `sticky` under the top bar (`top: 3.375rem + safe area`), the desktop bar `sticky` under the crumb bar (`top: 3.75rem`) inside the form card, whose `overflow-hidden` became `overflow-clip` so sticky works; on a computer the card is drawn as soon as the form has a timer, so Start match is there before a robot status is picked (on a phone the bar is always there).
+
+**Risk:** if "restart" (start again from zero at the press) was meant, it is a one-line change in `MatchTimer`'s `reset()`.
+
+## Task 1.34 — timer colour tokens, and a fourth for the bar's fill
+
+**Plan said:** tokens such as `--timer-warn`, `--timer-bar-rest`, `--timer-bar-done` in `light` and `outdoor`, text 4.5:1 and bar segments 3:1 on `--rail-raised`.
+
+**What was wrong:** the mockup's rest colour `#3a414c` is 1.42:1 on the bar, and the current phase's fill, `--accent`, is 2.72:1 (light) and 1.99:1 (outdoor) there, under 3:1.
+
+**What I did instead:** four tokens, registered as Tailwind colours in `index.css`, checked by new cases in `contrast.test.ts`: light `--timer-warn #f2c36b` (8.91:1), `--timer-bar-rest #6f7a88` (3.35:1), `--timer-bar-done #c9cfd8` (9.33:1), `--timer-bar-fill #2fb386` (5.51:1); outdoor `#ffd27a` (11.48:1), `#7d8693` (4.44:1), `#d5dae1` (11.63:1), `#4cc497` (7.51:1). Done vs rest is 2.78:1 / 2.62:1 (test: ≥ 2). The light amber keeps the mockup's value (THEME: the literals "become tokens with outdoor values"); no component holds a literal. The phase tag and Start match stay white on `--accent` (5.37:1). The tokens are not added to `docs/design/theme.css` (`theme.test.ts` mirrors only the D1 palette).
+
+**Risk:** done segments are lighter than the mock's mid-grey, so a finished phase reads brighter than the one to come; colour is not the only signal (the countdown and phase tag say it).
+
+## Task 1.34 — Timer field: value shape and stopwatch state
+
+**Plan said:** an accumulating stopwatch, a number input once stopped, an "unsure — no time" toggle that submits nothing, a reset undoable with `useUndoable`.
+
+**What was wrong:** nothing; the value shape and where the running state lives were open.
+
+**What I did instead:** the value is **seconds, a number to a tenth** (what `validateEntryData` already accepts), `null` when unsure (read as missing, so nothing is submitted), absent when never timed. It is written when the stopwatch stops (Pause, ✎, Clear), not on every tick. The running state lives in a module store (`stopwatches.ts`, `base + now − startedAt`), so it keeps counting while its phase is off screen and after a sleeping tab; `EntryPage` clears it with the clock. Clear is `useUndoable`: a running stopwatch is banked first (a hidden history step), so **Undo clear** (an inline accent-ink link, like the multi-select's) brings back the time it had run. Switching Unsure on keeps the time aside and off again brings it back. ✎ opens a `number` input (step 0.1) committed on Enter or blur. Running hides the switch, as drawn. The Start pill is the primary `Button` at 40 px drawn with a 48 px hit area.
+
+**Risk:** an entry submitted while a stopwatch is still running records its last stopped value (or nothing): task 1.36's review should stop or flag running timers.
+
+## Task 1.34 — Event log details
+
+**Plan said:** event buttons are `Button`s, taps show as `Badge` chips with undo; one button per type, each ≥ 48 px; taps newest first with a delete each; ascending by `t`.
+
+**What was wrong:** there is no `Badge` (the plan's name; `Tag` is a fixed 24 px tag), and `Button` has no filled-ink two-line variant.
+
+**What I did instead:** the buttons are native buttons drawn to THEME (equal 52 px filled `--ink`, label over the mono count, `tap-target`), in an `auto-fit` grid (min 6 rem) with 8 px gaps (17.7; the mock has 6), named like "High goal, 3 taps". Chips are list items in the THEME chip treatment (30 px, `--line-2`, `--radius-tag`), newest first, with a pin in the scout's alliance colour when placed. `t` is kept to a tenth of a second and inserted in order (a later equal `t` after). Undo: the last change made in this field is undone exactly ("Undo remove" after a ✕); with no history (the field drawn anew after a phase change or a turned tablet) "Undo last tap" takes the latest tap in time. The ✕ is 22 px drawn with a 48 px hit area (`after:-inset`); with 30 px chips the hit areas of two chip rows overlap vertically, under the 8 px spacing rule.
+
+**Risk:** a ✕ near another row's ✕ can take the wrong tap; it is undoable.
+
+## Task 1.34 — "where?": Skip, close and Save
+
+**Plan said:** after the tap, the map; Skip · no place keeps `{type, t}` with no x/y keys; Save tap keeps `{type, t, x, y}`.
+
+**What was wrong:** the dispatch does not say what ✕ / Escape does, or whether Save tap needs a spot.
+
+**What I did instead:** the tap's `t` is fixed at the button press; nothing is stored until the map closes. ✕ and Escape keep the tap like Skip ("time is saved either way"). Save tap is disabled until a spot is placed; tapping again moves the spot. Stored `x`/`y` are clamped and kept to four decimals (`storeImagePoint`). Rejected: discarding the tap on ✕ (the design says the time is kept either way).
+
+**Risk:** crossing the 1024 px breakpoint while the map is open (a tablet turned) redraws the entry page, which closes the map and drops that one pending tap.
+
+## Task 1.34 — the shared map pop-up: MapSheet
+
+**Plan said:** build the map pop-up once, reusable by 1.35: full screen on a phone (own end at the bottom), a ~820 px Dialog on a computer (own end on the left), via `responsive-dialog` / `dialog` / `sheet` / `useModalFocus`; rotation display-only; the image through `FieldImage`; a missing image is its alert and records nothing.
+
+**What was wrong:** `Sheet` is a bottom sheet (86 dvh, grab handle), not full screen; `Dialog`'s header holds only the title and ×.
+
+**What I did instead:** `features/entry/map/MapSheet.tsx` (`MapSheet`, `MapMark`, `MapSheetProps`) and `features/entry/map/mapGeometry.ts` (`viewRotation`, `imageToView`, `viewToImage`, `storeImagePoint`, `storedPoint`, `Rotation`, `MapLayout`). Phone: a portal panel built on `useModalFocus` (focus trap, Escape, focus returned), header ✕ / title / sub-line / station tag, the drawing, a hint, a white bar of tools + status and a full-width 52 px Done. Computer: `Dialog` at 820 px; the sub-line and the tag sit in a row under the title. The season image is assumed to have the **red end on its left** (as `seasons/2026/field.webp` does): rotations red/blue are 0°/180° on a computer and 270°/90° on a phone. `FieldImage` draws the `<img>`, turned by CSS with container-query units; taps map back through `viewToImage`, marks are given in image coordinates. When the path is not in the build or the image fails to load, `FieldImage`'s alert shows unchanged, there is no tap target and Done is withdrawn (only the caller's tools, i.e. Skip, remain). A null path (season not on the device) is passed to `FieldImage` as `''`. The chunk is lazy (2.1 KB) and precached. No Undo / ✕ Remove tools yet: the "where?" spot is replaced, not listed; 1.35 adds them through `tools`.
+
+**Risk:** a season image with blue on its left would draw every map the wrong way round; there is no per-season setting for it.
+
+## Task 1.34 — the timed parts load beside the initial bundle
+
+**Plan said:** (dispatch) about 2.5 KB for the eager timer and event log; the map pop-up a lazy chunk; `pnpm bundle:check` ≤ 215 KB.
+
+**What was wrong:** with everything eager, `initial JS 217.7 KB gzip` / `initial JS over 215 KB gzip`. Measured: the Timer and Event-log inputs 2.8 KB, the sticky timer and toast 1.2 KB, the rest (clock, stopwatch store, context, page and route wiring) 1.2 KB.
+
+**What I did instead:** `MatchTimer`, `TimerInput` and `EventLogInput` are one chunk (`timedParts.ts`, 5.6 KB) whose `import()` starts as the app starts (`lazyParts.tsx`, which is in the initial bundle) and which the service worker precaches; thin stand-ins with the same props draw nothing until it is in, with no Suspense fallback. Now `initial JS 213.5 KB gzip`. Rejected: trimming to 2.5 KB (would mean dropping designed states); raising the budget again (the user's call); a Suspense boundary (would show a fallback on the competition path).
+
+**Risk:** this bends `routes.tsx`'s "the competition path never waits on a chunk": on a cold start straight into an entry, the timer and those two fields can appear a frame after the rest (from the precache). Reverting is two import lines (`FieldInput.tsx`, `EntryPage.tsx`) plus a budget near 218 KB. 1.35's map fields face the same budget.
+
+## Task 1.34 — the entry's context for map fields; route and builder wiring
+
+**Plan said:** the "where?" map uses the scout's alliance, station and the season's `field_image`; the sticky timer reads `timer_config`.
+
+**What was wrong:** `FieldInput`'s props carry only the field, its value and siblings.
+
+**What I did instead:** `features/entry/entryContext.ts` (`EntryContext`, `useEntryContext`: alliance, station, fieldImagePath). `EntryPage` provides it and takes two new optional props, `timerConfig` and `fieldImagePath`; `EntryRoute` reads the form row's `timer_config` and the cached `seasons` row's `field_image_path`. The builder provides a red scout with the loaded season's image around the canvas, so Try it's "where?" works. Builder: `DRAWN_TYPES` gained `timer` and `event_log`; the placeholder (kept for position and cycle path) now says "task 1.35"; `BuilderPage.test` now finds the event log's button there. Try it has no "Match clock running" switch (checked), so nothing drives `matchClock` from the builder beyond its own taps; the `TryItPane` note about taps and cycle times is left for 1.35.
+
+**Risk:** the builder canvas and Try it share the module clock with the entry page; opening an entry resets it.
+
+## Task 1.34 — a Toast primitive, and the screenshot spec
+
+**Plan said:** the reset has an Undo toast; screenshots at 375 and 1440 px in both themes.
+
+**What was wrong:** there was no toast component; the spec needs real time to pass.
+
+**What I did instead:** `components/ui/toast.tsx` (`Toast({open, message, action, onDismiss, timeoutMs = 8000, className})`: `--ink`, polite live region, the action in bold `--accent-tint`), with its own tests, added to BUILD-CONTEXT §12.5's list for 1.37's discard undo. `e2e/entry-timer.spec.ts` swaps the form for one with a 3:00 timer, a "where?" event log and a Timer field, and drives Playwright's clock (`install`, `setSystemTime`, `runFor`). The phone timer states are shot phone-only (the bar is the phone's); the desktop bar desktop-only; the Timer field and event log at both widths (phone also `-long`, the field is below the fold); the map at both widths, opened afresh at 1440 because the page redraws across the breakpoint.
+
+**Risk:** none known; the timed shots read the clock, so their digits differ by a second or two from run to run.
+
+## Task 1.34 — fix round 1: a failed timed-parts chunk fails loudly and can be tried again
+
+**Plan said:** (orchestrator review) keep the `timedParts` chunk, but a failed load must fail loudly and be retryable on the competition path.
+
+**What was wrong:** `loadTimedParts()` kept its promise with `??=`, so one rejected `import('./timedParts')` (an interrupted first load, a deploy that renamed the chunk) was kept for good: the sticky timer, Timer and Event-log fields drew nothing, silently, and the module-load `void loadTimedParts()` was an unhandled rejection.
+
+**What I did instead:** a rejection clears the kept promise, so the next call imports again; the module-load preload catches its error. Each stand-in that sees its load fail draws a still `Notice` (role="alert", warning tone with the `--warn` edge, never red) in the part's place: "“Shots” didn't load. What is already entered is kept." with a **Try again** button (36 px drawn, 48 px hit area) that retries the import and, on success, draws the real part. The sticky timer's failure is one slim line in the bar's place, and only for a form that has a timer. Nothing calls `onChange` meanwhile. New `lazyParts.test.tsx` (5 tests): the import mocked to reject once through a tests-only `setTimedPartsImportForTests(load)` → the alert shows and nothing is recorded; Try again with the import resolving → the real event log, Timer field (its 8.2 kept) and Start match draw; a failed load is retried by the next call; no `unhandledRejection` fires. Mutation: keeping the rejected promise fails 4 of the 5. `pnpm bundle:check` still lists `timedParts` (5.6 KB) and passes its precache check; `dist/sw.js` names it. Initial JS is 213.9 KB (the notice and retry add 0.4 KB).
+
+**Risk:** the module-load catch itself is not exercised by a test (the real import succeeds under test); the stand-ins' own retry covers a failed preload either way.
+
+## Task 1.34 — fix round 1: event-log chip ✕ hit areas kept 8 px apart
+
+**Plan said:** touch targets ≥ 48 × 48 px, ≥ 8 px between adjacent targets; chips 30 px as in THEME "Event-log buttons and tap chips".
+
+**What was wrong:** the chips' 48 px ✕ hit areas reach 9 px above and below their 30 px chip, so with 8 px row gaps two rows' areas overlapped (logged in round 0 as a risk), and they came within 1–3 px of the event buttons above and the Undo's hit area below.
+
+**What I did instead:** kept the 30 px chips and the 22 px ✕ and spaced the list: rows 26 px apart (`gap-y-[1.625rem]`, `gap-x-2`), 17 px from the buttons (the column's 10 px + `mt-[0.4375rem]`) and 24 px to the Undo row (10 + `mt-[0.875rem]`, whose button's hit area reaches 7 px up). Side by side, a chip is wider than 48 px, so neighbouring ✕ areas are further apart than 8 px. `e2e/entry-timer.spec.ts` now taps six times on a 375 px phone (chips on more than one row), measures every button in the field with its `::after` hit area, and asserts each is ≥ 48 × 48 and every pair is ≥ 8 px apart; a new phone shot `event-log-chips-rows-phone.png` shows it. Mutation: the old `gap-2` list fails it ("High goal, 1 tap / Remove Missed at 0:57: px apart"). Rejected: a wider-than-tall ✕ area (the floor is 48 in both directions); a one-row scroller (unlike THEME).
+
+**Risk:** the chip rows are looser than the mock (26 px between rows against 6 px); the chips themselves are as drawn.

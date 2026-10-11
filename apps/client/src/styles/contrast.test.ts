@@ -80,3 +80,34 @@ describe('the picked station tile pairs (THEME.md "Palette")', () => {
     },
   );
 });
+
+/*
+ * The sticky match timer (THEME "Sticky match timer", outdoor check 2026-10-09; task 1.34). Its
+ * colours are tokens with outdoor values: the amber countdown is text on the --rail-raised bar
+ * (4.5:1), and every segment of the phase bar is a graphic against that bar (3:1). The mockup's
+ * literal rest colour was 1.42:1, and --accent is under 3:1 there, which is why the current
+ * phase fills with its own token. Phase tag and Start match keep white on --accent (above).
+ */
+describe.each(Object.entries(THEMES))('%s sticky match timer contrast', (_name, theme) => {
+  it('the last-10-s countdown is ≥ 4.5:1 on the bar', () => {
+    expect(
+      ratio(token(theme, '--timer-warn'), token(theme, '--rail-raised')),
+    ).toBeGreaterThanOrEqual(4.5);
+  });
+  it.each(['--timer-bar-rest', '--timer-bar-done', '--timer-bar-fill'])(
+    '%s is ≥ 3:1 against the bar',
+    (segment) => {
+      expect(ratio(token(theme, segment), token(theme, '--rail-raised'))).toBeGreaterThanOrEqual(3);
+    },
+  );
+  it('the rail-ink total and reset are ≥ 4.5:1 on the bar', () => {
+    expect(ratio(token(theme, '--rail-ink'), token(theme, '--rail-raised'))).toBeGreaterThanOrEqual(
+      4.5,
+    );
+  });
+  it('done and rest segments are told apart (≥ 2:1 between them)', () => {
+    expect(
+      ratio(token(theme, '--timer-bar-done'), token(theme, '--timer-bar-rest')),
+    ).toBeGreaterThanOrEqual(2);
+  });
+});

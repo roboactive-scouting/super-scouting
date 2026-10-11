@@ -1,9 +1,15 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { FormFieldDefinition } from '@frc/shared';
 import { FieldInput } from './FieldInput';
+import { loadTimedParts } from './lazyParts';
+
+// The timer and event log come from their own chunk (lazyParts): in before any test draws them.
+beforeAll(async () => {
+  await loadTimedParts();
+});
 
 const f = (over: Partial<FormFieldDefinition>): FormFieldDefinition => ({
   id: 'f',
@@ -525,6 +531,29 @@ describe('FieldInput lays out by its own width (UF.18)', () => {
       undefined,
     ],
     ['section', { type: 'section', config: {} }, undefined],
+    ['timer, ready', { type: 'timer', unit: 'seconds', config: { allow_unsure: true } }, undefined],
+    ['timer, paused', { type: 'timer', unit: 'seconds', config: { allow_unsure: true } }, 8.2],
+    ['timer, unsure', { type: 'timer', unit: 'seconds', config: { allow_unsure: true } }, null],
+    [
+      'event log with taps',
+      {
+        type: 'event_log',
+        unit: 'count',
+        config: {
+          event_types: [
+            { value: 'high', label: 'High goal' },
+            { value: 'low', label: 'Low goal' },
+            { value: 'miss', label: 'Missed' },
+          ],
+          ask_position: true,
+          mirror_axis: 'horizontal',
+        },
+      },
+      [
+        { type: 'high', t: 18, x: 0.31, y: 0.62 },
+        { type: 'miss', t: 57 },
+      ],
+    ],
   ];
   it.each(cases)('%s: no window-width class anywhere', (_name, over, value) => {
     const { container } = render(

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { FieldPhase, FormFieldDefinition, RobotStatus } from '@frc/shared';
+import type { FieldPhase, FormFieldDefinition, RobotStatus, TimerConfig } from '@frc/shared';
 import { ActionBar } from '@/components/ui/action-bar';
 import { Button } from '@/components/ui/button';
 import { cachedFormFields, cachedRows } from '@/data/cache';
@@ -8,13 +8,17 @@ import { stationOf, type LineupSlot } from '@/lib/derive/entries';
 import { usePageCrumb, usePageTitle } from '@/lib/pageTitle';
 import { useIsDesktop } from '@/lib/useMediaQuery';
 import { ConfirmEntry } from './ConfirmEntry';
+import { EntryContext, type EntryContextValue } from './entryContext';
 import { EntryHeader, EntryTag } from './EntryHeader';
 import { EntrySummary } from './EntrySummary';
 import { FieldInput } from './FieldInput';
 import { canSelfEdit, editsAnyTime, type Editor, type LocalEntry } from './localEntries';
+import { matchClock } from './matchClock';
+import { MatchTimer } from './lazyParts';
 import { PhaseTabs } from './PhaseTabs';
 import { donePhases, phasesOf } from './phases';
 import { RobotStatusPicker } from './RobotStatusPicker';
+import { stopwatches } from './stopwatches';
 import { submitEntry } from './submitEntry';
 import { useDraft } from './useDraft';
 
@@ -31,6 +35,13 @@ export type EntryPageProps = {
   onSubmitted?: (rowId: string) => void;
   /** This device's entry for the same match and robot: the page edits it (SPEC-FINAL 7.6). */
   existing?: LocalEntry;
+  /**
+   * The form's match timer (`forms.timer_config`, SPEC-FINAL 8.4). No phases, or none given: the
+   * sticky timer is not drawn.
+   */
+  timerConfig?: TimerConfig | null;
+  /** The season's game image (`seasons.field_image_path`) for the map fields (5.6, 16.7). */
+  fieldImagePath?: string | null;
 };
 
 export function EntryPage(props: EntryPageProps) {
@@ -54,6 +65,17 @@ export function EntryPage(props: EntryPageProps) {
   usePageTitle(`${props.matchLabel} · ${props.teamLabel.split(' ')[0] ?? ''}`);
   // The desktop crumb keeps the team's name: "Scout / Q39 · 1690 Orbit" (Entry final).
   usePageCrumb(['Scout', `${props.matchLabel} · ${props.teamLabel}`]);
+
+  // One entry, one origin (SPEC-FINAL 5.5): the match clock and the Timer fields' stopwatches
+  // start empty as an entry opens and are cleared as it closes, so nothing leaks between entries.
+  useEffect(() => {
+    matchClock.reset();
+    stopwatches.resetAll();
+    return () => {
+      matchClock.reset();
+      stopwatches.resetAll();
+    };
+  }, [draftKey]);
 
   // A failed submit keeps the entry and the sheet; the reason is moved into view and
   // focused, beside the button the scout just pressed.
@@ -200,59 +222,76 @@ export function EntryPage(props: EntryPageProps) {
     />
   );
 
+  const context: EntryContextValue = {
+    alliance: props.alliance,
+    station,
+    fieldImagePath: props.fieldImagePath ?? null,
+  };
+  // Guidance only (SPEC-FINAL 8.4): it is handed nothing it could open, lock or submit.
+  const timer = <MatchTimer config={props.timerConfig} layout={desktop ? 'desktop' : 'phone'} />;
+  const hasTimer = (props.timerConfig?.phases.length ?? 0) > 0;
+
   if (desktop) {
     return (
-      <main className="grid max-w-[1180px] grid-cols-[minmax(0,1fr)_340px] gap-6 px-8 py-6">
-        <div className="min-w-0">
-          {header}
-          <div className="mt-5">{statusBlock}</div>
-          {pane && (
-            <div className="mt-4 overflow-hidden rounded-card border border-line bg-surface">
-              {pane}
-            </div>
-          )}
-        </div>
-        <EntrySummary
-          status={status}
-          phases={dead ? [] : phases}
-          data={data}
-          current={current?.key ?? 'auto'}
-          done={done}
-          onPick={setPhase}
-          onReview={() => setReviewing(true)}
-        />
-        {confirm}
-      </main>
+      <EntryContext value={context}>
+        <main className="grid max-w-[1180px] grid-cols-[minmax(0,1fr)_340px] gap-6 px-8 py-6">
+          <div className="min-w-0">
+            {header}
+            <div className="mt-5">{statusBlock}</div>
+            {(pane || hasTimer) && (
+              // overflow-clip, not -hidden: the timer bar stays sticky inside the rounded card.
+              <div className="mt-4 overflow-clip rounded-card border border-line bg-surface">
+                {timer}
+                {pane}
+              </div>
+            )}
+          </div>
+          <EntrySummary
+            status={status}
+            phases={dead ? [] : phases}
+            data={data}
+            current={current?.key ?? 'auto'}
+            done={done}
+            onPick={setPhase}
+            onReview={() => setReviewing(true)}
+          />
+          {confirm}
+        </main>
+      </EntryContext>
     );
   }
 
   return (
     // The whole page takes the phase swipe (PhaseTabs), the space below a short form too;
     // the browser keeps the vertical scroll and the pinch zoom.
-    <main
-      ref={mainRef}
-      data-pinned-foot=""
-      className="flex flex-1 touch-pan-y touch-pinch-zoom flex-col"
-    >
-      {header}
-      <div className="px-4 py-3">{statusBlock}</div>
-      <div className="flex flex-1 flex-col">{pane}</div>
-      {/* The wrapper is the sticky element and a direct child of <main>, which is taller than
+    <EntryContext value={context}>
+      <main
+        ref={mainRef}
+        data-pinned-foot=""
+        className="flex flex-1 touch-pan-y touch-pinch-zoom flex-col"
+      >
+        {/* Pinned under the top bar while the page scrolls (entry parts, the sticky match timer). */}
+        {timer}
+        {header}
+        <div className="px-4 py-3">{statusBlock}</div>
+        <div className="flex flex-1 flex-col">{pane}</div>
+        {/* The wrapper is the sticky element and a direct child of <main>, which is taller than
           the bar: pinned at the bottom while a long phase scrolls. Its mt-0 override drops the
           bar's own top margin, so no scrolled content shows in a gap above the border. */}
-      <div className="sticky bottom-[var(--bottom-bar,0px)] z-20 mt-6 px-4 [&>div]:mt-0">
-        <ActionBar>
-          <Button
-            variant="primary"
-            size="block"
-            disabled={status === null}
-            onClick={() => setReviewing(true)}
-          >
-            Review entry
-          </Button>
-        </ActionBar>
-      </div>
-      {confirm}
-    </main>
+        <div className="sticky bottom-[var(--bottom-bar,0px)] z-20 mt-6 px-4 [&>div]:mt-0">
+          <ActionBar>
+            <Button
+              variant="primary"
+              size="block"
+              disabled={status === null}
+              onClick={() => setReviewing(true)}
+            >
+              Review entry
+            </Button>
+          </ActionBar>
+        </div>
+        {confirm}
+      </main>
+    </EntryContext>
   );
 }

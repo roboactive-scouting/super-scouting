@@ -2,9 +2,9 @@ import type { FormFieldDefinition } from '@frc/shared';
 import { FieldInput } from '@/features/entry/FieldInput';
 
 /**
- * The types the entry form's `FieldInput` draws today. Timer, event log, position and cycle
- * path arrive with tasks 1.34–1.35; until then the builder draws a neutral placeholder for them
- * (DEVIATIONS 1.29). A section is drawn by the canvas's own heading below, not by `FieldInput`.
+ * The types the entry form's `FieldInput` draws today (timer and event log since task 1.34).
+ * Position and cycle path arrive with task 1.35; until then the builder draws a neutral
+ * placeholder for them (DEVIATIONS 1.29). A section is drawn by the canvas's own heading below, not by `FieldInput`.
  */
 export const DRAWN_TYPES: ReadonlySet<string> = new Set([
   'counter',
@@ -16,6 +16,8 @@ export const DRAWN_TYPES: ReadonlySet<string> = new Set([
   'short_text',
   'long_text',
   'computed',
+  'timer',
+  'event_log',
 ]);
 
 const noop = () => undefined;
@@ -46,9 +48,7 @@ export function FieldPreview({ field }: { field: FormFieldDefinition }) {
           {field.help_text}
         </p>
       )}
-      <p className="mt-1 text-[0.78125rem] text-muted">
-        Shown on the phone once tasks 1.34–1.35 land
-      </p>
+      <p className="mt-1 text-[0.78125rem] text-muted">Shown on the phone once task 1.35 lands</p>
     </div>
   );
 }

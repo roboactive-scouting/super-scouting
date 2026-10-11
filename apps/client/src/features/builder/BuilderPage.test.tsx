@@ -181,10 +181,11 @@ describe('BuilderPage: the three panes (task 1.29)', () => {
     expect(
       heading.compareDocumentPosition(defence) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    // A type the phone cannot draw yet is a neutral placeholder, never a status colour.
+    // The event log is drawn as the phone draws it (task 1.34): its buttons, not a placeholder.
     expect(
-      within(canvas()).getByText('Shown on the phone once tasks 1.34–1.35 land'),
+      await within(canvas()).findByRole('button', { name: 'High goal, 0 taps' }),
     ).toBeVisible();
+    expect(within(canvas()).queryByText('Shown on the phone once task 1.35 lands')).toBeNull();
     // The key and the points sit at the item's top right.
     expect(within(canvas()).getByText('4/ea pts')).toBeInTheDocument();
   });

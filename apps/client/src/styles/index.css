@@ -33,6 +33,10 @@
   --color-alliance-red-strong: var(--alliance-red-strong);
   --color-alliance-blue-strong: var(--alliance-blue-strong);
   --color-coverage-gap: var(--coverage-gap);
+  --color-timer-warn: var(--timer-warn);
+  --color-timer-bar-rest: var(--timer-bar-rest);
+  --color-timer-bar-done: var(--timer-bar-done);
+  --color-timer-bar-fill: var(--timer-bar-fill);
 
   --font-ui: 'Schibsted Grotesk Variable', 'Noto Sans Hebrew', system-ui, sans-serif;
   --font-sans: var(--font-ui);
