@@ -11,6 +11,17 @@ export type Choice<V extends string> = {
   accent?: string;
 };
 
+/**
+ * An option card's frame, shared by the radio, check box and star cards (THEME "Option buttons"):
+ * the 48 px floor, the hover veil, a press that gives a little, a `--control-border` edge.
+ */
+export const OPTION_CARD =
+  'tap-target hover-veil motion-safe:transition motion-safe:active:not-disabled:scale-[0.97] flex min-h-12 min-w-0 cursor-pointer items-center rounded-control border border-control-border bg-surface';
+
+/** A chosen card: 2 px `--accent` on `--accent-tint` (with `has-[:checked]:border-2`). */
+export const OPTION_CHOSEN =
+  'has-[:checked]:border-accent has-[:checked]:bg-accent-tint has-[:checked]:text-accent-ink';
+
 /** The keyboard focus ring on an option's card (its radio is visually hidden). */
 export const OPTION_FOCUS_RING =
   'has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent';
@@ -98,11 +109,12 @@ export function OptionButtons<V extends string>({
               key={option.value}
               style={option.accent ? ({ '--opt': option.accent } as CSSProperties) : undefined}
               className={cn(
-                'tap-target hover-veil motion-safe:transition motion-safe:active:not-disabled:scale-[0.97] flex min-h-12 min-w-0 cursor-pointer items-center gap-3 rounded-control border border-control-border bg-surface px-4 text-ink-2 has-[:checked]:border-2 has-[:checked]:px-[0.9375rem]',
+                OPTION_CARD,
+                'gap-3 px-4 text-ink-2 has-[:checked]:border-2 has-[:checked]:px-[0.9375rem]',
                 !pointer && OPTION_FOCUS_RING,
                 option.accent
                   ? 'has-[:checked]:border-[var(--opt)] has-[:checked]:bg-[color-mix(in_srgb,var(--opt)_12%,var(--surface))] has-[:checked]:text-ink'
-                  : 'has-[:checked]:border-accent has-[:checked]:bg-accent-tint has-[:checked]:text-accent-ink',
+                  : OPTION_CHOSEN,
               )}
             >
               <input

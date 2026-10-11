@@ -175,9 +175,9 @@ const PULL = {
 
 async function bothThemes(page: Page, name: string, only?: 'phone' | 'desktop') {
   await page.evaluate(() => (document.documentElement.dataset.theme = 'light'));
-  await shoot(page, name, only);
+  await shoot(page, name, only, { long: true });
   await page.evaluate(() => (document.documentElement.dataset.theme = 'outdoor'));
-  await shoot(page, `${name}-outdoor`, only);
+  await shoot(page, `${name}-outdoor`, only, { long: true });
   await page.evaluate(() => (document.documentElement.dataset.theme = 'light'));
 }
 

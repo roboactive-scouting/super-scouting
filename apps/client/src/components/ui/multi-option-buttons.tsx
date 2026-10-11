@@ -1,7 +1,7 @@
 import { Check } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
-import { OPTION_FOCUS_RING } from './option-buttons';
+import { OPTION_CARD, OPTION_CHOSEN, OPTION_FOCUS_RING } from './option-buttons';
 
 export type MultiChoice<V extends string> = { value: V; label: string };
 
@@ -51,7 +51,9 @@ export function MultiOptionButtons<V extends string>({
             <label
               key={option.value}
               className={cn(
-                'group/opt tap-target hover-veil motion-safe:transition motion-safe:active:scale-[0.97] flex min-h-12 min-w-0 cursor-pointer items-center justify-center gap-1.5 rounded-control border border-control-border bg-surface px-3 text-sm font-semibold text-ink-2 has-[:checked]:border-2 has-[:checked]:border-accent has-[:checked]:bg-accent-tint has-[:checked]:px-[0.6875rem] has-[:checked]:text-accent-ink',
+                OPTION_CARD,
+                'group/opt justify-center gap-1.5 px-3 text-sm font-semibold text-ink-2 has-[:checked]:border-2 has-[:checked]:px-[0.6875rem]',
+                OPTION_CHOSEN,
                 OPTION_FOCUS_RING,
               )}
             >

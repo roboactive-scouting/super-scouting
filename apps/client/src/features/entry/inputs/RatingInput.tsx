@@ -1,7 +1,7 @@
 import { Star } from 'lucide-react';
 import { useId } from 'react';
 import type { FormFieldDefinition } from '@frc/shared';
-import { OPTION_FOCUS_RING } from '@/components/ui/option-buttons';
+import { OPTION_CARD, OPTION_FOCUS_RING } from '@/components/ui/option-buttons';
 import { cn } from '@/lib/utils';
 import { FieldLabel, FieldRow } from './FieldRow';
 
@@ -62,7 +62,8 @@ function RatingStars({ field, value, onChange }: Props) {
               data-star=""
               data-filled={filled ? '' : undefined}
               className={cn(
-                'tap-target hover-veil motion-safe:transition flex h-14 min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-control border border-control-border bg-surface text-[0.6875rem] font-[650] text-muted',
+                OPTION_CARD,
+                'h-14 flex-1 flex-col justify-center gap-0.5 text-[0.6875rem] font-[650] text-muted',
                 filled && 'border-accent bg-accent-tint',
                 n === pick && 'border-2 border-accent text-accent-ink',
                 OPTION_FOCUS_RING,

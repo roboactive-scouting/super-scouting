@@ -9,7 +9,7 @@ import {
   type ExprValue,
   type FormFieldDefinition,
 } from '@frc/shared';
-import { ROW } from './FieldRow';
+import { NAME_TEXT, ROW, ROW_GRID } from './FieldRow';
 
 const OP_WORD = { '+': '+', '-': '−', '*': '×', '/': '÷', concat: 'then' } as const;
 
@@ -51,29 +51,18 @@ export function ComputedValue({
   const formula = field.help_text ?? (expression ? formulaWords(expression) : 'No formula yet');
   return (
     <div className={`${ROW} @container`}>
-      <div className="@min-[44rem]:grid @min-[44rem]:grid-cols-[minmax(0,1fr)_27.5rem] @min-[44rem]:items-center @min-[44rem]:gap-6">
+      <div className={ROW_GRID}>
         {/* The row's left column on a computer; the name is read from the grey row's own copy. */}
-        <span
-          aria-hidden="true"
-          className="hidden text-[0.90625rem] font-semibold text-ink @min-[44rem]:block"
-          dir="auto"
-        >
+        <span aria-hidden="true" className={`hidden ${NAME_TEXT} @min-[44rem]:block`} dir="auto">
           {field.label}
         </span>
         <div className="flex min-w-0 items-center gap-2.5 rounded-control bg-line-2 px-3 py-2.5">
           <Calculator aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0">
-            <span
-              id={nameId}
-              className="block text-[0.90625rem] font-semibold text-ink @min-[44rem]:hidden"
-              dir="auto"
-            >
+            <span id={nameId} className={`block ${NAME_TEXT} @min-[44rem]:hidden`} dir="auto">
               {field.label}
             </span>
-            <span
-              aria-hidden="true"
-              className="hidden text-[0.90625rem] font-semibold text-ink @min-[44rem]:block"
-            >
+            <span aria-hidden="true" className={`hidden ${NAME_TEXT} @min-[44rem]:block`}>
               Worked out
             </span>
             <span className="block text-xs text-muted" dir="auto">

@@ -6804,3 +6804,93 @@ Rejected: keeping ↑ ↓ beside the grip as a keyboard path — the keyboard se
 **What I did instead:** verified with longer waits and no committed change: a git-ignored wrapper (`apps/client/node_modules/.cache/slow/vitest.slow.config.ts`, the real client config merged with 180 s test/hook timeouts and a setup file setting Testing Library's `asyncUtilTimeout` to 30 s; `node_modules/.cache/slowtest.sh` runs the other projects with `--testTimeout=180000`). Floor on that wrapper: 164 files, 2269 tests (895 outside the client + 1374 client), 2252 passing. The 17 left fail only because their timeouts are written into the tests (`BuilderUndo.test.tsx` `SLOW = { timeout: 10_000 }`, `}, 15_000)` in `BuilderPage.test.tsx` and `UsersPage.test.tsx`, `LAZY = { timeout: 5000 }` in `ManageRoute.test.tsx`), which no CLI setting overrides. Rejected: raising timeouts in the repo (it would hide real slowness on CI and change committed tests to suit one machine); changing power settings (system settings are not an agent's to change; the user was told).
 
 **Risk:** a real regression in one of those 17 tests would hide behind its timeout here. They are re-run alone at the end of the chat, and CI re-runs the stock suite at full speed when chat 2 pushes.
+
+## Phase 1 E (chat 1, resumed 2026-10-11) — the baseline is green at full speed
+
+**Plan said:** the floor is the starting `pnpm test` count (see "the baseline suite times out on a throttled CPU" above).
+
+**What was wrong:** nothing now: `% Processor Performance` reads 37–135 and one bcrypt compare at cost 10 takes 68 ms.
+
+**What I did instead:** re-ran stock `pnpm test` at `ec008b6`: `Test Files  164 passed (164)` / `Tests  2269 passed (2269)` in 2 min 34 s. That is the floor from here; the slow-machine wrapper is no longer used.
+
+**Risk:** none.
+
+## Task 1.33 — the plan's `components/entry` names map onto `components/ui`, plus one extra file
+
+**Plan said:** build every type "from `components/entry`": `CounterControl`, `ToggleField`, `ChoiceGroup`, `components/entry/MultiChoiceGroup.tsx`, `SectionHeader level={3}`.
+
+**What was wrong:** `components/entry` does not exist since the redesign build (contract, "Stale names").
+
+**What I did instead:** counter → `Counter` (`components/ui/counter.tsx`); toggle → `Switch`; single_select → `OptionButtons`; multi_select → a new shared primitive `MultiOptionButtons` in `components/ui/multi-option-buttons.tsx` (the `OptionButtons` pattern around native checkboxes; this is what `MultiChoiceGroup.tsx` became), wired by `features/entry/inputs/MultiSelectInput.tsx`; section → `features/entry/inputs/SectionHeading.tsx`, an `<h3>`. One file the plan does not list: `features/entry/inputs/FieldRow.tsx` (`FieldLabel`, `FieldRow`, `ROW`, `ROW_GRID`, `NAME_TEXT`), the name / "Required" / help block and the phone-stack / desktop-row layout every labelled type shares. `OptionButtons` now exports `OPTION_CARD` and `OPTION_CHOSEN`, the card classes the check-box and star cards reuse.
+
+**Risk:** none beyond the names; later tasks should import from these paths.
+
+## Task 1.33 — `FieldInput.test.tsx` already existed; the brief's tests merged in, typing tests given a holding wrapper
+
+**Plan said:** "Create: `apps/client/src/features/entry/FieldInput.test.tsx`" with the brief's eight tests; `useUndoable(value, onChange)`.
+
+**What was wrong:** the file existed (UF.18's no-window-width suite). The brief's `useUndoable.test.ts` calls `useUndoable(0, onChange)` then `set(1)`, which failed typecheck with a plain `<T>` signature: `src/features/entry/useUndoable.test.ts(9,34): error TS2345: Argument of type '1' is not assignable to parameter of type '0'.`
+
+**What I did instead:** kept the UF.18 suite and extended its cases to every new type, added the brief's `describe` verbatim, a details suite, and the dispatch's four negatives (a counter is never a text input; a multi-select Undo takes back only the last toggle; a section holds no value and draws no control; a computed field has no input). Typing tests use a small `Held` wrapper that hands the value back, as a page does (a controlled input with a fixed `value` resets on each keystroke). `useUndoable` widens a literal (`Widen<V>`: `0` → `number`), so the brief's test runs unchanged. The hook also returns `value` (its current value) and `note` (the name of the change `undo` would take back: "Far"), and starts a new history when the value handed in changes from outside (a restored draft, Clear test values).
+
+**Risk:** none.
+
+## Task 1.33 — the desktop field row by container query; option buttons' four-column step moved to 26 rem
+
+**Plan said:** (dispatch) on the desktop Entry page each field is one row, control in a 440 px column, by container queries; UF.18 set `OptionButtons` to four columns at `@lg` (32 rem).
+
+**What was wrong:** a 440 px control column is under 32 rem, so a four-option select there would have drawn 2 × 2, against the design (four in a row) and against `entry.spec.ts`'s four-columns-at-1440 assertion.
+
+**What I did instead:** each labelled field's row is its own `@container`; from `@min-[44rem]` it is `grid-cols-[minmax(0,1fr)_27.5rem]` (name and hint left, control right). The desktop card's rows are about 710 px wide, so they are rows; the phone, the builder's 410 px canvas and Try it stack. `OptionButtons` goes to four columns at `@min-[26rem]` (416 px) and gained `showLegend={false}` (the row draws the name; the group keeps its `aria-label`); `controls.test.tsx`'s class assertion follows. Counters and toggles stay full-width rows with the control at the right edge, as the design keeps counters. A computed field shows its name on the left and "Worked out" in the grey row on a computer.
+
+**Risk:** a tablet held upright (768 px, container about 736 px) also gets rows. At 1440 px a four-option select with two-word labels ("High rung") wraps inside its 104 px cards (`entry-endgame-desktop.png`); the design's labels are one word. The 1100 px small desktop still stacks with two columns, as the UF.18 review decided.
+
+## Task 1.33 — type details decided in the build
+
+**Plan said:** number and short_text → `Input`; rating → stars or a native range; computed → a read-only value row; section → a heading; a "Required" marker; every target ≥ 48 px and ≥ 8 px apart.
+
+**What was wrong:** nothing; these are calls the plan leaves open.
+
+**What I did instead:** *Number:* `type="number"`, mono 18 px, spinners hidden; `step` defaults to `any`; the unit word shows only for `seconds` and `points` (a bare "count" reads oddly); "Between 3 and 60" from `expected_range`; help, unit and range are its `aria-describedby`; emptied it reports `undefined`, never 0. *Rating stars:* version D; each radio is named like "Good, 4 of 5"; a rating whose `max` is not 5 shows numbers under the stars instead of the five words. *Rating slider:* a native range laid over the drawn track, fill and 28 px knob (its own thumb sized to the knob); unanswered there is no knob or fill, `aria-valuetext` is "Not rated", and the first tap commits even at 1 (a click with no change event). *Multi-select:* the chosen values in the form's option order; the Undo sits in a 48 px foot line (the tap floor), so that line is taller than drawn; gaps are 8 px, not the mock's 6 px (17.7). *Computed:* worked out from `siblingValues` on every render (the `value` prop is ignored); whole numbers without decimals, others to 2 places, nothing yet "—"; the formula in words is the field's help text, else the expression with its keys spaced (`auto high + tele high`), since `FieldInput` does not know the other fields' labels. *Required:* the marker is drawn for every labelled type and the counter; not for a toggle (always answered). *Counter:* its buttons gained `tap-target` (the brief's test; they were already 50 px). Rejected: drawing the counter's undo through `useUndoable` — its − is the undo; the timer reset is task 1.34.
+
+**Risk:** a form whose computed field has no help text shows field keys, not labels, as its formula.
+
+## Task 1.33 — entry bookkeeping for sections and computed fields
+
+**Plan said:** a section renders as a heading and holds no value; a computed field is read-only (§5.7).
+
+**What was wrong:** `phasesOf` filed a section (no `phase`, §5.4) under Notes; the summary's "n of m" and the confirm counted sections and computed fields as fields to fill; an emptied multi-select (`[]`) counted as filled; the confirm would print a multi-select's raw values.
+
+**What I did instead:** `phasesOf` puts a section with the data field after it, else the one before it (the builder's `phaseOfIndex` rule), and drops a phase of headings alone; a new `scoutedFields(phase)` (no sections, no computed) drives `filledCount` and the summary's total; `isFilled([])` is false (as `validateEntryData` treats an empty list); the confirm skips sections and prints a multi-select's labels. `seedValues` starts a multi-select at `[]` (nothing ticked); number, rating and text start empty. `EntryPage` and Try it pass `siblingValues` (the entry's data; in Try it the would-be-saved data, so the canvas and the pane agree). `DRAWN_TYPES` gained number, multi_select, rating, short_text and computed; a section stays drawn by the canvas's own heading; the placeholder now says "tasks 1.34–1.35". Not done (task 1.36): the confirm still prints "—" for a computed field, and `submitEntry` does not yet write computed values into `data` (§5.7).
+
+**Risk:** until 1.36, a computed value is visible on the form but not in the confirm or the saved entry.
+
+## Task 1.33 — the initial bundle is 0.5 KB over its 212 KB budget
+
+**Plan said:** initial JS ≤ 212 KB gzip (`pnpm build && pnpm bundle:check`); heavy, rarely-used UI lazy-loaded if it threatens the budget.
+
+**What was wrong:** `initial JS 212.5 KB gzip` / `initial JS over 212 KB gzip`. Measured: `ec008b6` 209.1 KB; this task adds 3.4 KB, of which the rating control is about 1.0 KB (slider 0.5, stars 0.5) and `evaluateExpr` 0.1 KB; sharing the card class strings and the row constants won back 0.1 KB.
+
+**What I did instead:** left it over and flagged it for a decision. Rejected: lazy-loading the slider style (measured 212.0 KB, still on the line, and the brief's slider test reads it synchronously); lazy-loading the Entry route or any part of the competition path (`routes.tsx` records that it "never waits on a chunk"); raising `BUDGET_KB` (the user's decision, as the last two raises were); cutting features to fit.
+
+**Risk:** `pnpm bundle:check` fails until the budget is raised or the entry path is split. Tasks 1.34 (timer, event log) and 1.35 (maps) add to the same path, so the decision is needed before them either way.
+
+## Task 1.33 — the screenshot spec has its own form, and outdoor is set by the test
+
+**Plan said:** extend `e2e/entry.spec.ts` (or a new spec) with a form fixture holding every drawn type, shot at 375 and 1440 px in `light` and `outdoor`.
+
+**What was wrong:** the shared fixture's form has only the four old types, and the app has no theme switch until task 1.38.
+
+**What I did instead:** a new `e2e/entry-fields.spec.ts` overrides `sync/pull` with the shared pull whose `form_fields` are a 13-field form laid out like the design (and no scoring rules), fills it through the controls, asserts the 440 px desktop column, the Undo, the required marker and the computed 9, and shoots Teleop, Endgame and Notes at both widths (phone also `-long`) with `document.documentElement.dataset.theme` set to `light`, then `outdoor`. It is `test.slow()` (eighteen shots, each with axe). `entry.spec.ts` and `forms.spec.ts` re-run green; their shots now draw the new types (Try it's computed row, the builder canvas).
+
+**Risk:** the outdoor shots prove the tokens, not the switch (1.38).
+
+## Task 1.33 — orchestrator: the bundle budget goes to 215 KB, provisionally
+
+**Plan said:** `pnpm bundle:check` holds initial JS at most 212 KB gzip (BUILD-CONTEXT §12.5, the user's raise of 2026-10-09).
+
+**What was wrong:** after 1.33, `initial JS 212.5 KB gzip` / `initial JS over 212 KB gzip` (209.1 KB at `ec008b6`; the rating control is about 1.0 KB of the 3.4 KB added). Trimming won 0.1 KB. 1.34 (timer, event log) adds to the same eager entry path.
+
+**What I did instead:** raised `BUDGET_KB` to 215 in `scripts/check-bundle.mjs` and BUILD-CONTEXT §12.5, marked provisional and pending the user (the prompt: make the call, log it, keep going). 1.34/1.35 load the map pop-up as a lazy chunk (precached by the service worker, so it opens offline). Rejected: lazy-loading the rating slider (reaches exactly 212.0 with no headroom for 1.34) or any inline entry control: `routes.tsx` records that the competition path never waits on a chunk. Rejected: holding the run for an answer (the prompt forbids stopping).
+
+**Risk:** the budget is the user's to set; if they want 212 kept, the entry path has to shed about 0.5 KB plus whatever 1.34 adds, which means splitting it against the `routes.tsx` rule or cutting code elsewhere in the initial bundle.
