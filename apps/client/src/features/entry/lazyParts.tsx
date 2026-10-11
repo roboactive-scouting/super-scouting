@@ -132,3 +132,15 @@ export function EventLogInput(props: ComponentProps<Parts['EventLogInput']>) {
   if (parts) return <parts.EventLogInput {...props} />;
   return failed ? <NotLoaded what={`“${props.field.label}”`} onRetry={retry} /> : null;
 }
+
+export function PositionInput(props: ComponentProps<Parts['PositionInput']>) {
+  const { parts, failed, retry } = useTimedParts();
+  if (parts) return <parts.PositionInput {...props} />;
+  return failed ? <NotLoaded what={`“${props.field.label}”`} onRetry={retry} /> : null;
+}
+
+export function CyclePathInput(props: ComponentProps<Parts['CyclePathInput']>) {
+  const { parts, failed, retry } = useTimedParts();
+  if (parts) return <parts.CyclePathInput {...props} />;
+  return failed ? <NotLoaded what={`“${props.field.label}”`} onRetry={retry} /> : null;
+}

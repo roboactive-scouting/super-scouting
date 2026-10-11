@@ -220,3 +220,30 @@ describe('Try it explains itself (UF.15, UF.16, UF.17)', { timeout: 10_000 }, ()
     for (const row of rows) expect(row.className).not.toMatch(/hover:/);
   });
 });
+
+describe('Try it: map fields (task 1.35)', () => {
+  it('draws a map field as its map button in Edit and Try it, never a placeholder card', async () => {
+    await openBuilder(draftPath, server().rpc);
+    const u = userEvent.setup();
+    await u.click(await screen.findByRole('button', { name: /^Add Field position:/ }));
+    await u.click(screen.getByRole('button', { name: /^Add Cycle path:/ }));
+    // Edit: the map buttons are drawn, inert (a click picks the field).
+    expect(within(canvas()).queryByText(/Shown on the phone once/)).toBeNull();
+    expect(await within(canvas()).findAllByText('Map unavailable')).toHaveLength(2);
+    await tryIt();
+    // Try it: the button works. This harness's season image is not in the build, so the map is
+    // FieldImage's alert and nothing can be recorded (SPEC-FINAL 16.7).
+    const button = within(canvas()).getAllByRole('button', { name: /: Map unavailable$/ })[0]!;
+    await u.click(button);
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(
+      "This season's game image is missing.",
+    );
+    expect(within(dialog).queryByTestId('map-drawing')).toBeNull();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(Object.values(saved()).some((v) => Array.isArray(v) || typeof v === 'object')).toBe(
+      false,
+    );
+  });
+});

@@ -6,7 +6,7 @@ import { Note } from '@/components/ui/notice';
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
 import { FieldInput } from '@/features/entry/FieldInput';
 import { PHASE_TAB } from '@/features/entry/phases';
-import { DRAWN_TYPES, FieldPreview } from './FieldPreview';
+import { FieldPreview } from './FieldPreview';
 
 /*
  * Try it (design 12-form-builder, "Try it"; task 1.31): the canvas's own 410 px column with the
@@ -52,7 +52,7 @@ export function LivePreviewColumn({
               </h4>
             )}
             <div className="rounded-[10px] border border-line bg-surface px-3.5 py-1.5">
-              {DRAWN_TYPES.has(field.type) ? (
+              {field.type !== 'section' ? (
                 <FieldInput
                   field={field}
                   value={values[field.key]}
@@ -83,6 +83,18 @@ function analysisValue(field: FormFieldDefinition, value: unknown): string {
     const options = selectOptions(field);
     return value.map((v) => options.find((o) => o.value === v)?.label ?? String(v)).join(', ');
   }
+  // A map field reads as what is marked (design "What the analysis gets": "2 cycles · 7 points").
+  if (field.type === 'position') {
+    const n = Array.isArray(value) ? value.length : 1;
+    return `${n} ${n === 1 ? 'spot' : 'spots'}`;
+  }
+  if (field.type === 'cycle_path' && Array.isArray(value)) {
+    const points = value.reduce<number>(
+      (sum, cycle) => sum + (Array.isArray(cycle) ? cycle.length : 0),
+      0,
+    );
+    return `${value.length} ${value.length === 1 ? 'cycle' : 'cycles'} · ${points} ${points === 1 ? 'point' : 'points'}`;
+  }
   if (typeof value === 'number') return String(Math.round(value * 100) / 100);
   if (typeof value === 'string') {
     if (value === '') return 'empty';
@@ -91,9 +103,6 @@ function analysisValue(field: FormFieldDefinition, value: unknown): string {
   if (Array.isArray(value)) return `${value.length} ${value.length === 1 ? 'item' : 'items'}`;
   return JSON.stringify(value);
 }
-
-/** The types whose analysis (taps, cycle times, routes) needs controls tasks 1.34–1.35 add. */
-const LATER = new Set(['event_log', 'cycle_path', 'position', 'timer']);
 
 /**
  * The settings pane in Try it: "What this entry would save" — one line on what Try it is for
@@ -113,7 +122,6 @@ export function TryItPane({
   onClear: () => void;
 }) {
   const rows = fields.filter((f) => f.type !== 'section' && f.key in data);
-  const later = fields.some((f) => LATER.has(f.type));
   // Two fields may share a label across phases ("Pieces scored high"): the phase tells them apart.
   const shared = new Set(
     rows.map((f) => f.label).filter((label, i, all) => all.indexOf(label) !== i),
@@ -186,12 +194,6 @@ export function TryItPane({
             </Table>
           ) : (
             <p className="text-[0.8125rem] text-muted">No values yet.</p>
-          )}
-          {later && (
-            <p className="text-xs text-muted">
-              Taps, time to first, cycle times and route counts appear here once event logs and map
-              fields can be filled in Try it (tasks 1.34–1.35).
-            </p>
           )}
         </section>
       </div>

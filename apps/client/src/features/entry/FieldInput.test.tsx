@@ -554,6 +554,43 @@ describe('FieldInput lays out by its own width (UF.18)', () => {
         { type: 'miss', t: 57 },
       ],
     ],
+    [
+      'position, empty',
+      { type: 'position', unit: 'coordinate', config: { multi_point: true, mirror_axis: 'none' } },
+      undefined,
+    ],
+    [
+      'position, three spots',
+      { type: 'position', unit: 'coordinate', config: { multi_point: true, mirror_axis: 'none' } },
+      [
+        { x: 0.2, y: 0.3 },
+        { x: 0.27, y: 0.66 },
+        { x: 0.36, y: 0.44 },
+      ],
+    ],
+    [
+      'position, one point',
+      { type: 'position', unit: 'coordinate', config: { multi_point: false, mirror_axis: 'none' } },
+      { x: 0.2, y: 0.3 },
+    ],
+    [
+      'cycle path with two paths',
+      {
+        type: 'cycle_path',
+        unit: 'coordinate',
+        config: { max_points_per_cycle: 6, mirror_axis: 'horizontal' },
+      },
+      [
+        [
+          { x: 0.1, y: 0.2 },
+          { x: 0.4, y: 0.5 },
+        ],
+        [
+          { x: 0.2, y: 0.7 },
+          { x: 0.3, y: 0.55 },
+        ],
+      ],
+    ],
   ];
   it.each(cases)('%s: no window-width class anywhere', (_name, over, value) => {
     const { container } = render(

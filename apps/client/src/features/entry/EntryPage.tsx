@@ -226,6 +226,7 @@ export function EntryPage(props: EntryPageProps) {
     alliance: props.alliance,
     station,
     fieldImagePath: props.fieldImagePath ?? null,
+    caption: `${props.matchLabel} · ${props.teamLabel.split(' ')[0] ?? ''}`,
   };
   // Guidance only (SPEC-FINAL 8.4): it is handed nothing it could open, lock or submit.
   const timer = <MatchTimer config={props.timerConfig} layout={desktop ? 'desktop' : 'phone'} />;

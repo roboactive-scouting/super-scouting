@@ -344,6 +344,82 @@ test('builder: Try it fills the form as a scouter would and shows what it would 
   await shoot(page, 'builder-try', 'desktop');
 });
 
+test('builder: map fields are map buttons; Try it opens the map dialog (task 1.35)', async ({
+  page,
+}) => {
+  const setTheme = (theme: 'light' | 'outdoor') =>
+    page.evaluate((t) => (document.documentElement.dataset.theme = t), theme);
+  /** Shoots `name` in light, then `name-outdoor`. */
+  async function bothThemes(name: string) {
+    await setTheme('light');
+    await shoot(page, name, 'desktop');
+    await setTheme('outdoor');
+    await shoot(page, `${name}-outdoor`, 'desktop');
+    await setTheme('light');
+  }
+  await openBuilder(page);
+  // Edit: Auto's two position fields are drawn as the scouter's map buttons, empty.
+  await expect(canvas(page).getByText('Mark on the map')).toHaveCount(2);
+  await expect(canvas(page).getByText('Shown on the phone once task 1.35 lands')).toHaveCount(0);
+  await bothThemes('builder-map-buttons');
+
+  await canvas(page).getByRole('button', { name: 'Try it' }).click();
+  await canvas(page)
+    .getByRole('button', { name: /^Scoring spots: / })
+    .click();
+  const map = page.getByRole('dialog', { name: 'Scoring spots' });
+  await expect(map.getByText('Try it · Auto')).toBeVisible();
+  await expect(map.getByTestId('map-drawing')).toHaveAttribute('data-rotation', '0');
+  const box = (await map.getByTestId('map-drawing').boundingBox())!;
+  for (const [x, y] of [
+    [0.17, 0.3],
+    [0.27, 0.66],
+    [0.36, 0.44],
+  ] as const) {
+    await page.mouse.click(box.x + box.width * x, box.y + box.height * y);
+  }
+  await map.getByRole('button', { name: 'Spot 2' }).click();
+  await expect(map.getByRole('button', { name: 'Remove spot 2' })).toBeVisible();
+  await bothThemes('builder-try-map');
+  await map.getByRole('button', { name: 'Done' }).click();
+  const pane = page.getByRole('region', { name: 'What this entry would save' });
+  await expect(pane.getByTestId('try-saved-data')).toContainText('"auto_score_spots": [');
+  await expect(pane.getByText('3 spots')).toBeVisible();
+
+  // Teleop's cycle path, drawing its second route.
+  await canvas(page)
+    .getByRole('tab', { name: /Teleop/ })
+    .click();
+  await canvas(page)
+    .getByRole('button', { name: /^Cycle routes: / })
+    .click();
+  const routes = page.getByRole('dialog', { name: 'Cycle routes' });
+  const area = (await routes.getByTestId('map-drawing').boundingBox())!;
+  const tap = (x: number, y: number) =>
+    page.mouse.click(area.x + area.width * x, area.y + area.height * y);
+  for (const [x, y] of [
+    [0.32, 0.43],
+    [0.45, 0.33],
+    [0.72, 0.22],
+    [0.95, 0.08],
+  ] as const) {
+    await tap(x, y);
+  }
+  await routes.getByRole('button', { name: 'Finish' }).click();
+  await routes.getByRole('button', { name: 'New path' }).click();
+  for (const [x, y] of [
+    [0.55, 0.27],
+    [0.77, 0.14],
+    [0.95, 0.06],
+  ] as const) {
+    await tap(x, y);
+  }
+  await expect(routes.getByText('Drawing path 2')).toBeVisible();
+  await bothThemes('builder-try-cycle');
+  await routes.getByRole('button', { name: 'Done' }).click();
+  await expect(pane.getByText('2 cycles · 7 points')).toBeVisible();
+});
+
 test('builder: More holds Edit as JSON, Export, Import and Delete form', async ({ page }) => {
   await openBuilder(page);
   await canvas(page)

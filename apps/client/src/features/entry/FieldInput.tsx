@@ -6,7 +6,7 @@ import { OptionButtons } from '@/components/ui/option-buttons';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { ComputedValue } from './inputs/ComputedValue';
-import { EventLogInput, TimerInput } from './lazyParts';
+import { CyclePathInput, EventLogInput, PositionInput, TimerInput } from './lazyParts';
 import { FieldLabel, FieldRow, ROW } from './inputs/FieldRow';
 import { MultiSelectInput } from './inputs/MultiSelectInput';
 import { NumberInput } from './inputs/NumberInput';
@@ -33,8 +33,8 @@ const NO_VALUES: Record<string, unknown> = {};
  * builder's 410 px canvas and Try it) a field's name sits above its control; once the row's own
  * box is wide (the desktop Entry card) it is one row, name left and control in a 440 px column
  * right — a container query, never the window's width (UF.18). The timer and the event log came
- * with task 1.34 (the event log's "where?" map is a pop-up, not drawn inline); position and cycle
- * path arrive with 1.35 and draw nothing here yet.
+ * with task 1.34, the position picker and the cycle path with 1.35: a map field is one map
+ * button here, and its map (like the event log's "where?") is a pop-up, never drawn inline.
  */
 export function FieldInput({ field, value, onChange, siblingValues = NO_VALUES }: Props) {
   const id = useId();
@@ -103,6 +103,10 @@ export function FieldInput({ field, value, onChange, siblingValues = NO_VALUES }
       return <TimerInput field={field} value={value} onChange={onChange} />;
     case 'event_log':
       return <EventLogInput field={field} value={value} onChange={onChange} />;
+    case 'position':
+      return <PositionInput field={field} value={value} onChange={onChange} />;
+    case 'cycle_path':
+      return <CyclePathInput field={field} value={value} onChange={onChange} />;
     default:
       return null;
   }

@@ -1,5 +1,14 @@
 import { X } from 'lucide-react';
-import { useId, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+  type ReactNode,
+} from 'react';
 import { createPortal } from 'react-dom';
 import type { Point } from '@frc/shared';
 import { Button } from '@/components/ui/button';
@@ -27,6 +36,25 @@ export type MapMark = {
   tone: 'own' | 'old';
   /** A number drawn in the dot ("1", "2"), for numbered spots. */
   label?: string;
+  /**
+   * The mark's name ("Spot 2"). With `onSelect`, a named mark is a button that selects it
+   * (task 1.35: tap a spot → ✕ Remove); without a name it is only drawn.
+   */
+  name?: string;
+};
+
+/**
+ * One route on the map (the cycle path, task 1.35), its points in IMAGE coordinates: a 1.8 px
+ * round-joined line in the scout's alliance colour with a dot at each point. The one being drawn
+ * is dashed with bigger dots; while one is drawn or selected, the others fade to 45 %.
+ */
+export type MapPath = {
+  id: string;
+  points: readonly Point[];
+  /** "Path 2": the accessible name, and the pill's "Remove path 2". */
+  name: string;
+  /** The path being drawn: dashed, bigger dots, never selectable. */
+  drawing?: boolean;
 };
 
 export type MapSheetProps = {
@@ -54,6 +82,27 @@ export type MapSheetProps = {
   done: { label: string; onClick: () => void; disabled?: boolean };
   /** Phone (full screen, upright) or computer (dialog, flat); by default the viewport decides. */
   layout?: MapLayout;
+  /** Routes drawn over the image (the cycle path). */
+  paths?: readonly MapPath[];
+  /** The id of the selected mark or path, which shows the ✕ Remove pill. */
+  selected?: string | null;
+  /**
+   * Makes named marks and finished paths selectable: a tap on one reports its id (a second tap
+   * on the selected one reports null). While something is selected, a tap on the map only
+   * reports null: it keeps the mark and adds nothing (design "Removing").
+   */
+  onSelect?: (id: string | null) => void;
+  /** ✕ Remove on the pill, or the Delete key, on the selected mark or path. */
+  onRemove?: (id: string) => void;
+  /** The pill's words: "Remove" (default) or "Remove path". */
+  removeLabel?: string;
+  /** A line before the tools ("● Drawing path 3 · 3 of 6 points"): its own row on a phone. */
+  lead?: ReactNode;
+  /**
+   * The tools, the lead, the status and the hint act on the map, so they go with the image while
+   * it is missing (a position or cycle path records nothing then); the event log's Skip stays.
+   */
+  toolsNeedImage?: boolean;
 };
 
 /** The season image's shape until it has loaded: `public/seasons/2026/field.webp` is 2000 × 812. */
@@ -92,6 +141,7 @@ function PhoneMap(props: MapSheetProps) {
   const sub = useId();
   const { panel, onKeyDown } = useModalFocus(props.onClose, 'panel');
   const image = useImageState(props.imagePath);
+  const tools = image.usable || !props.toolsNeedImage;
   return createPortal(
     <div
       ref={panel}
@@ -126,16 +176,33 @@ function PhoneMap(props: MapSheetProps) {
       <div className="flex min-h-0 flex-1 items-center justify-center px-4 pt-2.5 pb-1.5 [container-type:size]">
         <FieldDrawing {...props} {...image} rotation={viewRotation(props.alliance, 'phone')} fit />
       </div>
-      <p className="flex-none px-4 pb-2 text-center text-[0.78125rem] text-muted">{props.hint}</p>
+      {tools && (
+        <p
+          role="status"
+          className="flex-none px-4 pb-2 text-center text-[0.78125rem] text-muted [&_b]:text-ink-2"
+        >
+          {props.hint}
+        </p>
+      )}
       <div className="flex flex-none flex-col gap-2.5 border-t border-line bg-surface px-3.5 pt-2.5 pb-[max(0.875rem,env(safe-area-inset-bottom))]">
-        <div className="flex min-h-12 items-center gap-2">
-          {props.tools}
-          {props.status && (
-            <span className="ms-auto whitespace-nowrap text-[0.8125rem] text-muted">
-              {props.status}
-            </span>
-          )}
-        </div>
+        {tools && props.lead && (
+          <div className="flex items-center gap-2 text-[0.8125rem] font-semibold text-ink-2">
+            {props.lead}
+          </div>
+        )}
+        {tools && (
+          <div className="flex min-h-12 items-center gap-2">
+            {props.tools}
+            {props.status && (
+              <span
+                data-testid="map-status"
+                className="ms-auto whitespace-nowrap text-[0.8125rem] text-muted"
+              >
+                {props.status}
+              </span>
+            )}
+          </div>
+        )}
         {image.usable && (
           <Button
             variant="primary"
@@ -155,6 +222,7 @@ function PhoneMap(props: MapSheetProps) {
 function DesktopMap(props: MapSheetProps) {
   const sub = useId();
   const image = useImageState(props.imagePath);
+  const tools = image.usable || !props.toolsNeedImage;
   return (
     <Dialog open title={props.title} onClose={props.onClose} width={820} describedBy={sub}>
       <div className="-mt-2 flex items-center gap-3">
@@ -164,11 +232,23 @@ function DesktopMap(props: MapSheetProps) {
         <Tag alliance={props.alliance} station={props.station} />
       </div>
       <FieldDrawing {...props} {...image} rotation={viewRotation(props.alliance, 'desktop')} />
-      <p className="text-[0.8125rem] text-muted">{props.hint}</p>
+      {tools && (
+        <p role="status" className="text-[0.8125rem] text-muted [&_b]:text-ink-2">
+          {props.hint}
+        </p>
+      )}
       <div className="flex min-h-12 items-center gap-2 pt-1">
-        {props.tools}
-        <span className="ms-auto me-1.5 whitespace-nowrap text-[0.8125rem] text-muted">
-          {props.status}
+        {tools && props.lead && (
+          <div className="me-1.5 flex items-center gap-2 text-[0.8125rem] font-semibold text-ink-2">
+            {props.lead}
+          </div>
+        )}
+        {tools && props.tools}
+        <span
+          data-testid="map-status"
+          className="ms-auto me-1.5 whitespace-nowrap text-[0.8125rem] text-muted"
+        >
+          {tools && props.status}
         </span>
         {image.usable && (
           <Button variant="primary" onClick={props.done.onClick} disabled={props.done.disabled}>
@@ -192,14 +272,22 @@ function useImageState(imagePath: string | null): ImageState {
   return { usable, onFailed: () => setFailedPath(imagePath) };
 }
 
+/** "Spot 2" → "spot 2", for "Remove spot 2". */
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+
 /**
- * The season image turned by `rotation`, the marks over it, and the tap that maps back to the
- * image. `fit` sizes it into a size container (the phone's map area); otherwise it fills the
- * width (the dialog). While the image is missing it is FieldImage's alert, nothing more.
+ * The season image turned by `rotation`, the marks and routes over it, and the tap that maps back
+ * to the image. `fit` sizes it into a size container (the phone's map area); otherwise it fills
+ * the width (the dialog). While the image is missing it is FieldImage's alert, nothing more.
  */
 function FieldDrawing({
   imagePath,
   marks,
+  paths = [],
+  selected = null,
+  onSelect,
+  onRemove,
+  removeLabel = 'Remove',
   onTap,
   alliance,
   rotation,
@@ -216,6 +304,19 @@ function FieldDrawing({
   const quarter = rotation === 90 || rotation === 270;
   // The drawing's own width : height, the image's turned a quarter on a phone.
   const view = quarter ? 1 / ratio : ratio;
+
+  // A computer's Delete key (and a Mac's ⌫) removes the selected mark (design "Removing").
+  const removable = usable && selected !== null && onRemove !== undefined;
+  useEffect(() => {
+    if (!removable) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      e.preventDefault();
+      onRemove!(selected!);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [removable, onRemove, selected]);
 
   const image = (
     <FieldImage
@@ -252,11 +353,22 @@ function FieldDrawing({
   }
 
   function tap(e: MouseEvent<HTMLDivElement>) {
+    // Something selected: a tap on the map keeps it and adds nothing; it only lets go.
+    if (selected !== null && onSelect) {
+      onSelect(null);
+      return;
+    }
     const box = e.currentTarget.getBoundingClientRect();
     if (box.width <= 0 || box.height <= 0) return;
     const x = Math.min(1, Math.max(0, (e.clientX - box.left) / box.width));
     const y = Math.min(1, Math.max(0, (e.clientY - box.top) / box.height));
     onTap(viewToImage({ x, y }, rotation));
+  }
+
+  /** A tap on a mark or a path: select it, or let go of it when it is the selected one. */
+  function pick(e: MouseEvent, id: string) {
+    e.stopPropagation();
+    onSelect?.(selected === id ? null : id);
   }
 
   const size: CSSProperties = fit
@@ -266,7 +378,26 @@ function FieldDrawing({
       }
     : { width: '100%', aspectRatio: String(view) };
 
-  const own = alliance === 'red' ? 'bg-alliance-red' : 'bg-alliance-blue';
+  const red = alliance === 'red';
+  const own = red ? 'bg-alliance-red' : 'bg-alliance-blue';
+  const line = red ? 'stroke-alliance-red' : 'stroke-alliance-blue';
+  const busy = selected !== null || paths.some((p) => p.drawing);
+
+  // Where the ✕ Remove pill points: the selected mark, or the top of the selected path.
+  const selectedMark = marks.find((m) => m.id === selected && m.name);
+  const selectedPath = paths.find((p) => p.id === selected && !p.drawing);
+  const anchor = selectedMark
+    ? { at: imageToView(selectedMark.point, rotation), name: selectedMark.name!, gap: 18 }
+    : selectedPath && selectedPath.points.length > 0
+      ? {
+          at: selectedPath.points
+            .map((p) => imageToView(p, rotation))
+            .reduce((top, p) => (p.y < top.y ? p : top)),
+          name: selectedPath.name,
+          gap: 12,
+        }
+      : null;
+
   return (
     <div
       data-testid="map-drawing"
@@ -281,29 +412,198 @@ function FieldDrawing({
       <span
         className={cn(
           'pointer-events-none absolute rounded-tag bg-surface px-1.5 text-[0.6875rem] font-[650]',
-          alliance === 'red' ? 'text-alliance-red' : 'text-alliance-blue',
+          red ? 'text-alliance-red' : 'text-alliance-blue',
           fit ? 'bottom-1.5 left-1/2 -translate-x-1/2' : 'bottom-1.5 left-1.5',
         )}
       >
         your alliance
       </span>
+      {paths.length > 0 && (
+        <svg
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          className="pointer-events-none absolute inset-0 size-full overflow-visible"
+        >
+          {paths.map((route, i) => {
+            const points = route.points
+              .map((p) => imageToView(p, rotation))
+              .map((p) => `${p.x * 100},${p.y * 100}`)
+              .join(' ');
+            const isSelected = route.id === selected;
+            const faded = busy && !isSelected && !route.drawing;
+            const selectable = onSelect && !route.drawing && route.points.length > 0;
+            return (
+              <g key={route.id} data-path={route.drawing ? 'drawing' : 'done'}>
+                {isSelected && (
+                  <polyline
+                    points={points}
+                    className="fill-none stroke-surface [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:7px] [vector-effect:non-scaling-stroke]"
+                  />
+                )}
+                <polyline
+                  points={points}
+                  data-faded={faded || undefined}
+                  className={cn(
+                    'fill-none [stroke-linecap:round] [stroke-linejoin:round] [vector-effect:non-scaling-stroke]',
+                    line,
+                    isSelected ? '[stroke-width:2.6px]' : '[stroke-width:1.8px]',
+                    route.drawing && '[stroke-dasharray:6_4]',
+                    faded && 'opacity-45',
+                  )}
+                />
+                {selectable && (
+                  // A wide, invisible stroke a finger can hit, over the thin drawn line.
+                  <polyline
+                    points={points}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={route.name}
+                    aria-pressed={isSelected}
+                    data-index={i}
+                    onClick={(e) => pick(e, route.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onSelect?.(selected === route.id ? null : route.id);
+                      }
+                    }}
+                    className="[pointer-events:stroke] cursor-pointer fill-none stroke-transparent outline-none [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:24px] [vector-effect:non-scaling-stroke] focus-visible:stroke-accent-tint"
+                  />
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      )}
+      {paths.map((route) => {
+        const isSelected = route.id === selected;
+        const faded = busy && !isSelected && !route.drawing;
+        return route.points.map((p, j) => {
+          const at = imageToView(p, rotation);
+          return (
+            <span
+              key={`${route.id}-${j}`}
+              aria-hidden="true"
+              data-path-point=""
+              style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%` }}
+              className={cn(
+                'pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-[1.5px] border-surface',
+                own,
+                route.drawing ? 'size-3.5' : 'size-2.5',
+                faded && 'opacity-45',
+              )}
+            />
+          );
+        });
+      })}
       {marks.map((mark) => {
         const at = imageToView(mark.point, rotation);
+        const dot = cn(
+          'absolute grid -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-2 border-surface font-num text-[0.6875rem] font-bold text-surface',
+          mark.tone === 'own' ? cn('size-6', own) : 'size-[1.125rem] bg-faint',
+        );
+        const style = { left: `${at.x * 100}%`, top: `${at.y * 100}%` };
+        if (onSelect && mark.name) {
+          const isSelected = mark.id === selected;
+          return (
+            <button
+              key={mark.id}
+              type="button"
+              data-mark={mark.tone}
+              aria-label={mark.name}
+              aria-pressed={isSelected}
+              onClick={(e) => pick(e, mark.id)}
+              style={style}
+              className={cn(
+                dot,
+                // The drawn dot stays 24 px; its ::after is the 48 px a finger can hit (17.7).
+                "min-h-0 min-w-0 cursor-pointer p-0 after:absolute after:-inset-3 after:rounded-full after:content-['']",
+                isSelected && 'outline-[1.4px] outline-offset-[3px] outline-ink outline-solid',
+              )}
+            >
+              <span aria-hidden="true">{mark.label}</span>
+            </button>
+          );
+        }
         return (
           <span
             key={mark.id}
             data-mark={mark.tone}
             aria-hidden="true"
-            style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%` }}
-            className={cn(
-              'pointer-events-none absolute grid -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-2 border-surface font-num text-[0.6875rem] font-bold text-surface',
-              mark.tone === 'own' ? cn('size-6', own) : 'size-[1.125rem] bg-faint',
-            )}
+            style={style}
+            className={cn(dot, 'pointer-events-none')}
           >
             {mark.label}
           </span>
         );
       })}
+      {anchor && onRemove && selected !== null && (
+        <RemovePill
+          at={anchor.at}
+          gap={anchor.gap}
+          words={removeLabel}
+          name={`Remove ${lowerFirst(anchor.name)}`}
+          onRemove={() => onRemove(selected)}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * THEME "Remove pill": a small `--ink` pill with a pointer, "✕ Remove" in white 650, just above
+ * the selected mark (below it when the mark is near the top edge), kept inside the drawing; its
+ * ::after grows the hit area to 48 px (17.7).
+ */
+function RemovePill({
+  at,
+  gap,
+  words,
+  name,
+  onRemove,
+}: {
+  at: Point;
+  gap: number;
+  words: string;
+  name: string;
+  onRemove: () => void;
+}) {
+  const below = at.y < 0.16;
+  // The pill stays inside the box, 4 px from its edges; the pointer still points at the mark.
+  const pill = useRef<HTMLButtonElement>(null);
+  const [width, setWidth] = useState(words.length * 7.5 + 40);
+  useLayoutEffect(() => {
+    if (pill.current && pill.current.offsetWidth > 0) setWidth(pill.current.offsetWidth);
+  }, [words]);
+  const half = width / 2 + 4;
+  const mark = `${at.x * 100}cqw`;
+  const left = `clamp(${half}px, ${mark}, calc(100cqw - ${half}px))`;
+  return (
+    <button
+      ref={pill}
+      type="button"
+      aria-label={name}
+      onClick={(e) => {
+        e.stopPropagation();
+        onRemove();
+      }}
+      style={{
+        left,
+        top: `${at.y * 100}%`,
+        transform: below ? `translate(-50%, ${gap}px)` : `translate(-50%, calc(-100% - ${gap}px))`,
+      }}
+      className="absolute z-10 inline-flex h-7 min-h-0 min-w-0 items-center gap-1 rounded-full bg-ink ps-2 pe-2.5 text-[0.8125rem] font-[650] whitespace-nowrap text-surface shadow-[var(--shadow-float)] after:absolute after:inset-x-0 after:-inset-y-2.5 after:content-['']"
+    >
+      <X aria-hidden="true" className="size-3.5" />
+      {words}
+      <span
+        aria-hidden="true"
+        style={{ left: `calc(50% + ${mark} - ${left})` }}
+        className={cn(
+          'absolute size-2 -translate-x-1/2 rotate-45 bg-ink',
+          below ? '-top-1' : '-bottom-1',
+        )}
+      />
+    </button>
   );
 }

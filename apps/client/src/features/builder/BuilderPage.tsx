@@ -998,7 +998,14 @@ function BuilderEditor({
             onAdd={(type) => add(type, phase)}
           />
           {/* Try it draws the map fields as a red scout would, on this season's image. */}
-          <EntryContext value={{ alliance: 'red', station: null, fieldImagePath: fieldImage }}>
+          <EntryContext
+            value={{
+              alliance: 'red',
+              station: null,
+              fieldImagePath: fieldImage,
+              caption: 'Try it',
+            }}
+          >
             <BuilderCanvas
               state={state}
               phase={phase}

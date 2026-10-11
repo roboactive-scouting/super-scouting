@@ -7034,3 +7034,113 @@ Rejected: keeping ↑ ↓ beside the grip as a keyboard path — the keyboard se
 **What I did instead:** dropped "provisional" from `scripts/check-bundle.mjs` and BUILD-CONTEXT §12.5. Initial JS after 1.34 is 213.9 KB (the timed parts are a 5.6 KB precached chunk, DEVIATIONS 1.34).
 
 **Risk:** none.
+
+## Task 1.35 — the shared mirror file and its tests already existed
+
+**Plan said:** Step 1: create `packages/shared/src/forms/mirror.ts` and `mirror.test.ts` with the brief's code.
+
+**What was wrong:** task 1.34 created both one task early ("Task 1.34 — 1.35's shared mirror file arrived one task early").
+
+**What I did instead:** confirmed `mirror.test.ts` is byte-for-byte the brief's test (a `diff` of the brief's block against the file printed nothing) and `mirror.ts` is the brief's implementation (Prettier-wrapped signature); created neither again.
+
+**Risk:** none.
+
+## Task 1.35 — files: the map button and the value readers sit beside the map
+
+**Plan said:** create `PositionInput.tsx`, `CyclePathInput.tsx` and their tests under `features/entry/inputs/`.
+
+**What was wrong:** nothing; both need one more shared part each, which the plan does not name.
+
+**What I did instead:** created the four files as named, plus `features/entry/map/MapButton.tsx` (THEME "Map button", used by both inputs) and `features/entry/map/mapField.ts` (`axisOf`, `pointsOf`, `cyclesOf`, `capOf`, `mapSubtitle`, `plural`). `cyclesOf` keeps an already-clean cycle as the same array: a fresh copy of every cycle made `useUndoable` treat each value handed back as a change from outside and drop its history (the first run failed "Undo removes only the last point": `expected [ [ { x: 0.1, y: 0.1 }, …(2) ] ] to deeply equal [ [ { x: 0.1, y: 0.1 }, …(1) ] ]`, the Undo being disabled). The plan's "end cycle" is the design's **Finish**.
+
+**Risk:** none.
+
+## Task 1.35 — MapSheet grows paths, selection, the Remove pill and the Delete key
+
+**Plan said:** reuse 1.34's `MapSheet` and add the tools through its `tools` prop; do not build a second map.
+
+**What was wrong:** `tools` alone cannot draw routes, select a mark, show a pill over it or hear the Delete key.
+
+**What I did instead:** extended `MapSheet` with optional props, the event log untouched: `paths` (`MapPath`: image points, `name`, `drawing`), `selected`, `onSelect`, `onRemove`, `removeLabel`, `lead` (the "● Drawing path 3 · 3 of 6 points" line: its own row above the tools on a phone, before them on a computer) and `toolsNeedImage`; `MapMark` gains `name`. With `onSelect`, a named mark is a 24 px button whose `::after` is the 48 px hit area, and a finished path carries an invisible 24 px stroke (role="button", focusable, Enter/Space) over its 1.8 px line. Routes are one SVG (`preserveAspectRatio="none"`, `vector-effect: non-scaling-stroke`, so widths and the 6/4 px dash are screen pixels), their dots HTML spans so they stay round on the stretched box. The selected spot gets a 1.4 px `--ink` outline 3 px out; the selected path a 7 px `--surface` halo under a 2.6 px line; others fade to 45 % while one is drawn or selected. The pill is THEME's `--ink` "✕ Remove" with a pointer, 18 px above a spot (12 px above a path's topmost point), below it within 16 % of the top edge, and kept 4 px inside the box by its measured width while the pointer still points at the mark (first shot: "Remove path" was clipped at the left edge with a fixed 14 %–86 % clamp). The hint is now `role="status"`, and the status span has `data-testid="map-status"`. The Delete key also accepts Backspace (a Mac keyboard has no Delete key).
+
+**Risk:** the pill's 48 px hit area overlaps the top of the selected spot's hit area; the pill is drawn on top, so a tap there removes, which is the pill's job. Path selection is keyboard-reachable but its focus ring is a faint `--accent-tint` stroke.
+
+## Task 1.35 — what a tap does while something is selected, or while a path is drawn
+
+**Plan said:** "tapping the map elsewhere keeps the mark (it does not add one while something is selected — decide and log exactly)"; design hint while drawing: "Tap the map to add the next point · tap a path to remove it".
+
+**What was wrong:** the second half of that hint conflicts with drawing: cycles share lanes, so a new route's points land on old routes, and with old routes selectable a tap would select one instead of adding the point.
+
+**What I did instead:** exactly: with a mark or path selected, a tap on the map only lets go of it (no point, no change); a tap on the selected mark again lets go too; a tap on another mark selects that one. While a path is being drawn, finished paths are not selectable and every tap on the map is the drawn path's next point; the hint says "Finish when the route is done". With nothing drawn and nothing selected, a tap on a finished path selects it and a tap elsewhere starts the next path with that point (+ New path starts one with no point, for a start on top of an old route). Rejected: selectable paths while drawing (the design's hint), for the reason above.
+
+**Risk:** a scout who wants a new path to start on an old one must press + New path first; a tap there selects the old path instead (the hint names Remove path, and a second tap lets go).
+
+## Task 1.35 — Undo, Clear path and Clear all
+
+**Plan said:** brief: Undo is "undo last point, clear all" (SPEC 8.2); design: position's bar is Undo and the count; the cycle path's bar is Undo · Clear path · Finish while drawing, + New path otherwise; desktop labels it "Undo point".
+
+**What was wrong:** the design's position bar has no "clear all", and "Undo point" is wrong when the last change was a Clear path or a Remove path.
+
+**What I did instead:** one **Undo** on both fields and both layouts, taking back the last change through `useUndoable` (a point, a Clear path, a Remove, a Clear all), and only that one. For the cycle path each change's note remembers what was being drawn before it, so Undo also restores the drawing state (undoing a Clear path brings the path back still being drawn; undoing a path's first point leaves no path drawn). Undo is disabled with nothing to undo; when no path is drawn it shows beside + New path only when there is something to undo, so a removed path can be brought back (the design's idle bar shows only + New path). Position adds **Clear all** (eraser icon) beside Undo for a list field holding two or more spots, undoable like the rest. **Clear path** removes only the path being drawn and leaves it being drawn, at the same number. Undo history lives as long as the field is drawn, as in 1.33–1.34, so it survives closing and reopening the map but not a phase change.
+
+**Risk:** a position field restored from a draft starts with nothing to undo (no "remove latest" fallback like the event log's), which is the same as the multi-select.
+
+## Task 1.35 — what the two fields store, and what closing the map does
+
+**Plan said:** position stores normalized `{x, y}` in 0–1, "one point or a list"; a cycle path an array of arrays of points, capped at `max_points_per_cycle` (default 6).
+
+**What was wrong:** nothing; the details are unstated.
+
+**What I did instead:** a single-point field stores the point itself, and nothing (`undefined`, no key in the saved JSON) when emptied, never a null point; a list field stores the list (`[]` once emptied, which `validateEntryData` reads as unanswered). A cycle path's points go into the value as they are tapped (the drawn path is the last array); a path with no points is never stored. Points are `storeImagePoint` (alliance-normalized, clamped, 4 decimals) and drawn back with `denormalizeForAlliance`. Every change is live, so ✕, Escape and Done all just close the map (closing also finishes a path being drawn). A seventh point is refused and the hint (a `role="status"` line) says "A path holds at most 6 points. Finish it to start the next."; a missing or invalid `max_points_per_cycle` means 6.
+
+**Risk:** none.
+
+## Task 1.35 — a missing season image on the map button
+
+**Plan said:** "A missing season image is FieldImage's alert, unchanged, and no coordinate may be recorded (neither field can add a point; the button says the map is unavailable)."
+
+**What was wrong:** nothing; how the button says it is unstated.
+
+**What I did instead:** the button reads "Map unavailable" over "The season's game image is missing", with a muted warning icon in place of the thumbnail (also when the thumbnail image fails to load). It still opens the map, which is FieldImage's alert, unchanged, with no drawing and no Done; `toolsNeedImage` also withdraws Undo, Clear all/path, New path, the hint and the count, so not even an Undo can put a coordinate back. Proven by a test each in `PositionInput.test` and `CyclePathInput.test` (unknown path and an image `error` event; the spy is never called) and in the builder's Try it (`LivePreview.test`, whose harness image is not in the build).
+
+**Risk:** the thumbnail and the map detect a failed load separately; a thumbnail that loads while the map's copy fails still shows "3 spots" on the button.
+
+## Task 1.35 — the map button and the map's sub-line
+
+**Plan said:** THEME "Map button": a 112 px thumbnail of the field drawing; design sub-lines "Q39 · 1690 · Auto" (phone) and "Try it · Autonomous · your alliance's end on the left" (builder).
+
+**What was wrong:** the design's thumbnail is its stand-in drawing (about 112 × 64); the real season image is 2000 × 812. The entry context did not carry the match or team.
+
+**What I did instead:** the thumbnail is the real season image at its own shape (112 × 45), turned like the computer's dialog (own end on the left), with the spots as 7 px dots and the routes as 1.5 px lines in the alliance colour. The second line is "Tap to open the map" on a phone and "Click to open the map" on a computer (`useIsDesktop`, as the builder's Try-it design says "Click"); the button is named "Scoring spots: 3 spots" with that line as its description. `EntryContextValue` gains an optional `caption`: `EntryPage` passes "Q39 · 2630", the builder "Try it"; the sub-line is the caption and the phase tab ("Q39 · 2630 · Auto", "Try it · Auto").
+
+**Risk:** a later season image of another shape keeps a 2000:812 thumbnail box (the image is stretched into it), as `MapSheet`'s first frame already assumed.
+
+## Task 1.35 — the two inputs go in the precached timedParts chunk
+
+**Plan said:** keep the initial bundle at most 215 KB; put the inputs in the existing precached `timedParts` chunk via `lazyParts.tsx`, or in the map chunk, and log which.
+
+**What was wrong:** nothing.
+
+**What I did instead:** `timedParts.ts` now also exports `PositionInput` and `CyclePathInput` (with `MapButton` and `mapField`); `lazyParts.tsx` has stand-ins for both with the same failure notice and Try again (new test in `lazyParts.test.tsx`); `FieldInput` draws them from there. The map itself stays `MapSheet`'s own lazy chunk. After `pnpm build`: initial JS 213.9 KB (unchanged), `timedParts` 8.0 KB (was 5.6), `MapSheet` 3.5 KB (was 2.1); the precache check passes.
+
+**Risk:** none beyond 1.34's (the chunk loads at app start).
+
+## Task 1.35 — the builder's placeholder card and Try it's LATER note are gone
+
+**Plan said:** remove `DRAWN_TYPES`' placeholder branch from `FieldPreview.tsx` and any LATER note in `LivePreview.tsx`'s Try it pane, and log it.
+
+**What was wrong:** Phase 1 D logged a placeholder card for types `FieldInput` could not draw yet; removed.
+
+**What I did instead:** `DRAWN_TYPES` is deleted: `FieldPreview` draws a section's heading or `FieldInput`, and Try it's column draws `FieldInput` for every type but a section. The `LATER` set and its "Taps, time to first, cycle times and route counts appear here once…" line are deleted. "What the analysis gets" reads a position as "3 spots" and a cycle path as "2 cycles · 7 points" (the design's row); the event log's per-button taps, time to first and cycle times are still not shown there (they are the metric/derivation work, not this task). In the canvas the map button is drawn inert (a click picks the field); in Try it it opens the map dialog as a red scout on the season image.
+
+**Risk:** an event log in Try it still reads as "n items" in the analysis table until the derivation task.
+
+## Task 1.35 — screenshot spec, and the rule above seen in a shot
+
+**Plan said:** screenshots at 375 and 1440 px, light and outdoor, of the map buttons, the phone map for red and blue, the computer dialog, and the builder canvas and Try it.
+
+**What was wrong:** nothing; `entry-timer.spec.ts`'s form has no map fields.
+
+**What I did instead:** new `e2e/entry-map.spec.ts` with its own swapped form (two position fields in Auto, a cycle path in Teleop, mirrored left ↔ right), shooting phone and desktop separately (crossing the 1024 px line redraws the entry and closes the map), plus one new `forms.spec.ts` test for the builder canvas's map buttons and Try it's map dialog for both fields, in both themes. The first desktop cycle shot showed the selection rule in action: a tap meant as path 3's first point landed on path 1 and selected it ("1 of 6 points" where 3 were tapped), so the spec presses + New path first.
+
+**Risk:** none.

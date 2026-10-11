@@ -2,9 +2,11 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FormFieldDefinition } from '@frc/shared';
 import {
+  CyclePathInput,
   EventLogInput,
   loadTimedParts,
   MatchTimer,
+  PositionInput,
   setTimedPartsImportForTests,
   TimerInput,
 } from './lazyParts';
@@ -102,6 +104,45 @@ describe('the timed parts chunk fails loudly and can be tried again (task 1.34, 
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByText('Paused')).toBeInTheDocument();
     expect(screen.getByTestId('timer-face')).toHaveTextContent('8.2');
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('the map fields say so too, and come back on Try again with their marks untouched (task 1.35)', async () => {
+    setTimedPartsImportForTests(failingOnce());
+    const onChange = vi.fn();
+    render(
+      <>
+        <PositionInput
+          field={field({
+            key: 'auto_spots',
+            label: 'Scoring spots',
+            type: 'position',
+            config: { multi_point: true, mirror_axis: 'none' },
+          })}
+          value={[{ x: 0.2, y: 0.3 }]}
+          onChange={onChange}
+        />
+        <CyclePathInput
+          field={field({
+            key: 'tele_routes',
+            label: 'Cycle routes',
+            type: 'cycle_path',
+            config: { max_points_per_cycle: 6, mirror_axis: 'none' },
+          })}
+          value={[[{ x: 0.2, y: 0.3 }], [{ x: 0.5, y: 0.5 }]]}
+          onChange={onChange}
+        />
+      </>,
+    );
+    const alerts = await screen.findAllByRole('alert');
+    expect(alerts.map((a) => a.textContent)).toEqual([
+      expect.stringContaining("“Scoring spots” didn't load."),
+      expect.stringContaining("“Cycle routes” didn't load."),
+    ]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Try again' })[0]!);
+    expect(await screen.findByRole('button', { name: /^Scoring spots: / })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByRole('button', { name: /^Cycle routes: / })).toBeInTheDocument();
     expect(onChange).not.toHaveBeenCalled();
   });
 
