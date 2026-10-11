@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { FieldPhase, FormFieldDefinition, RobotStatus, TimerConfig } from '@frc/shared';
+import { useEffect, useRef, useState } from 'react';
+import type { FormFieldDefinition, RobotStatus, TimerConfig } from '@frc/shared';
 import { ActionBar } from '@/components/ui/action-bar';
 import { Button } from '@/components/ui/button';
 import { cachedFormFields, cachedRows } from '@/data/cache';
@@ -10,17 +10,19 @@ import { useIsDesktop } from '@/lib/useMediaQuery';
 import { ConfirmEntry } from './ConfirmEntry';
 import { EntryContext, type EntryContextValue } from './entryContext';
 import { EntryHeader, EntryTag } from './EntryHeader';
+import { BREAKDOWN_KEY } from './entryRules';
 import { EntrySummary } from './EntrySummary';
 import { FieldInput } from './FieldInput';
 import { canSelfEdit, editsAnyTime, type Editor, type LocalEntry } from './localEntries';
 import { matchClock } from './matchClock';
 import { MatchTimer } from './lazyParts';
 import { PhaseTabs } from './PhaseTabs';
-import { donePhases, phasesOf } from './phases';
+import { ProblemsDialog } from './ProblemsDialog';
 import { RobotStatusPicker } from './RobotStatusPicker';
 import { stopwatches } from './stopwatches';
 import { submitEntry } from './submitEntry';
 import { useDraft } from './useDraft';
+import { useEntryForm } from './useEntryForm';
 
 export type EntryPageProps = {
   eventId: string;
@@ -54,7 +56,6 @@ export function EntryPage(props: EntryPageProps) {
   // Null while the field is empty: a Broke down entry then fails SPEC-FINAL 3.5's check.
   const [breakdownSeconds, setBreakdownSeconds] = useState<number | null>(null);
   const [data, setData] = useState<Record<string, unknown>>({});
-  const [phase, setPhase] = useState<FieldPhase>('auto');
   const [reviewing, setReviewing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -106,10 +107,21 @@ export function EntryPage(props: EntryPageProps) {
   }, [loaded, draft, props.existing]);
 
   const dead = status === 'no_show' || status === 'disabled';
-  const phases = useMemo(() => phasesOf(fields), [fields]);
-  const done = useMemo(() => donePhases(phases, data), [phases, data]);
-  const current = phases.find((p) => p.key === phase) ?? phases[0];
+  // Task 1.36: what is shown and saved (5.7, 5.8) and what holds Review entry (8.2, 15.1). No
+  // show and Disabled skip every check; they record no field data at all.
+  const form = useEntryForm({
+    fields,
+    data,
+    skipChecks: dead,
+    breakdownMissing: status === 'broke_down' && breakdownSeconds === null,
+  });
+  const { phases, current, done } = form;
   const showPhases = status !== null && !dead && current !== undefined;
+
+  /** Review entry: the confirmation, or — when anything holds it — the problems to fix first. */
+  function review() {
+    if (form.review()) setReviewing(true);
+  }
 
   function update(next: {
     status?: RobotStatus;
@@ -148,7 +160,9 @@ export function EntryPage(props: EntryPageProps) {
         authorUserId: props.author.id,
         robotStatus: status,
         breakdownSeconds,
-        data,
+        // The entry as it is saved: the starting values under the scout's, computed fields
+        // worked out, hidden fields left out (SPEC-FINAL 5.7, 5.8). A dead robot sends none.
+        data: dead ? {} : form.saved,
         draftKey,
         ...(props.existing ? { rowId: props.existing.id } : {}),
       });
@@ -179,6 +193,7 @@ export function EntryPage(props: EntryPageProps) {
       onChange={(s) => update({ status: s })}
       breakdownSeconds={breakdownSeconds}
       onBreakdownSeconds={(seconds) => update({ seconds })}
+      breakdownProblem={form.marks.get(BREAKDOWN_KEY) ?? null}
     />
   );
 
@@ -186,7 +201,7 @@ export function EntryPage(props: EntryPageProps) {
     <PhaseTabs
       phases={phases}
       value={current.key}
-      onChange={setPhase}
+      onChange={form.setPhase}
       done={done}
       phone={!desktop}
       swipeArea={mainRef}
@@ -195,10 +210,11 @@ export function EntryPage(props: EntryPageProps) {
         <FieldInput
           key={field.key}
           field={field}
-          value={data[field.key]}
+          value={form.values[field.key]}
           onChange={(value) => update({ data: { ...data, [field.key]: value } })}
           // A computed field is worked out from the entry as it stands (SPEC-FINAL 5.7).
-          siblingValues={data}
+          siblingValues={form.values}
+          problem={form.marks.get(field.key) ?? null}
         />
       ))}
     </PhaseTabs>
@@ -212,13 +228,22 @@ export function EntryPage(props: EntryPageProps) {
       tag={tag}
       status={status}
       phases={dead ? [] : phases}
-      data={data}
+      data={form.saved}
       windowApplies={!editsAnyTime(props.author) && !props.existing}
       error={error}
       errorRef={errorRef}
       submitting={submitting}
       onBack={() => setReviewing(false)}
       onSubmit={() => void commit()}
+    />
+  );
+
+  const problems = (
+    <ProblemsDialog
+      open={form.problemsOpen}
+      problems={form.problems}
+      onGoTo={form.goTo}
+      onClose={form.closeProblems}
     />
   );
 
@@ -253,10 +278,12 @@ export function EntryPage(props: EntryPageProps) {
             data={data}
             current={current?.key ?? 'auto'}
             done={done}
-            onPick={setPhase}
-            onReview={() => setReviewing(true)}
+            toFix={form.toFix}
+            onPick={form.setPhase}
+            onReview={review}
           />
           {confirm}
+          {problems}
         </main>
       </EntryContext>
     );
@@ -281,17 +308,13 @@ export function EntryPage(props: EntryPageProps) {
           bar's own top margin, so no scrolled content shows in a gap above the border. */}
         <div className="sticky bottom-[var(--bottom-bar,0px)] z-20 mt-6 px-4 [&>div]:mt-0">
           <ActionBar>
-            <Button
-              variant="primary"
-              size="block"
-              disabled={status === null}
-              onClick={() => setReviewing(true)}
-            >
+            <Button variant="primary" size="block" disabled={status === null} onClick={review}>
               Review entry
             </Button>
           </ActionBar>
         </div>
         {confirm}
+        {problems}
       </main>
     </EntryContext>
   );

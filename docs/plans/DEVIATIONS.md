@@ -7144,3 +7144,143 @@ Rejected: keeping ↑ ↓ beside the grip as a keyboard path — the keyboard se
 **What I did instead:** new `e2e/entry-map.spec.ts` with its own swapped form (two position fields in Auto, a cycle path in Teleop, mirrored left ↔ right), shooting phone and desktop separately (crossing the 1024 px line redraws the entry and closes the map), plus one new `forms.spec.ts` test for the builder canvas's map buttons and Try it's map dialog for both fields, in both themes. The first desktop cycle shot showed the selection rule in action: a tap meant as path 3's first point landed on path 1 and selected it ("1 of 6 points" where 3 were tapped), so the spec presses + New path first.
 
 **Risk:** none.
+
+## Task 1.36 — phases stay the phase tabs; no `PhaseSection.tsx` / `ConfirmSummary.tsx`
+
+**Plan said:** create `PhaseSection.tsx` (collapsible sections a scouter can "open, close and reopen at will") and `ConfirmSummary.tsx`; the Step-1 tests find sections by `role="group"` and expect "Post-match".
+
+**What was wrong:** SPEC-FINAL v1.23 §8.2 replaced collapsible sections with the Entry page's phase tabs (01-entry final), and the fourth phase is called "Notes" (RB.8). `PhaseTabs` and `ConfirmEntry` already do both jobs.
+
+**What I did instead:** kept `PhaseTabs` (free switching in both directions is "open, close and reopen at will") and extended `ConfirmEntry` (optional `title`, `summary`, `showStatus` for the super entry). The Step-1 tests are in `EntryPage.test.tsx` "the entry form rules (1.36)", rewritten against the tabs (`role="tab"`), "Notes", and `role="switch"` for the toggle (the Switch primitive's role, not checkbox). Rejected: reintroducing `<details>` cards (contradicts a closed decision).
+
+**Risk:** none.
+
+## Task 1.36 — the range block is amber and a problems list, not a danger notice at submit
+
+**Plan said:** a hard range block on submit; the test "blocks submit and lists every out-of-range field" clicks Review entry, then Submit entry, and finds `role="alert"`.
+
+**What was wrong:** the closed design (14-entry-parts, v1.23) marks the field as it is typed and makes Review entry open "N things to fix first" with Go to instead of the confirmation, so there is no Submit button to press while anything blocks.
+
+**What I did instead:** `entryRules.ts` (`entryProblems`, `rangeProblem`, `requiredLine`, `entryView`), `useEntryForm.ts` (shared by the match and super entries) and `ProblemsDialog.tsx` (ResponsiveDialog: sheet on a phone, centred dialog on a computer; each problem with phase, reason and **Go to ›**; foot **Keep editing**). An out-of-range number gets a 1 px `--warn` border plus a 1 px `--warn` inset (2 px without moving the text) on `--warn-tint`, `aria-invalid`, and one `--warn` line in place of its range hint; a counter gets the line too. The line is drawn by `FieldRow` from a `FieldMarkContext` that `FieldInput` provides (`problem` prop), which also puts `data-field=<key>` on the row for Go to. Go to switches the tab, scrolls the row into view (smooth unless reduced motion) and focuses its first control, after the sheet has handed focus back. The test checks the accessible list ("Things to fix") holds both fields and that nothing is queued. Four older tests changed with it: "blocks submission and names the field…" now asserts the as-typed line and the list; "keeps the sheet and the values on a failed submit" now fails through the closed self-edit window (an out-of-range value no longer reaches Submit); "blocks a Broke down submit while the field is empty" now asserts the list and Go to; the 1.33 computed test reads 0 (below). Rejected: `tone="danger"` or any red (red is the red alliance); a `role="alert"` on the list (the dialog's title and description already announce it).
+
+**Risk:** none known.
+
+## Task 1.36 — the form's starting values are wired into the entry page
+
+**Plan said:** nothing; the dispatch said wire `seedValues` if the spec wants defaults seeded.
+
+**What was wrong:** `EntryPage` ignored `seedValues`, so a field's `default_value` (SPEC-FINAL 5.3) was never used and an untouched counter or toggle saved nothing although it showed 0 / off; a condition on an untouched toggle (`!= true`) was undecided.
+
+**What I did instead:** `useEntryForm` lays `seedValues(fields)` under the scout's own `data`: what the controls show, the conditions, the computed fields and the saved data all read that, while the draft, the tab ✓ and the "n of m" counts still read only what the scout set. An untouched counter now submits 0 and an untouched toggle `false` (for a played or broken-down robot; a dead robot still sends `{}`). The 1.33 test "a computed field that follows the taps" now expects 0 before any tap (0 × 5), not "—". Rejected: writing the seeds into `data` (every tab would show ✓ and every count would be full before anything was touched).
+
+**Risk:** analysis now sees 0 / false for untouched counters and toggles instead of a missing key — which is what the scout saw on screen.
+
+## Task 1.36 — computed values and hidden fields in what is saved
+
+**Plan said:** computed fields evaluated with `evaluateExpr` and written into `data`; hidden fields stripped before validation and submit.
+
+**What was wrong:** nothing; where it lives was open.
+
+**What I did instead:** `entryView` uses the shared `previewData` (the builder's Try it definition: strip hidden, work out computed, strip again) and then keeps only the fields whose condition holds on that result, so a field whose controlling field is itself hidden is hidden too. The page renders `visible` fields per phase (a phase whose fields are all hidden gets no tab), submits `saved`, and `ConfirmEntry` prints `saved` (the computed value instead of "—"; a rating as its word, "Good"; a Timer's unsure as "Unsure"). `submitEntry` also runs `previewData` on whatever it is handed, so no caller can skip §5.7/§5.8.
+
+**Risk:** none.
+
+## Task 1.36 — a Timer marked "Unsure" answers a required Timer (shared validator changed)
+
+**Plan said:** nothing (open from task 1.34).
+
+**What was wrong:** `validateEntryData` read the unsure `null` as missing, so a required Timer marked "Unsure — no time" could never be submitted — the scout would have had to type a wrong number, the exact thing SPEC-FINAL 5.2's toggle exists to prevent ("submits no value rather than a wrong number").
+
+**What I did instead:** in `packages/shared/src/forms/validate.ts`, a `timer` whose value is `null` is skipped before the missing check: it submits no value and satisfies `required` (new test in `validate.test.ts`; a `null` on any other type is still unanswered, and an absent Timer is still missing). The client mirrors it (`isAnswered`, `filledCount`). Because shared changed, the server bundle was regenerated (`pnpm --filter @frc/server build`; `apps/server/api/index.js` and its map are in this diff). The server's push uses `mode: 'stored'`, which never checks `required`, so nothing changes there. Rejected: filtering the issue out in the client only (the shared validator is the one definition both sides use).
+
+**Risk:** a Timer that is required and unsure is stored as `null` in `data` (it was already, for an optional one).
+
+## Task 1.36 — a stopwatch still running at Review is a problem
+
+**Plan said:** nothing (open from task 1.34: "an entry submitted while a stopwatch is still running records its last stopped value").
+
+**What was wrong:** the running time lives in the `stopwatches` store, not in `data`, so a running Timer silently submitted its last stopped value or nothing.
+
+**What I did instead:** `entryProblems` lists a Timer whose stopwatch is running ("still running — stop it", line "Still running — stop it") with Go to; Pause clears it. Rejected: stopping the stopwatch automatically at Review (the scout may be timing a climb that is still going on; a silent stop records a wrong time).
+
+**Risk:** none.
+
+## Task 1.36 — the breakdown time joins the problems list
+
+**Plan said:** nothing.
+
+**What was wrong:** Broke down with no time was refused at Submit by `validateEntryShape`'s message, a different path from every other block.
+
+**What I did instead:** it is a problem like the others ("Breakdown time · Robot status · Broke down needs the time it stopped"); Go to focuses the box, which then has the amber edge and "Required — seconds from match start". `submitEntry`'s shape check stays as the backstop.
+
+**Risk:** none.
+
+## Task 1.36 — what the desktop panel counts, and the missed-field words
+
+**Plan said:** (design) the panel marks a phase with a problem: an amber ring and "1 to fix"; a missed required field says "Required — pick one".
+
+**What was wrong:** nothing; when a missed field counts and what other types say were open.
+
+**What I did instead:** an out-of-range value is marked from the moment it is typed (field and panel); a missed required field and a running stopwatch only after Review entry has been pressed once (no amber on a fresh form). The panel's Status row gets the ring for a missing breakdown time. Words by type: select and rating "Required — pick one", multi select "pick at least one", number and text "fill it in", Timer "time it, or switch on Unsure", event log / maps "mark at least one". The input's own `config` min/max (checked first, as the validator does) gives the same wording as `expected_range` ("Most is 99 — check this number"). The phone tabs carry no flag (the design draws none).
+
+**Risk:** none.
+
+## Task 1.36 — `/super`: route, data and layout calls
+
+**Plan said:** `PATHS.super`, `'/super'` in `ENTRY_PATH_PREFIXES`, a route linked from `/scout`, the picker and form of 15-super; everything from what the device holds.
+
+**What was wrong:** nothing; these were open.
+
+**What I did instead:** `PATHS.super`, `SUPER_TEAM_ROUTE` (`/super/:teamId`) and `superTeamPath`; both routes render one lazy `SuperEntryPage` chunk (4.7 KB, precached) inside `OverrideGuard`. `superData.loadSuper` reads cached events, forms (the season's `super` form by kind), roster, matches and local entries. "Seen here" counts the **signed-in scout's** match entries for the team (a pulled entry another scout made on another device was not seen here); "Super-scouted on this device · n of N" counts every super entry the device holds, as `openOrCreate` does. A phone shows the picker, then the form; a computer the picker (520 px) and the form side by side, with an "Choose a team" empty state while none is picked. The page keeps one tree at both widths, so turning a tablet across 1024 px never remounts the form (found in the e2e run: the open confirmation vanished). The draft key is `<version>:super:<teamId>` with payload `{form_kind:'super', team_id, data}`. Submit returns to `/super` (replace) with a "Super entry saved on this device · 1690 Orbit" banner. An existing entry is edited under the version it was recorded with. `LocalEntry` gained an optional `client_updated_at` (the "✓ Done 11:20" time). The Scout card (`SuperCard.tsx`) sits at the foot of Scout's content, above Start entry, and is hidden while picking from the full roster. Rejected: "Watching Qn" tiles (ruled out); a nav row (ruled out).
+
+**Risk:** the Scout tab in the bottom bar is not highlighted on `/super` (as on `/entry/…` today).
+
+## Task 1.36 — a scouter's super entry locks after five minutes (the design shows a reopen at 31)
+
+**Plan said:** (design) "Done rows … reopen the entry"; frame 4 shows "Editing your entry from 11:20" at 11:51.
+
+**What was wrong:** SPEC-FINAL 7.6 (closed) locks every entry for a scouter five minutes after `client_created_at`, and the server enforces it on push; the design's user is a scout lead.
+
+**What I did instead:** a lead or admin reopens and edits at any time, as drawn; a scouter past the window gets the header and "The super entry for 1690 Orbit is locked — ask a lead to change it." with no form. Rejected: exempting super entries from 7.6 (a closed decision; the server would refuse the push with `edit-window-expired`).
+
+**Risk:** if super scouts are usually scouters, they cannot correct a super entry after five minutes — worth asking the user whether super entries should be exempt from 7.6.
+
+## Task 1.36 — the super confirmation reuses the match confirmation's rows
+
+**Plan said:** (design) "Submit the super entry?", the team and event line, "the answers by phase", Keep editing · Submit entry.
+
+**What was wrong:** the design draws each phase as one line of "label · value" pairs; the match confirmation lists one row per field.
+
+**What I did instead:** `ConfirmEntry` with the super title and line and no Status row: one row per field under each phase heading, as on the match confirmation. Rejected: a second confirmation layout (two ways to read the same answers).
+
+**Risk:** the super confirmation is taller than drawn for a long form.
+
+## Task 1.36 — the initial-JS budget goes to 218 KB
+
+**Plan said:** keep initial JS at most 215 KB gzip; raise `BUDGET_KB` only if unavoidable, logging measured size and new budget.
+
+**What was wrong:** after this task, `initial JS 216.6 KB gzip` / `initial JS over 215 KB gzip` (213.9 KB before). The entry rules, the problems dialog and the panel ring are on the match entry path, which `routes.tsx` keeps eager; `/super` is already a lazy chunk.
+
+**What I did instead:** `BUDGET_KB = 218` in `scripts/check-bundle.mjs` and BUILD-CONTEXT §12.5 (the user lets a build chat raise it, 2026-10-11). Rejected: lazy-loading the problems dialog or the rules (the competition path would wait on a chunk to tell the scout why Review is held).
+
+**Risk:** 1.4 KB of headroom for 1.37 (drafts, practice) and 1.38 (wake lock, haptics).
+
+## Task 1.36 — screenshot specs
+
+**Plan said:** shoot every new or changed screen at 1440 and 375 with realistic fixture data.
+
+**What was wrong:** nothing.
+
+**What I did instead:** `e2e/entry-rules.spec.ts` (its own match form laid out like the design: Cycle estimate 3–60 s, a required Climb level) shoots `entry-rules-range`, `entry-rules-problems` and `entry-rules-goto`; `e2e/super.spec.ts` adds the season's super form and five super entries saved by the lead (Noa Levi, the design's user) at 11:20 to the shared pull and shoots `scout-super-card`, `super-picker` (also `-phone-long`), `super-form`, `super-confirm` and `super-reopened`. Not changed: a three-option select and a three-option multi select still break 2 + 1 at 375 px (UF.18's own-width rule), where the super design draws three in a row.
+
+**Risk:** none.
+
+## Task 1.36 — two existing suites follow the new link and routes
+
+**Plan said:** nothing.
+
+**What was wrong:** the full run failed 31 tests: `SelectRobotPage.test.tsx` mocks `react-router-dom` with `useNavigate` and `useLocation` only (`Error: [vitest] No "Link" export is defined on the "react-router-dom" mock`), and the Super scouting card is a `Link`; `routes.test.tsx` "leaves Scout, the entry screen and Entries gated" listed the gated routes exactly (`expected [ 'entries', …(4) ] to deeply equal [ 'entries', …(2) ]`).
+
+**What I did instead:** the mock gains a `Link` drawn as a plain `<a href>`; the gated list gains `super` and `super/:teamId` (they read the event's roster and entries, so waiting for the event is right). New test: `/super` is refused while a session override is set, like Scout and the entry screen (SPEC-FINAL 6.3).
+
+**Risk:** none.

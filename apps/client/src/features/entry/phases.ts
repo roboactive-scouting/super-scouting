@@ -6,6 +6,8 @@ import {
   type RobotStatus,
 } from '@frc/shared';
 import { shouldDismiss } from '@/components/ui/drag-dismiss';
+import { computedText } from './inputs/ComputedValue';
+import { STAR_WORDS } from './inputs/RatingInput';
 
 /** The order a match is played in; a phase with no fields gets no tab (Entry README). */
 export const PHASE_ORDER: readonly FieldPhase[] = ['auto', 'teleop', 'endgame', 'post_match'];
@@ -78,7 +80,10 @@ export function isFilled(value: unknown): boolean {
 }
 
 export function filledCount(phase: Phase, data: Record<string, unknown>): number {
-  return scoutedFields(phase).filter((f) => isFilled(data[f.key])).length;
+  // A Timer's null is "unsure — no time": answered (SPEC-FINAL 5.2), so it counts as filled.
+  return scoutedFields(phase).filter(
+    (f) => isFilled(data[f.key]) || (f.type === 'timer' && data[f.key] === null),
+  ).length;
 }
 
 /** The phases with at least one field set: each tab shows a ✓. */
@@ -106,12 +111,22 @@ export function swipeStep(dx: number, velocity: number, width: number): -1 | 0 |
  * the scout saw 0 / off, so that is what the confirm prints); text and choices read "—".
  */
 export function displayValue(field: FormFieldDefinition, value: unknown): string {
+  // A computed value reads as its row on the form does: a whole number bare, else 2 places.
+  if (field.type === 'computed')
+    return computedText(typeof value === 'number' || typeof value === 'string' ? value : null);
+  // A Timer's null is its "unsure — no time" answer (SPEC-FINAL 5.2).
+  if (field.type === 'timer' && value === null) return 'Unsure';
   if (!isFilled(value)) {
     if (field.type === 'counter') return '0';
     if (field.type === 'toggle') return 'No';
     return NO_VALUE;
   }
   if (field.type === 'toggle') return value === true ? 'Yes' : 'No';
+  // A five-step rating reads as its word, as the stars say it ("Good"); any other, "4 of 7".
+  if (field.type === 'rating' && typeof value === 'number') {
+    const max = typeof field.config.max === 'number' ? field.config.max : 5;
+    return max === 5 ? (STAR_WORDS[value - 1] ?? String(value)) : `${value} of ${max}`;
+  }
   if (field.type === 'single_select')
     return selectOptions(field).find((o) => o.value === value)?.label ?? String(value);
   if (field.type === 'multi_select' && Array.isArray(value)) {

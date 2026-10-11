@@ -90,6 +90,14 @@ describe('entry phases', () => {
     expect(displayValue(f('c', 'endgame', { type: 'single_select' }), undefined)).toBe('—');
     expect(displayValue(f('n', 'post_match', { type: 'long_text' }), '')).toBe('—');
     expect(displayValue(f('a', 'auto'), 3)).toBe('3');
+    // Task 1.36: a rating as its word, a computed value as its row shows it, unsure as such.
+    expect(displayValue(f('r', 'teleop', { type: 'rating', config: { max: 5 } }), 4)).toBe('Good');
+    expect(displayValue(f('r', 'teleop', { type: 'rating', config: { max: 7 } }), 4)).toBe(
+      '4 of 7',
+    );
+    expect(displayValue(f('c', 'auto', { type: 'computed' }), 12.5)).toBe('12.50');
+    expect(displayValue(f('c', 'auto', { type: 'computed' }), undefined)).toBe('—');
+    expect(displayValue(f('h', 'auto', { type: 'timer' }), null)).toBe('Unsure');
     const multi = f('m', 'teleop', {
       type: 'multi_select',
       config: {

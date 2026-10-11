@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { useId, useMemo } from 'react';
 import type { FormFieldDefinition } from '@frc/shared';
 import { selectOptions } from '@frc/shared';
 import { Counter } from '@/components/ui/counter';
@@ -7,7 +7,14 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { ComputedValue } from './inputs/ComputedValue';
 import { CyclePathInput, EventLogInput, PositionInput, TimerInput } from './lazyParts';
-import { FieldLabel, FieldRow, ROW } from './inputs/FieldRow';
+import {
+  FieldLabel,
+  FieldMarkContext,
+  FieldRow,
+  ProblemLine,
+  ROW,
+  type FieldMark,
+} from './inputs/FieldRow';
 import { MultiSelectInput } from './inputs/MultiSelectInput';
 import { NumberInput } from './inputs/NumberInput';
 import { RatingInput } from './inputs/RatingInput';
@@ -23,6 +30,12 @@ type Props = {
    * (SPEC-FINAL 5.7), so it follows the scout's taps. Other types ignore it.
    */
   siblingValues?: Record<string, unknown>;
+  /**
+   * What the entry form says under this field (task 1.36): a value out of range as it is typed
+   * ("Most is 60 seconds — check this number"), or, once Review entry has been pressed, a missed
+   * required field ("Required — pick one") or a stopwatch left running. Amber, never red.
+   */
+  problem?: string | null;
 };
 
 const NO_VALUES: Record<string, unknown> = {};
@@ -36,7 +49,26 @@ const NO_VALUES: Record<string, unknown> = {};
  * with task 1.34, the position picker and the cycle path with 1.35: a map field is one map
  * button here, and its map (like the event log's "where?") is a pop-up, never drawn inline.
  */
-export function FieldInput({ field, value, onChange, siblingValues = NO_VALUES }: Props) {
+export function FieldInput(props: Props) {
+  const markId = useId();
+  const { key } = props.field;
+  const problem = props.problem ?? null;
+  const mark = useMemo<FieldMark>(() => ({ key, problem, id: markId }), [key, problem, markId]);
+  // Each input's FieldRow reads the mark: the row's data-field (Go to finds it) and the line.
+  return (
+    <FieldMarkContext value={mark}>
+      <FieldControl {...props} mark={mark} />
+    </FieldMarkContext>
+  );
+}
+
+function FieldControl({
+  field,
+  value,
+  onChange,
+  siblingValues = NO_VALUES,
+  mark,
+}: Props & { mark: FieldMark }) {
   const id = useId();
   switch (field.type) {
     case 'counter': {
@@ -45,15 +77,18 @@ export function FieldInput({ field, value, onChange, siblingValues = NO_VALUES }
       // Entry README: label and hint on the left, a compact − / value / + on the right, at the
       // right edge on a computer too (entry parts, "Counters stay at the right edge").
       return (
-        <div className={`${ROW} flex items-center justify-between gap-3`}>
-          <FieldLabel field={field} />
-          <Counter label={field.label} value={current} step={step} onChange={onChange} />
+        <div className={ROW} data-field={mark.key}>
+          <div className="flex items-center justify-between gap-3">
+            <FieldLabel field={field} />
+            <Counter label={field.label} value={current} step={step} onChange={onChange} />
+          </div>
+          {mark.problem && <ProblemLine id={mark.id}>{mark.problem}</ProblemLine>}
         </div>
       );
     }
     case 'toggle':
       return (
-        <div className={ROW}>
+        <div className={ROW} data-field={mark.key}>
           <Switch label={field.label} checked={value === true} onChange={onChange} />
         </div>
       );

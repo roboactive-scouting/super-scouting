@@ -235,6 +235,25 @@ describe('validateEntryData over the whole catalogue', () => {
     expect(validateEntryData([timer], 'played', {}).ok).toBe(true);
   });
 
+  it('takes "unsure" (null) as the answer to a required timer, but not a timer never touched', () => {
+    const timer = f({
+      key: 'climb_time',
+      type: 'timer',
+      unit: 'seconds',
+      required: true,
+      config: { allow_unsure: true },
+    });
+    // SPEC-FINAL 5.2: "unsure — no time" is the scouter's deliberate answer, no value.
+    expect(validateEntryData([timer], 'played', { climb_time: null }).ok).toBe(true);
+    expect(validateEntryData([timer], 'played', {})).toMatchObject({
+      ok: false,
+      issues: [{ field_key: 'climb_time', code: 'required' }],
+    });
+    // Only a timer: a null on any other required field is still unanswered.
+    const text = f({ key: 'why', type: 'short_text', unit: 'text', required: true });
+    expect(validateEntryData([text], 'played', { why: null }).ok).toBe(false);
+  });
+
   it('accepts a number like a counter, with the same range blocks', () => {
     const number = f({
       key: 'weight',

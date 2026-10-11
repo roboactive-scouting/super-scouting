@@ -17,6 +17,8 @@ export type LocalEntry = {
   breakdown_seconds: number | null;
   data: Record<string, unknown>;
   client_created_at: string;
+  /** The last change on the device that wrote it (absent on a row written before it was kept). */
+  client_updated_at?: string;
   deleted_at: string | null;
 };
 

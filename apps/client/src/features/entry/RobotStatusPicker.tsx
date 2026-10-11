@@ -3,6 +3,9 @@ import type { RobotStatus } from '@frc/shared';
 import { Input } from '@/components/ui/input';
 import { Note } from '@/components/ui/notice';
 import { Segmented } from '@/components/ui/segmented';
+import { cn } from '@/lib/utils';
+import { BREAKDOWN_KEY } from './entryRules';
+import { ProblemLine } from './inputs/FieldRow';
 import { STATUS_LABEL, STATUS_ORDER } from './phases';
 
 const OPTIONS = STATUS_ORDER.map((key) => ({ key, label: STATUS_LABEL[key] }));
@@ -17,12 +20,15 @@ export function RobotStatusPicker({
   onChange,
   breakdownSeconds,
   onBreakdownSeconds,
+  breakdownProblem = null,
 }: {
   value: RobotStatus | null;
   onChange: (status: RobotStatus) => void;
   /** Null while the field is empty. */
   breakdownSeconds: number | null;
   onBreakdownSeconds: (seconds: number | null) => void;
+  /** Once Review entry is pressed with no time given: the amber line under the box (task 1.36). */
+  breakdownProblem?: string | null;
 }) {
   const label = useId();
   const breakdownId = useId();
@@ -42,7 +48,7 @@ export function RobotStatusPicker({
         />
       </div>
       {value === 'broke_down' && (
-        <div className="mt-3.5">
+        <div className="mt-3.5" data-field={BREAKDOWN_KEY}>
           <label htmlFor={breakdownId} className="mb-2 block text-xs font-semibold text-muted">
             Breakdown time (seconds from match start)
           </label>
@@ -56,7 +62,13 @@ export function RobotStatusPicker({
               pattern="[0-9]*"
               autoComplete="off"
               mono
-              className="pe-8 text-lg font-semibold"
+              aria-invalid={breakdownProblem ? true : undefined}
+              aria-describedby={breakdownProblem ? `${breakdownId}-problem` : undefined}
+              className={cn(
+                'pe-8 text-lg font-semibold',
+                breakdownProblem &&
+                  'border-warn bg-warn-tint shadow-[inset_0_0_0_1px_var(--warn)] focus-visible:border-warn focus-visible:shadow-[inset_0_0_0_1px_var(--warn)]',
+              )}
               value={breakdownSeconds ?? ''}
               onChange={(e) => {
                 const digits = e.target.value.replace(/\D/g, '');
@@ -70,6 +82,9 @@ export function RobotStatusPicker({
               s
             </span>
           </div>
+          {breakdownProblem && (
+            <ProblemLine id={`${breakdownId}-problem`}>{breakdownProblem}</ProblemLine>
+          )}
         </div>
       )}
       {(value === 'no_show' || value === 'disabled') && (

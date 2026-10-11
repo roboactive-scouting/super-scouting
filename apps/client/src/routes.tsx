@@ -37,6 +37,11 @@ const FormsPage = lazy(() =>
 const BuilderPage = lazy(() =>
   import('@/features/builder/BuilderPage').then((m) => ({ default: m.BuilderPage })),
 );
+// Super scouting (task 1.36) is a lazy chunk the service worker precaches, so it opens offline;
+// the match entry path stays in the main bundle.
+const SuperEntryPage = lazy(() =>
+  import('@/features/entry/SuperEntryPage').then((m) => ({ default: m.SuperEntryPage })),
+);
 const ManageRoute = lazy(() =>
   import('@/features/admin/ManageRoute').then((m) => ({ default: m.ManageRoute })),
 );
@@ -66,8 +71,8 @@ const named = (handle: PageHandle, base: object = {}) => ({ ...base, ...handle }
  * down; it is never a route-tree argument (task 1.17b).
  */
 /*
- * SPEC-FINAL 6.3: no new entry while a session override is in effect. Both routes that
- * create entries are guarded here, whatever the nav offers (task 1.22).
+ * SPEC-FINAL 6.3: no new entry while a session override is in effect. Every route that
+ * creates entries is guarded here, whatever the nav offers (task 1.22; /super, task 1.36).
  */
 function ScoutRoute() {
   const eventId = useActiveEventId();
@@ -83,6 +88,17 @@ function SignedInEntryRoute() {
   return (
     <OverrideGuard defaultEventId={eventId}>
       <EntryRoute eventId={eventId} author={useSignedInUser()} />
+    </OverrideGuard>
+  );
+}
+
+function SignedInSuperRoute() {
+  const eventId = useActiveEventId();
+  return (
+    <OverrideGuard defaultEventId={eventId}>
+      <Loading>
+        <SuperEntryPage eventId={eventId} author={useSignedInUser()} />
+      </Loading>
     </OverrideGuard>
   );
 }
@@ -132,6 +148,18 @@ export function routeTree(): RouteObject[] {
           path: 'entry/:matchId/:teamId',
           element: <SignedInEntryRoute />,
           handle: named({ title: 'Entry', crumb: ['Scout'] }),
+        },
+        // Super scouting (SPEC-FINAL 8.1): linked from Scout's card, not a nav row. The form for
+        // one team names itself ("Super · 1690") with usePageTitle.
+        {
+          path: 'super',
+          element: <SignedInSuperRoute />,
+          handle: named({ title: 'Super scouting', crumb: ['Scout'] }),
+        },
+        {
+          path: 'super/:teamId',
+          element: <SignedInSuperRoute />,
+          handle: named({ title: 'Super scouting', crumb: ['Scout'] }),
         },
         { path: 'entries', element: <EntriesRoute />, handle: named({ title: 'Entries' }) },
         // Inside the shell: it needs a signed-in device, and never leaves the outbox. It

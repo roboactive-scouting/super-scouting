@@ -16,11 +16,17 @@ const ROW = 'flex items-baseline justify-between gap-4 border-t border-line-2 px
  */
 export function ConfirmEntry(props: {
   open: boolean;
-  matchLabel: string;
-  teamLabel: string;
+  /** Default "Confirm this entry"; the super entry asks "Submit the super entry?". */
+  title?: string;
+  matchLabel?: string;
+  teamLabel?: string;
   /** The alliance or station tag, as in the page header. */
-  tag: ReactNode;
+  tag?: ReactNode;
+  /** In place of the "Q12 · 2096 RobActive" line and tag: the super entry's own line. */
+  summary?: ReactNode;
   status: RobotStatus | null;
+  /** False on the super entry: it has no robot status (SPEC-FINAL 8.1). */
+  showStatus?: boolean;
   /** The phases to list; empty for a dead robot, which records the status only. */
   phases: readonly Phase[];
   data: Record<string, unknown>;
@@ -37,36 +43,44 @@ export function ConfirmEntry(props: {
   onSubmit: () => void;
 }) {
   const back = useRef<HTMLButtonElement>(null);
+  const showStatus = props.showStatus ?? true;
   return (
     <ResponsiveDialog
       open={props.open}
-      title="Confirm this entry"
+      title={props.title ?? 'Confirm this entry'}
       onClose={props.onBack}
       initialFocus={back}
       showClose={false}
     >
       <div className="-mt-2 text-[0.8125rem] text-muted">
-        <p className="flex flex-wrap items-center gap-2 font-semibold text-ink-2">
-          <span>
-            {props.matchLabel} · <span dir="auto">{props.teamLabel}</span>
-          </span>
-          {props.tag}
-        </p>
+        {props.summary ?? (
+          <p className="flex flex-wrap items-center gap-2 font-semibold text-ink-2">
+            <span>
+              {props.matchLabel} · <span dir="auto">{props.teamLabel}</span>
+            </span>
+            {props.tag}
+          </p>
+        )}
         {props.windowApplies && (
           <p>You can still edit it for {MINUTES} minutes after submitting.</p>
         )}
       </div>
       <div className="overflow-hidden rounded-card border border-line bg-surface text-[0.84375rem]">
-        <dl>
-          <div className={`${ROW} border-t-0`}>
-            <dt className="text-ink-2">Status</dt>
-            <dd className="font-semibold text-ink">
-              {props.status ? STATUS_LABEL[props.status] : NO_VALUE}
-            </dd>
-          </div>
-        </dl>
-        {props.phases.map((phase) => (
-          <div key={phase.key}>
+        {showStatus && (
+          <dl>
+            <div className={`${ROW} border-t-0`}>
+              <dt className="text-ink-2">Status</dt>
+              <dd className="font-semibold text-ink">
+                {props.status ? STATUS_LABEL[props.status] : NO_VALUE}
+              </dd>
+            </div>
+          </dl>
+        )}
+        {props.phases.map((phase, i) => (
+          <div
+            key={phase.key}
+            className={!showStatus && i > 0 ? 'border-t border-line-2' : undefined}
+          >
             <h3 className="px-3.5 pt-3 pb-1 text-xs font-[650] text-muted">
               {PHASE_NAME[phase.key]}
             </h3>

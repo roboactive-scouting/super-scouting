@@ -848,6 +848,7 @@ function validateEntryData(fields, robotStatus, data, options = {}) {
   for (const field of live) {
     if (field.type === "computed" || field.type === "section") continue;
     const value = data[field.key];
+    if (field.type === "timer" && value === null) continue;
     const emptyList = submit && LIST_TYPES.has(field.type) && Array.isArray(value) && value.length === 0;
     const missing = value === void 0 || value === null || value === "" || emptyList;
     if (missing) {

@@ -8,7 +8,16 @@ import { SelectRobotPage } from './SelectRobotPage';
 
 const navigate = vi.fn();
 const location = { state: null as unknown };
-vi.mock('react-router-dom', () => ({ useNavigate: () => navigate, useLocation: () => location }));
+vi.mock('react-router-dom', async () => {
+  const { createElement } = await import('react');
+  return {
+    useNavigate: () => navigate,
+    useLocation: () => location,
+    // The Super scouting card at the foot of Scout (task 1.36) is a plain link here.
+    Link: ({ to, children, ...rest }: { to: string; children?: unknown }) =>
+      createElement('a', { href: to, ...rest }, children as never),
+  };
+});
 
 const props = { eventId: 'ev-1', author: { id: 'u-1', role: 'scouter' as const } };
 

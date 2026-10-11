@@ -109,6 +109,9 @@ export function validateEntryData(
     if (field.type === 'computed' || field.type === 'section') continue;
 
     const value = data[field.key];
+    // A Timer's "unsure — no time" is stored as null (SPEC-FINAL 5.2): the scouter's deliberate
+    // answer that there is no trustworthy time. It submits no value, and it answers `required`.
+    if (field.type === 'timer' && value === null) continue;
     const emptyList =
       submit && LIST_TYPES.has(field.type) && Array.isArray(value) && value.length === 0;
     const missing = value === undefined || value === null || value === '' || emptyList;

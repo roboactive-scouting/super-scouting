@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { entryPath, FORM_BUILDER_ROUTE, formBuilderPath, isEntryPath, PATHS } from './paths';
+import {
+  entryPath,
+  FORM_BUILDER_ROUTE,
+  formBuilderPath,
+  isEntryPath,
+  PATHS,
+  SUPER_TEAM_ROUTE,
+  superTeamPath,
+} from './paths';
 
 describe('paths (redesign R.4)', () => {
   it('puts Home at / and Scout at /scout', () => {
@@ -25,5 +33,14 @@ describe('paths (redesign R.4)', () => {
     expect(isEntryPath('/entries')).toBe(false);
     expect(isEntryPath('/')).toBe(false);
     expect(isEntryPath('/scouting-report')).toBe(false);
+  });
+
+  it('puts super scouting at /super, one team under it, on the data-entry path (task 1.36)', () => {
+    expect(PATHS.super).toBe('/super');
+    expect(SUPER_TEAM_ROUTE).toBe('/super/:teamId');
+    expect(superTeamPath('t-1')).toBe('/super/t-1');
+    expect(isEntryPath('/super')).toBe(true);
+    expect(isEntryPath('/super/t-1')).toBe(true);
+    expect(isEntryPath('/superb')).toBe(false);
   });
 });

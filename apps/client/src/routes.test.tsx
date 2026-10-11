@@ -222,12 +222,19 @@ describe('which routes wait for the event to load (task 1.17b)', () => {
     ]);
   });
 
-  it('leaves Scout, the entry screen and Entries gated', () => {
+  it('leaves Scout, the entry screen, super scouting and Entries gated', () => {
     const shell = routeTree().find((r) => r.path === '/');
     const gated = (shell?.children ?? [])
       .filter((r) => !needsNoHydration(r.handle))
       .map((r) => (r.index ? '(index)' : r.path));
-    expect(gated.sort()).toEqual(['entries', 'entry/:matchId/:teamId', 'scout']);
+    // Super scouting (task 1.36) reads the event's roster and entries, so it waits too.
+    expect(gated.sort()).toEqual([
+      'entries',
+      'entry/:matchId/:teamId',
+      'scout',
+      'super',
+      'super/:teamId',
+    ]);
   });
 });
 
@@ -279,5 +286,11 @@ describe('no new entry while a session override is in effect (SPEC-FINAL 6.3, ta
     sessionOverride.clear();
     await waitFor(() => expect(screen.getByRole('radio', { name: /broke down/i })).toBeChecked());
     expect(await db.drafts.get('fv-1:m-1:t-1')).toBeDefined();
+  });
+
+  it('refuses super scouting as well (task 1.36)', async () => {
+    renderAt('/super');
+    expect(await screen.findByRole('heading', { name: PAUSED })).toBeInTheDocument();
+    expect(screen.queryByRole('searchbox', { name: 'Find a team' })).not.toBeInTheDocument();
   });
 });

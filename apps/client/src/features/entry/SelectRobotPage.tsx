@@ -16,6 +16,7 @@ import { MatchFields } from './MatchFields';
 import { RosterHeading, RosterList } from './RosterList';
 import { hhmm } from './scoutChoice';
 import { StationHeading, StationSheet } from './StationSheet';
+import { SuperCard } from './SuperCard';
 import { useScoutSelection } from './useScoutSelection';
 
 /** What EntryRoute hands back through router state after a submit (SPEC-FINAL 8.1). */
@@ -165,6 +166,13 @@ export function SelectRobotPage({ eventId, author }: { eventId: string; author: 
                   editableUntil(chosen.entry),
                 )}; a second one cannot be started.`}
           </Note>
+        )}
+
+        {/* The way into super scouting, at the foot of Scout (15-super final; task 1.36). */}
+        {!notHere && (
+          <div className="mt-5 mb-1">
+            <SuperCard />
+          </div>
         )}
       </div>
 
