@@ -7024,3 +7024,13 @@ Rejected: keeping ↑ ↓ beside the grip as a keyboard path — the keyboard se
 **What I did instead:** kept the 30 px chips and the 22 px ✕ and spaced the list: rows 26 px apart (`gap-y-[1.625rem]`, `gap-x-2`), 17 px from the buttons (the column's 10 px + `mt-[0.4375rem]`) and 24 px to the Undo row (10 + `mt-[0.875rem]`, whose button's hit area reaches 7 px up). Side by side, a chip is wider than 48 px, so neighbouring ✕ areas are further apart than 8 px. `e2e/entry-timer.spec.ts` now taps six times on a 375 px phone (chips on more than one row), measures every button in the field with its `::after` hit area, and asserts each is ≥ 48 × 48 and every pair is ≥ 8 px apart; a new phone shot `event-log-chips-rows-phone.png` shows it. Mutation: the old `gap-2` list fails it ("High goal, 1 tap / Remove Missed at 0:57: px apart"). Rejected: a wider-than-tall ✕ area (the floor is 48 in both directions); a one-row scroller (unlike THEME).
 
 **Risk:** the chip rows are looser than the mock (26 px between rows against 6 px); the chips themselves are as drawn.
+
+## Phase 1 E — the 215 KB bundle budget is confirmed by the user
+
+**Plan said:** the "Task 1.33 — orchestrator: the bundle budget goes to 215 KB, provisionally" entry above left 215 KB pending the user.
+
+**What was wrong:** nothing; the user answered ("215 is fine", 2026-10-11).
+
+**What I did instead:** dropped "provisional" from `scripts/check-bundle.mjs` and BUILD-CONTEXT §12.5. Initial JS after 1.34 is 213.9 KB (the timed parts are a 5.6 KB precached chunk, DEVIATIONS 1.34).
+
+**Risk:** none.

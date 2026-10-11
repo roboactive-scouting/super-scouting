@@ -300,7 +300,7 @@ This section applies to every client task that adds or changes a screen, whether
    - `lib/paths.ts`: every path, written once.
    - `features/shell/nav.ts`: one row per nav destination. Never hand-write a shell link.
    - Anything that moves respects `prefers-reduced-motion`: reduced motion gets still screens.
-   - **Guards:** `pnpm bundle:check` (run after `pnpm build`; initial JS at most 215 KB gzip (provisionally raised from 212 by the build orchestrator, 2026-10-11, pending the user; 212 was the user's raise from 205, 2026-10-09); it deletes the build manifest) and the `styles/classes.test.ts` test (no palette colours, retired tokens or unguarded motion classes).
+   - **Guards:** `pnpm bundle:check` (run after `pnpm build`; initial JS at most 215 KB gzip (raised from 212 by the user, 2026-10-11; from 205, 2026-10-09); it deletes the build manifest) and the `styles/classes.test.ts` test (no palette colours, retired tokens or unguarded motion classes).
    - **Pinned foot:** a page with an `ActionBar` marks its `<main>` with `data-pinned-foot` and `flex flex-1 flex-col`, so a short page still has the bar at the bottom.
 
    **One copy of each nav destination is in the DOM at a time.** jsdom has no `matchMedia`, so the shell renders its desktop layout under test.
