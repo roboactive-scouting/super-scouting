@@ -104,21 +104,14 @@ const PULL = {
   entities: { ...FIXTURE.pull.entities, form_fields: FIELDS, scoring_rules: [] },
 };
 
-const setTheme = (page: Page, theme: 'light' | 'outdoor') =>
-  page.evaluate((t) => (document.documentElement.dataset.theme = t), theme);
-
-/** Shoots `name` in light, then `name-outdoor`. */
+/** Shoots `name` in light, then `name-outdoor` (shoot takes every theme since task 1.38). */
 async function bothThemes(
   page: Page,
   name: string,
   only?: 'phone' | 'desktop',
   opts: { long?: boolean } = {},
 ) {
-  await setTheme(page, 'light');
   await shoot(page, name, only, opts);
-  await setTheme(page, 'outdoor');
-  await shoot(page, `${name}-outdoor`, only, opts);
-  await setTheme(page, 'light');
 }
 
 /** Opens the entry as `alliance`'s scout with Played picked, at `width`. */

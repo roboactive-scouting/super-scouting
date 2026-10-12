@@ -20,6 +20,8 @@ export const PATHS = {
   users: '/admin/users',
   manage: '/admin/manage',
   forms: '/admin/forms',
+  /** This device's settings (SPEC-FINAL 8.6, task 1.38): theme, text size, screen, vibration, wipe. */
+  settings: '/settings',
 } as const;
 
 /** The form builder's route pattern (SPEC-FINAL 5.9, v1.21): the version is a query, `?version=n`. */

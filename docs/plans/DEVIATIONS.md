@@ -7404,3 +7404,153 @@ Rejected: keeping ↑ ↓ beside the grip as a keyboard path — the keyboard se
 **What I did instead:** `testTimeout: 15_000` in `apps/client/vitest.config.ts`. The per-test 15 s on the two entry tests stay (harmless, and they document why they are slow). Rejected: per-test raises only (above); fewer taps (the range tests need 41).
 
 **Risk:** a genuinely hung client test now takes 15 s to fail instead of 5.
+
+## Task 1.38 — the theme and text size live in localStorage, not IndexedDB
+
+**Plan said:** `theme.set(<theme id>)` persisted per device; the brief's test opens and deletes the Dexie database around it. The dispatch: Dexie `meta` or localStorage, logged; it must be readable before the first paint.
+
+**What was wrong:** nothing; the store was open. IndexedDB can only be read asynchronously, so the first frame would be drawn in Light and then switch (a flash in sunlight, exactly when Outdoor matters).
+
+**What I did instead:** `lib/devicePrefs.ts` keeps every device setting under `device.*` in `localStorage` (`device.theme`, `device.textScale`, `device.keepScreenOn`, `device.vibrateOnTap`), with an in-memory fallback when storage refuses (private mode) and a `storage`-event subscription so another tab follows. `main.tsx` calls `applyDeviceLook()` (from `features/settings/theme.ts`) before `createRoot`, so the first paint is already in the chosen theme and size. `theme.apply()` also sets `<meta name="theme-color">` to the theme's `--rail`, read from the computed style (no colour value outside theme.css). `clearDevicePrefs()` removes every `device.*` key, for the wipe. The brief's `theme.test.ts` keeps its Dexie `beforeEach` lines and adds `clearDevicePrefs()`. Rejected: Dexie `meta` with the render awaited on it (delays every cold start on the IndexedDB open, and still paints `index.html`'s light background first); an inline script in `index.html` (a second copy of the key names outside the module).
+
+**Risk:** task 1.49's wipe must call `clearDevicePrefs()` as well as clearing IndexedDB, or a wiped device keeps the last person's theme and text size (harmless, but not "everything").
+
+## Task 1.38 — the theme tests asserted against the decided set
+
+**Plan said:** a TODO in `theme.test.ts`: the default-theme and theme-list assertions are rewritten once the new design's theme set exists.
+
+**What was wrong:** nothing; the set was decided (THEME.md, RB.1: `light` and `outdoor`, default `light`).
+
+**What I did instead:** the TODO is replaced by three tests: the default is `light` (and `apply()` with nothing saved puts `light` on `<html>`), `theme.options` is exactly `['light', 'outdoor']`, and an unknown id (`'dark'`) rejects and leaves the theme in force. Added: the saved theme and size are applied at start with nothing on `<html>` (a reload), a pick switches `<html>` at once, a stored value that is not a theme falls back to Light, the text size defaults to 100 %. The brief's three tests are kept as written.
+
+**Risk:** none.
+
+## Task 1.38 — `theme.set` and `textScale.set` also apply
+
+**Plan said:** `theme.set(id)` persists; `theme.apply()` sets `data-theme`; the test calls `set` then `apply`.
+
+**What was wrong:** the design says picking a tile or a step "switches the example and the whole app at once"; with `set` only persisting, every caller would have to remember `apply()`.
+
+**What I did instead:** `set` saves, then applies; `apply` reads what is saved. Both `set`s are `async` and throw on anything outside the set, so `await expect(set(bad)).rejects.toThrow()` holds. `useTheme()` / `useTextScale()` (useSyncExternalStore on the prefs) keep the Settings rows current.
+
+**Risk:** none.
+
+## Task 1.38 — the text size multiplies the root font size, and the "Aa" steps divide it back out
+
+**Plan said:** `textScale.apply()` sets `--text-scale`; a multiplier on top of the OS text size; check how type is sized.
+
+**What was wrong:** nothing: `index.css` already had `html { font-size: calc(100% * var(--text-scale)) }` and `--text-scale: 1` in theme.css (RB.1), and every font size in the client is in rem (a grep for `text-[NNpx]` finds none). Media queries are rem too, but a media query's rem is the browser's initial size, so 150 % never moves a layout across the 1024 px desktop line.
+
+**What I did instead:** `apply()` writes `--text-scale` inline on `<html>`. Things drawn in px stay px (the 52 px block buttons, the 48 px tap floor, dialog widths): they are touch targets and frames, not type. The four "Aa" in the Text size control are drawn at `calc(0.875rem * step / var(--text-scale))`, so they always compare as the four steps would apply on top of the phone's own size, whichever step is in force (the design draws them at fixed 14 / 16 / 18 / 21 px).
+
+**Risk:** none known.
+
+## Task 1.38 — Vibrate on taps: where the buzz is wired
+
+**Plan said:** call `haptics.tap()` on taps in `FieldInput`'s controls; find the clean seam rather than editing every input.
+
+**What was wrong:** nothing.
+
+**What I did instead:** `FieldInput`'s `FieldControl` wraps `onChange` for the tapped types (counter, toggle, single and multi select, rating, timer, event log, position, cycle path) so every change they report buzzes once; number, short text and long text do not (a buzz per key would be noise). Also the robot status picker in `EntryPage` (Played / No show / …), which is a tap on the same screen but not a `FieldInput`. Not buzzed: a Timer's start and resume (they change nothing the page holds until Pause, which buzzes), a slider rating buzzes once per step it moves. `haptics.tap()` reads the setting on every call and wraps `navigator.vibrate?.(10)` in try/catch. New test in `FieldInput.test.tsx`: a counter tap and an option pick buzz, typing in a number does not.
+
+**Risk:** none.
+
+## Task 1.38 — Keep the screen on: the wake lock follows the setting live
+
+**Plan said:** `useWakeLock()` — requests on mount, re-requests on `visibilitychange`, releases on unmount, try/catch.
+
+**What was wrong:** nothing; the dispatch made it `useWakeLock(enabled)` gated by the setting.
+
+**What I did instead:** `features/entry/useWakeLock.ts`: one effect keyed on `enabled`; it requests only while the page is visible, re-requests when it becomes visible, releases a previous sentinel when a new one arrives, releases a lock that arrives after unmount, and swallows every rejection and a missing `navigator.wakeLock`. `EntryPage` calls it in its own statement (not inside the `[draftKey]` match-clock effect) and `SuperForm` likewise, both with `useBoolPref(keepScreenOn)` (default on), so turning the setting off releases the lock at once. Tests: `useWakeLock.test.tsx` (7: requests and releases; re-requests on visible and not after unmount; off asks for nothing; turned off releases; a rejecting API; no API; a late grant is released). jsdom has no wake lock, so the existing entry tests exercise the "missing" path.
+
+**Risk:** none.
+
+## Task 1.38 — Settings: the route, the nav row and what the page reads
+
+**Plan said:** `/settings` → `PATHS.settings`, a `NAV_ITEMS` row in a new `device` group "This device", every role, not in the bottom bar; a lazy route.
+
+**What was wrong:** nothing.
+
+**What I did instead:** as specified. The route is lazy (`SettingsPage` chunk 3.8 KB, precached) and marked `NO_HYDRATION` (it reads no event data; the competition's name only when one is loaded), with the desktop crumb "This device / Settings". `groupsOf` orders the groups Competition · Admin · This device. The page reads the user from the shell context, the competition's cached name (`useEventName`) and `clientConfig().appVersion`. `routes.test.tsx`'s NO_HYDRATION list gains `settings`; `nav.test.ts`'s three role lists gain `settings`, plus a test that it is in the sidebar and the phone menu for every role and never in the bottom bar.
+
+**Risk:** none.
+
+## Task 1.38 — Settings: shared components extended, not copied
+
+**Plan said:** build from the shared components (`switch`, `segmented`, `responsive-dialog`, `destructive-confirm`, `counter`, `option-buttons`).
+
+**What was wrong:** `Switch` had no `disabled` (only a disabled fieldset held it), and a disabled switch dims its whole label, which would put "this phone can’t vibrate" at half contrast; `Segmented` options were plain strings, and the design draws each step as an "Aa" over its percentage.
+
+**What I did instead:** `Switch` gains `disabled` and `dimLabel` (default true, the old look; `false` dims only the track, at 45 % as the design's `.st-swi.dis`). `Segmented` options gain an optional `content` (drawn in place of the label, which then becomes the segment's `aria-label`). The live example is `FieldInput` itself with two example field definitions (a counter "Pieces scored high · Upper goal" and a three-option "Climb level"), so it is the entry's real row, real controls and real buzz; its taps save nothing. The theme tiles are native radios in labels (the OptionButtons pattern), each with a small picture whose `data-theme` re-scopes the tokens, so the Light picture stays light inside an Outdoor app. Rejected: a hand-built switch row; a second segmented control.
+
+**Risk:** none.
+
+## Task 1.38 — Wipe this device: the row, the held state, and no wipe yet
+
+**Plan said:** show the row and the held state; the confirmation (§16.1) with Keep this device first; while anything waits, the held sentence and the wipe button disabled; with nothing waiting, do not build the wipe (task 1.49) — read honestly, no placeholder; "waiting" counts unsynced outbox operations and unsubmitted real drafts, never practice drafts.
+
+**What was wrong:** nothing; the words for drafts and for nothing-waiting were open.
+
+**What I did instead:** `features/settings/wipeHold.ts`: `readWipeHold()` → `{ entries, other, unacked, drafts }` (entry operations in the outbox; other non-match operations; every unacked operation, the §9.9 guard, bare matches included; `db.drafts.count()`), `isHeld`, `holdParts` (the row: "held: 3 entries waiting to send", "…, 1 unfinished entry") and `heldSentence` (the confirmation: "3 entries are still waiting to send. Wipe is held until they are sent, so nothing is lost."; drafts are "1 unfinished entry is not submitted yet." with "…until it is submitted or discarded…"). The page reads it with `useDeviceQuery(…, ['outbox'])`. The confirmation is `DestructiveConfirm` (title "Wipe this device?", object "Everything this app keeps on this device", body "Removes it all and signs out. For a phone you are handing on.", cancel **Keep this device** first, confirm **Wipe this device** with no icon, as drawn) with its `held` line: the held sentence, "Checking what is waiting to send." while the counts are read, or — with nothing waiting — "This version of the app cannot wipe a device yet." The confirm stays `aria-disabled` in every case. With nothing waiting the row reads "removes everything this app keeps here" (the design's words). Rejected: hiding the row until 1.49 (the design and §8.6 show it now); the lead's-code field without its check (would be placeholder UI).
+
+**Risk:** the held sentence is the confirmation's quiet `held` line (muted text), not the design's warn-edged box; the phone foot keeps the shared pattern's two buttons side by side, where the design stacks them full width. Task 1.49 replaces the "cannot wipe yet" line with the code and type-to-confirm.
+
+## Task 1.38 — Settings: other calls against the design
+
+**Plan said:** match `16-settings/final`.
+
+**What was wrong:** small differences the shared components force or the fixture causes.
+
+**What I did instead:** on a phone the three Climb options of the live example break two + one (OptionButtons' own-width rule, UF.18, as logged for super in 1.36); the design draws three in a row. The Text size sheet's line says "phone’s" on a phone and "system’s" on a computer, as the two finals do. The device row shows the version as the build sets it (the fixture's `1.4.0`; the design shows a commit hash). The theme tiles' labels use `--muted` 11.5 px for the line, as drawn.
+
+**Risk:** none.
+
+## Task 1.38 — screenshots are taken in every theme by `shoot()` itself
+
+**Plan said:** from this task on, BUILD-CONTEXT §12's screenshots are taken in every theme; generalise task 1.37's `-outdoor` variants so every existing spec gets both themes without rewriting each spec.
+
+**What was wrong:** five specs (entry-fields, entry-map, entry-timer, forms, drafts-practice) each had their own `setTheme` + `bothThemes` helper shooting `<name>` then `<name>-outdoor`; every other spec shot Light only.
+
+**What I did instead:** `shoot()` loops over `THEMES` (`light`, `outdoor`) itself: it puts each on `<html data-theme>`, takes every width (and the `-phone-long`) with the overflow and axe checks, names Outdoor `<name>-outdoor-<width>.png` (the names 1.37 used), and puts the page's own theme back in a `finally`. New options: `themes` (a subset, for a spec that sets the theme through the app — Settings), `before` (re-sets a short-lived state before each picture, which the timer and draft specs needed). The five helpers now just call `shoot` (their call sites are unchanged); drafts-practice's discard loop passes `themes: [theme]`. `setTheme` and `setTextScale` are exported from `shoot.ts`. Two direct `page.screenshot` calls (forms `builder-drag`, shell's mid-drag picture) stay Light: they are pictures of a gesture in flight, not screens. BUILD-CONTEXT §12.3 describes the new signature. Rejected: a Playwright project per theme (would run every test twice, including the slow ones, for the same pictures).
+
+**Risk:** the e2e run takes longer (every shot runs axe twice).
+
+## Task 1.38 — the e2e test timeout goes to 60 s
+
+**Plan said:** nothing; Playwright's `timeout: 30_000`.
+
+**What was wrong:** with every `shoot()` taking each picture twice (Light and Outdoor, axe each time), the first full run failed three screen-heavy tests on time alone: `Test timeout of 30000ms exceeded.` in `entry.spec.ts` "entry: phase tabs, swipe, no-show and the confirm", `scout.spec.ts` "scout: choose a station, the line-up, and a team not in it" and `shell.spec.ts` "phone bar: the current page is the raised button; elsewhere nothing is (UF.10)" (89 passed, 3 failed, 5.4 min).
+
+**What I did instead:** `timeout: 60_000` in `apps/client/playwright.config.ts`, with the reason beside it. Rejected: `test.slow()` in each failing test (the next spec to add a shot would be the next to fail); a project per theme (runs every test twice).
+
+**Risk:** a genuinely hung e2e test now takes 60 s to fail.
+
+## Task 1.38 — 150 % text: what broke and what was fixed
+
+**Plan said:** shots at 150 % text for Settings, the Text size sheet, the Scout page, a match entry with counters and option buttons, the problems sheet and the `/super` picker, both widths; the overflow check must pass; no layout may break at 150 %.
+
+**What was wrong:** the overflow check passed everywhere (nothing scrolled sideways), but the pictures showed four breaks on a phone at 150 %: (1) the robot status segmented control's labels ran into each other ("Broke do**Dis**abledNo show") — `Segmented` was a grid of equal columns with `whitespace-nowrap`; (2) a counter's name shrank under its longest word, so "scored" ran under the − button (`FieldInput`'s counter row, `min-w-0` on the name); (3) a two-column option card cut a word in half ("Hig / h") in the narrower Settings example (`[overflow-wrap:anywhere]` in a half-width card); (4) on Scout the match type select showed "Quali" and "Start entry · 4590 GreenBlitz" ran past both edges of its button (`grid-cols-[1fr_1.2fr]` and a `whitespace-nowrap` block button).
+
+**What I did instead:** (1) `Segmented` is a wrapping flex row of equal segments (`flex-[1_1_0%] min-w-max`, 3 px between rows): one line while every label fits — unchanged at 100 % — and a second row when not. (2) The counter row wraps: the name is `flex-[1_1_0%] min-w-min`, the counter `ms-auto`, so the name still wraps word by word beside the counter and the counter only drops below it, at the right edge, when the longest word and the counter cannot share the line. (3) `OptionButtons` and `MultiOptionButtons` go to one column below a 14 rem own width (`@max-[14rem]:grid-cols-1`; 224 px at 100 %, so no screen changes at the normal size). (4) `MatchFields` stacks the match type over the match number once its own width is under 19 rem (`@container`; 21.4 rem on a phone at 100 %, so unchanged there), and Scout's Start entry button may wrap (`h-auto py-2 whitespace-normal`). Tried first and rejected: `minmax(max-content,1fr)` for the type column — it kept "Qualification" whole but squeezed the number to "Q :". Not changed, because they truncate rather than break: the phase tabs ("Tele…"), a long team name in the super picker row, the top bar title, a search placeholder.
+
+**Risk:** a form with a long one-word option label now gets one column a little earlier on a narrow phone at 115 % and up.
+
+## Task 1.38 — Outdoor re-check of every existing screen
+
+**Plan said:** re-check every existing screen in each theme; fix anything that breaks or is illegible in Outdoor; log each fix, and summarise where nothing was needed.
+
+**What was wrong:** after the run, every `*-outdoor-*.png` in `e2e/__screens__` (217 files after the final run: phone, desktop, phone-long, tablet, small, laptop) was looked at. One finding: on the dark rail, the "waiting to send" amber is outdoor's `--warn` (#6b4409), 1.91:1 on `--rail-raised` and 2.46:1 on `--rail` — the dot in the phone top bar's "3 waiting" pill and in the menu's sync line was nearly invisible, and the bottom bar's Entries count badge barely separated from the black bar.
+
+**What I did instead:** two tokens in `theme.css`, `--rail-warn` / `--on-rail-warn`: Light keeps the drawn values (#94600f / white), Outdoor gets #ffd27a / black (14.75:1 on the rail, 11.48:1 on `--rail-raised`), with two new pairs in `contrast.test.ts` (`--rail-warn` on `--rail` ≥ 3, `--on-rail-warn` on `--rail-warn` ≥ 4.5, both themes). `SyncDot` takes `onRail` (the phone pill and the menu pass it; the desktop chips on white keep `--warn`), and the bottom bar badge uses the pair. Nothing needed fixing on: sign-in (all states), change password, Home (all states and sheets), Scout (station sheet, line-up, done, locked, draft offer and Undo toast, super and practice cards), the entry (every phase, robot statuses, confirm, problems, Go to, range block, timer bar in every state, Timer field, event log, map buttons and the three map sheets/dialogs), practice (strip, entry, finished), super (picker, form, confirm, reopened), Entries (list, filters, search, empty, sync failed), Switch scouter, Manage (desktop tabs, dialogs, phone list and sheets), Users and user detail, Forms and the builder (every pane, dialog and Try it), the shell (menu, offline, sync failed, account menu, gates). The "All sent" dot (`--accent` on the rail, 1.99:1 outdoor) was left: the pill's words carry the state, and nothing waits.
+
+**Risk:** none.
+
+## Task 1.38 — the initial-JS budget
+
+**Plan said:** make `/settings` lazy; raise `BUDGET_KB` only if needed, logged.
+
+**What was wrong:** nothing: `initial JS 219.8 KB gzip` after the task (218.2 before), under the 220 KB budget. What was added to the initial path: `lib/devicePrefs.ts`, `features/settings/theme.ts` (applied before the first paint), `lib/haptics.ts`, `useWakeLock`, the Settings nav row and its icon, and the `Switch` / `Segmented` / row changes. The Settings page is a 3.8 KB lazy chunk, precached.
+
+**What I did instead:** `BUDGET_KB` unchanged at 220.
+
+**Risk:** 0.2 KB of headroom for the next task on the competition path.

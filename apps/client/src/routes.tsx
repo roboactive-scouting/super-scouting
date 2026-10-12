@@ -46,6 +46,11 @@ const SuperEntryPage = lazy(() =>
 const PracticeStart = lazy(() =>
   import('@/features/entry/PracticeStart').then((m) => ({ default: m.PracticeStart })),
 );
+// This device's settings (task 1.38): a lazy chunk, precached. The saved theme and text size are
+// applied by main.tsx before the first paint, without it.
+const SettingsPage = lazy(() =>
+  import('@/features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })),
+);
 const ManageRoute = lazy(() =>
   import('@/features/admin/ManageRoute').then((m) => ({ default: m.ManageRoute })),
 );
@@ -195,6 +200,17 @@ export function routeTree(): RouteObject[] {
             </Loading>
           ),
           handle: named({ title: 'Switch scouter' }, NO_HYDRATION),
+        },
+        // SPEC-FINAL 8.6 (task 1.38): this device's settings. Every role; it reads no event data
+        // (the competition's name only if one is loaded), so it opens with none.
+        {
+          path: 'settings',
+          element: (
+            <Loading>
+              <SettingsPage />
+            </Loading>
+          ),
+          handle: named({ title: 'Settings', crumb: ['This device'] }, NO_HYDRATION),
         },
         // Task 1.22's path, kept so a bookmark or an old installed start page still lands.
         { path: 'context', element: <Navigate to={PATHS.home} replace />, handle: NO_HYDRATION },

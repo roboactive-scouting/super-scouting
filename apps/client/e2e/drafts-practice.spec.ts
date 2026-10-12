@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './api-mock';
 import { FIXTURE, FORM, matchId, teamId } from './fixtures';
-import { shoot } from './shoot';
+import { shoot, THEMES } from './shoot';
 
 /**
  * Task 1.37: draft recovery and practice mode (14-entry-parts/final `entry-parts-drafts-phone.png`).
@@ -116,12 +116,9 @@ const PULL = {
 /** 11:42 in Tel Aviv on the fixture's competition day. */
 const AT = new Date('2026-03-17T09:42:00.000Z');
 
-const setTheme = (page: Page, theme: 'light' | 'outdoor') =>
-  page.evaluate((t) => (document.documentElement.dataset.theme = t), theme);
-
 /**
- * Shoots `name` in light, then `name-outdoor`, at each width asked for; `before` re-sets a
- * short-lived state (the Undo toast) before every picture.
+ * Shoots `name` in light, then `name-outdoor` (shoot takes every theme since task 1.38), at each
+ * width asked for; `before` re-sets a short-lived state (the Undo toast) before every picture.
  */
 async function bothThemes(
   page: Page,
@@ -130,14 +127,7 @@ async function bothThemes(
   before: () => Promise<void> = async () => undefined,
   opts: { long?: boolean } = {},
 ) {
-  for (const theme of ['light', 'outdoor'] as const) {
-    await setTheme(page, theme);
-    for (const width of widths) {
-      await before();
-      await shoot(page, theme === 'light' ? name : `${name}-outdoor`, width, opts);
-    }
-  }
-  await setTheme(page, 'light');
+  for (const width of widths) await shoot(page, name, width, { ...opts, before });
 }
 
 /** Signs in as a scouter at Red 1, with the design's form and the clock at 11:42. */
@@ -193,23 +183,17 @@ test('draft recovery: the unfinished entry on Scout, Discard with Undo, and Resu
     await expect(offer).toBeHidden();
   };
   const undo = () => page.getByRole('button', { name: 'Undo' }).click();
-  for (const theme of ['light', 'outdoor'] as const) {
-    await setTheme(page, theme);
+  for (const theme of THEMES) {
     for (const width of ['phone', 'desktop'] as const) {
       await page.setViewportSize(
         width === 'phone' ? { width: 375, height: 812 } : { width: 1440, height: 900 },
       );
       await discard();
-      await shoot(
-        page,
-        theme === 'light' ? 'scout-draft-discarded' : 'scout-draft-discarded-outdoor',
-        width,
-      );
+      await shoot(page, 'scout-draft-discarded', width, { themes: [theme] });
       await undo();
       await expect(offer).toBeVisible();
     }
   }
-  await setTheme(page, 'light');
 
   // Resume opens it where it was: Teleop, with the four taps.
   await page.setViewportSize({ width: 375, height: 812 });

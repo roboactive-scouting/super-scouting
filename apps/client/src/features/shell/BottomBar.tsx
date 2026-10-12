@@ -14,7 +14,7 @@ function Badge({ count, raised }: { count: number; raised: boolean }) {
     <span
       aria-hidden="true"
       className={cn(
-        'num absolute grid h-[1.125rem] min-w-[1.125rem] place-items-center rounded-full bg-warn px-1 text-[0.65625rem] text-surface',
+        'num absolute grid h-[1.125rem] min-w-[1.125rem] place-items-center rounded-full bg-rail-warn px-1 text-[0.65625rem] text-on-rail-warn',
         raised ? '-top-1 start-[60%]' : 'start-[56%] top-0.5',
       )}
     >

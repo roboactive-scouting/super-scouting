@@ -56,8 +56,20 @@ export function failureLine(status: Pick<SyncStatus, 'waiting' | 'lastFailure'>)
   return `Last try failed: ${failure.text} · ${formatTime(failure.at)}`;
 }
 
-export function SyncDot({ tone }: { tone: SyncTone }) {
-  return <span aria-hidden="true" className={cn('size-[7px] shrink-0 rounded-full', DOT[tone])} />;
+/**
+ * `onRail`: the dot sits on the dark rail (the phone pill, the menu), where "waiting" takes
+ * `--rail-warn` — outdoor's `--warn` all but vanished on it (task 1.38, outdoor re-check).
+ */
+export function SyncDot({ tone, onRail = false }: { tone: SyncTone; onRail?: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        'size-[7px] shrink-0 rounded-full',
+        onRail && tone === 'waiting' ? 'bg-rail-warn' : DOT[tone],
+      )}
+    />
+  );
 }
 
 const CHIP =
@@ -76,7 +88,7 @@ export function SyncPill({ status, compact = false }: { status: SyncStatus; comp
         role="status"
         className="inline-flex h-[1.875rem] shrink-0 items-center gap-1.5 rounded-full bg-rail-raised px-2.5 text-[0.78125rem] font-medium whitespace-nowrap text-rail-ink"
       >
-        <SyncDot tone={tone} />
+        <SyncDot tone={tone} onRail />
         {text}
       </span>
     );

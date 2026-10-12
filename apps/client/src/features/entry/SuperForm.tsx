@@ -6,6 +6,7 @@ import { ActionBar } from '@/components/ui/action-bar';
 import { Button } from '@/components/ui/button';
 import { Note, Notice } from '@/components/ui/notice';
 import { cachedFormFields } from '@/data/cache';
+import { keepScreenOn, useBoolPref } from '@/lib/devicePrefs';
 import { PATHS } from '@/lib/paths';
 import { cn } from '@/lib/utils';
 import { ConfirmEntry } from './ConfirmEntry';
@@ -23,6 +24,7 @@ import { superDoneAt } from './SuperPicker';
 import type { SuperTeam } from './superData';
 import { useDraft } from './useDraft';
 import { useEntryForm } from './useEntryForm';
+import { useWakeLock } from './useWakeLock';
 
 /** The dark SUPER tag (15-super final): `--rail` with white text, like the admin tag. */
 function SuperTag() {
@@ -89,6 +91,8 @@ export function SuperForm({
   const mainRef = useRef<HTMLDivElement>(null);
   const form = useEntryForm({ fields, data });
   const teamLabel = `${team.number} ${team.name}`;
+  // SPEC-FINAL 8.6 (task 1.38): the screen stays on while the super entry is open, as on a match.
+  useWakeLock(useBoolPref(keepScreenOn));
 
   useEffect(() => {
     void cachedFormFields(formVersionId).then(setFields);

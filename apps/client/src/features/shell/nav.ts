@@ -4,6 +4,7 @@ import {
   FileText,
   House,
   List,
+  Settings,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -19,11 +20,12 @@ export type NavAudience = {
   override: boolean;
 };
 
-export type NavGroup = 'competition' | 'admin';
+export type NavGroup = 'competition' | 'admin' | 'device';
 
 export const NAV_GROUP_LABEL: Record<NavGroup, string> = {
   competition: 'Competition',
   admin: 'Admin',
+  device: 'This device',
 };
 
 export type NavItem = {
@@ -122,6 +124,17 @@ export const NAV_ITEMS: readonly NavItem[] = [
     desktopOnly: true,
     visible: (who) => !who.expired && canManageForms(who.user),
   },
+  // SPEC-FINAL 8.6 (v1.25, task 1.38): this device's own settings, for every role, in the sidebar
+  // and the phone menu; never in the bottom bar.
+  {
+    id: 'settings',
+    label: 'Settings',
+    to: PATHS.settings,
+    icon: Settings,
+    group: 'device',
+    bottomBar: null,
+    visible: () => true,
+  },
 ];
 
 export function navItemsFor(who: NavAudience, items: readonly NavItem[] = NAV_ITEMS): NavItem[] {
@@ -157,7 +170,7 @@ export function bottomBar(
 }
 
 export function groupsOf(items: readonly NavItem[]): { group: NavGroup; items: NavItem[] }[] {
-  return (['competition', 'admin'] as const)
+  return (['competition', 'admin', 'device'] as const)
     .map((group) => ({ group, items: items.filter((item) => item.group === group) }))
     .filter((entry) => entry.items.length > 0);
 }

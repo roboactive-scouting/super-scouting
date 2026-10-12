@@ -3,8 +3,13 @@ import { createRoot } from 'react-dom/client';
 import { App } from '@/App';
 import { syncSessionAcrossTabs } from '@/auth/session';
 import { practiceMode } from '@/features/entry/practice';
+import { applyDeviceLook } from '@/features/settings/theme';
 import { browserAdapter, registerServiceWorker, updateReady } from '@/pwa';
 import '@/styles/index.css';
+
+// SPEC-FINAL 8.6, 17.4 (task 1.38): this device's theme and text size, before the first paint, so
+// the app never flashes in the wrong look.
+applyDeviceLook();
 
 // UF.2: a sign-out, sign-in or expiry in one tab shows in every other tab at once.
 syncSessionAcrossTabs();

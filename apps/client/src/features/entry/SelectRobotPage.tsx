@@ -221,7 +221,14 @@ export function SelectRobotPage({ eventId, author }: { eventId: string; author: 
 
       {/* The primary action bar, pinned at every width: a long roster never hides it. */}
       <ActionBar desktop="flat">
-        <Button variant="primary" size="block" disabled={!canStart} onClick={start}>
+        <Button
+          variant="primary"
+          size="block"
+          disabled={!canStart}
+          onClick={start}
+          // A long team name at a large text size wraps inside the bar (task 1.38).
+          className="h-auto py-2 leading-tight whitespace-normal"
+        >
           {!chosen
             ? 'Start entry'
             : chosen.entry

@@ -102,6 +102,8 @@ export function OptionButtons<V extends string>({
           className={cn(
             'grid gap-2',
             columns === 4 ? 'grid-cols-2 @min-[26rem]:grid-cols-4' : 'grid-cols-2',
+            // One column once two would cut a word (a phone at a large text size, task 1.38).
+            '@max-[14rem]:grid-cols-1',
           )}
         >
           {options.map((option) => (

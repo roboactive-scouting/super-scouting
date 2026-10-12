@@ -44,7 +44,15 @@ export function MultiOptionButtons<V extends string>({
       aria-labelledby={labelledBy}
       className="@container min-w-0"
     >
-      <div data-option-grid="" className={cn('grid gap-2', columnsFor(options.length))}>
+      <div
+        data-option-grid=""
+        className={cn(
+          'grid gap-2',
+          columnsFor(options.length),
+          // One column once two would cut a word (a phone at a large text size, task 1.38).
+          '@max-[14rem]:grid-cols-1',
+        )}
+      >
         {options.map((option) => {
           const on = value.includes(option.value);
           return (

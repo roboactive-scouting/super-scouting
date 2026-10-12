@@ -347,15 +347,9 @@ test('builder: Try it fills the form as a scouter would and shows what it would 
 test('builder: map fields are map buttons; Try it opens the map dialog (task 1.35)', async ({
   page,
 }) => {
-  const setTheme = (theme: 'light' | 'outdoor') =>
-    page.evaluate((t) => (document.documentElement.dataset.theme = t), theme);
-  /** Shoots `name` in light, then `name-outdoor`. */
+  /** Shoots `name` in light, then `name-outdoor` (shoot takes every theme since task 1.38). */
   async function bothThemes(name: string) {
-    await setTheme('light');
     await shoot(page, name, 'desktop');
-    await setTheme('outdoor');
-    await shoot(page, `${name}-outdoor`, 'desktop');
-    await setTheme('light');
   }
   await openBuilder(page);
   // Edit: Auto's two position fields are drawn as the scouter's map buttons, empty.

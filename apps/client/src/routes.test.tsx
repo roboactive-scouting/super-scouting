@@ -205,7 +205,7 @@ describe('switch scouter on a shared device (SPEC-FINAL 7.3, task 1.16)', () => 
 });
 
 describe('which routes wait for the event to load (task 1.17b)', () => {
-  it('marks exactly Home, Users, the user detail page, Manage, Forms, the form builder, Switch scouter and the old context path as needing no event', () => {
+  it('marks exactly Home, Users, the user detail page, Manage, Forms, the form builder, Switch scouter, Settings and the old context path as needing no event', () => {
     const shell = routeTree().find((r) => r.path === '/');
     const marked = (shell?.children ?? [])
       .filter((r) => needsNoHydration(r.handle))
@@ -218,6 +218,8 @@ describe('which routes wait for the event to load (task 1.17b)', () => {
       'admin/users',
       'admin/users/:id',
       'context',
+      // This device's settings (task 1.38): no event data, so it opens with no competition.
+      'settings',
       'switch-scouter',
     ]);
   });

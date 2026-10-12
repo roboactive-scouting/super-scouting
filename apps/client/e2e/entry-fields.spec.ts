@@ -173,12 +173,9 @@ const PULL = {
   entities: { ...FIXTURE.pull.entities, form_fields: FIELDS, scoring_rules: [] },
 };
 
+/** Light, then `-outdoor`: shoot takes every theme since task 1.38. */
 async function bothThemes(page: Page, name: string, only?: 'phone' | 'desktop') {
-  await page.evaluate(() => (document.documentElement.dataset.theme = 'light'));
   await shoot(page, name, only, { long: true });
-  await page.evaluate(() => (document.documentElement.dataset.theme = 'outdoor'));
-  await shoot(page, `${name}-outdoor`, only, { long: true });
-  await page.evaluate(() => (document.documentElement.dataset.theme = 'light'));
 }
 
 test('entry fields: every simple type, filled, at both widths and in both themes', async ({

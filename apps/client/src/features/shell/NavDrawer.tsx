@@ -14,7 +14,7 @@ function SyncLine({ status }: { status: SyncStatus }) {
   const failed = failureLine(status);
   return (
     <p className="mx-1.5 mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-[10px] bg-rail-raised px-2.5 py-[9px] text-[0.78125rem] text-surface">
-      <SyncDot tone={tone} />
+      <SyncDot tone={tone} onRail />
       {text}
       {failed && <small className="ms-[15px] w-full text-xs text-surface">{failed}</small>}
       {status.lastSyncAt && (

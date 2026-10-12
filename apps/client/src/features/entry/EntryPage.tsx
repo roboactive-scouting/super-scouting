@@ -3,6 +3,8 @@ import type { FieldPhase, FormFieldDefinition, RobotStatus, TimerConfig } from '
 import { ActionBar } from '@/components/ui/action-bar';
 import { Button } from '@/components/ui/button';
 import { cachedFormFields, cachedRows } from '@/data/cache';
+import { keepScreenOn, useBoolPref } from '@/lib/devicePrefs';
+import { haptics } from '@/lib/haptics';
 import type { Station } from '@/data/station';
 import { stationOf, type LineupSlot } from '@/lib/derive/entries';
 import { usePageCrumb, usePageTitle } from '@/lib/pageTitle';
@@ -25,6 +27,7 @@ import { asStopwatches, stopwatches } from './stopwatches';
 import { submitEntry } from './submitEntry';
 import { useDraft } from './useDraft';
 import { useEntryForm } from './useEntryForm';
+import { useWakeLock } from './useWakeLock';
 
 /**
  * The "Practice finished" sheet (SPEC-FINAL 8.5) only ever shows in practice: a small lazy chunk,
@@ -120,6 +123,10 @@ export function EntryPage(props: EntryPageProps) {
       stopwatches.resetAll();
     };
   }, [draftKey]);
+
+  // SPEC-FINAL 8.6 (task 1.38): no dimming mid-match while the entry is open, unless this device
+  // turned Keep the screen on off. Its own effect: the one above is about the match clock.
+  useWakeLock(useBoolPref(keepScreenOn));
 
   // A failed submit keeps the entry and the sheet; the reason is moved into view and
   // focused, beside the button the scout just pressed.
@@ -277,7 +284,10 @@ export function EntryPage(props: EntryPageProps) {
   const statusBlock = (
     <RobotStatusPicker
       value={status}
-      onChange={(s) => update({ status: s })}
+      onChange={(s) => {
+        haptics.tap();
+        update({ status: s });
+      }}
       breakdownSeconds={breakdownSeconds}
       onBreakdownSeconds={(seconds) => update({ seconds })}
       breakdownProblem={form.marks.get(BREAKDOWN_KEY) ?? null}

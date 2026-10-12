@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './api-mock';
 import { EVENT_ID, FIXTURE, SEASON_ID, teamId, userByName } from './fixtures';
-import { shoot } from './shoot';
+import { setTextScale, shoot } from './shoot';
 
 /**
  * Task 1.36: super scouting at `/super` (15-super/final, variant A: `super-phone.png`,
@@ -202,6 +202,10 @@ test('super: the Scout card, the picker and the form, at both widths', async ({ 
   // No match, alliance or robot status anywhere.
   await expect(page.getByRole('radio', { name: 'Played' })).toHaveCount(0);
   await shoot(page, 'super-picker', undefined, { long: true });
+  // Task 1.38: the largest in-app text size (150 %) must not break the layout (SPEC-FINAL 17.7).
+  await setTextScale(page, 1.5);
+  await shoot(page, 'super-picker-150', undefined, { long: true });
+  await setTextScale(page, 1);
 
   // The form for the most-seen team to do.
   await page.setViewportSize({ width: 1440, height: 900 });

@@ -52,6 +52,9 @@ const TEXT: [string, string, number][] = [
   ['--rail-ink', '--rail-raised', 3],
   ['--control-border', '--surface', 3],
   ['--control-border', '--bg', 3],
+  // Waiting to send on the rail (task 1.38): the sync dot and the bottom bar's count.
+  ['--rail-warn', '--rail', 3],
+  ['--on-rail-warn', '--rail-warn', 4.5],
 ];
 
 describe.each(Object.entries(THEMES))('%s theme contrast (SPEC-FINAL 17.7)', (_name, theme) => {

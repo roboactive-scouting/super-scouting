@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { signIn } from './api-mock';
 import { FIXTURE, FORM, matchId, teamId } from './fixtures';
-import { shoot } from './shoot';
+import { setTextScale, shoot } from './shoot';
 
 /**
  * Task 1.36: the range block and required fields (14-entry-parts/final,
@@ -172,6 +172,10 @@ test('entry rules: the range block as you type, the problems list, and Go to', a
   await expect(dialog).toContainText('Teleop · 140 is over the most, 60');
   await expect(dialog).toContainText('Endgame · required, not answered');
   await shoot(page, 'entry-rules-problems');
+  // Task 1.38: the largest in-app text size (150 %) must not break the layout (SPEC-FINAL 17.7).
+  await setTextScale(page, 1.5);
+  await shoot(page, 'entry-rules-problems-150');
+  await setTextScale(page, 1);
 
   // Go to lands on the field, marked; on a phone the sheet does the same.
   await page

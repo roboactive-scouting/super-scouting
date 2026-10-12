@@ -617,3 +617,44 @@ describe('FieldInput lays out by its own width (UF.18)', () => {
     expect(container.innerHTML).toContain('@min-[44rem]:grid-cols-[minmax(0,1fr)_27.5rem]');
   });
 });
+
+describe('FieldInput: a short buzz on each tap (SPEC-FINAL 8.6, task 1.38)', () => {
+  it('buzzes on a counter tap and an option pick, never on typing', async () => {
+    const vibrate = vi.fn(() => true);
+    Object.defineProperty(navigator, 'vibrate', { value: vibrate, configurable: true });
+    try {
+      const { unmount } = render(
+        <FieldInput field={f({ label: 'Auto notes' })} value={0} onChange={vi.fn()} />,
+      );
+      await userEvent.click(screen.getByRole('button', { name: 'Auto notes plus one' }));
+      expect(vibrate).toHaveBeenCalledTimes(1);
+      unmount();
+      render(
+        <>
+          <FieldInput
+            field={f({
+              key: 'climb',
+              type: 'single_select',
+              label: 'Climb',
+              unit: 'enum',
+              config: { options: [{ value: 'low', label: 'Low' }] },
+            })}
+            value={null}
+            onChange={vi.fn()}
+          />
+          <FieldInput
+            field={f({ key: 'n', type: 'number', label: 'Cycles' })}
+            value={undefined}
+            onChange={vi.fn()}
+          />
+        </>,
+      );
+      await userEvent.click(screen.getByRole('radio', { name: 'Low' }));
+      expect(vibrate).toHaveBeenCalledTimes(2);
+      await userEvent.type(screen.getByLabelText('Cycles'), '12');
+      expect(vibrate).toHaveBeenCalledTimes(2);
+    } finally {
+      delete (navigator as { vibrate?: unknown }).vibrate;
+    }
+  });
+});

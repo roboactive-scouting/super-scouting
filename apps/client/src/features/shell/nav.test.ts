@@ -7,6 +7,7 @@ import {
   bottomBar,
   groupsOf,
   menuItemsFor,
+  NAV_GROUP_LABEL,
   NAV_ITEMS,
   navItemsFor,
   type NavAudience,
@@ -22,22 +23,54 @@ const who = (role: Role, over: Partial<NavAudience> = {}): NavAudience => ({
 const ids = (items: NavItem[]) => items.map((i) => i.id);
 
 describe('the nav registry (redesign R.5)', () => {
-  it('gives a scouter and a lead Home, Scout and Entries', () => {
-    expect(ids(navItemsFor(who('scouter')))).toEqual(['home', 'scout', 'entries']);
-    expect(ids(navItemsFor(who('lead')))).toEqual(['home', 'scout', 'entries']);
+  it('gives a scouter and a lead Home, Scout and Entries, and this device’s Settings', () => {
+    expect(ids(navItemsFor(who('scouter')))).toEqual(['home', 'scout', 'entries', 'settings']);
+    expect(ids(navItemsFor(who('lead')))).toEqual(['home', 'scout', 'entries', 'settings']);
   });
 
   it('gives an admin Users, Manage and Forms too, grouped under Admin', () => {
     const items = navItemsFor(who('admin'));
-    expect(ids(items)).toEqual(['home', 'scout', 'entries', 'users', 'manage', 'forms']);
+    expect(ids(items)).toEqual([
+      'home',
+      'scout',
+      'entries',
+      'users',
+      'manage',
+      'forms',
+      'settings',
+    ]);
     expect(groupsOf(items).map((g) => [g.group, ids(g.items)])).toEqual([
       ['competition', ['home', 'scout', 'entries']],
       ['admin', ['users', 'manage', 'forms']],
+      ['device', ['settings']],
     ]);
   });
 
   it('drops the admin destinations once the session has expired', () => {
-    expect(ids(navItemsFor(who('admin', { expired: true })))).toEqual(['home', 'scout', 'entries']);
+    expect(ids(navItemsFor(who('admin', { expired: true })))).toEqual([
+      'home',
+      'scout',
+      'entries',
+      'settings',
+    ]);
+  });
+
+  it('puts Settings under "This device" for every role, in the sidebar and the phone menu, never in the bottom bar (task 1.38)', () => {
+    expect(NAV_ITEMS.find((i) => i.id === 'settings')).toMatchObject({
+      to: '/settings',
+      group: 'device',
+      bottomBar: null,
+    });
+    expect(NAV_GROUP_LABEL.device).toBe('This device');
+    for (const role of ['scouter', 'lead', 'admin'] as const) {
+      for (const desktop of [true, false]) {
+        expect(ids(menuItemsFor(who(role), desktop))).toContain('settings');
+      }
+      const bar = bottomBar(who(role), false);
+      expect(ids([...bar.left, ...bar.right]).concat(bar.middle?.id ?? '')).not.toContain(
+        'settings',
+      );
+    }
   });
 
   it('disables Scout, and only Scout, under a session override (SPEC-FINAL 6.3)', () => {

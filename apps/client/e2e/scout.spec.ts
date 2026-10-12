@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { signIn, type Role } from './api-mock';
-import { shoot } from './shoot';
+import { setTextScale, shoot } from './shoot';
 
 /**
  * The Scout page (02-scout/final). A fresh browser context has no station on the device, so
@@ -95,6 +95,10 @@ test('scout: choose a station, the line-up, and a team not in it', async ({ page
   );
   await expect(page.getByText('YOUR STATION', { exact: true })).toHaveCSS('color', BLUE_STRONG);
   await shoot(page, 'scout');
+  // Task 1.38: the largest in-app text size (150 %) must not break the layout (SPEC-FINAL 17.7).
+  await setTextScale(page, 1.5);
+  await shoot(page, 'scout-150');
+  await setTextScale(page, 1);
   await expectTagBesideLabel(page);
   await expectBarFlushOnNav(page);
   await scrollToEnd(page);

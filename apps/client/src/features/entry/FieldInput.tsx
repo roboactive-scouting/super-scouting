@@ -5,6 +5,7 @@ import { Counter } from '@/components/ui/counter';
 import { OptionButtons } from '@/components/ui/option-buttons';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { haptics } from '@/lib/haptics';
 import { ComputedValue } from './inputs/ComputedValue';
 import { CyclePathInput, EventLogInput, PositionInput, TimerInput } from './lazyParts';
 import {
@@ -41,6 +42,22 @@ type Props = {
 const NO_VALUES: Record<string, unknown> = {};
 
 /**
+ * The types answered by a tap (SPEC-FINAL 8.6; task 1.38): each change buzzes once, when Vibrate
+ * on taps is on. Typed answers (number, text) do not: a buzz on every key would be noise.
+ */
+const TAPPED: ReadonlySet<FormFieldDefinition['type']> = new Set([
+  'counter',
+  'toggle',
+  'single_select',
+  'multi_select',
+  'rating',
+  'timer',
+  'event_log',
+  'position',
+  'cycle_path',
+]);
+
+/**
  * One field of the entry form, by type (SPEC-FINAL 5.2; entry parts, task 1.33). Big touch
  * targets, never a keyboard where a counter will do (8.6, 17.7). On a phone (and in the
  * builder's 410 px canvas and Try it) a field's name sits above its control; once the row's own
@@ -65,11 +82,18 @@ export function FieldInput(props: Props) {
 function FieldControl({
   field,
   value,
-  onChange,
+  onChange: change,
   siblingValues = NO_VALUES,
   mark,
 }: Props & { mark: FieldMark }) {
   const id = useId();
+  // The one seam for haptics: every tapped input reports its change through here.
+  const onChange = TAPPED.has(field.type)
+    ? (next: unknown) => {
+        haptics.tap();
+        change(next);
+      }
+    : change;
   switch (field.type) {
     case 'counter': {
       const current = typeof value === 'number' ? value : 0;
@@ -78,9 +102,16 @@ function FieldControl({
       // right edge on a computer too (entry parts, "Counters stay at the right edge").
       return (
         <div className={ROW} data-field={mark.key}>
-          <div className="flex items-center justify-between gap-3">
-            <FieldLabel field={field} />
-            <Counter label={field.label} value={current} step={step} onChange={onChange} />
+          {/* The name wraps word by word beside the counter; only when its longest word and
+              the counter cannot share the line (large text, task 1.38) does the counter drop
+              below it, still at the right edge. */}
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+            <div className="min-w-min flex-[1_1_0%]">
+              <FieldLabel field={field} />
+            </div>
+            <div className="ms-auto">
+              <Counter label={field.label} value={current} step={step} onChange={onChange} />
+            </div>
           </div>
           {mark.problem && <ProblemLine id={mark.id}>{mark.problem}</ProblemLine>}
         </div>

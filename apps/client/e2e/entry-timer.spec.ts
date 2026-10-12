@@ -150,10 +150,10 @@ const PULL = {
 /** Also the whole phone page: the field sits below the fold at 812 px. */
 const LONG = { long: true };
 
-const setTheme = (page: Page, theme: 'light' | 'outdoor') =>
-  page.evaluate((t) => (document.documentElement.dataset.theme = t), theme);
-
-/** Shoots `name` in light, then `name-outdoor`; `before` re-sets the state each time. */
+/**
+ * Shoots `name` in light, then `name-outdoor` (shoot does every theme since task 1.38); `before`
+ * re-sets the state before each picture.
+ */
 async function bothThemes(
   page: Page,
   name: string,
@@ -161,13 +161,7 @@ async function bothThemes(
   before: () => Promise<void> = async () => undefined,
   opts: { long?: boolean } = {},
 ) {
-  await setTheme(page, 'light');
-  await before();
-  await shoot(page, name, only, opts);
-  await setTheme(page, 'outdoor');
-  await before();
-  await shoot(page, `${name}-outdoor`, only, opts);
-  await setTheme(page, 'light');
+  await shoot(page, name, only, { ...opts, before });
 }
 
 /** Opens the entry as `alliance`'s scout with Played picked, the clock installed first. */

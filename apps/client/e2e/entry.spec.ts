@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { signIn } from './api-mock';
 import { matchId, teamId } from './fixtures';
-import { shoot } from './shoot';
+import { setTextScale, shoot } from './shoot';
 import { touchDrag } from './touch';
 
 /**
@@ -25,6 +25,10 @@ test('entry: phase tabs, swipe, no-show and the confirm', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Teleop' })).toBeVisible();
   await expect(page.getByText('Phase 2 of 4')).toBeVisible();
   await shoot(page, 'entry');
+  // Task 1.38: the largest in-app text size (150 %) must not break the layout (SPEC-FINAL 17.7).
+  await setTextScale(page, 1.5);
+  await shoot(page, 'entry-150', undefined, { long: true });
+  await setTextScale(page, 1);
 
   // Phone: a swipe left on the pane goes to the next phase, a pager tap comes back.
   await touchDrag(page, page.getByRole('heading', { name: 'Teleop' }), { dx: -160 });
@@ -152,4 +156,8 @@ test('entry: a four-option select at phone, tablet and desktop widths', async ({
   expect(await columns()).toBe(4);
   expect(await markClear()).toBeGreaterThanOrEqual(12);
   await shoot(page, 'entry-endgame');
+  // Task 1.38: the largest in-app text size (150 %) must not break the layout (SPEC-FINAL 17.7).
+  await setTextScale(page, 1.5);
+  await shoot(page, 'entry-endgame-150', undefined, { long: true });
+  await setTextScale(page, 1);
 });
