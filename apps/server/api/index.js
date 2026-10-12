@@ -95,14 +95,218 @@ var loginOutput = z2.object({
 });
 var refreshTokenInput = z2.object({ token: z2.string().min(1) });
 
-// ../../packages/shared/src/api/context.ts
+// ../../packages/shared/src/api/conflicts.ts
+import { z as z4 } from "zod";
+
+// ../../packages/shared/src/api/matches.ts
 import { z as z3 } from "zod";
-var getActiveContextInput = z3.object({}).strict();
-var activeContext = z3.object({
-  active_season_id: z3.string().uuid().nullable(),
-  active_event_id: z3.string().uuid().nullable()
-});
 var uuid = z3.string().uuid();
+var MATCH_TYPES = ["practice", "qualification", "playoff"];
+var matchType = z3.enum(MATCH_TYPES);
+var ALLIANCES = ["red", "blue"];
+var MATCH_NUMBER_MAX = 999;
+var MATCH_BULK_MAX = 200;
+var LIST_MATCHES_DEFAULT_LIMIT = 50;
+var LIST_MATCHES_MAX_LIMIT = 200;
+var matchNumber = z3.number().int().min(1).max(MATCH_NUMBER_MAX);
+var matchSlot = z3.object({
+  alliance: z3.enum(ALLIANCES),
+  station: z3.number().int().min(1).max(3),
+  team_id: uuid
+}).strict();
+var matchRow = z3.object({
+  id: uuid,
+  event_id: uuid,
+  match_type: matchType,
+  number: z3.number().int(),
+  created_at: z3.string(),
+  updated_at: z3.string(),
+  slots: z3.array(matchSlot)
+});
+var createMatchInput = z3.object({
+  event_id: uuid,
+  match_type: matchType,
+  number: matchNumber.optional(),
+  count: z3.number().int().min(1).max(MATCH_BULK_MAX).optional()
+}).strict().refine((value) => value.number === void 0 !== (value.count === void 0), {
+  message: "give either a match number or a count of matches, not both"
+});
+var createMatchOutput = z3.object({
+  created: z3.number().int(),
+  items: z3.array(matchRow)
+});
+var updateMatchInput = z3.object({
+  match_id: uuid,
+  match_type: matchType.optional(),
+  number: matchNumber.optional()
+}).strict().refine((value) => value.match_type !== void 0 || value.number !== void 0, {
+  message: "give a new match type or number"
+});
+var setMatchTeamsInput = z3.object({ match_id: uuid, slots: z3.array(matchSlot).max(6) }).strict().superRefine((value, ctx) => {
+  const stations = new Set(value.slots.map((s) => `${s.alliance} ${s.station}`));
+  if (stations.size !== value.slots.length) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["slots"],
+      message: "fill each alliance station only once"
+    });
+  }
+  const teams = new Set(value.slots.map((s) => s.team_id));
+  if (teams.size !== value.slots.length) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["slots"],
+      message: "a team can fill only one slot in a match"
+    });
+  }
+});
+var deleteMatchInput = z3.object({ match_id: uuid }).strict();
+var deleteMatchOutput = z3.object({ id: uuid, deleted: z3.literal(true) });
+var listMatchesInput = z3.object({
+  event_id: uuid,
+  limit: z3.number().int().min(1).optional(),
+  cursor: z3.string().min(1).optional()
+}).strict();
+var listMatchesOutput = z3.object({
+  items: z3.array(matchRow),
+  next_cursor: z3.string().nullable()
+});
+var ensureMatchInput = z3.object({
+  id: uuid,
+  event_id: uuid,
+  match_type: matchType,
+  number: matchNumber
+}).strict();
+var ensureMatchOutput = z3.object({ id: uuid, created: z3.boolean() });
+
+// ../../packages/shared/src/api/conflicts.ts
+var uuid2 = z4.string().uuid();
+var rowId = z4.string().min(1);
+var CONFLICT_KINDS = ["divergence", "duplicate"];
+var LIST_CONFLICTS_DEFAULT_LIMIT = 20;
+var LIST_CONFLICTS_MAX_LIMIT = 50;
+var SETTLED_CONFLICTS_MAX = 100;
+var SETTLED_DEFAULT_WINDOW_MS = 24 * 60 * 60 * 1e3;
+var divergenceResolution = z4.object({ keep: z4.enum(["live", "superseded"]) }).strict();
+var duplicateResolution = z4.object({ keep_row_id: rowId }).strict();
+var conflictResolution = z4.union([divergenceResolution, duplicateResolution]);
+var listConflictsInput = z4.object({
+  event_id: uuid2,
+  limit: z4.number().int().min(1).optional(),
+  cursor: z4.string().min(1).optional(),
+  /**
+   * The start of "Settled today": the DEVICE's local midnight, as an ISO instant with an
+   * offset. The server does not know the venue's day. Omitted: the last 24 hours.
+   */
+  settled_since: z4.string().datetime({ offset: true }).optional()
+}).strict();
+var person = z4.object({ id: z4.string(), full_name: z4.string().nullable() });
+var conflictTeam = z4.object({ id: z4.string(), number: z4.number().int(), name: z4.string() });
+var conflictMatch = z4.object({ id: z4.string(), match_type: matchType, number: z4.number().int() });
+var entryData = z4.record(z4.unknown());
+var liveCopy = z4.object({
+  row_id: z4.string(),
+  version: z4.number().int(),
+  form_version_id: z4.string().nullable(),
+  author: person,
+  client_updated_at: z4.string(),
+  robot_status: z4.string().nullable(),
+  breakdown_seconds: z4.number().nullable(),
+  data: entryData,
+  /** A soft-deleted row is still shown, so the reader sees why it does not count. */
+  deleted_at: z4.string().nullable()
+});
+var supersededCopy = z4.object({
+  form_version_id: z4.string().nullable(),
+  author: z4.object({ id: z4.string().nullable(), full_name: z4.string().nullable() }),
+  client_updated_at: z4.string().nullable(),
+  base_version: z4.number().int().nullable(),
+  robot_status: z4.string().nullable(),
+  breakdown_seconds: z4.number().nullable(),
+  data: entryData
+});
+var divergenceDiff = z4.object({
+  field_key: z4.string(),
+  live: z4.unknown(),
+  superseded: z4.unknown(),
+  differs: z4.boolean()
+});
+var duplicateDiff = z4.object({
+  field_key: z4.string(),
+  a: z4.unknown(),
+  b: z4.unknown(),
+  differs: z4.boolean()
+});
+var itemBase = {
+  id: z4.string(),
+  created_at: z4.string(),
+  form_kind: z4.enum(["match", "super"]),
+  team: conflictTeam.nullable(),
+  /** Null for a super entry. */
+  match: conflictMatch.nullable(),
+  alliance: z4.enum(["red", "blue"]).nullable()
+};
+var divergenceItem = z4.object({
+  ...itemBase,
+  kind: z4.literal("divergence"),
+  live: liveCopy,
+  superseded: supersededCopy,
+  /** The live copy is always the one the statistics use (SPEC-FINAL 9.5). */
+  counted: z4.literal("live"),
+  diff: z4.array(divergenceDiff)
+});
+var duplicateItem = z4.object({
+  ...itemBase,
+  kind: z4.literal("duplicate"),
+  /** The conflict's `row_id`: the row that arrived second. */
+  a: liveCopy,
+  /** The conflict's `duplicate_row_id`: the row the server already held. */
+  b: liveCopy,
+  /** The live row with the greater client_updated_at: what the statistics use now. */
+  counted: z4.enum(["a", "b"]),
+  diff: z4.array(duplicateDiff)
+});
+var conflictItem = z4.discriminatedUnion("kind", [divergenceItem, duplicateItem]);
+var settledConflict = z4.object({
+  id: z4.string(),
+  kind: z4.enum(CONFLICT_KINDS),
+  form_kind: z4.enum(["match", "super"]).nullable(),
+  team: conflictTeam.nullable(),
+  match: conflictMatch.nullable(),
+  resolution: conflictResolution.nullable(),
+  resolved_at: z4.string(),
+  resolved_by: person.nullable(),
+  /** Whose copy stayed. Null only for a conflict resolved with no recorded choice. */
+  kept: z4.object({ row_id: z4.string(), author_full_name: z4.string().nullable() }).nullable()
+});
+var listConflictsOutput = z4.object({
+  /** The event's OPEN conflicts, oldest first, one page. */
+  items: z4.array(conflictItem),
+  next_cursor: z4.string().nullable(),
+  /** Resolved at or after `settled_since`, newest first, at most SETTLED_CONFLICTS_MAX. */
+  settled: z4.array(settledConflict)
+});
+var resolveConflictInput = z4.object({ conflict_id: rowId, resolution: conflictResolution }).strict();
+var resolveConflictOutput = z4.object({
+  conflict_id: z4.string(),
+  resolved_at: z4.string(),
+  resolution: conflictResolution,
+  /** The row that stays live. */
+  row_id: z4.string(),
+  /** `row_id`'s new version when it was rewritten (a restore), else null. */
+  new_version: z4.number().int().nullable(),
+  /** A duplicate's row that was soft-deleted, with its new version; null otherwise. */
+  soft_deleted: z4.object({ row_id: z4.string(), new_version: z4.number().int() }).nullable()
+});
+
+// ../../packages/shared/src/api/context.ts
+import { z as z5 } from "zod";
+var getActiveContextInput = z5.object({}).strict();
+var activeContext = z5.object({
+  active_season_id: z5.string().uuid().nullable(),
+  active_event_id: z5.string().uuid().nullable()
+});
+var uuid3 = z5.string().uuid();
 var SEASON_YEAR_MIN = 1992;
 var SEASON_YEAR_MAX = 2100;
 var NAME_MAX_LENGTH = 80;
@@ -111,29 +315,29 @@ var LIST_SEASONS_DEFAULT_LIMIT = 50;
 var LIST_SEASONS_MAX_LIMIT = 200;
 var LIST_EVENTS_DEFAULT_LIMIT = 50;
 var LIST_EVENTS_MAX_LIMIT = 200;
-var seasonYear = z3.number().int().min(SEASON_YEAR_MIN).max(SEASON_YEAR_MAX);
-var displayName = z3.string().trim().min(1).max(NAME_MAX_LENGTH);
-var fieldImagePath = z3.string().trim().min(1).max(200);
-var seasonRow = z3.object({
-  id: uuid,
-  year: z3.number().int(),
-  game_name: z3.string(),
-  field_image_path: z3.string(),
-  created_at: z3.string(),
-  updated_at: z3.string()
+var seasonYear = z5.number().int().min(SEASON_YEAR_MIN).max(SEASON_YEAR_MAX);
+var displayName = z5.string().trim().min(1).max(NAME_MAX_LENGTH);
+var fieldImagePath = z5.string().trim().min(1).max(200);
+var seasonRow = z5.object({
+  id: uuid3,
+  year: z5.number().int(),
+  game_name: z5.string(),
+  field_image_path: z5.string(),
+  created_at: z5.string(),
+  updated_at: z5.string()
 });
-var eventRow = z3.object({
-  id: uuid,
-  season_id: uuid,
-  name: z3.string(),
-  code: z3.string().nullable(),
-  sort_order: z3.number().int(),
-  created_at: z3.string(),
-  updated_at: z3.string()
+var eventRow = z5.object({
+  id: uuid3,
+  season_id: uuid3,
+  name: z5.string(),
+  code: z5.string().nullable(),
+  sort_order: z5.number().int(),
+  created_at: z5.string(),
+  updated_at: z5.string()
 });
-var createSeasonInput = z3.object({ year: seasonYear, game_name: displayName, field_image_path: fieldImagePath }).strict();
-var updateSeasonInput = z3.object({
-  season_id: uuid,
+var createSeasonInput = z5.object({ year: seasonYear, game_name: displayName, field_image_path: fieldImagePath }).strict();
+var updateSeasonInput = z5.object({
+  season_id: uuid3,
   year: seasonYear.optional(),
   game_name: displayName.optional(),
   field_image_path: fieldImagePath.optional()
@@ -141,64 +345,64 @@ var updateSeasonInput = z3.object({
   (value) => value.year !== void 0 || value.game_name !== void 0 || value.field_image_path !== void 0,
   { message: "give a new year, game name or game image path" }
 );
-var setActiveSeasonInput = z3.object({ season_id: uuid }).strict();
-var listSeasonsInput = z3.object({
-  limit: z3.number().int().min(1).optional(),
-  cursor: z3.string().min(1).optional()
+var setActiveSeasonInput = z5.object({ season_id: uuid3 }).strict();
+var listSeasonsInput = z5.object({
+  limit: z5.number().int().min(1).optional(),
+  cursor: z5.string().min(1).optional()
 }).strict();
-var listSeasonsOutput = z3.object({
-  items: z3.array(seasonRow),
-  next_cursor: z3.string().nullable()
+var listSeasonsOutput = z5.object({
+  items: z5.array(seasonRow),
+  next_cursor: z5.string().nullable()
 });
-var createEventInput = z3.object({ season_id: uuid, name: displayName }).strict();
-var updateEventInput = z3.object({ event_id: uuid, name: displayName }).strict();
-var reorderEventsInput = z3.object({ season_id: uuid, event_ids: z3.array(uuid).max(REORDER_EVENTS_MAX) }).strict();
-var reorderEventsOutput = z3.object({ items: z3.array(eventRow) });
-var setActiveEventInput = z3.object({ event_id: uuid }).strict();
-var listEventsInput = z3.object({
-  season_id: uuid,
-  limit: z3.number().int().min(1).optional(),
-  cursor: z3.string().min(1).optional()
+var createEventInput = z5.object({ season_id: uuid3, name: displayName }).strict();
+var updateEventInput = z5.object({ event_id: uuid3, name: displayName }).strict();
+var reorderEventsInput = z5.object({ season_id: uuid3, event_ids: z5.array(uuid3).max(REORDER_EVENTS_MAX) }).strict();
+var reorderEventsOutput = z5.object({ items: z5.array(eventRow) });
+var setActiveEventInput = z5.object({ event_id: uuid3 }).strict();
+var listEventsInput = z5.object({
+  season_id: uuid3,
+  limit: z5.number().int().min(1).optional(),
+  cursor: z5.string().min(1).optional()
 }).strict();
-var listEventsOutput = z3.object({
-  items: z3.array(eventRow),
-  next_cursor: z3.string().nullable()
+var listEventsOutput = z5.object({
+  items: z5.array(eventRow),
+  next_cursor: z5.string().nullable()
 });
-var deleteSeasonInput = z3.object({
-  season_id: uuid,
-  dry_run: z3.boolean().default(false),
-  confirm_name: z3.string().optional()
+var deleteSeasonInput = z5.object({
+  season_id: uuid3,
+  dry_run: z5.boolean().default(false),
+  confirm_name: z5.string().optional()
 }).strict();
-var deleteEventInput = z3.object({
-  event_id: uuid,
-  dry_run: z3.boolean().default(false),
-  confirm_name: z3.string().optional()
+var deleteEventInput = z5.object({
+  event_id: uuid3,
+  dry_run: z5.boolean().default(false),
+  confirm_name: z5.string().optional()
 }).strict();
 var SWITCH_SEASON_FIRST = "Switch the active season first.";
 var SWITCH_EVENT_FIRST = "Switch the default event first.";
-var deleteImpactOutput = z3.object({
-  deleted: z3.boolean(),
-  events: z3.number().int(),
-  matches: z3.number().int(),
-  entries: z3.number().int(),
-  forms: z3.number().int()
+var deleteImpactOutput = z5.object({
+  deleted: z5.boolean(),
+  events: z5.number().int(),
+  matches: z5.number().int(),
+  entries: z5.number().int(),
+  forms: z5.number().int()
 });
 
 // ../../packages/shared/src/api/forms.ts
-import { z as z6 } from "zod";
+import { z as z8 } from "zod";
 
 // ../../packages/shared/src/forms/config.ts
-import { z as z5 } from "zod";
+import { z as z7 } from "zod";
 
 // ../../packages/shared/src/forms/expression.ts
-import { z as z4 } from "zod";
-var exprSchema = z4.lazy(
-  () => z4.union([
-    z4.object({ kind: z4.literal("field"), key: z4.string().min(1) }).strict(),
-    z4.object({ kind: z4.literal("literal"), value: z4.union([z4.number(), z4.string()]) }).strict(),
-    z4.object({
-      kind: z4.literal("op"),
-      op: z4.enum(["+", "-", "*", "/", "concat"]),
+import { z as z6 } from "zod";
+var exprSchema = z6.lazy(
+  () => z6.union([
+    z6.object({ kind: z6.literal("field"), key: z6.string().min(1) }).strict(),
+    z6.object({ kind: z6.literal("literal"), value: z6.union([z6.number(), z6.string()]) }).strict(),
+    z6.object({
+      kind: z6.literal("op"),
+      op: z6.enum(["+", "-", "*", "/", "concat"]),
       left: exprSchema,
       right: exprSchema
     }).strict()
@@ -222,13 +426,13 @@ var FIELD_TYPES = [
   "computed",
   "section"
 ];
-var option = z5.object({ value: z5.string().min(1), label: z5.string().min(1) });
-var optionList = z5.array(option).min(1).superRefine((list, ctx) => {
+var option = z7.object({ value: z7.string().min(1), label: z7.string().min(1) });
+var optionList = z7.array(option).min(1).superRefine((list, ctx) => {
   const seen = /* @__PURE__ */ new Set();
   list.forEach((o, i) => {
     if (seen.has(o.value)) {
       ctx.addIssue({
-        code: z5.ZodIssueCode.custom,
+        code: z7.ZodIssueCode.custom,
         path: [i, "value"],
         message: `the value '${o.value}' is listed twice; each value names one choice`
       });
@@ -236,23 +440,23 @@ var optionList = z5.array(option).min(1).superRefine((list, ctx) => {
     seen.add(o.value);
   });
 });
-var mirrorAxis = z5.enum(["none", "horizontal", "vertical", "both"]);
-var numericRange = z5.object({
-  min: z5.number().optional(),
-  max: z5.number().optional(),
-  step: z5.number().positive().optional()
+var mirrorAxis = z7.enum(["none", "horizontal", "vertical", "both"]);
+var numericRange = z7.object({
+  min: z7.number().optional(),
+  max: z7.number().optional(),
+  step: z7.number().positive().optional()
 }).strict().refine((r) => r.min === void 0 || r.max === void 0 || r.min <= r.max, {
   path: ["max"],
   message: "max must not be below min"
 });
-var eventLog = z5.object({
+var eventLog = z7.object({
   event_types: optionList,
-  ask_position: z5.boolean().default(false),
+  ask_position: z7.boolean().default(false),
   mirror_axis: mirrorAxis.optional()
 }).strict().superRefine((config2, ctx) => {
   if (config2.ask_position && config2.mirror_axis === void 0) {
     ctx.addIssue({
-      code: z5.ZodIssueCode.custom,
+      code: z7.ZodIssueCode.custom,
       path: ["mirror_axis"],
       message: "mirror_axis is required when ask_position is on"
     });
@@ -261,29 +465,29 @@ var eventLog = z5.object({
 var FIELD_TYPE_CONFIG = {
   counter: numericRange,
   number: numericRange,
-  toggle: z5.object({}).strict(),
-  single_select: z5.object({ options: optionList, is_ordinal: z5.boolean().optional() }).strict(),
-  multi_select: z5.object({ options: optionList, is_ordinal: z5.boolean().optional() }).strict(),
-  rating: z5.object({ max: z5.number().int().positive().default(5), style: z5.enum(["stars", "slider"]) }).strict(),
-  short_text: z5.object({ max_length: z5.number().int().positive().optional() }).strict(),
-  long_text: z5.object({ max_length: z5.number().int().positive().optional() }).strict(),
+  toggle: z7.object({}).strict(),
+  single_select: z7.object({ options: optionList, is_ordinal: z7.boolean().optional() }).strict(),
+  multi_select: z7.object({ options: optionList, is_ordinal: z7.boolean().optional() }).strict(),
+  rating: z7.object({ max: z7.number().int().positive().default(5), style: z7.enum(["stars", "slider"]) }).strict(),
+  short_text: z7.object({ max_length: z7.number().int().positive().optional() }).strict(),
+  long_text: z7.object({ max_length: z7.number().int().positive().optional() }).strict(),
   // SPEC-FINAL 5.3: allow_unsure is "always true in v1", so it defaults to true and
   // cannot be set to false — but a field that omits it entirely is still valid.
-  timer: z5.object({ allow_unsure: z5.literal(true).default(true) }).strict(),
+  timer: z7.object({ allow_unsure: z7.literal(true).default(true) }).strict(),
   event_log: eventLog,
-  position: z5.object({ multi_point: z5.boolean(), mirror_axis: mirrorAxis }).strict(),
-  cycle_path: z5.object({
-    max_points_per_cycle: z5.number().int().positive().default(6),
+  position: z7.object({ multi_point: z7.boolean(), mirror_axis: mirrorAxis }).strict(),
+  cycle_path: z7.object({
+    max_points_per_cycle: z7.number().int().positive().default(6),
     mirror_axis: mirrorAxis
   }).strict(),
-  computed: z5.object({ expression: exprSchema.nullable(), result_type: z5.enum(["float", "string"]) }).strict(),
-  section: z5.object({}).strict()
+  computed: z7.object({ expression: exprSchema.nullable(), result_type: z7.enum(["float", "string"]) }).strict(),
+  section: z7.object({}).strict()
 };
 
 // ../../packages/shared/src/api/forms.ts
-var uuid2 = z6.string().uuid();
+var uuid4 = z8.string().uuid();
 var FORM_KINDS = ["match", "super"];
-var formKind = z6.enum(FORM_KINDS);
+var formKind = z8.enum(FORM_KINDS);
 var FORM_NAME_MAX_LENGTH = 80;
 var FIELD_LABEL_MAX_LENGTH = 200;
 var FORM_FIELDS_MAX = 500;
@@ -291,7 +495,7 @@ var TIMER_PHASES_MAX = 8;
 var TIMER_PHASE_SECONDS_MAX = 3600;
 var FORM_EXPORT_TTL_MS = 24 * 60 * 60 * 1e3;
 var FORM_DEFINITION_FORMAT = 1;
-var formName = z6.string().trim().min(1).max(FORM_NAME_MAX_LENGTH);
+var formName = z8.string().trim().min(1).max(FORM_NAME_MAX_LENGTH);
 var FIELD_PHASES = ["auto", "teleop", "endgame", "post_match"];
 var FIELD_UNITS = [
   "count",
@@ -304,11 +508,11 @@ var FIELD_UNITS = [
 ];
 var FIELD_DIRECTIONS = ["higher_is_better", "lower_is_better", "neutral"];
 var VISIBILITY_OPS = ["=", "!=", ">", "<", ">=", "<="];
-var timerConfig = z6.object({
-  phases: z6.array(
-    z6.object({
-      phase: z6.enum(FIELD_PHASES),
-      seconds: z6.number().int().positive().max(TIMER_PHASE_SECONDS_MAX)
+var timerConfig = z8.object({
+  phases: z8.array(
+    z8.object({
+      phase: z8.enum(FIELD_PHASES),
+      seconds: z8.number().int().positive().max(TIMER_PHASE_SECONDS_MAX)
     }).strict()
   ).max(TIMER_PHASES_MAX)
 }).strict().superRefine((value, ctx) => {
@@ -325,328 +529,247 @@ var timerConfig = z6.object({
   });
 });
 var fieldShape = {
-  key: z6.string().min(1).max(63),
-  label: z6.string().trim().min(1).max(FIELD_LABEL_MAX_LENGTH),
-  help_text: z6.string().nullable().default(null),
-  type: z6.enum(FIELD_TYPES),
-  section: z6.string().nullable().default(null),
-  display_order: z6.number().int(),
-  required: z6.boolean().default(false),
-  default_value: z6.unknown().default(null),
-  config: z6.record(z6.unknown()).default({}),
-  visibility_condition: z6.object({ field_key: z6.string().min(1), op: z6.enum(VISIBILITY_OPS), value: z6.unknown() }).strict().nullable().default(null),
-  description: z6.string().nullable().default(null),
-  unit: z6.enum(FIELD_UNITS).nullable().default(null),
-  phase: z6.enum(FIELD_PHASES).nullable().default(null),
-  direction: z6.enum(FIELD_DIRECTIONS).nullable().default(null),
-  category: z6.string().nullable().default(null),
-  expected_range: z6.object({ min: z6.number(), max: z6.number() }).strict().refine((r) => r.min <= r.max, { message: "expected_range min must not exceed max" }).nullable().default(null),
-  include_in_ai_context: z6.boolean().nullable().default(null),
-  is_ordinal: z6.boolean().nullable().default(null)
+  key: z8.string().min(1).max(63),
+  label: z8.string().trim().min(1).max(FIELD_LABEL_MAX_LENGTH),
+  help_text: z8.string().nullable().default(null),
+  type: z8.enum(FIELD_TYPES),
+  section: z8.string().nullable().default(null),
+  display_order: z8.number().int(),
+  required: z8.boolean().default(false),
+  default_value: z8.unknown().default(null),
+  config: z8.record(z8.unknown()).default({}),
+  visibility_condition: z8.object({ field_key: z8.string().min(1), op: z8.enum(VISIBILITY_OPS), value: z8.unknown() }).strict().nullable().default(null),
+  description: z8.string().nullable().default(null),
+  unit: z8.enum(FIELD_UNITS).nullable().default(null),
+  phase: z8.enum(FIELD_PHASES).nullable().default(null),
+  direction: z8.enum(FIELD_DIRECTIONS).nullable().default(null),
+  category: z8.string().nullable().default(null),
+  expected_range: z8.object({ min: z8.number(), max: z8.number() }).strict().refine((r) => r.min <= r.max, { message: "expected_range min must not exceed max" }).nullable().default(null),
+  include_in_ai_context: z8.boolean().nullable().default(null),
+  is_ordinal: z8.boolean().nullable().default(null)
 };
-var formFieldDraft = z6.object(fieldShape).strict();
-var formFieldInput = z6.object({ id: uuid2.optional(), ...fieldShape }).strict();
-var formFieldRow = z6.object({
-  id: uuid2,
-  form_version_id: uuid2,
-  key: z6.string(),
-  label: z6.string(),
-  help_text: z6.string().nullable(),
-  type: z6.enum(FIELD_TYPES),
-  section: z6.string().nullable(),
-  display_order: z6.number().int(),
-  required: z6.boolean(),
-  default_value: z6.unknown(),
-  config: z6.record(z6.unknown()),
-  visibility_condition: z6.object({ field_key: z6.string(), op: z6.string(), value: z6.unknown() }).nullable(),
-  deprecated: z6.boolean(),
-  description: z6.string().nullable(),
-  unit: z6.enum(FIELD_UNITS).nullable(),
-  phase: z6.enum(FIELD_PHASES).nullable(),
-  direction: z6.enum(FIELD_DIRECTIONS).nullable(),
-  category: z6.string().nullable(),
-  expected_range: z6.object({ min: z6.number(), max: z6.number() }).nullable(),
-  include_in_ai_context: z6.boolean().nullable(),
-  is_ordinal: z6.boolean().nullable()
+var formFieldDraft = z8.object(fieldShape).strict();
+var formFieldInput = z8.object({ id: uuid4.optional(), ...fieldShape }).strict();
+var formFieldRow = z8.object({
+  id: uuid4,
+  form_version_id: uuid4,
+  key: z8.string(),
+  label: z8.string(),
+  help_text: z8.string().nullable(),
+  type: z8.enum(FIELD_TYPES),
+  section: z8.string().nullable(),
+  display_order: z8.number().int(),
+  required: z8.boolean(),
+  default_value: z8.unknown(),
+  config: z8.record(z8.unknown()),
+  visibility_condition: z8.object({ field_key: z8.string(), op: z8.string(), value: z8.unknown() }).nullable(),
+  deprecated: z8.boolean(),
+  description: z8.string().nullable(),
+  unit: z8.enum(FIELD_UNITS).nullable(),
+  phase: z8.enum(FIELD_PHASES).nullable(),
+  direction: z8.enum(FIELD_DIRECTIONS).nullable(),
+  category: z8.string().nullable(),
+  expected_range: z8.object({ min: z8.number(), max: z8.number() }).nullable(),
+  include_in_ai_context: z8.boolean().nullable(),
+  is_ordinal: z8.boolean().nullable()
 });
-var formIssue = z6.object({
-  field_key: z6.string().nullable(),
-  path: z6.string(),
-  message: z6.string()
+var formIssue = z8.object({
+  field_key: z8.string().nullable(),
+  path: z8.string(),
+  message: z8.string()
 });
-var formRow = z6.object({
-  id: uuid2,
-  season_id: uuid2,
+var formRow = z8.object({
+  id: uuid4,
+  season_id: uuid4,
   kind: formKind,
-  name: z6.string(),
-  active_version_id: uuid2.nullable(),
+  name: z8.string(),
+  active_version_id: uuid4.nullable(),
   timer_config: timerConfig,
-  created_at: z6.string(),
-  updated_at: z6.string()
+  created_at: z8.string(),
+  updated_at: z8.string()
 });
-var createFormInput = z6.object({ season_id: uuid2, kind: formKind, name: formName }).strict();
-var createFormOutput = z6.object({ id: uuid2, draft_version_id: uuid2 });
-var updateFormInput = z6.object({ form_id: uuid2, name: formName.optional(), timer_config: timerConfig.optional() }).strict().refine((value) => value.name !== void 0 || value.timer_config !== void 0, {
+var createFormInput = z8.object({ season_id: uuid4, kind: formKind, name: formName }).strict();
+var createFormOutput = z8.object({ id: uuid4, draft_version_id: uuid4 });
+var updateFormInput = z8.object({ form_id: uuid4, name: formName.optional(), timer_config: timerConfig.optional() }).strict().refine((value) => value.name !== void 0 || value.timer_config !== void 0, {
   message: "give a new name or match timer"
 });
-var saveDraftFieldsInput = z6.object({
-  form_version_id: uuid2,
-  base_updated_at: z6.string().datetime({ offset: true }).optional(),
-  fields: z6.array(formFieldInput).max(FORM_FIELDS_MAX)
+var saveDraftFieldsInput = z8.object({
+  form_version_id: uuid4,
+  base_updated_at: z8.string().datetime({ offset: true }).optional(),
+  fields: z8.array(formFieldInput).max(FORM_FIELDS_MAX)
 }).strict();
-var saveDraftFieldsOutput = z6.object({
-  form_version_id: uuid2,
-  new_version_id: uuid2.nullable(),
-  version_no: z6.number().int(),
-  updated_at: z6.string(),
-  fields: z6.array(formFieldRow),
-  incomplete: z6.array(formIssue)
+var saveDraftFieldsOutput = z8.object({
+  form_version_id: uuid4,
+  new_version_id: uuid4.nullable(),
+  version_no: z8.number().int(),
+  updated_at: z8.string(),
+  fields: z8.array(formFieldRow),
+  incomplete: z8.array(formIssue)
 });
-var publishFormVersionInput = z6.object({ form_version_id: uuid2 }).strict();
-var publishFormVersionOutput = z6.object({
-  form_version_id: uuid2,
-  published_at: z6.string(),
-  active_version_id: uuid2.nullable()
+var publishFormVersionInput = z8.object({ form_version_id: uuid4 }).strict();
+var publishFormVersionOutput = z8.object({
+  form_version_id: uuid4,
+  published_at: z8.string(),
+  active_version_id: uuid4.nullable()
 });
-var restoreFormVersionInput = z6.object({ form_version_id: uuid2 }).strict();
-var restoreFormVersionOutput = z6.object({ active_version_id: uuid2 });
-var deleteFormVersionInput = z6.object({ form_version_id: uuid2 }).strict();
-var deleteFormVersionOutput = z6.object({ deleted: z6.literal(true) });
-var deleteFormInput = z6.object({ form_id: uuid2, dry_run: z6.boolean().default(false) }).strict();
-var deleteFormOutput = z6.object({
-  versions: z6.number().int(),
-  entries: z6.number().int(),
-  deleted: z6.boolean()
+var restoreFormVersionInput = z8.object({ form_version_id: uuid4 }).strict();
+var restoreFormVersionOutput = z8.object({ active_version_id: uuid4 });
+var deleteFormVersionInput = z8.object({ form_version_id: uuid4 }).strict();
+var deleteFormVersionOutput = z8.object({ deleted: z8.literal(true) });
+var deleteFormInput = z8.object({ form_id: uuid4, dry_run: z8.boolean().default(false) }).strict();
+var deleteFormOutput = z8.object({
+  versions: z8.number().int(),
+  entries: z8.number().int(),
+  deleted: z8.boolean()
 });
-var definitionScoringRule = z6.object({
-  field_key: z6.string().min(1),
-  points: z6.number().min(0),
-  option_points: z6.record(z6.number().min(0)).nullable().default(null)
+var definitionScoringRule = z8.object({
+  field_key: z8.string().min(1),
+  points: z8.number().min(0),
+  option_points: z8.record(z8.number().min(0)).nullable().default(null)
 }).strict();
-var formDefinition = z6.object({
-  format: z6.literal(FORM_DEFINITION_FORMAT),
+var formDefinition = z8.object({
+  format: z8.literal(FORM_DEFINITION_FORMAT),
   kind: formKind,
   name: formName,
   timer_config: timerConfig,
-  fields: z6.array(formFieldDraft).max(FORM_FIELDS_MAX),
-  scoring_rules: z6.array(definitionScoringRule).max(FORM_FIELDS_MAX)
+  fields: z8.array(formFieldDraft).max(FORM_FIELDS_MAX),
+  scoring_rules: z8.array(definitionScoringRule).max(FORM_FIELDS_MAX)
 }).strict();
-var exportFormInput = z6.object({ form_id: uuid2, form_version_id: uuid2.optional() }).strict();
-var saveFormExportInput = z6.object({ form_id: uuid2, form_version_id: uuid2 }).strict();
-var exportSummary = z6.object({
-  id: uuid2,
-  form_id: uuid2.nullable(),
+var exportFormInput = z8.object({ form_id: uuid4, form_version_id: uuid4.optional() }).strict();
+var saveFormExportInput = z8.object({ form_id: uuid4, form_version_id: uuid4 }).strict();
+var exportSummary = z8.object({
+  id: uuid4,
+  form_id: uuid4.nullable(),
   kind: formKind,
-  label: z6.string(),
-  field_count: z6.number().int(),
-  created_by: z6.object({ id: uuid2, full_name: z6.string() }),
-  created_at: z6.string(),
-  expires_at: z6.string(),
-  expires_in_seconds: z6.number().int()
+  label: z8.string(),
+  field_count: z8.number().int(),
+  created_by: z8.object({ id: uuid4, full_name: z8.string() }),
+  created_at: z8.string(),
+  expires_at: z8.string(),
+  expires_in_seconds: z8.number().int()
 });
-var importFormInput = z6.object({ season_id: uuid2, definition: formDefinition, form_id: uuid2.optional() }).strict();
-var importFormOutput = z6.object({
-  form_id: uuid2,
-  draft_version_id: uuid2,
-  created: z6.boolean()
+var importFormInput = z8.object({ season_id: uuid4, definition: formDefinition, form_id: uuid4.optional() }).strict();
+var importFormOutput = z8.object({
+  form_id: uuid4,
+  draft_version_id: uuid4,
+  created: z8.boolean()
 });
-var scoringRuleInput = z6.object({
-  field_key: z6.string().min(1).max(63),
-  points: z6.number().finite(),
-  option_points: z6.record(z6.number().finite()).nullable().optional()
+var scoringRuleInput = z8.object({
+  field_key: z8.string().min(1).max(63),
+  points: z8.number().finite(),
+  option_points: z8.record(z8.number().finite()).nullable().optional()
 }).strict();
-var setScoringRulesInput = z6.object({ form_id: uuid2, rules: z6.array(scoringRuleInput).max(FORM_FIELDS_MAX) }).strict();
-var scoringRuleRow = z6.object({
-  field_key: z6.string(),
-  points: z6.number(),
-  option_points: z6.record(z6.number()).nullable()
+var setScoringRulesInput = z8.object({ form_id: uuid4, rules: z8.array(scoringRuleInput).max(FORM_FIELDS_MAX) }).strict();
+var scoringRuleRow = z8.object({
+  field_key: z8.string(),
+  points: z8.number(),
+  option_points: z8.record(z8.number()).nullable()
 });
-var setScoringRulesOutput = z6.object({ rules: z6.array(scoringRuleRow) });
-var userRef = z6.object({ id: uuid2, full_name: z6.string() });
-var versionSummary = z6.object({
-  id: uuid2,
-  version_no: z6.number().int(),
-  status: z6.enum(["draft", "published"]),
-  published_at: z6.string().nullable(),
-  is_active: z6.boolean(),
-  is_locked: z6.boolean(),
-  field_count: z6.number().int(),
-  entry_count: z6.number().int(),
-  updated_at: z6.string(),
+var setScoringRulesOutput = z8.object({ rules: z8.array(scoringRuleRow) });
+var userRef = z8.object({ id: uuid4, full_name: z8.string() });
+var versionSummary = z8.object({
+  id: uuid4,
+  version_no: z8.number().int(),
+  status: z8.enum(["draft", "published"]),
+  published_at: z8.string().nullable(),
+  is_active: z8.boolean(),
+  is_locked: z8.boolean(),
+  field_count: z8.number().int(),
+  entry_count: z8.number().int(),
+  updated_at: z8.string(),
   updated_by: userRef.nullable()
 });
-var getFormInput = z6.object({ form_id: uuid2 }).strict();
-var getFormOutput = formRow.extend({ versions: z6.array(versionSummary) });
-var getFormVersionInput = z6.object({ form_version_id: uuid2 }).strict();
+var getFormInput = z8.object({ form_id: uuid4 }).strict();
+var getFormOutput = formRow.extend({ versions: z8.array(versionSummary) });
+var getFormVersionInput = z8.object({ form_version_id: uuid4 }).strict();
 var scoredFieldRow = formFieldRow.extend({
-  points: z6.number().nullable(),
-  option_points: z6.record(z6.number()).nullable()
+  points: z8.number().nullable(),
+  option_points: z8.record(z8.number()).nullable()
 });
 var getFormVersionOutput = versionSummary.extend({
-  form_id: uuid2,
-  fields: z6.array(scoredFieldRow)
+  form_id: uuid4,
+  fields: z8.array(scoredFieldRow)
 });
-var getFormDictionaryInput = z6.object({ form_id: uuid2 }).strict();
-var dictionaryField = z6.object({
-  key: z6.string(),
-  label: z6.string(),
-  description: z6.string().nullable(),
-  type: z6.enum(FIELD_TYPES),
-  unit: z6.enum(FIELD_UNITS).nullable(),
-  phase: z6.enum(FIELD_PHASES).nullable(),
-  direction: z6.enum(FIELD_DIRECTIONS).nullable(),
-  category: z6.string().nullable(),
-  expected_range: z6.object({ min: z6.number(), max: z6.number() }).nullable(),
-  include_in_ai_context: z6.boolean().nullable(),
-  is_ordinal: z6.boolean().nullable(),
+var getFormDictionaryInput = z8.object({ form_id: uuid4 }).strict();
+var dictionaryField = z8.object({
+  key: z8.string(),
+  label: z8.string(),
+  description: z8.string().nullable(),
+  type: z8.enum(FIELD_TYPES),
+  unit: z8.enum(FIELD_UNITS).nullable(),
+  phase: z8.enum(FIELD_PHASES).nullable(),
+  direction: z8.enum(FIELD_DIRECTIONS).nullable(),
+  category: z8.string().nullable(),
+  expected_range: z8.object({ min: z8.number(), max: z8.number() }).nullable(),
+  include_in_ai_context: z8.boolean().nullable(),
+  is_ordinal: z8.boolean().nullable(),
   /** A select's options in order (worst → best when ordinal); null for every other type. */
-  options: z6.array(z6.object({ value: z6.string(), label: z6.string() })).nullable(),
-  points: z6.number().nullable(),
-  option_points: z6.record(z6.number()).nullable()
+  options: z8.array(z8.object({ value: z8.string(), label: z8.string() })).nullable(),
+  points: z8.number().nullable(),
+  option_points: z8.record(z8.number()).nullable()
 });
-var getFormDictionaryOutput = z6.object({
-  form_id: uuid2,
-  version_no: z6.number().int().nullable(),
-  fields: z6.array(dictionaryField)
+var getFormDictionaryOutput = z8.object({
+  form_id: uuid4,
+  version_no: z8.number().int().nullable(),
+  fields: z8.array(dictionaryField)
 });
-var listFormsInput = z6.object({ season_id: uuid2 }).strict();
-var formListItem = z6.object({
-  id: uuid2,
+var listFormsInput = z8.object({ season_id: uuid4 }).strict();
+var formListItem = z8.object({
+  id: uuid4,
   kind: formKind,
-  name: z6.string(),
-  active_version_id: uuid2.nullable(),
-  updated_at: z6.string(),
-  versions: z6.array(versionSummary)
+  name: z8.string(),
+  active_version_id: uuid4.nullable(),
+  updated_at: z8.string(),
+  versions: z8.array(versionSummary)
 });
-var listFormsOutput = z6.object({ season_id: uuid2, forms: z6.array(formListItem) });
-var listFormExportsInput = z6.object({}).strict();
-var listFormExportsOutput = z6.object({ exports: z6.array(exportSummary) });
-var getFormExportInput = z6.object({ export_id: uuid2 }).strict();
+var listFormsOutput = z8.object({ season_id: uuid4, forms: z8.array(formListItem) });
+var listFormExportsInput = z8.object({}).strict();
+var listFormExportsOutput = z8.object({ exports: z8.array(exportSummary) });
+var getFormExportInput = z8.object({ export_id: uuid4 }).strict();
 var getFormExportOutput = exportSummary.extend({ definition: formDefinition });
 
-// ../../packages/shared/src/api/matches.ts
-import { z as z7 } from "zod";
-var uuid3 = z7.string().uuid();
-var MATCH_TYPES = ["practice", "qualification", "playoff"];
-var matchType = z7.enum(MATCH_TYPES);
-var ALLIANCES = ["red", "blue"];
-var MATCH_NUMBER_MAX = 999;
-var MATCH_BULK_MAX = 200;
-var LIST_MATCHES_DEFAULT_LIMIT = 50;
-var LIST_MATCHES_MAX_LIMIT = 200;
-var matchNumber = z7.number().int().min(1).max(MATCH_NUMBER_MAX);
-var matchSlot = z7.object({
-  alliance: z7.enum(ALLIANCES),
-  station: z7.number().int().min(1).max(3),
-  team_id: uuid3
-}).strict();
-var matchRow = z7.object({
-  id: uuid3,
-  event_id: uuid3,
-  match_type: matchType,
-  number: z7.number().int(),
-  created_at: z7.string(),
-  updated_at: z7.string(),
-  slots: z7.array(matchSlot)
-});
-var createMatchInput = z7.object({
-  event_id: uuid3,
-  match_type: matchType,
-  number: matchNumber.optional(),
-  count: z7.number().int().min(1).max(MATCH_BULK_MAX).optional()
-}).strict().refine((value) => value.number === void 0 !== (value.count === void 0), {
-  message: "give either a match number or a count of matches, not both"
-});
-var createMatchOutput = z7.object({
-  created: z7.number().int(),
-  items: z7.array(matchRow)
-});
-var updateMatchInput = z7.object({
-  match_id: uuid3,
-  match_type: matchType.optional(),
-  number: matchNumber.optional()
-}).strict().refine((value) => value.match_type !== void 0 || value.number !== void 0, {
-  message: "give a new match type or number"
-});
-var setMatchTeamsInput = z7.object({ match_id: uuid3, slots: z7.array(matchSlot).max(6) }).strict().superRefine((value, ctx) => {
-  const stations = new Set(value.slots.map((s) => `${s.alliance} ${s.station}`));
-  if (stations.size !== value.slots.length) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["slots"],
-      message: "fill each alliance station only once"
-    });
-  }
-  const teams = new Set(value.slots.map((s) => s.team_id));
-  if (teams.size !== value.slots.length) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["slots"],
-      message: "a team can fill only one slot in a match"
-    });
-  }
-});
-var deleteMatchInput = z7.object({ match_id: uuid3 }).strict();
-var deleteMatchOutput = z7.object({ id: uuid3, deleted: z7.literal(true) });
-var listMatchesInput = z7.object({
-  event_id: uuid3,
-  limit: z7.number().int().min(1).optional(),
-  cursor: z7.string().min(1).optional()
-}).strict();
-var listMatchesOutput = z7.object({
-  items: z7.array(matchRow),
-  next_cursor: z7.string().nullable()
-});
-var ensureMatchInput = z7.object({
-  id: uuid3,
-  event_id: uuid3,
-  match_type: matchType,
-  number: matchNumber
-}).strict();
-var ensureMatchOutput = z7.object({ id: uuid3, created: z7.boolean() });
-
 // ../../packages/shared/src/api/teams.ts
-import { z as z8 } from "zod";
-var uuid4 = z8.string().uuid();
+import { z as z9 } from "zod";
+var uuid5 = z9.string().uuid();
 var TEAM_NUMBER_MIN = 1;
 var TEAM_NUMBER_MAX = 99999;
 var TEAM_QUERY_MAX_LENGTH = NAME_MAX_LENGTH;
 var ROSTER_MAX_TEAMS = 200;
 var LIST_TEAMS_DEFAULT_LIMIT = 50;
 var LIST_TEAMS_MAX_LIMIT = 200;
-var teamNumber = z8.number().int().min(TEAM_NUMBER_MIN).max(TEAM_NUMBER_MAX);
-var teamName = z8.string().trim().min(1).max(NAME_MAX_LENGTH);
-var teamRow = z8.object({
-  id: uuid4,
-  number: z8.number().int(),
-  name: z8.string(),
-  created_at: z8.string(),
-  updated_at: z8.string()
+var teamNumber = z9.number().int().min(TEAM_NUMBER_MIN).max(TEAM_NUMBER_MAX);
+var teamName = z9.string().trim().min(1).max(NAME_MAX_LENGTH);
+var teamRow = z9.object({
+  id: uuid5,
+  number: z9.number().int(),
+  name: z9.string(),
+  created_at: z9.string(),
+  updated_at: z9.string()
 });
-var createTeamInput = z8.object({ number: teamNumber, name: teamName }).strict();
-var updateTeamInput = z8.object({ team_id: uuid4, name: teamName }).strict();
-var listTeamsInput = z8.object({
-  query: z8.string().trim().max(TEAM_QUERY_MAX_LENGTH).optional().transform((value) => value ? value : void 0),
-  limit: z8.number().int().min(1).optional(),
-  cursor: z8.string().min(1).optional()
+var createTeamInput = z9.object({ number: teamNumber, name: teamName }).strict();
+var updateTeamInput = z9.object({ team_id: uuid5, name: teamName }).strict();
+var listTeamsInput = z9.object({
+  query: z9.string().trim().max(TEAM_QUERY_MAX_LENGTH).optional().transform((value) => value ? value : void 0),
+  limit: z9.number().int().min(1).optional(),
+  cursor: z9.string().min(1).optional()
 }).strict();
-var listTeamsOutput = z8.object({
-  items: z8.array(teamRow),
-  next_cursor: z8.string().nullable()
+var listTeamsOutput = z9.object({
+  items: z9.array(teamRow),
+  next_cursor: z9.string().nullable()
 });
-var rosterRow = z8.object({
-  team_id: uuid4,
-  number: z8.number().int(),
-  name: z8.string()
+var rosterRow = z9.object({
+  team_id: uuid5,
+  number: z9.number().int(),
+  name: z9.string()
 });
-var setEventRosterInput = z8.object({
-  event_id: uuid4,
-  team_ids: z8.array(uuid4).max(ROSTER_MAX_TEAMS).refine((ids) => new Set(ids).size === ids.length, {
+var setEventRosterInput = z9.object({
+  event_id: uuid5,
+  team_ids: z9.array(uuid5).max(ROSTER_MAX_TEAMS).refine((ids) => new Set(ids).size === ids.length, {
     message: "name each team only once"
   })
 }).strict();
-var listEventRosterInput = z8.object({ event_id: uuid4 }).strict();
-var eventRosterOutput = z8.object({ items: z8.array(rosterRow) });
+var listEventRosterInput = z9.object({ event_id: uuid5 }).strict();
+var eventRosterOutput = z9.object({ items: z9.array(rosterRow) });
 
 // ../../packages/shared/src/api/index.ts
 var API = {
@@ -700,7 +823,9 @@ var API = {
   getFormVersion: { input: getFormVersionInput, output: getFormVersionOutput },
   getFormDictionary: { input: getFormDictionaryInput, output: getFormDictionaryOutput },
   listFormExports: { input: listFormExportsInput, output: listFormExportsOutput },
-  getFormExport: { input: getFormExportInput, output: getFormExportOutput }
+  getFormExport: { input: getFormExportInput, output: getFormExportOutput },
+  listConflicts: { input: listConflictsInput, output: listConflictsOutput },
+  resolveConflict: { input: resolveConflictInput, output: resolveConflictOutput }
 };
 
 // ../../packages/shared/src/errors.ts
@@ -1312,6 +1437,9 @@ function validateVisibilityCondition(field, fields) {
 function isLater(a, b) {
   return Date.parse(a) > Date.parse(b);
 }
+function latestWins(a, b) {
+  return isLater(b.client_updated_at, a.client_updated_at) ? b : a;
+}
 function classifyPush(input) {
   const { operation, existingRow, duplicateRow } = input;
   const incoming = { ...operation.payload, client_updated_at: operation.client_updated_at };
@@ -1352,7 +1480,7 @@ function stripServerColumns(row) {
 }
 
 // ../../packages/shared/src/sync/operation.ts
-import { z as z9 } from "zod";
+import { z as z10 } from "zod";
 var SYNC_ENTITIES = [
   "scouting_entry",
   "match",
@@ -1362,26 +1490,26 @@ var SYNC_ENTITIES = [
   "alliance_slot",
   "alliance_decline"
 ];
-var isoDateTime = z9.string().datetime({ offset: true }).transform((value, ctx) => {
+var isoDateTime = z10.string().datetime({ offset: true }).transform((value, ctx) => {
   const ms = Date.parse(value);
   if (Number.isNaN(ms)) {
     ctx.addIssue({ code: "custom", message: "Invalid datetime" });
-    return z9.NEVER;
+    return z10.NEVER;
   }
   return new Date(ms).toISOString();
 });
-var operationSchema = z9.object({
-  op_id: z9.string().min(1),
-  entity: z9.enum(SYNC_ENTITIES),
-  row_id: z9.string().uuid(),
-  action: z9.enum(["create", "update", "delete"]),
-  base_version: z9.number().int().positive().nullable(),
+var operationSchema = z10.object({
+  op_id: z10.string().min(1),
+  entity: z10.enum(SYNC_ENTITIES),
+  row_id: z10.string().uuid(),
+  action: z10.enum(["create", "update", "delete"]),
+  base_version: z10.number().int().positive().nullable(),
   /** Always the whole row, never a patch. Field-level merging does not exist. */
-  payload: z9.record(z9.unknown()),
-  author_user_id: z9.string().uuid(),
+  payload: z10.record(z10.unknown()),
+  author_user_id: z10.string().uuid(),
   client_created_at: isoDateTime,
   client_updated_at: isoDateTime,
-  seq: z9.number().int().nonnegative()
+  seq: z10.number().int().nonnegative()
 }).superRefine((op, ctx) => {
   if (op.action === "create" && op.base_version !== null) {
     ctx.addIssue({
@@ -1407,16 +1535,16 @@ var operationSchema = z9.object({
 });
 
 // ../../packages/shared/src/sync/protocol.ts
-import { z as z10 } from "zod";
+import { z as z11 } from "zod";
 var MAX_OPERATIONS_PER_PUSH = 200;
 var WATERMARK_OVERLAP_MS = 5e3;
-var pushRequestSchema = z10.object({
-  device_id: z10.string().uuid(),
-  operations: z10.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
+var pushRequestSchema = z11.object({
+  device_id: z11.string().uuid(),
+  operations: z11.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
 });
-var pushEnvelopeSchema = z10.object({
-  device_id: z10.string().uuid(),
-  operations: z10.array(z10.unknown()).max(MAX_OPERATIONS_PER_PUSH)
+var pushEnvelopeSchema = z11.object({
+  device_id: z11.string().uuid(),
+  operations: z11.array(z11.unknown()).max(MAX_OPERATIONS_PER_PUSH)
 });
 var PARENT_DELETED_DETAIL = {
   event: "the event no longer exists",
@@ -1451,10 +1579,10 @@ var PULL_ENTITY_KEYS = [
   "dashboard_charts",
   "weight_presets"
 ];
-var pullRequestSchema = z10.object({
-  event_id: z10.string().uuid(),
-  since: z10.string().datetime({ offset: false }).optional(),
-  cursor: z10.string().optional()
+var pullRequestSchema = z11.object({
+  event_id: z11.string().uuid(),
+  since: z11.string().datetime({ offset: false }).optional(),
+  cursor: z11.string().optional()
 });
 var FORM_DELETION_ENTITIES = [
   "forms",
@@ -1528,13 +1656,13 @@ function createApp(deps) {
 
 // src/auth/token.ts
 import { jwtVerify, SignJWT } from "jose";
-import { z as z11 } from "zod";
-var sessionClaims = z11.object({
-  sub: z11.string().min(1),
-  role: z11.enum(["scouter", "lead", "admin"]),
-  username: z11.string().min(1),
-  iat: z11.number().int(),
-  exp: z11.number().int()
+import { z as z12 } from "zod";
+var sessionClaims = z12.object({
+  sub: z12.string().min(1),
+  role: z12.enum(["scouter", "lead", "admin"]),
+  username: z12.string().min(1),
+  iat: z12.number().int(),
+  exp: z12.number().int()
 });
 var key = (config2) => new TextEncoder().encode(config2.authJwtSecret);
 async function issueToken(user, config2) {
@@ -1574,18 +1702,18 @@ async function callerFor(request, config2, store, options = {}) {
 }
 
 // src/config.ts
-import { z as z12 } from "zod";
-var schema = z12.object({
-  SUPABASE_URL: z12.string().url(),
-  SUPABASE_SERVICE_ROLE_KEY: z12.string().min(1),
-  AUTH_JWT_SECRET: z12.string().min(32, "must be at least 32 characters"),
-  AUTH_TOKEN_TTL_DAYS: z12.coerce.number().int().positive().default(30),
-  AUTH_TOKEN_REFRESH_AFTER_DAYS: z12.coerce.number().int().positive().default(7),
-  ALLOWED_ORIGIN: z12.string().url(),
-  NODE_ENV: z12.enum(["development", "production", "test"]).default("development"),
+import { z as z13 } from "zod";
+var schema = z13.object({
+  SUPABASE_URL: z13.string().url(),
+  SUPABASE_SERVICE_ROLE_KEY: z13.string().min(1),
+  AUTH_JWT_SECRET: z13.string().min(32, "must be at least 32 characters"),
+  AUTH_TOKEN_TTL_DAYS: z13.coerce.number().int().positive().default(30),
+  AUTH_TOKEN_REFRESH_AFTER_DAYS: z13.coerce.number().int().positive().default(7),
+  ALLOWED_ORIGIN: z13.string().url(),
+  NODE_ENV: z13.enum(["development", "production", "test"]).default("development"),
   // Vercel's own system env var (https://vercel.com/docs/environment-variables/system-environment-variables),
   // not something anyone sets by hand. Absent locally and in tests.
-  VERCEL_GIT_COMMIT_SHA: z12.string().min(1).optional()
+  VERCEL_GIT_COMMIT_SHA: z13.string().min(1).optional()
 });
 function loadServerConfig(env) {
   const parsed = schema.safeParse(env);
@@ -1758,6 +1886,8 @@ var FORM_VERSION_COLUMNS = "id, form_id, version_no, published_at, is_locked, up
 var SCORING_RULE_COLUMNS = "id, form_id, field_key, points, option_points, created_at, updated_at";
 var FORM_EXPORT_COLUMNS = "id, form_id, label, definition, created_by, created_at";
 var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+var CONFLICT_COLUMNS = "id, event_id, entity, row_id, kind, superseded_payload, superseded_author_id, superseded_client_updated_at, base_version, duplicate_row_id, created_at, updated_at, resolved_at, resolved_by, resolution";
+var TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/;
 var IN_CHUNK = 100;
 var EVENT_TEAMS_READ_LIMIT = 1e3;
 var FORM_EXPORTS_READ_LIMIT = 200;
@@ -1889,6 +2019,76 @@ function supabaseStore(db) {
     async insertConflict(row) {
       const { error } = await db.from("sync_conflicts").upsert(row, { onConflict: "id", ignoreDuplicates: true });
       if (error) throw dbError(error);
+    },
+    // Task 1.41 (SPEC-FINAL 9.5): the review queue's reads and the resolve command's guard.
+    async listOpenConflicts(eventId, entity, limit, after) {
+      if (after && (!TIMESTAMP.test(after.created_at) || !UUID.test(after.id))) {
+        throw new Error("listOpenConflicts: a keyset must be a timestamp and a uuid");
+      }
+      if (!UUID.test(eventId)) return [];
+      let query = db.from("sync_conflicts").select(CONFLICT_COLUMNS).eq("event_id", eventId).eq("entity", entity).is("resolved_at", null);
+      if (after) {
+        query = query.or(
+          `created_at.gt."${after.created_at}",and(created_at.eq."${after.created_at}",id.gt.${after.id})`
+        );
+      }
+      const { data, error } = await query.order("created_at", { ascending: true }).order("id", { ascending: true }).limit(limit);
+      if (error) throw dbError(error);
+      return data ?? [];
+    },
+    async listSettledConflicts(eventId, entity, since, limit) {
+      if (!UUID.test(eventId)) return [];
+      const { data, error } = await db.from("sync_conflicts").select(CONFLICT_COLUMNS).eq("event_id", eventId).eq("entity", entity).gte("resolved_at", since).order("resolved_at", { ascending: false }).order("id", { ascending: true }).limit(limit);
+      if (error) throw dbError(error);
+      return data ?? [];
+    },
+    async getConflict(id) {
+      if (!UUID.test(id)) return null;
+      const { data, error } = await db.from("sync_conflicts").select(CONFLICT_COLUMNS).eq("id", id).maybeSingle();
+      if (error) throw dbError(error);
+      return data ?? null;
+    },
+    // ONE conditional update: two leads resolving the same conflict at once cannot both
+    // take it. The row comes back only when the update matched.
+    async resolveConflictRow(id, resolved) {
+      if (!UUID.test(id)) return false;
+      const { data, error } = await db.from("sync_conflicts").update(resolved).eq("id", id).is("resolved_at", null).select("id");
+      if (error) throw dbError(error);
+      return (data ?? []).length > 0;
+    },
+    async reopenConflictRow(id, resolvedAt) {
+      const { error } = await db.from("sync_conflicts").update({ resolved_at: null, resolved_by: null, resolution: null }).eq("id", id).eq("resolved_at", resolvedAt);
+      if (error) throw dbError(error);
+    },
+    async getEntriesByIds(ids) {
+      const wanted = ids.filter((id) => UUID.test(id));
+      const out = [];
+      for (const chunk of chunks(wanted)) {
+        const { data, error } = await db.from("scouting_entries").select("*").in("id", chunk);
+        if (error) throw dbError(error);
+        out.push(...data ?? []);
+      }
+      return out;
+    },
+    async getTeamsByIds(ids) {
+      const wanted = ids.filter((id) => UUID.test(id));
+      const out = [];
+      for (const chunk of chunks(wanted)) {
+        const { data, error } = await db.from("teams").select(TEAM_COLUMNS).in("id", chunk);
+        if (error) throw dbError(error);
+        out.push(...data ?? []);
+      }
+      return out;
+    },
+    async getMatchesByIds(ids) {
+      const wanted = ids.filter((id) => UUID.test(id));
+      const out = [];
+      for (const chunk of chunks(wanted)) {
+        const { data, error } = await db.from("matches").select(MATCH_COLUMNS).in("id", chunk);
+        if (error) throw dbError(error);
+        out.push(...data ?? []);
+      }
+      return out;
     },
     async getFormFields(formVersionId) {
       const { data, error } = await db.from("form_fields").select("*").eq("form_version_id", formVersionId).order("display_order", { ascending: true }).order("key", { ascending: true });
@@ -2422,15 +2622,7 @@ function supabaseStore(db) {
     // The remaining methods start as loud stubs, exactly as the fake does. Each later
     // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
     // without these the file does not compile at all.
-    ...stubsFor([
-      "listConflicts",
-      "getConflict",
-      "resolveConflictRow",
-      "getEntry",
-      "queryEntries",
-      "entriesForScope",
-      "listTeamEvents"
-    ])
+    ...stubsFor(["getEntry", "queryEntries", "entriesForScope", "listTeamEvents"])
     // The spread above only carries an index signature (its keys come from a plain
     // string[]), so TS can't see that it supplies the remaining named Store methods;
     // the assertion tells it what `stubsFor` guarantees at runtime instead.
@@ -2777,7 +2969,7 @@ function pgCode(e) {
 }
 
 // src/core/queries/listEvents.ts
-import { z as z13 } from "zod";
+import { z as z14 } from "zod";
 
 // src/core/cursor.ts
 function encodeCursor(value) {
@@ -2798,7 +2990,7 @@ function decodeCursor(schema2, raw) {
 }
 
 // src/core/queries/listEvents.ts
-var eventCursor = z13.object({ s: z13.number().int(), i: z13.string().uuid() }).strict();
+var eventCursor = z14.object({ s: z14.number().int(), i: z14.string().uuid() }).strict();
 async function listEvents(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listEventsInput, input);
@@ -2905,8 +3097,8 @@ async function setActiveEvent(caller, input, ctx) {
 }
 
 // src/core/queries/listSeasons.ts
-import { z as z14 } from "zod";
-var seasonCursor = z14.object({ y: z14.number().int() }).strict();
+import { z as z15 } from "zod";
+var seasonCursor = z15.object({ y: z15.number().int() }).strict();
 async function listSeasons(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listSeasonsInput, input);
@@ -3066,8 +3258,8 @@ async function inWaves(items, fn) {
 }
 
 // src/core/queries/listMatches.ts
-import { z as z15 } from "zod";
-var matchCursor = z15.object({ t: matchType, n: z15.number().int() }).strict();
+import { z as z16 } from "zod";
+var matchCursor = z16.object({ t: matchType, n: z16.number().int() }).strict();
 async function listMatches(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listMatchesInput, input);
@@ -3298,8 +3490,8 @@ async function teamOrNotFound(ctx, id) {
 }
 
 // src/core/queries/listTeams.ts
-import { z as z16 } from "zod";
-var teamCursor = z16.object({ n: z16.number().int() }).strict();
+import { z as z17 } from "zod";
+var teamCursor = z17.object({ n: z17.number().int() }).strict();
 async function listTeams(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listTeamsInput, input);
@@ -4231,6 +4423,159 @@ async function importForm(caller, input, ctx) {
   }
 }
 
+// src/core/commands/resolveConflict.ts
+var ENTRY_CONTENT_COLUMNS = [
+  "form_version_id",
+  "form_kind",
+  "event_id",
+  "match_id",
+  "team_id",
+  "alliance",
+  "robot_status",
+  "breakdown_seconds",
+  "data"
+];
+var noSuchConflict = (id) => new AppError("not-found", "that conflict does not exist; it may have been deleted", {
+  conflict_id: id
+});
+var rowGone = (id) => new AppError("not-found", "an entry this conflict names no longer exists", { row_id: id });
+function withoutStamps(row) {
+  const { created_at: _c, updated_at: _u, ...rest } = row;
+  return rest;
+}
+function restoredRow(live, conflict) {
+  const payload = conflict.superseded_payload ?? {};
+  const content = Object.fromEntries(
+    ENTRY_CONTENT_COLUMNS.filter((key2) => key2 in payload).map((key2) => [key2, payload[key2]])
+  );
+  return {
+    ...withoutStamps(live),
+    ...content,
+    id: live.id,
+    scouter_id: live.scouter_id,
+    client_created_at: live.client_created_at,
+    client_updated_at: conflict.superseded_client_updated_at ?? live.client_updated_at,
+    deleted_at: live.deleted_at ?? null,
+    version: live.version + 1
+  };
+}
+async function writeAfterResolving(ctx, conflictId, resolvedAt, write) {
+  try {
+    await write();
+  } catch (e) {
+    try {
+      await ctx.store.reopenConflictRow(conflictId, resolvedAt);
+    } catch (reopen) {
+      const message = reopen instanceof Error ? reopen.message : String(reopen);
+      console.error(`resolveConflict: could not reopen ${conflictId}: ${message}`);
+    }
+    if (pgCode(e) === "23503") {
+      throw new AppError("parent-deleted", "a record this entry belongs to no longer exists", {
+        conflict_id: conflictId
+      });
+    }
+    throw e;
+  }
+}
+async function resolveConflict(caller, input, ctx) {
+  assertCan(caller, "resolve_conflict");
+  if (caller.kind !== "user") throw new AppError("forbidden", "a service caller may not resolve");
+  const { conflict_id: conflictId, resolution } = parseInput(resolveConflictInput, input);
+  const conflict = await ctx.store.getConflict(conflictId);
+  if (!conflict) throw noSuchConflict(conflictId);
+  if (conflict.resolved_at != null) {
+    throw new AppError("conflict", "this conflict is already resolved", {
+      conflict_id: conflictId,
+      resolved_at: conflict.resolved_at
+    });
+  }
+  if (conflict.entity !== "scouting_entry") {
+    throw new AppError("invalid", `a ${conflict.entity} conflict cannot be resolved yet`);
+  }
+  const at = ctx.now().toISOString();
+  const take = async () => {
+    const took = await ctx.store.resolveConflictRow(conflictId, {
+      resolved_at: at,
+      resolved_by: caller.userId,
+      resolution
+    });
+    if (!took) {
+      throw new AppError("conflict", "this conflict is already resolved", {
+        conflict_id: conflictId
+      });
+    }
+  };
+  const answer = { conflict_id: conflictId, resolved_at: at, resolution };
+  if (conflict.kind === "divergence") {
+    if (!("keep" in resolution)) {
+      throw new AppError(
+        "invalid",
+        "a divergence is resolved with { keep: 'live' | 'superseded' }"
+      );
+    }
+    const live = await ctx.store.getRow("scouting_entry", conflict.row_id);
+    if (!live) throw rowGone(conflict.row_id);
+    if (resolution.keep === "live") {
+      await take();
+      return { ...answer, row_id: live.id, new_version: null, soft_deleted: null };
+    }
+    if (conflict.superseded_payload === null) {
+      throw new AppError("invalid", "this conflict holds no superseded copy to restore");
+    }
+    const restored = restoredRow(live, conflict);
+    await take();
+    await writeAfterResolving(
+      ctx,
+      conflictId,
+      at,
+      () => ctx.store.putRow("scouting_entry", live.id, restored)
+    );
+    return { ...answer, row_id: live.id, new_version: live.version + 1, soft_deleted: null };
+  }
+  if (!("keep_row_id" in resolution)) {
+    throw new AppError("invalid", "a duplicate is resolved with { keep_row_id }");
+  }
+  const pair = [conflict.row_id, conflict.duplicate_row_id];
+  if (conflict.duplicate_row_id === null || !pair.includes(resolution.keep_row_id)) {
+    throw new AppError("invalid", "keep_row_id must be one of the two rows of this conflict", {
+      row_ids: pair
+    });
+  }
+  const otherId = resolution.keep_row_id === conflict.row_id ? conflict.duplicate_row_id : conflict.row_id;
+  const [kept, other] = await Promise.all([
+    ctx.store.getRow("scouting_entry", resolution.keep_row_id),
+    ctx.store.getRow("scouting_entry", otherId)
+  ]);
+  if (!kept) throw rowGone(resolution.keep_row_id);
+  if (!other) throw rowGone(otherId);
+  if (kept.deleted_at != null) {
+    throw new AppError("invalid", "that copy has been deleted; keep the other one", {
+      row_id: kept.id
+    });
+  }
+  await take();
+  if (other.deleted_at != null) {
+    return { ...answer, row_id: kept.id, new_version: null, soft_deleted: null };
+  }
+  const newVersion = other.version + 1;
+  await writeAfterResolving(
+    ctx,
+    conflictId,
+    at,
+    () => ctx.store.putRow("scouting_entry", other.id, {
+      ...withoutStamps(other),
+      deleted_at: at,
+      version: newVersion
+    })
+  );
+  return {
+    ...answer,
+    row_id: kept.id,
+    new_version: null,
+    soft_deleted: { row_id: other.id, new_version: newVersion }
+  };
+}
+
 // src/core/commands/scoring.ts
 function toScoringRuleRow(rule) {
   return {
@@ -4453,6 +4798,206 @@ async function getFormExport(caller, input, ctx) {
       now
     ),
     definition: formDefinition.parse(row.definition)
+  };
+}
+
+// src/core/queries/conflicts.ts
+import { isDeepStrictEqual } from "node:util";
+import { z as z18 } from "zod";
+var conflictCursor = z18.object({
+  c: z18.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/),
+  i: z18.string().uuid()
+}).strict();
+var STATUS_FIELDS = ["robot_status", "breakdown_seconds"];
+var str = (value) => typeof value === "string" ? value : null;
+var num = (value) => typeof value === "number" ? value : null;
+var record = (value) => typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
+var orNull = (value) => value === void 0 ? null : value;
+function diffOf(x, y) {
+  const xData = record(x.data);
+  const yData = record(y.data);
+  const dataKeys = [.../* @__PURE__ */ new Set([...Object.keys(xData), ...Object.keys(yData)])].sort();
+  const pairs = [
+    ...STATUS_FIELDS.map((key2) => [key2, x[key2], y[key2]]),
+    ...dataKeys.map((key2) => [key2, xData[key2], yData[key2]])
+  ];
+  return pairs.map(([field_key, a, b]) => ({
+    field_key,
+    x: orNull(a),
+    y: orNull(b),
+    differs: !isDeepStrictEqual(orNull(a), orNull(b))
+  }));
+}
+function teamOf(row, look) {
+  const team = row ? look.teams.get(String(row.team_id)) : void 0;
+  return team ? { id: team.id, number: team.number, name: team.name } : null;
+}
+function matchOf(row, look) {
+  const matchId = row ? str(row.match_id) : null;
+  const match = matchId ? look.matches.get(matchId) : void 0;
+  return match ? { id: match.id, match_type: match.match_type, number: match.number } : null;
+}
+var formKindOf = (row) => row.form_kind === "super" ? "super" : "match";
+var allianceOf = (row) => row.alliance === "red" || row.alliance === "blue" ? row.alliance : null;
+function copyOf(row, look) {
+  const scouterId = String(row.scouter_id);
+  return {
+    row_id: row.id,
+    version: row.version,
+    form_version_id: str(row.form_version_id),
+    author: { id: scouterId, full_name: look.names.get(scouterId) ?? null },
+    client_updated_at: String(row.client_updated_at),
+    robot_status: str(row.robot_status),
+    breakdown_seconds: num(row.breakdown_seconds),
+    data: record(row.data),
+    deleted_at: str(row.deleted_at)
+  };
+}
+function toItem(conflict, look) {
+  if (conflict.kind === "divergence") {
+    const live = look.entries.get(conflict.row_id);
+    if (!live) return null;
+    const payload = conflict.superseded_payload ?? {};
+    const authorId = conflict.superseded_author_id;
+    const superseded = {
+      form_version_id: str(payload.form_version_id),
+      author: { id: authorId, full_name: authorId ? look.names.get(authorId) ?? null : null },
+      client_updated_at: conflict.superseded_client_updated_at,
+      base_version: conflict.base_version,
+      robot_status: str(payload.robot_status),
+      breakdown_seconds: num(payload.breakdown_seconds),
+      data: record(payload.data)
+    };
+    const liveCopy2 = copyOf(live, look);
+    return {
+      id: conflict.id,
+      kind: "divergence",
+      created_at: conflict.created_at,
+      form_kind: formKindOf(live),
+      team: teamOf(live, look),
+      match: matchOf(live, look),
+      alliance: allianceOf(live),
+      live: liveCopy2,
+      superseded,
+      counted: "live",
+      diff: diffOf(liveCopy2, superseded).map(({ field_key, x, y, differs }) => ({
+        field_key,
+        live: x,
+        superseded: y,
+        differs
+      }))
+    };
+  }
+  const a = look.entries.get(conflict.row_id);
+  const b = conflict.duplicate_row_id ? look.entries.get(conflict.duplicate_row_id) : void 0;
+  if (!a || !b) return null;
+  const aLive = a.deleted_at == null;
+  const bLive = b.deleted_at == null;
+  const stamped = (row) => ({
+    ...row,
+    client_updated_at: String(row.client_updated_at)
+  });
+  const counted = aLive !== bLive ? aLive ? "a" : "b" : latestWins(stamped(a), stamped(b)).id === a.id ? "a" : "b";
+  const aCopy = copyOf(a, look);
+  const bCopy = copyOf(b, look);
+  return {
+    id: conflict.id,
+    kind: "duplicate",
+    created_at: conflict.created_at,
+    form_kind: formKindOf(a),
+    team: teamOf(a, look),
+    match: matchOf(a, look),
+    alliance: allianceOf(a),
+    a: aCopy,
+    b: bCopy,
+    counted,
+    diff: diffOf(aCopy, bCopy).map(({ field_key, x, y, differs }) => ({
+      field_key,
+      a: x,
+      b: y,
+      differs
+    }))
+  };
+}
+function toSettled(conflict, look) {
+  const parsed = conflictResolution.safeParse(conflict.resolution);
+  const resolution = parsed.success ? parsed.data : null;
+  const rowA = look.entries.get(conflict.row_id);
+  const rowB = conflict.duplicate_row_id ? look.entries.get(conflict.duplicate_row_id) : void 0;
+  const nameOf = (id) => id ? look.names.get(id) ?? null : null;
+  let kept = null;
+  if (resolution && "keep" in resolution) {
+    kept = {
+      row_id: conflict.row_id,
+      author_full_name: resolution.keep === "superseded" ? nameOf(conflict.superseded_author_id) : nameOf(rowA ? String(rowA.scouter_id) : null)
+    };
+  } else if (resolution) {
+    const keptRow2 = look.entries.get(resolution.keep_row_id);
+    kept = {
+      row_id: resolution.keep_row_id,
+      author_full_name: nameOf(keptRow2 ? String(keptRow2.scouter_id) : null)
+    };
+  }
+  const keptRow = kept ? look.entries.get(kept.row_id) : void 0;
+  const any = keptRow ?? rowA ?? rowB;
+  const resolverId = conflict.resolved_by;
+  return {
+    id: conflict.id,
+    kind: conflict.kind,
+    form_kind: any ? formKindOf(any) : null,
+    team: teamOf(any, look),
+    match: matchOf(any, look),
+    resolution,
+    resolved_at: String(conflict.resolved_at),
+    resolved_by: resolverId ? { id: resolverId, full_name: nameOf(resolverId) } : null,
+    kept
+  };
+}
+var unique = (values) => [
+  ...new Set(values.filter((v) => typeof v === "string" && v.length > 0))
+];
+async function listConflicts(caller, input, ctx) {
+  void caller;
+  const parsed = parseInput(listConflictsInput, input);
+  const limit = Math.min(parsed.limit ?? LIST_CONFLICTS_DEFAULT_LIMIT, LIST_CONFLICTS_MAX_LIMIT);
+  const cursor = parsed.cursor ? decodeCursor(conflictCursor, parsed.cursor) : void 0;
+  const since = parsed.settled_since ? new Date(parsed.settled_since).toISOString() : new Date(ctx.now().getTime() - SETTLED_DEFAULT_WINDOW_MS).toISOString();
+  const [open, settledRows] = await Promise.all([
+    ctx.store.listOpenConflicts(
+      parsed.event_id,
+      "scouting_entry",
+      limit + 1,
+      cursor ? { created_at: cursor.c, id: cursor.i } : void 0
+    ),
+    ctx.store.listSettledConflicts(parsed.event_id, "scouting_entry", since, SETTLED_CONFLICTS_MAX)
+  ]);
+  const page = open.slice(0, limit);
+  const conflicts = [...page, ...settledRows];
+  const entryRows = await ctx.store.getEntriesByIds(
+    unique(conflicts.flatMap((c) => [c.row_id, c.duplicate_row_id]))
+  );
+  const entries = new Map(entryRows.map((row) => [row.id, row]));
+  const [users, teams, matches] = await Promise.all([
+    ctx.store.listUserNames(
+      unique([
+        ...entryRows.map((row) => str(row.scouter_id)),
+        ...conflicts.flatMap((c) => [c.superseded_author_id, c.resolved_by])
+      ])
+    ),
+    ctx.store.getTeamsByIds(unique(entryRows.map((row) => str(row.team_id)))),
+    ctx.store.getMatchesByIds(unique(entryRows.map((row) => str(row.match_id))))
+  ]);
+  const look = {
+    entries,
+    names: new Map(users.map((u) => [u.id, u.full_name])),
+    teams: new Map(teams.map((t) => [t.id, t])),
+    matches: new Map(matches.map((m) => [m.id, m]))
+  };
+  const last = page[page.length - 1];
+  return {
+    items: page.map((c) => toItem(c, look)).filter((item) => item !== null),
+    next_cursor: open.length > limit && last ? encodeCursor({ c: last.created_at, i: last.id }) : null,
+    settled: settledRows.map((c) => toSettled(c, look))
   };
 }
 
@@ -4853,6 +5398,20 @@ var REGISTRY = {
     input: API.getFormExport.input,
     output: API.getFormExport.output,
     handler: getFormExport
+  },
+  listConflicts: {
+    kind: "query",
+    description: "An event's open sync conflicts, oldest first, paginated: each with the team, the match, both copies with their authors' names and client times, which copy counts now, and a field-by-field diff. Also the conflicts settled since a given time, with what was kept and by whom.",
+    input: API.listConflicts.input,
+    output: API.listConflicts.output,
+    handler: listConflicts
+  },
+  resolveConflict: {
+    kind: "command",
+    description: "Lead or admin only: settle one open conflict. A divergence keeps the live copy or restores the superseded one; a duplicate keeps one row and soft-deletes the other. A conflict already resolved is refused.",
+    input: API.resolveConflict.input,
+    output: API.resolveConflict.output,
+    handler: resolveConflict
   }
 };
 

@@ -11,6 +11,7 @@ import type {
   FormDeletion,
   NewConflict,
   Store,
+  StoredConflict,
   StoredEvent,
   StoredForm,
   StoredFormExport,
@@ -58,6 +59,13 @@ const SCORING_RULE_COLUMNS =
   'id, form_id, field_key, points, option_points, created_at, updated_at';
 const FORM_EXPORT_COLUMNS = 'id, form_id, label, definition, created_by, created_at';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** The columns of sync_conflicts (SPEC-FINAL 3.6), `resolution` included (task 1.41). */
+const CONFLICT_COLUMNS =
+  'id, event_id, entity, row_id, kind, superseded_payload, superseded_author_id, ' +
+  'superseded_client_updated_at, base_version, duplicate_row_id, created_at, updated_at, ' +
+  'resolved_at, resolved_by, resolution';
+/** An ISO instant as PostgREST returns one: what a conflict keyset may carry, and nothing else. */
+const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/;
 
 /**
  * The most ids one `in` filter carries. The list goes into the request URL, and 100 uuids
@@ -290,6 +298,109 @@ export function supabaseStore(db: Db): Store {
         .from('sync_conflicts')
         .upsert(row as never, { onConflict: 'id', ignoreDuplicates: true });
       if (error) throw dbError(error);
+    },
+    // Task 1.41 (SPEC-FINAL 9.5): the review queue's reads and the resolve command's guard.
+    async listOpenConflicts(eventId, entity, limit, after) {
+      // The keyset is interpolated into a PostgREST filter string, so both values are
+      // checked here as well as in the use case's cursor schema. The instant is the
+      // database's own string, quoted, so microseconds survive and nothing repeats.
+      if (after && (!TIMESTAMP.test(after.created_at) || !UUID.test(after.id))) {
+        throw new Error('listOpenConflicts: a keyset must be a timestamp and a uuid');
+      }
+      if (!UUID.test(eventId)) return [];
+      let query = db
+        .from('sync_conflicts')
+        .select(CONFLICT_COLUMNS)
+        .eq('event_id', eventId)
+        .eq('entity', entity)
+        .is('resolved_at', null);
+      if (after) {
+        query = query.or(
+          `created_at.gt."${after.created_at}",and(created_at.eq."${after.created_at}",id.gt.${after.id})`,
+        );
+      }
+      const { data, error } = await query
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .limit(limit);
+      if (error) throw dbError(error);
+      return (data ?? []) as unknown as StoredConflict[];
+    },
+    async listSettledConflicts(eventId, entity, since, limit) {
+      if (!UUID.test(eventId)) return [];
+      const { data, error } = await db
+        .from('sync_conflicts')
+        .select(CONFLICT_COLUMNS)
+        .eq('event_id', eventId)
+        .eq('entity', entity)
+        .gte('resolved_at', since)
+        .order('resolved_at', { ascending: false })
+        .order('id', { ascending: true })
+        .limit(limit);
+      if (error) throw dbError(error);
+      return (data ?? []) as unknown as StoredConflict[];
+    },
+    async getConflict(id) {
+      // A non-uuid id names no row, and Postgres would refuse the filter (22P02).
+      if (!UUID.test(id)) return null;
+      const { data, error } = await db
+        .from('sync_conflicts')
+        .select(CONFLICT_COLUMNS)
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw dbError(error);
+      return (data as unknown as StoredConflict | null) ?? null;
+    },
+    // ONE conditional update: two leads resolving the same conflict at once cannot both
+    // take it. The row comes back only when the update matched.
+    async resolveConflictRow(id, resolved) {
+      if (!UUID.test(id)) return false;
+      const { data, error } = await db
+        .from('sync_conflicts')
+        .update(resolved as never)
+        .eq('id', id)
+        .is('resolved_at', null)
+        .select('id');
+      if (error) throw dbError(error);
+      return (data ?? []).length > 0;
+    },
+    async reopenConflictRow(id, resolvedAt) {
+      const { error } = await db
+        .from('sync_conflicts')
+        .update({ resolved_at: null, resolved_by: null, resolution: null } as never)
+        .eq('id', id)
+        .eq('resolved_at', resolvedAt);
+      if (error) throw dbError(error);
+    },
+    async getEntriesByIds(ids) {
+      const wanted = ids.filter((id) => UUID.test(id));
+      const out: StoredRow[] = [];
+      for (const chunk of chunks(wanted)) {
+        const { data, error } = await db.from('scouting_entries').select('*').in('id', chunk);
+        if (error) throw dbError(error);
+        out.push(...((data ?? []) as StoredRow[]));
+      }
+      return out;
+    },
+    async getTeamsByIds(ids) {
+      const wanted = ids.filter((id) => UUID.test(id));
+      const out: StoredTeam[] = [];
+      for (const chunk of chunks(wanted)) {
+        const { data, error } = await db.from('teams').select(TEAM_COLUMNS).in('id', chunk);
+        if (error) throw dbError(error);
+        out.push(...((data ?? []) as StoredTeam[]));
+      }
+      return out;
+    },
+    async getMatchesByIds(ids) {
+      const wanted = ids.filter((id) => UUID.test(id));
+      const out: StoredMatch[] = [];
+      for (const chunk of chunks(wanted)) {
+        const { data, error } = await db.from('matches').select(MATCH_COLUMNS).in('id', chunk);
+        if (error) throw dbError(error);
+        out.push(...((data ?? []) as StoredMatch[]));
+      }
+      return out;
     },
     async getFormFields(formVersionId: string): Promise<FormFieldDefinition[]> {
       // Ordered (task 1.27): the builder and an export read the fields in display order.
@@ -1094,15 +1205,7 @@ export function supabaseStore(db: Db): Store {
     // The remaining methods start as loud stubs, exactly as the fake does. Each later
     // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
     // without these the file does not compile at all.
-    ...stubsFor([
-      'listConflicts',
-      'getConflict',
-      'resolveConflictRow',
-      'getEntry',
-      'queryEntries',
-      'entriesForScope',
-      'listTeamEvents',
-    ]),
+    ...stubsFor(['getEntry', 'queryEntries', 'entriesForScope', 'listTeamEvents']),
     // The spread above only carries an index signature (its keys come from a plain
     // string[]), so TS can't see that it supplies the remaining named Store methods;
     // the assertion tells it what `stubsFor` guarantees at runtime instead.

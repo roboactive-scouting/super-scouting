@@ -1115,6 +1115,7 @@ export type Database = {
           event_id: string
           id: string
           kind: string
+          resolution: Json | null
           resolved_at: string | null
           resolved_by: string | null
           row_id: string
@@ -1131,6 +1132,7 @@ export type Database = {
           event_id: string
           id: string
           kind: string
+          resolution?: Json | null
           resolved_at?: string | null
           resolved_by?: string | null
           row_id: string
@@ -1147,6 +1149,7 @@ export type Database = {
           event_id?: string
           id?: string
           kind?: string
+          resolution?: Json | null
           resolved_at?: string | null
           resolved_by?: string | null
           row_id?: string

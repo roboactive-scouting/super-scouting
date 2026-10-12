@@ -2,6 +2,7 @@ import { MATCH_TYPES, type FormDeletionEntity, type FormFieldDefinition } from '
 import type {
   NewConflict,
   Store,
+  StoredConflict,
   StoredEvent,
   StoredForm,
   StoredFormExport,
@@ -71,7 +72,10 @@ const MATCH_TEAM_COLUMNS = new Set([
   'deleted_at',
 ]);
 
-/** The columns of public.sync_conflicts (migration 20260903092000_entries.sql). */
+/**
+ * The columns of public.sync_conflicts (migration 20260903092000_entries.sql, plus
+ * `resolution` from 20261012092000_sync_conflicts_resolution.sql, task 1.41).
+ */
 const SYNC_CONFLICT_COLUMNS = new Set([
   'id',
   'event_id',
@@ -87,6 +91,7 @@ const SYNC_CONFLICT_COLUMNS = new Set([
   'updated_at',
   'resolved_at',
   'resolved_by',
+  'resolution',
 ]);
 
 /** An `event_teams` row: one team on one event's roster, soft-deleted on removal. */
@@ -627,6 +632,22 @@ export function makeFakeContext(): FakeContext {
     (eventId, teamIds) => writeRoster(eventId, teamIds, fake.nowValue.toISOString()),
     eventTeams,
   );
+  // Task 1.41: a fake conflict row with the table's defaults under whatever a fixture gave.
+  const toStoredConflict = (row: FakeRow): StoredConflict =>
+    ({
+      entity: 'scouting_entry',
+      superseded_payload: null,
+      superseded_author_id: null,
+      superseded_client_updated_at: null,
+      base_version: null,
+      duplicate_row_id: null,
+      created_at: '',
+      updated_at: '',
+      resolved_at: null,
+      resolved_by: null,
+      resolution: null,
+      ...row,
+    }) as unknown as StoredConflict;
   const toStoredMatch = (row: FakeMatchRow): StoredMatch => {
     const stamps = matchStamps.get(row.id);
     return {
@@ -1219,8 +1240,82 @@ export function makeFakeContext(): FakeContext {
         updated_at: at,
         resolved_at: null,
         resolved_by: null,
+        resolution: null,
         ...row,
       } as unknown as FakeRow);
+    },
+    // Task 1.41: the review queue's reads and the resolve command's guard, over
+    // `fake.conflicts`. A fixture may leave out any column; it reads as the table's default.
+    async listOpenConflicts(eventId, entity, limit, after) {
+      const key = (c: StoredConflict) => [c.created_at, c.id];
+      return [...fake.conflicts.values()]
+        .map(toStoredConflict)
+        .filter((c) => c.event_id === eventId && c.entity === entity && c.resolved_at == null)
+        .sort((a, b) => compareKeys(key(a), key(b)))
+        .filter((c) => after === undefined || compareKeys(key(c), [after.created_at, after.id]) > 0)
+        .slice(0, limit);
+    },
+    async listSettledConflicts(eventId, entity, since, limit) {
+      return [...fake.conflicts.values()]
+        .map(toStoredConflict)
+        .filter(
+          (c) =>
+            c.event_id === eventId &&
+            c.entity === entity &&
+            c.resolved_at != null &&
+            Date.parse(c.resolved_at) >= Date.parse(since),
+        )
+        .sort(
+          (a, b) =>
+            Date.parse(String(b.resolved_at)) - Date.parse(String(a.resolved_at)) ||
+            (a.id < b.id ? -1 : 1),
+        )
+        .slice(0, limit);
+    },
+    async getConflict(id) {
+      const row = fake.conflicts.get(id);
+      return row ? toStoredConflict(row) : null;
+    },
+    // The store's conditional update: it takes only while the row is still open.
+    async resolveConflictRow(id, resolved) {
+      checkColumns('sync_conflicts', SYNC_CONFLICT_COLUMNS, resolved);
+      const row = fake.conflicts.get(id);
+      if (!row || row.resolved_at != null) return false;
+      fake.conflicts.set(id, {
+        ...row,
+        ...resolved,
+        updated_at: fake.nowValue.toISOString(),
+      } as unknown as FakeRow);
+      return true;
+    },
+    async reopenConflictRow(id, resolvedAt) {
+      const row = fake.conflicts.get(id);
+      if (!row || row.resolved_at !== resolvedAt) return;
+      fake.conflicts.set(id, {
+        ...row,
+        resolved_at: null,
+        resolved_by: null,
+        resolution: null,
+        updated_at: fake.nowValue.toISOString(),
+      });
+    },
+    async getEntriesByIds(ids) {
+      return ids.flatMap((id) => {
+        const row = rows.scouting_entries.get(id);
+        return row ? [{ ...row }] : [];
+      });
+    },
+    async getTeamsByIds(ids) {
+      return ids.flatMap((id) => {
+        const team = teams.get(id);
+        return team ? [{ ...team }] : [];
+      });
+    },
+    async getMatchesByIds(ids) {
+      return ids.flatMap((id) => {
+        const row = rows.matches.get(id);
+        return row ? [toStoredMatch(row)] : [];
+      });
     },
     async listMatchDeletions(eventId, since) {
       return [...fake.matchDeletions]
@@ -1557,15 +1652,7 @@ export function makeFakeContext(): FakeContext {
     },
     // Everything else on the Store starts as a loud stub; each later task
     // replaces the two or three entries it needs.
-    ...stubsFor([
-      'listConflicts',
-      'getConflict',
-      'resolveConflictRow',
-      'getEntry',
-      'queryEntries',
-      'entriesForScope',
-      'listTeamEvents',
-    ]),
+    ...stubsFor(['getEntry', 'queryEntries', 'entriesForScope', 'listTeamEvents']),
   } as Store;
 
   return Object.assign(fake, {

@@ -100,7 +100,7 @@ export type PullEntitySource = (
  * wants a method not on this list is a task that has drifted from the plan.
  */
 export type Store = {
-  // sync (task 1.3, 1.4, 1.40)
+  // sync (task 1.3, 1.4, 1.40, 1.41)
   wasApplied(opId: string): Promise<boolean>;
   markApplied(opId: string): Promise<void>;
   getRow(entity: SyncEntity, id: string): Promise<StoredRow | null>;
@@ -118,9 +118,49 @@ export type Store = {
    * same operation. THROWS on a database error, keeping its code.
    */
   insertConflict(row: NewConflict): Promise<void>;
-  listConflicts(eventId: string, limit: number, cursor?: string): Promise<StoredRow[]>;
-  getConflict(id: string): Promise<StoredRow | null>;
-  resolveConflictRow(id: string, resolvedBy: string, at: string): Promise<void>;
+  /**
+   * Task 1.41 (replaces the task-1.3 stub `listConflicts(eventId, limit, cursor)`): the
+   * event's OPEN conflicts (`resolved_at is null`) of one entity, oldest first by
+   * (created_at, id); `after` is the last row of the previous page (keyset). THROWS on a
+   * database error.
+   */
+  listOpenConflicts(
+    eventId: string,
+    entity: ConflictEntity,
+    limit: number,
+    after?: ConflictKeyset,
+  ): Promise<StoredConflict[]>;
+  /**
+   * Task 1.41: the event's conflicts of one entity resolved at or after `since`, newest
+   * resolution first, at most `limit`. THROWS on a database error.
+   */
+  listSettledConflicts(
+    eventId: string,
+    entity: ConflictEntity,
+    since: string,
+    limit: number,
+  ): Promise<StoredConflict[]>;
+  /** Task 1.41: one conflict by id; an id that is not a uuid names no row (null). */
+  getConflict(id: string): Promise<StoredConflict | null>;
+  /**
+   * Task 1.41 (replaces the stub of the same name): marks an OPEN conflict resolved — ONE
+   * conditional update, `where id = $1 and resolved_at is null` — and answers whether it
+   * took. False means it was already resolved (or is gone): the caller changes nothing
+   * else. The table's trigger moves `updated_at`, so devices pull the resolution.
+   */
+  resolveConflictRow(id: string, resolved: ConflictResolutionWrite): Promise<boolean>;
+  /**
+   * Task 1.41: undoes resolveConflictRow when the entry write that follows it fails, so the
+   * conflict is open again and a retry can settle it — `where id = $1 and resolved_at = at`,
+   * so it never reopens a resolution it did not make. THROWS on a database error.
+   */
+  reopenConflictRow(id: string, resolvedAt: string): Promise<void>;
+  /** Task 1.41: the scouting entries with these ids (soft-deleted ones too), batched. */
+  getEntriesByIds(ids: string[]): Promise<StoredRow[]>;
+  /** Task 1.41: the teams with these ids, batched; unknown ids are absent. */
+  getTeamsByIds(ids: string[]): Promise<StoredTeam[]>;
+  /** Task 1.41: the matches with these ids, batched; unknown ids are absent. */
+  getMatchesByIds(ids: string[]): Promise<StoredMatch[]>;
   /**
    * UF.1 (SPEC-FINAL 9.3.1, v1.18): which of an entry's parents is gone, checked in this
    * order — event, then match (skipped when null), then team, then form version (task 1.40;
@@ -425,6 +465,42 @@ export type NewConflict = {
   superseded_client_updated_at?: string;
   base_version?: number | null;
   duplicate_row_id?: string;
+};
+
+/** The entities a `sync_conflicts` row can name (its check constraint). */
+export type ConflictEntity =
+  'scouting_entry' | 'pick_list' | 'pick_list_entry' | 'do_not_pick' | 'alliance_slot';
+
+/**
+ * A `sync_conflicts` row (SPEC-FINAL 3.6). `resolution` arrived with migration
+ * 20261012092000 (v1.28): the resolve command's choice as given, null while open.
+ */
+export type StoredConflict = {
+  id: string;
+  event_id: string;
+  entity: ConflictEntity;
+  row_id: string;
+  kind: 'divergence' | 'duplicate';
+  superseded_payload: Record<string, unknown> | null;
+  superseded_author_id: string | null;
+  superseded_client_updated_at: string | null;
+  base_version: number | null;
+  duplicate_row_id: string | null;
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  resolution: Record<string, unknown> | null;
+};
+
+/** The listOpenConflicts keyset: created_at is not unique, so the id breaks ties. */
+export type ConflictKeyset = { created_at: string; id: string };
+
+/** What resolveConflictRow writes. */
+export type ConflictResolutionWrite = {
+  resolved_at: string;
+  resolved_by: string;
+  resolution: Record<string, unknown>;
 };
 
 /** The counts `countDeleteImpact` answers. */

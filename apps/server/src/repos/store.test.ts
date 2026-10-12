@@ -476,6 +476,7 @@ function scriptedDb(results: Result[]): { db: Db; chains: Call[][] } {
         'neq',
         'is',
         'gt',
+        'gte',
         'lt',
         'or',
         'in',
@@ -1258,5 +1259,167 @@ describe('supabaseStore forms (task 1.27)', () => {
       'select',
       'id, form_id, version_no, published_at, is_locked, updated_by, created_at, updated_at',
     ]);
+  });
+});
+
+describe('supabaseStore conflict queue and resolution (task 1.41, SPEC-FINAL 9.5)', () => {
+  const EVENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const CONFLICT = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  const ENTRY = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+  const COLUMNS =
+    'id, event_id, entity, row_id, kind, superseded_payload, superseded_author_id, ' +
+    'superseded_client_updated_at, base_version, duplicate_row_id, created_at, updated_at, ' +
+    'resolved_at, resolved_by, resolution';
+  const AT = '2026-11-14T10:00:00.000Z';
+
+  it('listOpenConflicts reads the event’s open rows of one entity, oldest first, bounded', async () => {
+    const { db, chains } = scriptedDb([{ data: [], error: null }]);
+    await supabaseStore(db).listOpenConflicts(EVENT, 'scouting_entry', 21);
+    expect(chains[0]).toEqual([
+      ['from', 'sync_conflicts'],
+      ['select', COLUMNS],
+      ['eq', 'event_id', EVENT],
+      ['eq', 'entity', 'scouting_entry'],
+      ['is', 'resolved_at', null],
+      ['order', 'created_at', { ascending: true }],
+      ['order', 'id', { ascending: true }],
+      ['limit', 21],
+    ]);
+  });
+
+  it('listOpenConflicts pages by an exact, quoted (created_at, id) keyset', async () => {
+    const { db, chains } = scriptedDb([{ data: [], error: null }]);
+    const created = '2026-11-14T09:01:30.123456+00:00';
+    await supabaseStore(db).listOpenConflicts(EVENT, 'scouting_entry', 21, {
+      created_at: created,
+      id: CONFLICT,
+    });
+    expect(chains[0]).toContainEqual([
+      'or',
+      `created_at.gt."${created}",and(created_at.eq."${created}",id.gt.${CONFLICT})`,
+    ]);
+  });
+
+  it('listOpenConflicts refuses a keyset that is not a timestamp and a uuid, without a query', async () => {
+    const { db, chains } = scriptedDb([]);
+    const store = supabaseStore(db);
+    await expect(
+      store.listOpenConflicts(EVENT, 'scouting_entry', 2, { created_at: 'x),or(', id: CONFLICT }),
+    ).rejects.toThrow('listOpenConflicts: a keyset must be a timestamp and a uuid');
+    await expect(
+      store.listOpenConflicts(EVENT, 'scouting_entry', 2, { created_at: AT, id: 'c-1' }),
+    ).rejects.toThrow('listOpenConflicts');
+    expect(await store.listOpenConflicts('ev-1', 'scouting_entry', 2)).toEqual([]);
+    expect(chains).toHaveLength(0);
+  });
+
+  it('listSettledConflicts reads rows resolved since the instant, newest first, bounded', async () => {
+    const { db, chains } = scriptedDb([{ data: [], error: null }]);
+    await supabaseStore(db).listSettledConflicts(EVENT, 'scouting_entry', AT, 100);
+    expect(chains[0]).toEqual([
+      ['from', 'sync_conflicts'],
+      ['select', COLUMNS],
+      ['eq', 'event_id', EVENT],
+      ['eq', 'entity', 'scouting_entry'],
+      ['gte', 'resolved_at', AT],
+      ['order', 'resolved_at', { ascending: false }],
+      ['order', 'id', { ascending: true }],
+      ['limit', 100],
+    ]);
+  });
+
+  it('the conflict reads throw on a database error, keeping its code', async () => {
+    const failing = () =>
+      scriptedDb([{ data: null, error: { message: 'down', code: '08006' } }]).db;
+    await expect(
+      supabaseStore(failing()).listOpenConflicts(EVENT, 'scouting_entry', 2),
+    ).rejects.toMatchObject({ code: '08006' });
+    await expect(
+      supabaseStore(failing()).listSettledConflicts(EVENT, 'scouting_entry', AT, 2),
+    ).rejects.toMatchObject({ code: '08006' });
+    await expect(supabaseStore(failing()).getConflict(CONFLICT)).rejects.toMatchObject({
+      code: '08006',
+    });
+  });
+
+  it('getConflict reads one row by id, and a non-uuid id as none without a query', async () => {
+    const { db, chains } = scriptedDb([{ data: { id: CONFLICT }, error: null }]);
+    const store = supabaseStore(db);
+    expect(await store.getConflict(CONFLICT)).toEqual({ id: CONFLICT });
+    expect(chains[0]).toEqual([
+      ['from', 'sync_conflicts'],
+      ['select', COLUMNS],
+      ['eq', 'id', CONFLICT],
+      ['maybeSingle'],
+    ]);
+    expect(await store.getConflict('c-1')).toBeNull();
+    expect(chains).toHaveLength(1);
+  });
+
+  it('resolveConflictRow is ONE conditional update, and answers whether it took', async () => {
+    const resolved = { resolved_at: AT, resolved_by: 'u-l', resolution: { keep: 'live' } };
+    const took = scriptedDb([{ data: [{ id: CONFLICT }], error: null }]);
+    expect(await supabaseStore(took.db).resolveConflictRow(CONFLICT, resolved)).toBe(true);
+    expect(took.chains[0]).toEqual([
+      ['from', 'sync_conflicts'],
+      ['update', resolved],
+      ['eq', 'id', CONFLICT],
+      ['is', 'resolved_at', null],
+      ['select', 'id'],
+    ]);
+    const missed = scriptedDb([{ data: [], error: null }]);
+    expect(await supabaseStore(missed.db).resolveConflictRow(CONFLICT, resolved)).toBe(false);
+    const quiet = scriptedDb([]);
+    expect(await supabaseStore(quiet.db).resolveConflictRow('c-1', resolved)).toBe(false);
+    expect(quiet.chains).toHaveLength(0);
+    const failing = scriptedDb([{ data: null, error: { message: 'fk', code: '23503' } }]);
+    await expect(
+      supabaseStore(failing.db).resolveConflictRow(CONFLICT, resolved),
+    ).rejects.toMatchObject({ code: '23503' });
+  });
+
+  it('reopenConflictRow clears only the resolution this call made', async () => {
+    const { db, chains } = scriptedDb([{ error: null }]);
+    await supabaseStore(db).reopenConflictRow(CONFLICT, AT);
+    expect(chains[0]).toEqual([
+      ['from', 'sync_conflicts'],
+      ['update', { resolved_at: null, resolved_by: null, resolution: null }],
+      ['eq', 'id', CONFLICT],
+      ['eq', 'resolved_at', AT],
+    ]);
+  });
+
+  it('the batched reads go by id in chunks, skip non-uuid ids, and make no request for none', async () => {
+    const ids = Array.from(
+      { length: 150 },
+      (_, i) => `eeeeeeee-eeee-4eee-8eee-${String(i).padStart(12, '0')}`,
+    );
+    const { db, chains } = scriptedDb([
+      { data: [{ id: ENTRY }], error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+    ]);
+    const store = supabaseStore(db);
+    expect(await store.getEntriesByIds([...ids, 'e-1'])).toEqual([{ id: ENTRY }]);
+    expect(chains).toHaveLength(2);
+    expect(chains[0]).toContainEqual(['select', '*']);
+    expect((chains[0]!.find(([m]) => m === 'in')![2] as string[]).length).toBe(100);
+    expect((chains[1]!.find(([m]) => m === 'in')![2] as string[]).length).toBe(50);
+    await store.getTeamsByIds([ENTRY]);
+    expect(chains[2]).toEqual([
+      ['from', 'teams'],
+      ['select', 'id, number, name, created_at, updated_at'],
+      ['in', 'id', [ENTRY]],
+    ]);
+    await store.getMatchesByIds([ENTRY]);
+    expect(chains[3]).toEqual([
+      ['from', 'matches'],
+      ['select', 'id, event_id, match_type, number, created_at, updated_at'],
+      ['in', 'id', [ENTRY]],
+    ]);
+    expect(await store.getEntriesByIds([])).toEqual([]);
+    expect(await store.getTeamsByIds(['t-1'])).toEqual([]);
+    expect(chains).toHaveLength(4);
   });
 });

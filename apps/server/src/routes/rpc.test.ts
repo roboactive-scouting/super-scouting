@@ -30,7 +30,7 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
     }
   });
 
-  it('has thirty-four authenticated commands for that loop to check, so it is not vacuous', () => {
+  it('has thirty-five authenticated commands for that loop to check, so it is not vacuous', () => {
     const commands = Object.entries(REGISTRY).filter(
       ([, e]) => e.kind === 'command' && !e.unauthenticated,
     );
@@ -55,6 +55,7 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
       'renameUser',
       'reorderEvents',
       'resetPassword',
+      'resolveConflict',
       'restoreFormVersion',
       'saveDraftFields',
       'saveFormExport',
@@ -104,6 +105,7 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
       'getFormExport',
       'getFormVersion',
       'importForm',
+      'listConflicts',
       'listEventRoster',
       'listEvents',
       'listFormExports',
@@ -118,6 +120,7 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
       'renameUser',
       'reorderEvents',
       'resetPassword',
+      'resolveConflict',
       'restoreFormVersion',
       'saveDraftFields',
       'saveFormExport',

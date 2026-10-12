@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { API } from './index';
 import { loginInput, loginOutput, refreshTokenInput } from './auth';
 import {
+  listConflictsInput,
+  listConflictsOutput,
+  resolveConflictInput,
+  resolveConflictOutput,
+} from './conflicts';
+import {
   createFormInput,
   createFormOutput,
   deleteFormInput,
@@ -120,6 +126,7 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
       'getFormExport',
       'getFormVersion',
       'importForm',
+      'listConflicts',
       'listEventRoster',
       'listEvents',
       'listFormExports',
@@ -134,6 +141,7 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
       'renameUser',
       'reorderEvents',
       'resetPassword',
+      'resolveConflict',
       'restoreFormVersion',
       'saveDraftFields',
       'saveFormExport',
@@ -230,5 +238,10 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
       output: listFormExportsOutput,
     });
     expect(API.getFormExport).toEqual({ input: getFormExportInput, output: getFormExportOutput });
+    expect(API.listConflicts).toEqual({ input: listConflictsInput, output: listConflictsOutput });
+    expect(API.resolveConflict).toEqual({
+      input: resolveConflictInput,
+      output: resolveConflictOutput,
+    });
   });
 });

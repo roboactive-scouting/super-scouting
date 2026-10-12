@@ -7714,3 +7714,83 @@ Rejected: keeping ↑ ↓ beside the grip as a keyboard path — the keyboard se
 **What I did instead:** `conflictIdFor(opId)` in `syncPush.ts`: sha256 (`node:crypto`, server only) of a fixed namespace and the op_id, shaped as a v4 uuid. `insertConflict` keeps an existing id: the real store upserts with `{ onConflict: 'id', ignoreDuplicates: true }` (`on conflict do nothing`), the fake keeps the first row. Tests: a divergence and a duplicate whose live write fails once answer `invalid: unexpected server error`, then on retry the same `conflict_id` with `ctx.conflicts.size === 1`; reverting to `randomUUID` fails both.
 
 **Risk:** if the retry's decision differs from the first attempt's (the duplicate row was deleted in between), the first conflict row stays behind pointing at a pair that no longer conflicts; 1.41 must tolerate it, as it must tolerate conflicts naming deleted entries.
+
+## Task 1.41 — the shared API module, the registry rows and the test imports
+
+**Plan said:** create `core/queries/conflicts.ts`, `core/commands/resolveConflict.ts`, their two tests, and modify `routes/registry.ts`; the test file imports `'./resolveConflict'` and `'../../test/fake-context'`.
+
+**What was wrong:** nothing; the plan predates SPEC-FINAL 16.1's shared API map (the registry reads `input`/`output` from `API`, and `rpc.test.ts` asserts both registry key lists), and `apps/server` needs `.js` on every relative import (BUILD-CONTEXT §6).
+
+**What I did instead:** `packages/shared/src/api/conflicts.ts` holds every schema and type (exported from the shared index), `API` gains `listConflicts` and `resolveConflict`, `api/index.test.ts` and `rpc.test.ts`'s two key lists (and "thirty-five authenticated commands") name them. The test imports carry `.js`. Prettier re-wrapped the brief's long `expect(...)` lines; no assertion changed. Added `packages/shared/src/api/conflicts.test.ts` (the schema shapes, strictness, `settled_since` with an offset).
+
+**Risk:** none.
+
+## Task 1.41 — the Store's conflict methods replace the task-1.3 stubs, and five are added
+
+**Plan said:** (context.ts) "a task that wants a method not on this list is a task that has drifted from the plan"; the stubs were `listConflicts(eventId, limit, cursor?)`, `getConflict(id): StoredRow`, `resolveConflictRow(id, resolvedBy, at): void`.
+
+**What was wrong:** the stubs cannot express the decisions: a race-safe resolve must report whether its conditional update took; the queue needs the settled list and batched reads of entries, teams and matches (one query per table per page, SPEC-FINAL 16.4); an opaque string cursor in the store would hide the keyset from the use case, unlike every other list here.
+
+**What I did instead:** `listOpenConflicts(eventId, entity, limit, after?: {created_at, id})`, `listSettledConflicts(eventId, entity, since, limit)`, `getConflict(id): StoredConflict | null`, `resolveConflictRow(id, {resolved_at, resolved_by, resolution}): Promise<boolean>` (one `update … where id = $1 and resolved_at is null … select id`), `reopenConflictRow(id, resolvedAt)` (see the write-order entry), `getEntriesByIds`, `getTeamsByIds`, `getMatchesByIds` (chunks of 100, non-uuid ids skipped). New types `StoredConflict`, `ConflictEntity`, `ConflictKeyset`, `ConflictResolutionWrite`. Both stores implement all of them; `store.test.ts` covers each Supabase call chain (its `scriptedDb` gained `gte`). The keyset is the database's own `created_at` string, regex-checked and double-quoted in the `or` filter, so microseconds survive (`syncConflictsResolution.itest.ts` proves the quoted filter against dev). Rejected: keyset on `toISOString()` (drops microseconds → the last row of a page repeats); keyset on id alone (the page must be oldest first).
+
+**Risk:** none beyond the usual two-implementations drift, which the store unit tests and the itest bound.
+
+## Task 1.41 — resolve the conflict row first, and reopen it if the entry write fails
+
+**Plan said:** (decisions) a second resolve is refused race-safe; order the writes so a refused second resolve never touches the entry rows — "your call, logged".
+
+**What was wrong:** nothing; a choice.
+
+**What I did instead:** every read and check first (conflict exists, open, an entry conflict, the right shape for its kind, the rows exist, the kept duplicate is live), then the conditional `resolveConflictRow` — only the call that takes it goes on — then the one entry write. If that write throws, `reopenConflictRow(id, at)` clears `resolved_at/by/resolution` `where resolved_at = at` (only the resolution this call made), and the error is rethrown (a `23503` as `parent-deleted`). Tests: two racing resolves → exactly one fulfils, the other `conflict`, and only its choice reaches the entry (mutating the fake guard to always take fails it); a failed restore reopens and a retry then succeeds. Rejected: entry write first, then the guard (a racing second resolve would write the entry before being refused, which the decisions forbid); no compensation (a failed write would leave "Settled today" claiming a copy was restored that never was, and the retry would meet `conflict`).
+
+**Risk:** if the entry write AND the reopen both fail, the conflict reads resolved while the entry is unchanged; the reopen failure is logged (`resolveConflict: could not reopen …`), and the conflict row still holds the superseded payload.
+
+## Task 1.41 — resolveConflict's output adds `soft_deleted`; `new_version` is null for a duplicate
+
+**Plan said:** (decisions) output `{ conflict_id, resolved_at, resolution, row_id: <the row that stays live>, new_version: number | null }`, `new_version` null when nothing was rewritten.
+
+**What was wrong:** for a duplicate the row that stays live is NOT rewritten — the other one is — so `new_version` alone cannot say which row moved to which version.
+
+**What I did instead:** `new_version` is `row_id`'s new version when `row_id` was rewritten (a restore), else null (keep live; any duplicate). Added `soft_deleted: { row_id, new_version } | null` — the duplicate's soft-deleted row, or null (a divergence; or a duplicate whose other row was already soft-deleted, which is then not written again).
+
+**Risk:** none; additive.
+
+## Task 1.41 — what a restore writes, and two duplicate edge cases
+
+**Plan said:** (decisions) the row becomes `superseded_payload` minus server-owned keys, keeping its own id, scouter_id and client_created_at, `client_updated_at` from the conflict, version + 1. A duplicate soft-deletes the row not chosen.
+
+**What was wrong:** an existing-wins divergence stores the OPERATION's payload, which was never written to the table and may carry a key that is not a column (the upsert would then fail with PGRST204); and the decisions do not say what to do when a duplicate's row is already soft-deleted.
+
+**What I did instead:** a restore overlays only the entry's content columns present in the payload (`form_version_id, form_kind, event_id, match_id, team_id, alliance, robot_status, breakdown_seconds, data`) on the live row minus `created_at`/`updated_at` (the trigger moves `updated_at`), keeps the row's `deleted_at`, and sets `client_updated_at` = `superseded_client_updated_at`. Keeping a duplicate row that is already soft-deleted is `invalid` ("that copy has been deleted; keep the other one"); if the OTHER row is already soft-deleted the conflict is resolved with no entry write. A conflict whose `entity` is not `scouting_entry` is `invalid` (phase 1G). A divergence with a null `superseded_payload` cannot be restored (`invalid`).
+
+**Risk:** a payload key missing from the superseded copy keeps the live row's value (as syncPush's upsert would) rather than clearing it.
+
+## Task 1.41 — `settled_since` is client-supplied
+
+**Plan said:** `listConflicts` returns "today's resolved rows for the event".
+
+**What was wrong:** the server does not know the venue's day: a Vercel function runs in UTC, and an Israeli venue's midnight is 22:00 or 21:00 UTC, so a server-side "today" would drop or include two hours of resolutions.
+
+**What I did instead:** `settled_since` (an ISO instant with an offset — the device's local midnight) is an optional input; omitted, the server uses `now − 24 h`. `settled` is newest first, at most 100 (`SETTLED_CONFLICTS_MAX`), no paging.
+
+**Risk:** a device with a wrong clock or time zone shows the wrong day's log; it is display only.
+
+## Task 1.41 — the queue's shape beyond the brief
+
+**Plan said:** each item carries team number and name, match number, both authors' full names, both client timestamps and a `diff` of `{field_key, live, superseded}` / `{field_key, a, b}`.
+
+**What was wrong:** nothing; the decisions widened it, and a few calls were left open.
+
+**What I did instead:** the live copy's author is the row's `scouter_id` — the schema records no last editor, so a lead's edit of a scouter's entry still names the scouter. Each copy also carries `form_version_id` (the client labels fields from it), `breakdown_seconds`, and — for stored rows — `deleted_at`. The diff is `robot_status`, `breakdown_seconds`, then the union of `data` keys sorted by key (the client re-orders by the form's `display_order`); a key one copy lacks reads as `null` on the wire, and `differs` is `node:util` `isDeepStrictEqual`. A duplicate's `counted` is the live row when only one is live, else shared `latestWins` (tie → `a`). `team` is nullable. `limit` defaults to 20 and clamps at 50. An unknown `event_id` answers an empty queue, not `not-found` (one read fewer; a deleted event's conflicts are gone by cascade anyway). `conflict_id`/`keep_row_id` are any non-empty string (the fake's fixture ids are not uuids); the Supabase store reads a non-uuid id as no row → `not-found`. A conflict whose row(s) are gone is left out of `items`, so a page may hold fewer than `limit` items while `next_cursor` is set.
+
+**Risk:** a form field whose key is `robot_status` or `breakdown_seconds` would appear twice in the diff.
+
+## Task 1.41 — migration 20261012092000 applied to dev
+
+**Plan said:** a new migration adds the nullable `resolution jsonb` column (SPEC-FINAL v1.28 §3.6).
+
+**What was wrong:** nothing.
+
+**What I did instead:** `alter table public.sync_conflicts add column resolution jsonb;` with a header comment. `packages/db/supabase/.temp/project-ref` printed `oqvoqddoizhhwvjwejtm`; `npx -y supabase@latest db push --linked --dry-run` listed only this file; `--yes` applied it (no password asked). `database.types.ts` regenerated with the workspace CLI (`pnpm exec supabase gen types typescript --linked --schema public`, v2.117.0) as `types-drift.itest.ts` compares; the diff is the one column in Row/Insert/Update. New `packages/db/test/syncConflictsResolution.itest.ts` (season year 1910): null on a new conflict; the conditional resolve takes once, stores jsonb and moves `updated_at`, a second matches nothing; the reopen matches only its own instant; the quoted keyset pages; a duplicate's choice is stored. `pnpm db:test`: 84 of 85, the one failure the pre-existing `seed.itest.ts` rehearsal litter. The pull already selects `*` from `sync_conflicts`, so `resolution` reaches devices with no pull change. Production is not touched: the column must be applied there before a server with this task is deployed to production.
+
+**Risk:** a production deploy of this server before the migration would fail every `listConflicts`/`resolveConflict` (`column sync_conflicts.resolution does not exist`).
