@@ -7554,3 +7554,23 @@ Rejected: keeping ↑ ↓ beside the grip as a keyboard path — the keyboard se
 **What I did instead:** `BUDGET_KB` unchanged at 220.
 
 **Risk:** 0.2 KB of headroom for the next task on the competition path.
+
+## Task 1.39 — Prettier layout of the brief's code
+
+**Plan said:** `conflict.ts` and `conflict.test.ts` exactly as written in the brief, with `./operation` and `./conflict` imports.
+
+**What was wrong:** `pnpm format:check` would fail on the brief's layout (the brief's test file packs several properties per line and one `isRealDuplicate` condition runs past the print width). Nothing else needed changing: the `./operation` import matches the repo's extensionless style, `packages/shared/src/index.ts` re-exports `./sync/conflict` beside `./sync/operation`, and the `_v`, `_c`, `_u` destructured names in `stripServerColumns` pass ESLint as written.
+
+**What I did instead:** ran `prettier --write` on both new files. Layout only: every test case, assertion and exported name is as in the brief (12 cases, none weakened, none added). Not in the brief but implied by the instructions: `classifyPush` keeps `live` as a whole payload on every branch (existing row minus `version`, `created_at`, `updated_at` when the existing row wins; the incoming payload plus `client_updated_at` when it wins).
+
+**Risk:** none.
+
+## Task 1.39 — Compare instants, not strings (coordinator fix)
+
+**Plan said:** `latestWins` and the divergence test compare `client_updated_at` with string `>`.
+
+**What was wrong:** PostgREST returns `timestamptz` as `2026-11-14T09:04:00+00:00` (often no milliseconds) while clients send `2026-11-14T09:04:00.000Z`. As strings `'+'` sorts before `'.'`, so `09:04:00+00:00` > `09:04:00.500Z` is false only by accident of the characters, and equal instants compare unequal. The wrong winner could become the live value.
+
+**What I did instead:** a private `isLater(a, b)` using `Date.parse(a) > Date.parse(b)`; `latestWins` and `incomingWins` use it. Tie rules unchanged (`latestWins` returns the first argument; a divergence tie keeps the existing row). Three tests added (mixed formats both orders for each function; same instant in both formats is a tie). Existing cases untouched.
+
+**Risk:** an unparseable timestamp gives NaN, which compares false, so the first argument / existing row wins; operations are already validated by `operationSchema`.

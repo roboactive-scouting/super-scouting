@@ -23,6 +23,7 @@ export * from './forms/validate';
 export * from './forms/version';
 export * from './forms/visibility';
 export * from './forms/visibilityCheck';
+export * from './sync/conflict';
 export * from './sync/operation';
 export * from './sync/protocol';
 export * from './version';
