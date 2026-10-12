@@ -1,6 +1,7 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.10 · **Date:** 2026-10-09 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.11 · **Date:** 2026-10-12 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.11 (2026-10-12): super entries are exempt from the 5-minute self-edit window (spec v0.78 / SPEC-FINAL v1.26 §7.6, user). Task 1.40 carries the code change as a side task, so it ships with Phase 1 F rather than as its own deployment (user).*
 *v1.10 (2026-10-09): the Settings page is designed (`docs/design/pages/16-settings/final/`, spec v0.76 / SPEC-FINAL v1.25); task 1.38 points at it. Every closed page was checked in Outdoor (2026-10-09): nothing breaks; the timer's literal colours become tokens (1.34).*
 *v1.9 (2026-10-09): the super-scouting page is designed (`docs/design/pages/15-super/final/`, spec v0.75 / SPEC-FINAL v1.24); task 1.36 points at it.*
 *v1.8 (2026-10-09): Phase 1 E's small parts are designed (`docs/design/pages/14-entry-parts/final/`, spec v0.74 / SPEC-FINAL v1.23). 1.33, 1.34, 1.36 and 1.37 point at them; 1.36 drops the `<details>` phase cards (the entry form uses phase tabs) and the "danger" range notice (it is amber).*
@@ -14627,6 +14628,8 @@ git add -A && git commit -m "feat(shared): implement the conflict policy as pure
 `applyEntry` becomes: parent check → **the task 1.14 authorization block, unchanged** → duplicate lookup → `classifyPush` → write the live row → write the conflict row when the decision is not fast-forward → `markApplied` → return the matching `PushResult`.
 
 > **Keep 1.14's guard.** The fragment below starts at the parent check and says nothing about ownership or the five-minute window. That is because **neither changes** — the `scouter`-role ownership check and the `withinSelfEditWindow` / `edit-window-expired` branch stay exactly where task 1.14 put them, between the parent check and the duplicate lookup. If 1.14's five tests go red while you are doing this task, you deleted them. Put them back.
+
+> **Side task (v1.11, user 2026-10-12): super entries are exempt from the window** (SPEC-FINAL v1.26 §7.6). The one change to 1.14's guard: the `withinSelfEditWindow` / `edit-window-expired` branch applies only when the target entry's `form_kind` is `'match'`. A scouter's update to their **own super** entry is accepted at any age; a scouter's update to **someone else's** super entry is still refused by the ownership check (`forbidden`). On the client, `canSelfEdit` (`apps/client/src/features/entry/localEntries.ts`) returns true for the author's own super entry at any age, so `SuperForm` never shows "locked — ask a lead" for it, and the `SuperEntryPage` tests "shows a scouter their own super entry locked once its five-minute window has closed" flip to "lets a scouter edit their own super entry an hour later". **Prove the negatives** (BUILD-CONTEXT §10): server tests — a scouter's own match entry is still refused at 5 min + 1 s; their own super entry is accepted at 60 min; another scouter's super entry is refused. Rebuild `apps/server/api/index.js` (BUILD-CONTEXT §6). Log it in `DEVIATIONS.md` under Task 1.40. The phase branch starts from `spec/super-edit-anytime` (it carries the spec and this plan note), so both reach `develop` in Phase 1 F's single push.
 
 ```ts
   if (!(await ctx.store.parentsExist({
