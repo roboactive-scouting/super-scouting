@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.25 · **Date:** 2026-10-09 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.26 · **Date:** 2026-10-12 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.26 exempts super entries from the self-edit window (§7.6). See the living spec's §21, 2026-10-12 (v0.78).*
 
 *v1.25 adds the Settings page (§8.6, §17.9). See the living spec's §21, 2026-10-09 (v0.76).*
 
@@ -886,6 +888,8 @@ Custom username/password authentication in the server use-case layer. **Supabase
 ### 7.6 Self-edit window
 
 A scouter may edit their **own** entry for **5 minutes** after creating it. After that the row locks for them, and only a lead or admin can change it.
+
+**Super entries are exempt** *(v1.26, user, 2026-10-12)*: a scouter may edit their own super entry (§8.1) at any time during the event. A super entry is one running judgement of a team, built up over every match the scouter watches, not a record of one match, so locking it after five minutes defeats its purpose. The window below applies to `form_kind = 'match'` entries only, on the client and on the server; another scouter's super entry stays read-only to a scouter, as before.
 
 - The window is measured from the entry's **`client_created_at`**, so it behaves identically offline and online.
 - The **client enforces it** by locking the UI at the 5-minute mark.
