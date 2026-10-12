@@ -42,6 +42,10 @@ const BuilderPage = lazy(() =>
 const SuperEntryPage = lazy(() =>
   import('@/features/entry/SuperEntryPage').then((m) => ({ default: m.SuperEntryPage })),
 );
+// The way into practice mode (task 1.37): a small lazy chunk, precached like the others.
+const PracticeStart = lazy(() =>
+  import('@/features/entry/PracticeStart').then((m) => ({ default: m.PracticeStart })),
+);
 const ManageRoute = lazy(() =>
   import('@/features/admin/ManageRoute').then((m) => ({ default: m.ManageRoute })),
 );
@@ -98,6 +102,18 @@ function SignedInSuperRoute() {
     <OverrideGuard defaultEventId={eventId}>
       <Loading>
         <SuperEntryPage eventId={eventId} author={useSignedInUser()} />
+      </Loading>
+    </OverrideGuard>
+  );
+}
+
+/** SPEC-FINAL 8.5: practice opens a real entry screen, so it is guarded like one. */
+function SignedInPracticeRoute() {
+  const eventId = useActiveEventId();
+  return (
+    <OverrideGuard defaultEventId={eventId}>
+      <Loading>
+        <PracticeStart eventId={eventId} />
       </Loading>
     </OverrideGuard>
   );
@@ -160,6 +176,13 @@ export function routeTree(): RouteObject[] {
           path: 'super/:teamId',
           element: <SignedInSuperRoute />,
           handle: named({ title: 'Super scouting', crumb: ['Scout'] }),
+        },
+        // Practice a match (SPEC-FINAL 8.5, task 1.37): from Scout's card and Practice another
+        // match. It reads the event's schedule, so it waits for the event like Scout.
+        {
+          path: 'practice',
+          element: <SignedInPracticeRoute />,
+          handle: named({ title: 'Practice', crumb: ['Scout'] }),
         },
         { path: 'entries', element: <EntriesRoute />, handle: named({ title: 'Entries' }) },
         // Inside the shell: it needs a signed-in device, and never leaves the outbox. It

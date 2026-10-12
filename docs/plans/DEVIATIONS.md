@@ -7284,3 +7284,123 @@ Rejected: keeping ↑ ↓ beside the grip as a keyboard path — the keyboard se
 **What I did instead:** the mock gains a `Link` drawn as a plain `<a href>`; the gated list gains `super` and `super/:teamId` (they read the event's roster and entries, so waiting for the event is right). New test: `/super` is refused while a session override is set, like Scout and the entry screen (SPEC-FINAL 6.3).
 
 **Risk:** none.
+
+## Task 1.37 — `practice.test.ts` is the brief's, reformatted by Prettier
+
+**Plan said:** write `practice.test.ts` exactly as given.
+
+**What was wrong:** the brief's `base` object puts several properties on one line, which `pnpm format:check` refuses.
+
+**What I did instead:** the file is the brief's test, token for token, after `prettier --write` (one property per line). The unawaited `practiceMode.exit()` in `beforeEach` is kept: Dexie runs that `clear()` before any later write on the same store, and lint does not flag it.
+
+**Risk:** none.
+
+## Task 1.37 — the `practiceMode` interface, and practice is lost on a reload
+
+**Plan said:** `practiceMode` — a session flag routing drafts to the `practice_drafts` store; `enter()`, `exit()` (clears the store), `clearOnStart()` at app start, plus an active/subscribe for React.
+
+**What was wrong:** nothing; the shape was open.
+
+**What I did instead:** `features/entry/practice.ts`: `practiceMode.active()`, `enter()`, `exit(): Promise<void>` (flag off, then `db.practiceDrafts.clear()`), `clearOnStart(): Promise<void>` (the same, called from `main.tsx` before the app renders), `subscribe(listener)`, and `usePracticeMode()` (`useSyncExternalStore`). The flag is memory only. Rejected: keeping it in `sessionStorage` (SPEC-FINAL 8.5 clears the practice store on app start, so a practice that survived a reload would have lost its own draft anyway).
+
+**Risk:** a reload while on a practice entry reopens that URL as a **real** entry for the same match and robot (no strip, the real header). Nothing is written until the scout touches it, and the header then says "Draft saved on this device".
+
+## Task 1.37 — practice routing: drafts, submit, the device's entry, and no new matches
+
+**Plan said:** in practice drafts go to `practiceDrafts`; `submitEntry` is a no-op; nothing reaches `scouting_entries` or the outbox.
+
+**What was wrong:** three more ways practice could write or mislead: `ensureMatchLocally` enqueues a bare `match` create when the typed match is not on the device; `EntryRoute` and `SuperForm` open the device's own entry for the robot (an edit, possibly locked); `submitEntry`'s no-op left the practice draft behind.
+
+**What I did instead:** `useDraft` picks `db.practiceDrafts` or `db.drafts` by `usePracticeMode()` (so the match and the super entry are both covered). `submitEntry` in practice deletes the practice draft for its key and returns `{ row_id: '' }` before validating anything. `ensureMatchLocally` throws in practice when it would create a match; the Scout page in practice says "Match n is not on this device. Practice uses a match this device holds." and keeps Start entry disabled for it. `EntryRoute` and `SuperForm` ignore the device's existing entry in practice, so practice always starts blank and is never locked.
+
+**Risk:** none.
+
+## Task 1.37 — super scouting in practice is routed like the match entry
+
+**Plan said:** route super the same way, or keep it out of practice — decide and log.
+
+**What was wrong:** nothing.
+
+**What I did instead:** routed the same way. While practice is on, `/super/:teamId` writes its draft to the practice store, its header line ends "· practice · not saved", Review entry is Finish practice and ends in the same "Practice finished" sheet (Practice another match goes to `/practice`, i.e. a match). Rejected: keeping super out of practice (the strip says "Nothing is saved" on every screen, so a super entry submitted for real under it would contradict the strip; blocking `/super` in practice would be a second rule to learn).
+
+**Risk:** none.
+
+## Task 1.37 — the match clock and the stopwatches are kept in the draft (open item from 1.34)
+
+**Plan said:** (open item) include the clock and stopwatch state in the match draft so Resume restores it; check what snapshot/restore offer.
+
+**What was wrong:** `matchClock` had `snapshot()/restore()/subscribe()`; `stopwatches` had none of them, and a stopwatch start changes nothing the page holds, so no draft was written for it.
+
+**What I did instead:** `stopwatches` gained `snapshot()`, `restore()` and `subscribe()` (start, pause, bank, clear and resetAll notify), and `asStopwatches()`; `matchClock.ts` gained `asClockOrigin()` (both read a draft defensively). The match draft payload is now `{ robot_status, data, breakdown_seconds, alliance, phase, clock, stopwatches }`. `EntryPage` subscribes to both stores while the entry is open and writes the draft when either changes (compared as JSON, so putting them back on Resume is not a change and does not move "last change"); the listeners are removed before the closing reset. On opening with a draft it restores the clock, the stopwatches and the phase once. A running clock or stopwatch keeps running across the reload, because its time is read from the stored epoch start. The super entry has no match clock, and its draft stays `{ form_kind, team_id, data }` (task 1.36): a running stopwatch in a super form is not kept across a reload (not asked for; left for later). A tab or swipe writes the phase only into a draft that already exists, so looking around never creates one.
+
+**Risk:** a Start match alone (no field touched) now creates a draft, which Scout then offers — correct by SPEC-FINAL 8.3 ("every interaction").
+
+## Task 1.37 — the draft offer: which draft, where, and how it is drawn
+
+**Plan said:** the Note (3 px `--ink` edge) at the top of Scout with Resume and Discard (Undo toast); if several drafts, offer the most recent; practice drafts never offered.
+
+**What was wrong:** nothing; the details were open.
+
+**What I did instead:** `DraftRecovery` reads `db.drafts.orderBy('updated_at').last()` and describes it from the cache: "Q39 · 2630 Thunderbolts, Red 1" (the station from the line-up, else "Red alliance"), the time, and the date before it when the change was not today; a super draft reads "You have an unfinished super entry: 1690 Orbit — …". A draft whose match or team is no longer cached is still offered ("a match no longer on this device"). Resume goes to `entryPath(match, team, alliance)` — the alliance the draft saved, else the line-up's side, else red — or `superTeamPath(team)`. Discard deletes that record only and toasts "Draft discarded · Undo"; Undo `put`s the same record back; after a discard the next most recent draft, if any, is offered. Nothing is offered while practice is on. The Note is drawn with the `Note` classes by hand, because `Note` has no action slot. It sits at the very top on a phone (where the page title is hidden) and under "Scout a match" on a computer. The component is a 1.4 KB lazy chunk; if the chunk cannot load it offers nothing instead of breaking Scout. The toast is portaled outside the shell's `--bottom-bar`, so on a phone it is placed at a fixed `11rem` above the bottom, clear of the Start entry bar.
+
+**Risk:** a device with an unfinished draft and a missing lazy chunk (never precached) would not offer the draft until the chunk loads; the draft itself is safe.
+
+## Task 1.37 — the way into practice: a `/practice` route that picks the match
+
+**Plan said:** `routes.tsx` gets the practice-mode entry point; the card enters practice and opens the real match form for a sensible target from what the device holds.
+
+**What was wrong:** nothing; the target was open.
+
+**What I did instead:** `PATHS.practice = '/practice'` (also in `ENTRY_PATH_PREFIXES`), a gated route under `OverrideGuard` rendering the lazy `PracticeStart` (0.9 KB). It picks a target with `practiceTarget` (pure, tested): the robot the Scout page has picked when its match is on the device (the card passes it as router state); for Practice another match, the next match with a line-up after the one just practised, wrapping; otherwise the first match with a line-up this device holds no match entry for, else the first. The robot is the one at the scout's station, else Red 1. Then it turns practice on and `replace`s itself with the entry. With no match with a line-up on the device it shows "No match on this device to practise with" and stays out of practice. `routes.test.tsx`'s gated list gains `practice`.
+
+**Risk:** none.
+
+## Task 1.37 — the practice strip, the header line and Finish practice
+
+**Plan said:** a persistent `Notice tone="warning"` strip in AppShell's `notices` (PRACTICE tag, "Nothing is saved", Exit practice); the header "Practice · not saved"; Finish practice ends in a sheet (phone) / dialog (desktop) with Practice another match and Exit practice; never red.
+
+**What was wrong:** `Notice tone="warning"` draws a 3 px amber start edge on white; the design's strip is `--warn-tint` with a 2 px `--warn` foot and no start edge. `Sheet` and `Dialog` draw the title left-aligned in a row with the ×; the design's sheet has a round amber flask centred above a centred title.
+
+**What I did instead:** the strip is `Notice tone="warning" still role="status" aria-label="Practice mode"` with class overrides for the design's look, the PRACTICE tag on `--warn` with `--on-accent` text, and a 32 px pill Exit practice (48 px hit area). Exit practice from the strip goes to Scout first when on an entry, a super entry or `/practice` (an open entry would otherwise carry on as a real one), then calls `practiceMode.exit()`; elsewhere it stays put. `Dialog`, `Sheet` and `ResponsiveDialog` gained an optional `icon` prop: the icon centred above a centred title, no ×. `PracticeFinished` (lazy from `EntryPage`, 0.6 KB) uses it; Practice another match empties the practice store and goes to `/practice` with `{ after: matchId }`; Exit practice navigates to Scout, then exits. Finish practice runs `form.review()` first, exactly as Review entry. The header dot stays `--accent` as drawn. Rejected: an amber dot for "Practice · not saved" (not in the design); a hand-built sheet (would duplicate the focus trap and drag-to-close).
+
+**Risk:** none.
+
+## Task 1.37 — the initial-JS budget goes to 220 KB
+
+**Plan said:** keep new UI off the initial chunk where possible; if `BUDGET_KB` must rise, log the measured size and new budget and update BUILD-CONTEXT §12.5.
+
+**What was wrong:** with everything eager, `initial JS 219.2 KB gzip` / `initial JS over 218 KB gzip`. After making the draft offer and the practice-finished sheet lazy: `initial JS 218.2 KB gzip` / `initial JS over 218 KB gzip`. What is left on the initial path is the draft persistence in `EntryPage` and `stopwatches`, `practice.ts`, the strip in `AppShell` and the Scout card.
+
+**What I did instead:** `BUDGET_KB = 220` in `scripts/check-bundle.mjs` and the §12.5 line. Rejected: lazy-loading the strip or the card (the strip must be on the first frame of every screen in practice; the card is a link).
+
+**Risk:** 1.8 KB of headroom for 1.38 (wake lock, haptics, Settings — Settings can be a lazy route).
+
+## Task 1.37 — screenshot specs
+
+**Plan said:** shots at 1440 and 375 with realistic data: Scout with the draft Note and both foot cards; the Discard Undo toast; an entry in practice; the Practice finished sheet/dialog; both themes.
+
+**What was wrong:** the design draws Q39 · 1690 Orbit at Red 1; in the shared fixture Q39's Red 1 is 2630.
+
+**What I did instead:** `e2e/drafts-practice.spec.ts` (the match form laid out like the design: Pieces scored high / low in Auto and Teleop, a climb select, notes; no timer; the clock at 11:42 Tel Aviv on the competition day; the scout at Red 1) shoots `scout-draft` (+ `-phone-long`), `scout-draft-discarded`, `practice-entry`, `practice-finished` at both widths, and `practice-scout` (the strip on a screen that is not an entry) on a phone, each also `-outdoor`. The draft is made by really scouting Q39 · 2630; the practice run checks the device's IndexedDB outbox is empty after Exit practice.
+
+**Risk:** none.
+
+## Task 1.37 — two click-heavy entry tests get a 15 s timeout (orchestrator)
+
+**Plan said:** nothing; vitest's default 5 s test timeout applies.
+
+**What was wrong:** "blocks submit and lists every out-of-range field, not just the first" (52 taps) and "marks each phase holding a problem on the desktop panel" (41 taps) took 5.1–5.7 s in a full `pnpm test` run on this machine and failed with `Test timed out in 5000ms`, with the 1.37 changes stashed as well — load, not a regression.
+
+**What I did instead:** a `15_000` timeout on those two tests only. Rejected: fewer taps (the test is the range limit 40 and needs 41), a global timeout raise (hides real hangs everywhere).
+
+**Risk:** none for the product; a full run is still load-sensitive elsewhere (one builder test timed out once under load).
+
+## Task 1.37 — the client's test timeout goes to 15 s (orchestrator, supersedes the entry above)
+
+**Plan said:** nothing; vitest's default 5 s.
+
+**What was wrong:** after the two entry tests got 15 s, a full run failed two `BuilderPage.test.tsx` tests instead (`a save that forks and then fails to send the points says so on the new draft, once` 5232 ms; `a palette field removed before saving takes its points with it (I1)` 5339 ms). The same test, filtered and alone, took 4914 ms and then failed at 5410 ms **on the committed 1.36 code with the 1.37 changes stashed**: load, not a regression. Per-test timeouts would chase the next test over the line.
+
+**What I did instead:** `testTimeout: 15_000` in `apps/client/vitest.config.ts`. The per-test 15 s on the two entry tests stay (harmless, and they document why they are slow). Rejected: per-test raises only (above); fewer taps (the range tests need 41).
+
+**Risk:** a genuinely hung client test now takes 15 s to fail instead of 5.

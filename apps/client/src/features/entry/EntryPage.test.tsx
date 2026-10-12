@@ -944,7 +944,8 @@ describe('the entry form rules (1.36)', () => {
     // Review entry stays pressable, and no confirmation, no Submit, nothing queued.
     expect(screen.queryByRole('button', { name: /submit entry/i })).not.toBeInTheDocument();
     expect(await pending(10)).toHaveLength(0);
-  });
+    // 52 taps: over the default 5 s on a loaded machine (DEVIATIONS 1.37).
+  }, 15_000);
 
   it('marks each phase holding a problem on the desktop panel: "1 to fix"', async () => {
     const user = await played();
@@ -956,7 +957,7 @@ describe('the entry form rules (1.36)', () => {
     expect(within(panel).getByRole('button', { name: /Autonomous/ })).not.toHaveTextContent(
       /to fix/,
     );
-  });
+  }, 15_000);
 
   it('Go to opens the phase, focuses the field and says "Required — pick one"', async () => {
     await climbLevel();

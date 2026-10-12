@@ -8,6 +8,11 @@ export const PATHS = {
   scout: '/scout',
   /** Super scouting (SPEC-FINAL 8.1, task 1.36): one entry per team for the whole event. */
   super: '/super',
+  /**
+   * The way into practice mode (SPEC-FINAL 8.5, task 1.37): picks a match the device holds, turns
+   * practice on and replaces itself with that entry.
+   */
+  practice: '/practice',
   entries: '/entries',
   switchScouter: '/switch-scouter',
   changePassword: '/change-password',
@@ -52,9 +57,15 @@ export function superTeamPath(teamId: string): string {
 /**
  * The data-entry path (SPEC-FINAL 17.9): the screens a scout uses mid-match. No route
  * transition plays into them and nothing on them moves unless it carries information.
- * Super scouting (`/super`, task 1.36) is on it too.
+ * Super scouting (`/super`, task 1.36) is on it too, and `/practice` (task 1.37), which only
+ * hands over to an entry.
  */
-export const ENTRY_PATH_PREFIXES: readonly string[] = [PATHS.scout, '/entry/', PATHS.super];
+export const ENTRY_PATH_PREFIXES: readonly string[] = [
+  PATHS.scout,
+  '/entry/',
+  PATHS.super,
+  PATHS.practice,
+];
 
 export function isEntryPath(pathname: string): boolean {
   return ENTRY_PATH_PREFIXES.some((prefix) =>

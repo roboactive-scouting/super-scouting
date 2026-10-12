@@ -14,6 +14,8 @@ import { FieldInput } from './FieldInput';
 import { canSelfEdit, editsAnyTime, type Editor } from './localEntries';
 import { matchClock } from './matchClock';
 import { PhaseTabs } from './PhaseTabs';
+import { usePracticeMode } from './practice';
+import { PracticeFinished } from './PracticeFinished';
 import { ProblemsDialog } from './ProblemsDialog';
 import { stopwatches } from './stopwatches';
 import { submitEntry } from './submitEntry';
@@ -46,6 +48,10 @@ export function superDraftKey(formVersionId: string, teamId: string): string {
  * device already holds a super entry for opens that entry, and saving updates it (its `rowId`),
  * never a second row. The fields, phase tabs, rules, problems and confirmation are the match
  * entry's own (`useEntryForm`, `PhaseTabs`, `FieldInput`, `ProblemsDialog`, `ConfirmEntry`).
+ *
+ * In practice (SPEC-FINAL 8.5; task 1.37) it is routed like the match entry: the draft goes to
+ * the practice store, the device's entry is not opened (practice starts blank), the header says
+ * "Practice · not saved" and Review entry is Finish practice.
  */
 export function SuperForm({
   eventId,
@@ -65,8 +71,11 @@ export function SuperForm({
   desktop: boolean;
   onSubmitted: (rowId: string) => void;
 }) {
+  const practice = usePracticeMode();
+  /** Finish practice let through: the "Practice finished" sheet is open (8.5). */
+  const [finished, setFinished] = useState(false);
   // The entry as the page opened: a later sync re-reading the rows must not reset the form.
-  const existing = useRef(team.entry).current;
+  const existing = useRef(practice ? undefined : team.entry).current;
   const draftKey = superDraftKey(formVersionId, team.id);
   const { draft, loaded, savedAt, save } = useDraft(draftKey);
   const [fields, setFields] = useState<FormFieldDefinition[]>([]);
@@ -115,8 +124,11 @@ export function SuperForm({
   }
 
   function review() {
-    if (form.review()) setReviewing(true);
+    if (!form.review()) return;
+    if (practice) setFinished(true);
+    else setReviewing(true);
   }
+  const reviewLabel = practice ? 'Finish practice' : 'Review entry';
 
   async function commit() {
     if (inFlight.current) return;
@@ -192,7 +204,11 @@ export function SuperForm({
         <span aria-hidden="true" className="size-[7px] shrink-0 rounded-full bg-accent" />
         <span dir="auto">
           {eventName} · the whole event
-          {savedAt ? ` · draft saved ${formatTime(savedAt)}` : ''}
+          {practice
+            ? ' · practice · not saved'
+            : savedAt
+              ? ` · draft saved ${formatTime(savedAt)}`
+              : ''}
         </span>
       </p>
       {existing && !locked && (
@@ -296,6 +312,9 @@ export function SuperForm({
         onBack={() => setReviewing(false)}
         onSubmit={() => void commit()}
       />
+      {practice && (
+        <PracticeFinished open={finished} onClose={() => setFinished(false)} after={null} />
+      )}
     </>
   );
 
@@ -315,7 +334,7 @@ export function SuperForm({
           {pane}
           <div className="px-7 pt-2 pb-6">
             <Button variant="primary" size="block" className="min-h-14" onClick={review}>
-              Review entry
+              {reviewLabel}
             </Button>
           </div>
         </div>
@@ -333,7 +352,7 @@ export function SuperForm({
         <div className="sticky bottom-[var(--bottom-bar,0px)] z-20 mt-6 px-4 [&>div]:mt-0">
           <ActionBar>
             <Button variant="primary" size="block" onClick={review}>
-              Review entry
+              {reviewLabel}
             </Button>
           </ActionBar>
         </div>

@@ -21,6 +21,11 @@ export type DialogProps = {
   showClose?: boolean;
   /** The id of the element that describes the dialog (aria-describedby). */
   describedBy?: string;
+  /**
+   * A round icon centred above a centred title (entry parts, "Practice finished"; task 1.37).
+   * The body lays itself out; the × is not drawn.
+   */
+  icon?: ReactNode;
 };
 
 const FOCUSABLE =
@@ -47,6 +52,7 @@ function OpenDialog({
   dismissible = true,
   showClose = true,
   describedBy,
+  icon,
 }: DialogProps) {
   const heading = useId();
   const body = useRef<HTMLDivElement>(null);
@@ -75,11 +81,16 @@ function OpenDialog({
         style={{ width }}
         className="motion-safe:animate-scale-in flex max-h-full max-w-full flex-col gap-3 overflow-y-auto rounded-2xl bg-surface px-6 py-[1.375rem] text-ink shadow-[var(--shadow-float)]"
       >
-        <div className="flex items-center gap-3">
+        <div
+          className={
+            icon ? 'flex flex-col items-center gap-2 text-center' : 'flex items-center gap-3'
+          }
+        >
+          {icon}
           <h2 id={heading} className="min-w-0 flex-1 text-xl font-[750]" dir="auto">
             {title}
           </h2>
-          {showClose && (
+          {showClose && !icon && (
             <button
               ref={close}
               type="button"

@@ -222,15 +222,17 @@ describe('which routes wait for the event to load (task 1.17b)', () => {
     ]);
   });
 
-  it('leaves Scout, the entry screen, super scouting and Entries gated', () => {
+  it('leaves Scout, the entry screen, super scouting, practice and Entries gated', () => {
     const shell = routeTree().find((r) => r.path === '/');
     const gated = (shell?.children ?? [])
       .filter((r) => !needsNoHydration(r.handle))
       .map((r) => (r.index ? '(index)' : r.path));
-    // Super scouting (task 1.36) reads the event's roster and entries, so it waits too.
+    // Super scouting (task 1.36) reads the event's roster and entries, so it waits too; so does
+    // practice (task 1.37), which reads the event's schedule.
     expect(gated.sort()).toEqual([
       'entries',
       'entry/:matchId/:teamId',
+      'practice',
       'scout',
       'super',
       'super/:teamId',

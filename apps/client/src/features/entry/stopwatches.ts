@@ -2,13 +2,19 @@
 export type StopwatchRun = { base: number; startedAt: number | null };
 
 const runs = new Map<string, StopwatchRun>();
+const listeners = new Set<() => void>();
+
+function changed(): void {
+  for (const listener of listeners) listener();
+}
 
 /**
  * The running state of the entry's Timer fields (SPEC-FINAL 5.2), by field key. It lives outside
  * the component so a stopwatch keeps going while its phase is off screen (the entry draws one
  * phase at a time). Every reading is `base` plus `Date.now()` minus the run's start — never a
  * sum of interval ticks — so a re-render or a sleeping tab never loses time. `EntryPage` clears
- * it as an entry opens and closes, with the match clock.
+ * it as an entry opens and closes, with the match clock, and keeps a `snapshot` in the entry's
+ * draft (task 1.37), so a reload or a crash brings a running stopwatch back still running.
  */
 export const stopwatches = {
   get(key: string): StopwatchRun | undefined {
@@ -20,16 +26,19 @@ export const stopwatches = {
   /** Starts (or resumes) counting up from `base` seconds. */
   start(key: string, base: number): void {
     runs.set(key, { base, startedAt: Date.now() });
+    changed();
   },
   /** Stops the run and banks it; returns the seconds banked. */
   pause(key: string): number {
     const seconds = stopwatches.seconds(key) ?? 0;
     runs.set(key, { base: seconds, startedAt: null });
+    changed();
     return seconds;
   },
   /** Sets the banked seconds of a stopped stopwatch (✎ corrects a late stop). */
   bank(key: string, seconds: number): void {
     runs.set(key, { base: seconds, startedAt: null });
+    changed();
   },
   /** The seconds so far, or null for a stopwatch never started. */
   seconds(key: string, now: number = Date.now()): number | null {
@@ -38,9 +47,41 @@ export const stopwatches = {
     return run.base + (run.startedAt === null ? 0 : (now - run.startedAt) / 1000);
   },
   clear(key: string): void {
-    runs.delete(key);
+    if (runs.delete(key)) changed();
   },
   resetAll(): void {
+    if (runs.size === 0) return;
     runs.clear();
+    changed();
+  },
+  /** Every stopwatch as it stands, for the entry's draft. */
+  snapshot(): Record<string, StopwatchRun> {
+    return Object.fromEntries([...runs].map(([key, run]) => [key, { ...run }]));
+  },
+  /** Puts back stopwatches taken with `snapshot` (a resumed draft); anything else is dropped. */
+  restore(saved: Record<string, StopwatchRun>): void {
+    runs.clear();
+    for (const [key, run] of Object.entries(saved)) runs.set(key, { ...run });
+    changed();
+  },
+  /** Calls `listener` whenever a stopwatch starts, stops, is corrected or cleared. */
+  subscribe(listener: () => void): () => void {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
   },
 };
+
+/** A draft's saved stopwatches, read defensively: a draft from before task 1.37 has none. */
+export function asStopwatches(value: unknown): Record<string, StopwatchRun> {
+  if (typeof value !== 'object' || value === null) return {};
+  const out: Record<string, StopwatchRun> = {};
+  for (const [key, run] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof run !== 'object' || run === null) continue;
+    const { base, startedAt } = run as Record<string, unknown>;
+    if (typeof base !== 'number') continue;
+    out[key] = { base, startedAt: typeof startedAt === 'number' ? startedAt : null };
+  }
+  return out;
+}

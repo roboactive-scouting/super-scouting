@@ -2,11 +2,16 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from '@/App';
 import { syncSessionAcrossTabs } from '@/auth/session';
+import { practiceMode } from '@/features/entry/practice';
 import { browserAdapter, registerServiceWorker, updateReady } from '@/pwa';
 import '@/styles/index.css';
 
 // UF.2: a sign-out, sign-in or expiry in one tab shows in every other tab at once.
 syncSessionAcrossTabs();
+
+// SPEC-FINAL 8.5: the app always starts out of practice, with no practice draft left over from a
+// crash or a closed tab (task 1.37).
+void practiceMode.clearOnStart();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('#root is missing from index.html');

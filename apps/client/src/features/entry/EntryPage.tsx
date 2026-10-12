@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import type { FormFieldDefinition, RobotStatus, TimerConfig } from '@frc/shared';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import type { FieldPhase, FormFieldDefinition, RobotStatus, TimerConfig } from '@frc/shared';
 import { ActionBar } from '@/components/ui/action-bar';
 import { Button } from '@/components/ui/button';
 import { cachedFormFields, cachedRows } from '@/data/cache';
@@ -14,15 +14,25 @@ import { BREAKDOWN_KEY } from './entryRules';
 import { EntrySummary } from './EntrySummary';
 import { FieldInput } from './FieldInput';
 import { canSelfEdit, editsAnyTime, type Editor, type LocalEntry } from './localEntries';
-import { matchClock } from './matchClock';
+import { asClockOrigin, matchClock } from './matchClock';
 import { MatchTimer } from './lazyParts';
+import { PHASE_NAME } from './phases';
 import { PhaseTabs } from './PhaseTabs';
+import { usePracticeMode } from './practice';
 import { ProblemsDialog } from './ProblemsDialog';
 import { RobotStatusPicker } from './RobotStatusPicker';
-import { stopwatches } from './stopwatches';
+import { asStopwatches, stopwatches } from './stopwatches';
 import { submitEntry } from './submitEntry';
 import { useDraft } from './useDraft';
 import { useEntryForm } from './useEntryForm';
+
+/**
+ * The "Practice finished" sheet (SPEC-FINAL 8.5) only ever shows in practice: a small lazy chunk,
+ * precached, kept off the competition path's initial bundle (task 1.37).
+ */
+const PracticeFinished = lazy(() =>
+  import('./PracticeFinished').then((m) => ({ default: m.PracticeFinished })),
+);
 
 export type EntryPageProps = {
   eventId: string;
@@ -46,9 +56,25 @@ export type EntryPageProps = {
   fieldImagePath?: string | null;
 };
 
+/** The match draft's key (SPEC-FINAL 8.3): one per (form version, match, team). */
+export function matchDraftKey(formVersionId: string, matchId: string, teamId: string): string {
+  return `${formVersionId}:${matchId}:${teamId}`;
+}
+
+const isPhase = (value: unknown): value is FieldPhase =>
+  typeof value === 'string' && Object.hasOwn(PHASE_NAME, value);
+
+/** The match clock and the stopwatches as one comparable string: did either move? */
+const timersKey = () =>
+  JSON.stringify({ clock: matchClock.snapshot(), stopwatches: stopwatches.snapshot() });
+
 export function EntryPage(props: EntryPageProps) {
-  const draftKey = `${props.formVersionId}:${props.matchId}:${props.teamId}`;
+  const draftKey = matchDraftKey(props.formVersionId, props.matchId, props.teamId);
+  const practice = usePracticeMode();
+  // In practice the draft goes to its own store (SPEC-FINAL 8.5), through the same hook.
   const { draft, loaded, savedAt, save } = useDraft(draftKey);
+  /** Finish practice let through: the "Practice finished" sheet is open (8.5). */
+  const [finished, setFinished] = useState(false);
   const desktop = useIsDesktop();
   const [fields, setFields] = useState<FormFieldDefinition[]>([]);
   const [station, setStation] = useState<Station | null>(null);
@@ -62,6 +88,12 @@ export function EntryPage(props: EntryPageProps) {
   const inFlight = useRef(false);
   const errorRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
+  /** The draft's clock, stopwatches and phase have been put back (once per opening). */
+  const restored = useRef(false);
+  /** The timers as last written to the draft, so putting them back is not a change. */
+  const savedTimers = useRef('');
+  /** Writes the draft from the page as it stands, plus `next`; set every render (below). */
+  const persist = useRef<(next?: Record<string, unknown>) => void>(() => undefined);
   // "Q38 · 5951": the team's number is the label's first word ("5951 Tiny Titans").
   usePageTitle(`${props.matchLabel} · ${props.teamLabel.split(' ')[0] ?? ''}`);
   // The desktop crumb keeps the team's name: "Scout / Q39 · 1690 Orbit" (Entry final).
@@ -69,10 +101,21 @@ export function EntryPage(props: EntryPageProps) {
 
   // One entry, one origin (SPEC-FINAL 5.5): the match clock and the Timer fields' stopwatches
   // start empty as an entry opens and are cleared as it closes, so nothing leaks between entries.
+  // While the entry is open, a Start match, a reset or a stopwatch start or stop writes the draft
+  // (8.3: the draft survives a crash; task 1.37). The listeners go before the closing reset.
   useEffect(() => {
+    restored.current = false;
     matchClock.reset();
     stopwatches.resetAll();
+    const onTimers = () => {
+      if (!restored.current || timersKey() === savedTimers.current) return;
+      persist.current();
+    };
+    const offClock = matchClock.subscribe(onTimers);
+    const offWatches = stopwatches.subscribe(onTimers);
     return () => {
+      offClock();
+      offWatches();
       matchClock.reset();
       stopwatches.resetAll();
     };
@@ -98,12 +141,25 @@ export function EntryPage(props: EntryPageProps) {
     if (!loaded) return;
     // An unsent draft wins over the saved entry: it is the newer of the two.
     const source = draft ?? props.existing ?? null;
-    if (source === null) return;
-    setStatus((source.robot_status as RobotStatus | null) ?? null);
-    setData((source.data as Record<string, unknown>) ?? {});
-    setBreakdownSeconds(
-      typeof source.breakdown_seconds === 'number' ? source.breakdown_seconds : null,
-    );
+    if (source !== null) {
+      setStatus((source.robot_status as RobotStatus | null) ?? null);
+      setData((source.data as Record<string, unknown>) ?? {});
+      setBreakdownSeconds(
+        typeof source.breakdown_seconds === 'number' ? source.breakdown_seconds : null,
+      );
+    }
+    if (restored.current) return;
+    // Resume opens the entry where it was (8.3, task 1.37): the match clock and the stopwatches
+    // as they stood (a running one is still running: its time is read from timestamps), and the
+    // phase on screen. A draft written before task 1.37 has none of them.
+    if (draft) {
+      matchClock.restore(asClockOrigin(draft.clock));
+      stopwatches.restore(asStopwatches(draft.stopwatches));
+      if (isPhase(draft.phase)) form.setPhase(draft.phase);
+    }
+    savedTimers.current = timersKey();
+    restored.current = true;
+    // `form.setPhase` is a state setter: stable.
   }, [loaded, draft, props.existing]);
 
   const dead = status === 'no_show' || status === 'disabled';
@@ -118,9 +174,39 @@ export function EntryPage(props: EntryPageProps) {
   const { phases, current, done } = form;
   const showPhases = status !== null && !dead && current !== undefined;
 
-  /** Review entry: the confirmation, or — when anything holds it — the problems to fix first. */
+  /**
+   * Review entry: the confirmation, or — when anything holds it — the problems to fix first. In
+   * practice it is Finish practice: the same rules, then the "Practice finished" sheet (8.5).
+   */
   function review() {
-    if (form.review()) setReviewing(true);
+    if (!form.review()) return;
+    if (practice) setFinished(true);
+    else setReviewing(true);
+  }
+
+  /**
+   * The draft (8.3): what the scout set (`data` holds no starting values), the robot status and
+   * breakdown time, and — so Resume opens it where it was (task 1.37) — the alliance, the phase
+   * on screen, the match clock and the stopwatches.
+   */
+  persist.current = (next = {}) => {
+    savedTimers.current = timersKey();
+    save({
+      robot_status: status,
+      data,
+      breakdown_seconds: breakdownSeconds,
+      alliance: props.alliance,
+      phase: form.current?.key ?? null,
+      clock: matchClock.snapshot(),
+      stopwatches: stopwatches.snapshot(),
+      ...next,
+    });
+  };
+
+  /** A phase picked by tab, swipe or the desktop panel: kept in a draft that already exists. */
+  function pickPhase(phase: FieldPhase) {
+    form.setPhase(phase);
+    if (savedAt !== null) persist.current({ phase });
   }
 
   function update(next: {
@@ -134,7 +220,7 @@ export function EntryPage(props: EntryPageProps) {
     setStatus(nextStatus);
     setData(nextData);
     setBreakdownSeconds(nextSeconds);
-    save({ robot_status: nextStatus, data: nextData, breakdown_seconds: nextSeconds });
+    persist.current({ robot_status: nextStatus, data: nextData, breakdown_seconds: nextSeconds });
   }
 
   /** One tap, one entry and one outbox operation, however fast the second tap comes. */
@@ -183,6 +269,7 @@ export function EntryPage(props: EntryPageProps) {
       matchLabel={props.matchLabel}
       teamLabel={props.teamLabel}
       savedAt={savedAt}
+      practice={practice}
       tag={tag}
     />
   );
@@ -201,7 +288,7 @@ export function EntryPage(props: EntryPageProps) {
     <PhaseTabs
       phases={phases}
       value={current.key}
-      onChange={form.setPhase}
+      onChange={pickPhase}
       done={done}
       phone={!desktop}
       swipeArea={mainRef}
@@ -239,13 +326,25 @@ export function EntryPage(props: EntryPageProps) {
   );
 
   const problems = (
-    <ProblemsDialog
-      open={form.problemsOpen}
-      problems={form.problems}
-      onGoTo={form.goTo}
-      onClose={form.closeProblems}
-    />
+    <>
+      <ProblemsDialog
+        open={form.problemsOpen}
+        problems={form.problems}
+        onGoTo={form.goTo}
+        onClose={form.closeProblems}
+      />
+      {practice && (
+        <Suspense fallback={null}>
+          <PracticeFinished
+            open={finished}
+            onClose={() => setFinished(false)}
+            after={props.matchId}
+          />
+        </Suspense>
+      )}
+    </>
   );
+  const reviewLabel = practice ? 'Finish practice' : 'Review entry';
 
   const context: EntryContextValue = {
     alliance: props.alliance,
@@ -279,8 +378,9 @@ export function EntryPage(props: EntryPageProps) {
             current={current?.key ?? 'auto'}
             done={done}
             toFix={form.toFix}
-            onPick={form.setPhase}
+            onPick={pickPhase}
             onReview={review}
+            reviewLabel={reviewLabel}
           />
           {confirm}
           {problems}
@@ -309,7 +409,7 @@ export function EntryPage(props: EntryPageProps) {
         <div className="sticky bottom-[var(--bottom-bar,0px)] z-20 mt-6 px-4 [&>div]:mt-0">
           <ActionBar>
             <Button variant="primary" size="block" disabled={status === null} onClick={review}>
-              Review entry
+              {reviewLabel}
             </Button>
           </ActionBar>
         </div>

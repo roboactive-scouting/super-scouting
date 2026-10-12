@@ -6,7 +6,14 @@ import {
   useSyncExternalStore,
   type TouchEvent,
 } from 'react';
-import { matchPath, Navigate, Outlet, useLocation, useMatches } from 'react-router-dom';
+import {
+  matchPath,
+  Navigate,
+  Outlet,
+  useLocation,
+  useMatches,
+  useNavigate,
+} from 'react-router-dom';
 import { DISABLED, OFFLINE_SIGNED_IN_LINE, SERVER_UNREACHABLE_LINE } from '@/auth/messages';
 import { PASSWORD_CHANGED_LINE, ReconnectPrompt } from '@/auth/ReconnectPrompt';
 import { exchangePendingCredential, installReconnect, reconnectPrompt } from '@/auth/reconnect';
@@ -25,9 +32,10 @@ import {
   syncNow,
 } from '@/data/sync';
 import { canManageEvents } from '@/features/admin/AdminOnly';
+import { practiceMode, usePracticeMode } from '@/features/entry/practice';
 import { sessionOverride, useSessionOverride } from '@/features/context/sessionOverride';
 import { useEventName } from '@/features/context/useEventName';
-import { ENTRY_ROUTE, PATHS } from '@/lib/paths';
+import { ENTRY_ROUTE, PATHS, SUPER_TEAM_ROUTE } from '@/lib/paths';
 import { useOnline } from '@/lib/useOnline';
 import { updateReady } from '@/pwa';
 import { CloudDownload, CloudOff } from 'lucide-react';
@@ -57,6 +65,13 @@ export const UPDATE_READY_LINE = 'An update is ready. It will apply next time yo
  * left side (UF.7). On desktop the edge stays.
  */
 const STRIP = 'rounded-none border-0 border-b border-s-4 px-4 max-lg:border-s-0';
+
+/**
+ * Practice mode's strip (SPEC-FINAL 8.5; entry parts, "In practice"): `--warn-tint` with a 2 px
+ * `--warn` foot and no start edge, on every screen. Amber, never red: red is the red alliance.
+ */
+const PRACTICE_STRIP =
+  'rounded-none border-0 border-b-2 border-b-warn bg-warn-tint px-3.5 py-[7px] text-[0.8125rem] lg:px-5';
 
 /** SPEC-FINAL 9.3: the notice after a pull answered that the event is gone. */
 function goneLine(name: string | null): string {
@@ -120,7 +135,10 @@ export function AppShell() {
   const desktop = useIsDesktop();
   const current = useSession();
   const location = useLocation();
+  const navigate = useNavigate();
   const matches = useMatches();
+  /** SPEC-FINAL 8.5: practice mode is on (task 1.37). */
+  const practice = usePracticeMode();
   const onEntryRoute = matchPath(ENTRY_ROUTE, location.pathname) !== null;
   /** Home — the context page (task 1.22) — carries its own override banner and version line. */
   const onHome = location.pathname === PATHS.home;
@@ -458,8 +476,46 @@ export function AppShell() {
     onSignOut: () => void session.signOut(),
   };
 
+  /**
+   * Exit practice from the strip: an entry screen is left for Scout first (it would otherwise
+   * carry on as a real entry with the practice values), then practice ends and its store empties.
+   */
+  const exitPractice = () => {
+    const onForm =
+      onEntryRoute ||
+      matchPath(SUPER_TEAM_ROUTE, location.pathname) !== null ||
+      location.pathname === PATHS.practice;
+    if (onForm) navigate(PATHS.scout);
+    void practiceMode.exit();
+  };
+
   const notices = (
     <>
+      {practice && (
+        <Notice
+          role="status"
+          tone="warning"
+          still
+          aria-label="Practice mode"
+          className={PRACTICE_STRIP}
+          action={
+            <Button
+              size="sm"
+              onClick={exitPractice}
+              className="min-h-8 rounded-full px-3 text-[0.78125rem] font-bold after:-inset-y-2"
+            >
+              Exit practice
+            </Button>
+          }
+        >
+          <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+            <span className="inline-flex h-[22px] items-center rounded-tag bg-warn px-2 text-[0.6875rem] font-extrabold tracking-[0.06em] text-on-accent">
+              PRACTICE
+            </span>
+            <b className="font-bold text-warn">Nothing is saved</b>
+          </span>
+        </Notice>
+      )}
       {offlineSession && prompt && (
         <ReconnectPrompt
           key={prompt.key}

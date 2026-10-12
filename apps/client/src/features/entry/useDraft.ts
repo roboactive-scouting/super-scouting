@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { db } from '@/data/db';
+import { usePracticeMode } from './practice';
 
 export type DraftPayload = Record<string, unknown>;
 
 /**
  * SPEC-FINAL 8.3: every interaction writes a local draft immediately. `savedAt` is the
  * draft's `updated_at` (ISO), for the "Draft saved on this device · hh:mm" line; null while
- * there is no draft.
+ * there is no draft. In practice (8.5) the draft goes to the separate `practiceDrafts` store,
+ * never to `drafts`, so draft recovery never offers it and leaving practice clears it.
  */
 export function useDraft(key: string): {
   draft: DraftPayload | null;
@@ -14,13 +16,15 @@ export function useDraft(key: string): {
   savedAt: string | null;
   save: (payload: DraftPayload) => void;
 } {
+  const practice = usePracticeMode();
+  const store = practice ? db.practiceDrafts : db.drafts;
   const [draft, setDraft] = useState<DraftPayload | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    void db.drafts.get(key).then((record) => {
+    void store.get(key).then((record) => {
       if (cancelled) return;
       setDraft(record?.payload ?? null);
       setSavedAt(record?.updated_at ?? null);
@@ -29,7 +33,7 @@ export function useDraft(key: string): {
     return () => {
       cancelled = true;
     };
-  }, [key]);
+  }, [key, store]);
 
   return {
     draft,
@@ -39,7 +43,7 @@ export function useDraft(key: string): {
       const updated_at = new Date().toISOString();
       setDraft(payload);
       setSavedAt(updated_at);
-      void db.drafts.put({ key, row_id: '', payload, updated_at });
+      void store.put({ key, row_id: '', payload, updated_at });
     },
   };
 }

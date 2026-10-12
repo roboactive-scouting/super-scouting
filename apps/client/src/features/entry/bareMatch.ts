@@ -1,17 +1,20 @@
 import { notifyChanged } from '@/data/changes';
 import { db } from '@/data/db';
 import { enqueue, nextSeq } from '@/data/outbox';
+import { practiceMode } from './practice';
 
 /**
  * SPEC-FINAL 6.4: a system action, not an admin capability. When the typed match is not on
  * this device it creates the minimal row — event, type, number, nothing else — rides the
- * outbox, and works offline. Returns the match id, new or existing.
+ * outbox, and works offline. Returns the match id, new or existing. Never creates one in
+ * practice (8.5: practice writes nothing).
  */
 export async function ensureMatchLocally(
   existing: { id: string } | undefined,
   match: { eventId: string; matchType: string; number: number; author: { id: string } },
 ): Promise<string> {
   if (existing) return existing.id;
+  if (practiceMode.active()) throw new Error('practice uses a match this device already holds');
   const rowId = crypto.randomUUID();
   const at = new Date().toISOString();
   const payload = { event_id: match.eventId, match_type: match.matchType, number: match.number };

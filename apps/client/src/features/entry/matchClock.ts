@@ -63,3 +63,10 @@ export const matchClock = {
     };
   },
 };
+
+/** A draft's saved match clock, read defensively: a draft from before task 1.37 has none. */
+export function asClockOrigin(value: unknown): ClockOrigin | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const { at, timed } = value as Record<string, unknown>;
+  return typeof at === 'number' && typeof timed === 'boolean' ? { at, timed } : null;
+}

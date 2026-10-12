@@ -9,6 +9,7 @@ import { db } from '@/data/db';
 import { matchLabel } from '@/lib/matchLabel';
 import { EntryPage } from './EntryPage';
 import { canSelfEdit, findLocalEntry, type Editor, type LocalEntry } from './localEntries';
+import { usePracticeMode } from './practice';
 import type { SavedNotice } from './SelectRobotPage';
 import { PATHS } from '@/lib/paths';
 
@@ -57,6 +58,9 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
   // Set instead of `resolved` when the resolve effect finds nothing to resolve, so
   // "Loading…" never becomes the permanent state (branch review, phase 1C follow-up).
   const [blocked, setBlocked] = useState<'not-cached' | 'no-form' | null>(null);
+  // Practice (SPEC-FINAL 8.5, task 1.37) is a blank run of the real form: it never opens the
+  // device's entry for the robot, so it never shows or locks on one.
+  const practice = usePracticeMode();
 
   useEffect(() => {
     if (!matchId || !teamId) return;
@@ -90,12 +94,9 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
         setBlocked('no-form');
         return;
       }
-      const existing = await findLocalEntry({
-        eventId: entryEventId,
-        formKind: 'match',
-        matchId,
-        teamId,
-      });
+      const existing = practice
+        ? undefined
+        : await findLocalEntry({ eventId: entryEventId, formKind: 'match', matchId, teamId });
       // An existing entry is edited under the form version it was recorded with.
       const formVersionId = existing?.form_version_id ?? form.active_version_id;
       const foreign = entryEventId !== eventId;
@@ -122,7 +123,7 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
         fieldImagePath: seasons.find((s) => s.id === seasonId)?.field_image_path ?? null,
       });
     })();
-  }, [eventId, matchId, teamId]);
+  }, [eventId, matchId, teamId, practice]);
 
   if (!matchId || !teamId) {
     return <p className="p-4 text-muted">No match selected.</p>;

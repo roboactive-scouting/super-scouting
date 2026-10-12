@@ -19,7 +19,8 @@ export type ResponsiveDialogProps = DialogProps & {
 export function ResponsiveDialog({ sheetClose, dragToClose, ...props }: ResponsiveDialogProps) {
   const desktop = useIsDesktop();
   if (desktop) return <Dialog {...props} />;
-  const { open, title, onClose, children, footer, initialFocus, dismissible, describedBy } = props;
+  const { open, title, onClose, children, footer, initialFocus, dismissible, describedBy, icon } =
+    props;
   return (
     <Sheet
       open={open}
@@ -31,6 +32,7 @@ export function ResponsiveDialog({ sheetClose, dragToClose, ...props }: Responsi
       describedBy={describedBy}
       showClose={sheetClose}
       dragToClose={dragToClose}
+      icon={icon}
     >
       <div className="flex flex-col gap-3 pb-4">
         {children}

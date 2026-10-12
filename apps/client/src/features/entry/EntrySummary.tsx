@@ -47,6 +47,7 @@ export function EntrySummary({
   onPick,
   onReview,
   reviewDisabled,
+  reviewLabel = 'Review entry',
 }: {
   status: RobotStatus | null;
   /** False on the super entry, which has no robot status (SPEC-FINAL 8.1). */
@@ -62,6 +63,8 @@ export function EntrySummary({
   onReview: () => void;
   /** Default: no status chosen yet. */
   reviewDisabled?: boolean;
+  /** "Finish practice" in practice mode (SPEC-FINAL 8.5). */
+  reviewLabel?: string;
 }) {
   const title = useId();
   const statusFix = toFix?.get('status') ?? 0;
@@ -129,7 +132,7 @@ export function EntrySummary({
         disabled={reviewDisabled ?? status === null}
         onClick={onReview}
       >
-        Review entry
+        {reviewLabel}
       </Button>
     </aside>
   );

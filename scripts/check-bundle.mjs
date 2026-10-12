@@ -1,5 +1,7 @@
 // The initial-JS budget (RB.18): the entry chunk and its static imports, gzipped, must stay
-// at or under BUDGET_KB. 218 KB = measured 216.6 KB after task 1.36 (the entry rules, the problems
+// at or under BUDGET_KB. 220 KB = measured 218.2 KB after task 1.37 (draft persistence of the match clock
+// and stopwatches, the practice strip and card; the draft offer and the practice-finished sheet are lazy)
+// + headroom, raised by the build chat as the user allows (2026-10-11); was 218 KB = measured 216.6 KB after task 1.36 (the entry rules, the problems
 // list and the Super scouting card) + headroom, raised by the build chat as the user allows (2026-10-11);
 // was 215 KB = measured 212.5 KB after task 1.33 + headroom (user decision 2026-10-11, proposed by the build orchestrator;
 // was 212 KB = measured 208.1 KB + headroom, user decision 2026-10-09; before that 205 KB,
@@ -10,7 +12,7 @@ import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
-const BUDGET_KB = 218;
+const BUDGET_KB = 220;
 
 const dist = 'apps/client/dist';
 const manifestPath = join(dist, '.vite/manifest.json');
