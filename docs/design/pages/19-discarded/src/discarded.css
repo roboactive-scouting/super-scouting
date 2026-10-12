@@ -1,0 +1,29 @@
+/* Discarded records (/sync/discarded). Colours only from theme.css; classes dl-*. Loads after 05-entries/src/entries.css,
+   17-sync/src/sync.css (sn-super, sn-org) and 18-conflicts/src/conflicts.css (cf-empty, cf-note, cf-pad, cf-h1, cf-sub). */
+.dl-back { display: flex; align-items: center; gap: 4px; font-size: 13.5px; font-weight: 650; color: var(--accent-ink); }
+.dl-back svg { width: 16px; height: 16px; }
+.dl-lab { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: 0.05em; text-transform: uppercase; padding: 4px 2px 0; display: flex; gap: 8px; }
+.dl-lab .r { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 600; }
+.dl-list { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); overflow: hidden; }
+.dl-rec { padding: 10px 12px; border-bottom: 1px solid var(--line-2); display: flex; flex-direction: column; gap: 6px; }
+.dl-rec:last-child { border-bottom: 0; }
+.dl-rec .l1 { display: flex; align-items: center; gap: 8px; }
+.dl-rec .m { font-family: var(--font-num); font-size: 13px; color: var(--muted); font-weight: 600; }
+.dl-rec .tn { font-family: var(--font-num); font-size: 16px; font-weight: 600; }
+.dl-rec .nm { font-size: 14px; color: var(--ink-2); }
+.dl-rec .rt { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.dl-rec .l2 { font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.dl-rec .l2 .num { font-family: var(--font-num); }
+.dl-kind { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: var(--radius-tag); background: var(--line-2); color: var(--ink-2); font-size: 11.5px; font-weight: 700; }
+.dl-tbl { width: 100%; border-collapse: collapse; }
+.dl-tbl th { text-align: left; font-size: 12px; font-weight: 650; color: var(--muted); padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.dl-tbl td { padding: 0 12px; height: 46px; border-bottom: 1px solid var(--line-2); font-size: 13.5px; white-space: nowrap; }
+.dl-tbl td.m { font-family: var(--font-num); font-weight: 600; }
+.dl-tbl td .tn { font-family: var(--font-num); font-weight: 600; margin-right: 6px; }
+.dl-tbl td .nm { color: var(--ink-2); }
+.dl-tbl td.mu { color: var(--muted); }
+.dl-tbl td .num { font-family: var(--font-num); }
+.dl-tbl td.grp { background: var(--bg); font-size: 12px; font-weight: 700; color: var(--muted); height: 32px; }
+.dl-desk { padding: 22px 32px; display: flex; flex-direction: column; gap: 14px; max-width: 1140px; }
+.dl-desk .cf-h1 { font-size: 26px; }
+.dl-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); overflow: hidden; }

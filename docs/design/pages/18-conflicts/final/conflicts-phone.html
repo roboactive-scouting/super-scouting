@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Conflicts — final, phone</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../05-entries/src/entries.css"><link rel="stylesheet" href="../../17-sync/src/sync.css"><link rel="stylesheet" href="../src/conflicts.css">
+<style>.canvas{height:940px}.frames{gap:14px}.frames .phone{zoom:.8;position:relative}.frames .frame{width:330px}</style>
+</head><body>
+<div id="root"></div>
+<script src="../../05-entries/src/entries.js"></script><script src="../src/conflicts.js"></script>
+<script>
+document.getElementById('root').innerHTML = `<div class="canvas"><div class="canvas-head"><b>Conflicts — final · phone</b><span>Variant C: one scroll of cards showing only what differs; a settled card folds with Undo; “n fields differ” and the Settled today log.</span></div>
+  <div class="frames">${CF.phones().map(([h, c]) => `<figure class="frame"><div class="phone">${h}</div><figcaption>${c}</figcaption></figure>`).join('')}</div></div>`;
+</script>
+<script src="../../shell.js"></script>
+</body></html>
