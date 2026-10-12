@@ -409,9 +409,36 @@ describe('setMatchTeams', () => {
       ctx,
     );
     expect(result.slots).toEqual([{ alliance: 'red', station: 2, team_id: T_1 }]);
-    expect(ctx.matchTeams.has(`${match.id}:red:1`)).toBe(false);
-    expect(ctx.matchTeams.has(`${match.id}:blue:3`)).toBe(false);
-    expect(ctx.matchTeams.get(`${match.id}:red:2`)!.team_id).toBe(T_1);
+    // Task 1.40: a cleared slot is a tombstone, so the delta pull carries the removal.
+    expect(ctx.matchTeams.get(`${match.id}:red:1`)!.deleted_at).toBe(ctx.nowValue.toISOString());
+    expect(ctx.matchTeams.get(`${match.id}:blue:3`)!.deleted_at).toBe(ctx.nowValue.toISOString());
+    expect(ctx.matchTeams.get(`${match.id}:red:2`)).toMatchObject({
+      team_id: T_1,
+      deleted_at: null,
+    });
+  });
+
+  it('revives a cleared slot in place when it is filled again (task 1.40)', async () => {
+    const match = await one(1);
+    const fill = (team_id: string) =>
+      setMatchTeams(
+        admin,
+        { match_id: match.id, slots: [{ alliance: 'red', station: 1, team_id }] },
+        ctx,
+      );
+    await fill(T_1);
+    const first = ctx.matchTeams.get(`${match.id}:red:1`)!.id;
+    await setMatchTeams(admin, { match_id: match.id, slots: [] }, ctx);
+    ctx.nowValue = new Date('2026-11-15T10:00:00.000Z');
+    const result = await fill(T_2);
+    expect(result.slots).toEqual([{ alliance: 'red', station: 1, team_id: T_2 }]);
+    expect(ctx.matchTeams.get(`${match.id}:red:1`)).toMatchObject({
+      id: first,
+      team_id: T_2,
+      deleted_at: null,
+      updated_at: '2026-11-15T10:00:00.000Z',
+    });
+    expect([...ctx.matchTeams.values()].filter((s) => s.match_id === match.id)).toHaveLength(1);
   });
 
   it('clears every slot when given none', async () => {
@@ -423,7 +450,9 @@ describe('setMatchTeams', () => {
     );
     const result = await setMatchTeams(admin, { match_id: match.id, slots: [] }, ctx);
     expect(result.slots).toEqual([]);
-    expect(ctx.matchTeams.size).toBe(0);
+    // Task 1.40: no live slot is left; the cleared one stays as a tombstone.
+    expect([...ctx.matchTeams.values()].filter((s) => s.deleted_at === null)).toEqual([]);
+    expect(ctx.matchTeams.size).toBe(1);
   });
 
   it('returns the slots red 1..3 then blue 1..3, and only for this match', async () => {

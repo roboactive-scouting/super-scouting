@@ -8,6 +8,8 @@ import {
 import type {
   MatchKeyset,
   PullScope,
+  FormDeletion,
+  NewConflict,
   Store,
   StoredEvent,
   StoredForm,
@@ -226,25 +228,68 @@ export function supabaseStore(db: Db): Store {
       // dbError keeps the code: a foreign-key failure ('23503') is syncPush's parent-deleted.
       if (error) throw dbError(error);
     },
-    // Three reads, together; the order of the answer is the order of the checks. An event
-    // delete cascades to its matches, so a gone event is reported as the event.
+    // Up to four reads, together; the order of the answer is the order of the checks. An
+    // event delete cascades to its matches, so a gone event is reported as the event.
     async missingParent(parents) {
+      const versionId = parents.form_version_id;
       // A non-uuid id names no row, and Postgres would refuse the filter (22P02).
       if (!UUID.test(parents.event_id)) return 'event';
       if (parents.match_id !== null && !UUID.test(parents.match_id)) return 'match';
       if (!UUID.test(parents.team_id)) return 'team';
-      const [event, match, team] = await Promise.all([
+      if (versionId !== undefined && !UUID.test(versionId)) return 'form_version';
+      const skipped = Promise.resolve({ data: { id: null }, error: null });
+      const [event, match, team, version] = await Promise.all([
         db.from('events').select('id').eq('id', parents.event_id).maybeSingle(),
         parents.match_id === null
-          ? Promise.resolve({ data: { id: null }, error: null })
+          ? skipped
           : db.from('matches').select('id').eq('id', parents.match_id).maybeSingle(),
         db.from('teams').select('id').eq('id', parents.team_id).maybeSingle(),
+        // Task 1.40: a deleted form version is parent-deleted, never `invalid` for want of
+        // fields to validate against (SPEC-FINAL 9.5).
+        versionId === undefined
+          ? skipped
+          : db.from('form_versions').select('id').eq('id', versionId).maybeSingle(),
       ]);
-      for (const result of [event, match, team]) if (result.error) throw dbError(result.error);
+      for (const result of [event, match, team, version]) {
+        if (result.error) throw dbError(result.error);
+      }
       if (event.data === null) return 'event';
       if (match.data === null) return 'match';
       if (team.data === null) return 'team';
+      if (version.data === null) return 'form_version';
       return null;
+    },
+    // Task 1.40 (SPEC-FINAL 9.5): the duplicate lookup, on the logical-key index
+    // (scouting_entries_logical_key_idx, `where deleted_at is null`). Null-safe on match_id.
+    async findByLogicalKey(key, excludeId) {
+      // A non-uuid id names no row, and Postgres would refuse the filter (22P02).
+      const ids = [key.event_id, key.team_id, excludeId, ...(key.match_id ? [key.match_id] : [])];
+      if (!ids.every((id) => UUID.test(id))) return null;
+      let query = db
+        .from('scouting_entries')
+        .select('*')
+        .eq('event_id', key.event_id)
+        .eq('form_kind', key.form_kind)
+        .eq('team_id', key.team_id)
+        .is('deleted_at', null)
+        .neq('id', excludeId);
+      query =
+        key.match_id === null ? query.is('match_id', null) : query.eq('match_id', key.match_id);
+      const { data, error } = await query
+        .order('client_updated_at', { ascending: false })
+        .order('id', { ascending: true })
+        .limit(1);
+      if (error) throw dbError(error);
+      return ((data ?? [])[0] as StoredRow | undefined) ?? null;
+    },
+    async insertConflict(row: NewConflict): Promise<void> {
+      // `row` is the column set of sync_conflicts minus its defaults; the generated insert
+      // type wants Json for superseded_payload, which Record<string, unknown> is not.
+      // A retried operation carries the same id (conflictIdFor): keep the first row.
+      const { error } = await db
+        .from('sync_conflicts')
+        .upsert(row as never, { onConflict: 'id', ignoreDuplicates: true });
+      if (error) throw dbError(error);
     },
     async getFormFields(formVersionId: string): Promise<FormFieldDefinition[]> {
       // Ordered (task 1.27): the builder and an export read the fields in display order.
@@ -508,6 +553,27 @@ export function supabaseStore(db: Db): Store {
           .range(from, from + PAGE - 1);
         if (error) throw dbError(error);
         out.push(...(data ?? []));
+        if ((data ?? []).length < PAGE) break;
+      }
+      return out;
+    },
+    // Task 1.40, paged like listMatchDeletions. A tombstone whose season_id is null (a row
+    // that went by cascade) never matches the season filter.
+    async listFormDeletions(seasonId: string, since: string): Promise<FormDeletion[]> {
+      const PAGE = 1000;
+      const out: FormDeletion[] = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await db
+          .from('form_deletions')
+          .select('entity, row_id, deleted_at')
+          .eq('season_id', seasonId)
+          .gt('deleted_at', since)
+          .order('deleted_at', { ascending: true })
+          .order('entity', { ascending: true })
+          .order('row_id', { ascending: true })
+          .range(from, from + PAGE - 1);
+        if (error) throw dbError(error);
+        out.push(...((data ?? []) as FormDeletion[]));
         if ((data ?? []).length < PAGE) break;
       }
       return out;
@@ -912,38 +978,48 @@ export function supabaseStore(db: Db): Store {
         const { data, error } = await db
           .from('match_teams')
           .select(SLOT_COLUMNS)
-          .in('match_id', chunk);
+          .in('match_id', chunk)
+          .is('deleted_at', null);
         if (error) throw dbError(error);
         slots.push(...((data ?? []) as StoredMatchSlot[]));
       }
       return slots;
     },
-    // Writes only the difference, so an unchanged slot keeps its row and its updated_at:
-    // cleared slots deleted, a changed team updated IN PLACE (the delta pull sees an
-    // update; it never sees a delete), new slots inserted. Not one transaction.
-    async setMatchTeams(matchId: string, slots: MatchSlot[]): Promise<void> {
+    // Writes only the difference, so an unchanged slot keeps its row and its updated_at.
+    // Task 1.40 (spec 7.5 item 1): a cleared slot is TOMBSTONED, not deleted, so the delta
+    // pull carries the removal; a changed team is updated in place; a refilled tombstone is
+    // revived in place (the unique (match, alliance, station) allows one row per slot, live
+    // or not); a slot never filled is inserted. Every row of the match is read, tombstones
+    // included. Not one transaction.
+    async setMatchTeams(matchId: string, slots: MatchSlot[], at: string): Promise<void> {
       const { data, error } = await db
         .from('match_teams')
-        .select('id, alliance, station, team_id')
+        .select('id, alliance, station, team_id, deleted_at')
         .eq('match_id', matchId);
       if (error) throw dbError(error);
       const key = (s: { alliance: string; station: number }) => `${s.alliance}:${s.station}`;
       const current = new Map((data ?? []).map((row) => [key(row), row]));
       const wanted = new Map(slots.map((slot) => [key(slot), slot]));
 
-      const cleared = [...current].filter(([k]) => !wanted.has(k)).map(([, row]) => row.id);
+      const cleared = [...current]
+        .filter(([k, row]) => row.deleted_at === null && !wanted.has(k))
+        .map(([, row]) => row.id);
       if (cleared.length > 0) {
-        const res = await db.from('match_teams').delete().in('id', cleared);
+        const res = await db.from('match_teams').update({ deleted_at: at }).in('id', cleared);
         if (res.error) throw dbError(res.error);
       }
       const insert: Record<string, unknown>[] = [];
       for (const [k, slot] of wanted) {
         const row = current.get(k);
-        if (row && row.team_id === slot.team_id) continue;
+        if (row && row.deleted_at === null && row.team_id === slot.team_id) continue;
         if (row) {
           const res = await db
             .from('match_teams')
-            .update({ team_id: slot.team_id })
+            .update(
+              row.deleted_at === null
+                ? { team_id: slot.team_id }
+                : { team_id: slot.team_id, deleted_at: null },
+            )
             .eq('id', row.id);
           if (res.error) throw dbError(res.error);
         } else {
@@ -964,7 +1040,8 @@ export function supabaseStore(db: Db): Store {
       if (error) throw dbError(error);
       return count ?? 0;
     },
-    // A hard delete. The match's match_teams cascade; an entry refuses it with 23503.
+    // A hard delete. The match's match_teams cascade (tombstones too: the match_deletions
+    // tombstone covers them); an entry refuses it with 23503.
     async deleteMatch(id: string): Promise<void> {
       const { error } = await db.from('matches').delete().eq('id', id);
       if (error) throw dbError(error);
@@ -1018,9 +1095,6 @@ export function supabaseStore(db: Db): Store {
     // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
     // without these the file does not compile at all.
     ...stubsFor([
-      'findByLogicalKey',
-      'parentsExist',
-      'insertConflict',
       'listConflicts',
       'getConflict',
       'resolveConflictRow',

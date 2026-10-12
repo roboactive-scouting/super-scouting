@@ -1308,6 +1308,49 @@ function validateVisibilityCondition(field, fields) {
   return issues;
 }
 
+// ../../packages/shared/src/sync/conflict.ts
+function isLater(a, b) {
+  return Date.parse(a) > Date.parse(b);
+}
+function classifyPush(input) {
+  const { operation, existingRow, duplicateRow } = input;
+  const incoming = { ...operation.payload, client_updated_at: operation.client_updated_at };
+  if (existingRow === null) {
+    const isRealDuplicate = duplicateRow !== null && duplicateRow.id !== operation.row_id && duplicateRow.deleted_at === null;
+    if (isRealDuplicate) {
+      return { kind: "duplicate", nextVersion: 1, live: incoming, duplicateRowId: duplicateRow.id };
+    }
+    return { kind: "fast-forward", nextVersion: 1, live: incoming };
+  }
+  if (operation.base_version === existingRow.version) {
+    return { kind: "fast-forward", nextVersion: existingRow.version + 1, live: incoming };
+  }
+  const incomingWins = isLater(operation.client_updated_at, existingRow.client_updated_at);
+  const superseded = incomingWins ? {
+    payload: stripServerColumns(existingRow),
+    author_id: String(existingRow.scouter_id ?? ""),
+    client_updated_at: existingRow.client_updated_at,
+    base_version: existingRow.version
+  } : {
+    payload: operation.payload,
+    author_id: operation.author_user_id,
+    client_updated_at: operation.client_updated_at,
+    base_version: operation.base_version
+  };
+  return {
+    kind: "divergence",
+    nextVersion: existingRow.version + 1,
+    winner: incomingWins ? "incoming" : "existing",
+    // No automatic field-level merge, ever. One whole payload wins.
+    live: incomingWins ? incoming : stripServerColumns(existingRow),
+    superseded
+  };
+}
+function stripServerColumns(row) {
+  const { version: _v, created_at: _c, updated_at: _u, ...rest } = row;
+  return rest;
+}
+
 // ../../packages/shared/src/sync/operation.ts
 import { z as z9 } from "zod";
 var SYNC_ENTITIES = [
@@ -1413,6 +1456,12 @@ var pullRequestSchema = z10.object({
   since: z10.string().datetime({ offset: false }).optional(),
   cursor: z10.string().optional()
 });
+var FORM_DELETION_ENTITIES = [
+  "forms",
+  "form_versions",
+  "form_fields",
+  "scoring_rules"
+];
 
 // src/routes/errors.ts
 var STATUS = {
@@ -1800,22 +1849,46 @@ function supabaseStore(db) {
       const { error } = await db.from(TABLE[entity]).upsert({ ...row, id });
       if (error) throw dbError(error);
     },
-    // Three reads, together; the order of the answer is the order of the checks. An event
-    // delete cascades to its matches, so a gone event is reported as the event.
+    // Up to four reads, together; the order of the answer is the order of the checks. An
+    // event delete cascades to its matches, so a gone event is reported as the event.
     async missingParent(parents) {
+      const versionId = parents.form_version_id;
       if (!UUID.test(parents.event_id)) return "event";
       if (parents.match_id !== null && !UUID.test(parents.match_id)) return "match";
       if (!UUID.test(parents.team_id)) return "team";
-      const [event, match, team] = await Promise.all([
+      if (versionId !== void 0 && !UUID.test(versionId)) return "form_version";
+      const skipped = Promise.resolve({ data: { id: null }, error: null });
+      const [event, match, team, version] = await Promise.all([
         db.from("events").select("id").eq("id", parents.event_id).maybeSingle(),
-        parents.match_id === null ? Promise.resolve({ data: { id: null }, error: null }) : db.from("matches").select("id").eq("id", parents.match_id).maybeSingle(),
-        db.from("teams").select("id").eq("id", parents.team_id).maybeSingle()
+        parents.match_id === null ? skipped : db.from("matches").select("id").eq("id", parents.match_id).maybeSingle(),
+        db.from("teams").select("id").eq("id", parents.team_id).maybeSingle(),
+        // Task 1.40: a deleted form version is parent-deleted, never `invalid` for want of
+        // fields to validate against (SPEC-FINAL 9.5).
+        versionId === void 0 ? skipped : db.from("form_versions").select("id").eq("id", versionId).maybeSingle()
       ]);
-      for (const result of [event, match, team]) if (result.error) throw dbError(result.error);
+      for (const result of [event, match, team, version]) {
+        if (result.error) throw dbError(result.error);
+      }
       if (event.data === null) return "event";
       if (match.data === null) return "match";
       if (team.data === null) return "team";
+      if (version.data === null) return "form_version";
       return null;
+    },
+    // Task 1.40 (SPEC-FINAL 9.5): the duplicate lookup, on the logical-key index
+    // (scouting_entries_logical_key_idx, `where deleted_at is null`). Null-safe on match_id.
+    async findByLogicalKey(key2, excludeId) {
+      const ids = [key2.event_id, key2.team_id, excludeId, ...key2.match_id ? [key2.match_id] : []];
+      if (!ids.every((id) => UUID.test(id))) return null;
+      let query = db.from("scouting_entries").select("*").eq("event_id", key2.event_id).eq("form_kind", key2.form_kind).eq("team_id", key2.team_id).is("deleted_at", null).neq("id", excludeId);
+      query = key2.match_id === null ? query.is("match_id", null) : query.eq("match_id", key2.match_id);
+      const { data, error } = await query.order("client_updated_at", { ascending: false }).order("id", { ascending: true }).limit(1);
+      if (error) throw dbError(error);
+      return (data ?? [])[0] ?? null;
+    },
+    async insertConflict(row) {
+      const { error } = await db.from("sync_conflicts").upsert(row, { onConflict: "id", ignoreDuplicates: true });
+      if (error) throw dbError(error);
     },
     async getFormFields(formVersionId) {
       const { data, error } = await db.from("form_fields").select("*").eq("form_version_id", formVersionId).order("display_order", { ascending: true }).order("key", { ascending: true });
@@ -1979,6 +2052,19 @@ function supabaseStore(db) {
       const out = [];
       for (let from = 0; ; from += PAGE) {
         const { data, error } = await db.from("match_deletions").select("match_id, deleted_at").eq("event_id", eventId).gt("deleted_at", since).order("deleted_at", { ascending: true }).order("match_id", { ascending: true }).range(from, from + PAGE - 1);
+        if (error) throw dbError(error);
+        out.push(...data ?? []);
+        if ((data ?? []).length < PAGE) break;
+      }
+      return out;
+    },
+    // Task 1.40, paged like listMatchDeletions. A tombstone whose season_id is null (a row
+    // that went by cascade) never matches the season filter.
+    async listFormDeletions(seasonId, since) {
+      const PAGE = 1e3;
+      const out = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await db.from("form_deletions").select("entity, row_id, deleted_at").eq("season_id", seasonId).gt("deleted_at", since).order("deleted_at", { ascending: true }).order("entity", { ascending: true }).order("row_id", { ascending: true }).range(from, from + PAGE - 1);
         if (error) throw dbError(error);
         out.push(...data ?? []);
         if ((data ?? []).length < PAGE) break;
@@ -2245,32 +2331,37 @@ function supabaseStore(db) {
     async listMatchSlots(matchIds) {
       const slots = [];
       for (const chunk of chunks(matchIds)) {
-        const { data, error } = await db.from("match_teams").select(SLOT_COLUMNS).in("match_id", chunk);
+        const { data, error } = await db.from("match_teams").select(SLOT_COLUMNS).in("match_id", chunk).is("deleted_at", null);
         if (error) throw dbError(error);
         slots.push(...data ?? []);
       }
       return slots;
     },
-    // Writes only the difference, so an unchanged slot keeps its row and its updated_at:
-    // cleared slots deleted, a changed team updated IN PLACE (the delta pull sees an
-    // update; it never sees a delete), new slots inserted. Not one transaction.
-    async setMatchTeams(matchId, slots) {
-      const { data, error } = await db.from("match_teams").select("id, alliance, station, team_id").eq("match_id", matchId);
+    // Writes only the difference, so an unchanged slot keeps its row and its updated_at.
+    // Task 1.40 (spec 7.5 item 1): a cleared slot is TOMBSTONED, not deleted, so the delta
+    // pull carries the removal; a changed team is updated in place; a refilled tombstone is
+    // revived in place (the unique (match, alliance, station) allows one row per slot, live
+    // or not); a slot never filled is inserted. Every row of the match is read, tombstones
+    // included. Not one transaction.
+    async setMatchTeams(matchId, slots, at) {
+      const { data, error } = await db.from("match_teams").select("id, alliance, station, team_id, deleted_at").eq("match_id", matchId);
       if (error) throw dbError(error);
       const key2 = (s) => `${s.alliance}:${s.station}`;
       const current = new Map((data ?? []).map((row) => [key2(row), row]));
       const wanted = new Map(slots.map((slot) => [key2(slot), slot]));
-      const cleared = [...current].filter(([k]) => !wanted.has(k)).map(([, row]) => row.id);
+      const cleared = [...current].filter(([k, row]) => row.deleted_at === null && !wanted.has(k)).map(([, row]) => row.id);
       if (cleared.length > 0) {
-        const res = await db.from("match_teams").delete().in("id", cleared);
+        const res = await db.from("match_teams").update({ deleted_at: at }).in("id", cleared);
         if (res.error) throw dbError(res.error);
       }
       const insert = [];
       for (const [k, slot] of wanted) {
         const row = current.get(k);
-        if (row && row.team_id === slot.team_id) continue;
+        if (row && row.deleted_at === null && row.team_id === slot.team_id) continue;
         if (row) {
-          const res = await db.from("match_teams").update({ team_id: slot.team_id }).eq("id", row.id);
+          const res = await db.from("match_teams").update(
+            row.deleted_at === null ? { team_id: slot.team_id } : { team_id: slot.team_id, deleted_at: null }
+          ).eq("id", row.id);
           if (res.error) throw dbError(res.error);
         } else {
           insert.push({ id: crypto.randomUUID(), match_id: matchId, ...slot });
@@ -2287,7 +2378,8 @@ function supabaseStore(db) {
       if (error) throw dbError(error);
       return count ?? 0;
     },
-    // A hard delete. The match's match_teams cascade; an entry refuses it with 23503.
+    // A hard delete. The match's match_teams cascade (tombstones too: the match_deletions
+    // tombstone covers them); an entry refuses it with 23503.
     async deleteMatch(id) {
       const { error } = await db.from("matches").delete().eq("id", id);
       if (error) throw dbError(error);
@@ -2331,9 +2423,6 @@ function supabaseStore(db) {
     // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
     // without these the file does not compile at all.
     ...stubsFor([
-      "findByLogicalKey",
-      "parentsExist",
-      "insertConflict",
       "listConflicts",
       "getConflict",
       "resolveConflictRow",
@@ -3128,7 +3217,7 @@ async function setMatchTeams(caller, input, ctx) {
     }
   }
   try {
-    await ctx.store.setMatchTeams(match.id, parsed.slots);
+    await ctx.store.setMatchTeams(match.id, parsed.slots, ctx.now().toISOString());
   } catch (e) {
     const code = pgCode(e);
     if (code === "23503") {
@@ -4812,6 +4901,7 @@ function rpcRoutes(ctx, config2, registry = REGISTRY) {
 import { Hono as Hono3 } from "hono";
 
 // src/core/commands/syncPush.ts
+import { createHash } from "node:crypto";
 var rejected = (opId, reason, detail) => detail === void 0 ? { op_id: opId, status: "rejected", reason } : { op_id: opId, status: "rejected", reason, detail };
 var SERVER_OWNED_KEYS = /* @__PURE__ */ new Set([
   "id",
@@ -4826,6 +4916,18 @@ var SERVER_OWNED_KEYS = /* @__PURE__ */ new Set([
 function foreignKeyDetail(message) {
   const column = /_(event|match|team|form_version)_id_fkey/.exec(message)?.[1];
   return column ? PARENT_DELETED_DETAIL[column] : PARENT_DELETED_DETAIL.other;
+}
+var CONFLICT_ID_NAMESPACE = "frc-scouting/sync_conflicts/v1";
+function conflictIdFor(opId) {
+  const hex = createHash("sha256").update(`${CONFLICT_ID_NAMESPACE}:${opId}`).digest("hex");
+  const variant = (parseInt(hex.charAt(16), 16) & 3 | 8).toString(16);
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    `4${hex.slice(13, 16)}`,
+    `${variant}${hex.slice(17, 20)}`,
+    hex.slice(20, 32)
+  ].join("-");
 }
 var withoutServerOwnedKeys = (payload) => Object.fromEntries(Object.entries(payload).filter(([key2]) => !SERVER_OWNED_KEYS.has(key2)));
 var callerOf = (author) => ({
@@ -4864,12 +4966,24 @@ function screenOperations(raw) {
   });
   return { operations, rejections };
 }
+function withCanonicalMatch(op, canonical) {
+  if (op.entity !== "scouting_entry") return op;
+  const matchId = op.payload.match_id;
+  const remapped = typeof matchId === "string" ? canonical.get(matchId) : void 0;
+  return remapped === void 0 ? op : { ...op, payload: { ...op.payload, match_id: remapped } };
+}
 async function syncPush(caller, input, ctx) {
   const ordered = [...input.operations].sort((a, b) => a.seq - b.seq);
   const results = [];
-  for (const op of ordered) {
+  const canonicalMatch = /* @__PURE__ */ new Map();
+  for (const raw of ordered) {
+    const op = withCanonicalMatch(raw, canonicalMatch);
     try {
-      results.push(await applyOne(caller, op, ctx));
+      const result = await applyOne(caller, op, ctx);
+      results.push(result);
+      if (op.entity === "match" && (result.status === "applied" || result.status === "noop") && result.row_id !== op.row_id) {
+        canonicalMatch.set(op.row_id, result.row_id);
+      }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       console.error(`syncPush: op ${op.op_id} (${op.entity} ${op.action}) failed: ${message}`);
@@ -4964,27 +5078,42 @@ async function applyEntry(op, author, ctx) {
       new_version: existing.version + 1
     };
   }
+  let scouterId;
   if (existing) {
     if (!can(authorCaller, "manage_entries")) {
       if (existing.scouter_id !== author.id) {
         return rejected(op.op_id, "forbidden", "a scouter may edit only their own entry");
       }
-      if (!withinSelfEditWindow(String(existing.client_created_at), op.client_updated_at)) {
+      const exempt = existing.form_kind === "super" && payload.form_kind === "super";
+      if (!exempt && !withinSelfEditWindow(String(existing.client_created_at), op.client_updated_at)) {
         return rejected(op.op_id, "edit-window-expired", "this entry is locked \u2014 ask a lead");
       }
     }
-  } else if (!can(authorCaller, "submit_entry")) {
-    return rejected(op.op_id, "forbidden", "the author may not submit an entry");
-  }
-  if (existing && op.base_version !== existing.version) {
-    return rejected(op.op_id, "invalid", `stale base version ${op.base_version}`);
+    scouterId = String(existing.scouter_id);
+  } else {
+    if (!can(authorCaller, "submit_entry")) {
+      return rejected(op.op_id, "forbidden", "the author may not submit an entry");
+    }
+    const named = payload.scouter_id;
+    if (named === void 0 || named === null || named === author.id) {
+      scouterId = author.id;
+    } else if (typeof named !== "string") {
+      return rejected(op.op_id, "invalid", "scouter_id must be a user id");
+    } else if (!can(authorCaller, "manage_entries")) {
+      return rejected(op.op_id, "forbidden", "a scouter may submit an entry only as themselves");
+    } else if (!await ctx.store.getUser(named)) {
+      return rejected(op.op_id, "invalid", "unknown scouter");
+    } else {
+      scouterId = named;
+    }
   }
   const formVersionId = payload.form_version_id;
   if (typeof formVersionId !== "string") {
     return rejected(op.op_id, "invalid", "form_version_id is required");
   }
+  const formKind2 = payload.form_kind;
   const shapeIssues = validateEntryShape({
-    form_kind: payload.form_kind,
+    form_kind: formKind2,
     match_id: payload.match_id ?? null,
     alliance: payload.alliance ?? null,
     robot_status: payload.robot_status ?? null,
@@ -5000,7 +5129,8 @@ async function applyEntry(op, author, ctx) {
   const gone = await ctx.store.missingParent({
     event_id: eventId,
     match_id: matchId ?? null,
-    team_id: teamId
+    team_id: teamId,
+    form_version_id: formVersionId
   });
   if (gone !== null) return rejected(op.op_id, "parent-deleted", PARENT_DELETED_DETAIL[gone]);
   const fields = await ctx.store.getFormFields(formVersionId);
@@ -5010,20 +5140,70 @@ async function applyEntry(op, author, ctx) {
   if (!validation.ok) {
     return rejected(op.op_id, "invalid", validation.issues.map((i) => i.message).join("; "));
   }
-  const version = existing ? existing.version + 1 : 1;
-  await ctx.store.putRow("scouting_entry", op.row_id, {
+  const duplicate = existing ? null : await ctx.store.findByLogicalKey(
+    { event_id: eventId, form_kind: formKind2, team_id: teamId, match_id: matchId ?? null },
+    op.row_id
+  );
+  const decision = classifyPush({
+    operation: op,
+    existingRow: existing,
+    duplicateRow: duplicate
+  });
+  const existingWins = decision.kind === "divergence" && decision.winner === "existing";
+  const live = existingWins ? (
+    // The row's own copy, untouched — data, author, window, deleted_at — with only the
+    // version moved on, so every device pulls the outcome.
+    { ...decision.live, id: op.row_id, version: decision.nextVersion }
+  ) : {
     ...withoutServerOwnedKeys(payload),
     id: op.row_id,
-    // An update never reassigns authorship, and never restarts the self-edit window: both
-    // stay the row's own (SPEC-FINAL 7.5, 7.6). A create takes them from the operation.
-    scouter_id: existing ? existing.scouter_id : op.author_user_id,
-    version,
+    // An update never reassigns authorship, and never restarts the self-edit window:
+    // both stay the row's own (SPEC-FINAL 7.5, 7.6). A create takes the window from the
+    // operation, and its scouter from Q7.8's rule above.
+    scouter_id: scouterId,
+    version: decision.nextVersion,
     client_created_at: existing ? existing.client_created_at : op.client_created_at,
     client_updated_at: op.client_updated_at,
     deleted_at: null
-  });
+  };
+  const conflictId = decision.kind === "fast-forward" ? null : conflictIdFor(op.op_id);
+  if (decision.kind === "divergence") {
+    await ctx.store.insertConflict({
+      id: conflictId,
+      event_id: String(live.event_id ?? eventId),
+      entity: "scouting_entry",
+      row_id: op.row_id,
+      kind: "divergence",
+      superseded_payload: decision.superseded.payload,
+      superseded_author_id: decision.superseded.author_id || null,
+      superseded_client_updated_at: decision.superseded.client_updated_at,
+      base_version: decision.superseded.base_version
+    });
+  } else if (decision.kind === "duplicate") {
+    await ctx.store.insertConflict({
+      id: conflictId,
+      event_id: eventId,
+      entity: "scouting_entry",
+      row_id: op.row_id,
+      kind: "duplicate",
+      duplicate_row_id: decision.duplicateRowId
+    });
+  }
+  await ctx.store.putRow("scouting_entry", op.row_id, live);
   await ctx.store.markApplied(op.op_id);
-  return { op_id: op.op_id, status: "applied", row_id: op.row_id, new_version: version };
+  const answer = { op_id: op.op_id, row_id: op.row_id, new_version: decision.nextVersion };
+  if (decision.kind === "divergence") {
+    return { ...answer, status: "divergence", conflict_id: conflictId };
+  }
+  if (decision.kind === "duplicate") {
+    return {
+      ...answer,
+      status: "duplicate",
+      conflict_id: conflictId,
+      duplicate_row_id: decision.duplicateRowId
+    };
+  }
+  return { ...answer, status: "applied" };
 }
 
 // src/core/queries/syncPull.ts
@@ -5074,9 +5254,16 @@ async function syncPull(caller, input, ctx) {
     if (nextCursor !== null) break;
   }
   const deletedMatches = [];
+  const deletedFormRows = Object.fromEntries(
+    FORM_DELETION_ENTITIES.map((entity) => [entity, []])
+  );
   if (input.since !== void 0 && input.cursor === void 0) {
     for (const deletion of await ctx.store.listMatchDeletions(input.event_id, input.since)) {
       deletedMatches.push(deletion.match_id);
+      if (deletion.deleted_at > newest) newest = deletion.deleted_at;
+    }
+    for (const deletion of await ctx.store.listFormDeletions(scope.seasonId, input.since)) {
+      deletedFormRows[deletion.entity].push(deletion.row_id);
       if (deletion.deleted_at > newest) newest = deletion.deleted_at;
     }
   }
@@ -5086,7 +5273,8 @@ async function syncPull(caller, input, ctx) {
     next_cursor: nextCursor,
     complete: nextCursor === null,
     entities,
-    deleted_matches: deletedMatches
+    deleted_matches: deletedMatches,
+    deleted_form_rows: deletedFormRows
   };
 }
 

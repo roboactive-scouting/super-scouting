@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { StateMessage } from '@/components/StateMessage';
-import { cachedRows } from '@/data/cache';
+import { cachedLiveSlots, cachedRows } from '@/data/cache';
 import { getStation } from '@/data/station';
 import type { LineupSlot } from '@/lib/derive/entries';
 import { entryPath, PATHS } from '@/lib/paths';
@@ -33,7 +33,7 @@ export function PracticeStart({ eventId }: { eventId: string }) {
     void (async () => {
       const [matches, slots, station, entries] = await Promise.all([
         cachedRows<MatchRow>('matches'),
-        cachedRows<LineupSlot>('match_teams'),
+        cachedLiveSlots<LineupSlot>(),
         getStation(),
         localEntries(eventId),
       ]);

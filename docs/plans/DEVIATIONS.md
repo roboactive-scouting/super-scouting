@@ -7574,3 +7574,143 @@ Rejected: keeping ↑ ↓ beside the grip as a keyboard path — the keyboard se
 **What I did instead:** a private `isLater(a, b)` using `Date.parse(a) > Date.parse(b)`; `latestWins` and `incomingWins` use it. Tie rules unchanged (`latestWins` returns the first argument; a divergence tie keeps the existing row). Three tests added (mixed formats both orders for each function; same instant in both formats is a tie). Existing cases untouched.
 
 **Risk:** an unparseable timestamp gives NaN, which compares false, so the first argument / existing row wins; operations are already validated by `operationSchema`.
+
+## Task 1.40 — `parentsExist` replaced by `missingParent`, which now checks the form version
+
+**Plan said:** replace the `parentsExist` stub and call `ctx.store.parentsExist({ event_id, match_id, form_version_id })` before the duplicate lookup.
+
+**What was wrong:** UF.1 had already landed `missingParent({ event_id, match_id, team_id })`, returning the gone parent's name so the `detail` names it; `parentsExist` was an unused stub. Its form-version check did not exist, so a deleted version read as `invalid` whenever validation failed against no fields.
+
+**What I did instead:** `missingParent` takes an optional `form_version_id` and answers `'form_version'` (`MissingParent` widened; `PARENT_DELETED_DETAIL.form_version` already existed). The real store reads `form_versions` as a fourth parallel read; the fake honours `missingParents` and the new `form_deletions` tombstones. `parentsExist` deleted from the interface, the real store and the fake. The parent check stays where UF.1 put it — after the authorization block and the shape check, before data validation — rather than first, as the plan's step order says: the real code's order is kept, and authorization still comes before any lookup.
+
+**Risk:** `form_version_id` is optional on the interface, so a future caller can forget it; `syncPush` (the only caller) always passes it.
+
+## Task 1.40 — `findByLogicalKey` takes the key's columns and the op's row id
+
+**Plan said:** `findByLogicalKey(logicalKeyOf(payload))` — a string key.
+
+**What was wrong:** SQL needs the columns, not a joined string; and the lookup must exclude the op's own row.
+
+**What I did instead:** `findByLogicalKey({ event_id, form_kind, team_id, match_id }, excludeId)`: live rows only, null-safe on `match_id` (`is null` for a super entry), newest `client_updated_at` first. It is consulted whenever the server holds no row for `row_id` — an `update` for an unknown row is applied as a create, so it is checked too — not only when `action === 'create'`.
+
+**Risk:** none known.
+
+## Task 1.40 — the conflict row is written before the live row
+
+**Plan said:** `putRow`, then `markApplied`, then `insertConflict`.
+
+**What was wrong:** with that order, a failure after the live write loses the superseded copy: the live row has already overwritten it, and the replay is a `noop` (or a fresh, different divergence).
+
+**What I did instead:** `insertConflict` → `putRow` → `markApplied`. A failure between them leaves at worst a repeated conflict row, never a lost copy. Tested ("writes the conflict row before the live row").
+
+**Risk:** a failed live write leaves a conflict row whose "superseded" copy is still the live one; a retry writes a second conflict. 1.41's queue may show a no-diff conflict in that rare case.
+
+## Task 1.40 — the live row is built in the server, not taken from `decision.live`
+
+**Plan said:** `putRow({ ...decision.live, id, version: decision.nextVersion, client_created_at: existing?.client_created_at ?? op.client_created_at, deleted_at: null })`.
+
+**What was wrong:** `decision.live` for an incoming copy is the raw payload (server-owned keys not stripped: a client could set `scouter_id`, `updated_at`); and for an existing-wins divergence, forcing `deleted_at: null` would undelete a row a lead had removed.
+
+**What I did instead:** incoming wins / fast-forward / duplicate: the payload minus `SERVER_OWNED_KEYS`, with the row's own `scouter_id` and `client_created_at` on an update and the op's `client_updated_at`, `deleted_at: null` (the existing behaviour). Existing wins: `decision.live` (the row minus `version`, `created_at`, `updated_at`) with only `version` bumped — data, author, window, `client_updated_at` and `deleted_at` untouched. Conflict `superseded_author_id` is null when classifyPush has no author (`''`), since the column is a uuid foreign key.
+
+**Risk:** none known. Open question NOT decided here: a fast-forward update of a soft-deleted entry still undeletes it (spec §5.4 accepted-risk 4 parked this on task 1.40; the decisions file does not settle it, so the existing behaviour stands).
+
+## Task 1.40 — the plan's divergence tests use times outside the scouter window
+
+**Plan said:** the competing edits at 09:09 and 09:07 on an entry created at 09:00, authored by a scouter.
+
+**What was wrong:** both are past task 1.14's five-minute window, so the plan's tests would be refused with `edit-window-expired` before reaching the conflict policy.
+
+**What I did instead:** the same shape at 09:04 (winner) and 09:03 (loser). Plus the decisions' required negatives: the later copy stays live in both arrival orders, and the other is stored in full.
+
+**Risk:** none.
+
+## Task 1.40 — existing tests adapted to the new rules
+
+**Plan said:** keep every existing test.
+
+**What was wrong:** five fixtures relied on behaviour this task changes on purpose: (1) "applies one bearer push of three creates by three scouters" pushed one robot three times (now the duplicate path) with every payload crediting `u-scouter` (now `forbidden` under Q7.8); (2) "applies a queued create that was valid under the old range…" pushed one robot twice; (3) "an admin-carried scouter edit of another entry is forbidden" created its fixture as `u-other` crediting `u-scouter`; (4) "never stores a payload-supplied updated_at or scouter_id" expected a scouter's create crediting `u-lead` to be applied with the credit stripped — Q7.8 makes it `forbidden`; (5) `matches.test.ts` "replaces the slots…" and "clears every slot when given none" asserted cleared slots vanish from `ctx.matchTeams`. Also `store.test.ts` "setMatchTeams deletes cleared slots…" asserted a `delete`.
+
+**What I did instead:** (1)(2) each create on its own robot, crediting its own author; (3) the fixture credits `u-other`; (4) split into "never stores a payload-supplied updated_at" (unchanged intent) plus "refuses a scouter create crediting someone else" and "never lets an update reassign authorship"; (5) assert tombstones (`deleted_at` set, no live slot) and a new revival test; the store test asserts `update({ deleted_at })` and no `delete`. Every assertion's intent is kept.
+
+**Risk:** none.
+
+## Task 1.40 — spec §7.5 item 1: matches keep `match_deletions`; only `match_teams` gets `deleted_at` (rejected alternative)
+
+**Plan said:** add a `deleted_at` migration on `matches` and `match_teams`, and tombstone instead of hard-deleting in `deleteMatch` and `setMatchTeams`.
+
+**What was wrong:** for matches it contradicts SPEC-FINAL §9.3 (v1.18: "A match has no `deleted_at`") and §9.7, which rebuilds a deleted match by re-creating it under the same id (the `clear_match_deletion` trigger supports that). A soft-deleted match row would collide with the `(event, type, number)` uniqueness on that re-creation, would satisfy the entries' foreign key so a deleted match would stop being `parent-deleted`, and would duplicate a mechanism that already reaches devices (`deleted_matches`, UF.1).
+
+**What I did instead:** **rejected** `deleted_at` on `matches`. A deleted match reaches devices through `deleted_matches` — proven by the existing syncPull test "follows the store: a match deleted through it is named, one created again is not". `match_teams` gets `deleted_at` (migration `20261012090000_match_teams_deleted_at.sql`): `setMatchTeams` tombstones a cleared slot (`deleted_at = at`, the use case's clock; the trigger moves `updated_at`) and revives a refilled tombstone in place (the unique `(match_id, alliance, station)` refuses a second row). The store's `setMatchTeams` gained an `at` argument, like `setRoster`. `listMatchSlots` (the only other server reader) filters `deleted_at is null`; the seed writes `deleted_at: null` so a re-seed restores its line-up. A deleted match's slots still go by cascade (the match tombstone covers them). The fake's `pullEntity` falls back to its own `matchTeams` rows for `match_teams` when a test gave no `pullRows`, so a test follows a cleared slot from `setMatchTeams` to the pull.
+
+**Risk:** **the client does not yet read `match_teams.deleted_at`** (six `cachedRows('match_teams')` readers). Until it does, a cleared slot arrives as a row the client treats as filled — on a FRESH device too, where before the slot simply did not exist. Must land with the client half before Phase 1 F reaches `develop`.
+
+## Task 1.40 — spec §7.5 item 5: `form_deletions` tombstones (server half only)
+
+**Plan said:** carry form-table removals to devices with a trigger-written tombstone table like `match_deletions`, and drop the deleted form's entries on the device under item 3's rule.
+
+**What was wrong:** nothing on the server; the device half is a separate task.
+
+**What I did instead:** migration `20261012091000_form_deletions.sql`: `form_deletions (entity, row_id, season_id, deleted_at)`, primary key `(entity, row_id)`, index `(season_id, deleted_at)`, one `record_form_deletion` AFTER DELETE trigger and one `clear_form_deletion` AFTER INSERT trigger on each of `forms`, `form_versions`, `form_fields`, `scoring_rules`, `security invoker set search_path = ''`, execute revoked from public/anon/authenticated. Proven in `formDeletions.itest.ts`: **in an ON DELETE CASCADE the parent is already gone when the child's trigger fires, so a cascaded child's `season_id` is null** and it is never delivered; the parent's tombstone covers it. `syncPull` returns `deleted_form_rows: { forms, form_versions, form_fields, scoring_rules }` on a delta pull's first page and folds their `deleted_at` into the watermark; `PullResponse.deleted_form_rows` is optional; `Store.listFormDeletions(seasonId, since)` in the real store (paged past 1000) and the fake (whose form deletes now write and clear tombstones, the parent row first, as Postgres does). **Moved to task 1.42:** the device half — dropping the named rows, a deleted form's or version's children, and a deleted form's entries under §7.5 item 3's eviction rule (never an unsynced row).
+
+**Risk:** tombstones are never pruned (none are, by design); itests that delete forms now leave tombstones on dev naming dead seasons (harmless, never delivered).
+
+## Task 1.40 — regenerated types carry a PostgREST version bump
+
+**Plan said:** (decisions E) the `database.types.ts` diff must be the new column and table only.
+
+**What was wrong:** the regenerated file also changes `PostgrestVersion: "14.5"` → `"14.17"` — the dev project's PostgREST was upgraded since the last regeneration. Keeping the old line would fail `types-drift.itest.ts`, which compares against a fresh generation.
+
+**What I did instead:** kept the fresh file: `form_deletions` and `match_teams.deleted_at`, plus that one line.
+
+**Risk:** none; it is the generator's metadata.
+
+## Task 1.40 — side task A: super entries exempt from the self-edit window
+
+**Plan said:** the `withinSelfEditWindow` branch applies only when the target entry's `form_kind` is `'match'`; `canSelfEdit` returns true for the author's own super entry at any age; flip the SuperEntryPage locked test.
+
+**What was wrong:** nothing; two hardenings and one UI string the plan did not mention.
+
+**What I did instead:** the server exempts an edit only when the ROW **and** the payload are both `super` (fail-closed: an unknown kind, or an edit turning an old super entry into match data, keeps the window — tested). `canSelfEdit` returns true for `form_kind === 'super'` and `scouter_id === editor.id`. `SuperForm` no longer tells a scouter "You can still edit it for 5 minutes after submitting" (`windowApplies={false}`; tested, and the mutation back to the old value fails the test). Tests: server — own match entry refused at 5 min + 1 s, own super accepted at 60 min, another scouter's super `forbidden`; client — `localEntries.test.ts` cases, the flipped SuperEntryPage test, and "still shows another scouter's super entry locked".
+
+**Risk:** none.
+
+## Task 1.40 — side task B: Q7.8, a lead's create may credit another scouter
+
+**Plan said:** accept a create whose author is a lead or admin and whose payload's `scouter_id` is another user; a scouter-authored create naming someone else stays `forbidden`.
+
+**What was wrong:** before this task the payload's `scouter_id` was silently stripped and the author credited.
+
+**What I did instead:** on a create (no row on the server): absent/null or the author's own id → the author; a non-string → `invalid` "scouter_id must be a user id"; a scouter naming another → `forbidden` "a scouter may submit an entry only as themselves"; a lead/admin naming a user that does not exist → `invalid` "unknown scouter"; else that user is credited. Updates never change `scouter_id`. Tests: lead create crediting another → applied and credited; scouter create crediting another → forbidden; lead update of a scouter's match entry at 60 min → applied; unknown → invalid; unnamed → the lead.
+
+**Risk:** a disabled user may still be credited by a lead (they scouted before being disabled) — intended.
+
+## Task 1.40 — spec §7.5 item 2: in-batch match remap
+
+**Plan said:** (spec) rewrite the remapped match id in every later operation of the same batch.
+
+**What was wrong:** nothing.
+
+**What I did instead:** `syncPush` keeps a per-batch `Map<deviceMatchId, canonicalId>`, filled whenever a `match` op's `applied`/`noop` answer (the replay path included) names another id, and rewrites a later `scouting_entry`'s `payload.match_id` before applying it. Only `scouting_entry` ops are rewritten (the only entity the server applies besides `match` today); an op before the match op is untouched. Tests: applied against the canonical match; after a replayed match op; `duplicate` when the canonical match already has that robot's entry; not applied to an earlier op or another match; mutation (remap disabled) fails three tests.
+
+**Risk:** when later entities (pick lists) start carrying match ids they need the same rewrite.
+
+## Task 1.40 — the client reads live match slots only (coordinator follow-up)
+
+**Plan said:** the device side of the form and match-slot removals is task 1.42.
+
+**What was wrong:** once `setMatchTeams` tombstones a cleared slot, the pull delivers that row with `deleted_at` set, and all six client readers of `cachedRows('match_teams')` ignored the column: a cleared slot showed as still filled, on a fresh device too, where before the hard-deleted slot simply did not exist. Waiting for 1.42 would ship that regression on this branch.
+
+**What I did instead:** `liveSlots(rows)` and `cachedLiveSlots()` in `apps/client/src/data/cache.ts` (drops `deleted_at != null`; a row from before the column existed counts as live), used by all six readers: `useEntriesView`, `DraftRecovery`, `EntryPage`, `PracticeStart`, `useScoutSelection`, `homeData`. Data layer only, no screen changes. Tests: `cache.test.ts` (the helper and the cached read), and SelectRobotPage "never offers a robot whose slot an admin cleared" — reverting `useScoutSelection` to the unfiltered read fails it.
+
+**Risk:** a future reader that calls `cachedRows('match_teams')` directly skips the filter; the doc comment says every line-up reader uses `cachedLiveSlots`.
+
+## Task 1.40 — the conflict id is derived from the op_id, and a retry writes it once (coordinator follow-up)
+
+**Plan said:** `const conflictId = crypto.randomUUID()`.
+
+**What was wrong:** the conflict row is written before the live row (see above). If the live write failed, the device's retry of the same operation wrote a second conflict row with a new id.
+
+**What I did instead:** `conflictIdFor(opId)` in `syncPush.ts`: sha256 (`node:crypto`, server only) of a fixed namespace and the op_id, shaped as a v4 uuid. `insertConflict` keeps an existing id: the real store upserts with `{ onConflict: 'id', ignoreDuplicates: true }` (`on conflict do nothing`), the fake keeps the first row. Tests: a divergence and a duplicate whose live write fails once answer `invalid: unexpected server error`, then on retry the same `conflict_id` with `ctx.conflicts.size === 1`; reverting to `randomUUID` fails both.
+
+**Risk:** if the retry's decision differs from the first attempt's (the duplicate row was deleted in between), the first conflict row stays behind pointing at a pair that no longer conflicts; 1.41 must tolerate it, as it must tolerate conflicts naming deleted entries.

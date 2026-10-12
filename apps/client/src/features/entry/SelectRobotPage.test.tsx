@@ -108,6 +108,26 @@ describe('SelectRobotPage: your station and the line-up (Scout README 1–4, 6)'
     expect(screen.getByRole('button', { name: /Start entry · 5654/ })).toBeEnabled();
   });
 
+  it('never offers a robot whose slot an admin cleared (a pulled match_teams tombstone, task 1.40)', async () => {
+    await seedEventWithLineup();
+    await db.rows.put({
+      entity: 'match_teams',
+      id: 'mt-5654',
+      match_id: 'm-39',
+      alliance: 'blue',
+      station: 2,
+      team_id: 't-5654',
+      deleted_at: '2026-11-14T10:00:00.000Z',
+    });
+    await setStation('B2');
+    const user = userEvent.setup();
+    renderScout();
+    await typeMatch(user, '39');
+    expect(await screen.findByRole('radio', { name: /1690/ })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /5654/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /YOUR STATION/ })).not.toBeInTheDocument();
+  });
+
   it('"Not now" closes the sheet and leaves the station unset', async () => {
     const user = userEvent.setup();
     renderScout();

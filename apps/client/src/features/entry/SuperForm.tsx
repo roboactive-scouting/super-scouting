@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 import { ConfirmEntry } from './ConfirmEntry';
 import { EntryContext } from './entryContext';
 import { FieldInput } from './FieldInput';
-import { canSelfEdit, editsAnyTime, type Editor } from './localEntries';
+import { canSelfEdit, type Editor } from './localEntries';
 import { matchClock } from './matchClock';
 import { PhaseTabs } from './PhaseTabs';
 import { usePracticeMode } from './practice';
@@ -309,7 +309,8 @@ export function SuperForm({
         showStatus={false}
         phases={form.phases}
         data={form.saved}
-        windowApplies={!editsAnyTime(author) && !existing}
+        // SPEC-FINAL 7.6 (v1.26): no five-minute window on a super entry, for anyone.
+        windowApplies={false}
         error={error}
         errorRef={errorRef}
         submitting={submitting}

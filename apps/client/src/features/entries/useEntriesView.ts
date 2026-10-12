@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { formatDate, formatTime } from '@frc/shared';
-import { cachedRows } from '@/data/cache';
+import { cachedLiveSlots, cachedRows } from '@/data/cache';
 import { db } from '@/data/db';
 import { rejectedRows } from '@/data/outbox';
 import { rejectionMessage } from '@/data/rejections';
@@ -156,7 +156,7 @@ async function loadSource(eventId: string): Promise<EntriesSource> {
     cachedRows('matches'),
     cachedRows('teams'),
     cachedRows('users'),
-    cachedRows<LineupSlot>('match_teams'),
+    cachedLiveSlots<LineupSlot>(),
     rejectedRows(),
     db.outbox.filter((op) => op.entity === 'scouting_entry').toArray(),
   ]);

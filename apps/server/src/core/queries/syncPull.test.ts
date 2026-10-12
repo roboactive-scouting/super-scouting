@@ -170,6 +170,126 @@ describe('syncPull', () => {
     });
   });
 
+  describe('a cleared match slot (task 1.40, spec 7.5 item 1)', () => {
+    it('reaches a device through the delta pull as a row carrying deleted_at', async () => {
+      await ctx.store.insertTeam({ id: 't-a', number: 1, name: 'A' });
+      await ctx.store.insertTeam({ id: 't-b', number: 2, name: 'B' });
+      await ctx.store.insertMatch({
+        id: 'm-1',
+        event_id: EVENT,
+        match_type: 'qualification',
+        number: 1,
+      });
+      const at = '2026-11-14T10:00:00.000Z';
+      await ctx.store.setMatchTeams(
+        'm-1',
+        [
+          { alliance: 'red', station: 1, team_id: 't-a' },
+          { alliance: 'red', station: 2, team_id: 't-b' },
+        ],
+        at,
+      );
+      const since = { event_id: EVENT, since: '2026-11-14T10:30:00.000Z' };
+      expect((await syncPull(scouter, since, ctx)).entities.match_teams).toEqual([]);
+
+      ctx.nowValue = new Date('2026-11-14T11:00:00.000Z');
+      await ctx.store.setMatchTeams(
+        'm-1',
+        [{ alliance: 'red', station: 1, team_id: 't-a' }],
+        ctx.nowValue.toISOString(),
+      );
+      const res = await syncPull(scouter, since, ctx);
+      expect(res.entities.match_teams).toEqual([
+        expect.objectContaining({
+          match_id: 'm-1',
+          alliance: 'red',
+          station: 2,
+          team_id: 't-b',
+          deleted_at: '2026-11-14T11:00:00.000Z',
+        }),
+      ]);
+    });
+  });
+
+  describe('deleted form rows (task 1.40, spec 7.5 item 5)', () => {
+    const SEASON = 'se-1'; // the fake's resolveScope
+    const fieldRow = (id: string, key: string) => ({
+      id,
+      key,
+      label: key,
+      type: 'counter',
+      display_order: 1,
+      config: {},
+      description: 'x',
+      unit: 'count',
+      phase: 'auto',
+      direction: 'higher_is_better',
+    });
+    const since = { event_id: EVENT, since: '2026-11-14T10:30:00.000Z' };
+
+    beforeEach(async () => {
+      ctx.forms.set('form-1', { id: 'form-1', version: 1, season_id: SEASON, kind: 'match' });
+      ctx.formVersions.set('fv-1', { id: 'fv-1', version: 1, form_id: 'form-1', version_no: 1 });
+      ctx.nowValue = new Date('2026-11-14T10:00:00.000Z');
+      await ctx.store.writeFormFields('fv-1', [fieldRow('f-a', 'a'), fieldRow('f-b', 'b')], []);
+      await ctx.store.replaceScoringRules('form-1', [
+        { id: 'r-a', field_key: 'a', points: 1 },
+        { id: 'r-b', field_key: 'b', points: 2 },
+      ]);
+      ctx.nowValue = new Date('2026-11-14T11:00:00.000Z');
+    });
+
+    it('a delta pull names a field removed from a draft and a dropped scoring rule', async () => {
+      await ctx.store.writeFormFields('fv-1', [fieldRow('f-b', 'b')], ['a']);
+      await ctx.store.replaceScoringRules('form-1', [{ id: 'r-a', field_key: 'a', points: 1 }]);
+      const res = await syncPull(scouter, since, ctx);
+      expect(res.deleted_form_rows).toEqual({
+        forms: [],
+        form_versions: [],
+        form_fields: ['f-a'],
+        scoring_rules: ['r-b'],
+      });
+      // The watermark moves past the deletion, as it does for a deleted match.
+      expect(res.watermark).toBe('2026-11-14T10:59:55.000Z');
+    });
+
+    it('a deleted form names the form; what it cascaded to is not named on its own', async () => {
+      await ctx.store.deleteFormCascade('form-1');
+      expect((await syncPull(scouter, since, ctx)).deleted_form_rows).toEqual({
+        forms: ['form-1'],
+        form_versions: [],
+        form_fields: [],
+        scoring_rules: [],
+      });
+    });
+
+    it('a deleted version names the version, and its fields go with it', async () => {
+      await ctx.store.deleteFormVersion('fv-1');
+      expect((await syncPull(scouter, since, ctx)).deleted_form_rows).toEqual({
+        forms: [],
+        form_versions: ['fv-1'],
+        form_fields: [],
+        scoring_rules: [],
+      });
+    });
+
+    it('a row written again under its id is live again, and named no more', async () => {
+      await ctx.store.writeFormFields('fv-1', [fieldRow('f-b', 'b')], ['a']);
+      await ctx.store.writeFormFields('fv-1', [fieldRow('f-a', 'a'), fieldRow('f-b', 'b')], []);
+      expect((await syncPull(scouter, since, ctx)).deleted_form_rows?.form_fields).toEqual([]);
+    });
+
+    it('names none on a full pull, on a later page, or before `since`', async () => {
+      await ctx.store.writeFormFields('fv-1', [fieldRow('f-b', 'b')], ['a']);
+      const empty = { forms: [], form_versions: [], form_fields: [], scoring_rules: [] };
+      expect((await syncPull(scouter, { event_id: EVENT }, ctx)).deleted_form_rows).toEqual(empty);
+      const page = { ...since, cursor: btoa('{"entityIndex":0,"offset":0}') };
+      expect((await syncPull(scouter, page, ctx)).deleted_form_rows).toEqual(empty);
+      const later = { event_id: EVENT, since: '2026-11-14T12:00:00.000Z' };
+      expect((await syncPull(scouter, later, ctx)).deleted_form_rows).toEqual(empty);
+    });
+  });
+
   it('reports not-found when the event no longer exists, so the client can wipe its cache', async () => {
     ctx.knownEvents.clear();
     await expect(syncPull(scouter, { event_id: EVENT }, ctx)).rejects.toMatchObject({

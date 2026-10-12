@@ -285,9 +285,27 @@ describe('SuperEntryPage (SPEC-FINAL 8.1, task 1.36)', () => {
     expect(supers).toHaveLength(1);
   });
 
-  it('shows a scouter their own super entry locked once its five-minute window has closed', async () => {
-    await db.rows.put(superEntry(10 * 60_000));
+  it('lets a scouter edit their own super entry an hour later (SPEC-FINAL 7.6, v1.26)', async () => {
+    await db.rows.put(superEntry(60 * 60_000));
     renderAt('/super/t-1690');
+    expect(await screen.findByText(/Editing your entry from/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /review entry/i })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('never promises a scouter a five-minute window on a new super entry', async () => {
+    const user = userEvent.setup();
+    renderAt('/super/t-1657');
+    await user.click(await screen.findByRole('radio', { name: 'Some' }));
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    const dialog = await screen.findByRole('dialog', { name: 'Submit the super entry?' });
+    expect(dialog).toHaveTextContent('1657 Hamosad');
+    expect(dialog).not.toHaveTextContent(/minutes after submitting/);
+  });
+
+  it("still shows another scouter's super entry locked to a scouter", async () => {
+    await db.rows.put(superEntry(60_000));
+    renderAt('/super/t-1690', { id: 'u-9', role: 'scouter' });
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'The super entry for 1690 Orbit is locked — ask a lead to change it.',
     );

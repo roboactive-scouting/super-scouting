@@ -1,4 +1,10 @@
-import type { FormFieldDefinition, MatchSlot, MatchType, SyncEntity } from '@frc/shared';
+import type {
+  FormDeletionEntity,
+  FormFieldDefinition,
+  MatchSlot,
+  MatchType,
+  SyncEntity,
+} from '@frc/shared';
 
 export type StoredUser = {
   id: string;
@@ -99,26 +105,34 @@ export type Store = {
   markApplied(opId: string): Promise<void>;
   getRow(entity: SyncEntity, id: string): Promise<StoredRow | null>;
   putRow(entity: SyncEntity, id: string, row: Record<string, unknown>): Promise<void>;
-  findByLogicalKey(key: string): Promise<StoredRow | null>;
-  parentsExist(parents: {
-    event_id: string;
-    match_id: string | null;
-    form_version_id: string;
-  }): Promise<boolean>;
-  insertConflict(row: Record<string, unknown>): Promise<void>;
+  /**
+   * Task 1.40 (SPEC-FINAL 9.5): the LIVE (`deleted_at is null`) scouting entry with this
+   * logical key and an id other than `excludeId`, matched null-safe on `match_id` (a super
+   * entry's is null on both sides); when there are several, the one with the greatest
+   * `client_updated_at`. THROWS on a database error: swallowed, a blip would hide a duplicate.
+   */
+  findByLogicalKey(key: EntryLogicalKey, excludeId: string): Promise<StoredRow | null>;
+  /**
+   * Task 1.40: one `sync_conflicts` row. A row whose id already exists is left as it is
+   * (`on conflict do nothing`): the id is derived from the op_id, so that is a retry of the
+   * same operation. THROWS on a database error, keeping its code.
+   */
+  insertConflict(row: NewConflict): Promise<void>;
   listConflicts(eventId: string, limit: number, cursor?: string): Promise<StoredRow[]>;
   getConflict(id: string): Promise<StoredRow | null>;
   resolveConflictRow(id: string, resolvedBy: string, at: string): Promise<void>;
   /**
    * UF.1 (SPEC-FINAL 9.3.1, v1.18): which of an entry's parents is gone, checked in this
-   * order — event, then match (skipped when null), then team — or null when all exist. An
-   * id that is not a uuid cannot name a row, so it reads as missing. THROWS on a database
-   * error: swallowed, a blip would read as a deleted parent.
+   * order — event, then match (skipped when null), then team, then form version (task 1.40;
+   * skipped when absent) — or null when all exist. An id that is not a uuid cannot name a
+   * row, so it reads as missing. THROWS on a database error: swallowed, a blip would read as
+   * a deleted parent.
    */
   missingParent(parents: {
     event_id: string;
     match_id: string | null;
     team_id: string;
+    form_version_id?: string;
   }): Promise<MissingParent | null>;
 
   // pull (task 1.4)
@@ -131,6 +145,14 @@ export type Store = {
    * same id has no tombstone. THROWS on a database error.
    */
   listMatchDeletions(eventId: string, since: string): Promise<MatchDeletion[]>;
+  /**
+   * Task 1.40 (spec §7.5 item 5): the season's form, version, field and scoring-rule rows
+   * hard-deleted after `since`, from the `form_deletions` tombstones the delete triggers
+   * write, oldest first. A row inserted again under the same id has no tombstone; a row that
+   * went by cascade has a null season and is never named (its parent's tombstone covers it).
+   * THROWS on a database error.
+   */
+  listFormDeletions(seasonId: string, since: string): Promise<FormDeletion[]>;
 
   // users (tasks 1.3, 1.11, 1.12, 1.13)
   getUser(id: string): Promise<StoredUser | null>;
@@ -221,13 +243,18 @@ export type Store = {
   updateMatch(id: string, patch: Record<string, unknown>): Promise<StoredMatch>;
   /** Practice, qualification, playoff, then by number; `after` is the keyset. */
   listMatches(eventId: string, limit: number, after?: MatchKeyset): Promise<StoredMatch[]>;
-  /** The filled slots of the given matches (at most six each), in no particular order. */
+  /**
+   * The LIVE filled slots of the given matches (at most six each), in no particular order.
+   * A cleared slot's tombstone (`deleted_at` set, task 1.40) is never one of them.
+   */
   listMatchSlots(matchIds: string[]): Promise<StoredMatchSlot[]>;
   /**
-   * Makes `slots` the match's filled slots: an omitted slot is deleted, a slot whose team
-   * changed is updated in place, a new slot is inserted, an unchanged one is not written.
+   * Makes `slots` the match's filled slots (task 1.40: tombstones, like setRoster): an
+   * omitted live slot is tombstoned (`deleted_at = at`), a slot whose team changed is
+   * updated in place, a refilled tombstone is revived in place (`deleted_at = null`, its new
+   * team), a slot never filled is inserted, an unchanged live one is not written.
    */
-  setMatchTeams(matchId: string, slots: MatchSlot[]): Promise<void>;
+  setMatchTeams(matchId: string, slots: MatchSlot[], at: string): Promise<void>;
   /** Every entry of the match, soft-deleted ones included: the foreign key counts them. */
   countEntriesByMatch(matchId: string): Promise<number>;
   /** Every entry of every event in the season, soft-deleted ones included (task 1.18). */
@@ -367,10 +394,38 @@ export type StoredFormExport = {
 };
 
 /** The parent `missingParent` found gone. */
-export type MissingParent = 'event' | 'match' | 'team';
+export type MissingParent = 'event' | 'match' | 'team' | 'form_version';
 
 /** One `match_deletions` row (migration 20261008090000_match_deletions.sql). */
 export type MatchDeletion = { match_id: string; deleted_at: string };
+
+/** One `form_deletions` row the pull reads (migration 20261012091000_form_deletions.sql). */
+export type FormDeletion = { entity: FormDeletionEntity; row_id: string; deleted_at: string };
+
+/** The logical key of an entry (SPEC-FINAL 9.5): `match_id` is null for a super entry. */
+export type EntryLogicalKey = {
+  event_id: string;
+  form_kind: 'match' | 'super';
+  team_id: string;
+  match_id: string | null;
+};
+
+/**
+ * A new `sync_conflicts` row (SPEC-FINAL 3.6). A divergence carries the superseded copy in
+ * full; a duplicate names the other row. `resolved_*` start null, timestamps are the table's.
+ */
+export type NewConflict = {
+  id: string;
+  event_id: string;
+  entity: 'scouting_entry';
+  row_id: string;
+  kind: 'divergence' | 'duplicate';
+  superseded_payload?: Record<string, unknown>;
+  superseded_author_id?: string | null;
+  superseded_client_updated_at?: string;
+  base_version?: number | null;
+  duplicate_row_id?: string;
+};
 
 /** The counts `countDeleteImpact` answers. */
 export type DeleteImpact = { events: number; matches: number; entries: number; forms: number };

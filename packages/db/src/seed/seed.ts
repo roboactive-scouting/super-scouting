@@ -238,6 +238,9 @@ export async function seedDevDatabase(
         alliance,
         station,
         team_id: teams[teamIndex]!.id,
+        // Task 1.40: a slot an admin cleared is a tombstone now, not a deleted row; a re-seed
+        // brings the seeded line-up back whole.
+        deleted_at: null,
       });
 
       if (m >= SCOUTED_MATCHES) continue;

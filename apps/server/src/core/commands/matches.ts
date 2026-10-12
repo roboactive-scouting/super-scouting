@@ -231,7 +231,8 @@ function notOnRoster(team: string): AppError {
 /**
  * SPEC-FINAL 6.4: fill a match's six alliance slots from the event roster. Admin only.
  * `slots` REPLACES the match's slots: given ones are written, omitted ones are cleared, so
- * a slot may be left empty. A team newly placed in a slot must be on the event's live
+ * a slot may be left empty. A cleared slot is a tombstone (`deleted_at` = the server clock,
+ * task 1.40), so the removal reaches every device through the delta pull. A team newly placed in a slot must be on the event's live
  * roster; a slot whose team did not change is kept even if that team has since been
  * removed from the roster, so fixing one slot never forces the others to be re-checked.
  */
@@ -262,7 +263,7 @@ export async function setMatchTeams(
   }
 
   try {
-    await ctx.store.setMatchTeams(match.id, parsed.slots);
+    await ctx.store.setMatchTeams(match.id, parsed.slots, ctx.now().toISOString());
   } catch (e) {
     const code = pgCode(e);
     if (code === '23503') {

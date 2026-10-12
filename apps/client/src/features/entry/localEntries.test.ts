@@ -23,6 +23,20 @@ describe('canSelfEdit (SPEC-FINAL 7.6), on the shared rule', () => {
     expect(canSelfEdit(entry, { id: 'u-3', role: 'admin' }, at(day))).toBe(true);
   });
 
+  it("lets a scouter edit their own super entry at any age, and never someone else's (task 1.40)", () => {
+    const superEntry = { ...entry, form_kind: 'super' } as LocalEntry;
+    const hour = 60 * 60 * 1000;
+    expect(canSelfEdit(superEntry, scouter, at(hour))).toBe(true);
+    expect(canSelfEdit(superEntry, scouter, at(SELF_EDIT_WINDOW_MS + 1))).toBe(true);
+    expect(canSelfEdit(superEntry, { id: 'u-2', role: 'scouter' }, at(1000))).toBe(false);
+    expect(canSelfEdit(superEntry, { id: 'u-2', role: 'scouter' }, at(hour))).toBe(false);
+  });
+
+  it('keeps the window on a match entry: the exemption is for super entries only', () => {
+    const matchEntry = { ...entry, form_kind: 'match' } as LocalEntry;
+    expect(canSelfEdit(matchEntry, scouter, at(SELF_EDIT_WINDOW_MS + 1))).toBe(false);
+  });
+
   it('measures the window with the one shared constant', () => {
     expect(editableUntil(entry).getTime()).toBe(Date.parse(created) + SELF_EDIT_WINDOW_MS);
   });

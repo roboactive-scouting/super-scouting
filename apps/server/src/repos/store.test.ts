@@ -473,6 +473,7 @@ function scriptedDb(results: Result[]): { db: Db; chains: Call[][] } {
         'upsert',
         'delete',
         'eq',
+        'neq',
         'is',
         'gt',
         'lt',
@@ -701,15 +702,19 @@ describe('supabaseStore matches and match slots (task 1.19)', () => {
     await store.listMatchSlots([MATCH]);
     expect(chains[0]).toContainEqual(['select', 'match_id, alliance, station, team_id']);
     expect(chains[0]).toContainEqual(['in', 'match_id', [MATCH]]);
+    // Task 1.40: a cleared slot's tombstone is never a live slot.
+    expect(chains[0]).toContainEqual(['is', 'deleted_at', null]);
   });
 
-  it('setMatchTeams deletes cleared slots, updates a changed team in place, inserts new ones', async () => {
+  const AT = '2026-11-14T10:00:00.000Z';
+
+  it('setMatchTeams tombstones cleared slots, updates a changed team in place, inserts new ones (task 1.40)', async () => {
     const { db, chains } = scriptedDb([
       {
         data: [
-          { id: 's-r1', alliance: 'red', station: 1, team_id: A },
-          { id: 's-r2', alliance: 'red', station: 2, team_id: A },
-          { id: 's-b1', alliance: 'blue', station: 1, team_id: B },
+          { id: 's-r1', alliance: 'red', station: 1, team_id: A, deleted_at: null },
+          { id: 's-r2', alliance: 'red', station: 2, team_id: A, deleted_at: null },
+          { id: 's-b1', alliance: 'blue', station: 1, team_id: B, deleted_at: null },
         ],
         error: null,
       },
@@ -717,20 +722,58 @@ describe('supabaseStore matches and match slots (task 1.19)', () => {
       { error: null },
       { error: null },
     ]);
-    await supabaseStore(db).setMatchTeams(MATCH, [
-      { alliance: 'red', station: 1, team_id: A },
-      { alliance: 'red', station: 2, team_id: B },
-      { alliance: 'blue', station: 3, team_id: A },
-    ]);
+    await supabaseStore(db).setMatchTeams(
+      MATCH,
+      [
+        { alliance: 'red', station: 1, team_id: A },
+        { alliance: 'red', station: 2, team_id: B },
+        { alliance: 'blue', station: 3, team_id: A },
+      ],
+      AT,
+    );
     expect(chains).toHaveLength(4);
-    expect(chains[1]).toContainEqual(['delete']);
+    // Every row of the match is read, tombstones included.
+    expect(chains[0]).toContainEqual(['select', 'id, alliance, station, team_id, deleted_at']);
+    expect(chains[0]!.find(([m]) => m === 'is')).toBeUndefined();
+    expect(chains[1]).toContainEqual(['update', { deleted_at: AT }]);
     expect(chains[1]).toContainEqual(['in', 'id', ['s-b1']]);
+    expect(chains.flat().find(([m]) => m === 'delete')).toBeUndefined();
     expect(chains[2]).toContainEqual(['update', { team_id: B }]);
     expect(chains[2]).toContainEqual(['eq', 'id', 's-r2']);
     const insert = chains[3]!.find(([m]) => m === 'insert')!;
     expect(insert[1]).toEqual([
       { id: expect.any(String), match_id: MATCH, alliance: 'blue', station: 3, team_id: A },
     ]);
+  });
+
+  it('setMatchTeams revives a refilled tombstone in place, and leaves a tombstone alone', async () => {
+    const { db, chains } = scriptedDb([
+      {
+        data: [
+          { id: 's-r1', alliance: 'red', station: 1, team_id: A, deleted_at: AT },
+          { id: 's-r2', alliance: 'red', station: 2, team_id: A, deleted_at: AT },
+        ],
+        error: null,
+      },
+      { error: null },
+    ]);
+    await supabaseStore(db).setMatchTeams(MATCH, [{ alliance: 'red', station: 1, team_id: B }], AT);
+    // One write: s-r1 revived with its new team; s-r2 is already a tombstone, so not rewritten.
+    expect(chains).toHaveLength(2);
+    expect(chains[1]).toContainEqual(['update', { team_id: B, deleted_at: null }]);
+    expect(chains[1]).toContainEqual(['eq', 'id', 's-r1']);
+  });
+
+  it('setMatchTeams revives a tombstone refilled with its old team', async () => {
+    const { db, chains } = scriptedDb([
+      {
+        data: [{ id: 's-r1', alliance: 'red', station: 1, team_id: A, deleted_at: AT }],
+        error: null,
+      },
+      { error: null },
+    ]);
+    await supabaseStore(db).setMatchTeams(MATCH, [{ alliance: 'red', station: 1, team_id: A }], AT);
+    expect(chains[1]).toContainEqual(['update', { team_id: A, deleted_at: null }]);
   });
 
   it('countEntriesByMatch counts every entry of the match, soft-deleted ones included', async () => {
@@ -880,6 +923,24 @@ describe('supabaseStore missing parents and match deletions (UF.1, SPEC-FINAL 9.
     expect(quiet.chains).toEqual([]);
   });
 
+  it('missingParent checks the form version last when it is given, and names it (task 1.40)', async () => {
+    const VERSION = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const withVersion = { ...parents, form_version_id: VERSION };
+    const { db, chains } = scriptedDb([found(EVENT), found(MATCH), found(TEAM), found(VERSION)]);
+    expect(await supabaseStore(db).missingParent(withVersion)).toBeNull();
+    expect(chains[3]![0]).toEqual(['from', 'form_versions']);
+    expect(chains[3]).toContainEqual(['eq', 'id', VERSION]);
+    const answer = (results: Result[]) =>
+      supabaseStore(scriptedDb(results).db).missingParent(withVersion);
+    expect(await answer([found(EVENT), found(MATCH), found(TEAM), none])).toBe('form_version');
+    expect(await answer([none, found(MATCH), found(TEAM), none])).toBe('event');
+    const quiet = scriptedDb([]);
+    expect(
+      await supabaseStore(quiet.db).missingParent({ ...parents, form_version_id: 'fv-1' }),
+    ).toBe('form_version');
+    expect(quiet.chains).toEqual([]);
+  });
+
   it('missingParent throws on a database error instead of reading it as a deleted parent', async () => {
     const { db } = scriptedDb([
       found(EVENT),
@@ -923,6 +984,104 @@ describe('supabaseStore missing parents and match deletions (UF.1, SPEC-FINAL 9.
   it('listMatchDeletions throws on a database error', async () => {
     const { db } = scriptedDb([{ data: null, error: { message: 'connection refused' } }]);
     await expect(supabaseStore(db).listMatchDeletions(EVENT, 'x')).rejects.toThrow(
+      'connection refused',
+    );
+  });
+});
+
+describe('supabaseStore push semantics and form deletions (task 1.40, SPEC-FINAL 9.5)', () => {
+  const EVENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const MATCH = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const TEAM = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const ENTRY = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+  const SEASON = '11111111-1111-4111-8111-111111111111';
+  const key = { event_id: EVENT, form_kind: 'match' as const, team_id: TEAM, match_id: MATCH };
+
+  it('findByLogicalKey reads a LIVE entry with the key and another id, newest client_updated_at first', async () => {
+    const row = { id: 'other', version: 1 };
+    const { db, chains } = scriptedDb([{ data: [row], error: null }]);
+    expect(await supabaseStore(db).findByLogicalKey(key, ENTRY)).toEqual(row);
+    const calls = chains[0]!;
+    expect(calls[0]).toEqual(['from', 'scouting_entries']);
+    expect(calls).toContainEqual(['eq', 'event_id', EVENT]);
+    expect(calls).toContainEqual(['eq', 'form_kind', 'match']);
+    expect(calls).toContainEqual(['eq', 'team_id', TEAM]);
+    expect(calls).toContainEqual(['eq', 'match_id', MATCH]);
+    expect(calls).toContainEqual(['is', 'deleted_at', null]);
+    expect(calls).toContainEqual(['neq', 'id', ENTRY]);
+    expect(calls).toContainEqual(['order', 'client_updated_at', { ascending: false }]);
+    expect(calls).toContainEqual(['limit', 1]);
+  });
+
+  it('findByLogicalKey matches a super entry on a null match_id (null-safe), and answers null for none', async () => {
+    const { db, chains } = scriptedDb([{ data: [], error: null }]);
+    expect(
+      await supabaseStore(db).findByLogicalKey(
+        { ...key, form_kind: 'super', match_id: null },
+        ENTRY,
+      ),
+    ).toBeNull();
+    expect(chains[0]).toContainEqual(['is', 'match_id', null]);
+    expect(chains[0]!.find(([m, col]) => m === 'eq' && col === 'match_id')).toBeUndefined();
+  });
+
+  it('findByLogicalKey reads a non-uuid id as no match, without a query, and throws on an error', async () => {
+    const quiet = scriptedDb([]);
+    expect(await supabaseStore(quiet.db).findByLogicalKey(key, 'e-1')).toBeNull();
+    expect(quiet.chains).toEqual([]);
+    const { db } = scriptedDb([{ data: null, error: { message: 'connection refused' } }]);
+    await expect(supabaseStore(db).findByLogicalKey(key, ENTRY)).rejects.toThrow(
+      'connection refused',
+    );
+  });
+
+  it('insertConflict upserts the row into sync_conflicts, ignoring an existing id, and keeps the Postgres code', async () => {
+    const conflict = {
+      id: ENTRY,
+      event_id: EVENT,
+      entity: 'scouting_entry' as const,
+      row_id: ENTRY,
+      kind: 'duplicate' as const,
+      duplicate_row_id: ENTRY,
+    };
+    const { db, chains } = scriptedDb([{ error: null }]);
+    await supabaseStore(db).insertConflict(conflict);
+    expect(chains[0]).toEqual([
+      ['from', 'sync_conflicts'],
+      ['upsert', conflict, { onConflict: 'id', ignoreDuplicates: true }],
+    ]);
+    const failing = scriptedDb([{ error: { message: 'fk', code: '23503' } }]);
+    await expect(supabaseStore(failing.db).insertConflict(conflict)).rejects.toMatchObject({
+      code: '23503',
+    });
+  });
+
+  it('listFormDeletions reads the season’s tombstones after `since`, oldest first, paging past 1000', async () => {
+    const since = '2026-11-14T09:00:00.000Z';
+    const page = Array.from({ length: 1000 }, (_, i) => ({
+      entity: 'form_fields',
+      row_id: `f-${i}`,
+      deleted_at: '2026-11-14T09:30:00.000Z',
+    }));
+    const last = { entity: 'scoring_rules', row_id: 'r-1', deleted_at: '2026-11-14T09:31:00.000Z' };
+    const { db, chains } = scriptedDb([
+      { data: page, error: null },
+      { data: [last], error: null },
+    ]);
+    const rows = await supabaseStore(db).listFormDeletions(SEASON, since);
+    expect(rows).toHaveLength(1001);
+    expect(rows[1000]).toEqual(last);
+    expect(chains[0]).toContainEqual(['from', 'form_deletions']);
+    expect(chains[0]).toContainEqual(['select', 'entity, row_id, deleted_at']);
+    expect(chains[0]).toContainEqual(['eq', 'season_id', SEASON]);
+    expect(chains[0]).toContainEqual(['gt', 'deleted_at', since]);
+    expect(chains[0]).toContainEqual(['order', 'deleted_at', { ascending: true }]);
+    expect(chains[1]).toContainEqual(['range', 1000, 1999]);
+  });
+
+  it('listFormDeletions throws on a database error', async () => {
+    const { db } = scriptedDb([{ data: null, error: { message: 'connection refused' } }]);
+    await expect(supabaseStore(db).listFormDeletions(SEASON, 'x')).rejects.toThrow(
       'connection refused',
     );
   });

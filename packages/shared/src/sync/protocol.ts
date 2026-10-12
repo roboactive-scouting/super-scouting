@@ -126,4 +126,25 @@ export type PullResponse = {
    * predates it: read it as `deleted_matches ?? []`.
    */
   deleted_matches?: string[];
+  /**
+   * Spec §7.5 item 5 (task 1.40): the form tables have no deleted_at either, so a delta pull
+   * also names the season's forms, form versions, form fields and scoring rules hard-deleted
+   * since `since`, by id per table. A row that went by cascade is not named on its own: drop
+   * a deleted form's versions, fields and rules, and a deleted version's fields, with it.
+   * Always four empty lists on a full pull, and on any page but a delta pull's first.
+   * Optional so a client still reads a server that predates it: read it as
+   * `deleted_form_rows ?? EMPTY`.
+   */
+  deleted_form_rows?: DeletedFormRows;
 };
+
+/** The form tables whose hard deletes the delta pull names (`form_deletions.entity`). */
+export const FORM_DELETION_ENTITIES = [
+  'forms',
+  'form_versions',
+  'form_fields',
+  'scoring_rules',
+] as const;
+export type FormDeletionEntity = (typeof FORM_DELETION_ENTITIES)[number];
+
+export type DeletedFormRows = Record<FormDeletionEntity, string[]>;

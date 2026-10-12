@@ -1,5 +1,6 @@
-import { MATCH_TYPES, type FormFieldDefinition } from '@frc/shared';
+import { MATCH_TYPES, type FormDeletionEntity, type FormFieldDefinition } from '@frc/shared';
 import type {
+  NewConflict,
   Store,
   StoredEvent,
   StoredForm,
@@ -47,8 +48,8 @@ const MATCH_COLUMNS = new Set([
 
 /**
  * The columns of public.teams, public.event_teams and public.match_teams (migration
- * 20260903090000_skeleton.sql), checked like matches. None has a `version`; only
- * event_teams has a `deleted_at`.
+ * 20260903090000_skeleton.sql, plus match_teams.deleted_at from 20261012090000), checked
+ * like matches. None has a `version`; teams has no `deleted_at`.
  */
 const TEAM_COLUMNS = new Set(['id', 'number', 'name', 'created_at', 'updated_at']);
 const EVENT_TEAM_COLUMNS = new Set([
@@ -67,6 +68,25 @@ const MATCH_TEAM_COLUMNS = new Set([
   'team_id',
   'created_at',
   'updated_at',
+  'deleted_at',
+]);
+
+/** The columns of public.sync_conflicts (migration 20260903092000_entries.sql). */
+const SYNC_CONFLICT_COLUMNS = new Set([
+  'id',
+  'event_id',
+  'entity',
+  'row_id',
+  'kind',
+  'superseded_payload',
+  'superseded_author_id',
+  'superseded_client_updated_at',
+  'base_version',
+  'duplicate_row_id',
+  'created_at',
+  'updated_at',
+  'resolved_at',
+  'resolved_by',
 ]);
 
 /** An `event_teams` row: one team on one event's roster, soft-deleted on removal. */
@@ -79,7 +99,10 @@ export type FakeEventTeam = {
   deleted_at: string | null;
 };
 
-/** A `match_teams` row, one filled slot. `ctx.matchTeams` keys it `<match>:<alliance>:<station>`. */
+/**
+ * A `match_teams` row, one slot. `ctx.matchTeams` keys it `<match>:<alliance>:<station>`;
+ * a cleared slot keeps its row with `deleted_at` set (task 1.40), as the database does.
+ */
 export type FakeMatchTeam = {
   id: string;
   match_id: string;
@@ -88,6 +111,15 @@ export type FakeMatchTeam = {
   team_id: string;
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
+};
+
+/** One `form_deletions` tombstone (task 1.40). `ctx.formDeletions` keys it `<entity>:<row_id>`. */
+export type FakeFormDeletion = {
+  entity: FormDeletionEntity;
+  row_id: string;
+  season_id: string | null;
+  deleted_at: string;
 };
 
 /** The columns of public.users (migration 20260903091000_forms.sql), checked the same way. */
@@ -444,6 +476,12 @@ export type FakeContext = UseCaseContext & {
    * delete's cascade, cleared when insertMatch creates the id again, as the two triggers do.
    */
   matchDeletions: Map<string, { event_id: string; deleted_at: string }>;
+  /**
+   * The `form_deletions` tombstones (task 1.40): written by every form, version, field and
+   * scoring-rule delete the fake does, cleared when a row is inserted again under its id, as
+   * the two triggers do. A cascaded child finds its parent gone, so its season_id is null.
+   */
+  formDeletions: Map<string, FakeFormDeletion>;
   entryCountsByMatch: Map<string, number>;
   entryCountsBySeason: Map<string, number>;
   /**
@@ -651,6 +689,7 @@ export function makeFakeContext(): FakeContext {
     knownEvents,
     missingParents: new Set<string>(),
     matchDeletions: new Map(),
+    formDeletions: new Map(),
     entryCountsByMatch: new Map(),
     entryCountsBySeason: new Map(),
     entryCountsByVersion: new Map(),
@@ -708,12 +747,45 @@ export function makeFakeContext(): FakeContext {
     if (activeContext.active_event_id === id) activeContext.active_event_id = null;
   };
 
+  // Task 1.40: the form tables' AFTER DELETE trigger (migration 20261012091000). The season
+  // is looked up NOW, so a row that goes by cascade — after its parent — finds none.
+  const seasonOfForm = (formId: unknown): string | null => {
+    const season = fake.forms.get(String(formId))?.season_id;
+    return typeof season === 'string' ? season : null;
+  };
+  const recordFormDeletion = (
+    entity: FormDeletionEntity,
+    rowId: string,
+    seasonId: string | null,
+  ): void => {
+    fake.formDeletions.set(`${entity}:${rowId}`, {
+      entity,
+      row_id: rowId,
+      season_id: seasonId,
+      deleted_at: fake.nowValue.toISOString(),
+    });
+  };
+  // ...and its AFTER INSERT trigger: a row inserted again under its id is live again.
+  const clearFormDeletion = (entity: FormDeletionEntity, rowId: unknown): void => {
+    fake.formDeletions.delete(`${entity}:${String(rowId)}`);
+  };
+  const recordFieldDeletion = (field: FormFieldDefinition): void => {
+    const versionId = (field as unknown as { form_version_id: string }).form_version_id;
+    const version = fake.formVersions.get(versionId);
+    recordFormDeletion('form_fields', field.id, version ? seasonOfForm(version.form_id) : null);
+  };
+
   // Task 1.27: what `delete from form_versions where id = …` leaves behind. Its fields and
-  // its entries cascade; forms.active_version_id is ON DELETE SET NULL.
+  // its entries cascade; forms.active_version_id is ON DELETE SET NULL. Task 1.40: the
+  // version row goes first, as in Postgres, so its cascaded fields find no season.
   const dropFormVersion = (id: string): void => {
+    const version = fake.formVersions.get(id);
+    if (version) recordFormDeletion('form_versions', id, seasonOfForm(version.form_id));
+    fake.formVersions.delete(id);
     for (const [k, f] of fake.formFields) {
       if ((f as unknown as { form_version_id: string }).form_version_id === id) {
         fake.formFields.delete(k);
+        recordFieldDeletion(f);
       }
     }
     for (const [k, row] of rows.scouting_entries) {
@@ -723,20 +795,26 @@ export function makeFakeContext(): FakeContext {
     for (const form of fake.forms.values()) {
       if (form.active_version_id === id) form.active_version_id = null;
     }
-    fake.formVersions.delete(id);
     fake.formVersionWrites += 1;
   };
   // ...and of `delete from forms where id = …`: its versions (with their fields and entries)
-  // and scoring rules cascade; a saved export's form_id is ON DELETE SET NULL.
+  // and scoring rules cascade; a saved export's form_id is ON DELETE SET NULL. Task 1.40: the
+  // form row goes first, so everything it cascades to leaves a season-less tombstone.
   const dropForm = (id: string): void => {
+    const form = fake.forms.get(id);
+    if (form) recordFormDeletion('forms', id, seasonOfForm(id));
+    fake.forms.delete(id);
     for (const version of [...fake.formVersions.values()]) {
       if (version.form_id === id) dropFormVersion(version.id);
     }
-    for (const [k, rule] of fake.scoringRules) if (rule.form_id === id) fake.scoringRules.delete(k);
+    for (const [k, rule] of fake.scoringRules) {
+      if (rule.form_id !== id) continue;
+      fake.scoringRules.delete(k);
+      recordFormDeletion('scoring_rules', rule.id, seasonOfForm(rule.form_id));
+    }
     for (const exported of fake.formExports.values()) {
       if (exported.form_id === id) exported.form_id = null;
     }
-    fake.forms.delete(id);
   };
   const userExists = (id: unknown): boolean => typeof id === 'string' && usersById.has(id);
   const fieldRowsOf = (versionId: string): FormFieldDefinition[] =>
@@ -869,6 +947,7 @@ export function makeFakeContext(): FakeContext {
         throw pgError('23505', 'forms_season_id_kind_key');
       }
       fake.forms.set(next.id, next);
+      clearFormDeletion('forms', next.id);
       return { ...next } as unknown as StoredForm;
     },
     async updateForm(id, patch) {
@@ -920,6 +999,7 @@ export function makeFakeContext(): FakeContext {
         throw pgError('23505', 'form_versions_form_id_version_no_key');
       }
       fake.formVersions.set(next.id, next);
+      clearFormDeletion('form_versions', next.id);
       fake.formVersionWrites += 1;
       return { ...next } as unknown as StoredFormVersion;
     },
@@ -950,11 +1030,17 @@ export function makeFakeContext(): FakeContext {
         throw pgError('23503', 'form_fields_form_version_id_fkey');
       }
       for (const row of fieldRows) checkColumns('form_fields', FORM_FIELD_COLUMNS, row);
-      for (const key of deleteKeys) fake.formFields.delete(`${formVersionId}:${key}`);
+      for (const key of deleteKeys) {
+        const gone = fake.formFields.get(`${formVersionId}:${key}`);
+        if (!gone) continue;
+        fake.formFields.delete(`${formVersionId}:${key}`);
+        recordFieldDeletion(gone);
+      }
       const at = fake.nowValue.toISOString();
       for (const row of fieldRows) {
         const k = `${formVersionId}:${String(row.key)}`;
         const existing = fake.formFields.get(k) as Record<string, unknown> | undefined;
+        if (!existing) clearFormDeletion('form_fields', row.id);
         fake.formFields.set(k, {
           created_at: existing?.created_at ?? at,
           ...row,
@@ -976,13 +1062,16 @@ export function makeFakeContext(): FakeContext {
       }
       const keep = new Set(rules.map((r) => String(r.field_key)));
       for (const [k, rule] of fake.scoringRules) {
-        if (rule.form_id === formId && !keep.has(String(rule.field_key)))
+        if (rule.form_id === formId && !keep.has(String(rule.field_key))) {
           fake.scoringRules.delete(k);
+          recordFormDeletion('scoring_rules', rule.id, seasonOfForm(formId));
+        }
       }
       const at = fake.nowValue.toISOString();
       for (const rule of rules) {
         const k = `${formId}:${String(rule.field_key)}`;
         const existing = fake.scoringRules.get(k);
+        if (!existing) clearFormDeletion('scoring_rules', rule.id);
         fake.scoringRules.set(k, {
           created_at: existing?.created_at ?? at,
           ...rule,
@@ -1057,9 +1146,16 @@ export function makeFakeContext(): FakeContext {
     async eventExists(eventId) {
       return knownEvents.has(eventId) || events.has(eventId);
     },
+    // A test's `pullRows` first. With none for match_teams, the fake's own slot rows (task
+    // 1.40), tombstones included, so a cleared slot can be followed from setMatchTeams to a pull.
     async pullEntity(key, scope, since, offset, limit) {
       void scope;
-      const all = (pullRows.get(key) ?? [])
+      const source =
+        pullRows.get(key) ??
+        (key === 'match_teams'
+          ? [...matchTeams.values()].map((row) => ({ ...row }) as Record<string, unknown>)
+          : []);
+      const all = source
         .filter((r) => since === undefined || String(r.updated_at) > since)
         .sort((a, b) => String(a.updated_at).localeCompare(String(b.updated_at)));
       return all.slice(offset, offset + limit);
@@ -1067,9 +1163,10 @@ export function makeFakeContext(): FakeContext {
     async resolveScope(eventId) {
       return { eventId, seasonId: 'se-1' };
     },
-    // UF.1. The entry fixtures name ids no map holds ('m-1', 't-1'), so a parent exists
-    // unless a test says otherwise: by `missingParents`, an unknown event, or a tombstone.
-    async missingParent({ event_id, match_id, team_id }) {
+    // UF.1. The entry fixtures name ids no map holds ('m-1', 't-1', 'fv-1'), so a parent
+    // exists unless a test says otherwise: by `missingParents`, an unknown event, or a
+    // tombstone (a match's, or task 1.40's form version's).
+    async missingParent({ event_id, match_id, team_id, form_version_id }) {
       if (fake.missingParents.has(event_id) || !eventIsReal(event_id)) return 'event';
       if (
         match_id !== null &&
@@ -1078,13 +1175,69 @@ export function makeFakeContext(): FakeContext {
         return 'match';
       }
       if (fake.missingParents.has(team_id)) return 'team';
+      if (
+        form_version_id !== undefined &&
+        (fake.missingParents.has(form_version_id) ||
+          fake.formDeletions.has(`form_versions:${form_version_id}`))
+      ) {
+        return 'form_version';
+      }
       return null;
+    },
+    // Task 1.40: live entries with the key and another id, newest client_updated_at first.
+    async findByLogicalKey(key, excludeId) {
+      const hits = [...rows.scouting_entries.values()]
+        .filter(
+          (row) =>
+            row.id !== excludeId &&
+            row.deleted_at == null &&
+            row.event_id === key.event_id &&
+            row.form_kind === key.form_kind &&
+            row.team_id === key.team_id &&
+            ((row.match_id as string | null | undefined) ?? null) === key.match_id,
+        )
+        .sort(
+          (a, b) =>
+            Date.parse(String(b.client_updated_at)) - Date.parse(String(a.client_updated_at)) ||
+            (a.id < b.id ? -1 : 1),
+        );
+      return hits[0] ? { ...hits[0] } : null;
+    },
+    // Task 1.40: one sync_conflicts row, its columns checked, with the table's defaults. An
+    // id already held is kept as it is, like the store's `on conflict do nothing`.
+    async insertConflict(row: NewConflict) {
+      checkColumns('sync_conflicts', SYNC_CONFLICT_COLUMNS, row);
+      if (fake.conflicts.has(row.id)) return;
+      const at = fake.nowValue.toISOString();
+      fake.conflicts.set(row.id, {
+        superseded_payload: null,
+        superseded_author_id: null,
+        superseded_client_updated_at: null,
+        base_version: null,
+        duplicate_row_id: null,
+        created_at: at,
+        updated_at: at,
+        resolved_at: null,
+        resolved_by: null,
+        ...row,
+      } as unknown as FakeRow);
     },
     async listMatchDeletions(eventId, since) {
       return [...fake.matchDeletions]
         .filter(([, d]) => d.event_id === eventId && d.deleted_at > since)
         .sort(([a, x], [b, y]) => x.deleted_at.localeCompare(y.deleted_at) || a.localeCompare(b))
         .map(([match_id, d]) => ({ match_id, deleted_at: d.deleted_at }));
+    },
+    async listFormDeletions(seasonId, since) {
+      return [...fake.formDeletions.values()]
+        .filter((d) => d.season_id === seasonId && d.deleted_at > since)
+        .sort(
+          (a, b) =>
+            a.deleted_at.localeCompare(b.deleted_at) ||
+            a.entity.localeCompare(b.entity) ||
+            a.row_id.localeCompare(b.row_id),
+        )
+        .map(({ entity, row_id, deleted_at }) => ({ entity, row_id, deleted_at }));
     },
     async getActiveContext() {
       return { ...activeContext };
@@ -1308,7 +1461,7 @@ export function makeFakeContext(): FakeContext {
     async listMatchSlots(matchIds) {
       const wanted = new Set(matchIds);
       return [...matchTeams.values()]
-        .filter((s) => wanted.has(s.match_id))
+        .filter((s) => wanted.has(s.match_id) && s.deleted_at === null)
         .map((s) => ({
           match_id: s.match_id,
           alliance: s.alliance,
@@ -1316,36 +1469,41 @@ export function makeFakeContext(): FakeContext {
           team_id: s.team_id,
         }));
     },
-    // The foreign keys first; then a cleared slot is deleted, a changed one updated in
-    // place (same row id), a new one inserted, and an unchanged one left alone.
-    async setMatchTeams(matchId, slots) {
+    // The foreign keys first; then (task 1.40) a cleared live slot is tombstoned, a changed
+    // one updated in place (same row id), a tombstone refilled is revived in place, a new
+    // one inserted, and an unchanged live one left alone. `updated_at` is the trigger's: the
+    // fake's clock, not `at`.
+    async setMatchTeams(matchId, slots, at) {
       if (!rows.matches.has(matchId)) throw pgError('23503', 'match_teams_match_id_fkey');
       if (slots.some((s) => !teams.has(s.team_id))) {
         throw pgError('23503', 'match_teams_team_id_fkey');
       }
       for (const slot of slots) checkColumns('match_teams', MATCH_TEAM_COLUMNS, slot);
-      const at = fake.nowValue.toISOString();
+      const now = fake.nowValue.toISOString();
       const key = (s: { alliance: string; station: number }) =>
         `${matchId}:${s.alliance}:${s.station}`;
       const wanted = new Map(slots.map((s) => [key(s), s]));
       for (const [k, row] of matchTeams) {
-        if (row.match_id === matchId && !wanted.has(k)) matchTeams.delete(k);
+        if (row.match_id === matchId && row.deleted_at === null && !wanted.has(k)) {
+          matchTeams.set(k, { ...row, deleted_at: at, updated_at: now });
+        }
       }
       for (const [k, slot] of wanted) {
         const existing = matchTeams.get(k);
-        if (existing && existing.team_id === slot.team_id) continue;
+        if (existing && existing.deleted_at === null && existing.team_id === slot.team_id) continue;
         matchTeams.set(
           k,
           existing
-            ? { ...existing, team_id: slot.team_id, updated_at: at }
+            ? { ...existing, team_id: slot.team_id, deleted_at: null, updated_at: now }
             : {
                 id: crypto.randomUUID(),
                 match_id: matchId,
                 alliance: slot.alliance,
                 station: slot.station,
                 team_id: slot.team_id,
-                created_at: at,
-                updated_at: at,
+                created_at: now,
+                updated_at: now,
+                deleted_at: null,
               },
         );
       }
@@ -1400,9 +1558,6 @@ export function makeFakeContext(): FakeContext {
     // Everything else on the Store starts as a loud stub; each later task
     // replaces the two or three entries it needs.
     ...stubsFor([
-      'findByLogicalKey',
-      'parentsExist',
-      'insertConflict',
       'listConflicts',
       'getConflict',
       'resolveConflictRow',
