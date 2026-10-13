@@ -200,3 +200,68 @@ describe('an edit of a pulled entry (UF.12)', () => {
     });
   });
 });
+
+describe('a lead re-saves a refused record (SPEC-FINAL 9.3.1, Q7.8)', () => {
+  beforeEach(async () => {
+    await db.rows.bulkPut([
+      { entity: 'users', id: 'u-1', role: 'scouter', full_name: 'Yael Shapira' },
+      { entity: 'users', id: 'u-lead', role: 'lead', full_name: 'Noa Levi' },
+    ]);
+  });
+
+  async function refusedCreate(): Promise<string> {
+    const { row_id } = await submitEntry({
+      ...base,
+      robotStatus: 'played',
+      data: { auto_notes: 3 },
+    });
+    const [op] = await pending(10);
+    await ackResults([
+      {
+        op_id: op!.op_id,
+        status: 'rejected',
+        reason: 'forbidden',
+        detail: 'the author is disabled',
+      },
+    ]);
+    expect(await pending(10)).toHaveLength(0);
+    return row_id;
+  }
+
+  it("sends it as the lead's create, crediting the original scouter", async () => {
+    const rowId = await refusedCreate();
+    await submitEntry({
+      ...base,
+      authorUserId: 'u-lead',
+      rowId,
+      robotStatus: 'played',
+      data: { auto_notes: 4 },
+    });
+    const queued = await pending(10);
+    expect(queued).toHaveLength(1);
+    expect(queued[0]).toMatchObject({
+      row_id: rowId,
+      action: 'create',
+      base_version: null,
+      author_user_id: 'u-lead',
+    });
+    expect(queued[0]!.payload).toMatchObject({ scouter_id: 'u-1', data: { auto_notes: 4 } });
+  });
+
+  it("a scouter's own re-save is still theirs: the server's rule decides, the record stays", async () => {
+    const rowId = await refusedCreate();
+    await submitEntry({ ...base, rowId, robotStatus: 'played', data: { auto_notes: 4 } });
+    const [queued] = await pending(10);
+    expect(queued!.author_user_id).toBe('u-1');
+    await ackResults([
+      {
+        op_id: queued!.op_id,
+        status: 'rejected',
+        reason: 'forbidden',
+        detail: 'the author is disabled',
+      },
+    ]);
+    expect(await pending(10)).toHaveLength(0);
+    expect(await db.outbox.count()).toBe(1);
+  });
+});

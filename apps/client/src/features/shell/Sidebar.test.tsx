@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Role } from '@frc/shared';
+import { db } from '@/data/db';
 import type { NavAudience } from './nav';
 import { ShellLayout } from './ShellLayout';
 
@@ -42,6 +43,37 @@ function renderShell(path = '/entries', role: Role = 'admin', over: Partial<NavA
 beforeEach(() => localStorage.clear());
 
 describe('the sidebar (redesign R.6)', () => {
+  it('lists Sync under This device with the waiting count, current on /sync and its log (task 1.43)', async () => {
+    await db.delete();
+    await db.open();
+    await db.outbox.bulkPut(
+      ['a', 'b'].map((id, i) => ({
+        op_id: `op-${id}`,
+        entity: 'scouting_entry' as const,
+        row_id: id,
+        action: 'create' as const,
+        base_version: null,
+        payload: {},
+        author_user_id: 'u-1',
+        client_created_at: '2026-10-12T09:00:00.000Z',
+        client_updated_at: '2026-10-12T09:00:00.000Z',
+        seq: i + 1,
+      })),
+    );
+    renderShell('/sync/discarded');
+    const device = screen.getByRole('list', { name: 'This device' });
+    const sync = await screen.findByRole('link', { name: 'Sync, 2 waiting to send' });
+    expect(device).toContainElement(sync);
+    expect(sync).toHaveAttribute('href', '/sync');
+    expect(sync).toHaveAttribute('aria-current', 'page');
+    expect(
+      screen
+        .getAllByRole('link')
+        .filter((l) => device.contains(l))
+        .map((l) => l.textContent),
+    ).toEqual(['Sync2', 'Settings']);
+  });
+
   it('lists every destination once, grouped, with the current one marked', () => {
     renderShell('/entries');
     expect(screen.getByRole('list', { name: 'Competition' })).toBeInTheDocument();

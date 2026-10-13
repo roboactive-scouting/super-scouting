@@ -4,6 +4,7 @@ import {
   FileText,
   House,
   List,
+  RefreshCw,
   Settings,
   Users,
   type LucideIcon,
@@ -51,7 +52,15 @@ export type NavItem = {
   visible: (who: NavAudience) => boolean;
   /** Shown but not a link — Scout while a session override is set (SPEC-FINAL 6.3). */
   disabled?: (who: NavAudience) => boolean;
+  /**
+   * A count beside the label in the sidebar and the phone menu: `waiting` is what waits to send
+   * (SPEC-FINAL 9.10), Sync's. None while it is zero.
+   */
+  count?: 'waiting';
 };
+
+/** The counts nav rows can show (NavItem.count), read once by the shell. */
+export type NavCounts = { waiting: number };
 
 /**
  * Tabs either side of Scout in the middle (spec v1.15). Task 1.51 (Teams) and 1.58 (Ranking)
@@ -123,6 +132,19 @@ export const NAV_ITEMS: readonly NavItem[] = [
     bottomBar: null,
     desktopOnly: true,
     visible: (who) => !who.expired && canManageForms(who.user),
+  },
+  // SPEC-FINAL 9.10 (task 1.43): what this device has sent and what still waits, with the waiting
+  // count; every role; never in the bottom bar. No `end`: it is current on /sync/discarded too.
+  // The "This device" group reads Sync · Conflicts · Settings: Conflicts (task 1.44) goes here.
+  {
+    id: 'sync',
+    label: 'Sync',
+    to: PATHS.sync,
+    icon: RefreshCw,
+    group: 'device',
+    bottomBar: null,
+    count: 'waiting',
+    visible: () => true,
   },
   // SPEC-FINAL 8.6 (v1.25, task 1.38): this device's own settings, for every role, in the sidebar
   // and the phone menu; never in the bottom bar.

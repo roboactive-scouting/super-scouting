@@ -30,6 +30,33 @@ export async function recordDiscarded(
   row: Raw | undefined,
   at: string = new Date().toISOString(),
 ): Promise<DiscardedRecord> {
+  const { summary, event_id: eventId, event_name } = await describeEntry(op, row);
+  const record: DiscardedRecord = {
+    id: op.op_id,
+    discarded_at: at,
+    reason: DISCARD_REASON,
+    row_id: op.row_id,
+    event_id: eventId,
+    event_name: event_name ?? UNKNOWN_EVENT,
+    summary,
+    dismissed_at: null,
+  };
+  await db.discarded.put(record);
+  return record;
+}
+
+/**
+ * An entry operation the way a person recognises it (SPEC-FINAL 9.7, 9.10), resolved from the
+ * cache: its competition (`event_name` null when the device holds no `events` row for it), the
+ * match, the station, the team, the robot status, the form kind, the scouter and when it was
+ * saved. The payload is the latest content; the cached row fills in what a delete or an older
+ * payload lacks. Reads only — the discarded log and the Sync page both use it. Never an entered
+ * value (`data`, `breakdown_seconds`).
+ */
+export async function describeEntry(
+  op: Pick<Operation, 'payload' | 'author_user_id' | 'client_updated_at'>,
+  row: Raw | undefined,
+): Promise<{ summary: DiscardedSummary; event_id: string | null; event_name: string | null }> {
   const src: Raw = { ...(row ?? {}), ...op.payload };
   const eventId = text(src.event_id);
   const matchId = text(src.match_id);
@@ -73,19 +100,7 @@ export async function recordDiscarded(
     scouter_id: scouterId,
     client_updated_at: op.client_updated_at,
   };
-
-  const record: DiscardedRecord = {
-    id: op.op_id,
-    discarded_at: at,
-    reason: DISCARD_REASON,
-    row_id: op.row_id,
-    event_id: eventId,
-    event_name: text(event?.name) ?? UNKNOWN_EVENT,
-    summary,
-    dismissed_at: null,
-  };
-  await db.discarded.put(record);
-  return record;
+  return { summary, event_id: eventId, event_name: text(event?.name) };
 }
 
 /**

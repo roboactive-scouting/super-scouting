@@ -171,6 +171,60 @@ describe('syncNow', () => {
   });
 });
 
+describe('syncNow reports its push progress (SPEC-FINAL 9.10, task 1.43)', () => {
+  const okPull = async (): Promise<PullResponse> => ({
+    watermark: '2026-11-14T09:00:55.000Z',
+    next_cursor: null,
+    complete: true,
+    entities: emptyEntities,
+  });
+
+  it('counts records, not bare matches, and ticks off the acked ones by row id', async () => {
+    await enqueue({
+      ...op('m-new'),
+      op_id: 'op-m-new',
+      entity: 'match',
+      payload: { event_id: 'ev-1', match_type: 'qualification', number: 40 },
+    });
+    for (const id of ['row-a', 'row-b', 'row-c']) await enqueue(op(id));
+    const push = vi.fn(async (req: PushRequest): Promise<PushResponse> => ({
+      // The server takes the bare match and two of the three entries; one is refused.
+      results: req.operations.map((o) =>
+        o.row_id === 'row-c'
+          ? { op_id: o.op_id, status: 'rejected', reason: 'invalid', detail: 'x: bad' }
+          : { op_id: o.op_id, status: 'applied', row_id: o.row_id, new_version: 1 },
+      ),
+    }));
+    const seen: unknown[] = [];
+    const outcome = await syncNow({
+      api: { push, pull: okPull },
+      eventId: 'ev-1',
+      deviceId: 'd-1',
+      onProgress: (p) => seen.push(p),
+    });
+    expect(outcome).toEqual({ status: 'ok', pushed: 4, pulled: 0 });
+    expect(seen).toEqual([
+      { sent: 0, total: 3, acked: [] },
+      { sent: 2, total: 3, acked: ['row-a', 'row-b'] },
+    ]);
+  });
+
+  it('says nothing when there is nothing to send, and leaves parked records out of the total', async () => {
+    const onProgress = vi.fn();
+    const push = vi.fn(async (): Promise<PushResponse> => ({ results: [] }));
+    await syncNow({ api: { push, pull: okPull }, eventId: 'ev-1', deviceId: 'd-1', onProgress });
+    expect(onProgress).not.toHaveBeenCalled();
+
+    await enqueue(op('row-parked'));
+    await db.syncState.update('row-parked', {
+      rejection: { code: 'forbidden', message: 'the author is disabled', at: 'x' },
+    });
+    await enqueue(op('row-fresh'));
+    await syncNow({ api: { push, pull: okPull }, eventId: 'ev-1', deviceId: 'd-1', onProgress });
+    expect(onProgress).toHaveBeenNthCalledWith(1, { sent: 0, total: 1, acked: [] });
+  });
+});
+
 describe('syncNow through the real transport and its deadline (phase 1C follow-up)', () => {
   afterEach(() => {
     vi.unstubAllGlobals();

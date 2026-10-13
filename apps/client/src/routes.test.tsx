@@ -205,7 +205,7 @@ describe('switch scouter on a shared device (SPEC-FINAL 7.3, task 1.16)', () => 
 });
 
 describe('which routes wait for the event to load (task 1.17b)', () => {
-  it('marks exactly Home, Users, the user detail page, Manage, Forms, the form builder, Switch scouter, Settings and the old context path as needing no event', () => {
+  it('marks exactly Home, Users, the user detail page, Manage, Forms, the form builder, Switch scouter, Settings, Sync, its log and the old context path as needing no event', () => {
     const shell = routeTree().find((r) => r.path === '/');
     const marked = (shell?.children ?? [])
       .filter((r) => needsNoHydration(r.handle))
@@ -221,6 +221,8 @@ describe('which routes wait for the event to load (task 1.17b)', () => {
       // This device's settings (task 1.38): no event data, so it opens with no competition.
       'settings',
       'switch-scouter',
+      // Sync (task 1.43) lists every unsynced record on the device, whatever its event.
+      'sync',
       // The discarded-records log (task 1.42) reads only this device's log.
       'sync/discarded',
     ]);

@@ -25,6 +25,7 @@ export function Tabs<K extends string>({
   done,
   flagged,
   flagLabel = 'needs attention',
+  dotted,
   flush = false,
 }: {
   label: string;
@@ -39,6 +40,11 @@ export function Tabs<K extends string>({
    */
   flagged?: ReadonlySet<K>;
   flagLabel?: string;
+  /**
+   * Keys of the tabs that need attention, shown as THEME "Tabs in a card (with counts)" draws
+   * it: a 7 px `--warn` dot before the label (Sync's Problems), with `flagLabel` (sr-only).
+   */
+  dotted?: ReadonlySet<K>;
   /**
    * Manage's page tabs (07-manage final): flush, full-height tabs with no inset, the inactive
    * labels in `--ink-2` 650 and the counts in muted mono; the underline spans the tab.
@@ -107,6 +113,13 @@ export function Tabs<K extends string>({
                 strokeWidth={3}
               />
             )}
+            {dotted?.has(tab.key) && (
+              <span
+                aria-hidden="true"
+                data-dot-mark=""
+                className="size-[7px] shrink-0 rounded-full bg-warn"
+              />
+            )}
             <span className="truncate" dir="auto">
               {tab.label}
             </span>
@@ -115,6 +128,7 @@ export function Tabs<K extends string>({
                 {tab.count}
               </span>
             )}
+            {dotted?.has(tab.key) && <span className="sr-only">{flagLabel}</span>}
             {flagged?.has(tab.key) && (
               <>
                 <TriangleAlert

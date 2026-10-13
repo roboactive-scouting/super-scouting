@@ -21,7 +21,7 @@ import { needsSignIn, session } from '@/auth/session';
 import { useSession } from '@/auth/useSession';
 import { clientConfig } from '@/config';
 import { apiClient } from '@/data/api';
-import { beginSync, endSync } from '@/data/connection';
+import { beginSync, endSync, setSyncProgress } from '@/data/connection';
 import { cachedEventName } from '@/data/cache';
 import { getMeta, setMeta } from '@/data/db';
 import {
@@ -165,7 +165,7 @@ export function AppShell() {
     onEntryRouteRef.current = onEntryRoute;
   }, [onEntryRoute]);
   /** The loop's own `schedule()`: the one sync path every trigger goes through. */
-  const scheduleRef = useRef<(() => void) | null>(null);
+  const scheduleRef = useRef<(() => Promise<void>) | null>(null);
   /** A changed default held back because an entry was open when it arrived. */
   const pendingRef = useRef<{ eventId: string | null } | null>(null);
   /** Applies a held move at once, outside the sync queue (branch review, finding 1). */
@@ -208,7 +208,13 @@ export function AppShell() {
       // An unmounted shell (a sign-out, a route outside it) starts no new sync, and a
       // shell that has moved on to another event starts none for this one.
       if (stopped || active !== eventId) return;
-      const outcome = await syncNow({ api, eventId, deviceId: device });
+      // The Sync page's "Sent · 2 of 5" (SPEC-FINAL 9.10) reads this progress while it runs.
+      const outcome = await syncNow({
+        api,
+        eventId,
+        deviceId: device,
+        onProgress: setSyncProgress,
+      });
       // A stale answer (branch review, finding 1): a sync that hung while the shell moved
       // to a new default must not settle the old event back, nor act on its default.
       if (stopped || active !== eventId) return;
@@ -284,7 +290,7 @@ export function AppShell() {
     applyHeldRef.current = () => {
       if (pendingRef.current === null || onEntryRouteRef.current) return;
       void moveTo(pendingRef.current.eventId, false).then(() => {
-        if (!stopped) schedule();
+        if (!stopped) void schedule();
       });
     };
 
@@ -372,13 +378,15 @@ export function AppShell() {
     let queue: Promise<void> = Promise.resolve();
     const schedule = () => {
       queue = queue.then(() => (stopped ? undefined : run())).catch(() => {});
+      return queue;
     };
 
-    schedule();
+    void schedule();
     const timer = setInterval(() => {
-      if (!stopped && navigator.onLine) schedule();
+      if (!stopped && navigator.onLine) void schedule();
     }, AUTO_REFRESH_MS);
-    window.addEventListener('online', schedule);
+    const onOnline = () => void schedule();
+    window.addEventListener('online', onOnline);
 
     // A token arriving in place (the reconnect exchange, a switch to an online scouter)
     // syncs at once rather than on the next 45 s tick, so a device that was working from
@@ -386,7 +394,7 @@ export function AppShell() {
     let lastToken: string | null | undefined;
     const unsubscribe = session.subscribe((next) => {
       const token = next?.token ?? null;
-      if (lastToken === null && token !== null) schedule();
+      if (lastToken === null && token !== null) void schedule();
       lastToken = token;
     });
     const uninstall = installReconnect();
@@ -397,7 +405,7 @@ export function AppShell() {
       scheduleRef.current = null;
       applyHeldRef.current = null;
       clearInterval(timer);
-      window.removeEventListener('online', schedule);
+      window.removeEventListener('online', onOnline);
       unsubscribe();
       uninstall();
     };
@@ -415,7 +423,7 @@ export function AppShell() {
     // Leaving the entry route with a move held: the move itself, at once. Offline too —
     // new entries must not keep going to the old event while a connection is awaited.
     if (pendingRef.current !== null && !onEntryRouteRef.current) applyHeldRef.current?.();
-    else if (navigator.onLine) scheduleRef.current?.();
+    else if (navigator.onLine) void scheduleRef.current?.();
   }, [location.pathname]);
 
   // SPEC-FINAL 9.3: pull-to-refresh — a drag down from the very top of the page, once per
@@ -429,7 +437,7 @@ export function AppShell() {
     const y = e.touches[0]?.clientY;
     if (from === null || y === undefined || y - from < PULL_TO_REFRESH_PX) return;
     pullFrom.current = null;
-    if (navigator.onLine) scheduleRef.current?.();
+    if (navigator.onLine) void scheduleRef.current?.();
   };
 
   if (current === undefined) return null; // IndexedDB is being read; a few milliseconds
@@ -448,6 +456,8 @@ export function AppShell() {
     expired: current.expired,
     eventId: gate.eventId,
     gate: gate.state,
+    // The Sync page's Sync now: the same queue every other trigger goes through.
+    requestSync: () => scheduleRef.current?.() ?? Promise.resolve(),
   };
   /** Signed in against the cached hashes, no token yet (task 1.16). */
   const offlineSession = current.offline && current.token === null && !current.expired;

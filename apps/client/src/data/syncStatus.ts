@@ -1,5 +1,7 @@
+import { useSyncExternalStore } from 'react';
 import { useOnline } from '@/lib/useOnline';
-import { connectionState } from './connection';
+import { onChanged } from './changes';
+import { connectionState, syncProgress, type SyncProgress } from './connection';
 import { db, getMeta } from './db';
 import { LAST_FAILURE, type SyncFailure } from './syncFailure';
 import { useDeviceQuery } from './useDeviceQuery';
@@ -27,4 +29,11 @@ export function useSyncStatus() {
     online,
     syncing: connectionState() === 'syncing',
   };
+}
+
+const onMeta = (notify: () => void) => onChanged((kind) => kind === 'meta' && notify());
+
+/** The running sync's push progress (SPEC-FINAL 9.10, "Sent · 2 of 5"), or null. */
+export function useSyncProgress(): SyncProgress | null {
+  return useSyncExternalStore(onMeta, syncProgress, () => null);
 }

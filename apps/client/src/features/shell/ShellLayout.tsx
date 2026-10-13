@@ -118,6 +118,7 @@ export function ShellLayout({
           collapsed={collapsed}
           onToggle={toggle}
           account={account}
+          counts={{ waiting: status.waiting }}
         />
       )}
       <div

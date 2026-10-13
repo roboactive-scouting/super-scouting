@@ -33,6 +33,12 @@ async function authorRole(authorUserId: string): Promise<Role | null> {
   return null;
 }
 
+/** True when the author is a lead or admin as this device knows them (SPEC-FINAL 7.6). */
+async function managesEntries(authorUserId: string): Promise<boolean> {
+  const role = await authorRole(authorUserId);
+  return role !== null && can({ kind: 'user', userId: authorUserId, role }, 'manage_entries');
+}
+
 /**
  * A timestamp as the push protocol takes it: UTC with a `Z` (operationSchema refuses an
  * offset). A pulled row carries Postgres's form, `…+00:00`, so a value read back from the
@@ -73,6 +79,9 @@ export async function enqueue(op: Operation, origin: 'local' | 'qr' = 'local'): 
     }
   }
 
+  // SPEC-FINAL 9.3.1 (Q7.8): read before the transaction, which spans only outbox and syncState.
+  const leadResave = await managesEntries(op.author_user_id);
+
   await db.transaction('rw', db.outbox, db.syncState, async () => {
     const existing = await db.outbox.where('row_id').equals(op.row_id).first();
 
@@ -83,6 +92,11 @@ export async function enqueue(op: Operation, origin: 'local' | 'qr' = 'local'): 
     }
 
     if (existing) {
+      // A refused record re-saved by a lead or admin (SPEC-FINAL 9.3.1, Q7.8): the refused
+      // operation is replaced by one AUTHORED BY THEM — same row_id, action and base_version —
+      // so the server authorises it under their rights. The entry keeps its scouter_id (the
+      // payload carries the cached row's), so the scouter is still credited.
+      const refused = (await db.syncState.get(op.row_id))?.rejection != null;
       await db.outbox.delete(existing.op_id);
       await db.outbox.put({
         ...op,
@@ -90,8 +104,12 @@ export async function enqueue(op: Operation, origin: 'local' | 'qr' = 'local'): 
         action: existing.action === 'create' ? 'create' : op.action,
         // A create's author becomes the row's scouter on the server, so an edit folded
         // into a still-pending create (a lead fixing a scouter's unsynced entry) keeps
-        // the original author. Coalesced updates take the latest author as before.
-        author_user_id: existing.action === 'create' ? existing.author_user_id : op.author_user_id,
+        // the original author — unless that create was refused and a lead or admin is
+        // re-saving it (above). Coalesced updates take the latest author as before.
+        author_user_id:
+          existing.action === 'create' && !(refused && leadResave)
+            ? existing.author_user_id
+            : op.author_user_id,
         seq: existing.seq,
       });
     } else {

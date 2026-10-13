@@ -66,7 +66,13 @@ export function NavDrawer({
         </div>
         <SyncLine status={status} />
         <nav aria-label="Places" className="pt-1">
-          <NavList items={items} who={who} variant="menu" onNavigate={onClose} />
+          <NavList
+            items={items}
+            who={who}
+            variant="menu"
+            onNavigate={onClose}
+            counts={{ waiting: status.waiting }}
+          />
         </nav>
         <AccountBlock account={account} version={version} onNavigate={onClose} />
       </div>

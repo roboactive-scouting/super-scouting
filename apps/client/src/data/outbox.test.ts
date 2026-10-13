@@ -340,6 +340,95 @@ describe('a rejected op is parked, not retried (SPEC-FINAL 9.3.1)', () => {
     expect(queued!.author_user_id).toBe('u-scouter');
   });
 
+  describe('a lead clears a refused record by re-saving it (SPEC-FINAL 9.3.1, Q7.8)', () => {
+    const scouterCreate = () =>
+      op({
+        action: 'create',
+        author_user_id: 'u-scouter',
+        payload: { scouter_id: 'u-scouter', data: { auto_notes: 1 } },
+      });
+    const resave = (author: string) =>
+      op({
+        action: 'update',
+        base_version: 1,
+        author_user_id: author,
+        payload: { scouter_id: 'u-scouter', data: { auto_notes: 2 } },
+      });
+
+    beforeEach(async () => {
+      await db.rows.bulkPut([
+        { entity: 'users', id: 'u-scouter', role: 'scouter', full_name: 'Yael Shapira' },
+        { entity: 'users', id: 'u-lead', role: 'lead', full_name: 'Noa Levi' },
+        { entity: 'users', id: 'u-admin', role: 'admin', full_name: 'Tamar Mizrahi' },
+      ]);
+    });
+
+    it.each(['u-lead', 'u-admin'])(
+      'replaces the refused create with one authored by %s: same row_id, action and base_version',
+      async (author) => {
+        await enqueue(scouterCreate());
+        await rejectFirst('forbidden', 'the author is disabled');
+        await enqueue(resave(author));
+
+        const [queued] = await pending(50);
+        expect(queued).toMatchObject({
+          row_id: 'row-1',
+          action: 'create',
+          base_version: null,
+          author_user_id: author,
+        });
+        // The scouter is still credited: only the operation's author changes.
+        expect(queued!.payload.scouter_id).toBe('u-scouter');
+        expect(await db.outbox.count()).toBe(1);
+        expect((await syncStateOf('row-1'))?.rejection ?? null).toBeNull();
+      },
+    );
+
+    it('keeps the base_version of a refused update a lead re-saves', async () => {
+      await enqueue(op({ action: 'update', base_version: 4, author_user_id: 'u-scouter' }));
+      await rejectFirst('edit-window-expired', 'this entry is locked — ask a lead');
+      await enqueue(op({ action: 'update', base_version: 5, author_user_id: 'u-lead' }));
+      const [queued] = await pending(50);
+      expect(queued).toMatchObject({ action: 'update', base_version: 4, author_user_id: 'u-lead' });
+    });
+
+    it("keeps the scouter's authorship when a lead edits a pending create that was NOT refused", async () => {
+      await enqueue(scouterCreate());
+      await enqueue(resave('u-lead'));
+      const [queued] = await pending(50);
+      expect(queued!.author_user_id).toBe('u-scouter');
+    });
+
+    it("a scouter's own re-save stays theirs, and a second refusal parks it again", async () => {
+      await enqueue(scouterCreate());
+      await rejectFirst('invalid', 'auto_notes: too big');
+      await enqueue(resave('u-scouter'));
+      const [queued] = await pending(50);
+      expect(queued!.author_user_id).toBe('u-scouter');
+
+      await rejectFirst('invalid', 'auto_notes: too big');
+      expect(await pending(50)).toHaveLength(0);
+      expect(await unsyncedCount()).toBe(1);
+      expect((await syncStateOf('row-1'))?.rejection?.code).toBe('invalid');
+    });
+
+    it('the waiting count stays the same until the ack, and drops after it', async () => {
+      await enqueue(scouterCreate());
+      await rejectFirst('forbidden', 'a scouter may submit an entry only as themselves');
+      expect(await unsyncedCount()).toBe(1);
+
+      await enqueue(resave('u-lead'));
+      expect(await unsyncedCount()).toBe(1);
+
+      const [queued] = await pending(50);
+      await ackResults([
+        { op_id: queued!.op_id, status: 'applied', row_id: 'row-1', new_version: 1 },
+      ]);
+      expect(await unsyncedCount()).toBe(0);
+      expect((await syncStateOf('row-1'))?.sync_state).toBe('acked');
+    });
+  });
+
   it('retryRejected un-parks one row, and only that row', async () => {
     await enqueue(op({ row_id: 'row-a', seq: 1 }));
     await enqueue(op({ row_id: 'row-b', seq: 2 }));

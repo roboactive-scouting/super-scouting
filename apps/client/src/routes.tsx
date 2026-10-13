@@ -4,7 +4,12 @@ import { DesktopOnly } from '@/components/DesktopOnly';
 import { Skeleton } from '@/components/Skeleton';
 import { OverrideGuard } from '@/features/context/OverrideGuard';
 import { AppShell } from '@/features/shell/AppShell';
-import { NO_HYDRATION, useActiveEventId, useSignedInUser } from '@/features/shell/shellContext';
+import {
+  NO_HYDRATION,
+  useActiveEventId,
+  useShellContext,
+  useSignedInUser,
+} from '@/features/shell/shellContext';
 import { EntriesPage } from '@/features/entries/EntriesPage';
 import { HomePage } from '@/features/home/HomePage';
 import { SelectRobotPage } from '@/features/entry/SelectRobotPage';
@@ -50,6 +55,10 @@ const PracticeStart = lazy(() =>
 // applied by main.tsx before the first paint, without it.
 const SettingsPage = lazy(() =>
   import('@/features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })),
+);
+// The Sync page (task 1.43): a lazy chunk, precached like the others, so it opens offline.
+const SyncPage = lazy(() =>
+  import('@/features/sync/SyncPage').then((m) => ({ default: m.SyncPage })),
 );
 // The discarded-records log (task 1.42): a lazy chunk, precached, reached from Sync only.
 const DiscardedLogPage = lazy(() =>
@@ -125,6 +134,19 @@ function SignedInPracticeRoute() {
         <PracticeStart eventId={eventId} />
       </Loading>
     </OverrideGuard>
+  );
+}
+
+/**
+ * SPEC-FINAL 9.10: Sync names the shell's event as "this event" when there is one, and lists
+ * every unsynced record whatever its event, so it opens with none loaded (NO_HYDRATION).
+ */
+function SyncRoute() {
+  const { eventId, user, requestSync } = useShellContext();
+  return (
+    <Loading>
+      <SyncPage eventId={eventId} viewer={user} syncNow={requestSync} />
+    </Loading>
   );
 }
 
@@ -215,6 +237,14 @@ export function routeTree(): RouteObject[] {
             </Loading>
           ),
           handle: named({ title: 'Settings', crumb: ['This device'] }, NO_HYDRATION),
+        },
+        // SPEC-FINAL 9.10 (task 1.43): what this device has sent and what still waits, opened from
+        // the sync indicator on every screen and the "This device" nav group. It lists every
+        // unsynced record on the device whatever its event, so it opens with no event loaded.
+        {
+          path: 'sync',
+          element: <SyncRoute />,
+          handle: named({ title: 'Sync', crumb: ['This device'] }, NO_HYDRATION),
         },
         // SPEC-FINAL 9.7 (task 1.42): the discarded-records log, opened from Sync, not a nav row.
         // It reads only this device's log, never event data, so it opens with no competition.

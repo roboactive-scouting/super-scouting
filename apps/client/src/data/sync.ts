@@ -1,5 +1,6 @@
 import {
   FORM_DELETION_ENTITIES,
+  isAck,
   MAX_OPERATIONS_PER_PUSH,
   PULL_ENTITY_KEYS,
   type DeletedFormRows,
@@ -9,6 +10,7 @@ import { session } from '@/auth/session';
 import { cachedRows } from './cache';
 import { notifyChanged } from './changes';
 import { db, getMeta, setMeta } from './db';
+import type { SyncProgress } from './connection';
 import { ackResults, matchIdsNeededByOutbox, pending } from './outbox';
 import { call } from './rpc';
 import { clearSyncFailure, recordSyncFailure } from './syncFailure';
@@ -20,6 +22,12 @@ export type SyncDeps = {
   deviceId: string;
   /** Guard against an endless cursor loop; the real cap is the server's page size. */
   maxPages?: number;
+  /**
+   * The push's progress, for the Sync page's "Sent · 2 of 5" (SPEC-FINAL 9.10): called once
+   * before the first batch and after each batch is acked. Records only — a bare match is never
+   * counted (9.10) — and only those the push may send (a parked record is not sent).
+   */
+  onProgress?: (progress: SyncProgress) => void;
 };
 
 export type SyncOutcome =
@@ -58,6 +66,12 @@ export async function syncNow(deps: SyncDeps): Promise<SyncOutcome> {
     // Each operation is sent at most once per sync: a transient failure waits for the
     // next sync instead of looping, and parked operations are never in `pending`.
     const sent = new Set<string>();
+    const report = deps.onProgress;
+    const total = report
+      ? (await pending(Number.MAX_SAFE_INTEGER)).filter((op) => op.entity !== 'match').length
+      : 0;
+    const acked: string[] = [];
+    if (report && total > 0) report({ sent: 0, total, acked: [] });
     for (;;) {
       const batch = await pending(MAX_OPERATIONS_PER_PUSH, sent);
       if (batch.length === 0) break;
@@ -65,6 +79,16 @@ export async function syncNow(deps: SyncDeps): Promise<SyncOutcome> {
       const response = await deps.api.push({ device_id: deps.deviceId, operations: batch });
       await ackResults(response.results);
       pushed += response.results.length;
+      if (report && total > 0) {
+        const records = new Map(
+          batch.filter((op) => op.entity !== 'match').map((op) => [op.op_id, op.row_id]),
+        );
+        for (const result of response.results) {
+          const rowId = records.get(result.op_id);
+          if (rowId !== undefined && isAck(result.status)) acked.push(rowId);
+        }
+        report({ sent: Math.min(acked.length, total), total, acked: [...acked] });
+      }
     }
   } catch (e) {
     if (isEventGone(e)) return wipeEvent(deps.eventId);

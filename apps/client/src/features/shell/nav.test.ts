@@ -23,9 +23,10 @@ const who = (role: Role, over: Partial<NavAudience> = {}): NavAudience => ({
 const ids = (items: NavItem[]) => items.map((i) => i.id);
 
 describe('the nav registry (redesign R.5)', () => {
-  it('gives a scouter and a lead Home, Scout and Entries, and this device’s Settings', () => {
-    expect(ids(navItemsFor(who('scouter')))).toEqual(['home', 'scout', 'entries', 'settings']);
-    expect(ids(navItemsFor(who('lead')))).toEqual(['home', 'scout', 'entries', 'settings']);
+  it('gives a scouter and a lead Home, Scout and Entries, and this device’s Sync and Settings', () => {
+    const base = ['home', 'scout', 'entries', 'sync', 'settings'];
+    expect(ids(navItemsFor(who('scouter')))).toEqual(base);
+    expect(ids(navItemsFor(who('lead')))).toEqual(base);
   });
 
   it('gives an admin Users, Manage and Forms too, grouped under Admin', () => {
@@ -37,12 +38,13 @@ describe('the nav registry (redesign R.5)', () => {
       'users',
       'manage',
       'forms',
+      'sync',
       'settings',
     ]);
     expect(groupsOf(items).map((g) => [g.group, ids(g.items)])).toEqual([
       ['competition', ['home', 'scout', 'entries']],
       ['admin', ['users', 'manage', 'forms']],
-      ['device', ['settings']],
+      ['device', ['sync', 'settings']],
     ]);
   });
 
@@ -51,8 +53,28 @@ describe('the nav registry (redesign R.5)', () => {
       'home',
       'scout',
       'entries',
+      'sync',
       'settings',
     ]);
+  });
+
+  it('puts Sync first under "This device", with the waiting count, for every role, never in the bottom bar (task 1.43)', () => {
+    expect(NAV_ITEMS.find((i) => i.id === 'sync')).toMatchObject({
+      to: PATHS.sync,
+      group: 'device',
+      bottomBar: null,
+      count: 'waiting',
+    });
+    // No `end`: Sync is the current place on /sync/discarded as well.
+    expect(NAV_ITEMS.find((i) => i.id === 'sync')?.end).toBeUndefined();
+    for (const role of ['scouter', 'lead', 'admin'] as const) {
+      for (const desktop of [true, false]) {
+        const device = menuItemsFor(who(role), desktop).filter((i) => i.group === 'device');
+        expect(ids(device)).toEqual(['sync', 'settings']);
+      }
+      const bar = bottomBar(who(role), false);
+      expect(ids([...bar.left, ...bar.right]).concat(bar.middle?.id ?? '')).not.toContain('sync');
+    }
   });
 
   it('puts Settings under "This device" for every role, in the sidebar and the phone menu, never in the bottom bar (task 1.38)', () => {
