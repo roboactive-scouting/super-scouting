@@ -60,6 +60,11 @@ const SettingsPage = lazy(() =>
 const SyncPage = lazy(() =>
   import('@/features/sync/SyncPage').then((m) => ({ default: m.SyncPage })),
 );
+// The conflict review worklist (task 1.44): a lazy chunk, precached, so it opens offline from the
+// cache.
+const ConflictsPage = lazy(() =>
+  import('@/features/sync/ConflictsPage').then((m) => ({ default: m.ConflictsPage })),
+);
 // The discarded-records log (task 1.42): a lazy chunk, precached, reached from Sync only.
 const DiscardedLogPage = lazy(() =>
   import('@/features/sync/DiscardedLogPage').then((m) => ({ default: m.DiscardedLogPage })),
@@ -146,6 +151,26 @@ function SyncRoute() {
   return (
     <Loading>
       <SyncPage eventId={eventId} viewer={user} syncNow={requestSync} />
+    </Loading>
+  );
+}
+
+/**
+ * SPEC-FINAL 9.5: the current event's conflicts. Every role may open it (a scouter reads, every
+ * action off); the page checks the role itself, and the server again. It reads the event's data,
+ * so it waits for the event like Scout.
+ */
+function ConflictsRoute() {
+  const eventId = useActiveEventId();
+  const { user, requestSync } = useShellContext();
+  return (
+    <Loading>
+      <ConflictsPage
+        eventId={eventId}
+        role={user.role}
+        viewerName={user.full_name}
+        syncNow={requestSync}
+      />
     </Loading>
   );
 }
@@ -259,6 +284,13 @@ export function routeTree(): RouteObject[] {
             { title: 'Discarded records', phoneTitle: 'Discarded', crumb: ['This device', 'Sync'] },
             NO_HYDRATION,
           ),
+        },
+        // SPEC-FINAL 9.5, 17.9 (task 1.44): the conflict review worklist, at any width — it cannot
+        // wait for a laptop (17.2). Opened from Sync's conflicts link and the "This device" group.
+        {
+          path: 'conflicts',
+          element: <ConflictsRoute />,
+          handle: named({ title: 'Conflicts', crumb: ['This device'] }),
         },
         // Task 1.22's path, kept so a bookmark or an old installed start page still lands.
         { path: 'context', element: <Navigate to={PATHS.home} replace />, handle: NO_HYDRATION },

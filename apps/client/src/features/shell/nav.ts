@@ -2,6 +2,7 @@ import {
   Calendar,
   ClipboardCheck,
   FileText,
+  GitMerge,
   House,
   List,
   RefreshCw,
@@ -9,7 +10,7 @@ import {
   Users,
   type LucideIcon,
 } from 'lucide-react';
-import type { Role } from '@frc/shared';
+import { can, type Role } from '@frc/shared';
 import { canManageEvents, canManageForms, canManageUsers } from '@/features/admin/AdminOnly';
 import { PATHS } from '@/lib/paths';
 
@@ -54,13 +55,22 @@ export type NavItem = {
   disabled?: (who: NavAudience) => boolean;
   /**
    * A count beside the label in the sidebar and the phone menu: `waiting` is what waits to send
-   * (SPEC-FINAL 9.10), Sync's. None while it is zero.
+   * (SPEC-FINAL 9.10), Sync's; `conflicts` the current event's open conflicts (SPEC-FINAL 9.5),
+   * Conflicts'. None while it is zero.
    */
-  count?: 'waiting';
+  count?: NavCountKey;
 };
 
+export type NavCountKey = 'waiting' | 'conflicts';
+
 /** The counts nav rows can show (NavItem.count), read once by the shell. */
-export type NavCounts = { waiting: number };
+export type NavCounts = Partial<Record<NavCountKey, number>>;
+
+/** How a count is said in the link's name: "Sync, 6 waiting to send", "Conflicts, 2 to review". */
+export const NAV_COUNT_WORDS: Record<NavCountKey, string> = {
+  waiting: 'waiting to send',
+  conflicts: 'to review',
+};
 
 /**
  * Tabs either side of Scout in the middle (spec v1.15). Task 1.51 (Teams) and 1.58 (Ranking)
@@ -135,7 +145,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   },
   // SPEC-FINAL 9.10 (task 1.43): what this device has sent and what still waits, with the waiting
   // count; every role; never in the bottom bar. No `end`: it is current on /sync/discarded too.
-  // The "This device" group reads Sync · Conflicts · Settings: Conflicts (task 1.44) goes here.
+  // The "This device" group reads Sync · Conflicts · Settings.
   {
     id: 'sync',
     label: 'Sync',
@@ -145,6 +155,19 @@ export const NAV_ITEMS: readonly NavItem[] = [
     bottomBar: null,
     count: 'waiting',
     visible: () => true,
+  },
+  // SPEC-FINAL 9.5 (task 1.44): the conflict review worklist, with the current event's open count.
+  // Leads and admins only; a scouter who opens /conflicts by URL reads it with every action off.
+  {
+    id: 'conflicts',
+    label: 'Conflicts',
+    to: PATHS.conflicts,
+    icon: GitMerge,
+    group: 'device',
+    bottomBar: null,
+    count: 'conflicts',
+    visible: (who) =>
+      can({ kind: 'user', userId: who.user.id, role: who.user.role }, 'resolve_conflict'),
   },
   // SPEC-FINAL 8.6 (v1.25, task 1.38): this device's own settings, for every role, in the sidebar
   // and the phone menu; never in the bottom bar.

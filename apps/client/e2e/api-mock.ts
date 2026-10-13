@@ -37,6 +37,22 @@ export type MockOptions = {
   overrides?: Record<string, unknown>;
 };
 
+/**
+ * The conflict review queue (task 1.44): no open conflicts and nothing settled, and a resolve
+ * that settles whatever it is given. `e2e/conflicts.spec.ts` overrides both with its own queue.
+ */
+const CONFLICTS_RPC: Record<string, unknown> = {
+  listConflicts: { items: [], next_cursor: null, settled: [] },
+  resolveConflict: (input: Record<string, unknown>) => ({
+    conflict_id: input.conflict_id,
+    resolved_at: new Date().toISOString(),
+    resolution: input.resolution,
+    row_id: 'resolved-row',
+    new_version: null,
+    soft_deleted: null,
+  }),
+};
+
 /** Pages that went offline: a routed request is answered by the mock even offline, so it must refuse itself. */
 const offline = new WeakSet<Page>();
 
@@ -86,8 +102,9 @@ export async function mockApi(page: Page, opts: MockOptions = {}) {
       const user = { ...USER[role], must_change_password: Boolean(opts.mustChange) };
       return fulfill(200, loginOutput.parse({ token: 'test-token', user }));
     }
-    // The forms use cases (task 1.29) answer from their own fixture.
-    const answer = FIXTURE.rpc[name] ?? FORMS_RPC[name];
+    // The forms use cases (task 1.29) answer from their own fixture; the conflict queue
+    // (task 1.44) is empty unless a spec overrides it.
+    const answer = FIXTURE.rpc[name] ?? FORMS_RPC[name] ?? CONFLICTS_RPC[name];
     if (answer === undefined) {
       return fulfill(404, { error: { code: 'not_found', message: `no mock for ${name}` } });
     }

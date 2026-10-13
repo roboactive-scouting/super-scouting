@@ -7,7 +7,12 @@ import { db } from '@/data/db';
 import type { NavAudience } from './nav';
 import { ShellLayout } from './ShellLayout';
 
-function renderShell(path = '/entries', role: Role = 'admin', over: Partial<NavAudience> = {}) {
+function renderShell(
+  path = '/entries',
+  role: Role = 'admin',
+  over: Partial<NavAudience> = {},
+  eventId: string | null = null,
+) {
   const who: NavAudience = { user: { id: 'u-1', role }, expired: false, override: false, ...over };
   const router = createMemoryRouter(
     [
@@ -18,6 +23,7 @@ function renderShell(path = '/entries', role: Role = 'admin', over: Partial<NavA
             desktop
             hideBottomBar={false}
             who={who}
+            eventId={eventId}
             account={{
               name: 'Tamar Mor',
               role,
@@ -71,7 +77,46 @@ describe('the sidebar (redesign R.6)', () => {
         .getAllByRole('link')
         .filter((l) => device.contains(l))
         .map((l) => l.textContent),
-    ).toEqual(['Sync2', 'Settings']);
+    ).toEqual(['Sync2', 'Conflicts', 'Settings']);
+  });
+
+  it('lists Conflicts under This device with the current event’s open count, for a lead (task 1.44)', async () => {
+    await db.delete();
+    await db.open();
+    await db.rows.bulkPut([
+      { entity: 'sync_conflicts', id: 'c-1', event_id: 'ev-1', resolved_at: null },
+      { entity: 'sync_conflicts', id: 'c-2', event_id: 'ev-1', resolved_at: null },
+      {
+        entity: 'sync_conflicts',
+        id: 'c-3',
+        event_id: 'ev-1',
+        resolved_at: '2026-10-12T09:00:00Z',
+      },
+      { entity: 'sync_conflicts', id: 'c-4', event_id: 'ev-0', resolved_at: null },
+    ]);
+    renderShell('/conflicts', 'lead', {}, 'ev-1');
+    const conflicts = await screen.findByRole('link', { name: 'Conflicts, 2 to review' });
+    expect(screen.getByRole('list', { name: 'This device' })).toContainElement(conflicts);
+    expect(conflicts).toHaveAttribute('href', '/conflicts');
+    expect(conflicts).toHaveAttribute('aria-current', 'page');
+    expect(conflicts).toHaveTextContent(/^Conflicts2$/);
+  });
+
+  it('shows no count beside Conflicts at zero (task 1.44)', async () => {
+    await db.delete();
+    await db.open();
+    renderShell('/entries', 'admin', {}, 'ev-1');
+    const conflicts = await screen.findByRole('link', { name: 'Conflicts' });
+    expect(conflicts).toHaveTextContent(/^Conflicts$/);
+  });
+
+  it('never lists Conflicts for a scouter, even with conflicts open (task 1.44)', async () => {
+    await db.delete();
+    await db.open();
+    await db.rows.put({ entity: 'sync_conflicts', id: 'c-1', event_id: 'ev-1', resolved_at: null });
+    renderShell('/entries', 'scouter', {}, 'ev-1');
+    await screen.findByRole('link', { name: 'Sync' });
+    expect(screen.queryByRole('link', { name: /Conflicts/ })).not.toBeInTheDocument();
   });
 
   it('lists every destination once, grouped, with the current one marked', () => {

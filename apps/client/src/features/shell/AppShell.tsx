@@ -596,6 +596,7 @@ export function AppShell() {
       desktop={desktop}
       hideBottomBar={onEntryRoute}
       who={who}
+      eventId={gate.eventId}
       account={account}
       version={clientConfig().appVersion}
       notices={notices}

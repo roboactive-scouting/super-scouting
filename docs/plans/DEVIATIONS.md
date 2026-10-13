@@ -7994,3 +7994,63 @@ Rejected: keeping ↑ ↓ beside the grip as a keyboard path — the keyboard se
 **What I did instead:** `e2e/sync.spec.ts` seeds `District #1 · Haifa`'s `events` row and a Q71 with its line-up, held on the device by the outbox. The Sending shot replaces `window.fetch` inside the page: the push acks the first two entries and the pull never answers, so the shell sits in "Sending…" with "2 of 5" and `shoot()` (axe, overflow, both themes and widths) still runs.
 
 **Risk:** the Sending pictures must finish inside the pull's 30 s deadline (they take about 10 s).
+
+## Task 1.44 — the README's page replaces the plan's layout, button names and test fixtures
+
+**Plan said:** two `Card`s side by side at ≥ 1024 px; buttons "keep the current copy", "restore the other copy", "keep this one"; fixtures `{ team: '2096 ROBACTIVE', live: { author, data }, rows: [...] }`; a resolve sends at once and the item leaves.
+
+**What was wrong:** the design README (18-conflicts final) and the orchestrator's decisions replace all of it: one scroll of cards, "Keep Dana’s" / "Restore Noa’s" / "Keep Yael’s", a 5-second delayed send. The plan's fixture shapes are not `listConflicts`' (`team: {id, number, name}`, `live.author: {id, full_name}`, `a`/`b`, `diff`).
+
+**What I did instead:** the plan's eight tests are kept in intent in `ConflictsPage.test.tsx` with the real shapes and the README's names: the matching-row `data-differs="false"` assertion first opens "Show the n that match" (only differing rows show by default); timestamps are asserted through `formatDate`/`formatTime` (the suite has no fixed TZ); the offline test caches the entries the conflict names (the server's rule leaves out a conflict whose entry is gone, so the plan's bare `sync_conflicts` row would render no card and `getAllByRole` would throw); every send-dependent test uses fake timers (`setTimeout`/`setInterval`/`Date` only — fake-indexeddb's `setImmediate` stays real). Added: no call before 5 s (4 999 ms: 0, 5 000 ms: 1, exact payload), Undo sends nothing, a re-choice after Undo gets its own 5 s, unmount and `pagehide` send at once, a failed send reopens with the error, 409 and 404 drop the card, two countdowns at once. Mutation checks: send at `UNDO_MS - 1` → 1 failed; Undo not clearing its timer → 1 failed (after adding the re-choice test; before it, 0 failed); no flush on unmount → 1 failed; `canResolve` ignoring offline → 1 failed; the device diff by `===` → 3 failed; every send error treated as a failure → 2 failed.
+
+**Risk:** none beyond the entries below.
+
+## Task 1.44 — calls I made where the README is silent
+
+**Plan said:** (README / decisions) the column order, the disambiguation of equal first names, the fold line's words, what "opened in full on a phone" is.
+
+**What was wrong:** not specified: a duplicate's copies have no inherent order (`a` = the row that arrived second); a superseded author can be unknown; the README draws "Kept Dana’s copy" only; robot status and breakdown time are diff fields even on a super entry, where both are null.
+
+**What I did instead:** a divergence shows live then superseded (the design); a duplicate shows the earlier-saved copy first, so "Counted now" sits on the second column as drawn. Two authors with one first name read "Dana L.’s" / "Dana C.’s"; when that does not separate them, or a name is unknown, the copies are "the earlier copy" / "the later copy" (else "the counted copy" / "the other copy"). A restore folds to "Restored Noa’s copy". The robot-status and breakdown rows are left out when both copies are null (the design's super card has neither, and its "Show the 4 that match" counts no breakdown row) — the server's `diff` is unchanged. A phone card is "opened in full" by "Show the n that match": it then shows the explanation line too. A super duplicate explains "Two people wrote a super entry for this robot." Settled today follows the README's words ("kept Dana’s", "restored Noa’s", "kept Omer’s, removed Yael’s"), not the drawing's "kept Dana’s copy"; the removed copy's author is read from the cache (the server's `settled` names only the kept one) and left out when the device lacks that row. The header says "0 to review" while a choice counts down and "all settled" only once nothing is pending. The countdown is a still 2 px ring with the seconds ticking — no animated arc — so reduced motion sees the same thing.
+
+**Risk:** naming by time reads stiffly in the explanation ("The later copy is counted now; the earlier copy is kept aside."), but only when names cannot tell the copies apart.
+
+## Task 1.44 — the cache cannot see a conflict's own `entity` column
+
+**Plan said:** (decisions) build the offline view from cached `sync_conflicts`, as the server does (scouting-entry conflicts only).
+
+**What was wrong:** `data/sync.ts` stores every pulled row as `{ ...row, entity: key }`, so a cached `sync_conflicts` row's own `entity` column (`'scouting_entry'`) is overwritten by `'sync_conflicts'`; a filter on it would drop every conflict.
+
+**What I did instead:** a cached conflict counts as an entry's when an entry it names is cached (open cards need that anyway, as the server's `toItem` does); Settled today offline lists a resolved conflict only when the device holds an entry it names.
+
+**Risk:** phase 1G (pick-list conflicts) must not rely on the cached `entity` column either; a settled entry conflict whose rows were hard-deleted shows online but not offline.
+
+## Task 1.44 — sends: `keepalive` on `pagehide`, a 10 s deadline, and what an unmount cannot show
+
+**Plan said:** (decisions) leaving the page sends every pending choice at once; a failed send reopens the card with the error.
+
+**What was wrong:** a `fetch` started in `pagehide` is cancelled with the page unless it is `keepalive`, and `CallOptions` had no way to say so. A send that fails after the page has unmounted has no card to reopen.
+
+**What I did instead:** `CallOptions.keepalive` (rpc.ts passes `keepalive: true` to `fetch`); the page uses it only for the `pagehide` flush. On unmount the pending choices are sent at once and a successful one triggers one `syncNow`; a failure there leaves the conflict open on the server, so it is back in the queue on the next visit. The page's own calls carry a 10 s deadline (`CONFLICTS_CALL_TIMEOUT_MS`): a `listConflicts` that fails or times out falls back to the cache (a refusal from our server is said in an Error line, and the empty state is held back); a send past the deadline reopens its card with "Not settled: The server did not answer in time."
+
+**Risk:** a lead who closes the tab mid-countdown gets no word if the keepalive send fails.
+
+## Task 1.44 — nav: Conflicts' count, `NavCounts`, and `openConflictCount` moved to cache.ts
+
+**Plan said:** (decisions) extend `NavCounts`/`count` the way Sync's waiting count is done; reuse `openConflictCount` from `data/syncList.ts`.
+
+**What was wrong:** importing `syncList.ts` into the shell pulled the Sync page's module into the main bundle: `pnpm bundle:check` → `initial JS 225.4 KB gzip` (from 224.1).
+
+**What I did instead:** `openConflictCount` moved verbatim to `data/cache.ts` and is re-exported from `syncList.ts` (one implementation; SyncPage unchanged): `initial JS 224.5 KB gzip`, budget untouched (226). `NavCounts` is `Partial<Record<'waiting' | 'conflicts', number>>`; the link's name says the count in words per key (`NAV_COUNT_WORDS`: "Sync, 6 waiting to send", "Conflicts, 2 to review"). `ShellLayout` takes an optional `eventId` (AppShell passes `gate.eventId`) and hands `counts` to the sidebar and the phone menu (`NavDrawer` gets a `counts` prop). The Conflicts row is not dropped on an expired session (the queue is readable from the cache). `EmptyState` takes `tone="success"` for the green check (default unchanged). `/conflicts` is a gated route (it reads the event's data), unlike Sync. `routes.test.tsx`'s gated-routes list gains `conflicts`.
+
+**Risk:** the nav count is the cache's: a card folded or sent stays counted until the pull after the send lands (the desktop shot shows "Conflicts 3" beside "2 to review").
+
+## Task 1.44 — e2e: the design's conflicts on the fixture's matches
+
+**Plan said:** (design) Q12 2096 Red 2, Q14 1690 Blue 1; the folded card's countdown shown at 4.
+
+**What was wrong:** in the e2e fixtures 2096 plays Red 2 in Q2 and 1690 Blue 2 in Q4; Dana Levi and Noa Cohen are not fixture users. The countdown sends after 5 s, and `shoot()` takes far longer than that over two widths and two themes.
+
+**What I did instead:** `e2e/conflicts.spec.ts` puts the conflicts, the entries they name, the two people and a three-field super form into its pull, and answers `listConflicts` with the same conflicts in the server's shape (parsed by `listConflictsOutput`). The settling shot holds the page's 5 000 ms `setTimeout` (an init script, switched off before the real send is checked) and re-chooses before each picture, so each shows a fresh countdown. `api-mock.ts` answers `listConflicts` with an empty queue and `resolveConflict` with a valid result by default.
+
+**Risk:** the hold matches any 5 000 ms timeout while it is on (only in that one test).

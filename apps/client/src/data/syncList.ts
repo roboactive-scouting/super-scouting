@@ -177,14 +177,9 @@ export function groupByEvent(
   );
 }
 
-/** The open conflicts of the current event as this device last pulled them (SPEC-FINAL 9.5). */
-export async function openConflictCount(eventId: string | null): Promise<number> {
-  if (eventId === null) return 0;
-  const rows = await cachedRows<{ event_id?: string; resolved_at?: string | null }>(
-    'sync_conflicts',
-  );
-  return rows.filter((r) => r.event_id === eventId && r.resolved_at == null).length;
-}
+// The open-conflict count lives in cache.ts (task 1.44): the shell's nav reads it on every
+// screen, and this module is the Sync page's, a lazy chunk.
+export { openConflictCount } from './cache';
 
 /** "11:47" today, "Sat 15:02" this week, "07/10/2026 15:02" before that (SPEC-FINAL 17.8). */
 export function savedLabel(iso: string, now: Date = new Date()): string {

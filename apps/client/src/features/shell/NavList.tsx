@@ -1,7 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-import { groupsOf, NAV_GROUP_LABEL, type NavAudience, type NavCounts, type NavItem } from './nav';
+import {
+  groupsOf,
+  NAV_COUNT_WORDS,
+  NAV_GROUP_LABEL,
+  type NavAudience,
+  type NavCounts,
+  type NavItem,
+} from './nav';
 
 /** `sidebar`: the desktop rail's 9×10 rows. `menu`: the phone menu's 48 px rows, phone names. */
 export type NavListVariant = 'sidebar' | 'menu';
@@ -55,9 +62,9 @@ export function NavItemLink({
         ADMIN
       </span>
     );
-  // Sync's waiting count (17-sync final, the sidebar's "Sync 5"): amber in mono at the row's end,
-  // said in words in the link's name, as the bottom bar's Entries badge is. Collapsed, the rail
-  // shows a dot on the icon instead.
+  // Sync's waiting count (17-sync final, the sidebar's "Sync 5") and Conflicts' open count
+  // (18-conflicts final): amber in mono at the row's end, said in words in the link's name, as the
+  // bottom bar's Entries badge is. Collapsed, the rail shows a dot on the icon instead.
   const n = item.count ? (counts?.[item.count] ?? 0) : 0;
   const count = n > 0 && (
     <span
@@ -86,7 +93,7 @@ export function NavItemLink({
       to={item.to}
       end={item.end}
       title={collapsed ? name : undefined}
-      aria-label={n > 0 ? `${name}, ${n} waiting to send` : undefined}
+      aria-label={n > 0 && item.count ? `${name}, ${n} ${NAV_COUNT_WORDS[item.count]}` : undefined}
       onClick={onNavigate}
       className={({ isActive }) =>
         cn(
@@ -200,7 +207,7 @@ export function NavList({
   variant: NavListVariant;
   collapsed?: boolean;
   onNavigate?: () => void;
-  /** The counts rows with `count` show (Sync's waiting count). */
+  /** The counts rows with `count` show (Sync's waiting count, Conflicts' open count). */
   counts?: NavCounts;
 }) {
   return (

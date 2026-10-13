@@ -35,3 +35,16 @@ export async function cachedEventName(eventId: string): Promise<string | null> {
   const row = await db.rows.get(['events', eventId]);
   return typeof row?.name === 'string' ? row.name : null;
 }
+
+/**
+ * The open conflicts of the current event as this device last pulled them (SPEC-FINAL 9.5): the
+ * Sync page's conflicts link and the Conflicts nav row's count (moved from syncList.ts, task 1.44,
+ * so the shell does not pull the Sync page's module into the main bundle).
+ */
+export async function openConflictCount(eventId: string | null): Promise<number> {
+  if (eventId === null) return 0;
+  const rows = await cachedRows<{ event_id?: string; resolved_at?: string | null }>(
+    'sync_conflicts',
+  );
+  return rows.filter((r) => r.event_id === eventId && r.resolved_at == null).length;
+}

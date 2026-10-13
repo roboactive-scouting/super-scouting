@@ -5,7 +5,7 @@ import type { Account } from './account';
 import { AccountBlock } from './AccountBlock';
 import { Brand } from './Brand';
 import { NavList } from './NavList';
-import type { NavAudience, NavItem } from './nav';
+import type { NavAudience, NavCounts, NavItem } from './nav';
 import { failureLine, SyncDot, syncLine, type SyncStatus } from './SyncPill';
 
 /** The menu's sync line: the state and what waits to send (SPEC-FINAL 9.10), then when it last synced. */
@@ -39,6 +39,7 @@ export function NavDrawer({
   account,
   version,
   status,
+  counts,
 }: {
   open: boolean;
   onClose: () => void;
@@ -47,6 +48,8 @@ export function NavDrawer({
   account: Account;
   version: string;
   status: SyncStatus;
+  /** The nav rows' counts (Sync's waiting, Conflicts' open), read once by the shell. */
+  counts: NavCounts;
 }) {
   return (
     <Sheet open={open} onClose={onClose} title="Menu" side="start" tone="dark" width={252}>
@@ -66,13 +69,7 @@ export function NavDrawer({
         </div>
         <SyncLine status={status} />
         <nav aria-label="Places" className="pt-1">
-          <NavList
-            items={items}
-            who={who}
-            variant="menu"
-            onNavigate={onClose}
-            counts={{ waiting: status.waiting }}
-          />
+          <NavList items={items} who={who} variant="menu" onNavigate={onClose} counts={counts} />
         </nav>
         <AccountBlock account={account} version={version} onNavigate={onClose} />
       </div>

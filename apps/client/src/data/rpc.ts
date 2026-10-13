@@ -10,6 +10,11 @@ import { deadline } from './deadline';
 export type CallOptions = {
   /** Abort the request, and report it as unreachable, after this many milliseconds. */
   timeoutMs?: number;
+  /**
+   * Let the request outlive the page (`fetch` keepalive): the conflicts page sends a pending
+   * resolve this way on `pagehide` (task 1.44). The body is small, well under the 64 KB cap.
+   */
+  keepalive?: boolean;
 };
 
 export type Rpc = {
@@ -140,6 +145,7 @@ export const rpc: Rpc = {
               ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
             },
             body: JSON.stringify(input),
+            ...(options.keepalive ? { keepalive: true } : {}),
             ...(limit.signal ? { signal: limit.signal } : {}),
           }),
         );
