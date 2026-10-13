@@ -45,3 +45,25 @@ export function formatTime(iso: string, timeZone?: string): string {
   const p = parts(iso, timeZone);
   return `${part(p, 'hour')}:${part(p, 'minute')}`;
 }
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function weekday(iso: string, timeZone: string | undefined): string {
+  return new Intl.DateTimeFormat('en-GB', { timeZone, weekday: 'short' }).format(new Date(iso));
+}
+
+/**
+ * "Sun 12 Oct, 08:02": a day in words with a 24-hour time (the discarded-records log,
+ * 19-discarded final), in the device's local zone unless a zone is given. The month is from
+ * a fixed list, so it never depends on the locale data ("Sep", never "Sept").
+ */
+export function formatDayTime(iso: string, timeZone?: string): string {
+  const p = parts(iso, timeZone);
+  const month = MONTHS[Number(part(p, 'month')) - 1] ?? '';
+  return `${weekday(iso, timeZone)} ${Number(part(p, 'day'))} ${month}, ${formatTime(iso, timeZone)}`;
+}
+
+/** "Fri 14:20": the weekday and a 24-hour time (the Sync page's discarded notice). */
+export function formatWeekdayTime(iso: string, timeZone?: string): string {
+  return `${weekday(iso, timeZone)} ${formatTime(iso, timeZone)}`;
+}

@@ -48,6 +48,9 @@ Pages go **one at a time**. At this stage that means only the pages that exist t
 | 14 | Entry parts (Phase 1 E, on the Entry page) | `/entry/…`, `/scout` | **Closed** 2026-10-09: field types, match timer, range block, drafts and practice | 1.33, 1.34, 1.36, 1.37 |
 | 15 | Super scouting | `/super` | **Closed** 2026-10-09, variant A | 1.36 |
 | 16 | Settings | `/settings` | **Closed** 2026-10-09, variant C with live examples | 1.38 (Wipe 1.49) |
+| 17 | Sync | `/sync` | **Closed** 2026-10-12, variant B + A's conflicts link and progress + D's QR marks | 1.43 (notice and log 1.42, QR 1.47–1.48) |
+| 18 | Conflicts | `/conflicts` | **Closed** 2026-10-12, variant C + "n fields differ" and the Settled today log | 1.44 (server 1.41) |
+| 19 | Discarded records | `/sync/discarded` | **Closed** 2026-10-12, one proposal (no entered values) | 1.42 |
 
 The phone shell (`pages/11-phone-shell/final/`, not a numbered route) is coded in RB.6. All were built in the redesign build (`docs/plans/REDESIGN-BUILD-PLAN.md`, RB.1–RB.20), and RB.19 reviewed each against its final images. `/context` is only a redirect to `/`. Update this table when a page closes.
 

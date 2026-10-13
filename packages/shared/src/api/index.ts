@@ -1,5 +1,11 @@
 import { loginInput, loginOutput, refreshTokenInput } from './auth';
 import {
+  listConflictsInput,
+  listConflictsOutput,
+  resolveConflictInput,
+  resolveConflictOutput,
+} from './conflicts';
+import {
   activeContext,
   createEventInput,
   createSeasonInput,
@@ -155,6 +161,8 @@ export const API = {
   getFormDictionary: { input: getFormDictionaryInput, output: getFormDictionaryOutput },
   listFormExports: { input: listFormExportsInput, output: listFormExportsOutput },
   getFormExport: { input: getFormExportInput, output: getFormExportOutput },
+  listConflicts: { input: listConflictsInput, output: listConflictsOutput },
+  resolveConflict: { input: resolveConflictInput, output: resolveConflictOutput },
 } as const;
 
 export type Api = typeof API;

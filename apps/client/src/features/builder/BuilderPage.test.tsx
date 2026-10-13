@@ -562,6 +562,11 @@ describe('BuilderPage: offline pauses editing (task 1.29)', () => {
     await u.click(await screen.findByRole('button', { name: /^Add Toggle:/ }));
     goOffline();
     expect(await screen.findByText("You're offline.")).toBeVisible();
+    // SPEC-FINAL 9.6, task 1.45: the screen's one offline line says the data is safe.
+    expect(screen.getAllByText(/safe on this device/)).toHaveLength(1);
+    expect(screen.getByText(/form changes need a connection/i)).toHaveTextContent(
+      /your data is safe on this device/i,
+    );
     expect(screen.getByRole('button', { name: 'Save draft' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Publish v4' })).toBeDisabled();
     expect(screen.getByText('Offline')).toBeVisible();

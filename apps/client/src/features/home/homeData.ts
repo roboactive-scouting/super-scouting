@@ -1,5 +1,5 @@
 import { formatDate, formatTime } from '@frc/shared';
-import { cachedRows } from '@/data/cache';
+import { cachedLiveSlots, cachedRows } from '@/data/cache';
 import { db } from '@/data/db';
 import { coverage, type CoverageState } from '@/lib/derive/coverage';
 import { newestFirst, type LineupSlot } from '@/lib/derive/entries';
@@ -162,7 +162,7 @@ export async function loadHome(eventId: string, userId: string): Promise<HomeDat
   const [entries, matches, slots, teams] = await Promise.all([
     cachedRows<EntryRow>('scouting_entries'),
     cachedRows<MatchRow>('matches'),
-    cachedRows<LineupSlot>('match_teams'),
+    cachedLiveSlots<LineupSlot>(),
     cachedRows<TeamRow>('teams'),
   ]);
   return {

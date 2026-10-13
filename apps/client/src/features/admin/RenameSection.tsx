@@ -4,6 +4,7 @@ import { createUserInput, usernameSchema, type PublicUser } from '@frc/shared';
 import { sentence } from '@/auth/messages';
 import { session } from '@/auth/session';
 import type { Rpc } from '@/data/rpc';
+import { useCapability } from '@/components/OfflineGate';
 import { Button } from '@/components/ui/button';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -67,10 +68,13 @@ export function RenameSection({
   const [fullName, setFullName] = useState(user.full_name);
   const [problem, setProblem] = useState<Problem | null>(null);
   const [busy, setBusy] = useState(false);
+  /** SPEC-FINAL 9.6: user management is held while offline. */
+  const can = useCapability('manage_users');
   const [saved, setSaved] = useState(false);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (!can) return;
     setSaved(false);
     const found = checkRename(username, fullName);
     if (found) {
@@ -138,7 +142,7 @@ export function RenameSection({
               onChange={(e) => setFullName(e.target.value)}
             />
           </div>
-          <Button type="submit" busy={busy} busyLabel="Saving…">
+          <Button type="submit" disabled={!can} busy={busy} busyLabel="Saving…">
             Save name
           </Button>
         </div>

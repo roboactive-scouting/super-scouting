@@ -77,6 +77,16 @@ describe('the route tree and the session (task 1.15)', () => {
     },
   );
 
+  it('routes /conflicts to the conflicts page, which a scouter reads from the cache (task 1.44)', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    await session.signIn(user, 'token-abc');
+    renderAt('/conflicts');
+    expect(await screen.findByRole('heading', { name: 'Conflicts', level: 1 })).toBeInTheDocument();
+    expect(await screen.findByText('A lead or an admin resolves these.')).toBeInTheDocument();
+    expect(await screen.findByText('Nothing left to review')).toBeInTheDocument();
+    vi.restoreAllMocks();
+  });
+
   it('an expired session does NOT leave the entry route', async () => {
     await session.signIn(user, 'token-abc');
     await session.expire();
@@ -205,7 +215,7 @@ describe('switch scouter on a shared device (SPEC-FINAL 7.3, task 1.16)', () => 
 });
 
 describe('which routes wait for the event to load (task 1.17b)', () => {
-  it('marks exactly Home, Users, the user detail page, Manage, Forms, the form builder, Switch scouter, Settings and the old context path as needing no event', () => {
+  it('marks exactly Home, Users, the user detail page, Manage, Forms, the form builder, Switch scouter, Settings, Sync, its log and the old context path as needing no event', () => {
     const shell = routeTree().find((r) => r.path === '/');
     const marked = (shell?.children ?? [])
       .filter((r) => needsNoHydration(r.handle))
@@ -221,17 +231,23 @@ describe('which routes wait for the event to load (task 1.17b)', () => {
       // This device's settings (task 1.38): no event data, so it opens with no competition.
       'settings',
       'switch-scouter',
+      // Sync (task 1.43) lists every unsynced record on the device, whatever its event.
+      'sync',
+      // The discarded-records log (task 1.42) reads only this device's log.
+      'sync/discarded',
     ]);
   });
 
-  it('leaves Scout, the entry screen, super scouting, practice and Entries gated', () => {
+  it('leaves Scout, the entry screen, super scouting, practice, Entries and Conflicts gated', () => {
     const shell = routeTree().find((r) => r.path === '/');
     const gated = (shell?.children ?? [])
       .filter((r) => !needsNoHydration(r.handle))
       .map((r) => (r.index ? '(index)' : r.path));
     // Super scouting (task 1.36) reads the event's roster and entries, so it waits too; so does
-    // practice (task 1.37), which reads the event's schedule.
+    // practice (task 1.37), which reads the event's schedule; and the conflicts queue (task 1.44),
+    // which reads the event's conflicts and the entries they name.
     expect(gated.sort()).toEqual([
+      'conflicts',
       'entries',
       'entry/:matchId/:teamId',
       'practice',

@@ -24,6 +24,11 @@ export type ShellContext = {
   eventId: string | null;
   /** The gate's state, for a NO_HYDRATION page that says it itself — Home (redesign R.8). */
   gate: GateState;
+  /**
+   * Sync now (SPEC-FINAL 9.10, task 1.43): one push-then-pull through the shell's own queue, the
+   * path every trigger takes. Resolves when that run has finished, whatever its outcome.
+   */
+  requestSync: () => Promise<void>;
 };
 
 /**

@@ -126,6 +126,7 @@ function renderHome({
     expired: false,
     eventId: EVENT,
     gate: 'fresh',
+    requestSync: () => Promise.resolve(),
     ...over,
   };
   const router = createMemoryRouter([

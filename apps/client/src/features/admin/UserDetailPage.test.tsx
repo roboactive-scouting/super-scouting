@@ -4,6 +4,7 @@ import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { formatDate, type PublicUser } from '@frc/shared';
 import { session } from '@/auth/session';
+import { OFFLINE_GATE_LINE } from '@/components/OfflineGate';
 import { RpcError } from '@/data/rpc';
 import { DISABLE_BODY, SELF_DISABLE_LINE, UserDetailPage } from './UserDetailPage';
 
@@ -418,5 +419,40 @@ describe('disable and enable', () => {
     expect(rpc).toHaveBeenCalledWith('enableUser', { user_id: RONI.id });
     expect(await screen.findByRole('button', { name: 'Disable account' })).toBeInTheDocument();
     expect(screen.getByRole('radiogroup', { name: 'Role' })).toBeInTheDocument();
+  });
+});
+
+describe('offline once loaded (SPEC-FINAL 9.6: user management is not available offline)', () => {
+  it('holds every section’s action, under the one state that says the data is safe', async () => {
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+    const call = renderDetail({ user: YAEL });
+    await screen.findByRole('heading', { name: 'Yael Shapira' });
+    onLine.mockReturnValue(false);
+    act(() => {
+      window.dispatchEvent(new Event('offline'));
+    });
+    const asked = call.mock.calls.length;
+    // The compact line, not the full card: no heading, no button on it.
+    expect(screen.queryByRole('heading', { name: 'This needs the server' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Open Sync' })).toBeNull();
+    expect(screen.getAllByText(/safe on this device/)).toHaveLength(1);
+    expect(screen.getByText(OFFLINE_GATE_LINE)).toBeInTheDocument();
+    for (const role of within(screen.getByRole('radiogroup', { name: 'Role' })).getAllByRole(
+      'radio',
+    )) {
+      expect(role).toBeDisabled();
+    }
+    expect(screen.getByRole('button', { name: 'Save name' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Reset password' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Disable account' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('radio', { name: /Admin/ }));
+    expect(call.mock.calls.length).toBe(asked);
+  });
+
+  it('a disabled account’s Enable waits too', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    renderDetail({ user: RONI });
+    expect(await screen.findByRole('button', { name: 'Enable account' })).toBeDisabled();
+    expect(screen.getByText(OFFLINE_GATE_LINE)).toBeInTheDocument();
   });
 });

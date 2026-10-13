@@ -4,7 +4,7 @@ import type { Account } from './account';
 import { AccountMenu } from './AccountMenu';
 import { Brand } from './Brand';
 import { NavList } from './NavList';
-import type { NavAudience, NavItem } from './nav';
+import type { NavAudience, NavCounts, NavItem } from './nav';
 
 /**
  * The desktop chrome (≥ 1024 px, SPEC-FINAL 17.3; THEME "Sidebar"): the brand, every
@@ -17,12 +17,14 @@ export function Sidebar({
   collapsed,
   onToggle,
   account,
+  counts,
 }: {
   items: NavItem[];
   who: NavAudience;
   collapsed: boolean;
   onToggle: () => void;
   account: Account;
+  counts?: NavCounts;
 }) {
   const Toggle = collapsed ? PanelLeftOpen : PanelLeftClose;
   return (
@@ -42,7 +44,7 @@ export function Sidebar({
         <Brand compact={collapsed} />
       </div>
       <nav aria-label="Main" className="-mx-1 mt-[22px] min-h-0 flex-1 overflow-y-auto px-1">
-        <NavList items={items} who={who} variant="sidebar" collapsed={collapsed} />
+        <NavList items={items} who={who} variant="sidebar" collapsed={collapsed} counts={counts} />
       </nav>
       {/* Not in the mock-ups: the collapse control (R.6) sits quietly above the account; 48 px per 17.7. */}
       <div className={cn('flex pb-2', collapsed ? 'justify-center' : 'px-1')}>

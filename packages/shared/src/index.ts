@@ -1,4 +1,5 @@
 export * from './api/auth';
+export * from './api/conflicts';
 export * from './api/context';
 export * from './api/forms';
 export * from './api/matches';
@@ -23,6 +24,7 @@ export * from './forms/validate';
 export * from './forms/version';
 export * from './forms/visibility';
 export * from './forms/visibilityCheck';
+export * from './sync/conflict';
 export * from './sync/operation';
 export * from './sync/protocol';
 export * from './version';

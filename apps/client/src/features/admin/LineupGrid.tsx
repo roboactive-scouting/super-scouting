@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import type { Alliance, MatchRow, RosterRow } from '@frc/shared';
 import { Pencil, Trash2 } from 'lucide-react';
+import { useCapability } from '@/components/OfflineGate';
 import { Button } from '@/components/ui/button';
 import { matchLabel } from '@/lib/matchLabel';
 import { cn } from '@/lib/utils';
@@ -38,6 +39,8 @@ export function LineupGrid({
   onDelete: (match: MatchRow) => void;
 }) {
   const grid = useRef<HTMLDivElement>(null);
+  /** SPEC-FINAL 9.6: season, event, match and roster management is held while offline. */
+  const can = useCapability('manage_events');
 
   function moveOn() {
     const cells = [...(grid.current?.querySelectorAll<HTMLElement>('[role="combobox"]') ?? [])];
@@ -116,6 +119,7 @@ export function LineupGrid({
                   size="icon"
                   aria-label={`Delete ${name}`}
                   title={`Delete ${name}`}
+                  disabled={!can}
                   onClick={() => onDelete(match)}
                 >
                   <Trash2 aria-hidden="true" />

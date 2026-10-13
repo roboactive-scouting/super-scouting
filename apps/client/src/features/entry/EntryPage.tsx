@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type { FieldPhase, FormFieldDefinition, RobotStatus, TimerConfig } from '@frc/shared';
 import { ActionBar } from '@/components/ui/action-bar';
 import { Button } from '@/components/ui/button';
-import { cachedFormFields, cachedRows } from '@/data/cache';
+import { cachedFormFields, cachedLiveSlots } from '@/data/cache';
 import { keepScreenOn, useBoolPref } from '@/lib/devicePrefs';
 import { haptics } from '@/lib/haptics';
 import type { Station } from '@/data/station';
@@ -139,7 +139,7 @@ export function EntryPage(props: EntryPageProps) {
   }, [props.formVersionId]);
 
   useEffect(() => {
-    void cachedRows<LineupSlot>('match_teams').then((slots) =>
+    void cachedLiveSlots<LineupSlot>().then((slots) =>
       setStation(stationOf(slots, props.matchId, props.teamId)),
     );
   }, [props.matchId, props.teamId]);

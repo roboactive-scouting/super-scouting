@@ -69,13 +69,5 @@ export function ManagePhone({ rpc = adminRpc }: { rpc?: Rpc }) {
   if (load.status === 'loading') {
     return <p className="px-4 py-6 text-muted">Loading the matches…</p>;
   }
-  return (
-    <PhoneMatchList
-      rpc={rpc}
-      eventId={load.eventId}
-      eventName={load.eventName}
-      online={online}
-      data={data}
-    />
-  );
+  return <PhoneMatchList rpc={rpc} eventId={load.eventId} eventName={load.eventName} data={data} />;
 }

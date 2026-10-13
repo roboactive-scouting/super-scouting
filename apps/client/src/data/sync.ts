@@ -1,8 +1,16 @@
-import { MAX_OPERATIONS_PER_PUSH, PULL_ENTITY_KEYS, type PullEntityKey } from '@frc/shared';
+import {
+  FORM_DELETION_ENTITIES,
+  isAck,
+  MAX_OPERATIONS_PER_PUSH,
+  PULL_ENTITY_KEYS,
+  type DeletedFormRows,
+  type PullEntityKey,
+} from '@frc/shared';
 import { session } from '@/auth/session';
 import { cachedRows } from './cache';
 import { notifyChanged } from './changes';
 import { db, getMeta, setMeta } from './db';
+import type { SyncProgress } from './connection';
 import { ackResults, matchIdsNeededByOutbox, pending } from './outbox';
 import { call } from './rpc';
 import { clearSyncFailure, recordSyncFailure } from './syncFailure';
@@ -14,6 +22,12 @@ export type SyncDeps = {
   deviceId: string;
   /** Guard against an endless cursor loop; the real cap is the server's page size. */
   maxPages?: number;
+  /**
+   * The push's progress, for the Sync page's "Sent · 2 of 5" (SPEC-FINAL 9.10): called once
+   * before the first batch and after each batch is acked. Records only — a bare match is never
+   * counted (9.10) — and only those the push may send (a parked record is not sent).
+   */
+  onProgress?: (progress: SyncProgress) => void;
 };
 
 export type SyncOutcome =
@@ -52,6 +66,12 @@ export async function syncNow(deps: SyncDeps): Promise<SyncOutcome> {
     // Each operation is sent at most once per sync: a transient failure waits for the
     // next sync instead of looping, and parked operations are never in `pending`.
     const sent = new Set<string>();
+    const report = deps.onProgress;
+    const total = report
+      ? (await pending(Number.MAX_SAFE_INTEGER)).filter((op) => op.entity !== 'match').length
+      : 0;
+    const acked: string[] = [];
+    if (report && total > 0) report({ sent: 0, total, acked: [] });
     for (;;) {
       const batch = await pending(MAX_OPERATIONS_PER_PUSH, sent);
       if (batch.length === 0) break;
@@ -59,6 +79,16 @@ export async function syncNow(deps: SyncDeps): Promise<SyncOutcome> {
       const response = await deps.api.push({ device_id: deps.deviceId, operations: batch });
       await ackResults(response.results);
       pushed += response.results.length;
+      if (report && total > 0) {
+        const records = new Map(
+          batch.filter((op) => op.entity !== 'match').map((op) => [op.op_id, op.row_id]),
+        );
+        for (const result of response.results) {
+          const rowId = records.get(result.op_id);
+          if (rowId !== undefined && isAck(result.status)) acked.push(rowId);
+        }
+        report({ sent: Math.min(acked.length, total), total, acked: [...acked] });
+      }
     }
   } catch (e) {
     if (isEventGone(e)) return wipeEvent(deps.eventId);
@@ -91,8 +121,12 @@ export async function syncNow(deps: SyncDeps): Promise<SyncOutcome> {
         response.deleted_matches ?? [],
         response.entities.matches ?? [],
       );
+      const prunedForms = await pruneDeletedFormRows(
+        response.deleted_form_rows ?? NO_FORM_DELETIONS,
+        response.entities,
+      );
       pulled += applied;
-      if (applied > 0 || pruned > 0) notifyChanged('rows');
+      if (applied > 0 || pruned > 0 || prunedForms > 0) notifyChanged('rows');
       if (bestWatermark === null || response.watermark > bestWatermark)
         bestWatermark = response.watermark;
       if (response.complete) {
@@ -111,6 +145,12 @@ export async function syncNow(deps: SyncDeps): Promise<SyncOutcome> {
       await setMeta(HYDRATED, deps.eventId);
       await setMeta('sync.last_success_at', new Date().toISOString());
       notifyChanged('meta');
+      // Spec 7.5 item 3: the active-competition-only bound (SPEC-FINAL 7.3). The event this
+      // sync worked on and the admin default the pull just cached are kept.
+      const keep = [deps.eventId, await cachedDefaultEventId()].filter(
+        (id): id is string => typeof id === 'string',
+      );
+      if ((await evictLeftEvents(keep)) > 0) notifyChanged('rows');
     }
     // SPEC-FINAL 7.5: the database is authoritative for role, on the client too.
     await session.refreshFromCache();
@@ -173,6 +213,203 @@ export async function pruneDeletedMatches(
       .filter((row) => row.entity === 'matches')
       .delete();
   });
+}
+
+const NO_FORM_DELETIONS: DeletedFormRows = {
+  forms: [],
+  form_versions: [],
+  form_fields: [],
+  scoring_rules: [],
+};
+
+type Raw = Record<string, unknown>;
+
+/** Deletes cached rows by their `[entity+id]` key; answers how many there were. */
+async function removeRows(keys: [PullEntityKey, string][]): Promise<number> {
+  if (keys.length === 0) return 0;
+  return db.rows.where('[entity+id]').anyOf(keys).delete();
+}
+
+/** True when the device must keep this row: the outbox has it, or its last push is unsettled. */
+async function heldRowIds(): Promise<Set<string>> {
+  const held = new Set<string>();
+  await db.outbox.each((op) => held.add(op.row_id));
+  await db.syncState.each((s) => {
+    if (s.sync_state === 'pending' || s.rejection != null) held.add(s.row_id);
+  });
+  return held;
+}
+
+/**
+ * Spec 7.5 item 5 (device side): the form rows an admin hard-deleted leave this device. The
+ * pull names what was deleted by id; a row that went by cascade is not named, so a deleted
+ * form takes its versions and scoring rules (by `form_id`), and every removed version takes
+ * its fields (by `form_version_id`). Like pruneDeletedMatches, it runs after the page's rows
+ * are upserted, and a NAMED id the same response delivered as a row is kept (it was written
+ * again since).
+ *
+ * The cached entries bound to a removed version follow the eviction rule: one the server
+ * already took (not in the outbox, no pending or refused sync state) leaves the cache — the
+ * server hard-deleted it with its form, so this is not a discard and is not logged. One the
+ * outbox still holds stays: its next push is refused `parent-deleted` and SPEC-FINAL 9.7
+ * applies (outbox.ts). Drafts are never touched. Returns how many rows went.
+ */
+export async function pruneDeletedFormRows(
+  deleted: DeletedFormRows,
+  delivered: Partial<Record<PullEntityKey, Raw[]>> = {},
+): Promise<number> {
+  if (FORM_DELETION_ENTITIES.every((key) => (deleted[key] ?? []).length === 0)) return 0;
+  const named = (key: (typeof FORM_DELETION_ENTITIES)[number]) => {
+    const again = new Set((delivered[key] ?? []).map((row) => String(row.id)));
+    return new Set((deleted[key] ?? []).filter((id) => !again.has(id)));
+  };
+  return db.transaction('rw', db.rows, db.outbox, db.syncState, async () => {
+    const forms = named('forms');
+    const versions = named('form_versions');
+    const fields = named('form_fields');
+    const rules = named('scoring_rules');
+    const cached = async (entity: PullEntityKey) =>
+      db.rows.where('entity').equals(entity).toArray();
+
+    for (const row of await cached('form_versions')) {
+      if (forms.has(String(row.form_id))) versions.add(row.id);
+    }
+    for (const row of await cached('scoring_rules')) {
+      if (forms.has(String(row.form_id))) rules.add(row.id);
+    }
+    for (const row of await cached('form_fields')) {
+      if (versions.has(String(row.form_version_id))) fields.add(row.id);
+    }
+    const held = await heldRowIds();
+    const entries = (await cached('scouting_entries'))
+      .filter((row) => versions.has(String(row.form_version_id)) && !held.has(row.id))
+      .map((row) => row.id);
+
+    const keys: [PullEntityKey, string][] = [
+      ...[...forms].map((id): [PullEntityKey, string] => ['forms', id]),
+      ...[...versions].map((id): [PullEntityKey, string] => ['form_versions', id]),
+      ...[...fields].map((id): [PullEntityKey, string] => ['form_fields', id]),
+      ...[...rules].map((id): [PullEntityKey, string] => ['scoring_rules', id]),
+      ...entries.map((id): [PullEntityKey, string] => ['scouting_entries', id]),
+    ];
+    return removeRows(keys);
+  });
+}
+
+/** The event-scoped pull entities that carry their event's id (PULL_SCOPES, kind `event`). */
+const BY_EVENT_ID: readonly PullEntityKey[] = [
+  'event_teams',
+  'matches',
+  'scouting_entries',
+  'sync_conflicts',
+  'pick_lists',
+  'do_not_pick',
+  'alliances',
+];
+/** The event-scoped entities reached through a parent of the event: child → [parent, column]. */
+const BY_PARENT: readonly [PullEntityKey, PullEntityKey, string][] = [
+  ['match_teams', 'matches', 'match_id'],
+  ['pick_list_entries', 'pick_lists', 'pick_list_id'],
+  ['alliance_slots', 'alliances', 'alliance_id'],
+  ['alliance_declines', 'alliances', 'alliance_id'],
+];
+
+/**
+ * Spec 7.5 item 3: the cached rows of an event this device has left are evicted, so local
+ * storage holds the active competition only (SPEC-FINAL 7.3). Runs after a completed sync.
+ * For every event the cache holds rows of, other than those in `keep`: when nothing on the
+ * device still needs it, its event-scoped rows go (BY_EVENT_ID, BY_PARENT) and its `events`
+ * row. Season-scoped rows (forms, versions, fields, rules, metrics, dashboards, presets) and
+ * global rows (teams, users, app_settings, seasons) stay.
+ *
+ * An event stays WHOLE while anything references it: an outbox operation (an entry of it, a
+ * bare match of it; an operation whose event cannot be told holds every event), a row whose
+ * sync state is pending or refused, or a draft open on one of its matches. Drafts and the
+ * discarded log are never touched. Returns how many rows went.
+ */
+export async function evictLeftEvents(keep: readonly string[]): Promise<number> {
+  return db.transaction(
+    'rw',
+    [db.rows, db.outbox, db.syncState, db.drafts, db.practiceDrafts],
+    async () => {
+      const eventOfMatch = new Map<string, string>();
+      for (const m of await db.rows.where('entity').equals('matches').toArray()) {
+        if (typeof m.event_id === 'string') eventOfMatch.set(m.id, m.event_id);
+      }
+      const eventOfRow = async (id: string): Promise<string | null> => {
+        for (const row of await db.rows.where('id').equals(id).toArray()) {
+          if (typeof row.event_id === 'string') return row.event_id;
+          if (typeof row.match_id === 'string') return eventOfMatch.get(row.match_id) ?? null;
+        }
+        return null;
+      };
+
+      const candidates = new Set<string>();
+      for (const e of await db.rows.where('entity').equals('events').toArray()) {
+        candidates.add(e.id);
+      }
+      for (const entity of BY_EVENT_ID) {
+        for (const row of await db.rows.where('entity').equals(entity).toArray()) {
+          if (typeof row.event_id === 'string') candidates.add(row.event_id);
+        }
+      }
+      for (const id of keep) candidates.delete(id);
+      if (candidates.size === 0) return 0;
+
+      const held = new Set<string>();
+      let unknownOp = false;
+      for (const op of await db.outbox.toArray()) {
+        const named = op.payload.event_id;
+        const eventId =
+          typeof named === 'string'
+            ? named
+            : op.entity === 'scouting_entry'
+              ? await eventOfRow(op.row_id)
+              : null;
+        if (eventId === null) {
+          // A delete carries no payload; an entry no longer cached has nothing to evict.
+          if (op.entity !== 'scouting_entry') unknownOp = true;
+          continue;
+        }
+        held.add(eventId);
+      }
+      if (unknownOp) return 0;
+      for (const state of await db.syncState.toArray()) {
+        if (state.sync_state !== 'pending' && state.rejection == null) continue;
+        const eventId = await eventOfRow(state.row_id);
+        if (eventId !== null) held.add(eventId);
+      }
+      for (const table of [db.drafts, db.practiceDrafts]) {
+        for (const key of await table.toCollection().primaryKeys()) {
+          // EntryPage keys a draft `${formVersionId}:${matchId}:${teamId}`; uuids hold no colon.
+          const eventId = eventOfMatch.get(String(key).split(':')[1] ?? '');
+          if (eventId) held.add(eventId);
+        }
+      }
+
+      const evict = [...candidates].filter((id) => !held.has(id));
+      if (evict.length === 0) return 0;
+      const gone = new Set(evict);
+      const parents = new Map<PullEntityKey, Set<string>>();
+      let count = 0;
+      for (const entity of BY_EVENT_ID) {
+        const rows = (await db.rows.where('entity').equals(entity).toArray()).filter((row) =>
+          gone.has(String(row.event_id)),
+        );
+        parents.set(entity, new Set(rows.map((row) => row.id)));
+        count += await removeRows(rows.map((row): [PullEntityKey, string] => [entity, row.id]));
+      }
+      for (const [child, parent, column] of BY_PARENT) {
+        const ids = parents.get(parent) ?? new Set<string>();
+        const rows = (await db.rows.where('entity').equals(child).toArray()).filter((row) =>
+          ids.has(String(row[column])),
+        );
+        count += await removeRows(rows.map((row): [PullEntityKey, string] => [child, row.id]));
+      }
+      count += await removeRows(evict.map((id): [PullEntityKey, string] => ['events', id]));
+      return count;
+    },
+  );
 }
 
 async function wipeEvent(eventId: string): Promise<SyncOutcome> {

@@ -18,6 +18,7 @@ export function DescribedChoice<K extends string>({
   value,
   saving,
   stacked = false,
+  disabled = false,
   onChange,
 }: {
   label: string;
@@ -25,6 +26,8 @@ export function DescribedChoice<K extends string>({
   value: K;
   saving?: K | null;
   stacked?: boolean;
+  /** Every option held, e.g. while the choice is a server command and the device is offline. */
+  disabled?: boolean;
   onChange: (key: K) => void;
 }) {
   const busy = saving !== undefined && saving !== null;
@@ -45,9 +48,9 @@ export function DescribedChoice<K extends string>({
             type="button"
             role="radio"
             aria-checked={chosen}
-            disabled={busy && option.key !== saving}
+            disabled={disabled || (busy && option.key !== saving)}
             onClick={() => {
-              if (!busy) onChange(option.key);
+              if (!busy && !disabled) onChange(option.key);
             }}
             className={cn(
               'hover-veil motion-safe:transition motion-safe:active:not-disabled:scale-[0.97] flex min-h-14 min-w-0 flex-col items-start justify-center rounded-control border bg-surface px-3 text-start disabled:opacity-50',

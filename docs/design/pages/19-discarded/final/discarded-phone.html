@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Discarded records — final, phone</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../05-entries/src/entries.css"><link rel="stylesheet" href="../../17-sync/src/sync.css"><link rel="stylesheet" href="../../18-conflicts/src/conflicts.css"><link rel="stylesheet" href="../src/discarded.css">
+<style>.canvas{height:940px}.frames{gap:14px}.frames .phone{zoom:.9;position:relative}</style>
+</head><body>
+<div id="root"></div>
+<script src="../../05-entries/src/entries.js"></script><script src="../src/discarded.js"></script>
+<script>
+document.getElementById('root').innerHTML = `<div class="canvas"><div class="canvas-head"><b>Discarded records — final · phone</b><span>A read-only log opened from Sync, grouped by when the records were removed.</span></div>
+  <div class="frames">${DL.phones().map(([h, c]) => `<figure class="frame"><div class="phone">${h}</div><figcaption>${c}</figcaption></figure>`).join('')}</div></div>`;
+</script>
+<script src="../../shell.js"></script>
+</body></html>

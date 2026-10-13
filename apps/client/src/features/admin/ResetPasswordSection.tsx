@@ -3,6 +3,7 @@ import { useId, useState, type FormEvent } from 'react';
 import { passwordSchema, type PublicUser } from '@frc/shared';
 import { sentence } from '@/auth/messages';
 import type { Rpc } from '@/data/rpc';
+import { useCapability } from '@/components/OfflineGate';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardTitle } from '@/components/ui/card';
 import { Handover } from '@/components/ui/handover';
@@ -29,10 +30,13 @@ export function ResetPasswordSection({
   const [mustChange, setMustChange] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** SPEC-FINAL 9.6: user management is held while offline. */
+  const can = useCapability('manage_users');
   const [shown, setShown] = useState<{ password: string; mustChange: boolean } | null>(null);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (!can) return;
     setError(null);
     const checked = passwordSchema.safeParse(password);
     if (!checked.success) {
@@ -109,7 +113,13 @@ export function ResetPasswordSection({
             <Dices aria-hidden="true" />
             Generate
           </Button>
-          <Button type="submit" variant="primary" busy={busy} busyLabel="Resetting…">
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={!can}
+            busy={busy}
+            busyLabel="Resetting…"
+          >
             Reset password
           </Button>
         </div>

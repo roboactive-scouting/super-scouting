@@ -7554,3 +7554,563 @@ Rejected: keeping ↑ ↓ beside the grip as a keyboard path — the keyboard se
 **What I did instead:** `BUDGET_KB` unchanged at 220.
 
 **Risk:** 0.2 KB of headroom for the next task on the competition path.
+
+## Task 1.39 — Prettier layout of the brief's code
+
+**Plan said:** `conflict.ts` and `conflict.test.ts` exactly as written in the brief, with `./operation` and `./conflict` imports.
+
+**What was wrong:** `pnpm format:check` would fail on the brief's layout (the brief's test file packs several properties per line and one `isRealDuplicate` condition runs past the print width). Nothing else needed changing: the `./operation` import matches the repo's extensionless style, `packages/shared/src/index.ts` re-exports `./sync/conflict` beside `./sync/operation`, and the `_v`, `_c`, `_u` destructured names in `stripServerColumns` pass ESLint as written.
+
+**What I did instead:** ran `prettier --write` on both new files. Layout only: every test case, assertion and exported name is as in the brief (12 cases, none weakened, none added). Not in the brief but implied by the instructions: `classifyPush` keeps `live` as a whole payload on every branch (existing row minus `version`, `created_at`, `updated_at` when the existing row wins; the incoming payload plus `client_updated_at` when it wins).
+
+**Risk:** none.
+
+## Task 1.39 — Compare instants, not strings (coordinator fix)
+
+**Plan said:** `latestWins` and the divergence test compare `client_updated_at` with string `>`.
+
+**What was wrong:** PostgREST returns `timestamptz` as `2026-11-14T09:04:00+00:00` (often no milliseconds) while clients send `2026-11-14T09:04:00.000Z`. As strings `'+'` sorts before `'.'`, so `09:04:00+00:00` > `09:04:00.500Z` is false only by accident of the characters, and equal instants compare unequal. The wrong winner could become the live value.
+
+**What I did instead:** a private `isLater(a, b)` using `Date.parse(a) > Date.parse(b)`; `latestWins` and `incomingWins` use it. Tie rules unchanged (`latestWins` returns the first argument; a divergence tie keeps the existing row). Three tests added (mixed formats both orders for each function; same instant in both formats is a tie). Existing cases untouched.
+
+**Risk:** an unparseable timestamp gives NaN, which compares false, so the first argument / existing row wins; operations are already validated by `operationSchema`.
+
+## Task 1.40 — `parentsExist` replaced by `missingParent`, which now checks the form version
+
+**Plan said:** replace the `parentsExist` stub and call `ctx.store.parentsExist({ event_id, match_id, form_version_id })` before the duplicate lookup.
+
+**What was wrong:** UF.1 had already landed `missingParent({ event_id, match_id, team_id })`, returning the gone parent's name so the `detail` names it; `parentsExist` was an unused stub. Its form-version check did not exist, so a deleted version read as `invalid` whenever validation failed against no fields.
+
+**What I did instead:** `missingParent` takes an optional `form_version_id` and answers `'form_version'` (`MissingParent` widened; `PARENT_DELETED_DETAIL.form_version` already existed). The real store reads `form_versions` as a fourth parallel read; the fake honours `missingParents` and the new `form_deletions` tombstones. `parentsExist` deleted from the interface, the real store and the fake. The parent check stays where UF.1 put it — after the authorization block and the shape check, before data validation — rather than first, as the plan's step order says: the real code's order is kept, and authorization still comes before any lookup.
+
+**Risk:** `form_version_id` is optional on the interface, so a future caller can forget it; `syncPush` (the only caller) always passes it.
+
+## Task 1.40 — `findByLogicalKey` takes the key's columns and the op's row id
+
+**Plan said:** `findByLogicalKey(logicalKeyOf(payload))` — a string key.
+
+**What was wrong:** SQL needs the columns, not a joined string; and the lookup must exclude the op's own row.
+
+**What I did instead:** `findByLogicalKey({ event_id, form_kind, team_id, match_id }, excludeId)`: live rows only, null-safe on `match_id` (`is null` for a super entry), newest `client_updated_at` first. It is consulted whenever the server holds no row for `row_id` — an `update` for an unknown row is applied as a create, so it is checked too — not only when `action === 'create'`.
+
+**Risk:** none known.
+
+## Task 1.40 — the conflict row is written before the live row
+
+**Plan said:** `putRow`, then `markApplied`, then `insertConflict`.
+
+**What was wrong:** with that order, a failure after the live write loses the superseded copy: the live row has already overwritten it, and the replay is a `noop` (or a fresh, different divergence).
+
+**What I did instead:** `insertConflict` → `putRow` → `markApplied`. A failure between them leaves at worst a repeated conflict row, never a lost copy. Tested ("writes the conflict row before the live row").
+
+**Risk:** a failed live write leaves a conflict row whose "superseded" copy is still the live one; a retry writes a second conflict. 1.41's queue may show a no-diff conflict in that rare case.
+
+## Task 1.40 — the live row is built in the server, not taken from `decision.live`
+
+**Plan said:** `putRow({ ...decision.live, id, version: decision.nextVersion, client_created_at: existing?.client_created_at ?? op.client_created_at, deleted_at: null })`.
+
+**What was wrong:** `decision.live` for an incoming copy is the raw payload (server-owned keys not stripped: a client could set `scouter_id`, `updated_at`); and for an existing-wins divergence, forcing `deleted_at: null` would undelete a row a lead had removed.
+
+**What I did instead:** incoming wins / fast-forward / duplicate: the payload minus `SERVER_OWNED_KEYS`, with the row's own `scouter_id` and `client_created_at` on an update and the op's `client_updated_at`, `deleted_at: null` (the existing behaviour). Existing wins: `decision.live` (the row minus `version`, `created_at`, `updated_at`) with only `version` bumped — data, author, window, `client_updated_at` and `deleted_at` untouched. Conflict `superseded_author_id` is null when classifyPush has no author (`''`), since the column is a uuid foreign key.
+
+**Risk:** none known. Open question NOT decided here: a fast-forward update of a soft-deleted entry still undeletes it (spec §5.4 accepted-risk 4 parked this on task 1.40; the decisions file does not settle it, so the existing behaviour stands).
+
+## Task 1.40 — the plan's divergence tests use times outside the scouter window
+
+**Plan said:** the competing edits at 09:09 and 09:07 on an entry created at 09:00, authored by a scouter.
+
+**What was wrong:** both are past task 1.14's five-minute window, so the plan's tests would be refused with `edit-window-expired` before reaching the conflict policy.
+
+**What I did instead:** the same shape at 09:04 (winner) and 09:03 (loser). Plus the decisions' required negatives: the later copy stays live in both arrival orders, and the other is stored in full.
+
+**Risk:** none.
+
+## Task 1.40 — existing tests adapted to the new rules
+
+**Plan said:** keep every existing test.
+
+**What was wrong:** five fixtures relied on behaviour this task changes on purpose: (1) "applies one bearer push of three creates by three scouters" pushed one robot three times (now the duplicate path) with every payload crediting `u-scouter` (now `forbidden` under Q7.8); (2) "applies a queued create that was valid under the old range…" pushed one robot twice; (3) "an admin-carried scouter edit of another entry is forbidden" created its fixture as `u-other` crediting `u-scouter`; (4) "never stores a payload-supplied updated_at or scouter_id" expected a scouter's create crediting `u-lead` to be applied with the credit stripped — Q7.8 makes it `forbidden`; (5) `matches.test.ts` "replaces the slots…" and "clears every slot when given none" asserted cleared slots vanish from `ctx.matchTeams`. Also `store.test.ts` "setMatchTeams deletes cleared slots…" asserted a `delete`.
+
+**What I did instead:** (1)(2) each create on its own robot, crediting its own author; (3) the fixture credits `u-other`; (4) split into "never stores a payload-supplied updated_at" (unchanged intent) plus "refuses a scouter create crediting someone else" and "never lets an update reassign authorship"; (5) assert tombstones (`deleted_at` set, no live slot) and a new revival test; the store test asserts `update({ deleted_at })` and no `delete`. Every assertion's intent is kept.
+
+**Risk:** none.
+
+## Task 1.40 — spec §7.5 item 1: matches keep `match_deletions`; only `match_teams` gets `deleted_at` (rejected alternative)
+
+**Plan said:** add a `deleted_at` migration on `matches` and `match_teams`, and tombstone instead of hard-deleting in `deleteMatch` and `setMatchTeams`.
+
+**What was wrong:** for matches it contradicts SPEC-FINAL §9.3 (v1.18: "A match has no `deleted_at`") and §9.7, which rebuilds a deleted match by re-creating it under the same id (the `clear_match_deletion` trigger supports that). A soft-deleted match row would collide with the `(event, type, number)` uniqueness on that re-creation, would satisfy the entries' foreign key so a deleted match would stop being `parent-deleted`, and would duplicate a mechanism that already reaches devices (`deleted_matches`, UF.1).
+
+**What I did instead:** **rejected** `deleted_at` on `matches`. A deleted match reaches devices through `deleted_matches` — proven by the existing syncPull test "follows the store: a match deleted through it is named, one created again is not". `match_teams` gets `deleted_at` (migration `20261012090000_match_teams_deleted_at.sql`): `setMatchTeams` tombstones a cleared slot (`deleted_at = at`, the use case's clock; the trigger moves `updated_at`) and revives a refilled tombstone in place (the unique `(match_id, alliance, station)` refuses a second row). The store's `setMatchTeams` gained an `at` argument, like `setRoster`. `listMatchSlots` (the only other server reader) filters `deleted_at is null`; the seed writes `deleted_at: null` so a re-seed restores its line-up. A deleted match's slots still go by cascade (the match tombstone covers them). The fake's `pullEntity` falls back to its own `matchTeams` rows for `match_teams` when a test gave no `pullRows`, so a test follows a cleared slot from `setMatchTeams` to the pull.
+
+**Risk:** **the client does not yet read `match_teams.deleted_at`** (six `cachedRows('match_teams')` readers). Until it does, a cleared slot arrives as a row the client treats as filled — on a FRESH device too, where before the slot simply did not exist. Must land with the client half before Phase 1 F reaches `develop`.
+
+## Task 1.40 — spec §7.5 item 5: `form_deletions` tombstones (server half only)
+
+**Plan said:** carry form-table removals to devices with a trigger-written tombstone table like `match_deletions`, and drop the deleted form's entries on the device under item 3's rule.
+
+**What was wrong:** nothing on the server; the device half is a separate task.
+
+**What I did instead:** migration `20261012091000_form_deletions.sql`: `form_deletions (entity, row_id, season_id, deleted_at)`, primary key `(entity, row_id)`, index `(season_id, deleted_at)`, one `record_form_deletion` AFTER DELETE trigger and one `clear_form_deletion` AFTER INSERT trigger on each of `forms`, `form_versions`, `form_fields`, `scoring_rules`, `security invoker set search_path = ''`, execute revoked from public/anon/authenticated. Proven in `formDeletions.itest.ts`: **in an ON DELETE CASCADE the parent is already gone when the child's trigger fires, so a cascaded child's `season_id` is null** and it is never delivered; the parent's tombstone covers it. `syncPull` returns `deleted_form_rows: { forms, form_versions, form_fields, scoring_rules }` on a delta pull's first page and folds their `deleted_at` into the watermark; `PullResponse.deleted_form_rows` is optional; `Store.listFormDeletions(seasonId, since)` in the real store (paged past 1000) and the fake (whose form deletes now write and clear tombstones, the parent row first, as Postgres does). **Moved to task 1.42:** the device half — dropping the named rows, a deleted form's or version's children, and a deleted form's entries under §7.5 item 3's eviction rule (never an unsynced row).
+
+**Risk:** tombstones are never pruned (none are, by design); itests that delete forms now leave tombstones on dev naming dead seasons (harmless, never delivered).
+
+## Task 1.40 — regenerated types carry a PostgREST version bump
+
+**Plan said:** (decisions E) the `database.types.ts` diff must be the new column and table only.
+
+**What was wrong:** the regenerated file also changes `PostgrestVersion: "14.5"` → `"14.17"` — the dev project's PostgREST was upgraded since the last regeneration. Keeping the old line would fail `types-drift.itest.ts`, which compares against a fresh generation.
+
+**What I did instead:** kept the fresh file: `form_deletions` and `match_teams.deleted_at`, plus that one line.
+
+**Risk:** none; it is the generator's metadata.
+
+## Task 1.40 — side task A: super entries exempt from the self-edit window
+
+**Plan said:** the `withinSelfEditWindow` branch applies only when the target entry's `form_kind` is `'match'`; `canSelfEdit` returns true for the author's own super entry at any age; flip the SuperEntryPage locked test.
+
+**What was wrong:** nothing; two hardenings and one UI string the plan did not mention.
+
+**What I did instead:** the server exempts an edit only when the ROW **and** the payload are both `super` (fail-closed: an unknown kind, or an edit turning an old super entry into match data, keeps the window — tested). `canSelfEdit` returns true for `form_kind === 'super'` and `scouter_id === editor.id`. `SuperForm` no longer tells a scouter "You can still edit it for 5 minutes after submitting" (`windowApplies={false}`; tested, and the mutation back to the old value fails the test). Tests: server — own match entry refused at 5 min + 1 s, own super accepted at 60 min, another scouter's super `forbidden`; client — `localEntries.test.ts` cases, the flipped SuperEntryPage test, and "still shows another scouter's super entry locked".
+
+**Risk:** none.
+
+## Task 1.40 — side task B: Q7.8, a lead's create may credit another scouter
+
+**Plan said:** accept a create whose author is a lead or admin and whose payload's `scouter_id` is another user; a scouter-authored create naming someone else stays `forbidden`.
+
+**What was wrong:** before this task the payload's `scouter_id` was silently stripped and the author credited.
+
+**What I did instead:** on a create (no row on the server): absent/null or the author's own id → the author; a non-string → `invalid` "scouter_id must be a user id"; a scouter naming another → `forbidden` "a scouter may submit an entry only as themselves"; a lead/admin naming a user that does not exist → `invalid` "unknown scouter"; else that user is credited. Updates never change `scouter_id`. Tests: lead create crediting another → applied and credited; scouter create crediting another → forbidden; lead update of a scouter's match entry at 60 min → applied; unknown → invalid; unnamed → the lead.
+
+**Risk:** a disabled user may still be credited by a lead (they scouted before being disabled) — intended.
+
+## Task 1.40 — spec §7.5 item 2: in-batch match remap
+
+**Plan said:** (spec) rewrite the remapped match id in every later operation of the same batch.
+
+**What was wrong:** nothing.
+
+**What I did instead:** `syncPush` keeps a per-batch `Map<deviceMatchId, canonicalId>`, filled whenever a `match` op's `applied`/`noop` answer (the replay path included) names another id, and rewrites a later `scouting_entry`'s `payload.match_id` before applying it. Only `scouting_entry` ops are rewritten (the only entity the server applies besides `match` today); an op before the match op is untouched. Tests: applied against the canonical match; after a replayed match op; `duplicate` when the canonical match already has that robot's entry; not applied to an earlier op or another match; mutation (remap disabled) fails three tests.
+
+**Risk:** when later entities (pick lists) start carrying match ids they need the same rewrite.
+
+## Task 1.40 — the client reads live match slots only (coordinator follow-up)
+
+**Plan said:** the device side of the form and match-slot removals is task 1.42.
+
+**What was wrong:** once `setMatchTeams` tombstones a cleared slot, the pull delivers that row with `deleted_at` set, and all six client readers of `cachedRows('match_teams')` ignored the column: a cleared slot showed as still filled, on a fresh device too, where before the hard-deleted slot simply did not exist. Waiting for 1.42 would ship that regression on this branch.
+
+**What I did instead:** `liveSlots(rows)` and `cachedLiveSlots()` in `apps/client/src/data/cache.ts` (drops `deleted_at != null`; a row from before the column existed counts as live), used by all six readers: `useEntriesView`, `DraftRecovery`, `EntryPage`, `PracticeStart`, `useScoutSelection`, `homeData`. Data layer only, no screen changes. Tests: `cache.test.ts` (the helper and the cached read), and SelectRobotPage "never offers a robot whose slot an admin cleared" — reverting `useScoutSelection` to the unfiltered read fails it.
+
+**Risk:** a future reader that calls `cachedRows('match_teams')` directly skips the filter; the doc comment says every line-up reader uses `cachedLiveSlots`.
+
+## Task 1.40 — the conflict id is derived from the op_id, and a retry writes it once (coordinator follow-up)
+
+**Plan said:** `const conflictId = crypto.randomUUID()`.
+
+**What was wrong:** the conflict row is written before the live row (see above). If the live write failed, the device's retry of the same operation wrote a second conflict row with a new id.
+
+**What I did instead:** `conflictIdFor(opId)` in `syncPush.ts`: sha256 (`node:crypto`, server only) of a fixed namespace and the op_id, shaped as a v4 uuid. `insertConflict` keeps an existing id: the real store upserts with `{ onConflict: 'id', ignoreDuplicates: true }` (`on conflict do nothing`), the fake keeps the first row. Tests: a divergence and a duplicate whose live write fails once answer `invalid: unexpected server error`, then on retry the same `conflict_id` with `ctx.conflicts.size === 1`; reverting to `randomUUID` fails both.
+
+**Risk:** if the retry's decision differs from the first attempt's (the duplicate row was deleted in between), the first conflict row stays behind pointing at a pair that no longer conflicts; 1.41 must tolerate it, as it must tolerate conflicts naming deleted entries.
+
+## Task 1.41 — the shared API module, the registry rows and the test imports
+
+**Plan said:** create `core/queries/conflicts.ts`, `core/commands/resolveConflict.ts`, their two tests, and modify `routes/registry.ts`; the test file imports `'./resolveConflict'` and `'../../test/fake-context'`.
+
+**What was wrong:** nothing; the plan predates SPEC-FINAL 16.1's shared API map (the registry reads `input`/`output` from `API`, and `rpc.test.ts` asserts both registry key lists), and `apps/server` needs `.js` on every relative import (BUILD-CONTEXT §6).
+
+**What I did instead:** `packages/shared/src/api/conflicts.ts` holds every schema and type (exported from the shared index), `API` gains `listConflicts` and `resolveConflict`, `api/index.test.ts` and `rpc.test.ts`'s two key lists (and "thirty-five authenticated commands") name them. The test imports carry `.js`. Prettier re-wrapped the brief's long `expect(...)` lines; no assertion changed. Added `packages/shared/src/api/conflicts.test.ts` (the schema shapes, strictness, `settled_since` with an offset).
+
+**Risk:** none.
+
+## Task 1.41 — the Store's conflict methods replace the task-1.3 stubs, and five are added
+
+**Plan said:** (context.ts) "a task that wants a method not on this list is a task that has drifted from the plan"; the stubs were `listConflicts(eventId, limit, cursor?)`, `getConflict(id): StoredRow`, `resolveConflictRow(id, resolvedBy, at): void`.
+
+**What was wrong:** the stubs cannot express the decisions: a race-safe resolve must report whether its conditional update took; the queue needs the settled list and batched reads of entries, teams and matches (one query per table per page, SPEC-FINAL 16.4); an opaque string cursor in the store would hide the keyset from the use case, unlike every other list here.
+
+**What I did instead:** `listOpenConflicts(eventId, entity, limit, after?: {created_at, id})`, `listSettledConflicts(eventId, entity, since, limit)`, `getConflict(id): StoredConflict | null`, `resolveConflictRow(id, {resolved_at, resolved_by, resolution}): Promise<boolean>` (one `update … where id = $1 and resolved_at is null … select id`), `reopenConflictRow(id, resolvedAt)` (see the write-order entry), `getEntriesByIds`, `getTeamsByIds`, `getMatchesByIds` (chunks of 100, non-uuid ids skipped). New types `StoredConflict`, `ConflictEntity`, `ConflictKeyset`, `ConflictResolutionWrite`. Both stores implement all of them; `store.test.ts` covers each Supabase call chain (its `scriptedDb` gained `gte`). The keyset is the database's own `created_at` string, regex-checked and double-quoted in the `or` filter, so microseconds survive (`syncConflictsResolution.itest.ts` proves the quoted filter against dev). Rejected: keyset on `toISOString()` (drops microseconds → the last row of a page repeats); keyset on id alone (the page must be oldest first).
+
+**Risk:** none beyond the usual two-implementations drift, which the store unit tests and the itest bound.
+
+## Task 1.41 — resolve the conflict row first, and reopen it if the entry write fails
+
+**Plan said:** (decisions) a second resolve is refused race-safe; order the writes so a refused second resolve never touches the entry rows — "your call, logged".
+
+**What was wrong:** nothing; a choice.
+
+**What I did instead:** every read and check first (conflict exists, open, an entry conflict, the right shape for its kind, the rows exist, the kept duplicate is live), then the conditional `resolveConflictRow` — only the call that takes it goes on — then the one entry write. If that write throws, `reopenConflictRow(id, at)` clears `resolved_at/by/resolution` `where resolved_at = at` (only the resolution this call made), and the error is rethrown (a `23503` as `parent-deleted`). Tests: two racing resolves → exactly one fulfils, the other `conflict`, and only its choice reaches the entry (mutating the fake guard to always take fails it); a failed restore reopens and a retry then succeeds. Rejected: entry write first, then the guard (a racing second resolve would write the entry before being refused, which the decisions forbid); no compensation (a failed write would leave "Settled today" claiming a copy was restored that never was, and the retry would meet `conflict`).
+
+**Risk:** if the entry write AND the reopen both fail, the conflict reads resolved while the entry is unchanged; the reopen failure is logged (`resolveConflict: could not reopen …`), and the conflict row still holds the superseded payload.
+
+## Task 1.41 — resolveConflict's output adds `soft_deleted`; `new_version` is null for a duplicate
+
+**Plan said:** (decisions) output `{ conflict_id, resolved_at, resolution, row_id: <the row that stays live>, new_version: number | null }`, `new_version` null when nothing was rewritten.
+
+**What was wrong:** for a duplicate the row that stays live is NOT rewritten — the other one is — so `new_version` alone cannot say which row moved to which version.
+
+**What I did instead:** `new_version` is `row_id`'s new version when `row_id` was rewritten (a restore), else null (keep live; any duplicate). Added `soft_deleted: { row_id, new_version } | null` — the duplicate's soft-deleted row, or null (a divergence; or a duplicate whose other row was already soft-deleted, which is then not written again).
+
+**Risk:** none; additive.
+
+## Task 1.41 — what a restore writes, and two duplicate edge cases
+
+**Plan said:** (decisions) the row becomes `superseded_payload` minus server-owned keys, keeping its own id, scouter_id and client_created_at, `client_updated_at` from the conflict, version + 1. A duplicate soft-deletes the row not chosen.
+
+**What was wrong:** an existing-wins divergence stores the OPERATION's payload, which was never written to the table and may carry a key that is not a column (the upsert would then fail with PGRST204); and the decisions do not say what to do when a duplicate's row is already soft-deleted.
+
+**What I did instead:** a restore overlays only the entry's content columns present in the payload (`form_version_id, form_kind, event_id, match_id, team_id, alliance, robot_status, breakdown_seconds, data`) on the live row minus `created_at`/`updated_at` (the trigger moves `updated_at`), keeps the row's `deleted_at`, and sets `client_updated_at` = `superseded_client_updated_at`. Keeping a duplicate row that is already soft-deleted is `invalid` ("that copy has been deleted; keep the other one"); if the OTHER row is already soft-deleted the conflict is resolved with no entry write. A conflict whose `entity` is not `scouting_entry` is `invalid` (phase 1G). A divergence with a null `superseded_payload` cannot be restored (`invalid`).
+
+**Risk:** a payload key missing from the superseded copy keeps the live row's value (as syncPush's upsert would) rather than clearing it.
+
+## Task 1.41 — `settled_since` is client-supplied
+
+**Plan said:** `listConflicts` returns "today's resolved rows for the event".
+
+**What was wrong:** the server does not know the venue's day: a Vercel function runs in UTC, and an Israeli venue's midnight is 22:00 or 21:00 UTC, so a server-side "today" would drop or include two hours of resolutions.
+
+**What I did instead:** `settled_since` (an ISO instant with an offset — the device's local midnight) is an optional input; omitted, the server uses `now − 24 h`. `settled` is newest first, at most 100 (`SETTLED_CONFLICTS_MAX`), no paging.
+
+**Risk:** a device with a wrong clock or time zone shows the wrong day's log; it is display only.
+
+## Task 1.41 — the queue's shape beyond the brief
+
+**Plan said:** each item carries team number and name, match number, both authors' full names, both client timestamps and a `diff` of `{field_key, live, superseded}` / `{field_key, a, b}`.
+
+**What was wrong:** nothing; the decisions widened it, and a few calls were left open.
+
+**What I did instead:** the live copy's author is the row's `scouter_id` — the schema records no last editor, so a lead's edit of a scouter's entry still names the scouter. Each copy also carries `form_version_id` (the client labels fields from it), `breakdown_seconds`, and — for stored rows — `deleted_at`. The diff is `robot_status`, `breakdown_seconds`, then the union of `data` keys sorted by key (the client re-orders by the form's `display_order`); a key one copy lacks reads as `null` on the wire, and `differs` is `node:util` `isDeepStrictEqual`. A duplicate's `counted` is the live row when only one is live, else shared `latestWins` (tie → `a`). `team` is nullable. `limit` defaults to 20 and clamps at 50. An unknown `event_id` answers an empty queue, not `not-found` (one read fewer; a deleted event's conflicts are gone by cascade anyway). `conflict_id`/`keep_row_id` are any non-empty string (the fake's fixture ids are not uuids); the Supabase store reads a non-uuid id as no row → `not-found`. A conflict whose row(s) are gone is left out of `items`, so a page may hold fewer than `limit` items while `next_cursor` is set.
+
+**Risk:** a form field whose key is `robot_status` or `breakdown_seconds` would appear twice in the diff.
+
+## Task 1.41 — migration 20261012092000 applied to dev
+
+**Plan said:** a new migration adds the nullable `resolution jsonb` column (SPEC-FINAL v1.28 §3.6).
+
+**What was wrong:** nothing.
+
+**What I did instead:** `alter table public.sync_conflicts add column resolution jsonb;` with a header comment. `packages/db/supabase/.temp/project-ref` printed `oqvoqddoizhhwvjwejtm`; `npx -y supabase@latest db push --linked --dry-run` listed only this file; `--yes` applied it (no password asked). `database.types.ts` regenerated with the workspace CLI (`pnpm exec supabase gen types typescript --linked --schema public`, v2.117.0) as `types-drift.itest.ts` compares; the diff is the one column in Row/Insert/Update. New `packages/db/test/syncConflictsResolution.itest.ts` (season year 1910): null on a new conflict; the conditional resolve takes once, stores jsonb and moves `updated_at`, a second matches nothing; the reopen matches only its own instant; the quoted keyset pages; a duplicate's choice is stored. `pnpm db:test`: 84 of 85, the one failure the pre-existing `seed.itest.ts` rehearsal litter. The pull already selects `*` from `sync_conflicts`, so `resolution` reaches devices with no pull change. Production is not touched: the column must be applied there before a server with this task is deployed to production.
+
+**Risk:** a production deploy of this server before the migration would fail every `listConflicts`/`resolveConflict` (`column sync_conflicts.resolution does not exist`).
+
+## Task 1.42 — the plan's test fixtures against the real data layer
+
+**Plan said:** `discarded.test.ts` expects `summary.match` to be `'Qualification 12'`, `reason` to match `/deleted by an admin/i`, and on every other rejection `pending(10)` to have length 1.
+
+**What was wrong:** the design and the real code disagree with all three. 19-discarded README shows the match as "Q12" (`matchLabel`), and gives the cause as "An admin deleted the competition, season or form it belonged to." — which does not match `/deleted by an admin/`. A refused operation is PARKED (SPEC-FINAL 9.3.1, since task 1.30): it stays in the outbox but `pending()` leaves it out, so `pending(10)` is `[]`, not length 1. The plan's fixture also had no `event_id` cached and a non-uuid match id, and wanted `listDiscarded` on an empty `discarded` table after `db.delete()` inside the loop.
+
+**What I did instead:** the tests assert `match: 'Q12'`, the README's cause (`/an admin deleted the competition, season or form/i`), and for `invalid` / `forbidden` / `edit-window-expired`: the operation still in the outbox (`db.outbox.count() === 1`), its rejection recorded, the cached row kept, nothing logged. Each reason is its own `it.each` case instead of a loop with `db.delete()`. The summary also stores `match_type` / `match_number` beside the label.
+
+**Risk:** none; the label is derived from the cached match at discard time, as everywhere else.
+
+## Task 1.42 — `parent-deleted` now discards where it used to park; three outbox tests changed
+
+**Plan said:** "`ackResults` grows one branch: on `rejected` with `reason === 'parent-deleted'`, delete the outbox row, the cached row, the sync-state row, and append a `discarded` record". The decisions: a deleted MATCH is still rebuilt; discard only when the rebuild is impossible — "extend the existing fall-through for `parent-deleted` that today just parks the row".
+
+**What was wrong:** `rebuildMatchFor` answered a boolean, and `false` meant two different things: "impossible" (another parent gone, the event or match row not cached) and "its rebuilt bare match was itself refused, so park the entry with it". Discarding on every `false` would destroy an entry whose match is merely parked for `forbidden`. Existing tests asserted the old parking: `parks a parent-deleted rejection` (no detail), `follows 9.7 as before when the match row / the event is not cached: parked with the reason`, and `does not rebuild for another missing parent (...)` (expected the rejection on the sync state).
+
+**What I did instead:** `rebuildMatchFor` returns `'requeued' | 'parked' | 'impossible'`; only `impossible` reaches the new `applyParentDeleted`. The `parent-deleted` case was dropped from the generic parking `it.each` (now `forbidden`, `edit-window-expired`, `invalid`), and the other four tests now assert the discard (op, row and sync state gone; one log record). Kept as before: `parks the entry when its rebuilt match was itself refused`. Added: another entity (`pick_list`) refused `parent-deleted` is still parked, never discarded (no client path queues one yet; 9.7 speaks of typed entries).
+
+**Risk:** an entry whose match row the cache lost while its event still exists is discarded rather than parked. pruneDeletedMatches never drops a match the outbox needs, so this only happens after the event-gone wipe, i.e. when the event really is gone.
+
+## Task 1.42 — a bare match refused `parent-deleted`, and the rebuild loop it would cause
+
+**Plan said:** nothing. Decisions A: "A `parent-deleted` on a bare `match` op (its event is gone): delete that op and its syncState; it is not a scouter's typed record, so it is not logged. Its entries will be refused and discarded on their own."
+
+**What was wrong:** they would not be, on their own. The entry is refused `the match no longer exists`; its event and match rows are still cached (the eviction keeps them while the entry is queued), so `rebuildMatchFor` queues the bare match again; the server refuses it `parent-deleted`; it is deleted; and the next sync starts over — forever, the entry never discarded and never sent.
+
+**What I did instead:** a meta list `outbox.gone_events`: a bare match refused `parent-deleted`, or an entry refused with `the event no longer exists`, adds its event id. `rebuildMatchFor` answers `impossible` for a match of a gone event, so the entry is discarded on its next refusal (in the same `ackResults` call when the server answers the bare match before the entry; otherwise on the next sync). Rejected: deleting the cached `events` row instead (the log would lose the competition's name, which the design shows on every group).
+
+**Risk:** the list only grows (one uuid per deleted event the device ever pushed to). An event id that is somehow re-created would never be rebuilt again on this device; event ids are uuids, so that does not happen.
+
+## Task 1.42 — a refused delete and other details of the discard
+
+**Plan said:** every `parent-deleted` entry operation is logged.
+
+**What was wrong:** nothing; the plan did not consider a lead's queued `delete`, whose payload is empty and whose entry the server already removed with its parent.
+
+**What I did instead:** a `delete` refused `parent-deleted` removes the operation, the cached row and the sync state WITHOUT a log record — nothing anyone typed is lost (the lead wanted it gone). The log record's id is the operation's `op_id` (a re-run writes the same record). `recordDiscarded(op, row, at?)` merges the cached row under the payload (the payload is the latest content; the row fills what an older payload lacks), resolves station through `liveSlots`, and stores no `data` / `breakdown_seconds` at all. The whole discard runs inside `ackResults`' transaction, now also over `db.discarded`: the record is written first, so a failure writing it aborts the transaction and nothing is deleted (tested with a throwing Dexie `creating` hook). `ackResults` also notifies `'rows'` and a new change kind `'discarded'` after a discard. No Dexie version bump: `DiscardedRecord` grew new non-indexed fields (`row_id`, `event_id`, `event_name`, a typed `summary`, `dismissed_at`); `dismissed_at` is a field on the record, not a watermark.
+
+**Risk:** records written by a client before this task would lack the new fields; none exist (nothing wrote the table before).
+
+## Task 1.42 — date helpers for the log and the notice
+
+**Plan said:** nothing; the decisions: use the project's helpers, and add one beside them if none prints "Sun 12 Oct, 08:02".
+
+**What was wrong:** `packages/shared/src/format.ts` had only `formatDate` (DD/MM/YYYY) and `formatTime` (HH:MM).
+
+**What I did instead:** added `formatDayTime` ("Sun 12 Oct, 08:02", the group heading and "saved …") and `formatWeekdayTime` ("Fri 14:20", the notice's list) to `format.ts`, with a test. The weekday comes from `Intl` (`en-GB`, short); the month from a fixed list, because ICU's `en-GB` short month for September is "Sept". The server bundle does not change (it never imports them; esbuild drops them). The design's dates do not fall on their weekdays in 2026 (12 Oct 2026 is a Monday), so the e2e fixture moved them a day: removed Sun 11 Oct 08:02 and Thu 8 Oct 17:40, saved Fri 9 Oct.
+
+**Risk:** none.
+
+## Task 1.42 — the notice and the log, against the README
+
+**Plan said:** "The dismissible notice is a `Notice` with a 'Dismiss' `Button variant="ghost"`. The log page is a `PageHeader` and a `Table`."
+
+**What was wrong:** the README and THEME "Discarded notice" (v1.12) say a Warning notice (warn tint) with a bold ink lead, a 12.5 px list, and two 32 px SECONDARY buttons, Dismiss and See the log; there is no `PageHeader` component in the code base (every page writes its own `<header>`). The empty state's button is drawn secondary in the design, while `EmptyState` says "one primary action".
+
+**What I did instead:** README wins. `DiscardedNotice` draws the warn-tint box itself (the `WarningNotice` component colours its lead `--warn`, the design's lead is ink) with `Button variant="secondary" size="sm"` narrowed to 32 px; "this phone" / "this device" by width (`useIsDesktop`), overridable with `deviceNoun` for the collector tablet's "this tablet". The log page uses the Settings page's header, `Note`, `Table` (readOnly) and `EmptyState` with a secondary "Back to Sync". `SuperTag` moved from `SuperForm.tsx` into `components/ui/tag.tsx` (exported), so the log and Sync share it. The notice is not shot: it is not on any page until task 1.43 places it on Sync's Problems tab, and the e2e harness shoots routes; 1.43 shoots it. It is unit-tested (copy, singular, list, Dismiss, See the log).
+
+**Risk:** "See the log"'s target and the back link point at `/sync`, which has no route until task 1.43 (inside this phase branch only).
+
+## Task 1.42 — eviction of a left event (spec 7.5 item 3): what goes, what stays, and what holds it
+
+**Plan said:** "Evict that event's rows once every outbox operation for it is acknowledged. Never evict a draft, an unacknowledged row, or anything the outbox still references." Decisions C: after every successful sync, for each cached event other than the current one.
+
+**What was wrong:** nothing; the details were open.
+
+**What I did instead:** `evictLeftEvents(keep)` in `sync.ts`, called at the end of `syncNow` only when the pull COMPLETED, with `keep = [deps.eventId, cachedDefaultEventId()]` — the default is kept too, so a session override (SPEC-FINAL 6.3) never evicts the competition the shell returns to. Split, from `PULL_SCOPES`: by `event_id` — `event_teams`, `matches`, `scouting_entries`, `sync_conflicts`, `pick_lists`, `do_not_pick`, `alliances`; through their parent — `match_teams` (match), `pick_list_entries` (pick list), `alliance_slots` and `alliance_declines` (alliance); plus the `events` row. Kept: `app_settings`, `seasons`, `teams`, `users` (global) and `forms`, `form_versions`, `form_fields`, `scoring_rules`, `metrics`, `dashboards`, `dashboard_charts`, `weight_presets` (season). An event is held whole by: any outbox op naming it (an entry's `payload.event_id`, else its cached row's; a bare match's `event_id`), any row whose sync state is pending or refused, and any draft or practice draft whose key names one of its matches (`${version}:${match}:${team}`). An outbox op of another entity whose event cannot be told holds EVERY event (conservative; none is queued by the client yet). Candidates are the cached `events` rows plus any event id on an event-scoped row (so an event the event-gone wipe emptied, whose `events` row it keeps, now goes too). `db.drafts`, `db.practiceDrafts` and `db.discarded` are never written. Rejected: evicting in the shell on a default change — the sync is where both the acks and the new default are known.
+
+**Risk:** orphaned children of an event wiped earlier by `wipeEvent` (its `match_teams`, `pick_list_entries`, `alliance_*`, which carry no `event_id`) are not found, because their parents are already gone; they are harmless and few. The first sync after an override ends evicts nothing extra: the default is always kept.
+
+## Task 1.42 — deleted form rows on the device (spec 7.5 item 5)
+
+**Plan said:** nothing (deferred to this task by the server chat). Decisions C: apply `deleted_form_rows` beside `pruneDeletedMatches`, cascade the unlisted children, evict acked entries of a removed version, keep unacked ones, check every reader.
+
+**What was wrong:** nothing.
+
+**What I did instead:** `pruneDeletedFormRows(deleted, delivered)` runs per pull page right after `pruneDeletedMatches`, i.e. after the page's upsert, and — like `pruneDeletedMatches` — keeps a NAMED id the same response delivered as a row. It removes the named rows, a removed form's `form_versions` and `scoring_rules` (by `form_id`), every removed version's `form_fields` (by `form_version_id`), and each cached `scouting_entries` row bound to a removed version unless the outbox holds it or its sync state is pending or refused (not a discard, not logged). Drafts are never touched. Readers checked: `cachedFormFields` returns `[]` for a removed version (tested); `EntryRoute` and `superData` resolve the form by kind and season from the cached `forms`, so a removed form is the existing "No scouting form is published" state / `formVersionId: null`, not a crash; an unacked entry kept under a removed version may open with no fields until its push is refused and 9.7 removes it (not exercised by a test). No code change was needed in the readers.
+
+**Risk:** cached `sync_conflicts` rows that name an evicted entry stay until their own pull update; task 1.44's card must tolerate a conflict whose entry is not cached.
+
+## Task 1.42 — initial-JS budget raised to 224 KB
+
+**Plan said:** keep initial JS within `BUDGET_KB` (220).
+
+**What was wrong:** `pnpm bundle:check` → `initial JS 223.0 KB gzip` / `initial JS over 220 KB gzip`. HEAD `bcb8d51` (measured by stashing this task's changes and rebuilding) was already `initial JS 220.8 KB gzip`, over 220, from the Phase 1 F server half's client changes; this task adds 2.2 KB (the discard path in `outbox.ts` and `discarded.ts`, the eviction and form pruning in `sync.ts`, the date helpers). The log page itself is a lazy chunk (2.1 KB).
+
+**What I did instead:** `BUDGET_KB = 224` in `scripts/check-bundle.mjs` (history comment kept) and the budget line in BUILD-CONTEXT §12.5. Rejected: splitting the eviction into a dynamically imported module (~1 KB) — the decisions put it in `sync.ts` beside `pruneDeletedMatches`, and it runs on every completed sync, so it would load on the first sync anyway; and the discard path cannot be lazy, because a dynamic `import()` inside `ackResults`' Dexie transaction would commit the transaction early.
+
+**Risk:** 1 KB of headroom left for 1.43–1.45.
+
+## Task 1.42 — the Manage grip e2e test raced dnd-kit; not a regression of this task
+
+**Plan said:** the whole gate green, `pnpm --filter @frc/client e2e` included.
+
+**What was wrong:** `e2e/manage.spec.ts:33 › manage: Competitions — an event moves by its grip, by keyboard and by pointer` failed at line 57: `Error: expect(received).toBe(expected) // Object.is equality` / `Expected: 1` / `Received: 0` / `Timeout 5000ms exceeded while waiting on the predicate`; the live region read "District #1 · Haifa is now position 1." (dropped where it started). It was first taken for a regression of this task, and the eviction (`evictLeftEvents`) was suspected. It is not: the Manage page reads its events through the RPC (`useManageLists`), never the cache; with the `evictLeftEvents` call removed the test still failed 4 of 6 runs (`--repeat-each 6 --workers 1`); and HEAD `bcb8d51` alone (a `git archive` copy in the scratchpad, this task's changes absent) failed 5 of 8 repeated and 3 of 4 single runs. Cause, from a DOM-mutation trace in the page: the ArrowRight moved the card (`translate3d(384.672px, 0px, 0px)` 6 ms after the key) but dnd-kit settles the card under it (`over`, the "is at position 2" announcement, the neighbour's shift) one frame later, ~15 ms; the test sent the drop Space 10–15 ms after the arrow, so in the failing runs the drop arrived before `over` changed and dnd-kit ended the drag over the card it started on. Waiting 1.5 s before the pick-up still failed 3 of 6, so no concurrent load (sync, eviction, the roster and match lists) is needed for it.
+
+**What I did instead:** the test waits for what a screen reader hears between steps — the grip's `aria-pressed="true"` after the pick-up, "District #1 · Haifa is at position 2." after the arrow, and "Israel Championship is at position 1." before the pointer is released — then drops. 15 of 15 serial and 16 of 16 parallel runs passed. No app change: no person drops 15 ms after an arrow. Rejected: a fixed `waitForTimeout` (fragile), and waiting two animation frames after the pick-up (it made it worse: 12 of 12 failed, since the race is between the arrow and the drop). No unit test pins it: the cause is dnd-kit's frame timing in a real browser, which jsdom does not have; the e2e test now pins it.
+
+**Risk:** none to the app. Another keyboard-drag e2e test written the same way (keys back to back) would race the same way.
+
+## Task 1.43 — the plan's test fixtures and copy replaced by the real data layer and the README
+
+**Plan said:** `SyncPage.test.tsx` renders `<SyncPage eventId="ev-1" syncNow={vi.fn()} />` and expects "1 waiting to sync", "Qualification 12", a rejection read from `meta` key `sync.rejections` with "needs a person to look at it", and a link named "1 conflict waiting".
+
+**What was wrong:** the plan predates the real data layer and the design. Rejections live on `syncState.rejection` (UF.12), not in `meta`; match labels are "Q12" (`matchLabel`); the 17-sync README's copy is "Waiting 1" (a tab with a count), "Not sent: <the server's detail>." plus the reason in words, and "1 conflict to review · Two copies of the same entry. A lead picks." with **Review ›**.
+
+**What I did instead:** the six tests are kept in intent and rewritten against the real stores and the README copy (`src/features/sync/SyncPage.test.tsx`, 15 tests). `SyncPage` takes `{ eventId: string | null; viewer: { id; role }; syncNow: () => Promise<unknown> }` — the viewer decides the conflicts link (`resolve_conflict`), and `eventId` is nullable because the route opens with no event loaded (below).
+
+**Risk:** none; the plan's literal strings are nowhere on screen.
+
+## Task 1.43 — "ConnectionIndicator" is SyncPill; its link is named by aria-label
+
+**Plan said:** `<ConnectionIndicator />` becomes a `Link` to `PATHS.sync` with its `role="status"` span inside.
+
+**What was wrong:** no `ConnectionIndicator` exists; the indicator is `features/shell/SyncPill.tsx` (the desktop chips in `CrumbBar`, the phone pill in `TopBar`). Wrapping the status span in a link gave the link NO accessible name in Chrome (the e2e page snapshot: `- link [ref=f1e62] [cursor=pointer]:` with no name, its only child `- status [ref=f1e63]`), which axe reports as `link-name`.
+
+**What I did instead:** both forms are a `Link` to `/sync` with the `role="status"` span inside (still announced), and the link carries `aria-label` with the same words ("3 waiting to send · Offline", "Offline · 3"). The phone pill keeps its 30 px look with an `::after` hit area to 48 px. `e2e/entries.spec.ts:101` now matches the waiting arrow's label exactly (`getByLabel('waiting to send', { exact: true })`); it failed with `Expected: 3` / `Received: 5` because the new link names contain the same words.
+
+**Risk:** none known. The drawer's sync line is not a link (the drawer's Sync nav row is).
+
+## Task 1.43 — the Sync nav row shows its count through a new NavItem `count`
+
+**Plan said:** a `NAV_ITEMS` row `{ id: 'sync', label: 'Sync', icon: RefreshCw, group: 'device', bottomBar: null, visible: () => true }`; decisions: "showing the waiting count".
+
+**What was wrong:** nav rows had no count; only the bottom bar's Entries badge did.
+
+**What I did instead:** `NavItem.count?: 'waiting'` and `NavCounts`; `NavList`/`Sidebar`/`NavDrawer` take `counts` (ShellLayout passes `status.waiting`). The count is amber mono at the row's end, the link's name becomes "Sync, n waiting to send" (as the bottom bar names Entries), and a collapsed rail shows a dot. No `end` on the row, so it is current on `/sync/discarded` too. The device group reads Sync · Settings; 1.44 inserts Conflicts between them. Rejected: an sr-only ", n waiting to send" inside the link — jsdom computed "Sync , 2 waiting to send" and browsers differ.
+
+**Risk:** none.
+
+## Task 1.43 — /sync is NO_HYDRATION; Sync now goes through the shell's queue; push progress
+
+**Plan said:** modify `routes.tsx` (nothing about hydration); `SyncPage` takes `syncNow`; decisions: add an optional progress callback to `syncNow` without changing its result.
+
+**What was wrong:** a gated route renders only once the shell's event is loaded, but Sync must list every unsynced record on the device whatever its event (spec §7.5 item 4), also on a device whose event is not loaded. A page calling `data/sync.ts`'s `syncNow` itself would bypass the shell's one-run-at-a-time queue.
+
+**What I did instead:** the route is lazy and `NO_HYDRATION` (`routes.test.tsx` updated); "this event" is the shell's event when there is one. `ShellContext.requestSync()` runs the shell's own `schedule()`, which now returns its queue promise. `syncNow` takes `onProgress({ sent, total, acked })`: once before the first batch and after each acked batch, records only (bare matches never counted), parked records not in the total, `acked` = row ids acked this sync. AppShell feeds it to `connection.ts`'s `setSyncProgress`; `useSyncProgress()` reads it; it clears when the last sync ends. The result shape is unchanged.
+
+**Risk:** progress moves per push batch (up to 200), so with fewer than 200 waiting every row ticks at once rather than "one by one"; every in-flight row shows the spinner (the design draws one). A refused record is not counted as sent, so a run can end at "4 of 5".
+
+## Task 1.43 — README versus decisions: Problems includes a parked parent-deleted; More holds only the log
+
+**Plan said:** (README) Problems = refused records, "every reason except `parent-deleted`"; More = Send by QR, Receive by QR, Discarded records, Discard received QR data.
+
+**What was wrong:** the orchestrator's decisions bind: a record whose rebuilt bare match was itself refused stays PARKED with code `parent-deleted` and shows under Problems; More holds ONLY Discarded records (no QR items, no Discard received QR data, no wipe).
+
+**What I did instead:** Problems lists every parked rejection (a parked `parent-deleted` reads "Not sent: The match no longer exists. Something it belongs to was deleted."). More is the one Discarded records item, "n removed because their event was deleted.", or "Nothing has been removed." at zero (the item stays, so the log is always reachable). Reason lines: `edit-window-expired` "It was changed after its 5 minutes were up." (README), `forbidden` "The account that saved it isn’t allowed to make this change.", `invalid` "Something in it didn’t pass the server’s checks.", `parent-deleted` "Something it belongs to was deleted." The Problems count is the refused records; its amber dot shows while there is a refused record or an undismissed discarded notice.
+
+**Risk:** 1.47/1.48 add the QR items and Discard received QR data to `more` in `SyncPage.tsx`.
+
+## Task 1.43 — Sent bound, empty states, time labels, the origin noun
+
+**Plan said:** nothing on these; the README draws no empty states and no Sent tab.
+
+**What was wrong:** nothing; they had to be decided.
+
+**What I did instead:** Sent = acked `syncState` rows (no rejection) whose cached `scouting_entries` row is still on the device, newest ack first, at most `SENT_LIMIT = 100`. Empty states: Waiting "Nothing waiting · Everything on this phone/device has reached the cloud." (the plan's line), Sent "Nothing sent yet", Problems "No problems". Times: "saved 11:47" today, "Sat 15:02" within six days, else "DD/MM/YYYY HH:MM"; "last sync 11:40" today, else "DD/MM/YYYY HH:MM"; "not synced yet" with none. Origin: "This phone" on a phone, "This device" on a computer (the desktop final says "This phone"; the decisions give the device noun), "QR · from <author's first name>". Group headings: the cached event's name, else "Earlier event"; other events by name; the heading's count leaves out rows this sync has ticked off. A sent row's team is dimmed with `--muted`, not opacity: `opacity-60` failed axe (`sync-sent desktop: axe` / `color-contrast: Elements must meet minimum color contrast ratio thresholds`).
+
+**Risk:** the collector tablet's "this tablet" noun, the "Received by QR" block and the "shown by QR" mark are not built (QR tasks 1.47–1.48).
+
+## Task 1.43 — Q7.8: the coalescing rule changed narrowly in enqueue
+
+**Plan said:** a lead's or admin's save of a refused record replaces the refused operation with one authored by them (same `row_id`, action, `base_version`; `scouter_id` unchanged) and clears its rejection.
+
+**What was wrong:** `enqueue` kept the EXISTING create's `author_user_id` whenever an edit folded into a pending create, so a lead's re-save of a refused scouter create would still go out as the scouter's (mutation check: with the old rule the two new "replaces the refused create with one authored by u-lead / u-admin" tests fail, `2 failed | 49 passed`).
+
+**What I did instead:** the new author wins only when the existing row carries a rejection AND the new author can `manage_entries` (role from the cached `users` row, else the session, as the delete guard does). Every other rule is kept, including the existing test "un-parks a parked create on a new edit, keeping the create's original author" (its `u-lead` has no known role). `submitEntry` already takes `scouter_id` from the cached row; `enqueue` already clears the rejection. Open entry goes to the existing entry routes (`/entry/:matchId/:teamId?alliance=`, `/super/:teamId`): the entry preview (1.52) does not exist. A scouter's save, as it really happens: `EntryRoute` locks a match entry past its 5 minutes, so a scouter cannot re-save an `edit-window-expired` one; inside the window (an `invalid` or `forbidden` refusal) the scouter's save un-parks it under their own authorship and a second refusal parks it again — the record stays, counted (tested in `outbox.test.ts` and `submitEntry.test.ts`).
+
+**Risk:** `enqueue`'s `origin` defaults to `'local'`, so a lead re-saving a QR-received copy turns it into a local record (its "QR · from" badge goes). The QR tasks should decide whether a re-save keeps `qr`.
+
+## Task 1.43 — shared components: Tabs `dotted`, ErrorLine `announce`, describeEntry
+
+**Plan said:** build from the shared components.
+
+**What was wrong:** THEME "Tabs in a card (with counts)" draws a 7 px `--warn` dot BEFORE a tab's label; `Tabs` only had `flagged` (a ⚠ after the count). `ErrorLine` is always `role="alert"`, which would re-announce every refused record in a list on every render.
+
+**What I did instead:** `Tabs` takes `dotted?: ReadonlySet<K>` (the dot, with `flagLabel` sr-only); `ErrorLine` takes `announce = true` (false drops the role). Both default to the old behaviour. `discarded.ts`'s cache resolution is extracted as `describeEntry(op, row)` (read only) for the Sync rows; `recordDiscarded` uses it, unchanged in behaviour (its tests pass untouched).
+
+**Risk:** none.
+
+## Task 1.43 — initial-JS budget raised to 226 KB
+
+**Plan said:** keep initial JS within `BUDGET_KB` (224).
+
+**What was wrong:** `pnpm bundle:check` → `initial JS 224.1 KB gzip` / `initial JS over 224 KB gzip`. The Sync page is a lazy chunk (5.9 KB); the 1.1 KB added to the initial bundle is the nav row and its count (and the `RefreshCw` icon), the indicator link, the progress store and callback, the Q7.8 rule in `enqueue`, and `ShellContext.requestSync`.
+
+**What I did instead:** `BUDGET_KB = 226` in `scripts/check-bundle.mjs` (history comment kept) and the budget line in BUILD-CONTEXT §12.5. Rejected: nothing else to lazy-load — what grew is shell chrome on every screen and the outbox.
+
+**Risk:** 1.9 KB of headroom for 1.44–1.45.
+
+## Task 1.43 — e2e fixtures: Haifa is District #1; the Sending state frozen in the page
+
+**Plan said:** (design) the earlier competition is "District #2 · Haifa"; decisions: freeze "Sent · 2 of 5" with `before` or a held mock response.
+
+**What was wrong:** the e2e fixtures' events are `District #1 · Haifa`, `District #2 · Be'er Sheva`, … and the pull delivers only the active event. A held routed request keeps the network busy, and `shoot()` waits for network idle (`e2e/shell.spec.ts` takes a plain screenshot for that reason).
+
+**What I did instead:** `e2e/sync.spec.ts` seeds `District #1 · Haifa`'s `events` row and a Q71 with its line-up, held on the device by the outbox. The Sending shot replaces `window.fetch` inside the page: the push acks the first two entries and the pull never answers, so the shell sits in "Sending…" with "2 of 5" and `shoot()` (axe, overflow, both themes and widths) still runs.
+
+**Risk:** the Sending pictures must finish inside the pull's 30 s deadline (they take about 10 s).
+
+## Task 1.44 — the README's page replaces the plan's layout, button names and test fixtures
+
+**Plan said:** two `Card`s side by side at ≥ 1024 px; buttons "keep the current copy", "restore the other copy", "keep this one"; fixtures `{ team: '2096 ROBACTIVE', live: { author, data }, rows: [...] }`; a resolve sends at once and the item leaves.
+
+**What was wrong:** the design README (18-conflicts final) and the orchestrator's decisions replace all of it: one scroll of cards, "Keep Dana’s" / "Restore Noa’s" / "Keep Yael’s", a 5-second delayed send. The plan's fixture shapes are not `listConflicts`' (`team: {id, number, name}`, `live.author: {id, full_name}`, `a`/`b`, `diff`).
+
+**What I did instead:** the plan's eight tests are kept in intent in `ConflictsPage.test.tsx` with the real shapes and the README's names: the matching-row `data-differs="false"` assertion first opens "Show the n that match" (only differing rows show by default); timestamps are asserted through `formatDate`/`formatTime` (the suite has no fixed TZ); the offline test caches the entries the conflict names (the server's rule leaves out a conflict whose entry is gone, so the plan's bare `sync_conflicts` row would render no card and `getAllByRole` would throw); every send-dependent test uses fake timers (`setTimeout`/`setInterval`/`Date` only — fake-indexeddb's `setImmediate` stays real). Added: no call before 5 s (4 999 ms: 0, 5 000 ms: 1, exact payload), Undo sends nothing, a re-choice after Undo gets its own 5 s, unmount and `pagehide` send at once, a failed send reopens with the error, 409 and 404 drop the card, two countdowns at once. Mutation checks: send at `UNDO_MS - 1` → 1 failed; Undo not clearing its timer → 1 failed (after adding the re-choice test; before it, 0 failed); no flush on unmount → 1 failed; `canResolve` ignoring offline → 1 failed; the device diff by `===` → 3 failed; every send error treated as a failure → 2 failed.
+
+**Risk:** none beyond the entries below.
+
+## Task 1.44 — calls I made where the README is silent
+
+**Plan said:** (README / decisions) the column order, the disambiguation of equal first names, the fold line's words, what "opened in full on a phone" is.
+
+**What was wrong:** not specified: a duplicate's copies have no inherent order (`a` = the row that arrived second); a superseded author can be unknown; the README draws "Kept Dana’s copy" only; robot status and breakdown time are diff fields even on a super entry, where both are null.
+
+**What I did instead:** a divergence shows live then superseded (the design); a duplicate shows the earlier-saved copy first, so "Counted now" sits on the second column as drawn. Two authors with one first name read "Dana L.’s" / "Dana C.’s"; when that does not separate them, or a name is unknown, the copies are "the earlier copy" / "the later copy" (else "the counted copy" / "the other copy"). A restore folds to "Restored Noa’s copy". The robot-status and breakdown rows are left out when both copies are null (the design's super card has neither, and its "Show the 4 that match" counts no breakdown row) — the server's `diff` is unchanged. A phone card is "opened in full" by "Show the n that match": it then shows the explanation line too. A super duplicate explains "Two people wrote a super entry for this robot." Settled today follows the README's words ("kept Dana’s", "restored Noa’s", "kept Omer’s, removed Yael’s"), not the drawing's "kept Dana’s copy"; the removed copy's author is read from the cache (the server's `settled` names only the kept one) and left out when the device lacks that row. The header says "0 to review" while a choice counts down and "all settled" only once nothing is pending. The countdown is a still 2 px ring with the seconds ticking — no animated arc — so reduced motion sees the same thing.
+
+**Risk:** naming by time reads stiffly in the explanation ("The later copy is counted now; the earlier copy is kept aside."), but only when names cannot tell the copies apart.
+
+## Task 1.44 — the cache cannot see a conflict's own `entity` column
+
+**Plan said:** (decisions) build the offline view from cached `sync_conflicts`, as the server does (scouting-entry conflicts only).
+
+**What was wrong:** `data/sync.ts` stores every pulled row as `{ ...row, entity: key }`, so a cached `sync_conflicts` row's own `entity` column (`'scouting_entry'`) is overwritten by `'sync_conflicts'`; a filter on it would drop every conflict.
+
+**What I did instead:** a cached conflict counts as an entry's when an entry it names is cached (open cards need that anyway, as the server's `toItem` does); Settled today offline lists a resolved conflict only when the device holds an entry it names.
+
+**Risk:** phase 1G (pick-list conflicts) must not rely on the cached `entity` column either; a settled entry conflict whose rows were hard-deleted shows online but not offline.
+
+## Task 1.44 — sends: `keepalive` on `pagehide`, a 10 s deadline, and what an unmount cannot show
+
+**Plan said:** (decisions) leaving the page sends every pending choice at once; a failed send reopens the card with the error.
+
+**What was wrong:** a `fetch` started in `pagehide` is cancelled with the page unless it is `keepalive`, and `CallOptions` had no way to say so. A send that fails after the page has unmounted has no card to reopen.
+
+**What I did instead:** `CallOptions.keepalive` (rpc.ts passes `keepalive: true` to `fetch`); the page uses it only for the `pagehide` flush. On unmount the pending choices are sent at once and a successful one triggers one `syncNow`; a failure there leaves the conflict open on the server, so it is back in the queue on the next visit. The page's own calls carry a 10 s deadline (`CONFLICTS_CALL_TIMEOUT_MS`): a `listConflicts` that fails or times out falls back to the cache (a refusal from our server is said in an Error line, and the empty state is held back); a send past the deadline reopens its card with "Not settled: The server did not answer in time."
+
+**Risk:** a lead who closes the tab mid-countdown gets no word if the keepalive send fails.
+
+## Task 1.44 — nav: Conflicts' count, `NavCounts`, and `openConflictCount` moved to cache.ts
+
+**Plan said:** (decisions) extend `NavCounts`/`count` the way Sync's waiting count is done; reuse `openConflictCount` from `data/syncList.ts`.
+
+**What was wrong:** importing `syncList.ts` into the shell pulled the Sync page's module into the main bundle: `pnpm bundle:check` → `initial JS 225.4 KB gzip` (from 224.1).
+
+**What I did instead:** `openConflictCount` moved verbatim to `data/cache.ts` and is re-exported from `syncList.ts` (one implementation; SyncPage unchanged): `initial JS 224.5 KB gzip`, budget untouched (226). `NavCounts` is `Partial<Record<'waiting' | 'conflicts', number>>`; the link's name says the count in words per key (`NAV_COUNT_WORDS`: "Sync, 6 waiting to send", "Conflicts, 2 to review"). `ShellLayout` takes an optional `eventId` (AppShell passes `gate.eventId`) and hands `counts` to the sidebar and the phone menu (`NavDrawer` gets a `counts` prop). The Conflicts row is not dropped on an expired session (the queue is readable from the cache). `EmptyState` takes `tone="success"` for the green check (default unchanged). `/conflicts` is a gated route (it reads the event's data), unlike Sync. `routes.test.tsx`'s gated-routes list gains `conflicts`.
+
+**Risk:** the nav count is the cache's: a card folded or sent stays counted until the pull after the send lands (the desktop shot shows "Conflicts 3" beside "2 to review").
+
+## Task 1.44 — e2e: the design's conflicts on the fixture's matches
+
+**Plan said:** (design) Q12 2096 Red 2, Q14 1690 Blue 1; the folded card's countdown shown at 4.
+
+**What was wrong:** in the e2e fixtures 2096 plays Red 2 in Q2 and 1690 Blue 2 in Q4; Dana Levi and Noa Cohen are not fixture users. The countdown sends after 5 s, and `shoot()` takes far longer than that over two widths and two themes.
+
+**What I did instead:** `e2e/conflicts.spec.ts` puts the conflicts, the entries they name, the two people and a three-field super form into its pull, and answers `listConflicts` with the same conflicts in the server's shape (parsed by `listConflictsOutput`). The settling shot holds the page's 5 000 ms `setTimeout` (an init script, switched off before the real send is checked) and re-chooses before each picture, so each shows a fresh countdown. `api-mock.ts` answers `listConflicts` with an empty queue and `resolveConflict` with a valid result by default.
+
+**Risk:** the hold matches any 5 000 ms timeout while it is on (only in that one test).
+
+## Task 1.45 — the matrix: the plan's test reformatted, one test added, and no silent default at run time
+
+**Plan said:** `apps/client/src/data/offlineCapability.test.ts` exactly as written; `isAvailableOffline(capability): boolean`.
+
+**What was wrong:** nothing failed. `pnpm format:check` would refuse the plan's long `for (const capability of [...] as const)` lines, and the plan's `@ts-expect-error` test only proves the compile-time half of "no silent default" (it never calls the function).
+
+**What I did instead:** the plan's five tests verbatim, formatted by Prettier. One test added: a name that reaches `isAvailableOffline` from outside the types (`'invented'`, `'toString'`) throws ("… is not in the offline capability matrix") rather than answering `false` or `undefined` (`Object.hasOwn` guard). `OFFLINE_CAPABILITY` is the plan's 17 names, each with its §9.6 row in a comment; no capability was added — every action the app has maps to one of them (Make active / Make default → `switch_active_event`; the switch-competition sheet → `cross_event_view`; delete a season or event, roster, matches, line-ups → `manage_events`; Export / Import / Delete form / restore → `edit_form`).
+
+**Risk:** none.
+
+## Task 1.45 — `OfflineGate`'s shape: a render prop, a children-less form, and `useCapability` in its own file
+
+**Plan said:** `<OfflineGate capability>` wraps an action and, while offline, disables it and renders the `offline-needs-server` state beneath it. Keep `OfflineGate` out of the initial chunk if only lazy pages use it (decisions).
+
+**What was wrong:** a wrapper cannot set `disabled` on an arbitrary child, and most gated controls sit deep inside panels and dialogs (several in portals) far from where one message belongs. Home's switch-competition sheet (first chunk) needs the matrix too: importing the gate from it measured `initial JS 224.8 KB gzip` (from 224.5).
+
+**What I did instead:** `children: (held: boolean) => ReactNode` — the caller passes `held` to its `Button disabled` — with the state rendered after it; without children it is the state alone, placed where the screen's one message goes. The hook `useCapability(capability)` (`online || isAvailableOffline(capability)`, on the app's `useOnline` signal) lives in `lib/useCapability.ts` and is re-exported by `components/OfflineGate.tsx`; the sheet imports the hook only: `initial JS 224.7 KB gzip`, budget untouched (226). Rejected: a `<fieldset disabled>` wrapper (does not reach portalled dialogs, and would disable reading controls such as tabs too) and a context consumed by `Button` (would disable every dialog's Cancel).
+
+**Risk:** none.
+
+## Task 1.45 — the state's one action, and `StateMessage` not saying "safe" twice
+
+**Plan said:** render `StateMessage variant="offline-needs-server"` whose muted line is "This needs a connection. Everything you have entered is safe on this device and will sync when you are back online."
+
+**What was wrong:** `StateMessage` requires exactly one action (SPEC-FINAL 17.8: no dead ends) and the plan names none; and it appends `SAFE_ON_DEVICE` ("Your data is safe on this device.") to every offline detail, so the plan's line would read "…when you are back online. Your data is safe on this device."
+
+**What I did instead:** the gate's action defaults to **Open Sync** (`PATHS.sync`, the page that lists what waits to send; the "Open Manage" pattern) and can be overridden. `StateMessage` appends `SAFE_ON_DEVICE` only when the detail does not already say "safe on this device" (every existing caller is unchanged). The title stays the variant's "This needs the server".
+
+**Risk:** none.
+
+## Task 1.45 — one message per screen: which screens got the gate's state and which kept their own line
+
+**Plan said:** while offline the gated control is disabled with the `offline-needs-server` state beneath it; where a screen already shows an offline state, keep one message and make it carry the "data is safe" line (decisions).
+
+**What was wrong:** Manage (desktop and phone), the builder and the switch-competition sheet already had a designed offline line; Users, a user's page and Forms had none once their list had loaded (going offline after the load left every action live, or, on Forms, disabled with no reason when both forms exist).
+
+**What I did instead:** kept the existing line and appended `SAFE_ON_DEVICE` on Manage desktop and phone ("No connection — changes cannot be saved until it returns. Your data is safe on this device."), the builder's offline notice, and the sheet's "Only the default competition is available offline." Users (beneath the header, wrapping Add a user), a user's page and Forms (beneath the header) render `OfflineGate`'s state; their controls read `useCapability`. Forms' missing-form card loses its own "Creating a form needs a connection." line — the page's state replaces it. Manage keeps its pre-existing second line on Competitions ("Changing the active season or event needs a connection.") untouched. Conflicts: `canResolve` is `lead && useCapability('resolve_conflict')`; the 18-conflicts README's amber line stays as it is, with no "safe" sentence and no second message (decisions).
+
+**Risk:** the plan's line says "will sync when you are back online" on admin pages too, where an unsaved admin edit does not sync — the sentence is about the scouting data, as the plan wrote it.
+
+## Task 1.45 — what is held where, and what is deliberately not
+
+**Plan said:** route every server-only action through the matrix.
+
+**What was wrong:** the actions are spread over openers, dialog submits, confirms and inline buttons; some are not actions at all.
+
+**What I did instead:** held offline: create openers (New season, + New event, Add a user, Add matches), every submit that sends (Season / Event / Edit match dialogs and sheets, Add user, Reset password, Rename, Create match(es), Add team, Enable), Make active / Make default, the event grips (through `busy`), team remove / rename / add, Add to roster, the line-up grid's delete, MatchErrors' Try again, the role choice (`DescribedChoice` gained a `disabled` prop), every form-card and builder action (already on `online`, now on `useCapability('edit_form')`), and the switch sheet's other competitions. A destructive confirm left open passes `held={OFFLINE_GATE_LINE}` (its existing slot for "why the confirm waits"); a plain dialog's submit is disabled without a line of its own — the page's message is behind the scrim and the top bar's indicator says Offline. Submit handlers also return early when held (an Enter key on an input). Not held: openers that only show (Edit season, Rename, ✎, a phone match card), so a record can still be read; typing into a line-up cell (it saves per cell, and offline that save keeps "Not saved" with the existing Try again, which is held); Sync now (decisions); Change password (not a §9.6 row, and it already holds offline). A source test (`data/offlineGates.test.ts`) fails if a server-only screen reads `useOnline()`/`navigator.onLine` outside five named loaders, if a gate names a capability outside the matrix, or if the scouting path (`features/entry`, `features/entries`, `data/outbox.ts`) ever gains a gate.
+
+**Risk:** a line-up typed offline on Manage still tries its save and lands "Not saved" (as before).
+
+## Task 1.45 — follow-up: the gate is a one-line notice, and Manage's Competitions has one offline line
+
+**Plan said:** `OfflineGate` renders the `StateMessage variant="offline-needs-server"` beneath the held action (and the first pass gave it an **Open Sync** action).
+
+**What was wrong:** on Users, a user's page and Forms — pages that had loaded and then went offline — the full card (glyph, title, line, button, about 250 px) sat in the middle of a readable page, heavier than the one-line notices Manage, the builder and the switch sheet already show for the same state (orchestrator review of `users-offline`, `user-offline`, `forms-offline`). Manage's Competitions tab showed two offline lines: the page's and the older "Changing the active season or event needs a connection." under the season chips.
+
+**What I did instead:** `OfflineGate` now renders one muted `role="status"` line, the plan's sentence verbatim ("This needs a connection. Everything you have entered is safe on this device and will sync when you are back online."), with no button and no card; its `action` and `headingLevel` props are gone, a `className` prop places it. Users, a user's page and Forms render it at the top of the page, where Manage puts its own line (`mb-4`, above the heading). The full `StateMessage` stays only where a screen cannot show anything without the server (each page's existing "unreachable" state, unchanged). `CompetitionsPanel` no longer renders `OFFLINE_SWITCH_HINT` (constant removed): the page's "No connection — changes cannot be saved until it returns. Your data is safe on this device." already covers a switch of the active season or event, so the tab reads one message. `StateMessage`'s "not twice" guard from the first pass stays (harmless; no caller now passes a detail that says it). Rejected: putting the line under each page's own heading block — Manage's is above its heading, and the orchestrator asked for Manage's place.
+
+**Risk:** a `CompetitionsPanel` rendered without `ManagePage` (only in its unit tests) says nothing offline; the held buttons are still disabled.

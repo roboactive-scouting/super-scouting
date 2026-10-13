@@ -289,7 +289,8 @@ async function rejectFirst(reason: Reason, detail?: string) {
 }
 
 describe('a rejected op is parked, not retried (SPEC-FINAL 9.3.1)', () => {
-  it.each(['forbidden', 'edit-window-expired', 'parent-deleted', 'invalid'] as const)(
+  // parent-deleted is not parked since task 1.42: SPEC-FINAL 9.7 removes it (discarded.test.ts).
+  it.each(['forbidden', 'edit-window-expired', 'invalid'] as const)(
     'parks a %s rejection: kept, counted as unsynced, no longer pending a push',
     async (reason) => {
       await enqueue(op());
@@ -337,6 +338,95 @@ describe('a rejected op is parked, not retried (SPEC-FINAL 9.3.1)', () => {
     expect(queued!.action).toBe('create');
     expect(queued!.base_version).toBeNull();
     expect(queued!.author_user_id).toBe('u-scouter');
+  });
+
+  describe('a lead clears a refused record by re-saving it (SPEC-FINAL 9.3.1, Q7.8)', () => {
+    const scouterCreate = () =>
+      op({
+        action: 'create',
+        author_user_id: 'u-scouter',
+        payload: { scouter_id: 'u-scouter', data: { auto_notes: 1 } },
+      });
+    const resave = (author: string) =>
+      op({
+        action: 'update',
+        base_version: 1,
+        author_user_id: author,
+        payload: { scouter_id: 'u-scouter', data: { auto_notes: 2 } },
+      });
+
+    beforeEach(async () => {
+      await db.rows.bulkPut([
+        { entity: 'users', id: 'u-scouter', role: 'scouter', full_name: 'Yael Shapira' },
+        { entity: 'users', id: 'u-lead', role: 'lead', full_name: 'Noa Levi' },
+        { entity: 'users', id: 'u-admin', role: 'admin', full_name: 'Tamar Mizrahi' },
+      ]);
+    });
+
+    it.each(['u-lead', 'u-admin'])(
+      'replaces the refused create with one authored by %s: same row_id, action and base_version',
+      async (author) => {
+        await enqueue(scouterCreate());
+        await rejectFirst('forbidden', 'the author is disabled');
+        await enqueue(resave(author));
+
+        const [queued] = await pending(50);
+        expect(queued).toMatchObject({
+          row_id: 'row-1',
+          action: 'create',
+          base_version: null,
+          author_user_id: author,
+        });
+        // The scouter is still credited: only the operation's author changes.
+        expect(queued!.payload.scouter_id).toBe('u-scouter');
+        expect(await db.outbox.count()).toBe(1);
+        expect((await syncStateOf('row-1'))?.rejection ?? null).toBeNull();
+      },
+    );
+
+    it('keeps the base_version of a refused update a lead re-saves', async () => {
+      await enqueue(op({ action: 'update', base_version: 4, author_user_id: 'u-scouter' }));
+      await rejectFirst('edit-window-expired', 'this entry is locked — ask a lead');
+      await enqueue(op({ action: 'update', base_version: 5, author_user_id: 'u-lead' }));
+      const [queued] = await pending(50);
+      expect(queued).toMatchObject({ action: 'update', base_version: 4, author_user_id: 'u-lead' });
+    });
+
+    it("keeps the scouter's authorship when a lead edits a pending create that was NOT refused", async () => {
+      await enqueue(scouterCreate());
+      await enqueue(resave('u-lead'));
+      const [queued] = await pending(50);
+      expect(queued!.author_user_id).toBe('u-scouter');
+    });
+
+    it("a scouter's own re-save stays theirs, and a second refusal parks it again", async () => {
+      await enqueue(scouterCreate());
+      await rejectFirst('invalid', 'auto_notes: too big');
+      await enqueue(resave('u-scouter'));
+      const [queued] = await pending(50);
+      expect(queued!.author_user_id).toBe('u-scouter');
+
+      await rejectFirst('invalid', 'auto_notes: too big');
+      expect(await pending(50)).toHaveLength(0);
+      expect(await unsyncedCount()).toBe(1);
+      expect((await syncStateOf('row-1'))?.rejection?.code).toBe('invalid');
+    });
+
+    it('the waiting count stays the same until the ack, and drops after it', async () => {
+      await enqueue(scouterCreate());
+      await rejectFirst('forbidden', 'a scouter may submit an entry only as themselves');
+      expect(await unsyncedCount()).toBe(1);
+
+      await enqueue(resave('u-lead'));
+      expect(await unsyncedCount()).toBe(1);
+
+      const [queued] = await pending(50);
+      await ackResults([
+        { op_id: queued!.op_id, status: 'applied', row_id: 'row-1', new_version: 1 },
+      ]);
+      expect(await unsyncedCount()).toBe(0);
+      expect((await syncStateOf('row-1'))?.sync_state).toBe('acked');
+    });
   });
 
   it('retryRejected un-parks one row, and only that row', async () => {
@@ -461,24 +551,24 @@ describe('a deleted match is rebuilt, not stranded (UF.1, SPEC-FINAL 9.7 v1.18)'
     expect((await syncStateOf('entry-1'))?.rejection).toMatchObject({ code: 'parent-deleted' });
   });
 
+  // Task 1.42: when the rebuild is impossible, 9.7 applies as written — the entry is
+  // discarded (logged first), no longer parked.
   it.each([
     ['the match row is not cached', [{ entity: 'events' as const, id: EVENT }]],
     ['the event is not cached', [cachedMatch]],
-  ])('follows 9.7 as before when %s: parked with the reason, nothing queued', async (_, rows) => {
+  ])('follows 9.7 when %s: discarded and logged, nothing queued', async (_, rows) => {
     await db.rows.bulkPut(rows);
     const entry = await entryOp();
     await enqueue(entry);
     await ackResults([matchGone(entry.op_id)]);
     expect(await pending(50)).toEqual([]);
-    expect(await db.outbox.count()).toBe(1);
-    expect((await syncStateOf('entry-1'))?.rejection).toMatchObject({
-      code: 'parent-deleted',
-      message: PARENT_DELETED_DETAIL.match,
-    });
+    expect(await db.outbox.count()).toBe(0);
+    expect(await syncStateOf('entry-1')).toBeUndefined();
+    expect((await db.discarded.toArray()).map((r) => r.row_id)).toEqual(['entry-1']);
   });
 
   it.each([PARENT_DELETED_DETAIL.event, PARENT_DELETED_DETAIL.team, PARENT_DELETED_DETAIL.other])(
-    'does not rebuild for another missing parent (%s)',
+    'does not rebuild for another missing parent (%s): discarded instead',
     async (detail) => {
       await cacheEventAndMatch();
       const entry = await entryOp();
@@ -486,10 +576,42 @@ describe('a deleted match is rebuilt, not stranded (UF.1, SPEC-FINAL 9.7 v1.18)'
       await ackResults([
         { op_id: entry.op_id, status: 'rejected', reason: 'parent-deleted', detail },
       ]);
-      expect(await db.outbox.filter((o) => o.entity === 'match').count()).toBe(0);
-      expect((await syncStateOf('entry-1'))?.rejection).toMatchObject({ message: detail });
+      expect(await db.outbox.count()).toBe(0);
+      expect(await db.discarded.count()).toBe(1);
     },
   );
+
+  it('never rebuilds a match of an event the server has said is gone, so it cannot loop', async () => {
+    await cacheEventAndMatch();
+    // A first entry tells the device the event is gone.
+    const first = await entryOp();
+    await enqueue(first);
+    await ackResults([
+      {
+        op_id: first.op_id,
+        status: 'rejected',
+        reason: 'parent-deleted',
+        detail: PARENT_DELETED_DETAIL.event,
+      },
+    ]);
+    // A second one, refused for its match, is not rebuilt: it is discarded too.
+    const second = await entryOp({ row_id: 'entry-2' });
+    await enqueue(second);
+    await ackResults([matchGone(second.op_id)]);
+    expect(await db.outbox.count()).toBe(0);
+    expect((await db.discarded.toArray()).map((r) => r.row_id).sort()).toEqual([
+      'entry-1',
+      'entry-2',
+    ]);
+  });
+
+  it('parks, never discards, an operation of another entity refused parent-deleted', async () => {
+    await enqueue(op({ entity: 'pick_list', row_id: 'pl-1', payload: { event_id: EVENT } }));
+    await rejectFirst('parent-deleted');
+    expect(await db.outbox.count()).toBe(1);
+    expect((await syncStateOf('pl-1'))?.rejection?.code).toBe('parent-deleted');
+    expect(await db.discarded.count()).toBe(0);
+  });
 
   it('matchIdsNeededByOutbox names queued bare matches and the matches of queued entries', async () => {
     await enqueue(await entryOp());

@@ -1,6 +1,10 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.10 · **Date:** 2026-10-09 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.14 · **Date:** 2026-10-12 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.14 (2026-10-12): the discarded-records log is designed (`docs/design/pages/19-discarded/final/`, spec v0.81 / SPEC-FINAL v1.29 §9.7); task 1.42 points at it. Phase 1 F's pages are all designed.*
+*v1.13 (2026-10-12): the Conflicts page is designed (`docs/design/pages/18-conflicts/final/`, spec v0.80 / SPEC-FINAL v1.28 §9.5); task 1.44 points at it, and task 1.41 adds `sync_conflicts.resolution`.*
+*v1.12 (2026-10-12): the Sync page is designed (`docs/design/pages/17-sync/final/`, spec v0.79 / SPEC-FINAL v1.27 §9.10); tasks 1.42, 1.43, 1.47 and 1.48 point at it, and task 1.49's wipe is reached from Settings only. Q7.8 is closed (A, user): a lead clears a refused record by re-saving it on that device (SPEC-FINAL v1.27 §9.3.1) — server side in 1.40, client side in 1.43.*
+*v1.11 (2026-10-12): super entries are exempt from the 5-minute self-edit window (spec v0.78 / SPEC-FINAL v1.26 §7.6, user). Task 1.40 carries the code change as a side task, so it ships with Phase 1 F rather than as its own deployment (user).*
 *v1.10 (2026-10-09): the Settings page is designed (`docs/design/pages/16-settings/final/`, spec v0.76 / SPEC-FINAL v1.25); task 1.38 points at it. Every closed page was checked in Outdoor (2026-10-09): nothing breaks; the timer's literal colours become tokens (1.34).*
 *v1.9 (2026-10-09): the super-scouting page is designed (`docs/design/pages/15-super/final/`, spec v0.75 / SPEC-FINAL v1.24); task 1.36 points at it.*
 *v1.8 (2026-10-09): Phase 1 E's small parts are designed (`docs/design/pages/14-entry-parts/final/`, spec v0.74 / SPEC-FINAL v1.23). 1.33, 1.34, 1.36 and 1.37 point at them; 1.36 drops the `<details>` phase cards (the entry form uses phase tabs) and the "danger" range notice (it is amber).*
@@ -14628,6 +14632,10 @@ git add -A && git commit -m "feat(shared): implement the conflict policy as pure
 
 > **Keep 1.14's guard.** The fragment below starts at the parent check and says nothing about ownership or the five-minute window. That is because **neither changes** — the `scouter`-role ownership check and the `withinSelfEditWindow` / `edit-window-expired` branch stay exactly where task 1.14 put them, between the parent check and the duplicate lookup. If 1.14's five tests go red while you are doing this task, you deleted them. Put them back.
 
+> **Side task (v1.11, user 2026-10-12): super entries are exempt from the window** (SPEC-FINAL v1.26 §7.6). The one change to 1.14's guard: the `withinSelfEditWindow` / `edit-window-expired` branch applies only when the target entry's `form_kind` is `'match'`. A scouter's update to their **own super** entry is accepted at any age; a scouter's update to **someone else's** super entry is still refused by the ownership check (`forbidden`). On the client, `canSelfEdit` (`apps/client/src/features/entry/localEntries.ts`) returns true for the author's own super entry at any age, so `SuperForm` never shows "locked — ask a lead" for it, and the `SuperEntryPage` tests "shows a scouter their own super entry locked once its five-minute window has closed" flip to "lets a scouter edit their own super entry an hour later". **Prove the negatives** (BUILD-CONTEXT §10): server tests — a scouter's own match entry is still refused at 5 min + 1 s; their own super entry is accepted at 60 min; another scouter's super entry is refused. Rebuild `apps/server/api/index.js` (BUILD-CONTEXT §6). Log it in `DEVIATIONS.md` under Task 1.40. The phase branch starts from `spec/super-edit-anytime` (it carries the spec and this plan note), so both reach `develop` in Phase 1 F's single push.
+
+> **Q7.8 (v1.12, user 2026-10-12): a lead's re-save clears a refused record** (SPEC-FINAL v1.27 §9.3.1). `syncPush` must accept a **create** whose `author_user_id` is a lead or admin and whose payload's `scouter_id` is **another** user — the entry keeps crediting its scouter; only the operation's author changes. A scouter-authored create naming someone else's `scouter_id` stays `forbidden`. **Prove the negatives:** a lead's create with another scouter's `scouter_id` → `applied`; a scouter's create with another scouter's `scouter_id` → `forbidden`; a lead's update of a scouter's match entry at 60 min → `applied`. Log it in `DEVIATIONS.md` under Task 1.40.
+
 ```ts
   if (!(await ctx.store.parentsExist({
     event_id: String(payload.event_id),
@@ -14719,7 +14727,7 @@ git add -A && git commit -m "feat(server): add divergence, duplicate and parent-
 **Interfaces:**
 - Produces: `listConflicts(caller, { event_id, limit, cursor })` — the review queue with **both copies and a field-by-field diff**, showing the team, the match, **both authors' names** and both client timestamps; `resolveConflict(caller, { conflict_id, resolution })` — **lead or admin only**.
 
-**Resolutions (SPEC-FINAL §9.5).** A **divergence** resolves by keeping the live copy or restoring the superseded one. A **duplicate** resolves by soft-deleting one of the two rows. Resolution sets `resolved_at` and `resolved_by`. A row has an open conflict **exactly while it has an unresolved `sync_conflicts` row** — there is no `conflict_state` column.
+**Resolutions (SPEC-FINAL §9.5).** A **divergence** resolves by keeping the live copy or restoring the superseded one. A **duplicate** resolves by soft-deleting one of the two rows. Resolution sets `resolved_at` and `resolved_by`, *(v1.13)* **and `resolution`** — the command's choice as given (`{ keep: 'live' | 'superseded' }` or `{ keep_row_id }`), so the page's "Settled today" log can say what was kept. A new migration adds the nullable `resolution jsonb` column (SPEC-FINAL v1.28 §3.6); `listConflicts` also returns today's resolved rows for the event with `resolution`, `resolved_at` and the resolver's name. A row has an open conflict **exactly while it has an unresolved `sync_conflicts` row** — there is no `conflict_state` column.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -14827,6 +14835,8 @@ git add -A && git commit -m "feat(server): add the conflict review queue and res
 ## Task 1.42: Client — parent-deleted records and the discarded-records log
 
 **Design (redesign system).** The dismissible notice is a `Notice` with a "Dismiss" `Button variant="ghost"`. The log page is a `PageHeader` and a `Table`.
+*(v1.12)* The notice's look is THEME.md "Discarded notice" (`docs/design/pages/17-sync/final/`, phone image 3): it lists each record (match · team · scouter · time) and has **Dismiss** and **See the log**; it shows on the Sync page's Problems tab.
+*(v1.14)* **The log page must look like `docs/design/pages/19-discarded/final/`**: reached from Sync only (not a nav row); records grouped by removal time (newest first) with their competition's name, so `recordDiscarded` stores `discarded_at` and the event's name (read from the cache before the eviction) beside match, station, team, robot status, form kind, scouter and `client_updated_at`; the cause in general words; an empty state. **No entered values are shown** (user).
 
 **Open input from phase 1C.** Spec §7.5 item 3: since task 1.22 an open device moves to a changed default mid-session, and nothing evicts the event it left from `db.rows`, which breaks §7.3's active-competition-only bound. Evict that event's rows once every outbox operation for it is acknowledged. Never evict a draft, an unacknowledged row, or anything the outbox still references.
 
@@ -14931,6 +14941,7 @@ git add -A && git commit -m "feat(client): handle parent-deleted records and kee
 - `ConnectionIndicator` becomes a `Link` to `PATHS.sync` with its `role="status"` span inside, so its words and count are still announced.
 - The pending list is `Table` rows with `Badge`s ("local" / "QR", robot status); rejections are `Notice tone="warning"`.
 - "Sync now" is the page's one `Button variant="primary"`.
+- *(v1.12)* **The page must look like `docs/design/pages/17-sync/final/` (SPEC-FINAL v1.27 §9.10, README there).** A status strip (state, last sync, Sync now; progress "Sent · n of N" while sending); tabs **Waiting · Sent · Problems** with counts; Waiting grouped by competition; Problems = rejected records + task 1.42's notice; a refused record offers **Open entry** only (the entry preview); **a lead clears it by re-saving it** (Q7.8 A, SPEC-FINAL §9.3.1): with a lead or admin signed in on the device, saving the opened record replaces the refused outbox operation with one authored by them (same `row_id`, action and `base_version`; `scouter_id` unchanged) and clears its rejected state; test that the waiting count stays the same until the ack and drops after it; a conflicts link for leads and admins while `sync_conflicts` has open rows; **More** (a `Sheet` on a phone, the More menu on a computer) holds Send by QR, Receive by QR, the discarded log and Discard received QR data. **No wipe here** — it is in Settings (task 1.49). The "This device" nav group orders Sync · Conflicts · Settings.
 
 **Open input from phase 1C.** Spec §7.5 item 4: `EntriesPage` lists only the shell's event, so after a default move the old event's unsynced or rejected entries are on no screen. The pending list here covers **every** unsynced or rejected record on the device, whatever its event, and names the event when it is not the current one.
 
@@ -15034,6 +15045,7 @@ git add -A && git commit -m "feat(client): add the sync page with pending, rejec
 **Design (redesign system).** A worklist you can finish.
 - `/conflicts` → `PATHS.conflicts`, plus a `NAV_ITEMS` row `{ id: 'conflicts', label: 'Conflicts', icon: GitMerge, group: 'device', bottomBar: null, visible: lead or admin }`.
 - Works at any width, so no `DesktopOnly`. The two versions are two `Card`s side by side at ≥ 1024 px and stacked below.
+- *(v1.13)* **The page must look like `docs/design/pages/18-conflicts/final/` (SPEC-FINAL v1.28 §9.5, README there)**, which replaces the two-cards layout above: one scroll of conflict cards; a diff table showing only the differing fields until "Show the n that match"; the kind in words and "n fields differ"; "Counted now" on the live copy; on a computer each card is two columns (who and the buttons left, the diff right). **Undo is a delayed send:** a choice folds the card to a "Kept …" line with a 5-second countdown and calls `resolveConflict` only when it ends; Undo cancels the timer; leaving the page flushes a pending choice; a failed call reopens the card with the error. Add tests for each (fake timers). **Settled today** lists the event's conflicts resolved today. The nav row stays leads and admins only; a scouter who opens the page reads it with every action disabled (the test below).
 
 **Files:**
 - Create: `apps/client/src/features/sync/ConflictsPage.tsx`, `apps/client/src/features/sync/ConflictDiff.tsx`, `apps/client/src/features/sync/ConflictsPage.test.tsx`
@@ -15510,6 +15522,7 @@ git add -A && git commit -m "feat(shared): add the deflate + framed QR codec wit
 ## Task 1.47: Client — the QR sender
 
 **Design (redesign system).** The sender is a full-screen `Sheet side="bottom"` or page with a frame counter. The QR canvas draws black on white, which the QR format needs for scanning.
+*(v1.12)* Each record whose batch was shown records the time (`qr_shown_at`, local only); the Sync page's Waiting list shows **"shown by QR hh:mm"** on it (SPEC-FINAL v1.27 §9.10). It is a display, not a receipt: the record stays pending.
 
 **Files:**
 - Create: `apps/client/src/features/qr/QrSendPage.tsx`, `apps/client/src/features/qr/QrSendPage.test.tsx`
@@ -15623,6 +15636,7 @@ git add -A && git commit -m "feat(client): add the QR sender with a cyclic five-
 ## Task 1.48: Client — the QR receiver and disposal on ack
 
 **Design (redesign system).** The camera view fills a `Card`, and its progress ("12 of 30 frames") is a `Badge`. Disposal on ack is a `Notice tone="success"`.
+*(v1.12)* While the device holds received copies, the Sync page's Waiting tab opens with a **"Received by QR"** block: the count by `author_user_id`, each with its last scan time (store `received_at` with each copy). See `docs/design/pages/17-sync/final/` phone image 6.
 
 **Files:**
 - Create: `apps/client/src/features/qr/QrReceivePage.tsx`, `apps/client/src/features/qr/QrReceivePage.test.tsx`
@@ -15743,7 +15757,7 @@ git add -A && git commit -m "feat(client): add the QR receiver with ack-gated di
 
 ## Task 1.49: Client — the lead-approved device wipe
 
-**Design (redesign system).** The wipe is `ConfirmDialog` with `typeToConfirm` (a multi-record irreversible, SPEC-FINAL §17.8), reached from the sync page; not a nav row.
+**Design (redesign system).** The wipe is `ConfirmDialog` with `typeToConfirm` (a multi-record irreversible, SPEC-FINAL §17.8), reached from **Settings** ("Wipe this device", `docs/design/pages/16-settings/final/`) — *amended v1.12: not from the sync page* (user, 2026-10-12); not a nav row.
 
 **Files:**
 - Create: `apps/client/src/features/settings/DeviceWipe.tsx`, `apps/client/src/features/settings/DeviceWipe.test.tsx`

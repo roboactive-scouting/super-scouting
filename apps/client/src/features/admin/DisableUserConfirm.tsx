@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { PublicUser } from '@frc/shared';
+import { OFFLINE_GATE_LINE, useCapability } from '@/components/OfflineGate';
 import { DestructiveConfirm } from '@/components/ui/destructive-confirm';
 import type { Rpc } from '@/data/rpc';
 import { adminErrorLine } from './adminMessages';
@@ -20,6 +21,8 @@ export function DisableUserConfirm({
   onChanged: (user: PublicUser) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  /** SPEC-FINAL 9.6: user management is held while offline. */
+  const can = useCapability('manage_users');
   const [error, setError] = useState<string | null>(null);
 
   async function confirm() {
@@ -48,6 +51,7 @@ export function DisableUserConfirm({
       }
       confirmLabel={`Disable ${user.full_name}`}
       busy={busy}
+      held={can ? null : OFFLINE_GATE_LINE}
       error={error}
       onConfirm={() => void confirm()}
       onCancel={onClose}

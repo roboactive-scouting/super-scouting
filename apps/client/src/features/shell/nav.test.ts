@@ -1,4 +1,4 @@
-import { House } from 'lucide-react';
+import { GitMerge, House } from 'lucide-react';
 import { describe, expect, it } from 'vitest';
 import type { Role } from '@frc/shared';
 import { PATHS } from '@/lib/paths';
@@ -7,6 +7,7 @@ import {
   bottomBar,
   groupsOf,
   menuItemsFor,
+  NAV_COUNT_WORDS,
   NAV_GROUP_LABEL,
   NAV_ITEMS,
   navItemsFor,
@@ -23,9 +24,22 @@ const who = (role: Role, over: Partial<NavAudience> = {}): NavAudience => ({
 const ids = (items: NavItem[]) => items.map((i) => i.id);
 
 describe('the nav registry (redesign R.5)', () => {
-  it('gives a scouter and a lead Home, Scout and Entries, and this device’s Settings', () => {
-    expect(ids(navItemsFor(who('scouter')))).toEqual(['home', 'scout', 'entries', 'settings']);
-    expect(ids(navItemsFor(who('lead')))).toEqual(['home', 'scout', 'entries', 'settings']);
+  it('gives a scouter and a lead Home, Scout and Entries, and this device’s Sync and Settings; a lead Conflicts too', () => {
+    expect(ids(navItemsFor(who('scouter')))).toEqual([
+      'home',
+      'scout',
+      'entries',
+      'sync',
+      'settings',
+    ]);
+    expect(ids(navItemsFor(who('lead')))).toEqual([
+      'home',
+      'scout',
+      'entries',
+      'sync',
+      'conflicts',
+      'settings',
+    ]);
   });
 
   it('gives an admin Users, Manage and Forms too, grouped under Admin', () => {
@@ -37,22 +51,70 @@ describe('the nav registry (redesign R.5)', () => {
       'users',
       'manage',
       'forms',
+      'sync',
+      'conflicts',
       'settings',
     ]);
     expect(groupsOf(items).map((g) => [g.group, ids(g.items)])).toEqual([
       ['competition', ['home', 'scout', 'entries']],
       ['admin', ['users', 'manage', 'forms']],
-      ['device', ['settings']],
+      ['device', ['sync', 'conflicts', 'settings']],
     ]);
   });
 
-  it('drops the admin destinations once the session has expired', () => {
+  it('drops the admin destinations once the session has expired; Conflicts stays (readable from the cache)', () => {
     expect(ids(navItemsFor(who('admin', { expired: true })))).toEqual([
       'home',
       'scout',
       'entries',
+      'sync',
+      'conflicts',
       'settings',
     ]);
+  });
+
+  it('puts Sync first under "This device", with the waiting count, for every role, never in the bottom bar (task 1.43)', () => {
+    expect(NAV_ITEMS.find((i) => i.id === 'sync')).toMatchObject({
+      to: PATHS.sync,
+      group: 'device',
+      bottomBar: null,
+      count: 'waiting',
+    });
+    // No `end`: Sync is the current place on /sync/discarded as well.
+    expect(NAV_ITEMS.find((i) => i.id === 'sync')?.end).toBeUndefined();
+    for (const role of ['scouter', 'lead', 'admin'] as const) {
+      for (const desktop of [true, false]) {
+        const device = menuItemsFor(who(role), desktop).filter((i) => i.group === 'device');
+        expect(ids(device)).toEqual(
+          role === 'scouter' ? ['sync', 'settings'] : ['sync', 'conflicts', 'settings'],
+        );
+      }
+      const bar = bottomBar(who(role), false);
+      expect(ids([...bar.left, ...bar.right]).concat(bar.middle?.id ?? '')).not.toContain('sync');
+    }
+  });
+
+  it('puts Conflicts between Sync and Settings, with the open count, for leads and admins only, never in the bottom bar (task 1.44)', () => {
+    expect(NAV_ITEMS.find((i) => i.id === 'conflicts')).toMatchObject({
+      label: 'Conflicts',
+      to: PATHS.conflicts,
+      icon: GitMerge,
+      group: 'device',
+      bottomBar: null,
+      count: 'conflicts',
+    });
+    expect(NAV_COUNT_WORDS.conflicts).toBe('to review');
+    for (const desktop of [true, false]) {
+      expect(ids(menuItemsFor(who('scouter'), desktop))).not.toContain('conflicts');
+      expect(ids(menuItemsFor(who('lead'), desktop))).toContain('conflicts');
+      expect(ids(menuItemsFor(who('admin'), desktop))).toContain('conflicts');
+    }
+    for (const role of ['scouter', 'lead', 'admin'] as const) {
+      const bar = bottomBar(who(role), false);
+      expect(ids([...bar.left, ...bar.right]).concat(bar.middle?.id ?? '')).not.toContain(
+        'conflicts',
+      );
+    }
   });
 
   it('puts Settings under "This device" for every role, in the sidebar and the phone menu, never in the bottom bar (task 1.38)', () => {

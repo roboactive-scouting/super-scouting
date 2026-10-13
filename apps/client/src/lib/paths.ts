@@ -22,6 +22,18 @@ export const PATHS = {
   forms: '/admin/forms',
   /** This device's settings (SPEC-FINAL 8.6, task 1.38): theme, text size, screen, vibration, wipe. */
   settings: '/settings',
+  /** What this device has sent and what still waits (SPEC-FINAL 9.10, task 1.43). */
+  sync: '/sync',
+  /**
+   * The discarded-records log (SPEC-FINAL 9.7, task 1.42): opened from Sync only — its notice's
+   * "See the log" and More — never a nav row.
+   */
+  syncDiscarded: '/sync/discarded',
+  /**
+   * The conflict review worklist (SPEC-FINAL 9.5, 17.9): Sync's conflicts link opens it. Its page
+   * and nav row are task 1.44.
+   */
+  conflicts: '/conflicts',
 } as const;
 
 /** The form builder's route pattern (SPEC-FINAL 5.9, v1.21): the version is a query, `?version=n`. */

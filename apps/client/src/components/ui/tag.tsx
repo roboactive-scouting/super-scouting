@@ -93,6 +93,18 @@ export function RobotStatusTag({ status }: { status: RobotStatus }) {
   );
 }
 
+/**
+ * The dark SUPER tag (15-super final): `--rail` with white text, like the admin tag. It stands
+ * where a match entry shows its robot status (super scouting, Sync, the discarded log).
+ */
+export function SuperTag() {
+  return (
+    <span className="inline-flex h-6 items-center rounded-tag bg-rail px-[9px] text-[0.71875rem] font-bold tracking-[0.04em] text-surface">
+      SUPER
+    </span>
+  );
+}
+
 const ROLE: Record<Role, { label: string; tag: string }> = {
   admin: { label: 'Admin', tag: 'bg-rail text-surface' },
   lead: { label: 'Scout lead', tag: 'bg-surface text-ink ring-1 ring-inset ring-control-border' },

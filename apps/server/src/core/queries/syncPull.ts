@@ -1,8 +1,10 @@
 import {
   AppError,
+  FORM_DELETION_ENTITIES,
   PULL_ENTITY_KEYS,
   WATERMARK_OVERLAP_MS,
   type Caller,
+  type DeletedFormRows,
   type PullEntityKey,
   type PullRequest,
   type PullResponse,
@@ -79,10 +81,20 @@ export async function syncPull(
   // SPEC-FINAL 9.3 (v1.18): a delta pull also names the matches hard-deleted since `since`.
   // Once per pull, on its first page: a later page could otherwise drop a match row that an
   // earlier page of the same pull delivered. A full pull's dataset already leaves them out.
+  // Spec 7.5 item 5 (task 1.40): the season's deleted form rows, the same way and on the
+  // same page. A row that went by cascade carries no season and is never named here: the
+  // device drops a deleted form's or version's children with it.
   const deletedMatches: string[] = [];
+  const deletedFormRows = Object.fromEntries(
+    FORM_DELETION_ENTITIES.map((entity) => [entity, [] as string[]]),
+  ) as DeletedFormRows;
   if (input.since !== undefined && input.cursor === undefined) {
     for (const deletion of await ctx.store.listMatchDeletions(input.event_id, input.since)) {
       deletedMatches.push(deletion.match_id);
+      if (deletion.deleted_at > newest) newest = deletion.deleted_at;
+    }
+    for (const deletion of await ctx.store.listFormDeletions(scope.seasonId, input.since)) {
+      deletedFormRows[deletion.entity].push(deletion.row_id);
       if (deletion.deleted_at > newest) newest = deletion.deleted_at;
     }
   }
@@ -98,5 +110,6 @@ export async function syncPull(
     complete: nextCursor === null,
     entities,
     deleted_matches: deletedMatches,
+    deleted_form_rows: deletedFormRows,
   };
 }

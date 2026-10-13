@@ -77,6 +77,10 @@ describe('SwitchCompetitionSheet (SPEC-FINAL 6.3, Home README "States")', () => 
     expect(await screen.findByRole('button', { name: /week 3/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /week 1/i })).toBeEnabled();
     expect(screen.getByText(/only the default competition is available offline/i)).toBeVisible();
+    // SPEC-FINAL 9.6, task 1.45: the sheet's one offline line says the data is safe.
+    expect(
+      screen.getByText(/only the default competition is available offline/i),
+    ).toHaveTextContent(/your data is safe on this device/i);
   });
 
   it('clears the override when the default is chosen again — offline too', async () => {

@@ -2,6 +2,7 @@ import { Plus } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { formatCount, type PublicUser } from '@frc/shared';
 import { Skeleton } from '@/components/Skeleton';
+import { OfflineGate, useCapability } from '@/components/OfflineGate';
 import { StateMessage } from '@/components/StateMessage';
 import { Button } from '@/components/ui/button';
 import { FilterChips } from '@/components/ui/filter-chips';
@@ -38,6 +39,7 @@ function UsersScreen({ rpc }: { rpc: Rpc }) {
   const [query, setQuery] = useState('');
   const [adding, setAdding] = useState(false);
   const [action, setAction] = useState<RowAction>(null);
+  const canManage = useCapability('manage_users');
 
   const users = useMemo(() => (load.status === 'ready' ? load.users : []), [load]);
   const counts = load.status === 'ready' ? load.counts : null;
@@ -69,6 +71,9 @@ function UsersScreen({ rpc }: { rpc: Rpc }) {
 
   return (
     <main className="w-full px-8 pb-8 pt-6">
+      {/* SPEC-FINAL 9.6: user management is held offline. The list stays readable; every
+          action on it waits, and this one line says so (where Manage puts its own). */}
+      <OfflineGate capability="manage_users" className="mb-4" />
       <header className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-[1.625rem] font-bold tracking-tight">Users</h1>
@@ -76,7 +81,12 @@ function UsersScreen({ rpc }: { rpc: Rpc }) {
             Open an account to change its role, reset its password or disable it.
           </p>
         </div>
-        <Button variant="primary" className="mt-1" onClick={() => setAdding(true)}>
+        <Button
+          variant="primary"
+          className="mt-1"
+          disabled={!canManage}
+          onClick={() => setAdding(true)}
+        >
           <Plus aria-hidden="true" />
           Add a user
         </Button>

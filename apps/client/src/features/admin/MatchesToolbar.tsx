@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { MATCH_BULK_MAX, MATCH_NUMBER_MAX, type MatchRow, type MatchType } from '@frc/shared';
+import { useCapability } from '@/components/OfflineGate';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -26,10 +27,13 @@ export function MatchesToolbar({
   const [count, setCount] = useState('');
   const [number, setNumber] = useState('');
   const [busy, setBusy] = useState<'many' | 'one' | null>(null);
+  /** SPEC-FINAL 9.6: season, event, match and roster management is held while offline. */
+  const can = useCapability('manage_events');
   const typeWord = MATCH_TYPE_LABEL[type].toLowerCase();
 
   async function submit(e: FormEvent, which: 'many' | 'one') {
     e.preventDefault();
+    if (!can) return;
     setBusy(which);
     // An empty number field means the next free one, which its placeholder shows.
     const ok =
@@ -71,7 +75,13 @@ export function MatchesToolbar({
           onChange={(e) => setCount(e.target.value)}
           className={field}
         />
-        <Button type="submit" variant="primary" busy={busy === 'many'} busyLabel="Creating…">
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={!can}
+          busy={busy === 'many'}
+          busyLabel="Creating…"
+        >
           Create matches
         </Button>
       </form>
@@ -92,7 +102,7 @@ export function MatchesToolbar({
           onChange={(e) => setNumber(e.target.value)}
           className={field}
         />
-        <Button type="submit" busy={busy === 'one'} busyLabel="Creating…">
+        <Button type="submit" disabled={!can} busy={busy === 'one'} busyLabel="Creating…">
           Create match
         </Button>
       </form>

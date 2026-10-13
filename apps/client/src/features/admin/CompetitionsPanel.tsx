@@ -17,9 +17,9 @@ import {
 import { useState, type ReactNode } from 'react';
 import { Plus } from 'lucide-react';
 import type { ActiveContext, EventRow, SeasonRow } from '@frc/shared';
+import { useCapability } from '@/components/OfflineGate';
 import { ErrorLine } from '@/components/ui/notice';
 import type { Rpc } from '@/data/rpc';
-import { useOnline } from '@/lib/useOnline';
 import { cn } from '@/lib/utils';
 import { EventCard } from './EventCard';
 import { EventFormDialog } from './EventFormDialog';
@@ -27,7 +27,6 @@ import { panelErrorLine } from './adminMessages';
 import { SeasonCard } from './SeasonCard';
 import { SeasonFormDialog } from './SeasonFormDialog';
 
-export const OFFLINE_SWITCH_HINT = 'Changing the active season or event needs a connection.';
 export const ORDER_NOTE = 'Order is display order only — every event counts equally.';
 
 type Form =
@@ -77,7 +76,10 @@ export function CompetitionsPanel({
   onSeasonDeleted: (seasonId: string) => void;
   onEventDeleted: (seasonId: string, eventId: string) => void;
 }) {
-  const online = useOnline();
+  // SPEC-FINAL 9.6: making a season active or an event the default switches the active event;
+  // creating, editing and reordering is event management. Both are held while offline.
+  const canSwitch = useCapability('switch_active_event');
+  const canManage = useCapability('manage_events');
   const [form, setForm] = useState<Form>({ kind: 'none' });
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -183,14 +185,17 @@ export function CompetitionsPanel({
         })}
         <button
           type="button"
+          disabled={!canManage}
           onClick={() => setForm({ kind: 'season', season: null })}
-          className={cn(CHIP, 'border-dashed border-control-border text-accent-ink')}
+          className={cn(
+            CHIP,
+            'border-dashed border-control-border text-accent-ink disabled:pointer-events-none disabled:opacity-45',
+          )}
         >
           <Plus aria-hidden="true" className="size-4" />
           New season
         </button>
       </div>
-      {!online && <p className="mt-2 text-[0.8125rem] text-muted">{OFFLINE_SWITCH_HINT}</p>}
       {error && <ErrorLine className="mt-3">{error}</ErrorLine>}
 
       {season && (
@@ -199,7 +204,7 @@ export function CompetitionsPanel({
             season={season}
             active={season.id === active.active_season_id}
             switching={busyId === season.id}
-            canSwitch={online && busyId === null}
+            canSwitch={canSwitch && busyId === null}
             onMakeActive={() =>
               void switchTo(
                 season.id,
@@ -232,8 +237,8 @@ export function CompetitionsPanel({
                         event={event}
                         position={index + 1}
                         isDefault={event.id === active.active_event_id}
-                        busy={busyId !== null}
-                        canSwitch={online}
+                        busy={busyId !== null || !canManage}
+                        canSwitch={canSwitch}
                         onMakeDefault={() =>
                           void switchTo(
                             event.id,
@@ -247,8 +252,9 @@ export function CompetitionsPanel({
                     ))}
                     <button
                       type="button"
+                      disabled={!canManage}
                       onClick={() => setForm({ kind: 'event', event: null })}
-                      className="hover-veil motion-safe:transition min-h-[110px] rounded-card border border-dashed border-control-border font-[650] text-accent-ink"
+                      className="hover-veil motion-safe:transition min-h-[110px] rounded-card border border-dashed border-control-border font-[650] text-accent-ink disabled:pointer-events-none disabled:opacity-45"
                     >
                       + New event
                     </button>

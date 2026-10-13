@@ -108,6 +108,7 @@ export function FormCard({
 }: {
   form: FormListItem;
   restoring: string | null;
+  /** False while form editing is held offline: `useCapability('edit_form')` (SPEC-FINAL 9.6). */
   online: boolean;
   error: string | null;
   /** The error line's Try again: read the list again (after a restore whose re-read failed). */
@@ -223,6 +224,7 @@ export function MissingFormCard({
   year: number;
   /** The newest earlier season that has a match form, to export from; null when none has. */
   previousYear: number | null;
+  /** False while form editing is held offline: `useCapability('edit_form')` (SPEC-FINAL 9.6). */
   online: boolean;
   creating: boolean;
   error: string | null;
@@ -274,9 +276,7 @@ export function MissingFormCard({
           <Upload aria-hidden="true" />
           Import
         </Button>
-        {!online && (
-          <span className="text-[0.78125rem] text-muted">Creating a form needs a connection.</span>
-        )}
+        {/* Offline, the page's one message says why (OfflineGate, task 1.45). */}
       </div>
     </section>
   );

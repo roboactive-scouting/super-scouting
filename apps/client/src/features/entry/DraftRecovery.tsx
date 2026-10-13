@@ -5,7 +5,7 @@ import { formatDate, formatTime } from '@frc/shared';
 import { Button } from '@/components/ui/button';
 import { stationLabel } from '@/components/ui/tag';
 import { Toast } from '@/components/ui/toast';
-import { cachedRows } from '@/data/cache';
+import { cachedLiveSlots, cachedRows } from '@/data/cache';
 import { db, type DraftRecord } from '@/data/db';
 import type { Station } from '@/data/station';
 import { useDeviceQuery } from '@/data/useDeviceQuery';
@@ -45,7 +45,7 @@ export async function latestDraft(): Promise<DraftOffer | null> {
   const [matches, teams, slots] = await Promise.all([
     cachedRows<MatchRow>('matches'),
     cachedRows<TeamRow>('teams'),
-    cachedRows<LineupSlot>('match_teams'),
+    cachedLiveSlots<LineupSlot>(),
   ]);
   const describe = (teamId: string) => {
     const team = teams.find((t) => t.id === teamId);

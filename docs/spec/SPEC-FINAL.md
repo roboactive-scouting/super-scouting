@@ -1,6 +1,14 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.25 · **Date:** 2026-10-09 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.29 · **Date:** 2026-10-12 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.29 adds the discarded-records log's design (§9.7, §17.9). See the living spec's §21, 2026-10-12 (v0.81).*
+
+*v1.28 adds the Conflicts page's design (§9.5, §17.9) and a `resolution` column on `sync_conflicts` (§3.6). See the living spec's §21, 2026-10-12 (v0.80).*
+
+*v1.27 adds the Sync page's design (§9.10, §17.9), places the device wipe in Settings only (§9.9), and says how a refused record is cleared (§9.3.1, a lead's re-save). See the living spec's §21, 2026-10-12 (v0.79).*
+
+*v1.26 exempts super entries from the self-edit window (§7.6). See the living spec's §21, 2026-10-12 (v0.78).*
 
 *v1.25 adds the Settings page (§8.6, §17.9). See the living spec's §21, 2026-10-09 (v0.76).*
 
@@ -417,7 +425,9 @@ sync_conflicts (
   duplicate_row_id              uuid,
   created_at, updated_at,
   resolved_at                   timestamptz,
-  resolved_by                   uuid references users(id)
+  resolved_by                   uuid references users(id),
+  resolution                    jsonb   -- v1.28: the resolve command's choice ({keep:'live'|'superseded'} or {keep_row_id}),
+                                        -- so "Settled today" can say what was kept; null while open
 )
 create index on sync_conflicts (event_id, updated_at);
 create index on sync_conflicts (entity, row_id);
@@ -887,6 +897,8 @@ Custom username/password authentication in the server use-case layer. **Supabase
 
 A scouter may edit their **own** entry for **5 minutes** after creating it. After that the row locks for them, and only a lead or admin can change it.
 
+**Super entries are exempt** *(v1.26, user, 2026-10-12)*: a scouter may edit their own super entry (§8.1) at any time during the event. A super entry is one running judgement of a team, built up over every match the scouter watches, not a record of one match, so locking it after five minutes defeats its purpose. The window below applies to `form_kind = 'match'` entries only, on the client and on the server; another scouter's super entry stays read-only to a scouter, as before.
+
 - The window is measured from the entry's **`client_created_at`**, so it behaves identically offline and online.
 - The **client enforces it** by locking the UI at the 5-minute mark.
 - **The server also enforces it**, using the two client timestamps carried on the mutation: an operation whose `author_user_id` has the `scouter` role and targets its own entry is accepted only when `client_updated_at − client_created_at ≤ 5 minutes`. An edit outside the window is rejected with `edit-window-expired`, and the client surfaces it as "this entry is locked — ask a lead".
@@ -1079,6 +1091,7 @@ It holds exactly the entities the delta pull returns, plus device-local state:
 - **`applied`, `noop`, `divergence` and `duplicate` all count as a cloud ack** for that `row_id`: the data is on the server. The client marks the record `acked` and prunes the operation.
 - **A missing parent is always `parent-deleted`** (amended 2026-10-08, v1.18). That includes a foreign-key failure on the entry's match, team or event. It is never the generic "unexpected server error", which the client retries silently for ever. Only a genuinely transient failure may use that.
 - **`rejected` is never an ack.** `parent-deleted` triggers §9.7. Every other rejection reason leaves the record local and surfaces it on the sync page for a human to look at; the operation is not retried automatically.
+- **A refused record is cleared by a lead's re-save** *(v1.27, Q7.8, user 2026-10-12)*. A lead or admin signs in on that device (Switch scouter, §7.5), opens the record from the sync page (**Open entry**) and saves it — fixing it first when the reason was `invalid`. The save replaces the refused operation with one **authored by the lead**: same `row_id`, same action (a create stays a create), same `base_version`. It is therefore authorised under the lead's rights (§7.6) and sent like any other operation. **The entry keeps its `scouter_id`**: the scouter is still credited, only the operation's author changes, so `syncPush` accepts a lead's or admin's create whose `scouter_id` is another user. Until a lead does this, the record waits, counted, and holds the wipe (§9.9) and Discard received QR data (§9.8) — by design, since nothing a scouter typed is ever dropped here.
 - **`op_id` is the idempotency key.** Replaying a batch is safe; a previously applied `op_id` returns `noop`.
 - **Authorization is per operation, against the operation's `author_user_id`** (§7.5), not against the bearer.
 
@@ -1140,6 +1153,15 @@ Every synced row carries a server-assigned `version`. Each mutation records the 
 
 The queue shows, for each item, the team, the match, **both authors' names**, both client timestamps and a field-by-field diff.
 
+**The review screen's design** *(v1.28, 2026-10-12; `docs/design/pages/18-conflicts/final/`)*:
+
+- **One scroll of cards**, one per open conflict, at any width. Each card names the kind in words — **Edited on two phones** (divergence) or **Scouted twice** (duplicate) — and how many fields differ, and marks the copy the statistics use now as **Counted now**.
+- **The diff shows only the differing fields by default**; "Show the n that match" opens the rest.
+- A divergence offers **Keep [live author]'s** and **Restore [other author]'s**; a duplicate offers **Keep [author]'s** for each row.
+- **Undo is a delayed send.** Choosing folds the card to a "Kept …" line with Undo and a 5-second countdown; the resolve command is sent only when it ends, so Undo just cancels it and the server has no undo. Leaving the page sends a pending choice at once; a failed send reopens the card with the error.
+- **Settled today** lists each conflict resolved today for the event — what was kept, when and by whom — from `sync_conflicts.resolution`, `resolved_at` and `resolved_by`.
+- The nav row is shown to leads and admins; a scouter who opens the page reads it with every action disabled and a note that a lead or an admin resolves these.
+
 **The client prevents duplicates locally.** Before creating an entry the client checks its own cache for a live entry with the same logical key and refuses, pointing the scouter at the existing one. The duplicate path exists for the case the client cannot see: two devices, both offline.
 
 ### 9.6 What is and is not editable offline
@@ -1180,6 +1202,7 @@ When the server rejects an operation with `parent-deleted` — the season, event
 - The client **hard-deletes the local record and its outbox operation**.
 - Before doing so it raises a **dismissible notice listing exactly what was discarded** (team, match, form kind, scouter, timestamp) so the loss is visible rather than silent.
 - The notice is written to a local, read-only "discarded records" log kept for the life of the install, so a scouter can see later what happened to an entry they remember making.
+- *(v1.29, 2026-10-12; `docs/design/pages/19-discarded/final/`)* The log is the page `/sync/discarded`, opened from the sync page (the notice's "See the log", and More). It groups records **by when they were removed**, newest first, each group naming the competition they belonged to; each record shows match, station, team, robot status (or SUPER), form kind, scouter and when it was saved. It states the cause in general terms ("an admin deleted the competition, season or form it belonged to"), since `parent-deleted` does not name the parent. **It does not show the entered values** (user). Read only; no actions.
 
 This is the only path in the product that destroys data a scouter typed, and it runs only after an admin has hard-deleted the parent object.
 
@@ -1228,6 +1251,7 @@ A "clear this device's offline data" action, gated behind a **constant code held
 
 - It is a guard against accidents, **not a secret** — a client-side build variable is visible in the bundle, and this is accepted.
 - **The wipe is refused for any record without a cloud ack**, so it can never destroy unsynced data. If unacked records exist the action reports how many and refuses.
+- *(v1.27)* It is reached from **Settings** ("Wipe this device", §17.9) only, not from the sync page.
 
 ### 9.10 Sync status surface
 
@@ -1237,6 +1261,15 @@ A "clear this device's offline data" action, gated behind a **constant code held
 - A **sync page** listing what synced, what is pending, when the last successful sync was, and a manual **"sync now"** button.
 - **The pending list names each unsynced record the way a person recognises it**, with the same number of items as the indicator's count. For a scouting entry: match and team (e.g. "Q21 · 118 Robonauts"), alliance, robot status, when it was saved, and whether it was made on this device or received by QR. A record the server **rejected** (§9.3.1) stays in the list, marked as rejected, with the reason in words. A bare match is not a line of its own; an entry whose match was created on this device says so ("new match — sends with this entry").
 - **Conflicts are an explicit worklist you can finish**, not a passive warning.
+
+**The sync page's design** *(v1.27, 2026-10-12; `docs/design/pages/17-sync/final/`)*:
+
+- A **status strip**: the state in words (Offline · Online · Sending…), the last successful sync time, and **Sync now** as the page's one primary action. While a sync runs it shows its progress ("Sent · 2 of 5") and the rows tick off as each is acknowledged.
+- **Tabs with counts: Waiting · Sent · Problems.** Waiting is the pending list above, **grouped by competition** (this event first, then each earlier event under its own heading). Sent lists what reached the cloud with the time of its ack. Problems holds the refused records and the discarded-records notice of §9.7, with a link to its log.
+- **A refused record offers one action, Open entry** (the entry preview, §13.4), from which a lead clears it by re-saving it (§9.3.1). The sync page never discards it; §9.7 stays the only path that destroys data a scouter typed.
+- **Leads and admins see a conflicts link** ("2 conflicts to review › Review") while any `sync_conflicts` row is open; it opens the review screen.
+- **QR marks (§9.8):** a record the device has shown in a QR batch says **"shown by QR hh:mm"** (the last time its batch was on screen; a display, not a receipt, so it stays pending). A device holding received copies shows a **"Received by QR"** block counting them by author, with each author's last scan time.
+- **More (⋯)** holds Send by QR, Receive by QR, the discarded-records log, and §9.8's **Discard received QR data** (shown held while any received copy is unacked).
 
 ---
 
@@ -1969,6 +2002,9 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 | Users (`/admin/users`) | Added 2026-10-07, v1.12. Desktop only. Search; filter chips **All · Scouters · Leads · Admins · Disabled** with counts; a table of name, username, role, status, **entries this season** and row quick actions (**Reset password**, **Disable** — Disable still confirms). A row opens the account. **Add a user** is a dialog: full name, a username suggested from it, the role as three described choices, an initial password with **Generate**, "ask them to change it"; after creating, the dialog shows the password once to hand over. Not offered on a phone at all. |
 | User detail (`/admin/users/:id`) | Added 2026-10-07, v1.13. Desktop only. One column: who it is (with "This is you" on your own account); **Role** as three described choices that **save on pick, with no Save button** ("Saving…", then a "Saved" line; a refusal shows the server's sentence and restores the role); Rename; Reset password with **Generate** and the one-time handover; **Disable** behind the destructive confirmation. A disabled account shows only **Enable account**. |
 | Change password (`/change-password`) | Added 2026-10-07, v1.14. The sign-in frame. Forced after sign-in ("Choose a new password", no way back) or by choice ("Change your password", Back to scouting). Current, new and confirm, each with **show / hide**; **live checks** for "at least 8 characters" and "both new passwords match"; offline is said first and the button is held. Reached by choice from the **account menu** (the sidebar's account corner: Switch scouter · Change password · Sign out; on a phone, the drawer's account section). |
+| Sync (`/sync`) | Added 2026-10-12, v1.27. Every role, any width; in the "This device" nav group with Conflicts (leads, admins) and Settings; the top-bar sync status opens it from every screen. A status strip with **Sync now**; **Waiting · Sent · Problems** tabs with counts; Waiting grouped by competition; a refused record offers **Open entry**; a conflicts link for leads; **More** holds the QR actions, the discarded log and Discard received QR data. Details in §9.10. |
+| Discarded records (`/sync/discarded`) | Added 2026-10-12, v1.29. Any width; not in the nav (opened from Sync). Read only: records grouped by removal time with their competition; match, station, team, status, kind, scouter, saved. An empty state. Details in §9.7. |
+| Conflicts (`/conflicts`) | Added 2026-10-12, v1.28. Any width; leads and admins in the "This device" nav group, opened from Sync's conflicts link. One scroll of cards showing only the differing fields, "Counted now" on the copy in use, keep / restore (or keep one of two), Undo as a 5-second delayed send, and a "Settled today" log. Read-only offline and for scouters. Details in §9.5. |
 | Settings (`/settings`) | Added 2026-10-09, v1.25. Every role, any width; in a "This device" nav group. Rows with their values (Theme, Text size; Keep the screen on, Vibrate on taps; this device's facts and Wipe). Theme and Text size open a sheet (phone) or dialog (computer) with a live example. Saved per device. |
 | Phone data entry | One job on screen. Primary actions stay thumb-reachable. Counters are a − / value / + triplet, never a text input. The sticky timer never fights the page scroll. |
 | Forms list (`/admin/forms`) | Added 2026-10-08, v1.21. Desktop only; admins; not in the phone menu. Season chips (a plain label, a dot on the active season); per form a card with status, counts, last edited · who, and the version timeline with Continue / Open / View and Restore; Open builder; Create or Import for a missing form; a warning while no match form is published. |

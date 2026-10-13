@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FormListItem, Role } from '@frc/shared';
+import { OFFLINE_GATE_LINE } from '@/components/OfflineGate';
 import { RpcError, type Rpc } from '@/data/rpc';
 import { FORM_ID, MATCH_FORM, SEASON_2026, SEASON_2027, SEASONS, V } from '@/test/formFixtures';
 import { FormsPage } from './FormsPage';
@@ -276,13 +277,21 @@ describe('the forms list (/admin/forms, task 1.29)', () => {
     );
   });
 
-  it('offline: Create and Restore wait for a connection', async () => {
+  it('offline (SPEC-FINAL 9.6): every form action waits, under one line that the data is safe', async () => {
     Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false });
     renderForms(server().rpc);
     const card = await screen.findByRole('region', { name: 'Match form' });
     expect(within(card).getByRole('button', { name: 'Restore v2' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Create super form' })).toBeDisabled();
-    expect(screen.getByText('Creating a form needs a connection.')).toBeVisible();
+    expect(within(card).getByRole('button', { name: 'Export' })).toBeDisabled();
+    expect(within(card).getByRole('button', { name: /Form actions/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
+    // Reading stays: the builder opens, read-only while offline.
+    expect(within(card).getByRole('link', { name: 'Open builder' })).toBeVisible();
+    // One message on the screen: the gate's, not a second line on the card.
+    expect(screen.getAllByText(/safe on this device/)).toHaveLength(1);
+    expect(screen.getByText(OFFLINE_GATE_LINE)).toBeVisible();
+    expect(screen.queryByText('Creating a form needs a connection.')).toBeNull();
   });
 
   it('cannot reach the server: says so, with Try again', async () => {

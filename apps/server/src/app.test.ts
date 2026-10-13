@@ -527,3 +527,62 @@ describe('POST /api/changeOwnPassword over HTTP', () => {
     expect(await res.json()).toMatchObject({ error: { code: 'invalid' } });
   });
 });
+
+describe('POST /api/resolveConflict over HTTP (SPEC-FINAL 9.5, task 1.41)', () => {
+  const SCOUTER = { id: 'u-scouter', username: 'scouter', role: 'scouter' as const };
+  beforeEach(() => {
+    ctx.rows.scouting_entries.set('e-1', {
+      id: 'e-1',
+      version: 2,
+      event_id: EVENT,
+      data: { auto_notes: 9 },
+      client_updated_at: '2026-11-14T09:09:00.000Z',
+      deleted_at: null,
+      scouter_id: 'u-scouter',
+    });
+    ctx.conflicts.set('c-div', {
+      id: 'c-div',
+      version: 0,
+      event_id: EVENT,
+      entity: 'scouting_entry',
+      row_id: 'e-1',
+      kind: 'divergence',
+      superseded_payload: { data: { auto_notes: 4 } },
+      superseded_author_id: 'u-scouter',
+      superseded_client_updated_at: '2026-11-14T09:07:00.000Z',
+      base_version: 1,
+      resolved_at: null,
+    });
+  });
+  const resolve = async (who: typeof LEAD | typeof SCOUTER, keep: 'live' | 'superseded') =>
+    wired().request('/api/resolveConflict', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...auth(await issueToken(who, config)) },
+      body: JSON.stringify({ conflict_id: 'c-div', resolution: { keep } }),
+    });
+
+  it('answers 403 forbidden to a scouter with a valid bearer, and resolves nothing', async () => {
+    const res = await resolve(SCOUTER, 'live');
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: { code: 'forbidden' } });
+    expect(ctx.conflicts.get('c-div')!.resolved_at).toBeNull();
+  });
+
+  it('answers 200 to a lead, then 409 conflict to a second resolve, leaving the entry as the first left it', async () => {
+    const first = await resolve(LEAD, 'superseded');
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({
+      conflict_id: 'c-div',
+      resolution: { keep: 'superseded' },
+      row_id: 'e-1',
+      new_version: 3,
+    });
+    const second = await resolve(LEAD, 'live');
+    expect(second.status).toBe(409);
+    expect(await second.json()).toMatchObject({ error: { code: 'conflict' } });
+    expect(ctx.rows.scouting_entries.get('e-1')).toMatchObject({
+      version: 3,
+      data: { auto_notes: 4 },
+    });
+  });
+});

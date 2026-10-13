@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useDeviceQuery } from '@/data/useDeviceQuery';
-import { cachedRows } from '@/data/cache';
+import { cachedLiveSlots, cachedRows } from '@/data/cache';
 import { getStation, type Station } from '@/data/station';
 import { stationOf, type LineupSlot } from '@/lib/derive/entries';
 import { lineupTiles, type Tile } from './LineupTiles';
@@ -29,7 +29,7 @@ type RosterRow = { event_id: string; team_id: string; deleted_at: string | null 
 async function loadScout(eventId: string) {
   const [matches, slots, teams, eventTeams, entries] = await Promise.all([
     cachedRows<MatchRow>('matches'),
-    cachedRows<LineupSlot>('match_teams'),
+    cachedLiveSlots<LineupSlot>(),
     cachedRows<TeamLite>('teams'),
     cachedRows<RosterRow>('event_teams'),
     localEntries(eventId),

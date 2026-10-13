@@ -54,6 +54,7 @@ import {
   saveFormExport,
   updateForm,
 } from '../core/commands/forms.js';
+import { resolveConflict } from '../core/commands/resolveConflict.js';
 import { setScoringRules } from '../core/commands/scoring.js';
 import { getActiveContext } from '../core/queries/context.js';
 import {
@@ -64,6 +65,7 @@ import {
   listFormExports,
   listForms,
 } from '../core/queries/forms.js';
+import { listConflicts } from '../core/queries/conflicts.js';
 import { countEntriesByScouter } from '../core/queries/countEntriesByScouter.js';
 import { listUsers } from '../core/queries/listUsers.js';
 
@@ -510,5 +512,21 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     input: API.getFormExport.input,
     output: API.getFormExport.output,
     handler: getFormExport,
+  },
+  listConflicts: {
+    kind: 'query',
+    description:
+      "An event's open sync conflicts, oldest first, paginated: each with the team, the match, both copies with their authors' names and client times, which copy counts now, and a field-by-field diff. Also the conflicts settled since a given time, with what was kept and by whom.",
+    input: API.listConflicts.input,
+    output: API.listConflicts.output,
+    handler: listConflicts,
+  },
+  resolveConflict: {
+    kind: 'command',
+    description:
+      'Lead or admin only: settle one open conflict. A divergence keeps the live copy or restores the superseded one; a duplicate keeps one row and soft-deletes the other. A conflict already resolved is refused.',
+    input: API.resolveConflict.input,
+    output: API.resolveConflict.output,
+    handler: resolveConflict,
   },
 };

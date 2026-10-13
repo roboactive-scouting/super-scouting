@@ -98,7 +98,7 @@ test('entries: newest first, waiting arrows, the refused line', async ({ page })
   await expect(page.getByRole('banner').getByText('4 waiting')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Needs a look 2/ })).toBeVisible();
   await expect(page.getByText('Not synced:')).toBeVisible();
-  await expect(page.getByLabel('waiting to send')).toHaveCount(3);
+  await expect(page.getByLabel('waiting to send', { exact: true })).toHaveCount(3);
   // Rows open nothing yet (the entry preview is a later page): no pointer, no hover tint.
   const first = rows.nth(1);
   await first.hover();
