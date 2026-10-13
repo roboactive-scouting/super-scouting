@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import type { MatchRow, MatchSlot, MatchType } from '@frc/shared';
+import { OFFLINE_GATE_LINE, useCapability } from '@/components/OfflineGate';
+import { SAFE_ON_DEVICE } from '@/components/StateMessage';
 import { ActionBar } from '@/components/ui/action-bar';
 import { Button } from '@/components/ui/button';
 import { DestructiveConfirm } from '@/components/ui/destructive-confirm';
@@ -31,16 +33,16 @@ export function PhoneMatchList({
   rpc,
   eventId,
   eventName,
-  online,
   data,
 }: {
   rpc: Rpc;
   eventId: string;
   eventName: string;
-  online: boolean;
   data: ReturnType<typeof usePhoneMatches>;
 }) {
   const { matches, roster } = data;
+  /** SPEC-FINAL 9.6: match management is held while offline. */
+  const canManage = useCapability('manage_events');
   const editing = useMatchEditing({
     rpc,
     eventId,
@@ -83,9 +85,10 @@ export function PhoneMatchList({
   return (
     // data-pinned-foot: a short list still has Add matches at the bottom (see ActionBar).
     <main data-pinned-foot="" className="flex flex-1 flex-col gap-2 px-4 pt-3">
-      {!online && (
+      {/* The screen's one offline line (task 1.45): every server command below is held. */}
+      {!canManage && (
         <p role="status" className="text-sm text-muted">
-          No connection — changes cannot be saved until it returns.
+          No connection — changes cannot be saved until it returns. {SAFE_ON_DEVICE}
         </p>
       )}
       <div>
@@ -126,6 +129,7 @@ export function PhoneMatchList({
           <Button
             variant="primary"
             size="block"
+            disabled={!canManage}
             onClick={() => {
               editing.setError(null);
               setAdding(true);
@@ -169,6 +173,7 @@ export function PhoneMatchList({
         body={DELETE_MATCH_BODY}
         confirmLabel="Delete"
         busy={deleteBusy}
+        held={canManage ? null : OFFLINE_GATE_LINE}
         error={deleteError}
         onConfirm={() => void confirmDelete()}
         onCancel={() => setConfirming(null)}

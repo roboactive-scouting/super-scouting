@@ -7,6 +7,7 @@ import {
   type FormListItem,
   type VersionSummary,
 } from '@frc/shared';
+import { OfflineGate, useCapability } from '@/components/OfflineGate';
 import { Skeleton } from '@/components/Skeleton';
 import { StateMessage } from '@/components/StateMessage';
 import { WarningNotice } from '@/components/ui/notice';
@@ -18,7 +19,6 @@ import { DeleteFormDialog } from '@/features/builder/DeleteFormDialog';
 import { formErrorLine } from '@/features/builder/formErrors';
 import { ExportDialog, ImportDialog } from '@/features/builder/ImportExport';
 import { formBuilderPath, PATHS } from '@/lib/paths';
-import { useOnline } from '@/lib/useOnline';
 import { FormCard, MissingFormCard } from './FormCard';
 import { KIND_NAME, needsMatchForm } from './formsView';
 import { useFormsList, type FormsLoad } from './useFormsList';
@@ -63,6 +63,9 @@ function FormsScreen({ rpc }: { rpc: Rpc }) {
   }
   return (
     <main className="w-full px-8 pt-6 pb-8">
+      {/* The screen's one offline message (task 1.45), where Manage puts its own: every card's
+          action waits. */}
+      <OfflineGate capability="edit_form" className="mb-4" />
       <h1 className="text-[1.625rem] font-[750] tracking-[-0.02em]">Forms</h1>
       <p className="mt-1 text-[0.84375rem] text-muted">
         The scouting forms for each season. Open one to edit it in the form builder.
@@ -89,7 +92,8 @@ function Seasons({
   rpc: Rpc;
   refreshSeason: (seasonId: string) => Promise<void>;
 }) {
-  const online = useOnline();
+  /** SPEC-FINAL 9.6: form definition editing is held while offline; the list stays readable. */
+  const canEdit = useCapability('edit_form');
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   // `?season=2026` (after Delete form in the builder, final review D3), else the active season.
@@ -220,7 +224,7 @@ function Seasons({
               key={kind}
               form={form}
               restoring={restoring}
-              online={online}
+              online={canEdit}
               error={errors[kind] ?? null}
               onRetry={stale === kind ? () => void refresh(kind, '') : undefined}
               onRestore={(version) => void restore(form, version)}
@@ -233,7 +237,7 @@ function Seasons({
               kind={kind}
               year={season.year}
               previousYear={kind === 'match' ? previousMatchYear : null}
-              online={online}
+              online={canEdit}
               creating={creating === kind}
               error={errors[kind] ?? null}
               onCreate={() => void create(kind)}
@@ -256,7 +260,7 @@ function Seasons({
         <ImportDialog
           target={{ kind: dialog.kind, seasonId, year: season!.year, form: null }}
           rpc={rpc}
-          online={online}
+          online={canEdit}
           onClose={close}
           // A new form opens on its v1; an import into a form already there opens its draft.
           onImported={(out) => navigate(formBuilderPath(out.form_id, out.created ? 1 : undefined))}
@@ -266,7 +270,7 @@ function Seasons({
     if (!form) return null;
     if (dialog.what === 'export') {
       return (
-        <ExportDialog form={form} year={season!.year} rpc={rpc} online={online} onClose={close} />
+        <ExportDialog form={form} year={season!.year} rpc={rpc} online={canEdit} onClose={close} />
       );
     }
     return (
@@ -274,7 +278,7 @@ function Seasons({
         form={form}
         year={season!.year}
         rpc={rpc}
-        online={online}
+        online={canEdit}
         onClose={close}
         onExportFirst={() => setDialog({ what: 'export', kind: form.kind })}
         onDeleted={() => {

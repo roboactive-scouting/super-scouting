@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
-import { StateMessage } from '@/components/StateMessage';
+import { useCapability } from '@/components/OfflineGate';
+import { SAFE_ON_DEVICE, StateMessage } from '@/components/StateMessage';
 import { Select } from '@/components/ui/select';
 import { Tabs } from '@/components/ui/tabs';
 import { adminRpc, type Rpc } from '@/data/rpc';
@@ -29,6 +30,8 @@ const DESCRIPTION =
 export function ManagePage({ rpc = adminRpc }: { rpc?: Rpc }) {
   const allowed = canManageEvents(useSignedInUser());
   const online = useOnline();
+  /** SPEC-FINAL 9.6: season, event, match and roster management is held while offline. */
+  const canManage = useCapability('manage_events');
   const [tab, setTab] = useState<TabKey>('competitions');
   const lists = useManageLists(rpc, allowed && online);
   const { seasons, events, eventId, roster, setRoster, matches, setMatches, saves } = lists;
@@ -112,9 +115,10 @@ export function ManagePage({ rpc = adminRpc }: { rpc?: Rpc }) {
   const counted = lists.eventReady;
   return (
     <main className="mx-auto w-full px-4 pb-8 pt-5 lg:px-8 lg:pt-6">
-      {!online && (
+      {/* The screen's one offline line (task 1.45): every server command below is held. */}
+      {!canManage && (
         <p role="status" className="mb-4 text-sm text-muted">
-          No connection — changes cannot be saved until it returns.
+          No connection — changes cannot be saved until it returns. {SAFE_ON_DEVICE}
         </p>
       )}
       <div className="flex flex-wrap items-end gap-3">

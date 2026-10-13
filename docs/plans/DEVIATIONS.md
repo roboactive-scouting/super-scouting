@@ -8054,3 +8054,63 @@ Rejected: keeping ↑ ↓ beside the grip as a keyboard path — the keyboard se
 **What I did instead:** `e2e/conflicts.spec.ts` puts the conflicts, the entries they name, the two people and a three-field super form into its pull, and answers `listConflicts` with the same conflicts in the server's shape (parsed by `listConflictsOutput`). The settling shot holds the page's 5 000 ms `setTimeout` (an init script, switched off before the real send is checked) and re-chooses before each picture, so each shows a fresh countdown. `api-mock.ts` answers `listConflicts` with an empty queue and `resolveConflict` with a valid result by default.
 
 **Risk:** the hold matches any 5 000 ms timeout while it is on (only in that one test).
+
+## Task 1.45 — the matrix: the plan's test reformatted, one test added, and no silent default at run time
+
+**Plan said:** `apps/client/src/data/offlineCapability.test.ts` exactly as written; `isAvailableOffline(capability): boolean`.
+
+**What was wrong:** nothing failed. `pnpm format:check` would refuse the plan's long `for (const capability of [...] as const)` lines, and the plan's `@ts-expect-error` test only proves the compile-time half of "no silent default" (it never calls the function).
+
+**What I did instead:** the plan's five tests verbatim, formatted by Prettier. One test added: a name that reaches `isAvailableOffline` from outside the types (`'invented'`, `'toString'`) throws ("… is not in the offline capability matrix") rather than answering `false` or `undefined` (`Object.hasOwn` guard). `OFFLINE_CAPABILITY` is the plan's 17 names, each with its §9.6 row in a comment; no capability was added — every action the app has maps to one of them (Make active / Make default → `switch_active_event`; the switch-competition sheet → `cross_event_view`; delete a season or event, roster, matches, line-ups → `manage_events`; Export / Import / Delete form / restore → `edit_form`).
+
+**Risk:** none.
+
+## Task 1.45 — `OfflineGate`'s shape: a render prop, a children-less form, and `useCapability` in its own file
+
+**Plan said:** `<OfflineGate capability>` wraps an action and, while offline, disables it and renders the `offline-needs-server` state beneath it. Keep `OfflineGate` out of the initial chunk if only lazy pages use it (decisions).
+
+**What was wrong:** a wrapper cannot set `disabled` on an arbitrary child, and most gated controls sit deep inside panels and dialogs (several in portals) far from where one message belongs. Home's switch-competition sheet (first chunk) needs the matrix too: importing the gate from it measured `initial JS 224.8 KB gzip` (from 224.5).
+
+**What I did instead:** `children: (held: boolean) => ReactNode` — the caller passes `held` to its `Button disabled` — with the state rendered after it; without children it is the state alone, placed where the screen's one message goes. The hook `useCapability(capability)` (`online || isAvailableOffline(capability)`, on the app's `useOnline` signal) lives in `lib/useCapability.ts` and is re-exported by `components/OfflineGate.tsx`; the sheet imports the hook only: `initial JS 224.7 KB gzip`, budget untouched (226). Rejected: a `<fieldset disabled>` wrapper (does not reach portalled dialogs, and would disable reading controls such as tabs too) and a context consumed by `Button` (would disable every dialog's Cancel).
+
+**Risk:** none.
+
+## Task 1.45 — the state's one action, and `StateMessage` not saying "safe" twice
+
+**Plan said:** render `StateMessage variant="offline-needs-server"` whose muted line is "This needs a connection. Everything you have entered is safe on this device and will sync when you are back online."
+
+**What was wrong:** `StateMessage` requires exactly one action (SPEC-FINAL 17.8: no dead ends) and the plan names none; and it appends `SAFE_ON_DEVICE` ("Your data is safe on this device.") to every offline detail, so the plan's line would read "…when you are back online. Your data is safe on this device."
+
+**What I did instead:** the gate's action defaults to **Open Sync** (`PATHS.sync`, the page that lists what waits to send; the "Open Manage" pattern) and can be overridden. `StateMessage` appends `SAFE_ON_DEVICE` only when the detail does not already say "safe on this device" (every existing caller is unchanged). The title stays the variant's "This needs the server".
+
+**Risk:** none.
+
+## Task 1.45 — one message per screen: which screens got the gate's state and which kept their own line
+
+**Plan said:** while offline the gated control is disabled with the `offline-needs-server` state beneath it; where a screen already shows an offline state, keep one message and make it carry the "data is safe" line (decisions).
+
+**What was wrong:** Manage (desktop and phone), the builder and the switch-competition sheet already had a designed offline line; Users, a user's page and Forms had none once their list had loaded (going offline after the load left every action live, or, on Forms, disabled with no reason when both forms exist).
+
+**What I did instead:** kept the existing line and appended `SAFE_ON_DEVICE` on Manage desktop and phone ("No connection — changes cannot be saved until it returns. Your data is safe on this device."), the builder's offline notice, and the sheet's "Only the default competition is available offline." Users (beneath the header, wrapping Add a user), a user's page and Forms (beneath the header) render `OfflineGate`'s state; their controls read `useCapability`. Forms' missing-form card loses its own "Creating a form needs a connection." line — the page's state replaces it. Manage keeps its pre-existing second line on Competitions ("Changing the active season or event needs a connection.") untouched. Conflicts: `canResolve` is `lead && useCapability('resolve_conflict')`; the 18-conflicts README's amber line stays as it is, with no "safe" sentence and no second message (decisions).
+
+**Risk:** the plan's line says "will sync when you are back online" on admin pages too, where an unsaved admin edit does not sync — the sentence is about the scouting data, as the plan wrote it.
+
+## Task 1.45 — what is held where, and what is deliberately not
+
+**Plan said:** route every server-only action through the matrix.
+
+**What was wrong:** the actions are spread over openers, dialog submits, confirms and inline buttons; some are not actions at all.
+
+**What I did instead:** held offline: create openers (New season, + New event, Add a user, Add matches), every submit that sends (Season / Event / Edit match dialogs and sheets, Add user, Reset password, Rename, Create match(es), Add team, Enable), Make active / Make default, the event grips (through `busy`), team remove / rename / add, Add to roster, the line-up grid's delete, MatchErrors' Try again, the role choice (`DescribedChoice` gained a `disabled` prop), every form-card and builder action (already on `online`, now on `useCapability('edit_form')`), and the switch sheet's other competitions. A destructive confirm left open passes `held={OFFLINE_GATE_LINE}` (its existing slot for "why the confirm waits"); a plain dialog's submit is disabled without a line of its own — the page's message is behind the scrim and the top bar's indicator says Offline. Submit handlers also return early when held (an Enter key on an input). Not held: openers that only show (Edit season, Rename, ✎, a phone match card), so a record can still be read; typing into a line-up cell (it saves per cell, and offline that save keeps "Not saved" with the existing Try again, which is held); Sync now (decisions); Change password (not a §9.6 row, and it already holds offline). A source test (`data/offlineGates.test.ts`) fails if a server-only screen reads `useOnline()`/`navigator.onLine` outside five named loaders, if a gate names a capability outside the matrix, or if the scouting path (`features/entry`, `features/entries`, `data/outbox.ts`) ever gains a gate.
+
+**Risk:** a line-up typed offline on Manage still tries its save and lands "Not saved" (as before).
+
+## Task 1.45 — follow-up: the gate is a one-line notice, and Manage's Competitions has one offline line
+
+**Plan said:** `OfflineGate` renders the `StateMessage variant="offline-needs-server"` beneath the held action (and the first pass gave it an **Open Sync** action).
+
+**What was wrong:** on Users, a user's page and Forms — pages that had loaded and then went offline — the full card (glyph, title, line, button, about 250 px) sat in the middle of a readable page, heavier than the one-line notices Manage, the builder and the switch sheet already show for the same state (orchestrator review of `users-offline`, `user-offline`, `forms-offline`). Manage's Competitions tab showed two offline lines: the page's and the older "Changing the active season or event needs a connection." under the season chips.
+
+**What I did instead:** `OfflineGate` now renders one muted `role="status"` line, the plan's sentence verbatim ("This needs a connection. Everything you have entered is safe on this device and will sync when you are back online."), with no button and no card; its `action` and `headingLevel` props are gone, a `className` prop places it. Users, a user's page and Forms render it at the top of the page, where Manage puts its own line (`mb-4`, above the heading). The full `StateMessage` stays only where a screen cannot show anything without the server (each page's existing "unreachable" state, unchanged). `CompetitionsPanel` no longer renders `OFFLINE_SWITCH_HINT` (constant removed): the page's "No connection — changes cannot be saved until it returns. Your data is safe on this device." already covers a switch of the active season or event, so the tab reads one message. `StateMessage`'s "not twice" guard from the first pass stays (harmless; no caller now passes a detail that says it). Rejected: putting the line under each page's own heading block — Manage's is above its heading, and the orchestrator asked for Manage's place.
+
+**Risk:** a `CompetitionsPanel` rendered without `ManagePage` (only in its unit tests) says nothing offline; the held buttons are still disabled.

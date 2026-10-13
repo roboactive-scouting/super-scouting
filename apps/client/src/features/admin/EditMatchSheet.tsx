@@ -7,6 +7,7 @@ import {
   type RosterRow,
 } from '@frc/shared';
 import { Trash2 } from 'lucide-react';
+import { useCapability } from '@/components/OfflineGate';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ErrorLine } from '@/components/ui/notice';
@@ -63,8 +64,11 @@ export function EditMatchSheet({
   const [number, setNumber] = useState(String(match.number));
   const [localError, setLocalError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** SPEC-FINAL 9.6: season, event, match and roster management is held while offline. */
+  const can = useCapability('manage_events');
 
   async function save() {
+    if (!can) return;
     // iOS Safari may fire the tap before the field's blur: commit every station first.
     for (const field of fields.current.values()) field.commit();
     const [held] = unresolved.current.values();
@@ -163,13 +167,19 @@ export function EditMatchSheet({
         variant="primary"
         size="block"
         className="mt-3.5"
+        disabled={!can}
         busy={busy}
         busyLabel="Saving…"
         onClick={() => void save()}
       >
         Save changes
       </Button>
-      <Button variant="ghost" className="mt-1.5 mb-4 w-full" disabled={busy} onClick={onDelete}>
+      <Button
+        variant="ghost"
+        className="mt-1.5 mb-4 w-full"
+        disabled={busy || !can}
+        onClick={onDelete}
+      >
         <Trash2 aria-hidden="true" />
         Delete match
       </Button>

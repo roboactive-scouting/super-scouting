@@ -1,5 +1,6 @@
 import { useId, useState, type FormEvent } from 'react';
 import { MATCH_NUMBER_MAX, type MatchRow, type MatchType } from '@frc/shared';
+import { useCapability } from '@/components/OfflineGate';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -27,9 +28,12 @@ export function EditMatchDialog({
   const [number, setNumber] = useState(String(match.number));
   const [localError, setLocalError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** SPEC-FINAL 9.6: season, event, match and roster management is held while offline. */
+  const can = useCapability('manage_events');
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (!can) return;
     setLocalError(null);
     const checked = matchPatch(match, type, number);
     if ('error' in checked) return setLocalError(checked.error);
@@ -55,7 +59,14 @@ export function EditMatchDialog({
           <Button onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" form={id} variant="primary" busy={busy} busyLabel="Saving…">
+          <Button
+            type="submit"
+            form={id}
+            variant="primary"
+            disabled={!can}
+            busy={busy}
+            busyLabel="Saving…"
+          >
             Save changes
           </Button>
         </>

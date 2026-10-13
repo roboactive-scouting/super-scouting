@@ -1,5 +1,6 @@
 import { useRef, useState, type KeyboardEvent } from 'react';
 import { Plus, X } from 'lucide-react';
+import { useCapability } from '@/components/OfflineGate';
 import { cn } from '@/lib/utils';
 
 /** The card's ×/+ : 30 px drawn, the 48 px target grown by its ::after. */
@@ -32,6 +33,8 @@ export function TeamCard({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
+  /** SPEC-FINAL 9.6: season, event, match and roster management is held while offline. */
+  const can = useCapability('manage_events');
 
   /** Enter/Escape and then the blur they cause must finish an edit only once. */
   const done = useRef(false);
@@ -79,7 +82,7 @@ export function TeamCard({
           type="button"
           dir="auto"
           aria-describedby={hintId}
-          disabled={busy}
+          disabled={busy || !can}
           onClick={() => {
             setDraft(name);
             done.current = false;
@@ -102,7 +105,7 @@ export function TeamCard({
             : `Remove ${number} ${name} from the roster`
         }
         title={dashed ? 'Add to the roster' : 'Take off the roster'}
-        disabled={busy}
+        disabled={busy || !can}
         onClick={onAction}
         className={cn(ACTION, dashed ? 'text-accent-ink' : 'text-muted')}
       >

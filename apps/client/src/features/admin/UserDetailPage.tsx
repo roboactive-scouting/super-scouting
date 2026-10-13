@@ -2,6 +2,7 @@ import { ChevronLeft } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { formatDate, type PublicUser } from '@frc/shared';
+import { OfflineGate, useCapability } from '@/components/OfflineGate';
 import { Skeleton } from '@/components/Skeleton';
 import { StateMessage } from '@/components/StateMessage';
 import { Button } from '@/components/ui/button';
@@ -107,6 +108,9 @@ function Account({
   usePageTitle(user.full_name);
   return (
     <Column>
+      {/* SPEC-FINAL 9.6: user management is held offline; each section's action waits, and
+          this one line says so at the top of the page, where Manage puts its own. */}
+      <OfflineGate capability="manage_users" className="mb-4" />
       <Link
         to={PATHS.users}
         // Pulled into the page's top padding and onto the header: its 48 px hit area is taller
@@ -168,6 +172,7 @@ function EnableSection({
   onChanged: (u: PublicUser) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const can = useCapability('manage_users');
   const [error, setError] = useState<string | null>(null);
 
   async function enable() {
@@ -191,6 +196,7 @@ function EnableSection({
       <Button
         variant="primary"
         className="mt-3"
+        disabled={!can}
         busy={busy}
         busyLabel="Enabling…"
         onClick={() => void enable()}

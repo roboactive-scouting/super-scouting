@@ -1,6 +1,7 @@
 import { Dices } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import type { PublicUser, Role } from '@frc/shared';
+import { useCapability } from '@/components/OfflineGate';
 import { Button } from '@/components/ui/button';
 import { DescribedChoice } from '@/components/ui/described-choice';
 import { Dialog } from '@/components/ui/dialog';
@@ -64,6 +65,8 @@ function OpenAddUser({
   const [mustChange, setMustChange] = useState(true);
   const [problem, setProblem] = useState<NewUserProblem | null>(null);
   const [busy, setBusy] = useState(false);
+  /** SPEC-FINAL 9.6: user management is held while offline. */
+  const can = useCapability('manage_users');
   const [created, setCreated] = useState<Created | null>(null);
 
   function nameChanged(next: string) {
@@ -92,6 +95,7 @@ function OpenAddUser({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (!can) return;
     setProblem(null);
     const found = checkNewUser(fullName, username, password, taken);
     if (found) {
@@ -143,6 +147,7 @@ function OpenAddUser({
             type="submit"
             form={`${id}-form`}
             variant="primary"
+            disabled={!can}
             busy={busy}
             busyLabel="Adding…"
           >

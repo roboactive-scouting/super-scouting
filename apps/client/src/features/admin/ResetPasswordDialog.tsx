@@ -2,6 +2,7 @@ import { Dices } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { passwordSchema, type PublicUser } from '@frc/shared';
 import { sentence } from '@/auth/messages';
+import { useCapability } from '@/components/OfflineGate';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Handover } from '@/components/ui/handover';
@@ -32,6 +33,8 @@ export function ResetPasswordDialog({
   const [mustChange, setMustChange] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** SPEC-FINAL 9.6: user management is held while offline. */
+  const can = useCapability('manage_users');
   const [shown, setShown] = useState<{ password: string; mustChange: boolean } | null>(null);
 
   // The form is gone once the handover shows: focus moves to its Done button.
@@ -42,6 +45,7 @@ export function ResetPasswordDialog({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (!can) return;
     setError(null);
     const checked = passwordSchema.safeParse(password);
     if (!checked.success) {
@@ -100,6 +104,7 @@ export function ResetPasswordDialog({
             type="submit"
             form={`${id}-form`}
             variant="primary"
+            disabled={!can}
             busy={busy}
             busyLabel="Resetting…"
           >

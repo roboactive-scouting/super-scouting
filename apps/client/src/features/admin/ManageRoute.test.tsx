@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -292,4 +292,30 @@ describe('ManageRoute', () => {
       expect(call).not.toHaveBeenCalled();
     },
   );
+});
+
+describe('ManageRoute on a phone offline once loaded (SPEC-FINAL 9.6)', () => {
+  it('holds Add matches and the sheet’s Save and Delete, under the one line that the data is safe', async () => {
+    setWidth(375);
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+    const call = renderManageRoute({ role: 'admin' });
+    const q10 = await screen.findByRole('button', { name: /^Q10/ }, LAZY);
+    onLine.mockReturnValue(false);
+    act(() => {
+      window.dispatchEvent(new Event('offline'));
+    });
+    const asked = call.mock.calls.length;
+    expect(screen.getAllByText(/safe on this device/)).toHaveLength(1);
+    expect(screen.getByText(/^No connection — changes cannot be saved/)).toHaveTextContent(
+      /your data is safe on this device/i,
+    );
+    expect(screen.getByRole('button', { name: 'Add matches' })).toBeDisabled();
+    // A match still opens to read; what would send waits.
+    await userEvent.click(q10);
+    const sheet = screen.getByRole('dialog', { name: 'Edit Q10' });
+    expect(within(sheet).getByRole('button', { name: 'Save changes' })).toBeDisabled();
+    expect(within(sheet).getByRole('button', { name: 'Delete match' })).toBeDisabled();
+    expect(call.mock.calls.length).toBe(asked);
+    onLine.mockRestore();
+  });
 });

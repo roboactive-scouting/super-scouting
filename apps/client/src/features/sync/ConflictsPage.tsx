@@ -10,6 +10,7 @@ import {
   type Role,
   type SettledConflict,
 } from '@frc/shared';
+import { useCapability } from '@/components/OfflineGate';
 import { Skeleton } from '@/components/Skeleton';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -121,7 +122,10 @@ export function ConflictsPage({
 }: ConflictsPageProps) {
   const online = useOnline();
   const lead = can({ kind: 'user', userId: '', role }, 'resolve_conflict');
-  const canResolve = lead && online;
+  // SPEC-FINAL 9.6: the queue is readable offline (read_conflicts); resolving is held. The
+  // matrix is the one source; the offline line below is this screen's own (18-conflicts README).
+  const resolvable = useCapability('resolve_conflict');
+  const canResolve = lead && resolvable;
 
   const [view, setView] = useState<View>();
   const [eventName, setEventName] = useState<string | null>(null);

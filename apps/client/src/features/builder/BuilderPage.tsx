@@ -33,8 +33,9 @@ import {
   type TimerConfig,
   type VersionSummary,
 } from '@frc/shared';
+import { useCapability } from '@/components/OfflineGate';
 import { Skeleton } from '@/components/Skeleton';
-import { StateMessage } from '@/components/StateMessage';
+import { SAFE_ON_DEVICE, StateMessage } from '@/components/StateMessage';
 import type { ActionItem } from '@/components/ui/action-menu';
 import { Button } from '@/components/ui/button';
 import { DestructiveConfirm } from '@/components/ui/destructive-confirm';
@@ -47,7 +48,6 @@ import { PHASE_NAME, PHASE_ORDER } from '@/features/entry/phases';
 import { usePageCrumb, usePageTitle } from '@/lib/pageTitle';
 import { formBuilderPath, formsSeasonPath, PATHS } from '@/lib/paths';
 import { plural } from '@/lib/plural';
-import { useOnline } from '@/lib/useOnline';
 import { cn } from '@/lib/utils';
 import { EntryContext } from '@/features/entry/entryContext';
 import { BuilderCanvas, CANVAS_DROP, phasePages, type CanvasMode } from './BuilderCanvas';
@@ -243,7 +243,8 @@ function BuilderEditor({
   const { form, version, year, fieldImage, previous } = data;
   const navigate = useNavigate();
   const location = useLocation();
-  const online = useOnline();
+  /** SPEC-FINAL 9.6: form definition editing is held while offline; the form stays readable. */
+  const canEdit = useCapability('edit_form');
   const published = version.status === 'published';
   // A draft takes anything; the active version takes edits in place (a structural one forks);
   // an older published version is read-only, with Restore (13-forms README).
@@ -830,7 +831,7 @@ function BuilderEditor({
   };
 
   // Until another read replaces this editor (Open vN, a publish, a restore), it stays held.
-  const paused = !online || busy !== null || pending;
+  const paused = !canEdit || busy !== null || pending;
   const entries = version.entry_count;
   /**
    * Undo and redo hold while editing is paused, a dialog is open, a drag is running or Try it
@@ -875,7 +876,7 @@ function BuilderEditor({
         version={lockedNow === version.is_locked ? version : { ...version, is_locked: lockedNow }}
         year={year}
         editable={editable}
-        online={online}
+        online={canEdit}
         busy={busy ?? (pending ? 'loading' : null)}
         dirty={dirty}
         changeLine={changeLine}
@@ -902,10 +903,10 @@ function BuilderEditor({
             : undefined
         }
       />
-      {!online && (
+      {!canEdit && (
         <WarningNotice className="mx-6 mt-3 flex-none rounded-control" lead="You're offline.">
           Form changes need a connection, so editing is paused. You can look around; unsaved changes
-          stay on this screen until you're back online.
+          stay on this screen until you're back online. {SAFE_ON_DEVICE}
         </WarningNotice>
       )}
       {error && (
@@ -920,7 +921,7 @@ function BuilderEditor({
             <Button
               size="sm"
               className="ms-3 align-middle"
-              disabled={!online}
+              disabled={!canEdit}
               onClick={() => void checkBase('The match timer was saved. ', true)}
             >
               Check again
@@ -989,7 +990,7 @@ function BuilderEditor({
           aria-busy={busy !== null || pending || undefined}
           className={cn(
             'grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)_410px] gap-3.5 px-6 pt-3 pb-4',
-            !online && 'opacity-55 grayscale-[0.2]',
+            !canEdit && 'opacity-55 grayscale-[0.2]',
           )}
         >
           <FieldPalette
@@ -1061,7 +1062,7 @@ function BuilderEditor({
       {dialog === 'timer' && (
         <TimerConfigEditor
           config={timer}
-          online={online}
+          online={canEdit}
           readOnly={
             editable
               ? null
@@ -1082,7 +1083,7 @@ function BuilderEditor({
           baseline={state.baseline}
           isSaved={state.isSaved}
           ruleFor={scoring.ruleFor}
-          online={online}
+          online={canEdit}
           onApply={applyJson}
           onClose={() => setDialog(null)}
         />
@@ -1092,7 +1093,7 @@ function BuilderEditor({
           form={formRef}
           year={year}
           rpc={rpc}
-          online={online}
+          online={canEdit}
           unsaved={dirty}
           versionId={version.id}
           onClose={() => setDialog(null)}
@@ -1102,7 +1103,7 @@ function BuilderEditor({
         <ImportDialog
           target={{ kind: form.kind, seasonId: form.season_id, year, form: formRef }}
           rpc={rpc}
-          online={online}
+          online={canEdit}
           onClose={() => setDialog(null)}
           onImported={(_out, draftNo) => {
             setDialog(null);
@@ -1117,7 +1118,7 @@ function BuilderEditor({
           form={formRef}
           year={year}
           rpc={rpc}
-          online={online}
+          online={canEdit}
           onClose={() => setDialog(null)}
           onExportFirst={() => setDialog('export')}
           onDeleted={() => {

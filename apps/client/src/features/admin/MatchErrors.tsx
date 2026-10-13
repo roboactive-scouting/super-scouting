@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useCapability } from '@/components/OfflineGate';
 import { Button } from '@/components/ui/button';
 import { ErrorLine } from '@/components/ui/notice';
 import { MANAGE_UNREACHABLE } from './adminMessages';
@@ -20,6 +21,8 @@ export function MatchErrors({
   className?: string;
 }) {
   const [retrying, setRetrying] = useState(false);
+  /** SPEC-FINAL 9.6: season, event, match and roster management is held while offline. */
+  const can = useCapability('manage_events');
   const unsaved = editing.unsaved.size > 0;
   const other =
     showError && editing.error && !(unsaved && editing.error === MANAGE_UNREACHABLE)
@@ -39,7 +42,13 @@ export function MatchErrors({
         <ErrorLine className={className}>
           <span className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
             <span>{MANAGE_UNREACHABLE}</span>
-            <Button size="sm" busy={retrying} busyLabel="Sending…" onClick={() => void retry()}>
+            <Button
+              size="sm"
+              disabled={!can}
+              busy={retrying}
+              busyLabel="Sending…"
+              onClick={() => void retry()}
+            >
               Try again
             </Button>
           </span>

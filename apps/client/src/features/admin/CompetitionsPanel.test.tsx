@@ -341,13 +341,12 @@ describe('CompetitionsPanel — events', () => {
     expect(screen.getByText('Switch the active season first.')).toBeInTheDocument();
   });
 
-  it('disables "Make default" and "Make … active" offline, and says why', () => {
+  it('disables "Make default" and "Make … active" offline; the page’s one line says why', () => {
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
     renderCompetitions({ rpc: serverLike(), seasonId: 's-27' });
     expect(screen.getByRole('button', { name: 'Make 2027 active' })).toBeDisabled();
-    expect(
-      screen.getByText('Changing the active season or event needs a connection.'),
-    ).toBeInTheDocument();
+    // Task 1.45 follow-up: no second line here — ManagePage's offline line covers it.
+    expect(screen.queryByText(/needs a connection/)).toBeNull();
   });
 
   it('says Manage needs a connection when a save cannot reach the server', async () => {

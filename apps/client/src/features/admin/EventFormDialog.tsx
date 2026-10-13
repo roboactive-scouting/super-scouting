@@ -1,5 +1,6 @@
 import { useId, useState, type FormEvent } from 'react';
 import { createEventInput, type EventRow } from '@frc/shared';
+import { useCapability } from '@/components/OfflineGate';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { ErrorLine } from '@/components/ui/notice';
@@ -79,9 +80,12 @@ function EventForm({
   const [name, setName] = useState(event?.name ?? '');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** SPEC-FINAL 9.6: season, event, match and roster management is held while offline. */
+  const can = useCapability('manage_events');
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (!can) return;
     setError(null);
     const checked = createEventInput.shape.name.safeParse(name);
     if (!checked.success) {
@@ -116,7 +120,7 @@ function EventForm({
         <Button variant="secondary" disabled={busy} onClick={onClose}>
           Cancel
         </Button>
-        <Button type="submit" variant="primary" busy={busy} busyLabel="Saving…">
+        <Button type="submit" variant="primary" disabled={!can} busy={busy} busyLabel="Saving…">
           {event ? 'Save name' : 'Create event'}
         </Button>
       </div>
