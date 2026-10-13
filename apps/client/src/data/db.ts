@@ -29,11 +29,46 @@ export type DraftRecord = {
 
 export type MetaRecord = { key: string; value: unknown };
 
+/**
+ * What was discarded, as SPEC-FINAL 9.7 lists it, resolved from the cache before the record
+ * went. Labels only: **never the entered values** (`data`, `breakdown_seconds`) — the log does
+ * not show them (user, 2026-10-12), so the device does not keep them either.
+ */
+export type DiscardedSummary = {
+  form_kind: 'match' | 'super' | null;
+  /** "Q12"; null for a super entry, or when the match was not cached. */
+  match: string | null;
+  match_type: string | null;
+  match_number: number | null;
+  alliance: 'red' | 'blue' | null;
+  /** "R2", from the cached line-up; null when the team was not in it. */
+  station: 'R1' | 'R2' | 'R3' | 'B1' | 'B2' | 'B3' | null;
+  /** "2096 ROBACTIVE", or the team id when the team was not cached. */
+  team: string;
+  team_number: number | null;
+  team_name: string | null;
+  robot_status: string | null;
+  /** The scouter's full name, or "unknown scouter". */
+  scouter: string;
+  scouter_id: string | null;
+  /** When the entry was last saved on the device. */
+  client_updated_at: string;
+};
+
+/** SPEC-FINAL 9.7: one record in the discarded log, kept for the life of the install. */
 export type DiscardedRecord = {
+  /** The discarded operation's op_id: writing the same record twice is one record. */
   id: string;
   discarded_at: string;
+  /** The cause, in general words (`parent-deleted` does not say which parent went). */
   reason: string;
-  summary: Record<string, unknown>;
+  row_id: string;
+  event_id: string | null;
+  /** The competition's name as the cache held it, or "an earlier competition". */
+  event_name: string;
+  summary: DiscardedSummary;
+  /** Set once the Sync notice has been dismissed; the log keeps showing the record. */
+  dismissed_at?: string | null;
 };
 
 class ScoutingDb extends Dexie {

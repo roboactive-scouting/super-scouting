@@ -49,10 +49,16 @@ test('manage: Competitions — an event moves by its grip, by keyboard and by po
   const [haifa, beerSheva, , , championship] = EVENTS.map((e) => e.id);
 
   // Keyboard: Space picks up, an arrow moves (the cards are a three-column grid), Space drops.
+  // dnd-kit settles the card under the dragged one a frame after a move; a drop sent sooner
+  // lands where the drag started (task 1.42 DEVIATIONS). Each step waits for what a screen
+  // reader hears, as a person would.
+  const announced = (text: string) => page.getByRole('status').filter({ hasText: text });
   const haifaGrip = page.getByRole('button', { name: 'Move District #1 · Haifa' });
   await haifaGrip.focus();
   await page.keyboard.press('Space');
+  await expect(haifaGrip).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('ArrowRight');
+  await expect(announced('District #1 · Haifa is at position 2.')).toHaveCount(1);
   await page.keyboard.press('Space');
   await expect.poll(() => sent.length).toBe(1);
   expect(sent[0]!.slice(0, 2)).toEqual([beerSheva, haifa]);
@@ -76,6 +82,7 @@ test('manage: Competitions — an event moves by its grip, by keyboard and by po
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
   await page.mouse.down();
   await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 12 });
+  await expect(announced('Israel Championship is at position 1.')).toHaveCount(1);
   await page.mouse.up();
   await expect.poll(() => sent.length).toBe(2);
   expect(sent[1]![0]).toBe(championship);

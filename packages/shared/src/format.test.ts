@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { formatCount, formatDate, formatMetric, formatPercent, formatTime } from './format';
+import {
+  formatCount,
+  formatDate,
+  formatMetric,
+  formatPercent,
+  formatTime,
+  formatDayTime,
+  formatWeekdayTime,
+} from './format';
 
 describe('formatting (SPEC-FINAL 17.8)', () => {
   it('renders metrics and standard deviations to 2 decimals', () => {
@@ -27,5 +35,12 @@ describe('formatting (SPEC-FINAL 17.8)', () => {
     const iso = '2026-11-14T09:31:02.000Z';
     expect(formatDate(iso, 'UTC')).toBe('14/11/2026');
     expect(formatTime(iso, 'UTC')).toBe('09:31');
+  });
+
+  it('renders a day in words with a 24-hour time, the month from a fixed list', () => {
+    expect(formatDayTime('2026-10-12T08:02:00.000Z', 'UTC')).toBe('Mon 12 Oct, 08:02');
+    expect(formatDayTime('2026-09-04T17:40:00.000Z', 'UTC')).toBe('Fri 4 Sep, 17:40');
+    expect(formatDayTime('2026-10-12T22:30:00.000Z', 'Asia/Jerusalem')).toBe('Tue 13 Oct, 01:30');
+    expect(formatWeekdayTime('2026-10-10T14:20:00.000Z', 'UTC')).toBe('Sat 14:20');
   });
 });

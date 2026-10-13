@@ -221,6 +221,8 @@ describe('which routes wait for the event to load (task 1.17b)', () => {
       // This device's settings (task 1.38): no event data, so it opens with no competition.
       'settings',
       'switch-scouter',
+      // The discarded-records log (task 1.42) reads only this device's log.
+      'sync/discarded',
     ]);
   });
 

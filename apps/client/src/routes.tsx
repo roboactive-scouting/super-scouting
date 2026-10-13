@@ -51,6 +51,10 @@ const PracticeStart = lazy(() =>
 const SettingsPage = lazy(() =>
   import('@/features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })),
 );
+// The discarded-records log (task 1.42): a lazy chunk, precached, reached from Sync only.
+const DiscardedLogPage = lazy(() =>
+  import('@/features/sync/DiscardedLogPage').then((m) => ({ default: m.DiscardedLogPage })),
+);
 const ManageRoute = lazy(() =>
   import('@/features/admin/ManageRoute').then((m) => ({ default: m.ManageRoute })),
 );
@@ -211,6 +215,20 @@ export function routeTree(): RouteObject[] {
             </Loading>
           ),
           handle: named({ title: 'Settings', crumb: ['This device'] }, NO_HYDRATION),
+        },
+        // SPEC-FINAL 9.7 (task 1.42): the discarded-records log, opened from Sync, not a nav row.
+        // It reads only this device's log, never event data, so it opens with no competition.
+        {
+          path: 'sync/discarded',
+          element: (
+            <Loading>
+              <DiscardedLogPage />
+            </Loading>
+          ),
+          handle: named(
+            { title: 'Discarded records', phoneTitle: 'Discarded', crumb: ['This device', 'Sync'] },
+            NO_HYDRATION,
+          ),
         },
         // Task 1.22's path, kept so a bookmark or an old installed start page still lands.
         { path: 'context', element: <Navigate to={PATHS.home} replace />, handle: NO_HYDRATION },

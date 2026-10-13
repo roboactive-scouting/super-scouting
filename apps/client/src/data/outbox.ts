@@ -9,6 +9,7 @@ import {
 import { session } from '@/auth/session';
 import { notifyChanged } from './changes';
 import { db, getMeta, setMeta, type SyncStateRecord } from './db';
+import { discardEntry } from './discarded';
 
 /** The detail syncPush gives an operation that failed for a reason not the client's. */
 export const TRANSIENT_REJECTION_DETAIL = 'unexpected server error';
@@ -227,45 +228,68 @@ async function remapMatch(oldId: string, newId: string): Promise<string[]> {
 }
 
 /**
+ * Events the server has said are gone: a bare match refused `parent-deleted` (a match's only
+ * parent is its event), or an entry refused with the event's detail. An entry of one of them
+ * is never rebuilt — its rebuilt match would be refused again on every sync — so it follows
+ * SPEC-FINAL 9.7 and is discarded.
+ */
+const GONE_EVENTS = 'outbox.gone_events';
+
+async function markEventGone(eventId: unknown): Promise<void> {
+  if (typeof eventId !== 'string') return;
+  const gone = await getMeta<string[]>(GONE_EVENTS, []);
+  if (!gone.includes(eventId)) await setMeta(GONE_EVENTS, [...gone, eventId]);
+}
+
+/**
+ * What a `parent-deleted` refusal of an entry comes to: `requeued` (its match is rebuilt, or
+ * the entry moved to the canonical id), `parked` (its rebuilt match was itself refused for
+ * another reason: the entry waits with it), or `impossible` — another parent is gone, the
+ * event is known gone, or the cache cannot rebuild the match — and SPEC-FINAL 9.7 applies.
+ */
+type RebuildOutcome = 'requeued' | 'parked' | 'impossible';
+
+/**
  * SPEC-FINAL 9.7 (amended v1.18): an entry refused because its MATCH is gone is not
  * discarded. A match is only event + type + number, so the bare match create is queued
  * again from the cached row, under the cached id, ahead of the entry (it takes the entry's
  * seq; the entry moves behind it), and the entry is left pending for the next sync to send
- * both. Returns false when the rebuild is impossible — another parent is gone, the event or
- * the match row is no longer cached, or the match's own push was refused — and the caller
- * then records the rejection as before.
+ * both. `impossible` when another parent is gone, the event is known gone, or the event or
+ * the match row is no longer cached; `parked` when the match's own push was refused.
  *
  * Loop guards: only the server's "match" detail rebuilds; a bare match already queued for
- * that row is never queued twice (a parked one parks the entry too); and syncNow sends an
- * operation at most once per sync, so this runs at most once per operation per sync.
+ * that row is never queued twice (a parked one parks the entry too); a match whose event the
+ * server has said is gone is never rebuilt (GONE_EVENTS); and syncNow sends an operation at
+ * most once per sync, so this runs at most once per operation per sync.
  */
 async function rebuildMatchFor(
   op: Operation,
   result: Extract<PushResult, { status: 'rejected' }>,
-): Promise<boolean> {
-  if (result.detail !== PARENT_DELETED_DETAIL.match) return false;
+): Promise<RebuildOutcome> {
+  if (result.detail !== PARENT_DELETED_DETAIL.match) return 'impossible';
   const matchId = op.payload.match_id;
-  if (typeof matchId !== 'string') return false;
+  if (typeof matchId !== 'string') return 'impossible';
 
   // Sent with an id this device has since remapped: send it again with the canonical one.
   const canonical = (await getMeta<Record<string, string>>(MATCH_REMAP, {}))[matchId];
   if (canonical !== undefined) {
     await db.outbox.put({ ...op, payload: { ...op.payload, match_id: canonical } });
-    return true;
+    return 'requeued';
   }
 
-  if (!UUID.test(matchId)) return false;
+  if (!UUID.test(matchId)) return 'impossible';
   const match = await db.rows.get(['matches', matchId]);
   const eventId = match?.event_id;
   if (!match || typeof eventId !== 'string' || !(await db.rows.get(['events', eventId]))) {
-    return false;
+    return 'impossible';
   }
+  if ((await getMeta<string[]>(GONE_EVENTS, [])).includes(eventId)) return 'impossible';
 
   const queued = await db.outbox.where('row_id').equals(matchId).first();
   if (queued) {
-    if ((await db.syncState.get(matchId))?.rejection != null) return false;
+    if ((await db.syncState.get(matchId))?.rejection != null) return 'parked';
     if (queued.seq > op.seq) await db.outbox.put({ ...op, seq: await nextSeq() });
-    return true;
+    return 'requeued';
   }
 
   const at = new Date().toISOString();
@@ -288,6 +312,41 @@ async function rebuildMatchFor(
     origin: 'local',
   });
   await db.outbox.put({ ...op, seq: await nextSeq() });
+  return 'requeued';
+}
+
+/**
+ * SPEC-FINAL 9.7 on one refused operation whose parent is gone. Returns false when the
+ * operation is not one 9.7 removes (another entity: it is parked as before).
+ * - A bare match: its event is gone. The operation and its sync state go; it is not a record
+ *   anyone typed, so it is not logged. Its entries are refused on their own and discarded.
+ * - An entry's delete: the entry is gone on the server already; operation, row and sync state
+ *   go, not logged (nothing typed is lost).
+ * - Any other entry operation: logged first, then removed (discardEntry).
+ */
+async function applyParentDeleted(
+  op: Operation,
+  result: Extract<PushResult, { status: 'rejected' }>,
+  at: string,
+): Promise<boolean> {
+  if (op.entity === 'match') {
+    await markEventGone(op.payload.event_id);
+    await db.outbox.delete(op.op_id);
+    await db.syncState.delete(op.row_id);
+    return true;
+  }
+  if (op.entity !== 'scouting_entry') return false;
+  if (result.detail === PARENT_DELETED_DETAIL.event) {
+    const row = await db.rows.get(['scouting_entries', op.row_id]);
+    await markEventGone(op.payload.event_id ?? row?.event_id);
+  }
+  if (op.action === 'delete') {
+    await db.outbox.delete(op.op_id);
+    await db.rows.where('[entity+id]').equals(['scouting_entries', op.row_id]).delete();
+    await db.syncState.delete(op.row_id);
+    return true;
+  }
+  await discardEntry(op, at);
   return true;
 }
 
@@ -295,54 +354,73 @@ async function rebuildMatchFor(
  * The durability rule (SPEC-FINAL 9.4): a record leaves the outbox ONLY on a cloud
  * ack for that exact row_id. `rejected` is never an ack. A rejection is recorded on the
  * row's sync state, which PARKS the operation (SPEC-FINAL 9.3.1: "not retried
- * automatically") and lets the UI say why. Every reason parks, with two exceptions: a
- * transient server failure (not recorded, retried on the next sync), and an entry whose
- * match is gone, which rebuildMatchFor re-queues behind a new bare match (9.7, v1.18).
- * A bare match answered with another id remaps everything that names it (remapMatch).
+ * automatically") and lets the UI say why. Every reason parks, with three exceptions: a
+ * transient server failure (not recorded, retried on the next sync); an entry whose match is
+ * gone, which rebuildMatchFor re-queues behind a new bare match (9.7, v1.18); and any other
+ * `parent-deleted` of an entry or a bare match, which SPEC-FINAL 9.7 removes from the device
+ * (the entry logged first, applyParentDeleted). A bare match answered with another id remaps
+ * everything that names it (remapMatch).
  */
 export async function ackResults(results: PushResult[]): Promise<void> {
   const now = new Date().toISOString();
-  await db.transaction('rw', [db.outbox, db.syncState, db.rows, db.meta], async () => {
-    // Entries this pass already moved to a canonical match id: a refusal of the copy that
-    // was sent with the old id is answered by the move itself.
-    const remapped = new Set<string>();
-    for (const result of results) {
-      const op = await db.outbox.get(result.op_id);
-      if (!op) continue;
-      if (result.status === 'rejected') {
-        if (isTransient(result)) continue;
-        if (
-          result.reason === 'parent-deleted' &&
-          op.entity === 'scouting_entry' &&
-          (remapped.has(op.op_id) || (await rebuildMatchFor(op, result)))
-        ) {
-          // Un-parked: the next sync sends it.
+  let discarded = false;
+  await db.transaction(
+    'rw',
+    [db.outbox, db.syncState, db.rows, db.meta, db.discarded],
+    async () => {
+      // Entries this pass already moved to a canonical match id: a refusal of the copy that
+      // was sent with the old id is answered by the move itself.
+      const remapped = new Set<string>();
+      for (const result of results) {
+        const op = await db.outbox.get(result.op_id);
+        if (!op) continue;
+        if (result.status === 'rejected') {
+          if (isTransient(result)) continue;
+          if (result.reason === 'parent-deleted') {
+            const outcome =
+              op.entity !== 'scouting_entry'
+                ? 'impossible'
+                : remapped.has(op.op_id)
+                  ? 'requeued'
+                  : await rebuildMatchFor(op, result);
+            if (outcome === 'requeued') {
+              // Un-parked: the next sync sends it.
+              const state = await db.syncState.get(op.row_id);
+              if (state?.rejection != null) await db.syncState.put({ ...state, rejection: null });
+              continue;
+            }
+            if (outcome === 'impossible' && (await applyParentDeleted(op, result, now))) {
+              discarded = true;
+              continue;
+            }
+          }
           const state = await db.syncState.get(op.row_id);
-          if (state?.rejection != null) await db.syncState.put({ ...state, rejection: null });
+          await db.syncState.put({
+            row_id: op.row_id,
+            sync_state: state?.sync_state ?? 'pending',
+            acked_at: state?.acked_at ?? null,
+            origin: state?.origin ?? 'local',
+            rejection: { code: result.reason, message: result.detail ?? '', at: now },
+          });
           continue;
         }
-        const state = await db.syncState.get(op.row_id);
+        if (!isAck(result.status)) continue;
+        if (op.entity === 'match' && result.row_id !== op.row_id) {
+          for (const opId of await remapMatch(op.row_id, result.row_id)) remapped.add(opId);
+        }
+        await db.outbox.delete(result.op_id);
         await db.syncState.put({
           row_id: op.row_id,
-          sync_state: state?.sync_state ?? 'pending',
-          acked_at: state?.acked_at ?? null,
-          origin: state?.origin ?? 'local',
-          rejection: { code: result.reason, message: result.detail ?? '', at: now },
+          sync_state: 'acked',
+          acked_at: now,
+          origin: (await db.syncState.get(op.row_id))?.origin ?? 'local',
         });
-        continue;
       }
-      if (!isAck(result.status)) continue;
-      if (op.entity === 'match' && result.row_id !== op.row_id) {
-        for (const opId of await remapMatch(op.row_id, result.row_id)) remapped.add(opId);
-      }
-      await db.outbox.delete(result.op_id);
-      await db.syncState.put({
-        row_id: op.row_id,
-        sync_state: 'acked',
-        acked_at: now,
-        origin: (await db.syncState.get(op.row_id))?.origin ?? 'local',
-      });
-    }
-  });
+    },
+  );
   notifyChanged('outbox');
+  if (discarded) {
+    notifyChanged('rows');
+    notifyChanged('discarded');
+  }
 }

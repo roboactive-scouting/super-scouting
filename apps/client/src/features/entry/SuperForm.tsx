@@ -5,6 +5,7 @@ import { formatTime, type FormFieldDefinition } from '@frc/shared';
 import { ActionBar } from '@/components/ui/action-bar';
 import { Button } from '@/components/ui/button';
 import { Note, Notice } from '@/components/ui/notice';
+import { SuperTag } from '@/components/ui/tag';
 import { cachedFormFields } from '@/data/cache';
 import { keepScreenOn, useBoolPref } from '@/lib/devicePrefs';
 import { PATHS } from '@/lib/paths';
@@ -25,15 +26,6 @@ import type { SuperTeam } from './superData';
 import { useDraft } from './useDraft';
 import { useEntryForm } from './useEntryForm';
 import { useWakeLock } from './useWakeLock';
-
-/** The dark SUPER tag (15-super final): `--rail` with white text, like the admin tag. */
-function SuperTag() {
-  return (
-    <span className="inline-flex h-6 items-center rounded-tag bg-rail px-[9px] text-[0.71875rem] font-bold tracking-[0.04em] text-surface">
-      SUPER
-    </span>
-  );
-}
 
 /**
  * The draft key of a super entry: one per (form version, team) — there is no match. Task 1.37's

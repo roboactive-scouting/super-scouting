@@ -1,4 +1,4 @@
-export type ChangeKind = 'rows' | 'outbox' | 'meta';
+export type ChangeKind = 'rows' | 'outbox' | 'meta' | 'discarded';
 const listeners = new Set<(kind: ChangeKind) => void>();
 /**
  * Something on the device changed: re-read what depends on it. Sync, the outbox and meta

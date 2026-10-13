@@ -289,7 +289,8 @@ async function rejectFirst(reason: Reason, detail?: string) {
 }
 
 describe('a rejected op is parked, not retried (SPEC-FINAL 9.3.1)', () => {
-  it.each(['forbidden', 'edit-window-expired', 'parent-deleted', 'invalid'] as const)(
+  // parent-deleted is not parked since task 1.42: SPEC-FINAL 9.7 removes it (discarded.test.ts).
+  it.each(['forbidden', 'edit-window-expired', 'invalid'] as const)(
     'parks a %s rejection: kept, counted as unsynced, no longer pending a push',
     async (reason) => {
       await enqueue(op());
@@ -461,24 +462,24 @@ describe('a deleted match is rebuilt, not stranded (UF.1, SPEC-FINAL 9.7 v1.18)'
     expect((await syncStateOf('entry-1'))?.rejection).toMatchObject({ code: 'parent-deleted' });
   });
 
+  // Task 1.42: when the rebuild is impossible, 9.7 applies as written — the entry is
+  // discarded (logged first), no longer parked.
   it.each([
     ['the match row is not cached', [{ entity: 'events' as const, id: EVENT }]],
     ['the event is not cached', [cachedMatch]],
-  ])('follows 9.7 as before when %s: parked with the reason, nothing queued', async (_, rows) => {
+  ])('follows 9.7 when %s: discarded and logged, nothing queued', async (_, rows) => {
     await db.rows.bulkPut(rows);
     const entry = await entryOp();
     await enqueue(entry);
     await ackResults([matchGone(entry.op_id)]);
     expect(await pending(50)).toEqual([]);
-    expect(await db.outbox.count()).toBe(1);
-    expect((await syncStateOf('entry-1'))?.rejection).toMatchObject({
-      code: 'parent-deleted',
-      message: PARENT_DELETED_DETAIL.match,
-    });
+    expect(await db.outbox.count()).toBe(0);
+    expect(await syncStateOf('entry-1')).toBeUndefined();
+    expect((await db.discarded.toArray()).map((r) => r.row_id)).toEqual(['entry-1']);
   });
 
   it.each([PARENT_DELETED_DETAIL.event, PARENT_DELETED_DETAIL.team, PARENT_DELETED_DETAIL.other])(
-    'does not rebuild for another missing parent (%s)',
+    'does not rebuild for another missing parent (%s): discarded instead',
     async (detail) => {
       await cacheEventAndMatch();
       const entry = await entryOp();
@@ -486,10 +487,42 @@ describe('a deleted match is rebuilt, not stranded (UF.1, SPEC-FINAL 9.7 v1.18)'
       await ackResults([
         { op_id: entry.op_id, status: 'rejected', reason: 'parent-deleted', detail },
       ]);
-      expect(await db.outbox.filter((o) => o.entity === 'match').count()).toBe(0);
-      expect((await syncStateOf('entry-1'))?.rejection).toMatchObject({ message: detail });
+      expect(await db.outbox.count()).toBe(0);
+      expect(await db.discarded.count()).toBe(1);
     },
   );
+
+  it('never rebuilds a match of an event the server has said is gone, so it cannot loop', async () => {
+    await cacheEventAndMatch();
+    // A first entry tells the device the event is gone.
+    const first = await entryOp();
+    await enqueue(first);
+    await ackResults([
+      {
+        op_id: first.op_id,
+        status: 'rejected',
+        reason: 'parent-deleted',
+        detail: PARENT_DELETED_DETAIL.event,
+      },
+    ]);
+    // A second one, refused for its match, is not rebuilt: it is discarded too.
+    const second = await entryOp({ row_id: 'entry-2' });
+    await enqueue(second);
+    await ackResults([matchGone(second.op_id)]);
+    expect(await db.outbox.count()).toBe(0);
+    expect((await db.discarded.toArray()).map((r) => r.row_id).sort()).toEqual([
+      'entry-1',
+      'entry-2',
+    ]);
+  });
+
+  it('parks, never discards, an operation of another entity refused parent-deleted', async () => {
+    await enqueue(op({ entity: 'pick_list', row_id: 'pl-1', payload: { event_id: EVENT } }));
+    await rejectFirst('parent-deleted');
+    expect(await db.outbox.count()).toBe(1);
+    expect((await syncStateOf('pl-1'))?.rejection?.code).toBe('parent-deleted');
+    expect(await db.discarded.count()).toBe(0);
+  });
 
   it('matchIdsNeededByOutbox names queued bare matches and the matches of queued entries', async () => {
     await enqueue(await entryOp());
