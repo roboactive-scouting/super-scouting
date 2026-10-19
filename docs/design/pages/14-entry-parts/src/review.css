@@ -1,0 +1,91 @@
+/* Round 3: map fields in the Review entry confirmation (mini maps, read-only map). Classes rv-*.
+   Colours only from theme.css; the scrim and shadows are the locked sheet / dialog ones. */
+
+/* the confirmation sheet (phone): the locked bottom sheet, scrolled as one piece as in the app */
+.rv-sheet { position: absolute; left: 0; right: 0; bottom: 0; height: 86%; background: var(--surface); border-radius: 20px 20px 0 0; box-shadow: 0 -12px 32px -12px rgba(20, 24, 32, 0.3); display: flex; flex-direction: column; overflow: hidden; z-index: 5; }
+.rv-sheet .rv-scroll { flex: 1; min-height: 0; overflow: hidden; position: relative; padding: 10px 16px 0; }
+.rv-sheet .rv-in { display: flex; flex-direction: column; gap: 12px; }
+.rv-sheet .grab { margin-bottom: 0; }
+.rv-title { font-size: 20px; font-weight: 750; letter-spacing: -0.01em; }
+.rv-sub { margin-top: -6px; font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+.rv-sub .who { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-weight: 600; }
+.rv-foot { flex: none; display: flex; gap: 10px; padding: 10px 16px 22px; background: var(--surface); border-top: 1px solid var(--line); }
+.rv-foot .btn { flex: 1; height: 52px; }
+.rv-scrim { position: absolute; inset: 0; background: rgba(20, 24, 32, 0.45); z-index: 4; }
+
+/* the summary list (locked), as the app draws it: label --ink-2, value --ink 600 */
+.rv-sum { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); overflow: hidden; font-size: 13.5px; }
+.rv-sum h3 { font-size: 12px; font-weight: 650; color: var(--muted); padding: 12px 14px 4px; }
+.rv-sum h3:not(:first-child) { border-top: 1px solid var(--line-2); }
+.rv-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 10px 14px; border-top: 1px solid var(--line-2); }
+.rv-sum > .rv-row:first-child { border-top: 0; }
+.rv-row dt { color: var(--ink-2); }
+.rv-row dd { font-weight: 600; color: var(--ink); text-align: right; }
+.rv-row dd.none { color: var(--muted); font-weight: 500; }
+
+/* a map row: the label and caption on the left, the mini map at the right; the whole row opens the map */
+.rv-maprow { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start; padding: 10px 14px; border-top: 1px solid var(--line-2); }
+.rv-maprow .l dt { color: var(--ink-2); }
+.rv-maprow .cap { display: block; margin-top: 3px; font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.rv-maprow .cap .num { font-weight: 600; }
+.rv-maprow .go { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 12.5px; font-weight: 650; color: var(--accent-ink); }
+.rv-maprow .go svg { width: 13px; height: 13px; stroke: currentColor; fill: none; stroke-width: 2.2; }
+
+/* event list beside the mini map */
+.rv-evs { list-style: none; margin-top: 8px; display: flex; flex-direction: column; }
+.rv-evs li { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 7px; height: 24px; font-size: 13.5px; color: var(--ink); font-weight: 600; border-top: 1px dashed var(--line); }
+.rv-evs li:first-child { border-top: 0; }
+.rv-evs li .t { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-weight: 500; color: var(--ink-2); font-size: 13px; }
+.rv-evs li .pin { width: 13px; height: 13px; color: var(--alliance-red); }
+.rv-evs li .pin svg { width: 13px; height: 13px; display: block; fill: currentColor; stroke: var(--surface); stroke-width: 1.2; }
+.rv-evs li.np .pin { color: var(--faint); }
+.rv-evs li.np .pin svg { fill: none; stroke: currentColor; stroke-width: 1.6; }
+.rv-evs li small { font-size: 11.5px; color: var(--muted); font-weight: 500; margin-left: 6px; }
+
+/* the mini map: the season image turned to the scout's view, marks on top (MapButton's look) */
+.rv-mm { position: relative; flex: none; overflow: hidden; border-radius: 6px; border: 1px solid var(--line); background: var(--line-2); }
+.rv-mm img { position: absolute; top: 50%; left: 50%; max-width: none; pointer-events: none; }
+.rv-mm svg.rt { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.rv-mm svg.rt polyline { fill: none; stroke: var(--alliance-red); stroke-width: 2px; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.rv-mm .rv-dot { position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--alliance-red); border: 1.5px solid var(--surface); transform: translate(-50%, -50%); }
+.rv-mm .rv-ex { position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; border-radius: 5px; background: var(--surface); border: 1px solid var(--line); display: grid; place-items: center; color: var(--ink-2); }
+.rv-mm .rv-ex svg { width: 11px; height: 11px; stroke: currentColor; fill: none; stroke-width: 2.4; }
+
+/* the full read-only map: bigger lines, dots at route points, numbered spots */
+.rv-mm.full { border: 1px solid var(--control-border); border-radius: var(--radius-control); }
+.rv-mm.full svg.rt polyline { stroke-width: 2.4px; }
+.rv-mm.full .rv-pp { position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--alliance-red); border: 1.5px solid var(--surface); transform: translate(-50%, -50%); }
+.rv-mm.full .rv-nd { position: absolute; width: 24px; height: 24px; border-radius: 50%; background: var(--alliance-red); border: 2px solid var(--surface); transform: translate(-50%, -50%); color: var(--surface); font: 700 12px var(--font-num); display: grid; place-items: center; box-shadow: 0 1px 3px rgba(20, 24, 32, 0.35); }
+
+/* the read-only map pop-up (phone): the locked pop-up minus every tool */
+.rv-pop { display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--bg); }
+.rv-poph { display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 4px; background: var(--surface); border-bottom: 1px solid var(--line); flex: none; }
+.rv-poph .x { width: 44px; height: 44px; display: grid; place-items: center; color: var(--ink-2); flex: none; }
+.rv-poph .x svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; }
+.rv-poph .t { min-width: 0; flex: 1; }
+.rv-poph .t b { display: block; font-size: 17px; font-weight: 750; }
+.rv-poph .t small { display: block; color: var(--muted); font-size: 12.5px; }
+.rv-vo { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border-radius: var(--radius-tag); background: var(--line-2); color: var(--ink-2); font-size: 12px; font-weight: 650; white-space: nowrap; }
+.rv-vo svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; }
+.rv-popmap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 10px 16px 6px; }
+.rv-pophint { text-align: center; font-size: 12.5px; color: var(--muted); padding: 0 16px 8px; flex: none; }
+.rv-pophint b { color: var(--ink-2); }
+.rv-popbar { flex: none; background: var(--surface); border-top: 1px solid var(--line); padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+.rv-popbar .btn { width: 100%; height: 52px; font-size: 16px; }
+.rv-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.rv-chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px 0 4px; border-radius: var(--radius-pill); background: var(--line-2); font-size: 13px; font-weight: 650; color: var(--ink); white-space: nowrap; }
+.rv-chip .n { width: 22px; height: 22px; border-radius: 50%; background: var(--alliance-red); color: var(--surface); font: 700 11px var(--font-num); display: grid; place-items: center; }
+.rv-chip.np .n { background: var(--surface); color: var(--muted); border: 1px dashed var(--control-border); }
+.rv-chip .t { font-family: var(--font-num); font-weight: 500; color: var(--ink-2); }
+.rv-chip small { color: var(--muted); font-weight: 500; font-size: 12px; }
+.rv-cnt { font-size: 13px; color: var(--muted); }
+.rv-cnt b { font-family: var(--font-num); color: var(--ink); font-weight: 600; }
+
+/* desktop: the confirmation as the locked Dialog */
+.rv-dlg { width: 520px; max-height: 868px; background: var(--surface); border-radius: 16px; box-shadow: 0 24px 60px -20px rgba(20, 24, 32, 0.45); display: flex; flex-direction: column; overflow: hidden; }
+.rv-dlg .rv-scroll { flex: 1; min-height: 0; overflow: hidden; padding: 22px 24px 0; display: flex; flex-direction: column; gap: 12px; }
+.rv-dlg .rv-foot { padding: 12px 24px 22px; }
+.rv-dlg .rv-foot .btn { height: 48px; }
+/* a white casing under each route, so it reads on the dark season image (as the selected path's halo) */
+.rv-mm svg.rt polyline.hl { stroke: var(--surface); stroke-width: 4px; opacity: 0.85; }
+.rv-mm.full svg.rt polyline.hl { stroke-width: 5px; }

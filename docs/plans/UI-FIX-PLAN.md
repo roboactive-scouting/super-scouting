@@ -339,3 +339,71 @@ One fix agent for all six, reviewed, then a PR into `develop`. Departures go in 
 - The squares are ~18 px, under the 48 px tap rule (SPEC-FINAL §17.7): make them easy to hit
   without overlap (e.g. tap resolves to the nearest square, or a row-level hit area) and log
   the choice. Keyboard: the squares are focusable and the label is announced.
+
+---
+
+# UI fix round 3 — Phase 1 E on a phone (UF.22–UF.26)
+
+**Input:** the user's notes from testing Phase 1 E on dev (2026-10-20), and their answers the same
+day (review = read-only mini maps; paths = drag to draw + tap; dark theme → spec §24; path limit
+10, not 20). **Spec:** living spec v0.82, SPEC-FINAL v1.30 §8.2, §8.5.
+**Binding:** `docs/ops/BUILD-CONTEXT.md`. Branch `fix/round-3`, cut from `develop` (`3dcb6f1`).
+Looks: `docs/design/pages/14-entry-parts/final/` plus the round-3 review mockup (UF.24).
+One fix agent per item, in order, reviewed by the orchestrator; one commit per item; then a PR into
+`develop`. Phase 1 F (PR #34) merges after this, and its branch takes `develop`'s changes then
+(conflicts resolved there). Departures go in `DEVIATIONS.md`.
+
+**Progress** — ticked as each step lands, so the user can see how far the run is:
+
+| Item | Investigate | Fix + tests | Screens | Verified | Committed |
+|---|---|---|---|---|---|
+| UF.22 Q50 twice on Home | ☐ | ☐ | ☐ | ☐ | ☐ |
+| UF.23 Draft notice that will not go | ☐ | ☐ | ☐ | ☐ | ☐ |
+| UF.24 Review: mini maps and event list | ☐ | ☐ | ☐ | ☐ | ☐ |
+| UF.25 Drag to draw a path | ☐ | ☐ | ☐ | ☐ | ☐ |
+| UF.26 Practice reviews before it finishes | ☐ | ☐ | ☐ | ☐ | ☐ |
+| Ship: full suite, PR into `develop` | — | — | — | ☐ | ☐ |
+
+Already done (no code): dev match form v4's `auto_path` limit 6 → 10, in place (2026-10-20).
+
+## UF.22 — Home's coverage shows Q50 twice (user's phone only)
+- The server has no match 50, so the phone holds **two locally created Q50 match rows** that have
+  not synced; coverage draws one square per row. Find how the second row was made (Scout's
+  `existing` lookup in `useScoutSelection`, `ensureMatchLocally`, a stale cached list, a
+  double start, practice, a rejected push left behind) — reproduce it in a test before fixing.
+- Fix the cause so typing an existing match never creates a second row. Coverage also keys
+  squares by (type, number), so a duplicate already on a device draws once.
+- Do not delete the user's local rows silently: if two unsynced rows share (event, type, number),
+  the entries keep pointing where they point; log what the phone will show after the fix.
+
+## UF.23 — The draft notice keeps coming back after Discard
+- `DraftRecovery` offers only the newest draft; Discard deletes that one and the next older draft
+  takes its place with nearly the same words, so it looks as if Discard did nothing.
+- Clear drafts that cannot be resumed: a draft whose entry was submitted after the draft's last
+  change; a draft for a form version that is no longer active or a match / team the device no
+  longer holds is still offered, saying so, and Discard removes it.
+- When more than one draft remains, the notice says so ("and 2 more") and Discard removes only the
+  one shown; Undo still restores it.
+- Check the clock/stopwatch listener cannot write a draft back after a submit or a Discard.
+
+## UF.24 — Review entry shows map fields and the event log properly
+- In the confirmation (`ConfirmEntry`, also the super confirmation), a **position or cycle-path
+  field shows a read-only mini map** of its marks in the scout's own orientation; tapping it opens
+  the map read-only (no Undo, no Clear, no adding). An **event log lists each event with its time**
+  ("Scored high · 0:12"), and its mini map when it asks where.
+- One mockup first (UF.24 design), approved by the user before code.
+- Keep the map chunk lazy (initial-JS budget is 219.8 of 220 KB; raise it only if needed, logged).
+
+## UF.25 — A cycle path can be drawn by dragging
+- In the map, a **drag draws the route freehand**; on release the stroke is simplified
+  (Ramer–Douglas–Peucker or similar) to at most `max_points_per_cycle` points that keep its shape,
+  and stored exactly as tapped points are. A tap still adds one point; Undo removes the last stroke
+  or point; selection and ✕ Remove keep working.
+- The stroke shows live while drawing; reduced motion changes nothing here (it is the scout's
+  finger, not an animation). Mirroring for the blue alliance is unchanged.
+
+## UF.26 — Practice reviews before it finishes
+- **Finish practice** runs the same review as a real entry: the problems list when something
+  blocks, else the confirmation summary, whose button reads **Finish practice**; confirming ends in
+  the "Practice finished" sheet. Nothing is written to `scouting_entries` or the outbox (keep the
+  1.37 tests green and add one through the review).

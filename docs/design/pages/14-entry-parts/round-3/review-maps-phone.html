@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Review entry — map fields, phone</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../01-entry/src/entry.css"><link rel="stylesheet" href="../../01-entry/final/final.css"><link rel="stylesheet" href="../src/parts.css"><link rel="stylesheet" href="../src/review.css">
+</head><body>
+<div id="root"></div>
+<script src="../../01-entry/src/entry.js"></script><script src="../src/parts.js"></script><script src="../src/review.js"></script>
+<script>
+const P = PX;
+const behind = P.head({ team: '2630 Thunderbolts', meta: 'Draft saved on this device · 11:45' }) + P.tabs(3, 3) + `<div class="pane">${P.phead('Notes', 4)}${P.stars('Driver skill', 4)}</div>`;
+const f1 = P.screen({ time: '11:45', body: behind, bar: false, over: RV.sheet() });
+const f2 = P.screen({ time: '11:45', body: behind, bar: false, over: RV.sheet('tele') });
+const f3 = `<div style="display:flex;flex-direction:column;height:100%">${RV.pop()}</div>`;
+P.page('Review entry — map fields · phone', 'Round 3 proposal (2026-10-20). Map fields show what was marked as a read-only mini map; tapping one opens the map to look at, never to change.', [
+  P.fig(f1, '1 · Confirm, Autonomous: start position and auto path'),
+  P.fig(f2, '2 · Scrolled to Teleop: the event log, its times and its spots'),
+  P.fig(f3, '3 · Tapped a mini map: the map, view only'),
+], P.card('What changes on confirm', [
+  '<b>Position and cycle path</b> rows show a <b>56 px mini map</b> at the right, upright with your alliance end at the bottom, the same image and marks as the form’s map button.',
+  'Under the name: a caption that counts what is marked (<b>1 point</b>, <b>2 routes · 9 points</b>) and <b>⤢ Tap to view</b>. The whole row is the tap target.',
+  '<b>Event log</b>: every event on its own line with its time in mono; a pin when it has a place, “no place” when it was skipped. Its mini map shows the spots.',
+  '<b>The map opened from here is view only</b>: no Undo, Clear, Remove or adding; a View only tag, numbered spots for an event log, and Close.',
+  'A map field with nothing marked stays a plain row with “—”. Everything else on the sheet is unchanged.',
+]));
+
+</script>
+<script src="../../shell.js"></script><script>RV.scroll();</script>
+</body></html>

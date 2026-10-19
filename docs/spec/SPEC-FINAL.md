@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.25 · **Date:** 2026-10-09 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.30 · **Date:** 2026-10-20 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.30 (UI fix round 3): a cycle path can be drawn by dragging (§8.2), the confirmation shows map fields as read-only mini maps and the event log as a timed list (§8.2), and practice reviews before it finishes (§8.5). Numbered after Phase 1 F's v1.26–v1.29, which reach `develop` with that phase. See the living spec's §21, 2026-10-20 (v0.82).*
 
 *v1.25 adds the Settings page (§8.6, §17.9). See the living spec's §21, 2026-10-09 (v0.76).*
 
@@ -933,8 +935,8 @@ If a super entry for that (team, event) already exists on the device, the app op
 - **Conditional fields** appear and disappear per §5.8.
 - **Hard range block** on submit: a numeric value outside its field's `expected_range` blocks submission (§15.1). Unanswered **required** fields block it too. Review entry then lists every blocking problem with its phase and a **Go to** link instead of the confirmation *(v1.23)*.
 - **Undo** is available on every repeatable input: counters, event-log taps, position-picker points (undo last point / clear all), multi-select, and timer reset.
-- **Map fields** (position picker, cycle path, and an event log that asks where) are one button in the form showing what is marked. It opens the map **full screen on a phone** and **as a dialog on a computer**, drawn with **the scout's own alliance end at the bottom** (phone) or on the left (computer); only the drawing turns, never the stored coordinates. Tap to add; tap a mark to select it and **✕ Remove** it; Undo. A cycle path shows only the routes: while drawing, **Clear path** restarts the path being drawn. An event log's "where?" can be skipped, keeping the tap's time. *(added 2026-10-08, v1.20)*
-- **Explicit submit.** Submitting shows a **confirmation summary of the whole entry** before it commits. Nothing reaches the shared data on a stray tap.
+- **Map fields** (position picker, cycle path, and an event log that asks where) are one button in the form showing what is marked. It opens the map **full screen on a phone** and **as a dialog on a computer**, drawn with **the scout's own alliance end at the bottom** (phone) or on the left (computer); only the drawing turns, never the stored coordinates. Tap to add; tap a mark to select it and **✕ Remove** it; Undo. **On a cycle path, a drag draws the route freehand** *(v1.30)*: the stroke is simplified to at most the field's `max_points_per_cycle` points, keeping its shape, and stored exactly as tapped points are; a tap still adds one point. A cycle path shows only the routes: while drawing, **Clear path** restarts the path being drawn. An event log's "where?" can be skipped, keeping the tap's time. *(added 2026-10-08, v1.20)*
+- **Explicit submit.** Submitting shows a **confirmation summary of the whole entry** before it commits. Nothing reaches the shared data on a stray tap. *(v1.30)* In the summary, a **map field shows a read-only mini map** of its marks (tapping it opens the map read-only), and an **event log lists each event with its time**.
 
 ### 8.3 Never lose data
 
@@ -950,7 +952,7 @@ Every interaction writes a **local draft immediately** to IndexedDB. The draft s
 
 ### 8.5 Practice / training mode
 
-A mode that renders a **real form** without polluting the database. *(v1.23)* It is entered from **Practice a match** on Scout; while it is on, a strip on every screen says nothing is saved, with **Exit practice**, and Review entry becomes **Finish practice**.
+A mode that renders a **real form** without polluting the database. *(v1.23)* It is entered from **Practice a match** on Scout; while it is on, a strip on every screen says nothing is saved, with **Exit practice**, and Review entry becomes **Finish practice**. *(v1.30)* Finish practice runs the **same review** as a real entry (the problems list, then the confirmation summary); its confirm button reads **Finish practice** and nothing is saved.
 
 - Practice entries are marked as practice, are **never written to `scouting_entries`**, and **never enter the outbox**.
 - Their drafts are written to a **separate IndexedDB store (`practice_drafts`)**, so a crash mid-practice does not lose the screen.
