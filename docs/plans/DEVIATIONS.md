@@ -7616,3 +7616,51 @@ Rejected: offering a list of every draft in the Note (the design is one entry wi
 **What I did instead:** `BUDGET_KB` unchanged at 221.
 
 **Risk:** 0.7 KB of headroom for UF.24–UF.26.
+
+## UF.24 — The map button's words: one function, and a cycle path's button now counts its points
+
+**Plan said:** each map field's row says what it holds "in the map button's own words" ("1 spot", "2 paths · 9 spots", "5 events · 4 on the map"); reuse its wording function rather than writing a second one.
+
+**What was wrong:** there was no wording function to reuse. `PositionInput` and `CyclePathInput` each built the button's count inline (`plural(points.length, 'spot', 'spots')`, `plural(paths.length, 'path', 'paths')`), and the cycle path's button said only "2 paths", not "2 paths · 9 spots". An event log has no map button (its taps are chips in the form), so "5 events · 4 on the map" existed nowhere. The confirmation also printed every map field through `displayValue`, i.e. `String(value)`: "[object Object]" for a position, a cycle path and an event log alike.
+
+**What I did instead:** one function, `mapCount(field, value)` in `map/mapField.ts` (with `tapsOf`, moved there from `EventLogInput`, `isPlaced` and `opensMap`): "1 spot" / "3 spots"; "2 paths · 9 spots" (paths with at least one point, and all their points); "5 events · 4 on the map" for an event log that asks where, "5 events" for one that never does; null when nothing is held. The form's two map buttons and the confirmation both use it, so the cycle path's button in the form now reads "2 paths · 9 spots" too (`CyclePathInput.test.tsx` and `e2e/entry-map.spec.ts` updated: "Cycle routes: 3 paths · 11 spots"; its `map-buttons-cycle` shots change by those words). The vocabulary is the user's (round-3 README, "Decided 2026-10-20": spot(s), path(s), events · n on the map), so a path's points are "spots" here, while the map's own drawing line still says "3 of 6 points". Tests: `mapField.test.ts` (6).
+
+Rejected: keeping the form's button at "2 paths" and adding "· 9 spots" only in the confirmation (two wordings for one field, the thing the plan asked to avoid); "points" (the user picked the button's words).
+
+**Risk:** the form's cycle-path button's words are longer; not re-shot at its longest (e.g. "10 paths · 60 spots" beside the 112 px thumbnail at 375 px), where the line may wrap to two.
+
+## UF.24 — The confirmation's map row, and an event log that never asks where
+
+**Plan said:** each map field is one compact row like the others: the name, what it holds, Tap to view / Click to view with the expand icon; the whole row is a button (≥ 48 px, keyboard and screen-reader friendly); an empty one stays a plain row with "—".
+
+**What was wrong:** the round-3 mockup's row put the caption and "Tap to view" under the name, at the left, because the mini map took the right; with the picture gone (the user's decision) that layout leaves the right side empty and is three lines tall. A row in a `<dl>` cannot itself be a `<button>` (a `<dl>` holds `dt` / `dd` groups only). And an event log without `ask_position` has no map to open (SPEC-FINAL 8.2: the map fields are a position, a cycle path and "an event log that asks where").
+
+**What I did instead:** `MapRow` in `ConfirmEntry.tsx`: the name at the left in `--ink-2` as on every row, and at the right, where every other row has its value, the words in `--ink` 600 over "⤢ Tap to view" (Click on a computer; lucide `Maximize2`, 12.5 px / 650 `--accent-ink`). Two lines, 62 px tall at 375 px. The row is a `<div>` group with an `sr-only` `<dt>` (the name, the list's term) and a `<dd>` holding one full-width `tap-target hover-veil` button named "Teleop events: 5 events · 4 on the map" and described by "Tap to view"; the visible name and words inside it are `aria-hidden` so they are not read twice. An event log that never asks where is a plain row with "5 events"; an empty map field is a plain row with "—". Tests: `ConfirmEntry.test.tsx` (rows, Tap vs Click, the empty row, the plain event log, keyboard), `EntryPage.test.tsx` and `SuperEntryPage.test.tsx` (one each, through the real pages).
+
+Rejected: the mockup's left-hand stack without the picture (three lines and an empty right side, longer than the rows around it); a stretched `::after` link over a plain `<dd>` (`hover-veil` makes the button its own containing block, so the overlay would not cover the row, and its focus ring would be the size of the words).
+
+**Risk:** a screen reader hears the field's name twice when it walks the list item by item (the `dt`, then the button's name); tabbing to the button reads it once.
+
+## UF.24 — The view-only map: MapSheet's `viewOnly`, drawn beside the sheet, in the timed-parts chunk
+
+**Plan said:** activating a row opens the existing map view only (no Undo, Clear, Remove or adding; taps on the field do nothing), with a "View only" tag, the alliance / station tag and a secondary Close; Esc closes it; for an event log, spots numbered in event order and chips with their times, "no place" for one without; closing returns focus to the row and leaves the confirmation open. Prefer a read-only mode on `MapSheet`. Keep the map code in the lazy precached chunk.
+
+**What was wrong:** three things the plan did not say. (1) React events from a portal bubble through the React tree: a map rendered inside the confirmation's sheet would hand its Escape to the sheet's own `useModalFocus` (closing the confirmation too) and its pointer events to the sheet's drag-to-close. (2) The map pieces were two lazy chunks (`timedParts`, and `MapSheet` imported with `React.lazy` by each input), and a failed `React.lazy` import has no stand-in: it throws. (3) `EntryPage` draws its phone and computer layouts as two different trees, so the confirmation remounts when the window crosses 1024 px; the open map goes with it (found by the e2e, whose shots switch width).
+
+**What I did instead:** `MapSheet` gains `viewOnly`: the header adds a "View only" tag (the THEME tag box, exported from `tag.tsx` as `TAG`, on `--line-2` with lucide `Eye`) before the station tag; no tools row; `lead` and the count (`map-status`) still show; a secondary **Close** (full width on a phone, at the right on a computer, the count at the left) replaces Done and shows even when the season image is missing; the drawing has no click handler, is named "The field, view only" and loses the crosshair; marks are drawn, never buttons (no `onSelect`), so nothing can be selected or removed; routes get the round-3 white casing (4.5 px `--surface` at 85 % under the line). `onTap`, `hint` and `done` became optional for it. `map/MapFieldView.tsx` turns a field and its value into marks and paths with the editing code's `denormalizeForAlliance` / `viewRotation`, so the turn and the mirroring are the editing map's: a position's spots (numbered when it holds a list, as while editing); a cycle path's routes with a dot at each point; an event log's placed taps numbered by their index in the log (1 2 3 5 when the 4th has no place), the hint "Numbers follow the order of the events below", and an `<ol>` of chips: a 22 px numbered dot in the alliance colour (a dashed `--control-border` "–" when skipped), the name in 650, the time in mono `--ink-2`, "no place" in `--muted`, no ✕. `ConfirmEntry` keeps the field being viewed in state and renders the viewer as a **sibling** of its `ResponsiveDialog`, not inside it, so the map's keys, taps and drags stay its own; Close and Escape set it back to null and an effect focuses the row (a `Map` of row refs by field key), so focus returns on Safari too, where a tapped button never takes focus. `MapFieldView` is exported from `timedParts.ts` and drawn through a `lazyParts` stand-in: if the chunk failed to load, the stand-in opens a `ResponsiveDialog` titled with the field's name holding the still warning notice "The map didn't load." with Try again, and Close (`lazyParts.test.tsx`). `MapFieldView` imports `MapSheet` statically, so `MapSheet` is now inside the `timedParts` chunk (10.8 KB gzip, loaded at app start and precached; `bundle:check` lists no separate map chunk any more) and the inputs' `lazy()` import of it resolves from there. The e2e opens the map once per width.
+
+Rejected: a second map component (the plan prefers one; the mirroring and the turn would be written twice); rendering the viewer inside the sheet and stopping propagation on a wrapper (works for React's events, not for the sheet's native drag listeners, and leaves a trap for the next change); keeping the viewed field across the 1024 px remount (lifting it into `EntryPage` and `SuperForm` for a case only a tablet turned past 1024 px can reach; the confirmation itself stays open because `reviewing` lives in the page).
+
+**Risk:** the header ✕ and the foot's Close are both named "Close" (the ✕ was already, in every map); a screen-reader user hears two buttons of that name. A tablet turned across 1024 px while the view-only map is open closes the map, not the confirmation; the editing map behaves the same today.
+
+## UF.24 — The initial-JS budget goes to 222 KB
+
+**Plan said:** initial JS is 220.3 of 221 KB gzip; raise `BUDGET_KB` only if unavoidable, logging the measured size and the new budget.
+
+**What was wrong:** `pnpm bundle:check` after the change: `initial JS 221.2 KB gzip` / `initial JS over 221 KB gzip`. With `ConfirmEntry.tsx` put back to `HEAD` and everything else kept, the same build measures 220.3 KB, so the 0.9 KB is the confirmation's own part: `mapCount` and the readers it needs (`pointsOf`, `cyclesOf`, `tapsOf`), the row, the expand icon, the focus return and the stand-in's fallback. The view-only map, the chips and `MapSheet` are in the lazy `timedParts` chunk.
+
+**What I did instead:** `BUDGET_KB = 222` in `scripts/check-bundle.mjs` (the comment records why) and the BUILD-CONTEXT §12.5 line updated. `pnpm bundle:check` passes at 221.2 KB.
+
+Rejected: moving the row itself into the lazy chunk (a confirmation whose map rows depend on a chunk would need a fallback that still says what the field holds, i.e. the same wording code in the initial bundle); dropping the expand icon (in the approved design).
+
+**Risk:** 0.8 KB of headroom for UF.25–UF.26. UF.25's freehand drawing belongs in `CyclePathInput` / `MapSheet`, which are in the lazy chunk.

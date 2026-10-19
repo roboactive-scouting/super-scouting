@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { CachedRow } from '@/data/db';
 import { db } from '@/data/db';
 import { pending } from '@/data/outbox';
+import { loadTimedParts } from './lazyParts';
 import { SelectRobotPage } from './SelectRobotPage';
 import { SuperEntryPage } from './SuperEntryPage';
 
@@ -375,5 +376,67 @@ describe('SuperEntryPage (SPEC-FINAL 8.1, task 1.36)', () => {
         name: 'No super scouting form is published for this season yet',
       }),
     ).toBeInTheDocument();
+  });
+});
+
+describe('map fields on the super confirmation (UF.24)', () => {
+  it('shows a cycle path as a compact row that opens the map view only; Close keeps the sheet', async () => {
+    await loadTimedParts();
+    const routes = [
+      [
+        { x: 0.2, y: 0.3 },
+        { x: 0.4, y: 0.35 },
+      ],
+      [
+        { x: 0.3, y: 0.6 },
+        { x: 0.5, y: 0.55 },
+        { x: 0.7, y: 0.5 },
+      ],
+    ];
+    await db.rows.bulkPut([
+      field({
+        id: 'sf-3',
+        key: 'routes',
+        label: 'Usual routes',
+        type: 'cycle_path',
+        display_order: 3,
+        phase: 'teleop',
+        unit: 'coordinate',
+      }),
+      field({
+        id: 'sf-4',
+        key: 'stands',
+        label: 'Where it stands',
+        type: 'position',
+        display_order: 4,
+        phase: 'teleop',
+        unit: 'coordinate',
+      }),
+      { ...superEntry(60_000), data: { defence: 'some', routes } } as unknown as CachedRow,
+    ]);
+    const user = userEvent.setup();
+    renderAt('/super/t-1690');
+    await screen.findByText(/Editing your entry from/);
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'Some' })).toBeChecked());
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    const dialog = await screen.findByRole('dialog', { name: 'Submit the super entry?' });
+    const row = within(dialog).getByRole('button', { name: 'Usual routes: 2 paths · 5 spots' });
+    expect(row).toHaveAccessibleDescription('Click to view');
+    // Nothing marked: a plain row with "—".
+    expect(
+      within(dialog).getByText('Where it stands', { selector: 'dt' }).nextElementSibling,
+    ).toHaveTextContent(/^—$/);
+    await user.click(row);
+    const map = await screen.findByRole('dialog', { name: 'Usual routes' });
+    expect(within(map).getByText('View only')).toBeInTheDocument();
+    expect(within(map).queryByRole('button', { name: /Undo|New path|Finish|Done/ })).toBeNull();
+    await user.click(within(map).getAllByRole('button', { name: 'Close' }).at(-1)!);
+    expect(screen.queryByRole('dialog', { name: 'Usual routes' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Submit the super entry?' })).toBe(dialog);
+    expect(row).toHaveFocus();
+    expect(
+      within(dialog).getByText('Defence', { selector: 'dt' }).nextElementSibling,
+    ).toHaveTextContent('Some');
+    expect(await pending(10)).toHaveLength(0);
   });
 });

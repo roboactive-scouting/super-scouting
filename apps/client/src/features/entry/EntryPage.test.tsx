@@ -6,6 +6,7 @@ import type { CachedRow } from '@/data/db';
 import { db } from '@/data/db';
 import { pending } from '@/data/outbox';
 import { EntryPage } from './EntryPage';
+import { loadTimedParts } from './lazyParts';
 import { matchClock } from './matchClock';
 import { stopwatches } from './stopwatches';
 
@@ -1119,5 +1120,81 @@ describe('Timer fields at Review entry (1.36)', () => {
     await user.click(screen.getByRole('button', { name: /review entry/i }));
     expect(await screen.findByRole('dialog', { name: 'Confirm this entry' })).toBeInTheDocument();
     expect(await pending(10)).toHaveLength(0);
+  });
+});
+
+describe('map fields at Review entry (UF.24)', () => {
+  const START = { x: 0.27, y: 0.3 };
+  const SHOTS = [
+    { type: 'high', t: 12, x: 0.26, y: 0.4 },
+    { type: 'def', t: 65 },
+  ];
+
+  beforeEach(async () => {
+    await loadTimedParts();
+    await db.rows.bulkPut([
+      field({
+        id: 'm1',
+        key: 'start',
+        label: 'Start position',
+        type: 'position',
+        display_order: 3,
+        phase: 'auto',
+        unit: 'coordinate',
+        direction: 'neutral',
+        config: { mirror_axis: 'horizontal' },
+      }),
+      field({
+        id: 'm2',
+        key: 'shots',
+        label: 'Shots',
+        type: 'event_log',
+        display_order: 4,
+        phase: 'teleop',
+        unit: 'count',
+        direction: 'neutral',
+        config: {
+          ask_position: true,
+          mirror_axis: 'horizontal',
+          event_types: [
+            { value: 'high', label: 'High goal' },
+            { value: 'def', label: 'Defended' },
+          ],
+        },
+      }),
+    ]);
+    await db.drafts.put({
+      key: `${props.formVersionId}:${props.matchId}:${props.teamId}`,
+      row_id: '',
+      payload: { robot_status: 'played', data: { start: START, shots: SHOTS } },
+      updated_at: new Date().toISOString(),
+    });
+  });
+
+  it('opens a map field view only from the confirmation; Close keeps the sheet and Submit saves the values', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <EntryPage {...props} fieldImagePath="seasons/2026/field.webp" />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('button', { name: 'Start position: 1 spot' });
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm this entry' });
+    const row = within(dialog).getByRole('button', { name: 'Shots: 2 events · 1 on the map' });
+    await user.click(row);
+    const map = await screen.findByRole('dialog', { name: 'Shots' });
+    expect(map).toHaveTextContent('Q12 · 2096 · Teleop');
+    expect(within(map).getByText('View only')).toBeInTheDocument();
+    expect(within(map).queryByRole('button', { name: /Undo|Skip|Save tap|Done/ })).toBeNull();
+    await user.click(within(map).getByTestId('map-drawing'));
+    await user.click(within(map).getAllByRole('button', { name: 'Close' }).at(-1)!);
+    expect(screen.queryByRole('dialog', { name: 'Shots' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Confirm this entry' })).toBe(dialog);
+    expect(row).toHaveFocus();
+    expect(within(dialog).getByRole('button', { name: 'Start position: 1 spot' })).toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: /submit entry/i }));
+    await waitFor(async () => expect(await pending(10)).toHaveLength(1));
+    expect((await pending(10))[0]!.payload.data).toMatchObject({ start: START, shots: SHOTS });
   });
 });

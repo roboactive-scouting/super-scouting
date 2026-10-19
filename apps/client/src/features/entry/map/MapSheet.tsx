@@ -1,4 +1,4 @@
-import { X } from 'lucide-react';
+import { Eye, X } from 'lucide-react';
 import {
   useEffect,
   useId,
@@ -13,7 +13,7 @@ import { createPortal } from 'react-dom';
 import type { Point } from '@frc/shared';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
-import { AllianceTag, StationTag } from '@/components/ui/tag';
+import { AllianceTag, StationTag, TAG } from '@/components/ui/tag';
 import { useModalFocus } from '@/components/ui/useModalFocus';
 import type { Station } from '@/data/station';
 import { useIsDesktop } from '@/lib/useMediaQuery';
@@ -68,18 +68,18 @@ export type MapSheetProps = {
   /** The season's `field_image_path`; null when the device does not know it. */
   imagePath: string | null;
   marks: readonly MapMark[];
-  /** A tap on the drawing, already turned back into image coordinates. */
-  onTap: (image: Point) => void;
+  /** A tap on the drawing, already turned back into image coordinates. Never called `viewOnly`. */
+  onTap?: (image: Point) => void;
   /** ✕ or Escape. */
   onClose: () => void;
   /** The one-line hint under the map. */
-  hint: ReactNode;
+  hint?: ReactNode;
   /** The tools at the start of the bar (Undo, Skip · no place, …). */
   tools?: ReactNode;
   /** The words at the bar's end, before Done on a computer ("3 spots"). */
   status?: ReactNode;
   /** The primary action: full width on a phone, at the right on a computer. Hidden while the image is missing. */
-  done: { label: string; onClick: () => void; disabled?: boolean };
+  done?: { label: string; onClick: () => void; disabled?: boolean };
   /** Phone (full screen, upright) or computer (dialog, flat); by default the viewport decides. */
   layout?: MapLayout;
   /** Routes drawn over the image (the cycle path). */
@@ -103,6 +103,12 @@ export type MapSheetProps = {
    * it is missing (a position or cycle path records nothing then); the event log's Skip stays.
    */
   toolsNeedImage?: boolean;
+  /**
+   * The map to look at, not to change (UF.24: a map field opened from the confirmation): a
+   * "View only" tag, no tools, a tap on the drawing does nothing, and a secondary **Close** in
+   * place of Done. `lead` (an event log's chips) and `status` (the count) still show.
+   */
+  viewOnly?: boolean;
 };
 
 /** The season image's shape until it has loaded: `public/seasons/2026/field.webp` is 2000 × 812. */
@@ -171,12 +177,13 @@ function PhoneMap(props: MapSheetProps) {
             {props.subtitle}
           </p>
         </div>
+        {props.viewOnly && <ViewOnlyTag />}
         <Tag alliance={props.alliance} station={props.station} />
       </header>
       <div className="flex min-h-0 flex-1 items-center justify-center px-4 pt-2.5 pb-1.5 [container-type:size]">
         <FieldDrawing {...props} {...image} rotation={viewRotation(props.alliance, 'phone')} fit />
       </div>
-      {tools && (
+      {tools && props.hint && (
         <p
           role="status"
           className="flex-none px-4 pb-2 text-center text-[0.78125rem] text-muted [&_b]:text-ink-2"
@@ -190,28 +197,41 @@ function PhoneMap(props: MapSheetProps) {
             {props.lead}
           </div>
         )}
-        {tools && (
-          <div className="flex min-h-12 items-center gap-2">
-            {props.tools}
-            {props.status && (
-              <span
-                data-testid="map-status"
-                className="ms-auto whitespace-nowrap text-[0.8125rem] text-muted"
-              >
+        {props.viewOnly
+          ? props.status && (
+              <p data-testid="map-status" className="text-[0.8125rem] text-muted">
                 {props.status}
-              </span>
+              </p>
+            )
+          : tools && (
+              <div className="flex min-h-12 items-center gap-2">
+                {props.tools}
+                {props.status && (
+                  <span
+                    data-testid="map-status"
+                    className="ms-auto whitespace-nowrap text-[0.8125rem] text-muted"
+                  >
+                    {props.status}
+                  </span>
+                )}
+              </div>
             )}
-          </div>
-        )}
-        {image.usable && (
-          <Button
-            variant="primary"
-            size="block"
-            onClick={props.done.onClick}
-            disabled={props.done.disabled}
-          >
-            {props.done.label}
+        {props.viewOnly ? (
+          <Button variant="secondary" size="block" onClick={props.onClose}>
+            Close
           </Button>
+        ) : (
+          image.usable &&
+          props.done && (
+            <Button
+              variant="primary"
+              size="block"
+              onClick={props.done.onClick}
+              disabled={props.done.disabled}
+            >
+              {props.done.label}
+            </Button>
+          )
         )}
       </div>
     </div>,
@@ -229,16 +249,18 @@ function DesktopMap(props: MapSheetProps) {
         <p id={sub} className="min-w-0 flex-1 text-[0.8125rem] text-muted" dir="auto">
           {props.subtitle}
         </p>
+        {props.viewOnly && <ViewOnlyTag />}
         <Tag alliance={props.alliance} station={props.station} />
       </div>
       <FieldDrawing {...props} {...image} rotation={viewRotation(props.alliance, 'desktop')} />
-      {tools && (
+      {tools && props.hint && (
         <p role="status" className="text-[0.8125rem] text-muted [&_b]:text-ink-2">
           {props.hint}
         </p>
       )}
+      {props.viewOnly && props.lead && <div>{props.lead}</div>}
       <div className="flex min-h-12 items-center gap-2 pt-1">
-        {tools && props.lead && (
+        {tools && !props.viewOnly && props.lead && (
           <div className="me-1.5 flex items-center gap-2 text-[0.8125rem] font-semibold text-ink-2">
             {props.lead}
           </div>
@@ -246,17 +268,38 @@ function DesktopMap(props: MapSheetProps) {
         {tools && props.tools}
         <span
           data-testid="map-status"
-          className="ms-auto me-1.5 whitespace-nowrap text-[0.8125rem] text-muted"
+          className={cn(
+            'whitespace-nowrap text-[0.8125rem] text-muted',
+            // View only: the count at the start, Close at the end.
+            props.viewOnly ? 'me-auto' : 'ms-auto me-1.5',
+          )}
         >
           {tools && props.status}
         </span>
-        {image.usable && (
-          <Button variant="primary" onClick={props.done.onClick} disabled={props.done.disabled}>
-            {props.done.label}
+        {props.viewOnly ? (
+          <Button variant="secondary" onClick={props.onClose}>
+            Close
           </Button>
+        ) : (
+          image.usable &&
+          props.done && (
+            <Button variant="primary" onClick={props.done.onClick} disabled={props.done.disabled}>
+              {props.done.label}
+            </Button>
+          )
         )}
       </div>
     </Dialog>
+  );
+}
+
+/** A THEME tag on `--line-2` with an eye: the map opened from the confirmation (UF.24). */
+function ViewOnlyTag() {
+  return (
+    <span className={cn(TAG, 'bg-line-2 text-ink-2')}>
+      <Eye aria-hidden="true" className="size-3.5" />
+      View only
+    </span>
   );
 }
 
@@ -289,6 +332,7 @@ function FieldDrawing({
   onRemove,
   removeLabel = 'Remove',
   onTap,
+  viewOnly = false,
   alliance,
   rotation,
   fit = false,
@@ -353,6 +397,7 @@ function FieldDrawing({
   }
 
   function tap(e: MouseEvent<HTMLDivElement>) {
+    if (!onTap) return;
     // Something selected: a tap on the map keeps it and adds nothing; it only lets go.
     if (selected !== null && onSelect) {
       onSelect(null);
@@ -403,10 +448,14 @@ function FieldDrawing({
       data-testid="map-drawing"
       data-rotation={rotation}
       role="group"
-      aria-label="The field: tap where it happened"
-      onClick={tap}
+      aria-label={viewOnly ? 'The field, view only' : 'The field: tap where it happened'}
+      // View only (UF.24): a tap on the field changes nothing.
+      onClick={viewOnly ? undefined : tap}
       style={size}
-      className="relative shrink-0 cursor-crosshair touch-manipulation overflow-hidden rounded-control border border-control-border bg-line-2 [container-type:size]"
+      className={cn(
+        'relative shrink-0 touch-manipulation overflow-hidden rounded-control border border-control-border bg-line-2 [container-type:size]',
+        !viewOnly && 'cursor-crosshair',
+      )}
     >
       {image}
       <span
@@ -438,6 +487,13 @@ function FieldDrawing({
                   <polyline
                     points={points}
                     className="fill-none stroke-surface [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:7px] [vector-effect:non-scaling-stroke]"
+                  />
+                )}
+                {viewOnly && (
+                  // A white casing, so a route reads over the image's own red and blue (round 3).
+                  <polyline
+                    points={points}
+                    className="fill-none stroke-surface opacity-85 [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:4.5px] [vector-effect:non-scaling-stroke]"
                   />
                 )}
                 <polyline

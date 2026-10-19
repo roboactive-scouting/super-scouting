@@ -11,7 +11,7 @@ import { useIsDesktop } from '@/lib/useMediaQuery';
 import { cn } from '@/lib/utils';
 import { useEntryContext } from '../entryContext';
 import { MapButton } from '../map/MapButton';
-import { axisOf, capOf, cyclesOf, mapSubtitle, plural } from '../map/mapField';
+import { axisOf, capOf, cyclesOf, mapCount, mapSubtitle } from '../map/mapField';
 import { storeImagePoint } from '../map/mapGeometry';
 import { useUndoable } from '../useUndoable';
 import { FieldLabel, FieldRow } from './FieldRow';
@@ -125,7 +125,8 @@ export function CyclePathInput({
   }
 
   const own = alliance === 'red' ? 'bg-alliance-red' : 'bg-alliance-blue';
-  const count = paths.length > 0 ? plural(paths.length, 'path', 'paths') : null;
+  // "2 paths · 9 spots": the confirmation words it the same way (mapCount, UF.24).
+  const count = mapCount(field, paths);
 
   let hint;
   if (base !== null && refused) {

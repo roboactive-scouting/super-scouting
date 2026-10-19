@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useEntryContext } from '../entryContext';
+import { tapsOf } from '../map/mapField';
 import { storeImagePoint } from '../map/mapGeometry';
 import { matchClock } from '../matchClock';
 import { useUndoable } from '../useUndoable';
@@ -38,18 +39,6 @@ const CHIP_LIST = 'mt-[0.4375rem] flex flex-wrap gap-x-2 gap-y-[1.625rem]';
 
 /** A tap's time to a tenth of a second. */
 const tenth = (t: number) => Math.round(t * 10) / 10;
-
-/** The taps as a list, in time order, whatever the page handed in. */
-function tapsOf(value: unknown): EventLogTap[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter(
-    (tap): tap is EventLogTap =>
-      typeof tap === 'object' &&
-      tap !== null &&
-      typeof (tap as EventLogTap).type === 'string' &&
-      typeof (tap as EventLogTap).t === 'number',
-  );
-}
 
 /** `taps` with `tap` added, kept ascending by `t` (a later equal time goes after). */
 function withTap(taps: readonly EventLogTap[], tap: EventLogTap): EventLogTap[] {

@@ -2,6 +2,7 @@ import { RotateCcw } from 'lucide-react';
 import { useEffect, useState, type ComponentProps } from 'react';
 import { Button } from '@/components/ui/button';
 import { Notice } from '@/components/ui/notice';
+import { ResponsiveDialog } from '@/components/ui/responsive-dialog';
 import type * as TimedParts from './timedParts';
 
 type Parts = typeof TimedParts;
@@ -137,6 +138,24 @@ export function PositionInput(props: ComponentProps<Parts['PositionInput']>) {
   const { parts, failed, retry } = useTimedParts();
   if (parts) return <parts.PositionInput {...props} />;
   return failed ? <NotLoaded what={`“${props.field.label}”`} onRetry={retry} /> : null;
+}
+
+/**
+ * A map field opened view only from the confirmation (UF.24). If the chunk failed, the map's
+ * place is the same still notice with Try again, and Close; the confirmation stays as it was.
+ */
+export function MapFieldView(props: ComponentProps<Parts['MapFieldView']>) {
+  const { parts, failed, retry } = useTimedParts();
+  if (parts) return <parts.MapFieldView {...props} />;
+  if (!failed) return null;
+  return (
+    <ResponsiveDialog open title={props.field.label} onClose={props.onClose} sheetClose>
+      <NotLoaded what="The map" onRetry={retry} />
+      <Button variant="secondary" size="block" onClick={props.onClose}>
+        Close
+      </Button>
+    </ResponsiveDialog>
+  );
 }
 
 export function CyclePathInput(props: ComponentProps<Parts['CyclePathInput']>) {

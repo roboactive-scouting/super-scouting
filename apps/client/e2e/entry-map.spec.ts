@@ -241,7 +241,7 @@ test('cycle path: drawing a path, Clear path, Finish, and a blue scout removing 
   await bothThemes(page, 'cycle-map-drawing-red', 'phone');
   await map.getByRole('button', { name: 'Finish' }).click();
   await map.getByRole('button', { name: 'Done' }).click();
-  await expect(routes).toHaveAccessibleName('Cycle routes: 3 paths');
+  await expect(routes).toHaveAccessibleName('Cycle routes: 3 paths · 11 spots');
   await bothThemes(page, 'map-buttons-cycle', 'phone');
 });
 

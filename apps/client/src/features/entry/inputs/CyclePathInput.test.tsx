@@ -286,11 +286,21 @@ describe('CyclePathInput (SPEC-FINAL 5.2, 5.6, 8.2)', () => {
     expect(stored[1]).toEqual(stored[0]);
   });
 
-  it('shows the count of paths on its map button', () => {
+  it('shows the count of paths and their points on its map button (UF.24 words)', () => {
     render(
-      <Held field={routes()} spy={vi.fn()} start={[[{ x: 0.1, y: 0.1 }], [{ x: 0.2, y: 0.2 }]]} />,
+      <Held
+        field={routes()}
+        spy={vi.fn()}
+        start={[
+          [{ x: 0.1, y: 0.1 }],
+          [
+            { x: 0.2, y: 0.2 },
+            { x: 0.3, y: 0.3 },
+          ],
+        ]}
+      />,
     );
-    expect(mapButton()).toHaveAccessibleName('Cycle routes: 2 paths');
+    expect(mapButton()).toHaveAccessibleName('Cycle routes: 2 paths · 3 spots');
   });
 
   it('a missing season image fails loudly and records no coordinate', async () => {
