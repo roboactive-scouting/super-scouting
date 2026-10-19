@@ -11,6 +11,7 @@ import { EntryPage } from './EntryPage';
 import { canSelfEdit, findLocalEntry, type Editor, type LocalEntry } from './localEntries';
 import { usePracticeMode } from './practice';
 import type { SavedNotice } from './SelectRobotPage';
+import { draftedVersion } from './useDraft';
 import { PATHS } from '@/lib/paths';
 
 type MatchRow = { id: string; event_id?: string; match_type: string; number: number };
@@ -97,8 +98,10 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
       const existing = practice
         ? undefined
         : await findLocalEntry({ eventId: entryEventId, formKind: 'match', matchId, teamId });
-      // An existing entry is edited under the form version it was recorded with.
-      const formVersionId = existing?.form_version_id ?? form.active_version_id;
+      // An existing entry is edited under the form version it was recorded with; an unfinished
+      // draft is finished under the version it was begun on, when the device holds it (UF.23).
+      const drafted = existing || practice ? undefined : await draftedVersion(matchId, teamId);
+      const formVersionId = existing?.form_version_id ?? drafted ?? form.active_version_id;
       const foreign = entryEventId !== eventId;
       // Outside the default, only an entry this device already began is finished: a draft
       // (keyed as EntryPage keys it) or a local entry. Nothing new is ever started there.

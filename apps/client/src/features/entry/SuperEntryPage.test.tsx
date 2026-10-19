@@ -285,6 +285,38 @@ describe('SuperEntryPage (SPEC-FINAL 8.1, task 1.36)', () => {
     expect(supers).toHaveLength(1);
   });
 
+  it('opens a draft begun on an older super form version on that version, and its submit clears it (UF.23)', async () => {
+    // The super form moved on to sv-2 (one field, Driver skill) after the draft was begun on sv-1.
+    await db.rows.bulkPut([
+      { entity: 'forms', id: 'f-2', kind: 'super', season_id: 'se-1', active_version_id: 'sv-2' },
+      field({
+        id: 'sf-v2',
+        form_version_id: 'sv-2',
+        key: 'driver',
+        label: 'Driver skill',
+        type: 'short_text',
+        display_order: 1,
+        phase: 'post_match',
+        unit: 'text',
+      }),
+    ]);
+    await db.drafts.put({
+      key: 'sv-1:super:t-1690',
+      row_id: '',
+      payload: { form_kind: 'super', team_id: 't-1690', data: { defence: 'lots' } },
+      updated_at: new Date(Date.now() - 60_000).toISOString(),
+    });
+    const user = userEvent.setup();
+    renderAt('/super/t-1690');
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'Lots' })).toBeChecked());
+    expect(screen.queryByText('Driver skill')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    await user.click(await screen.findByRole('button', { name: /submit entry/i }));
+    await waitFor(async () => expect(await pending(10)).toHaveLength(1));
+    expect((await pending(10))[0]!.payload).toMatchObject({ form_version_id: 'sv-1' });
+    expect(await db.drafts.count()).toBe(0);
+  });
+
   it('shows a scouter their own super entry locked once its five-minute window has closed', async () => {
     await db.rows.put(superEntry(10 * 60_000));
     renderAt('/super/t-1690');

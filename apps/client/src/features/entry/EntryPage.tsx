@@ -75,7 +75,7 @@ export function EntryPage(props: EntryPageProps) {
   const draftKey = matchDraftKey(props.formVersionId, props.matchId, props.teamId);
   const practice = usePracticeMode();
   // In practice the draft goes to its own store (SPEC-FINAL 8.5), through the same hook.
-  const { draft, loaded, savedAt, save } = useDraft(draftKey);
+  const { draft, loaded, savedAt, save, close } = useDraft(draftKey);
   /** Finish practice let through: the "Practice finished" sheet is open (8.5). */
   const [finished, setFinished] = useState(false);
   const desktop = useIsDesktop();
@@ -241,6 +241,8 @@ export function EntryPage(props: EntryPageProps) {
     }
     inFlight.current = true;
     setSubmitting(true);
+    // From here the draft is the submit's to clear: nothing writes it back (UF.23).
+    close(true);
     try {
       const { row_id } = await submitEntry({
         fields,
@@ -262,6 +264,7 @@ export function EntryPage(props: EntryPageProps) {
       setReviewing(false);
       props.onSubmitted?.(row_id);
     } catch (e) {
+      close(false);
       setError(e instanceof Error ? e.message : 'could not submit');
     } finally {
       inFlight.current = false;

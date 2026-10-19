@@ -79,7 +79,7 @@ export function SuperForm({
   // The entry as the page opened: a later sync re-reading the rows must not reset the form.
   const existing = useRef(practice ? undefined : team.entry).current;
   const draftKey = superDraftKey(formVersionId, team.id);
-  const { draft, loaded, savedAt, save } = useDraft(draftKey);
+  const { draft, loaded, savedAt, save, close } = useDraft(draftKey);
   const [fields, setFields] = useState<FormFieldDefinition[]>([]);
   const [data, setData] = useState<Record<string, unknown>>({});
   const [reviewing, setReviewing] = useState(false);
@@ -143,6 +143,8 @@ export function SuperForm({
     }
     inFlight.current = true;
     setSubmitting(true);
+    // From here the draft is the submit's to clear: nothing writes it back (UF.23).
+    close(true);
     try {
       const { row_id } = await submitEntry({
         fields,
@@ -163,6 +165,7 @@ export function SuperForm({
       setReviewing(false);
       onSubmitted(row_id);
     } catch (e) {
+      close(false);
       setError(e instanceof Error ? e.message : 'could not submit');
     } finally {
       inFlight.current = false;

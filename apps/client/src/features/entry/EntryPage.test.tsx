@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,6 +6,8 @@ import type { CachedRow } from '@/data/db';
 import { db } from '@/data/db';
 import { pending } from '@/data/outbox';
 import { EntryPage } from './EntryPage';
+import { matchClock } from './matchClock';
+import { stopwatches } from './stopwatches';
 
 const field = (over: Record<string, unknown>) =>
   ({
@@ -1017,6 +1019,55 @@ describe('the entry form rules (1.36)', () => {
     await user.click(screen.getByRole('button', { name: /review entry/i }));
     await user.click(await screen.findByRole('button', { name: /submit entry/i }));
     await waitFor(() => expect(onSubmitted).toHaveBeenCalledOnce());
+  });
+
+  it('keeps writing the draft after a submit that failed (UF.23)', async () => {
+    // submitEntry's backstop refuses: the device already holds an entry for this robot.
+    await db.rows.put({
+      entity: 'scouting_entries',
+      id: 'e-other',
+      event_id: 'ev-1',
+      form_kind: 'match',
+      match_id: 'm-1',
+      team_id: 't-1',
+      deleted_at: null,
+    } as unknown as CachedRow);
+    const user = await played();
+    const key = `${props.formVersionId}:${props.matchId}:${props.teamId}`;
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    await user.click(await screen.findByRole('button', { name: /submit entry/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/already an entry/);
+    await user.click(screen.getByRole('button', { name: /keep editing/i }));
+    await user.click(screen.getByRole('button', { name: 'Auto notes plus one' }));
+    await waitFor(async () =>
+      expect((await db.drafts.get(key))?.payload.data).toEqual({ auto_notes: 1 }),
+    );
+  });
+
+  it('writes no draft back after a submit, from a timer or a phase tab (UF.23)', async () => {
+    const onSubmitted = vi.fn();
+    const user = await played({ onSubmitted });
+    const key = `${props.formVersionId}:${props.matchId}:${props.teamId}`;
+    act(() => matchClock.start());
+    await waitFor(async () => expect(await db.drafts.get(key)).toBeDefined());
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    await user.click(await screen.findByRole('button', { name: /submit entry/i }));
+    await waitFor(() => expect(onSubmitted).toHaveBeenCalledOnce());
+    expect(await db.drafts.get(key)).toBeUndefined();
+
+    // The page is still on screen for a moment: the route leaves in a transition.
+    try {
+      act(() => {
+        matchClock.reset();
+        stopwatches.start('climb_time', 1);
+      });
+      await user.click(screen.getByRole('tab', { name: 'Teleop' }));
+      await new Promise((done) => setTimeout(done, 50));
+      expect(await db.drafts.get(key)).toBeUndefined();
+    } finally {
+      matchClock.reset();
+      stopwatches.resetAll();
+    }
   });
 });
 

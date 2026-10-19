@@ -142,6 +142,22 @@ async function start(page: Page) {
   await expect(sheet).toBeHidden();
 }
 
+/** How many drafts the device holds (the real store, not the practice one). */
+function draftCount(page: Page): Promise<number> {
+  return page.evaluate(
+    () =>
+      new Promise<number>((resolve, reject) => {
+        const open = indexedDB.open('robactive-scouting');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const count = open.result.transaction('drafts').objectStore('drafts').count();
+          count.onsuccess = () => resolve(count.result);
+          count.onerror = () => reject(count.error);
+        };
+      }),
+  );
+}
+
 /** Taps the plus of the `nth` "Pieces scored …" counter on screen `times` times. */
 async function tap(page: Page, label: string, times: number) {
   for (let i = 0; i < times; i++) {
@@ -200,6 +216,71 @@ test('draft recovery: the unfinished entry on Scout, Discard with Undo, and Resu
   await page.getByRole('button', { name: 'Resume' }).click();
   await expect(page.getByRole('tab', { name: 'Teleop', selected: true })).toBeVisible();
   await expect(page.getByLabel('Pieces scored high value').first()).toHaveText('4');
+});
+
+test('draft recovery: several unfinished entries, one at a time, and one that cannot open (UF.23)', async ({
+  page,
+}) => {
+  test.slow();
+  await start(page);
+
+  // Two entries left unfinished: Q40 · 1943 first, then Q39 · 2630.
+  for (const [match, team] of [
+    [40, 1943],
+    [39, 2630],
+  ] as const) {
+    await page.goto(`/entry/${matchId(match)}/${teamId(team)}?alliance=red`);
+    await page.getByRole('radio', { name: 'Played' }).click();
+    await tap(page, 'Pieces scored high', 1);
+    await expect(page.getByText(/Draft saved on this device · 11:4\d/)).toBeVisible();
+    // The line shows as the write starts; the next page load must not cut the write short.
+    await expect.poll(() => draftCount(page)).toBe(match === 40 ? 1 : 2);
+  }
+
+  // The newest on offer, and how many more wait behind it.
+  await page.goto('/scout');
+  const offer = page.getByRole('region', { name: 'Unfinished entry' });
+  await expect(offer).toContainText(/Q39 · 2630 .+, Red 1/);
+  await expect(offer).toContainText('… and 1 more unfinished entry');
+  await bothThemes(page, 'scout-draft-more');
+
+  // Discard takes the one shown; the next takes its place, and the last Discard ends it.
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.getByRole('button', { name: 'Discard' }).click();
+  await expect(offer).toContainText(/Q40 · 1943 .+, Red 1/);
+  await expect(offer).not.toContainText('more unfinished');
+  await page.getByRole('button', { name: 'Discard' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Draft discarded' })).toBeVisible();
+  await expect(offer).toBeHidden();
+
+  // A draft for a match this device no longer holds: offered, said so, and Discard only.
+  await page.evaluate(
+    (record) =>
+      new Promise<void>((resolve, reject) => {
+        const open = indexedDB.open('robactive-scouting');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const tx = open.result.transaction('drafts', 'readwrite');
+          tx.objectStore('drafts').put(record);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        };
+      }),
+    {
+      key: `${FORM.version_id}:0000000d-0000-4000-8000-000000000999:${teamId(1690)}`,
+      row_id: '',
+      payload: { robot_status: 'played', data: {}, alliance: 'blue' },
+      updated_at: AT.toISOString(),
+    },
+  );
+  await page.goto('/scout');
+  await expect(offer).toContainText('a match no longer on this device');
+  await expect(offer).toContainText('It can no longer be opened here.');
+  await expect(offer.getByRole('button', { name: 'Resume' })).toHaveCount(0);
+  await bothThemes(page, 'scout-draft-gone');
+  await page.setViewportSize({ width: 375, height: 812 });
+  await offer.getByRole('button', { name: 'Discard' }).click();
+  await expect(offer).toBeHidden();
 });
 
 test('practice: the strip, the real form saving nothing, and Practice finished', async ({
