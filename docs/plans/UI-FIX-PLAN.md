@@ -345,10 +345,10 @@ One fix agent for all six, reviewed, then a PR into `develop`. Departures go in 
 # UI fix round 3 — Phase 1 E on a phone (UF.22–UF.26)
 
 **Input:** the user's notes from testing Phase 1 E on dev (2026-10-20), and their answers the same
-day (review = read-only mini maps; paths = drag to draw + tap; dark theme → spec §24; path limit
+day (review = a compact row + Tap to view opening a view-only map, no field picture; paths = drag to draw + tap; dark theme → spec §24; path limit
 10, not 20). **Spec:** living spec v0.82, SPEC-FINAL v1.30 §8.2, §8.5.
 **Binding:** `docs/ops/BUILD-CONTEXT.md`. Branch `fix/round-3`, cut from `develop` (`3dcb6f1`).
-Looks: `docs/design/pages/14-entry-parts/final/` plus the round-3 review mockup (UF.24).
+Looks: `docs/design/pages/14-entry-parts/final/` plus the round-3 review mockup (UF.24; its view-only map is approved, its mini-map pictures are not — see UF.24).
 One fix agent per item, in order, reviewed by the orchestrator; one commit per item; then a PR into
 `develop`. Phase 1 F (PR #34) merges after this, and its branch takes `develop`'s changes then
 (conflicts resolved there). Departures go in `DEVIATIONS.md`.
@@ -359,7 +359,7 @@ One fix agent per item, in order, reviewed by the orchestrator; one commit per i
 |---|---|---|---|---|---|
 | UF.22 Q50 twice on Home | ☐ | ☐ | ☐ | ☐ | ☐ |
 | UF.23 Draft notice that will not go | ☐ | ☐ | ☐ | ☐ | ☐ |
-| UF.24 Review: mini maps and event list | ☐ | ☐ | ☐ | ☐ | ☐ |
+| UF.24 Review: map fields open view only | ☐ | ☐ | ☐ | ☐ | ☐ |
 | UF.25 Drag to draw a path | ☐ | ☐ | ☐ | ☐ | ☐ |
 | UF.26 Practice reviews before it finishes | ☐ | ☐ | ☐ | ☐ | ☐ |
 | Ship: full suite, PR into `develop` | — | — | — | ☐ | ☐ |
@@ -386,12 +386,17 @@ Already done (no code): dev match form v4's `auto_path` limit 6 → 10, in place
   one shown; Undo still restores it.
 - Check the clock/stopwatch listener cannot write a draft back after a submit or a Discard.
 
-## UF.24 — Review entry shows map fields and the event log properly
-- In the confirmation (`ConfirmEntry`, also the super confirmation), a **position or cycle-path
-  field shows a read-only mini map** of its marks in the scout's own orientation; tapping it opens
-  the map read-only (no Undo, no Clear, no adding). An **event log lists each event with its time**
-  ("Scored high · 0:12"), and its mini map when it asks where.
-- One mockup first (UF.24 design), approved by the user before code.
+## UF.24 — Review entry: map fields open a view-only map
+- **Approved 2026-10-20 with one change (user):** no picture of the field in the confirmation —
+  "too big on a large form; keep it easy on the scouters". Each map field (position, cycle path,
+  event log) is one compact row like any other: the name, what it holds in the **map button's own
+  words** ("1 spot", "2 paths · 9 spots", "5 events · 4 on the map") and **Tap to view** /
+  **Click to view** (the whole row is the target). An empty one stays a plain row with "—".
+- Tapping opens the map **view only**, as drawn in
+  `docs/design/pages/14-entry-parts/round-3/review-maps-phone.png` frame 3: no Undo, Clear,
+  Remove or adding; a "View only" tag; an event log's spots numbered in event order and listed as
+  chips with their times ("no place" when skipped); a secondary **Close**. Same on a computer as
+  the map dialog. Also in the super confirmation.
 - Keep the map chunk lazy (initial-JS budget is 219.8 of 220 KB; raise it only if needed, logged).
 
 ## UF.25 — A cycle path can be drawn by dragging

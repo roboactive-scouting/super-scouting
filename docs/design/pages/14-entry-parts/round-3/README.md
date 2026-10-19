@@ -24,3 +24,10 @@ Data: Q39 · 2630 Thunderbolts, Red 1, fields from the dev test form. The map is
 - **Empty map field.** A field with nothing marked stays a plain row with "—", as today, with no mini map. Shooting position is drawn this way.
 - **Data choice.** Defended (1:05) was drawn without a place, to show that case. The other four events have spots.
 - Everything else on the sheet is unchanged: the title, the match line with its tag, the 10-minute line, Status, phase headings, value rows, and Keep editing / Submit entry.
+
+
+## Decided 2026-10-20 (user)
+
+- **Approved without the mini-map pictures.** "Too big on a large form; keep it easy on the scouters." Each map field in the confirmation is a compact row: name, count, **Tap to view** (no picture). Frames 1–2 and the desktop image are therefore **not** the target for those rows; the images were deliberately not re-rendered.
+- **The view-only map (phone frame 3) is approved as drawn.**
+- **Wording: the form's map-button words** — "spot(s)", "path(s)", "events · n on the map".

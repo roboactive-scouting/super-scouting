@@ -2,7 +2,7 @@
 
 **Version:** 1.30 · **Date:** 2026-10-20 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
 
-*v1.30 (UI fix round 3): a cycle path can be drawn by dragging (§8.2), the confirmation shows map fields as read-only mini maps and the event log as a timed list (§8.2), and practice reviews before it finishes (§8.5). Numbered after Phase 1 F's v1.26–v1.29, which reach `develop` with that phase. See the living spec's §21, 2026-10-20 (v0.82).*
+*v1.30 (UI fix round 3): a cycle path can be drawn by dragging (§8.2), the confirmation shows each map field as a compact row with Tap to view, opening the map view only (§8.2), and practice reviews before it finishes (§8.5). Numbered after Phase 1 F's v1.26–v1.29, which reach `develop` with that phase. See the living spec's §21, 2026-10-20 (v0.82).*
 
 *v1.25 adds the Settings page (§8.6, §17.9). See the living spec's §21, 2026-10-09 (v0.76).*
 
@@ -936,7 +936,7 @@ If a super entry for that (team, event) already exists on the device, the app op
 - **Hard range block** on submit: a numeric value outside its field's `expected_range` blocks submission (§15.1). Unanswered **required** fields block it too. Review entry then lists every blocking problem with its phase and a **Go to** link instead of the confirmation *(v1.23)*.
 - **Undo** is available on every repeatable input: counters, event-log taps, position-picker points (undo last point / clear all), multi-select, and timer reset.
 - **Map fields** (position picker, cycle path, and an event log that asks where) are one button in the form showing what is marked. It opens the map **full screen on a phone** and **as a dialog on a computer**, drawn with **the scout's own alliance end at the bottom** (phone) or on the left (computer); only the drawing turns, never the stored coordinates. Tap to add; tap a mark to select it and **✕ Remove** it; Undo. **On a cycle path, a drag draws the route freehand** *(v1.30)*: the stroke is simplified to at most the field's `max_points_per_cycle` points, keeping its shape, and stored exactly as tapped points are; a tap still adds one point. A cycle path shows only the routes: while drawing, **Clear path** restarts the path being drawn. An event log's "where?" can be skipped, keeping the tap's time. *(added 2026-10-08, v1.20)*
-- **Explicit submit.** Submitting shows a **confirmation summary of the whole entry** before it commits. Nothing reaches the shared data on a stray tap. *(v1.30)* In the summary, a **map field shows a read-only mini map** of its marks (tapping it opens the map read-only), and an **event log lists each event with its time**.
+- **Explicit submit.** Submitting shows a **confirmation summary of the whole entry** before it commits. Nothing reaches the shared data on a stray tap. *(v1.30)* In the summary, a **map field** (position, cycle path, an event log) is one compact row: its name, what it holds in the form's own words ("1 spot", "2 paths · 9 spots", "5 events · 4 on the map") and **Tap to view**, which opens the map **view only** (no tools; an event log's spots numbered and listed with their times). No picture of the field in the summary, so a long form stays short.
 
 ### 8.3 Never lose data
 
