@@ -357,7 +357,7 @@ One fix agent per item, in order, reviewed by the orchestrator; one commit per i
 
 | Item | Investigate | Fix + tests | Screens | Verified | Committed |
 |---|---|---|---|---|---|
-| UF.22 Q50 twice on Home | ☐ | ☐ | ☐ | ☐ | ☐ |
+| UF.22 Q50 twice on Home | ☑ | ☑ | ☑ | ☑ | ☑ |
 | UF.23 Draft notice that will not go | ☐ | ☐ | ☐ | ☐ | ☐ |
 | UF.24 Review: map fields open view only | ☐ | ☐ | ☐ | ☐ | ☐ |
 | UF.25 Drag to draw a path | ☐ | ☐ | ☐ | ☐ | ☐ |

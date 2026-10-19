@@ -7,6 +7,11 @@ export type CoverageState = 'full' | 'gap' | 'none';
  * all, 'full' = an entry for every slotted team, otherwise 'gap'. `scouted` = how many
  * robots of the match have an entry (UF.21: "Q12 · 4 scouted"). Deleted entries and
  * non-match forms do not count.
+ *
+ * One square per match NUMBER, not per row (UF.22): a device that made a match twice before
+ * that fix holds two rows for it until both push and the server merges them. Their robots are
+ * merged, judged against the line-up of whichever copy has one; the square names the copy with
+ * a line-up, else the first.
  */
 export function coverage(
   matches: { id: string; type: string; number: number }[],
@@ -32,17 +37,25 @@ export function coverage(
     if (list) list.push(s);
     else slotsByMatch.set(s.match_id, [s]);
   }
-  return matches
-    .filter((m) => m.type === 'qualification')
-    .sort((a, b) => a.number - b.number)
-    .map((m) => {
-      const teams = scouted.get(m.id);
+  /** Qualification number → the ids of every row this device holds for it, in input order. */
+  const copies = new Map<number, string[]>();
+  for (const m of matches) {
+    if (m.type !== 'qualification') continue;
+    const ids = copies.get(m.number);
+    if (ids) ids.push(m.id);
+    else copies.set(m.number, [m.id]);
+  }
+  return [...copies]
+    .sort(([a], [b]) => a - b)
+    .map(([number, ids]) => {
+      const lined = ids.find((id) => slotsByMatch.has(id));
+      const matchSlots = lined ? slotsByMatch.get(lined)! : [];
+      const teams = new Set(ids.flatMap((id) => [...(scouted.get(id) ?? [])]));
       let state: CoverageState = 'gap';
-      if (!teams) state = 'none';
-      else {
-        const matchSlots = slotsByMatch.get(m.id) ?? [];
-        if (matchSlots.length > 0 && matchSlots.every((s) => teams.has(s.team_id))) state = 'full';
+      if (teams.size === 0) state = 'none';
+      else if (matchSlots.length > 0 && matchSlots.every((s) => teams.has(s.team_id))) {
+        state = 'full';
       }
-      return { matchId: m.id, number: m.number, state, scouted: teams?.size ?? 0 };
+      return { matchId: lined ?? ids[0]!, number, state, scouted: teams.size };
     });
 }

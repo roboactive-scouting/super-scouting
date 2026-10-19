@@ -267,12 +267,17 @@ describe('SelectRobotPage: a match with no line-up (SPEC-FINAL 8.1, 6.4)', () =>
 
   it('creates only one match when the same unknown number is chosen twice', async () => {
     const user = userEvent.setup();
-    renderScout();
+    const { unmount } = renderScout();
     await typeMatch(user, '9');
     await startWith(user, /118/);
     // Wait for the page's own render to see the match as known — not just for the write.
     await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
 
+    // Start navigated away, so the next robot is chosen on a fresh visit to Scout (UF.22: the
+    // page that started an entry takes no second start while it leaves).
+    unmount();
+    renderScout();
+    await typeMatch(user, '9');
     await startWith(user, /254/);
     await waitFor(() => expect(navigate).toHaveBeenCalledTimes(2));
     expect(await pending(10)).toHaveLength(1);
@@ -530,5 +535,148 @@ describe('SelectRobotPage: a robot this device already scouted (SPEC-FINAL 8.1, 
     renderScout();
     await typeMatch(user, '5');
     expect(await tile()).not.toHaveTextContent(/Scouted/);
+  });
+});
+
+/*
+ * UF.22: a phone held two Q50 match rows, both made on the device, and Home drew Q50 twice.
+ * Every way in: a tap that lands on the Scout page after the first start has finished but before
+ * the page has left or re-read the device; a match made elsewhere (another tab or window of the
+ * app) that this page has not re-read; and two copies already on a device.
+ */
+describe('SelectRobotPage: one match per number on a device (UF.22)', () => {
+  const q50Rows = async () =>
+    (await db.rows.where('entity').equals('matches').toArray()).filter(
+      (m) => m.match_type === 'qualification' && m.number === 50,
+    );
+
+  beforeEach(() => setStation('R2'));
+
+  it('a second tap after the first start has finished, before the page leaves, makes no second match', async () => {
+    const user = userEvent.setup();
+    renderScout();
+    await typeMatch(user, '50');
+    await user.click(await screen.findByRole('radio', { name: /118/ }));
+    const start = screen.getByRole('button', { name: /start entry/i });
+    // The router commits the navigation in a transition, so the Scout page is still on screen
+    // for a moment after `navigate`: the next tap lands on it, after `start` has finished but
+    // before the page has re-read the device.
+    let again: Promise<void> | undefined;
+    navigate.mockImplementationOnce(() => {
+      again = (async () => {
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+        fireEvent.click(start);
+      })();
+    });
+    fireEvent.click(start);
+    await waitFor(() => expect(navigate).toHaveBeenCalledTimes(1));
+    await again;
+    await waitFor(async () => expect(await pending(10)).toHaveLength(1));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await q50Rows()).toHaveLength(1);
+    expect(await pending(10)).toHaveLength(1);
+  });
+
+  it('a match made elsewhere since this page read the device is used, not made again', async () => {
+    const user = userEvent.setup();
+    renderScout();
+    await typeMatch(user, '50');
+    expect(await screen.findByRole('status')).toHaveTextContent(/not on this device yet/i);
+    // Another tab or window of the app made Q50: this page is not told (notifyChanged is per tab).
+    await db.rows.put({
+      entity: 'matches',
+      id: 'm-other-tab',
+      event_id: 'ev-1',
+      match_type: 'qualification',
+      number: 50,
+    });
+    await startWith(user, /118/);
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith('/entry/m-other-tab/t-1?alliance=red'),
+    );
+    expect(await q50Rows()).toHaveLength(1);
+    expect(await pending(10)).toHaveLength(0);
+  });
+
+  describe('two copies of Q50 already on a device', () => {
+    const copy = (id: string, at: string) => ({
+      entity: 'matches' as const,
+      id,
+      event_id: 'ev-1',
+      match_type: 'qualification',
+      number: 50,
+      updated_at: at,
+    });
+    const entryOn = (matchId: string) => ({
+      entity: 'scouting_entries' as const,
+      id: 'e-50',
+      event_id: 'ev-1',
+      form_kind: 'match',
+      form_version_id: 'fv-1',
+      match_id: matchId,
+      team_id: 't-1',
+      alliance: 'red',
+      scouter_id: 'u-1',
+      robot_status: 'played',
+      breakdown_seconds: null,
+      data: {},
+      client_created_at: new Date().toISOString(),
+      deleted_at: null,
+    });
+
+    beforeEach(async () => {
+      await db.rows.bulkPut([
+        copy('m-50a', '2026-10-20T10:00:00.000Z'),
+        copy('m-50b', '2026-10-20T10:05:00.000Z'),
+      ]);
+    });
+
+    it('a robot scouted on either copy is offered as that entry, never a second one', async () => {
+      // Whichever copy the page settles on, the entry on the other one still counts.
+      for (const matchId of ['m-50a', 'm-50b']) {
+        await db.rows.put(entryOn(matchId));
+        navigate.mockClear();
+        const user = userEvent.setup();
+        const { unmount } = renderScout();
+        await typeMatch(user, '50');
+        await user.click(await screen.findByRole('radio', { name: /118/ }));
+        expect(await screen.findByText(/already scouted in this match/)).toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: /edit the existing entry/i }));
+        await waitFor(() =>
+          expect(navigate).toHaveBeenCalledWith(`/entry/${matchId}/t-1?alliance=red`),
+        );
+        unmount();
+      }
+      expect(await q50Rows()).toHaveLength(2);
+      expect(await pending(10)).toHaveLength(0);
+    });
+
+    it('a new robot starts on one of the copies and makes no third', async () => {
+      const user = userEvent.setup();
+      renderScout();
+      await typeMatch(user, '50');
+      await startWith(user, /254/);
+      await waitFor(() => expect(navigate).toHaveBeenCalledWith('/entry/m-50a/t-2?alliance=red'));
+      expect(await q50Rows()).toHaveLength(2);
+      expect(await pending(10)).toHaveLength(0);
+    });
+
+    it('works on the copy that has a line-up, so the tiles still show', async () => {
+      await db.rows.put({
+        entity: 'match_teams',
+        id: 'mt-50',
+        match_id: 'm-50b',
+        alliance: 'red',
+        station: 2,
+        team_id: 't-2',
+      });
+      const user = userEvent.setup();
+      renderScout();
+      await typeMatch(user, '50');
+      expect(await screen.findByRole('radio', { name: /YOUR STATION/ })).toBeChecked();
+      await user.click(screen.getByRole('button', { name: /Start entry · 254/ }));
+      await waitFor(() => expect(navigate).toHaveBeenCalledWith('/entry/m-50b/t-2?alliance=red'));
+      expect(await pending(10)).toHaveLength(0);
+    });
   });
 });

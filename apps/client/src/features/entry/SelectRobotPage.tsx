@@ -74,16 +74,24 @@ export function SelectRobotPage({ eventId, author }: { eventId: string; author: 
   );
   const canStart = chosen !== undefined && !(practice && !existing);
 
-  /** One tap, one bare match and one outbox operation, however fast the second tap comes. */
+  /**
+   * One tap, one bare match and one outbox operation, however fast the second tap comes. The
+   * router commits a navigation in a transition, so this page stays on screen for a moment after
+   * `navigate`: the guard stays up once it has navigated (UF.22), and drops only on a failure.
+   */
   function start() {
     if (!chosen || !canStart || starting.current) return;
     starting.current = true;
     const { team, entry } = chosen;
-    // Editing keeps the alliance the entry was recorded with.
+    // Editing keeps the alliance the entry was recorded with, and opens the entry's own match
+    // (on a device holding two copies of a match, UF.22, it may be the other copy).
     const side = entry?.alliance ?? chosen.side;
-    ensureMatchLocally(existing, { eventId, matchType, number: parsed, author })
+    const opened = entry?.match_id
+      ? Promise.resolve(entry.match_id)
+      : ensureMatchLocally(existing, { eventId, matchType, number: parsed, author });
+    opened
       .then((matchId) => navigate(entryPath(matchId, team.id, side)))
-      .finally(() => {
+      .catch(() => {
         starting.current = false;
       });
   }

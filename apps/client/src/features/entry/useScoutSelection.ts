@@ -3,6 +3,7 @@ import { useDeviceQuery } from '@/data/useDeviceQuery';
 import { cachedRows } from '@/data/cache';
 import { getStation, type Station } from '@/data/station';
 import { stationOf, type LineupSlot } from '@/lib/derive/entries';
+import { copiesOf } from './bareMatch';
 import { lineupTiles, type Tile } from './LineupTiles';
 import {
   canSelfEdit,
@@ -22,7 +23,13 @@ import {
   type TeamLite,
 } from './scoutChoice';
 
-type MatchRow = { id: string; event_id: string; match_type: string; number: number };
+type MatchRow = {
+  id: string;
+  event_id: string;
+  match_type: string;
+  number: number;
+  updated_at?: string;
+};
 type RosterRow = { event_id: string; team_id: string; deleted_at: string | null };
 
 /** Everything the page reads, in one pass from IndexedDB, so it is never half-loaded. */
@@ -77,18 +84,21 @@ export function useScoutSelection(
   const valid = Number.isInteger(parsed) && parsed > 0;
   const key = `${matchType}:${parsed}`;
   const stationKey = `${key}:${station ?? ''}`;
-  const existing = valid
-    ? data.matches.find((m) => m.match_type === matchType && m.number === parsed)
-    : undefined;
+  // Normally one row. A device that made a duplicate before UF.22 holds two: the page works on
+  // the one with a line-up, else the older (ensureMatchLocally keeps the copy it is handed), and
+  // an entry on either copy counts as scouted.
+  const copies = valid ? copiesOf(data.matches, { eventId, matchType, number: parsed }) : [];
+  const existing = copies.find((m) => data.slots.some((s) => s.match_id === m.id)) ?? copies[0];
+  const copyIds = new Set(copies.map((m) => m.id));
 
   // A robot this device already holds an entry for, in this match, is never offered for a
   // second one (SPEC-FINAL 8.1): it opens the existing entry while the self-edit window
   // (7.6) is open, and is shown locked after it. Cross-device duplicates stay with 9.5.
   const now = new Date();
   const scouted = new Map(
-    existing
-      ? data.entries.filter((e) => e.match_id === existing.id).map((e) => [e.team_id, e])
-      : [],
+    data.entries
+      .filter((e) => e.match_id !== null && copyIds.has(e.match_id))
+      .map((e) => [e.team_id, e]),
   );
   const doneOf = (teamId: string): Tile['done'] => {
     const entry = scouted.get(teamId);
