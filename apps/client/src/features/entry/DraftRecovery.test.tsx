@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -425,14 +425,33 @@ describe('practice on the real form (SPEC-FINAL 8.5)', () => {
     expect(await db.rows.where('entity').equals('matches').count()).toBe(2);
   });
 
-  it('says it is not saved, and Finish practice ends in a sheet that sends nothing', async () => {
+  /** Finish practice on the page, then on the confirmation it opens (UF.26). */
+  async function finish(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole('button', { name: 'Finish practice' }));
+    const confirm = await screen.findByRole('dialog', { name: 'Confirm this entry' });
+    await user.click(within(confirm).getByRole('button', { name: 'Finish practice' }));
+    return confirm;
+  }
+
+  it('says it is not saved, and Finish practice reviews, then ends in a sheet that sends nothing', async () => {
     const user = await practise();
     expect(screen.getByText('Practice · not saved')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /review entry/i })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Finish practice' }));
 
+    // The same confirmation as a real entry: its button reads Finish practice and the window
+    // line is the practice line (UF.26); nothing is submitted by opening it.
+    const confirm = await screen.findByRole('dialog', { name: 'Confirm this entry' });
+    expect(confirm).toHaveTextContent('Practice · nothing is saved or sent.');
+    expect(confirm).not.toHaveTextContent(/You can still edit it/);
+    expect(within(confirm).queryByRole('button', { name: 'Submit entry' })).not.toBeInTheDocument();
+    expect(within(confirm).getByRole('button', { name: 'Keep editing' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Practice finished' })).not.toBeInTheDocument();
+    await user.click(within(confirm).getByRole('button', { name: 'Finish practice' }));
+
     const sheet = await screen.findByRole('dialog', { name: 'Practice finished' });
     expect(sheet).toHaveTextContent('Nothing was saved or sent.');
+    expect(screen.queryByRole('dialog', { name: 'Confirm this entry' })).not.toBeInTheDocument();
     expect(await pending(10)).toHaveLength(0);
     expect(await db.rows.where('entity').equals('scouting_entries').count()).toBe(0);
     // Its draft went to the practice store, never to the real one.
@@ -440,9 +459,46 @@ describe('practice on the real form (SPEC-FINAL 8.5)', () => {
     expect(await db.practiceDrafts.count()).toBe(1);
   });
 
-  it('Exit practice leaves practice, empties the practice store and returns to Scout', async () => {
+  it('Keep editing goes back to the form with nothing finished', async () => {
     const user = await practise();
     await user.click(screen.getByRole('button', { name: 'Finish practice' }));
+    const confirm = await screen.findByRole('dialog', { name: 'Confirm this entry' });
+    await user.click(within(confirm).getByRole('button', { name: 'Keep editing' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Confirm this entry' })).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByRole('dialog', { name: 'Practice finished' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Finish practice' })).toBeInTheDocument();
+    expect(await pending(10)).toHaveLength(0);
+  });
+
+  it('opens the problems list when something blocks, not the confirmation (UF.26)', async () => {
+    await db.rows.put(
+      field({
+        id: 'f3',
+        key: 'reliability',
+        label: 'Auto reliability',
+        type: 'rating',
+        display_order: 0,
+        phase: 'auto',
+        unit: 'count',
+        required: true,
+        config: { max: 5, style: 'stars' },
+      }),
+    );
+    const user = await practise();
+    await user.click(screen.getByRole('button', { name: 'Finish practice' }));
+    const dialog = await screen.findByRole('dialog', { name: '1 thing to fix first' });
+    expect(dialog).toHaveTextContent(/Auto reliabilitys*Autonomous · required, not answered/);
+    expect(screen.queryByRole('dialog', { name: 'Confirm this entry' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Practice finished' })).not.toBeInTheDocument();
+    expect(await pending(10)).toHaveLength(0);
+    expect(await db.rows.where('entity').equals('scouting_entries').count()).toBe(0);
+  });
+
+  it('Exit practice leaves practice, empties the practice store and returns to Scout', async () => {
+    const user = await practise();
+    await finish(user);
     await screen.findByRole('dialog', { name: 'Practice finished' });
     await user.click(screen.getByRole('button', { name: 'Exit practice' }));
 

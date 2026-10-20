@@ -7698,3 +7698,23 @@ Rejected: a drag at the limit finishing the path and starting the next (a drag a
 **What I did instead:** `simplify.ts` is imported only by `CyclePathInput` and `MapSheet`, both in `timedParts`. `pnpm bundle:check`: `initial JS 221.2 KB gzip` (unchanged); `timedParts` 10.8 → 12.0 KB. `BUDGET_KB` unchanged at 222.
 
 **Risk:** none.
+
+## UF.26 — The super confirmation in practice drops its "Submit the super entry?" title
+
+**Plan said:** in practice the confirmation is the same `ConfirmEntry`; its primary button reads Finish practice and its edit-window line is "Practice · nothing is saved or sent."; the same for a super entry in practice.
+
+**What was wrong:** nothing in the plan covers the sheet's title. The super entry passes `title="Submit the super entry?"`, which over a Finish practice button says the wrong thing.
+
+**What I did instead:** `SuperForm` passes that title only outside practice; in practice the sheet takes `ConfirmEntry`'s default "Confirm this entry", like the match entry's. The summary line under it still names the team and the event. The match entry's title is unchanged. `ConfirmEntry` gains one prop, `practice`; `EntryPage` and `SuperForm` open the confirmation on Review (practice or not) and, on its primary button, either commit or — in practice — close it and open the "Practice finished" sheet, so `commit()` and `submitEntry` are never reached in practice. The 1.37 test "Finish practice ends in a sheet" now clicks through the confirmation (its assertions are unchanged); "Exit practice…" does the same. Added: Keep editing from the practice confirmation, a required field opening the problems list (match and super), the super variant through to the sheet with `pending(10)` empty, no `scouting_entries` row of the super kind and no draft in `db.drafts`.
+
+**Risk:** none known. Initial JS 221.2 → 221.3 KB gzip of 222; `BUDGET_KB` unchanged.
+
+## UF.26 — ship: the draft-recovery e2e waits for the stored draft (orchestrator)
+
+**Plan said:** ship with the full suite green.
+
+**What was wrong:** the full e2e run failed `drafts-practice.spec.ts` "draft recovery: the unfinished entry on Scout, Discard with Undo, and Resume" with `getByRole('region', { name: 'Unfinished entry' })` … `element(s) not found`: the "Draft saved" line shows before IndexedDB has the write, and `page.goto('/scout')` cut it short under load (UF.23 named this race). It passed 3 of 3 alone. The same run failed `manage.spec.ts` "an event moves by its grip, by keyboard and by pointer" (`Expected: 1 Received: 0`), which failed 1 of 3 alone too: flaky before this round, untouched by it.
+
+**What I did instead:** the draft test polls the drafts store (`draftCount`, already in the file) before leaving the entry. The Manage flake is left as it is and reported to the user. Rejected: a fixed wait (hides the race instead of waiting on it).
+
+**Risk:** none for the app.

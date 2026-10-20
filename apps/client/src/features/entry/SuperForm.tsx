@@ -127,10 +127,16 @@ export function SuperForm({
     save({ form_kind: 'super', team_id: team.id, data: next });
   }
 
+  /** The same review in practice (UF.26): the problems, else the confirmation. */
   function review() {
-    if (!form.review()) return;
-    if (practice) setFinished(true);
-    else setReviewing(true);
+    if (form.review()) setReviewing(true);
+  }
+
+  /** The confirmation's primary button: a real submit, or — in practice — the end sheet. */
+  function confirmed() {
+    if (!practice) return void commit();
+    setReviewing(false);
+    setFinished(true);
   }
   const reviewLabel = practice ? 'Finish practice' : 'Review entry';
 
@@ -299,7 +305,7 @@ export function SuperForm({
       />
       <ConfirmEntry
         open={reviewing}
-        title="Submit the super entry?"
+        title={practice ? undefined : 'Submit the super entry?'}
         summary={
           <p className="text-ink-2">
             <b className="font-bold text-ink" dir="auto">
@@ -313,11 +319,12 @@ export function SuperForm({
         phases={form.phases}
         data={form.saved}
         windowApplies={!editsAnyTime(author) && !existing}
+        practice={practice}
         error={error}
         errorRef={errorRef}
         submitting={submitting}
         onBack={() => setReviewing(false)}
-        onSubmit={() => void commit()}
+        onSubmit={confirmed}
       />
       {practice && (
         <PracticeFinished open={finished} onClose={() => setFinished(false)} after={null} />

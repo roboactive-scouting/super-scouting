@@ -28,6 +28,9 @@ const ROW = 'flex items-baseline justify-between gap-4 border-t border-line-2 px
  * (`mapCount`) and Tap to view, the whole row one button; no picture of the field, so a long form
  * stays short. It opens the field's map view only (`MapFieldView`), over this sheet; Close puts
  * focus back on the row and the sheet is as it was. An empty one is a plain row with "—".
+ *
+ * In practice (UF.26; SPEC-FINAL 8.5) it is the same summary: the edit-window line is "Practice ·
+ * nothing is saved or sent." and the primary button reads Finish practice.
  */
 export function ConfirmEntry(props: {
   open: boolean;
@@ -50,6 +53,8 @@ export function ConfirmEntry(props: {
    * re-editing: the window runs from the entry's first save, so it is not "after submitting".
    */
   windowApplies: boolean;
+  /** Practice mode: the line says nothing is saved and the primary button is Finish practice. */
+  practice?: boolean;
   error: string | null;
   errorRef: RefObject<HTMLDivElement | null>;
   /** A submit is in flight: Submit is disabled so a second tap cannot write a second entry. */
@@ -129,8 +134,12 @@ export function ConfirmEntry(props: {
               {props.tag}
             </p>
           )}
-          {props.windowApplies && (
-            <p>You can still edit it for {MINUTES} minutes after submitting.</p>
+          {props.practice ? (
+            <p>Practice · nothing is saved or sent.</p>
+          ) : (
+            props.windowApplies && (
+              <p>You can still edit it for {MINUTES} minutes after submitting.</p>
+            )
           )}
         </div>
         <div className="overflow-hidden rounded-card border border-line bg-surface text-[0.84375rem]">
@@ -181,7 +190,7 @@ export function ConfirmEntry(props: {
               busy={props.submitting}
               onClick={props.onSubmit}
             >
-              Submit entry
+              {props.practice ? 'Finish practice' : 'Submit entry'}
             </Button>
           </div>
         </div>

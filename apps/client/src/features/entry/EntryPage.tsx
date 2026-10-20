@@ -183,12 +183,18 @@ export function EntryPage(props: EntryPageProps) {
 
   /**
    * Review entry: the confirmation, or — when anything holds it — the problems to fix first. In
-   * practice it is Finish practice: the same rules, then the "Practice finished" sheet (8.5).
+   * practice it is Finish practice: the same review, its confirm button Finish practice, then the
+   * "Practice finished" sheet (8.5; UF.26).
    */
   function review() {
-    if (!form.review()) return;
-    if (practice) setFinished(true);
-    else setReviewing(true);
+    if (form.review()) setReviewing(true);
+  }
+
+  /** The confirmation's primary button: a real submit, or — in practice — the end sheet. */
+  function confirmed() {
+    if (!practice) return void commit();
+    setReviewing(false);
+    setFinished(true);
   }
 
   /**
@@ -330,11 +336,12 @@ export function EntryPage(props: EntryPageProps) {
       phases={dead ? [] : phases}
       data={form.saved}
       windowApplies={!editsAnyTime(props.author) && !props.existing}
+      practice={practice}
       error={error}
       errorRef={errorRef}
       submitting={submitting}
       onBack={() => setReviewing(false)}
-      onSubmit={() => void commit()}
+      onSubmit={confirmed}
     />
   );
 

@@ -361,8 +361,8 @@ One fix agent per item, in order, reviewed by the orchestrator; one commit per i
 | UF.23 Draft notice that will not go | ☑ | ☑ | ☑ | ☑ | ☑ |
 | UF.24 Review: map fields open view only | ☑ | ☑ | ☑ | ☑ | ☑ |
 | UF.25 Drag to draw a path | ☑ | ☑ | ☑ | ☑ | ☑ |
-| UF.26 Practice reviews before it finishes | ☐ | ☐ | ☐ | ☐ | ☐ |
-| Ship: full suite, PR into `develop` | — | — | — | ☐ | ☐ |
+| UF.26 Practice reviews before it finishes | ☑ | ☑ | ☑ | ☑ | ☑ |
+| Ship: full suite, PR into `develop` | — | — | — | ☑ | ☑ |
 
 Already done (no code): dev match form v4's `auto_path` limit 6 → 10, in place (2026-10-20).
 

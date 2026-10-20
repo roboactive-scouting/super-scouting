@@ -181,6 +181,8 @@ test('draft recovery: the unfinished entry on Scout, Discard with Undo, and Resu
   await page.getByRole('tab', { name: 'Teleop' }).click();
   await tap(page, 'Pieces scored high', 4);
   await expect(page.getByText(/Draft saved on this device · 11:4\d/)).toBeVisible();
+  // The line shows before IndexedDB has the write; leaving now can cut it short (UF.23).
+  await expect.poll(() => draftCount(page)).toBe(1);
 
   // Next open of Scout: the Note at the top, the two cards at the foot.
   await page.goto('/scout');
@@ -305,9 +307,16 @@ test('practice: the strip, the real form saving nothing, and Practice finished',
   await expect(page.getByRole('button', { name: /review entry/i })).toHaveCount(0);
   await bothThemes(page, 'practice-entry');
 
-  // Finish practice: the form's own rules, then the sheet (a dialog on a computer).
+  // Finish practice: the same review as a real entry (UF.26), then the sheet (a dialog on a
+  // computer). The confirmation says nothing is saved and its button is Finish practice.
   await page.setViewportSize({ width: 375, height: 812 });
   await page.getByRole('button', { name: 'Finish practice' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Confirm this entry' });
+  await expect(confirm).toContainText('Practice · nothing is saved or sent.');
+  await expect(confirm.getByRole('button', { name: 'Submit entry' })).toHaveCount(0);
+  await bothThemes(page, 'practice-confirm');
+  await page.setViewportSize({ width: 375, height: 812 });
+  await confirm.getByRole('button', { name: 'Finish practice' }).click();
   const done = page.getByRole('dialog', { name: 'Practice finished' });
   await expect(done).toContainText('Nothing was saved or sent.');
   await bothThemes(page, 'practice-finished');
