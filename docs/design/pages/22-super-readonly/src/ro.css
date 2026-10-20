@@ -1,0 +1,35 @@
+/* Page 22, another scouter's super entry read only, final (variant B + names on the picker). Colours only from theme.css; classes ro-*.
+   Loads after 15-super/src/super.css and 14-entry-parts/src/parts.css. */
+.rov { stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+.ro-pad { padding: 12px 14px 20px; display: flex; flex-direction: column; gap: 12px; }
+
+/* the answers, as the confirmation draws them (ConfirmEntry, UF.24) */
+.ro-sum { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); overflow: hidden; font-size: 13.5px; }
+.ro-ph + .ro-ph { border-top: 1px solid var(--line-2); }
+.ro-ph h3 { margin: 0; padding: 12px 14px 4px; font-size: 12px; font-weight: 650; color: var(--muted); }
+.ro-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 14px; border-top: 1px solid var(--line-2); min-height: 44px; }
+.ro-ph h3 + .ro-row { border-top: 0; }
+.ro-row .n { color: var(--ink-2); }
+.ro-row .v { font-weight: 600; color: var(--ink); text-align: right; }
+.ro-row.long { flex-direction: column; align-items: stretch; gap: 3px; }
+.ro-row.long .v { text-align: left; font-weight: 500; line-height: 1.4; }
+.ro-row.map .v { display: flex; flex-direction: column; align-items: flex-end; }
+.ro-row.map small { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; font-weight: 650; color: var(--accent-ink); margin-top: 2px; }
+.ro-row.map small svg { width: 13px; height: 13px; }
+
+/* the Read only chip and whose entry it is */
+.ro-chip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: var(--radius-tag); background: var(--line-2); color: var(--ink-2); font-size: 11.5px; font-weight: 700; margin-left: auto; margin-right: 6px; }
+.ro-chip svg { width: 13px; height: 13px; }
+.ro-author { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 10px 12px; }
+.ro-author .av { width: 34px; height: 34px; border-radius: 50%; background: var(--line-2); color: var(--ink-2); display: grid; place-items: center; font-size: 12px; font-weight: 700; flex: none; }
+.ro-author b { display: block; font-size: 14.5px; font-weight: 650; }
+.ro-author small { display: block; font-size: 12px; color: var(--muted); }
+.ro-who { display: flex; align-items: center; gap: 6px; margin: -4px 2px 0; font-size: 12.5px; color: var(--muted); }
+.ro-who svg { width: 14px; height: 14px; }
+.su-li.ro-hl { box-shadow: 0 0 0 2px var(--accent); }
+.ro-note { margin: 0; font-size: 12.5px; color: var(--muted); }
+
+/* computer */
+.ro-dcard { overflow: auto !important; }
+.ro-dcard .ro-pad { padding: 14px 20px 20px; }

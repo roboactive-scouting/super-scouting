@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.34 · **Date:** 2026-10-20 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.35 · **Date:** 2026-10-20 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.35: another scouter's super entry opens as a quiet read-only page (the warning lock line is replaced, §7.6), and the super picker names who did each Done team (§8.1). See the living spec's §21, 2026-10-20 (v0.87).*
 
 *v1.34: the QR receiver's page (§9.8): frame cells, a done screen naming the author, sound and vibration, a damaged batch restarts. See the living spec's §21, 2026-10-20 (v0.86).*
 
@@ -907,7 +909,7 @@ Custom username/password authentication in the server use-case layer. **Supabase
 
 A scouter may edit their **own** entry for **5 minutes** after creating it. After that the row locks for them, and only a lead or admin can change it.
 
-**Super entries are exempt** *(v1.26, user, 2026-10-12)*: a scouter may edit their own super entry (§8.1) at any time during the event. A super entry is one running judgement of a team, built up over every match the scouter watches, not a record of one match, so locking it after five minutes defeats its purpose. The window below applies to `form_kind = 'match'` entries only, on the client and on the server; another scouter's super entry stays read-only to a scouter, as before. *(v1.32, user 2026-10-20)* **Read only means visible:** a scouter who opens another scouter's super entry sees the lock line ("… is locked — ask a lead to change it") **and the entry's answers by phase**, as the confirmation summary shows them (map fields open their map view only), with no control that edits. Leads and admins still edit any super entry at any time.
+**Super entries are exempt** *(v1.26, user, 2026-10-12)*: a scouter may edit their own super entry (§8.1) at any time during the event. A super entry is one running judgement of a team, built up over every match the scouter watches, not a record of one match, so locking it after five minutes defeats its purpose. The window below applies to `form_kind = 'match'` entries only, on the client and on the server; another scouter's super entry stays read-only to a scouter, as before. *(v1.32, user 2026-10-20)* **Read only means visible:** a scouter who opens another scouter's super entry sees *(v1.35: in place of the lock line)* a **Read only** chip, **whose entry it is** (the author, when it was started and last changed, and how many matches the author scouted the team in) with "Only *name*, a lead or an admin can change it.", **and the entry's answers by phase**, as the confirmation summary shows them (map fields open their map view only), with no control that edits. Leads and admins still edit any super entry at any time.
 
 - The window is measured from the entry's **`client_created_at`**, so it behaves identically offline and online.
 - The **client enforces it** by locking the UI at the 5-minute mark.
@@ -944,6 +946,8 @@ This is where 95% of usage happens: a student in a loud arena, phone in one hand
 If a super entry for that (team, event) already exists on the device, the app opens it for editing rather than starting a second one. The duplicate path of §9.5 exists for the case two devices create one independently.
 
 *Design (v1.24, `docs/design/pages/15-super/final/`):* reached from a **Super scouting** card on Scout. The picker shows a progress line ("6 of 20 super-scouted on this device"), search and **To do · Done · All** chips over the roster, to-do teams ordered by how many matches this device saw them in. The form's header names the team, the event, and the matches this device scouted the team in ("Seen here in Q12 · Q19…"); a reopened entry says so. The confirmation names the team and the event and says no match is recorded.
+
+*(v1.35)* **The super picker names who did each Done team:** the tag reads "✓ You 11:02" for the signed-in user's own entry and "✓ *first name* 10:40" for another scouter's (the entry's `scouter_id`; the time it was first saved). The progress count includes every super entry the device holds, whoever wrote it.
 
 ### 8.2 The entry form
 

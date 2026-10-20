@@ -219,6 +219,9 @@ Each page round adds a row here: what was picked, which page it came from, and t
 | Scanner screen | Full screen on `--rail`: head 16 px / 700 white with "Sound on" 12 px `--rail-ink` at the right; the camera (radius 14 px) with white 28 px aim corners; a 64 px ring (10 px stroke, `--accent` on `--rail-raised`, the count in mono 22 px over "of 11"); a 52 px outline-on-dark Done at the thumb. On a computer: camera left, a 140 px ring (`--accent` on `--line`) at the right | QR receive, 2026-10-20 |
 | Frame cells | One numbered cell per frame in an even grid, 22 px tall (26 px on a computer), radius 3, mono 11 px: missing `--rail-raised` (`--line` on light), collected `--accent` with white numbers | QR receive, 2026-10-20 |
 | Success screen | The whole screen turns `--accent`: a 96 px white circle with an `--accent` check, the line "Got it, Yael!" 30 px / 800 white, the count in mono 64 px, a 15 px `#d8efe5` detail line; the primary button turns white with `--accent-ink` text, a text-only white secondary under it | QR receive, 2026-10-20 |
+| Read only chip | 22 px `--line-2` tag, 11.5 px / 700 `--ink-2` with a 13 px eye icon, in a header before the SUPER tag. Never a warning: reading is not an error | Read-only super entry, 2026-10-20 |
+| Author card | White card: a 34 px `--line-2` initials circle, "Dana Mor’s entry" 14.5 px / 650 over a 12 px `--muted` line (started · last changed · seen in n matches); under the card a 12.5 px `--muted` line with a lock icon saying who can change it | Read-only super entry, 2026-10-20 |
+| Done-by tag | The super picker's Done tag with who: "✓ You 11:02" or "✓ Dana 10:40" (`--accent-tint`, `--accent-ink` 650) | Read-only super entry, 2026-10-20 |
 
 ## Open: decide during the page rounds
 
