@@ -8287,3 +8287,23 @@ Rejected: a drag at the limit finishing the path and starting the next (a drag a
 **What I did instead:** kept both sides everywhere, except the super self-edit test: develop's "shows a scouter their own super entry locked once its five-minute window has closed" is dropped, because SPEC-FINAL v1.26 §7.6 (in 1F) exempts super entries; 1F's "edit it an hour later" replaces it, and UF.23's test is kept. DraftRecovery reads live slots (1F) plus UF.23's entries, forms and fields. Spec headers take develop's newer version (v0.82 / v1.30) with 1F's notes under it; history rows newest first; DEVIATIONS keeps 1F's entries, then round 3's. `BUDGET_KB` 226 → 228 at a measured 226.2 KB. Also added: the cycle path's start and end marks as a side task of task 1.47 (spec v0.83 / SPEC-FINAL v1.31, plan v1.15), no code.
 
 **Risk:** 1.8 KB of headroom; Phase 1 G's client tasks will likely raise it again.
+
+## Task 1.46 — the codec is a subpath export, not in the index
+
+**Plan said:** modify `packages/shared/src/index.ts` to export the QR codec.
+
+**What was wrong:** `@frc/shared`'s index is imported by the client's initial chunk and inlined by the server's bundled function. Exporting the codec there would pull `fflate` into the initial JS (budget 228 KB) and could change `apps/server/api/index.js` and trip `bundle-drift.test.ts`.
+
+**What I did instead:** `packages/shared/package.json` `exports` gains `"./qr": "./src/qr/codec.ts"` (the `"."` entry is kept); the index is untouched. The client imports `@frc/shared/qr`, only from lazy QR pages. Resolution checked with a throwaway vitest file in `apps/client` and `pnpm typecheck` (Bundler resolution reads `exports`; the workspace symlink needs no alias; `fflate` resolves from `packages/shared/node_modules`, so it is not added to `apps/client`); the throwaway file is removed. Rejected: exporting from the index (above); a client-side alias (unneeded).
+
+**Risk:** none known; the Vite production build is not run in this task, so the lazy-chunk resolution of `fflate` is first proven by the first client task that imports it.
+
+## Task 1.46 — two test adaptations
+
+**Plan said:** the test file verbatim.
+
+**What was wrong:** (1) `corrupted[corrupted.length - 1] ^= 0xff` fails `tsc` under `noUncheckedIndexedAccess` (TS2532). (2) "roughly nine to thirteen frames for a hundred entries" got 1 frame: the fixture's fields are so repetitive that 100 operations deflate under 2,300 bytes.
+
+**What I did instead:** (1) `corrupted[n] = corrupted[n]! ^ 0xff`. (2) that one test builds entries with 40 pseudo-random numeric fields (seeded LCG, deterministic) so the batch is realistically incompressible; the 4–20 frame bounds are unchanged. All other tests are verbatim (reformatted by prettier). The codec is verbatim; fflate `^0.8.2` is in `packages/shared` dependencies.
+
+**Risk:** none.

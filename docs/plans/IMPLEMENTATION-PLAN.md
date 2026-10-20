@@ -15296,6 +15296,17 @@ git add -A && git commit -m "feat(client): encode the offline capability matrix 
 
 The venue workflow this exists for: **a central tablet collects scouters' data by QR inside the arena, and a runner carries that tablet outside every few matches to sync it to the cloud.**
 
+**Progress** (build chat on `feat/phase-1g`, 2026-10-20):
+
+| Task | Status | Commit |
+|---|---|---|
+| 1.46 QR frame codec | done | (this commit) |
+| 1.47 side task 1: path start and end marks | | |
+| 1.47 side task 2: read-only super entry, names on the picker | | |
+| 1.47 QR sender | | |
+| 1.48 QR receiver, disposal on ack | | |
+| 1.49 device wipe | | |
+
 ---
 
 ## Task 1.46: Shared — the QR frame codec
