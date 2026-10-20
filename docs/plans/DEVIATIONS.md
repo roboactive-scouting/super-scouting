@@ -8698,3 +8698,13 @@ The code is checked when the button is pressed, not live. A wrong code shows the
 Known differences from the 16-settings final come from task 1.38's shared component and are kept. The buttons sit side by side at the foot of the sheet, not stacked full width. The sheet keeps the component's bold object line ("Everything this app keeps on this device") above the body. The final does not draw the code field or the typed phrase ("not drawn"); they follow THEME "Type to confirm".
 
 **Risk:** none.
+
+## Task 1.49 — ship: the wipe e2e waits for the first pull (orchestrator)
+
+**Plan said:** ship with the full suite green.
+
+**What was wrong:** the full e2e run failed `settings.spec.ts` "settings: the wipe asks for the lead’s code, refuses a wrong one, then wipes and signs out" with `expect(received).toBeGreaterThan(expected)` · `Expected: > 0` · `Received:   0` at `expect(before.rows).toBeGreaterThan(0)`: the spec counted IndexedDB rows before the first pull had written them. It then failed 3 of 3 alone.
+
+**What I did instead:** the spec polls the row count (`expect.poll`) before taking the "before" counts; 4 of 4 settings tests pass. Rejected: a fixed wait (hides the race instead of waiting on it).
+
+**Risk:** none for the app.

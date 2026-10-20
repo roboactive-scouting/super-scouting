@@ -207,8 +207,9 @@ test('settings: the wipe asks for the lead’s code, refuses a wrong one, then w
   await expect(
     page.getByRole('button', { name: /Wipe this device\s*removes everything this app keeps here/ }),
   ).toBeVisible();
+  // The first pull may still be landing: wait for the device's rows before counting them.
+  await expect.poll(async () => (await storeCounts(page)).rows).toBeGreaterThan(0);
   const before = await storeCounts(page);
-  expect(before.rows).toBeGreaterThan(0);
 
   await page.getByRole('button', { name: /^Wipe this device/ }).click();
   const wipe = page.getByRole('dialog', { name: 'Wipe this device?' });
