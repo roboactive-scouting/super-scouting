@@ -46,7 +46,21 @@ export default defineConfig(() => ({
       },
     }),
   ],
-  resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // The e2e camera (task 1.48): only playwright.config.ts's build sets E2E_QR_CAMERA, so
+      // only it swaps the QR scanner for the stub the specs drive. Every other build — `pnpm
+      // build`, Vercel's — uses the real @zxing/browser, and no test seam ships.
+      ...(process.env.E2E_QR_CAMERA === 'stub'
+        ? {
+            '@zxing/browser': fileURLToPath(
+              new URL('./e2e/stubs/zxing-browser.ts', import.meta.url),
+            ),
+          }
+        : {}),
+    },
+  },
   // SPEC-FINAL 18.1: Android Chrome from the last ~2 years, iOS Safari 16+.
   // The manifest feeds scripts/check-bundle.mjs, which deletes it after reading; Vercel's deploy
   // build never runs that script, so it skips the manifest and nothing readable ships in dist.

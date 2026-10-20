@@ -129,7 +129,8 @@ export async function readSyncList(): Promise<SyncList> {
       summary,
       match_id: text(row.match_id),
       team_id: text(row.team_id),
-      origin: state.origin,
+      // An ack clears a received copy's `origin` (SPEC-FINAL 9.8); it was still received by QR.
+      origin: state.received_by_qr ? 'qr' : state.origin,
       from: firstName(scouter ? (nameOf.get(scouter) ?? null) : null),
       new_match: false,
       rejection: null,

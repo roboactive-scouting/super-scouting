@@ -91,9 +91,27 @@ describe('the route tree and the session (task 1.15)', () => {
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
     await session.signIn(user, 'token-abc');
     renderAt('/sync/qr/send');
-    const sender = await screen.findByRole('dialog', { name: 'Send by QR' });
+    // Two lazy chunks (Sync beneath, the sender over it): the suite's load can take over 1 s.
+    const sender = await screen.findByRole('dialog', { name: 'Send by QR' }, { timeout: 5000 });
     expect(await within(sender).findByText('Nothing to send')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Sync', level: 1 })).toBeInTheDocument();
+    vi.restoreAllMocks();
+  });
+
+  it('routes /sync/qr/receive to the QR receiver, a page of its own at every width (task 1.48)', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    await session.signIn(user, 'token-abc');
+    renderAt('/sync/qr/receive');
+    const receiver = await screen.findByRole(
+      'dialog',
+      { name: 'Receive by QR' },
+      { timeout: 5000 },
+    );
+    // jsdom has no camera: the real @zxing/browser cannot start one, and the page says so.
+    expect(
+      await within(receiver).findByRole('heading', { name: 'The camera did not start' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Sync', level: 1 })).toBeNull();
     vi.restoreAllMocks();
   });
 
@@ -245,6 +263,8 @@ describe('which routes wait for the event to load (task 1.17b)', () => {
       'sync',
       // The discarded-records log (task 1.42) reads only this device's log.
       'sync/discarded',
+      // The QR receiver (task 1.48) writes only this device's dataset and outbox.
+      'sync/qr/receive',
       // The QR sender (task 1.47) reads only this device's outbox.
       'sync/qr/send',
     ]);

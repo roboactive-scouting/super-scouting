@@ -47,6 +47,9 @@
   --qr-plate: #ffffff;
   --frame-shown: #9fcbb8; /* a frame already shown this pass, on a light surface */
   --frame-shown-rail: #3c6b5b; /* the same on --rail */
+  /* QR receive (THEME "Success screen"; task 1.48): the done screen's detail lines on --accent.
+     The mockup's #d8efe5 is 4.45:1 on light --accent; this is 4.5:1 or more in both themes. */
+  --on-accent-soft: #e2f3eb;
   --scrim: rgb(20 24 32 / 0.45);
   --shadow-float: 0 24px 60px -20px rgb(20 24 32 / 0.45);
   --shadow-sheet: 0 -12px 40px -12px rgb(20 24 32 / 0.4);
@@ -90,4 +93,5 @@
   --qr-plate: #ffffff;
   --frame-shown: #9fcbb8;
   --frame-shown-rail: #3c6b5b;
+  --on-accent-soft: #e2f3eb;
 }

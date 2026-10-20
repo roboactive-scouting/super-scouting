@@ -55,6 +55,8 @@ const TEXT: [string, string, number][] = [
   // Waiting to send on the rail (task 1.38): the sync dot and the bottom bar's count.
   ['--rail-warn', '--rail', 3],
   ['--on-rail-warn', '--rail-warn', 4.5],
+  // The QR receiver's done screen (task 1.48): its detail lines on the whole-screen --accent.
+  ['--on-accent-soft', '--accent', 4.5],
 ];
 
 describe.each(Object.entries(THEMES))('%s theme contrast (SPEC-FINAL 17.7)', (_name, theme) => {

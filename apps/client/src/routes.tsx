@@ -81,6 +81,11 @@ const DiscardedLogPage = lazy(() =>
 const QrSendPage = lazy(() =>
   import('@/features/qr/QrSendPage').then((m) => ({ default: m.QrSendPage })),
 );
+// The QR receiver (task 1.48): a lazy chunk, precached, so it opens offline — which is when it is
+// needed. It alone carries `@zxing/browser` and `@zxing/library`; neither reaches the initial chunk.
+const QrReceivePage = lazy(() =>
+  import('@/features/qr/QrReceivePage').then((m) => ({ default: m.QrReceivePage })),
+);
 const ManageRoute = lazy(() =>
   import('@/features/admin/ManageRoute').then((m) => ({ default: m.ManageRoute })),
 );
@@ -187,6 +192,25 @@ function QrSendRoute() {
         <QrSendPage onDone={back} />
       </Loading>
     </>
+  );
+}
+
+/**
+ * SPEC-FINAL 9.8 (task 1.48): the QR receiver, a full-screen page at every width (on a computer
+ * the camera at the left and the status at the right), so nothing renders beneath it. Done goes
+ * back to Sync the way the sender's does.
+ */
+function QrReceiveRoute() {
+  const navigate = useNavigate();
+  const fromSync = (useLocation().state as { fromSync?: boolean } | null)?.fromSync === true;
+  const back = () => {
+    if (fromSync) void navigate(-1);
+    else void navigate(PATHS.sync, { replace: true });
+  };
+  return (
+    <Loading>
+      <QrReceivePage onDone={back} />
+    </Loading>
   );
 }
 
@@ -327,6 +351,13 @@ export function routeTree(): RouteObject[] {
           element: <QrSendRoute />,
           // The dialog sits over Sync on a computer, so the crumb stays Sync's (20-qr-send final).
           handle: named({ title: 'Sync', crumb: ['This device'] }, NO_HYDRATION),
+        },
+        // SPEC-FINAL 9.8 (task 1.48): the QR receiver, opened from Sync's More, not a nav row. It
+        // writes only to this device's dataset and outbox, so it opens with no competition.
+        {
+          path: 'sync/qr/receive',
+          element: <QrReceiveRoute />,
+          handle: named({ title: 'Receive by QR', crumb: ['This device', 'Sync'] }, NO_HYDRATION),
         },
         // SPEC-FINAL 9.5, 17.9 (task 1.44): the conflict review worklist, at any width — it cannot
         // wait for a laptop (17.2). Opened from Sync's conflicts link and the "This device" group.

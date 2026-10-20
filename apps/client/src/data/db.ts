@@ -21,6 +21,15 @@ export type SyncStateRecord = {
    * writes a fresh state), since the new content has not been shown.
    */
   qr_shown_at?: string | null;
+  /**
+   * A copy this device received from another by QR (SPEC-FINAL 9.8; task 1.48). Permanent:
+   * unlike `origin`, which the outbox consults and an ack clears to 'local', this stays, so
+   * "Discard received QR data" can still find a copy after its ack. Not indexed (no schema
+   * version bump).
+   */
+  received_by_qr?: boolean;
+  /** When this device last scanned the copy (Sync's "last scan 11:44"); with `received_by_qr`. */
+  received_at?: string | null;
 };
 
 export type PushRejection = { code: RejectionReason; message: string; at: string };

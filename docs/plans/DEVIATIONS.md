@@ -8419,3 +8419,219 @@ Rejected:
 - moving the entry up to its match's batch: that reorders the entry's `seq` relative to other entries
 
 **Risk:** a batch can hold one repeated match per distinct new match among its entries, so slightly fewer than 200 records. Task 1.48's receiver must handle a match op it already holds: same op_id, same content. `enqueue`'s per-row coalescing does that.
+
+## Task 1.48 — `receiveOperations` writes the outbox itself, not through `enqueue`
+
+**Plan said:** `receiveOperations(operations)` writes each received operation into the dataset and the outbox, marked `origin: 'qr'` (the plan names `enqueue(op, origin)` as the outbox's entry point).
+
+**What was wrong:** `enqueue` does not fit a received copy, for four reasons:
+- Its delete check (`authorRole`) throws `DeleteNotAllowedError` when the device does not hold the author's role. A lead's delete carried from another phone would then fail the whole batch.
+- Its coalescing keeps the older `base_version` and `create` action, and always takes the incoming payload. An older copy scanned after a newer one (a re-scan of a phone's first batch) would overwrite the newer change.
+- It writes a fresh sync state. A re-scan of a parked (refused) copy would then un-park it.
+- It is its own transaction. The task needs one transaction per batch, so a failure writes nothing.
+
+**What I did instead:** `data/qrReceive.ts` `receiveOperations(operations, at?)` runs one Dexie transaction over `rows`, `outbox`, `syncState` and `meta`. It takes the batch in the sender's `seq` order. For each operation:
+- **The same op_id is already queued** (a re-scan, or a bare match repeated across batches): only `received_at` is refreshed. The result counts it `unchanged`.
+- **The device holds a newer or equal change of the row:** the copy is skipped. "Holds" means the queued operation's `client_updated_at`, else the cached row's `client_updated_at ?? updated_at`. So an older copy never overwrites a newer one, and an acked copy scanned again is not queued again.
+- **Otherwise** the copy replaces any queued operation for the row wholesale: the sender's op as it is, with its own base version and action. It takes a fresh local `seq` (`nextSeq`), in batch order, so a bare match stays ahead of its entry. The fresh sync state is `{ pending, origin: 'qr', received_by_qr: true, received_at }`.
+
+The dataset row is written the way `submitEntry` / `ensureMatchLocally` write the device's own save:
+- an entry: the payload plus id, version, `client_*` timestamps, `updated_at` and `deleted_at: null`
+- a match: event, type, number and version
+- a delete: removes the cached row
+- any other entity (none uses the outbox yet): goes to the outbox only
+
+The copy keeps its op_id, row_id, author and client timestamps; only the local `seq` is new. A `seq` from another device would order the copy against this device's own operations by another device's counter. That is meaningless, and it could also put an entry ahead of its match.
+
+Rejected:
+- calling `enqueue` inside an outer transaction: all four problems above remain
+- keeping the sender's `seq`: see above
+- last-scan-wins without the timestamp check: a stale batch would roll a record back
+
+**Risk:** a copy whose row was deleted here and acked (the row is gone) is written again if an older batch is re-scanned, since nothing on the device is newer. The server answers it by its base-version rule. This is rare, because it needs a lead to delete a received entry before its author's phone syncs.
+
+## Task 1.48 — the sync-state record: `origin` cleared on ack, `received_by_qr` permanent, `received_at`
+
+**Plan said:** the sync-state record carries `{ row_id, sync_state, acked_at, origin, received_by_qr }`. `origin` is cleared on ack; `received_by_qr` is permanent.
+
+**What was wrong:** nothing; this logs the details. `ackResults` used to copy the row's `origin` forward on ack, so a QR copy stayed `qr` forever.
+
+**What I did instead:**
+- `SyncStateRecord` gains `received_by_qr?: boolean` and `received_at?: string | null` (the scan time, for Sync's "last scan 11:44"). Neither is indexed, so there is no Dexie version bump.
+- In `ackResults`, an ack now writes `origin: 'local'` for every row and carries `received_by_qr` / `received_at` over (`receivedOf`).
+- A rejection's state rewrite carries both fields too, and so do `enqueue`'s fresh state (a lead re-saving a received copy on the tablet) and `rebuildMatchFor`'s match state. Otherwise the escape hatch would lose the copy.
+- `readSyncList`'s Sent tab shows an acked received copy as "QR · from Yael" (`received_by_qr`), since its `origin` is now `local`.
+- `discardReceivedQrData` and `receivedQrState` treat `origin: 'qr'` with no `received_by_qr` as a received copy too, so any state still marked `qr` is held, never missed. This guards states written before 1.48, like `e2e/sync.spec.ts`'s seed.
+
+**Risk:** none known. The wipe guard reads `sync_state`, unchanged.
+
+## Task 1.48 — disposal on ack: Sync's success notice
+
+**Plan said:** "Disposal on ack is a `Notice tone="success"`." It does not say where, or with what copy.
+
+**What I did instead:**
+- `ackResults` counts the acked operations whose state was `origin: 'qr'` (bare matches left out). It adds them to `meta['qr.disposed'] = { count, at }` in the same transaction.
+- Sync's Waiting tab shows `Notice tone="success" role="status"`: "**4 received copies reached the cloud.** They no longer wait here; the records stay on this tablet." It has a **Dismiss** button (`dismissQrDisposal`, which clears the key). The count accumulates across syncs until it is dismissed.
+
+The 17-sync final draws no such notice. I put it on Waiting, because that is the tab the copies just left.
+
+Rejected:
+- a toast: it would be gone before a runner carrying the tablet back looks at it
+- a line on each Sent row: Sent already says "QR · from …" and "✓ sent"
+
+**Risk:** none.
+
+## Task 1.48 — "Received by QR" counts the copies still waiting; "this tablet"
+
+**Plan said:** "While the device holds received copies, the Waiting tab opens with a Received by QR block: the count by `author_user_id`, each with its last scan time."
+
+**What I did instead:**
+- The block counts the copies still in the outbox marked `origin: 'qr'`, bare matches left out (the Waiting count's rule). An acked copy has left Waiting and appears under Sent and in the success notice.
+- One row per author: initials, the cached user's full name (else "a scouter"), "last scan hh:mm" (the latest `received_at`), and the count in mono. Rows are ordered by latest scan first.
+- On a phone-width screen, Sync says "What this tablet has sent…" while the device holds any received copy, waiting or acked (17-sync final, image 6, "a collector tablet: this tablet"). It still says "this device" on a computer.
+
+Rejected: counting acked copies in the block. Its count would then disagree with the Waiting tab it heads.
+
+**Risk:** none.
+
+## Task 1.48 — Discard received QR data: held line, confirmation, result
+
+**Plan said:** `discardReceivedQrData()` is the escape hatch. It is refused for any record without a cloud ack, and reports how many it would refuse.
+
+**What I did instead:**
+- `discardReceivedQrData()` returns `{ discarded, refused }` from one transaction over `rows`, `outbox` and `syncState`. It is refused whole while any received copy is pending or still queued. Otherwise it deletes every received copy's cached row (by `id`) and its sync state. The device's own records are untouched. Counts are records: bare matches are not counted unless only bare matches are held, so a refusal never reports 0.
+- `receivedQrState()` returns `{ held, discardable }` for More.
+- In More, after a rule, the row reads one of:
+  - `Held: n received copies haven't reached the cloud.` (disabled)
+  - `Nothing received by QR is on this device.` (disabled)
+  - `Removes n received copies already in the cloud.`, which opens the `DestructiveConfirm`: "Discard received QR data?", `Discard n received copies`. It is a plain confirm with no type-to-confirm, because every copy is already in the cloud.
+- After it runs, a line under the tabs: "Removed n received copies from this device.", or an `ErrorLine` if a copy arrived meanwhile and it was refused.
+- The phone's More sheet renders this row as a `<button>` (the others stay links). `MoreItem` became a link-or-action union.
+
+**Risk:** none.
+
+## Task 1.48 — a frame of another batch starts a fresh batch
+
+**Plan said:** feed every decoded byte array into a `Collector`. `Collector.add` throws on a frame of another batch.
+
+**What I did instead:** the page reads each frame's header itself (`qrFrame.frameHeader`: batch id at bytes 0–3, index at 4–5, count at 6–7). A frame whose batch id differs from the batch in hand drops that batch, writing nothing, and starts a fresh collector from this frame.
+
+The sender moves forward only (Next batch), and a new phone held up is a new batch, so the old batch could not finish anyway.
+
+Two more checks:
+- `frameHeader` ignores a code that cannot be one of ours: under 12 bytes, a count of 0, or an index at or past the count.
+- A frame of the same batch with a different count is ignored.
+
+The completed batch is parsed with the push protocol's own `operationSchema.array()` (`batchOperations`). Anything that passes the CRC but is not a list of operations is then dropped like a damaged batch.
+
+Rejected: ignoring the new batch until the old one completes. The tablet would then be stuck until someone leaves the page.
+
+**Risk:** two phones held in view at once restart each other's progress. The cells make that visible.
+
+## Task 1.48 — held frames are tracked in the page; the shared Collector is unchanged
+
+**Plan said:** show "frames 7 of 11" from `collector.progress()`. The design adds one numbered cell per held frame.
+
+**What I did instead:** `progress()` gives only counts. The page keeps the set of held indices from each accepted frame's header (bytes 4–5), alongside the collector. `packages/shared` is not touched, so the plan's codec tests are unchanged.
+
+Rejected: extending `Collector` with `held()`. That is a shared API change for a display need.
+
+**Risk:** none.
+
+## Task 1.48 — frames are read from BYTE_SEGMENTS; zxing's text decoding made safe
+
+**Plan said:** feed every decoded byte array into the collector.
+
+**What was wrong:** `Result.getText()` is lossy for the binary byte-mode frames, as the orchestrator flagged. I read `@zxing/library` 0.21.3's source to confirm:
+- `DecodedBitStreamParser.decodeByteSegment` pushes the raw `Uint8Array`, and `QRCodeReader.decode` puts the byte segments under `ResultMetadataType.BYTE_SEGMENTS`.
+- `decodeByteSegment` also turns every byte segment into text, and a throw there fails the whole code with `FormatException`.
+- Under jsdom (`{}.toString.call(window)` is `[object global]`, so zxing decides it is not a browser), ISO-8859-1 goes to `decodeFallback`, which is `decodeURIComponent` over `%xx`. That throws on binary. The first real-frame test failed with:
+
+```
+FormatException
+    at Function.DecodedBitStreamParser.decode (…/@zxing/library/cjs/core/qrcode/decoder/DecodedBitStreamParser.js:124:19)
+```
+
+- With no `CHARACTER_SET` hint, zxing guesses the set, and can name one ("ISO8859_1") that may not be a valid `TextDecoder` label.
+
+**What I did instead:** `features/qr/qrFrame.ts`:
+- `frameBytes(result)` concatenates the `BYTE_SEGMENTS` arrays.
+- The reader is created with `DecodeHintType.CHARACTER_SET = 'ISO-8859-1'`.
+- The module sets `ZXingStringEncoding.customDecoder`, which decodes ISO-8859-1 byte by byte and so never throws. Any other set goes to `TextDecoder` as before.
+
+`qrFrame.test.ts` draws a real `encodeBatch` frame with `qrcode` exactly as the sender does (one byte segment, version 40, level M). It decodes the picture with zxing's own `QRCodeReader` and checks that `frameBytes` equals the frame, header included, and that the batch decodes. A second test shows `getText()`'s bytes differ from the frame.
+
+Rejected: `getText()` with a latin-1 re-encode. That depends on zxing's guessed set and on the platform decoder.
+
+**Risk:** the custom decoder is global to `@zxing/library`, which only this lazy page loads.
+
+## Task 1.48 — the e2e camera: a build-time alias, never in a normal build
+
+**Plan said:** no camera in CI; mock `BrowserQRCodeReader.decodeFromVideoDevice`.
+
+**What I did instead:**
+- **Unit tests:** `vi.mock('@zxing/browser')`. The mocked `decodeFromVideoDevice` keeps the page's callback, and the tests hand it zxing-shaped results holding real `encodeBatch` frames.
+- **e2e:** `playwright.config.ts`'s `webServer.env` sets `E2E_QR_CAMERA=stub`. Only then does `vite.config.ts` alias `@zxing/browser` to `e2e/stubs/zxing-browser.ts`. The stub's `decodeFromVideoDevice` sets `window.__qrCamera.show(base64)`, which the spec calls with real frames. If `page.addInitScript` set `window.__qrCamera = { blocked: true }`, it throws `NotAllowedError` instead.
+- **Proof that nothing ships:** after a plain `pnpm build`, `grep -rl "__qrCamera\|E2E_QR_CAMERA\|zxing-browser" apps/client/dist` finds nothing. `decodeFromVideoDevice` is only in `QrReceivePage-*.js`.
+
+Rejected:
+- Chrome's `--use-fake-device-for-media-stream` with a y4m of QR frames: it needs a generated video per test, and does not run in every channel
+- a `window` hook in the shipped page: it would ship to production
+
+**Risk:** an e2e build's `dist` contains the stub, so run `pnpm build` again before `check-bundle` or a deploy from local (Vercel builds its own).
+
+## Task 1.48 — copy, states and tokens beyond the drawn finals
+
+**Plan said:** build the 21-qr-receive final (variant C) and its copy.
+
+**What I did instead:**
+- **"Her phone shows Next batch?"** became **"The phone shows Next batch? Tap it there, then scan again."** The author's gender is unknown, and several authors can be named.
+- **Before the first frame** (not drawn; the README says the ring reads 0 with no cells):
+  - phone: "Scanning…" over "Point the camera at the other phone's code."
+  - desktop: "Frames come in any order. A green screen and a beep mean it is done."
+- **A camera error other than `NotAllowedError` / `SecurityError`** (no camera, camera busy, no `mediaDevices`) reads "The camera did not start · Another app may be using it. Close it, then try again." with the same Try again.
+- **A save that fails after a good checksum** shows the warning card "That batch could not be saved · Starting again, hold still" and writes nothing (one transaction).
+- **"Saving…"** shows while the transaction runs.
+- **Computer states** (only scanning is drawn):
+  - Blocked: the camera panel shows the blocked message on `--rail`, and the right column keeps only the head and Done; no ring claims to scan.
+  - Done: the whole page turns `--accent` with the phone's done content in a 26 rem column.
+- **The Sound toggle** is a `role="switch"` ghost button: "Sound on" / "Sound off" (`devicePrefs.qrSound`, on by default, per device). `navigator.vibrate?.(200)` runs whatever Sound says (SPEC-FINAL 9.8 lists them separately).
+- **The beep:** an 880 Hz Web Audio tone for 180 ms. The audio context is made on first use and resumed on any tap on the page, for browsers that start it suspended.
+- **Wake lock:** the receiver holds `useWakeLock(true)` with no UI line, so the tablet does not dim mid-scan.
+- **New token `--on-accent-soft: #e2f3eb`** for the done screen's detail lines (THEME "Success screen"). The mockup's `#d8efe5` measures 4.45:1 on light `--accent`, under the 4.5:1 floor. `styles/contrast.test.ts` now checks the pair in both themes.
+- **Light frame cells** use `--ink-2` numbers on `--line`. `--muted` on `--line` failed axe colour contrast on the two-digit cells.
+
+**Risk:** the user should look at the copy changes on dev.
+
+## Task 1.48 — `@zxing/library` as a direct dependency; test and spec adaptations
+
+**Plan said:** modify `apps/client/package.json` to add `"@zxing/browser": "^0.1.5"`.
+
+**What I did instead:**
+- **Dependencies:** added `@zxing/browser@^0.1.5` and `@zxing/library@^0.21.3`. The page imports `DecodeHintType`, `ResultMetadataType` and `ZXingStringEncoding` from the library, which is `@zxing/browser`'s peer dependency. Both are only in the lazy `QrReceivePage` chunk (110.5 KB gzip), and it is precached.
+- **The plan's given data test** is used as written (only Prettier reflowed it). Eight more data tests guard the representation.
+- **`SyncPage.test.tsx`:** the More test now expects four rows, and four new tests cover the QR block, the notice, the held Discard and the confirmed Discard.
+- **`e2e/sync.spec.ts`:** the More test expects four menu rows (three links and one button on a phone), with the held Discard.
+- **`routes.test.tsx`:** the no-hydration list gains `sync/qr/receive`. A new test renders the route with the real `@zxing/browser` in jsdom (no camera: "The camera did not start").
+- **`e2e/qr-receive.spec.ts`:** the Sync shot holds 9 received copies (4 + 3 + 2), not the design's 12. With ten or more waiting, the sidebar's Sync count (`NavList`, `text-rail-warn` on `--rail`, 3.27:1) fails axe colour contrast. That is outside this task's screens. axe skips one-character text, so counts under 10 pass, and that is why `sync.spec`'s 6 never showed it.
+
+**Risk:** the sidebar count contrast gap is real for 10+ waiting records. It is reported for a later fix (a `--rail-warn` text token at 4.5:1).
+
+## Task 1.48 — the QR sender's route test waits up to 5 s for its lazy chunks
+
+**Plan said:** nothing. This is a test from task 1.47 (`routes.test.tsx`, "routes /sync/qr/send to the QR sender, over Sync on a computer").
+
+**What was wrong:** under the full `pnpm test` load, the test failed 2 runs out of 3 after this task, at 1071–1073 ms:
+
+```
+TestingLibraryElementError: Unable to find role="dialog" and name "Send by QR"
+ ❯ src/routes.test.tsx:94:33
+```
+
+`findByRole` waits 1 s by default. On a computer the route loads two lazy chunks, Sync beneath and the sender over it. Sync's chunk now also loads `data/qrReceive` and runs three more device queries. The test passes alone in 530 ms.
+
+**What I did instead:** that `findByRole` now waits up to 5 s, the same as the new `/sync/qr/receive` route test. Nothing else changed.
+
+Rejected: lazy-loading `data/qrReceive` inside Sync. That adds a third chunk round-trip for a page that opens offline.
+
+**Risk:** none. A real failure still fails, after 5 s.

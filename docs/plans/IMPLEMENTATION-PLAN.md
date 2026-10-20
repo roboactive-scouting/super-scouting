@@ -15303,8 +15303,8 @@ The venue workflow this exists for: **a central tablet collects scouters' data b
 | 1.46 QR frame codec | done | f754b12 |
 | 1.47 side task 1: path start and end marks | done | f9fb8ea |
 | 1.47 side task 2: read-only super entry, names on the picker | done | c333a37 |
-| 1.47 QR sender | done | (this commit) |
-| 1.48 QR receiver, disposal on ack | | |
+| 1.47 QR sender | done | 31edc79 |
+| 1.48 QR receiver, disposal on ack | done | (this commit) |
 | 1.49 device wipe | | |
 
 ---

@@ -42,6 +42,7 @@
   --color-qr-plate: var(--qr-plate);
   --color-frame-shown: var(--frame-shown);
   --color-frame-shown-rail: var(--frame-shown-rail);
+  --color-on-accent-soft: var(--on-accent-soft);
 
   --font-ui: 'Schibsted Grotesk Variable', 'Noto Sans Hebrew', system-ui, sans-serif;
   --font-sans: var(--font-ui);
