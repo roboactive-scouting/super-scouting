@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.33 · **Date:** 2026-10-20 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.34 · **Date:** 2026-10-20 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.34: the QR receiver's page (§9.8): frame cells, a done screen naming the author, sound and vibration, a damaged batch restarts. See the living spec's §21, 2026-10-20 (v0.86).*
 
 *v1.33: the QR sender's page (§9.8): a next-batch button above 200 operations, and the screen kept on while codes show. See the living spec's §21, 2026-10-20 (v0.85).*
 
@@ -1244,6 +1246,7 @@ The receiver collects frames by index and completes when it holds all N. Order d
 - When either device later reaches the internet, each uploads independently. Because the server keys on `row_id`, a second upload of the same record is an **idempotent upsert** resolved by the base-version rule: a no-op if identical, a fast-forward if linear, and flagged only on genuine divergence. Never a duplicate row.
 - No device needs to be designated "the syncer", and re-scanning the same batch is harmless.
 - The receiver shows a running count of frames collected and a clear "batch complete" state.
+- *(v1.34)* **The receiver** learns the frame count from the first frame it reads (each header carries it), then shows a ring with the count collected and **one cell per frame**, filled as frames arrive in any order. On completion it shows the records' author (`author_user_id` names; several are listed) and the record count, plays a short sound (unless the user turned it off on this device) and vibrates where supported, and offers **Scan the next phone**. A batch whose checksum fails is dropped whole, nothing is written, and scanning restarts. A batch is written only when complete, so leaving mid-batch saves nothing. A frame carries no batch count, so the done screen tells the user to tap Next batch on the sender if it shows one.
 - *(v1.33)* **The sender** covers the screen and shows the current frame number of N, looping by itself. **A batch is fixed when the sender opens**: records saved meanwhile wait for the next send. When the backlog splits into batches, the sender shows "Batch k of n" and moves to the next batch **only when the user taps Next batch** (the tablet sends nothing back, so the sender cannot know a batch arrived). **Done** closes it at any point and marks nothing sent.
 - *(v1.33)* **The sender holds a Screen Wake Lock** while it is open and releases it on Done or on leaving the page. If the browser refuses the lock, the transfer still works.
 

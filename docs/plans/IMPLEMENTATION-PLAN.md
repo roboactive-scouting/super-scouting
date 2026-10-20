@@ -1,6 +1,7 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.17 · **Date:** 2026-10-20 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.18 · **Date:** 2026-10-20 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.18 (2026-10-20): the QR receiver is designed (`docs/design/pages/21-qr-receive/final/`, spec v0.86 / SPEC-FINAL v1.34 §9.8); task 1.48 points at it.*
 *v1.17 (2026-10-20): the QR sender is designed (`docs/design/pages/20-qr-send/final/`, spec v0.85 / SPEC-FINAL v1.33 §9.8): a Next batch button and a Screen Wake Lock (Q7.9, Q7.10); task 1.47 points at it.*
 *v1.16 (2026-10-20): task 1.47 carries a second side task: another scouter's super entry shows read only, with its answers (spec v0.84 / SPEC-FINAL v1.32 §7.6, user).*
 *v1.15 (2026-10-20): task 1.47 carries a side task: small start and end marks on a cycle path (spec v0.83 / SPEC-FINAL v1.31 §8.2, user). Phase 1 F and UI fix round 3 are on `develop`.*
@@ -15642,7 +15643,7 @@ git add -A && git commit -m "feat(client): add the QR sender with a cyclic five-
 
 ## Task 1.48: Client — the QR receiver and disposal on ack
 
-**Design (redesign system).** The camera view fills a `Card`, and its progress ("12 of 30 frames") is a `Badge`. Disposal on ack is a `Notice tone="success"`.
+**Design (redesign system).** *(v1.18)* Build `docs/design/pages/21-qr-receive/final/` (variant C): a full-screen page on `--rail` on a phone or tablet, camera then a ring ("7 of 11") and **one numbered cell per frame** from `collector.progress()` (which frames are held, not only how many); on a computer the camera at the left and the status at the right. On complete the screen turns `--accent`: the authors' names (from the cached users, else "a scouter"), the record count, entries and super entries, the Next batch hint, **Scan the next phone** and Done. Play a short Web Audio beep unless "Sound on" is off (a per-device setting) and call `navigator.vibrate?.(200)`. A checksum failure shows the damaged-code card and resets the collector. A blocked camera (`NotAllowedError`) shows "The camera is blocked" with Try again. Disposal on ack is a `Notice tone="success"`. Tests to add: the cells mark held frames in any order; complete names the author and counts; a bad checksum writes nothing and resets; Sound off plays nothing; a blocked camera shows Try again.
 *(v1.12)* While the device holds received copies, the Sync page's Waiting tab opens with a **"Received by QR"** block: the count by `author_user_id`, each with its last scan time (store `received_at` with each copy). See `docs/design/pages/17-sync/final/` phone image 6.
 
 **Files:**
