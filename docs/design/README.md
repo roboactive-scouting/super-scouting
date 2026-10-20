@@ -51,6 +51,9 @@ Pages go **one at a time**. At this stage that means only the pages that exist t
 | 17 | Sync | `/sync` | **Closed** 2026-10-12, variant B + A's conflicts link and progress + D's QR marks | 1.43 (notice and log 1.42, QR 1.47–1.48) |
 | 18 | Conflicts | `/conflicts` | **Closed** 2026-10-12, variant C + "n fields differ" and the Settled today log | 1.44 (server 1.41) |
 | 19 | Discarded records | `/sync/discarded` | **Closed** 2026-10-12, one proposal (no entered values) | 1.42 |
+| 20 | QR send (Phase 1 G) | `/sync/qr/send` | **Closed** 2026-10-20, variant A without Stop | 1.47 |
+| 21 | QR receive (Phase 1 G) | `/sync/qr/receive` | To design | 1.48 |
+| 22 | Read-only super entry (Phase 1 G) | `/super` (another scouter's entry) | To design | 1.47 side task 2 |
 
 The phone shell (`pages/11-phone-shell/final/`, not a numbered route) is coded in RB.6. All were built in the redesign build (`docs/plans/REDESIGN-BUILD-PLAN.md`, RB.1–RB.20), and RB.19 reviewed each against its final images. `/context` is only a redirect to `/`. Update this table when a page closes.
 

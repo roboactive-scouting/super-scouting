@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.32 · **Date:** 2026-10-20 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.33 · **Date:** 2026-10-20 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.33: the QR sender's page (§9.8): a next-batch button above 200 operations, and the screen kept on while codes show. See the living spec's §21, 2026-10-20 (v0.85).*
 
 *v1.32: a scouter sees another scouter's super entry read only (§7.6), built as a side task of task 1.47. See the living spec's §21, 2026-10-20 (v0.84).*
 
@@ -1242,6 +1244,8 @@ The receiver collects frames by index and completes when it holds all N. Order d
 - When either device later reaches the internet, each uploads independently. Because the server keys on `row_id`, a second upload of the same record is an **idempotent upsert** resolved by the base-version rule: a no-op if identical, a fast-forward if linear, and flagged only on genuine divergence. Never a duplicate row.
 - No device needs to be designated "the syncer", and re-scanning the same batch is harmless.
 - The receiver shows a running count of frames collected and a clear "batch complete" state.
+- *(v1.33)* **The sender** covers the screen and shows the current frame number of N, looping by itself. **A batch is fixed when the sender opens**: records saved meanwhile wait for the next send. When the backlog splits into batches, the sender shows "Batch k of n" and moves to the next batch **only when the user taps Next batch** (the tablet sends nothing back, so the sender cannot know a batch arrived). **Done** closes it at any point and marks nothing sent.
+- *(v1.33)* **The sender holds a Screen Wake Lock** while it is open and releases it on Done or on leaving the page. If the browser refuses the lock, the transfer still works.
 
 **Disposal of transferred copies — on ack, not on a timer.** A record whose sync state is `origin: 'qr'` is **discarded from the receiving device the moment its cloud acknowledgment arrives**. There is no TTL and no waiting period.
 

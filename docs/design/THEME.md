@@ -214,6 +214,8 @@ Each page round adds a row here: what was picked, which page it came from, and t
 | "Counted now" tag | 20 px `--accent-tint` tag, 11 px / 700 `--accent-ink`, on the copy the statistics use until a lead picks | Conflicts, 2026-10-12 |
 | Settled line (Undo) | The success-banner look on one line: a round `--accent` check, "**Kept Dana's copy** · Q12 2096", and at the right "Undo" in `--accent-ink` 700 with a 20 px countdown ring (2 px `--accent`, the seconds in mono) | Conflicts, 2026-10-12 |
 | Settled log | A 12 px / 700 uppercase `--muted` label, then a white card of rows: a `--accent-ink` ✓, the match · team in bold and what was kept, and "10:17 · Noa L." in mono `--muted` at the right | Conflicts, 2026-10-12 |
+| QR plate | A full-screen page on `--rail` (a dialog with a `--rail` left panel on a computer): the code on a white card (radius 14 px, 10 px padding), black on white only; head 16 px / 700 white over a 12 px `--rail-ink` line; one 52 px primary action at the thumb with an 11.5 px `--rail-muted` line under it; a secondary button on dark is an outline in `--rail-muted` with white text | QR send, 2026-10-20 |
+| Frame strip | One 6 px segment per frame, 3 px apart, radius 2: on dark, `--rail-raised` waiting, muted green already shown this pass, white on screen (on light: `--line`, light green, `--accent`); "Frame 4 of 11" in mono beside it | QR send, 2026-10-20 |
 
 ## Open: decide during the page rounds
 

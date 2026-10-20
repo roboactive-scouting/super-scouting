@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>QR send — final, desktop</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../05-entries/src/entries.css"><link rel="stylesheet" href="../../17-sync/src/sync.css"><link rel="stylesheet" href="../src/qrsend.css">
+<style>body{background:var(--bg)}.desk.final{zoom:1;border-radius:0;box-shadow:none;position:relative}</style>
+</head><body>
+<div id="root"></div>
+<script src="../../05-entries/src/entries.js"></script><script src="../../17-sync/src/sync.js"></script><script src="../src/qrsend.js"></script>
+<script>document.getElementById('root').innerHTML = `<div class="desk final">${QS.deskOver()}</div>`;</script>
+<script src="../../shell.js"></script>
+<script>SN.nav(); QS.draw();</script>
+</body></html>
