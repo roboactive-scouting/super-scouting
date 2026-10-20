@@ -330,14 +330,18 @@ test('sync: Sent, newest first', async ({ page }) => {
   await shoot(page, 'sync-sent');
 });
 
-test('sync: More holds the discarded log, as a sheet on a phone and a menu on a computer', async ({
+test('sync: More holds Send by QR and the discarded log, as a sheet on a phone and a menu on a computer', async ({
   page,
 }) => {
   await openSync(page);
   await goOffline(page);
   await page.getByRole('button', { name: 'More' }).click();
-  await expect(page.getByRole('menuitem')).toHaveCount(1);
-  await expect(page.getByRole('menuitem')).toHaveText(
+  // Send by QR (task 1.47); Receive by QR and Discard received QR data come with task 1.48.
+  await expect(page.getByRole('menuitem')).toHaveCount(2);
+  await expect(page.getByRole('menuitem').first()).toHaveText(
+    'Send by QRTo the collector tablet. No internet needed.',
+  );
+  await expect(page.getByRole('menuitem').nth(1)).toHaveText(
     'Discarded records2 removed because their event was deleted.',
   );
   await shoot(page, 'sync-more-menu', 'desktop');
@@ -346,7 +350,11 @@ test('sync: More holds the discarded log, as a sheet on a phone and a menu on a 
   await page.setViewportSize({ width: 375, height: 812 });
   await page.getByRole('button', { name: 'More' }).click();
   const sheet = page.getByRole('dialog', { name: 'More' });
-  await expect(sheet.getByRole('link')).toHaveCount(1);
+  await expect(sheet.getByRole('link')).toHaveCount(2);
+  await expect(sheet.getByRole('link', { name: /Send by QR/ })).toHaveAttribute(
+    'href',
+    '/sync/qr/send',
+  );
   await expect(sheet.getByRole('link', { name: /Discarded records/ })).toHaveAttribute(
     'href',
     '/sync/discarded',

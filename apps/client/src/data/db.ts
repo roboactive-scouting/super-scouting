@@ -14,6 +14,13 @@ export type SyncStateRecord = {
    * why it has not synced. Cleared on ack. Not indexed, so no schema version bump.
    */
   rejection?: PushRejection | null;
+  /**
+   * The last time this row's QR batch was on the sender's screen (SPEC-FINAL 9.8, 9.10; task
+   * 1.47): Sync says "shown by QR hh:mm". A display, never a receipt: the row stays pending.
+   * Local only, not indexed (no schema version bump); a new local save drops it (enqueue
+   * writes a fresh state), since the new content has not been shown.
+   */
+  qr_shown_at?: string | null;
 };
 
 export type PushRejection = { code: RejectionReason; message: string; at: string };

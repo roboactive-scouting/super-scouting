@@ -52,6 +52,16 @@ import { DiscardedStation, DiscardedStatus, DiscardedTeam } from './DiscardedPar
 
 type TabKey = 'waiting' | 'sent' | 'problems';
 
+/** A row of More: a link to one of Sync's tools. */
+type MoreItem = {
+  key: string;
+  icon: LucideIcon;
+  title: string;
+  detail: string;
+  to: string;
+  state?: { fromSync: true };
+};
+
 /** How a record's row looks: waiting, ticked off by the running sync, in flight, or sent. */
 type Mark = 'waiting' | 'sending' | 'ticked' | 'sent';
 
@@ -98,15 +108,28 @@ export function SyncPage({ eventId, viewer, syncNow }: SyncPageProps) {
   };
 
   const removed = discarded?.length ?? 0;
-  const more = {
-    key: 'discarded',
-    icon: Archive,
-    title: 'Discarded records',
-    detail:
-      removed === 0
-        ? 'Nothing has been removed.'
-        : `${formatCount(removed)} removed because their event was deleted.`,
-  };
+  // More (17-sync final): Send by QR (task 1.47), then the discarded-records log (task 1.42).
+  // Receive by QR and Discard received QR data come with task 1.48.
+  const more: MoreItem[] = [
+    {
+      key: 'qr-send',
+      icon: QrCode,
+      title: 'Send by QR',
+      detail: 'To the collector tablet. No internet needed.',
+      to: PATHS.syncQrSend,
+      state: { fromSync: true },
+    },
+    {
+      key: 'discarded',
+      icon: Archive,
+      title: 'Discarded records',
+      detail:
+        removed === 0
+          ? 'Nothing has been removed.'
+          : `${formatCount(removed)} removed because their event was deleted.`,
+      to: PATHS.syncDiscarded,
+    },
+  ];
 
   const waiting = list?.waiting ?? [];
   const refused = list?.refused ?? [];
@@ -140,7 +163,10 @@ export function SyncPage({ eventId, viewer, syncNow }: SyncPageProps) {
         {desktop && (
           <ActionMenu
             label="More"
-            items={[{ ...more, onSelect: () => navigate(PATHS.syncDiscarded) }]}
+            items={more.map(({ to, state, ...item }) => ({
+              ...item,
+              onSelect: () => void navigate(to, { state }),
+            }))}
           >
             <Ellipsis aria-hidden="true" />
             More
@@ -239,18 +265,24 @@ export function SyncPage({ eventId, viewer, syncNow }: SyncPageProps) {
       {!desktop && (
         <Sheet open={moreOpen} onClose={() => setMoreOpen(false)} title="More" side="bottom">
           <ul className="px-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
-            <li>
-              <Link
-                to={PATHS.syncDiscarded}
-                className="hover-veil flex min-h-14 items-start gap-3 rounded-lg px-2.5 py-2.5"
-              >
-                <more.icon aria-hidden="true" className="mt-0.5 size-[18px] shrink-0 text-ink-2" />
-                <span className="min-w-0">
-                  <b className="block text-[0.90625rem] font-[650]">{more.title}</b>
-                  <small className="block text-[0.78125rem] text-muted">{more.detail}</small>
-                </span>
-              </Link>
-            </li>
+            {more.map((item) => (
+              <li key={item.key}>
+                <Link
+                  to={item.to}
+                  state={item.state}
+                  className="hover-veil flex min-h-14 items-start gap-3 rounded-lg px-2.5 py-2.5"
+                >
+                  <item.icon
+                    aria-hidden="true"
+                    className="mt-0.5 size-[18px] shrink-0 text-ink-2"
+                  />
+                  <span className="min-w-0">
+                    <b className="block text-[0.90625rem] font-[650]">{item.title}</b>
+                    <small className="block text-[0.78125rem] text-muted">{item.detail}</small>
+                  </span>
+                </Link>
+              </li>
+            ))}
           </ul>
         </Sheet>
       )}
@@ -492,6 +524,20 @@ function NotSent({ record, full }: { record: SyncRecord; full: boolean }) {
   );
 }
 
+/**
+ * "shown by QR 11:44" (17-sync final; SPEC-FINAL 9.10): the last time this record's batch was on
+ * the QR sender's screen. A display, not a receipt: the record still waits for the cloud.
+ */
+function ShownByQr({ record }: { record: SyncRecord }) {
+  if (!record.qr_shown_at) return null;
+  return (
+    <span className="inline-flex items-center gap-1 text-xs font-semibold whitespace-nowrap text-ink-2">
+      <QrCode aria-hidden="true" className="size-3.5" />
+      shown by QR <span className="num">{savedLabel(record.qr_shown_at)}</span>
+    </span>
+  );
+}
+
 function NewMatchLine() {
   return (
     <p className="flex items-center gap-1.5 text-[0.78125rem] text-ink-2">
@@ -530,6 +576,7 @@ function RecordCard({ record, mark, full }: { record: SyncRecord; mark: Mark; fu
           saved <span className="num">{savedLabel(s.client_updated_at)}</span>
         </span>
         <OriginBadge record={record} desktop={false} />
+        {mark === 'waiting' && <ShownByQr record={record} />}
         {/* Sent: the tick on the second line, so the team's name keeps its room on a phone. */}
         {mark === 'sent' && <Tick record={record} mark={mark} />}
       </div>
@@ -574,6 +621,7 @@ function RecordTable({
               <div className="flex items-center gap-2.5 text-[0.84375rem]">
                 {mark === 'sending' && <Spinner />}
                 <Tick record={record} mark={mark} />
+                {mark === 'waiting' && <ShownByQr record={record} />}
                 {record.new_match && <NewMatchLine />}
                 {record.rejection && (
                   <span className="inline-flex items-center gap-1.5 font-[650] text-warn">

@@ -1,5 +1,11 @@
 import { lazy, Suspense, type ReactNode } from 'react';
-import { createBrowserRouter, Navigate, type RouteObject } from 'react-router-dom';
+import {
+  createBrowserRouter,
+  Navigate,
+  useLocation,
+  useNavigate,
+  type RouteObject,
+} from 'react-router-dom';
 import { DesktopOnly } from '@/components/DesktopOnly';
 import { Skeleton } from '@/components/Skeleton';
 import { OverrideGuard } from '@/features/context/OverrideGuard';
@@ -16,6 +22,7 @@ import { SelectRobotPage } from '@/features/entry/SelectRobotPage';
 import { EntryRoute } from '@/features/entry/EntryRoute';
 import type { PageHandle } from '@/lib/pageTitle';
 import { PATHS } from '@/lib/paths';
+import { useIsDesktop } from '@/lib/useMediaQuery';
 
 /*
  * Sign-in and the admin pages load on first use (redesign P7); the PWA precaches their
@@ -68,6 +75,11 @@ const ConflictsPage = lazy(() =>
 // The discarded-records log (task 1.42): a lazy chunk, precached, reached from Sync only.
 const DiscardedLogPage = lazy(() =>
   import('@/features/sync/DiscardedLogPage').then((m) => ({ default: m.DiscardedLogPage })),
+);
+// The QR sender (task 1.47): a lazy chunk, precached, so it opens offline — which is when it is
+// needed. It alone carries `qrcode` and the codec (fflate): neither reaches the initial chunk.
+const QrSendPage = lazy(() =>
+  import('@/features/qr/QrSendPage').then((m) => ({ default: m.QrSendPage })),
 );
 const ManageRoute = lazy(() =>
   import('@/features/admin/ManageRoute').then((m) => ({ default: m.ManageRoute })),
@@ -152,6 +164,29 @@ function SyncRoute() {
     <Loading>
       <SyncPage eventId={eventId} viewer={user} syncNow={requestSync} />
     </Loading>
+  );
+}
+
+/**
+ * SPEC-FINAL 9.8 (task 1.47): the QR sender. On a computer a dialog over Sync, so Sync renders
+ * beneath it; on a phone a full-screen page, alone. Done goes back to Sync: back through history
+ * when Sync opened it (so Back does not return to the code), else to Sync in its place.
+ */
+function QrSendRoute() {
+  const desktop = useIsDesktop();
+  const navigate = useNavigate();
+  const fromSync = (useLocation().state as { fromSync?: boolean } | null)?.fromSync === true;
+  const back = () => {
+    if (fromSync) void navigate(-1);
+    else void navigate(PATHS.sync, { replace: true });
+  };
+  return (
+    <>
+      {desktop && <SyncRoute />}
+      <Loading>
+        <QrSendPage onDone={back} />
+      </Loading>
+    </>
   );
 }
 
@@ -284,6 +319,14 @@ export function routeTree(): RouteObject[] {
             { title: 'Discarded records', phoneTitle: 'Discarded', crumb: ['This device', 'Sync'] },
             NO_HYDRATION,
           ),
+        },
+        // SPEC-FINAL 9.8 (task 1.47): the QR sender, opened from Sync's More, not a nav row. It
+        // reads only this device's outbox, never event data, so it opens with no competition.
+        {
+          path: 'sync/qr/send',
+          element: <QrSendRoute />,
+          // The dialog sits over Sync on a computer, so the crumb stays Sync's (20-qr-send final).
+          handle: named({ title: 'Sync', crumb: ['This device'] }, NO_HYDRATION),
         },
         // SPEC-FINAL 9.5, 17.9 (task 1.44): the conflict review worklist, at any width — it cannot
         // wait for a laptop (17.2). Opened from Sync's conflicts link and the "This device" group.

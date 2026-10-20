@@ -341,21 +341,34 @@ describe('SyncPage (SPEC-FINAL 9.10, 17-sync final)', () => {
     expect(screen.getByRole('button', { name: 'Sync now' })).toBeEnabled();
   });
 
-  it('More holds only the discarded log', async () => {
+  it('More holds Send by QR and the discarded log (Receive by QR comes with task 1.48)', async () => {
     await recordDiscarded(op('gone-1'), undefined, NOW);
     await recordDiscarded(op('gone-2', { op_id: 'o-gone-2' }), undefined, NOW);
     const user = userEvent.setup();
     renderPage();
     await user.click(await screen.findByRole('button', { name: 'More' }));
     const items = screen.getAllByRole('menuitem');
-    expect(items).toHaveLength(1);
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent('Send by QRTo the collector tablet. No internet needed.');
     await waitFor(() =>
-      expect(items[0]).toHaveTextContent(
+      expect(items[1]).toHaveTextContent(
         'Discarded records2 removed because their event was deleted.',
       ),
     );
-    expect(screen.queryByText(/QR/)).toBeNull();
+    expect(screen.queryByText(/receive by qr/i)).toBeNull();
+    expect(screen.queryByText(/discard received/i)).toBeNull();
     expect(screen.queryByText(/wipe/i)).toBeNull();
+  });
+
+  it('says "shown by QR hh:mm" on a waiting record the QR sender showed, which still waits', async () => {
+    await enqueue(op('e-1'));
+    await enqueue(op('e-2', { op_id: 'o-e-2', seq: 2, payload: { team_id: 't-2' } }));
+    await db.syncState.update('e-1', { qr_shown_at: NOW });
+    renderPage();
+    await waitFor(() => expect(records()).toHaveLength(2));
+    expect(record('e-1')).toHaveTextContent(/shown by QR \d\d:\d\d/);
+    expect(record('e-2')).not.toHaveTextContent(/shown by QR/);
+    expect(tab(/^Waiting\s*2$/)).toBeInTheDocument();
   });
 
   it('opens with no competition loaded and still lists what waits', async () => {

@@ -87,6 +87,16 @@ describe('the route tree and the session (task 1.15)', () => {
     vi.restoreAllMocks();
   });
 
+  it('routes /sync/qr/send to the QR sender, over Sync on a computer (task 1.47)', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    await session.signIn(user, 'token-abc');
+    renderAt('/sync/qr/send');
+    const sender = await screen.findByRole('dialog', { name: 'Send by QR' });
+    expect(await within(sender).findByText('Nothing to send')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Sync', level: 1 })).toBeInTheDocument();
+    vi.restoreAllMocks();
+  });
+
   it('an expired session does NOT leave the entry route', async () => {
     await session.signIn(user, 'token-abc');
     await session.expire();
@@ -235,6 +245,8 @@ describe('which routes wait for the event to load (task 1.17b)', () => {
       'sync',
       // The discarded-records log (task 1.42) reads only this device's log.
       'sync/discarded',
+      // The QR sender (task 1.47) reads only this device's outbox.
+      'sync/qr/send',
     ]);
   });
 

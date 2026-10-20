@@ -8327,3 +8327,95 @@ Rejected: a drag at the limit finishing the path and starting the next (a drag a
 **What I did instead:** (1) The design wins: the picker's tag shows `client_created_at`; `superDoneAt` (updated time) still feeds the editing line "Editing your entry from …", unchanged. (2) Unknown author: the tag keeps today's "✓ Done 10:40", the card reads "Another scouter's entry" with "Only its author, a lead or an admin can change it.". (3) This team and that scouter: distinct matches of the device's live match entries with that `scouter_id` and this `team_id` (README: "the matches the author scouted this team in"). (4) The confirmation's rendering is moved, unchanged, into a new `EntryAnswers.tsx` (`EntryAnswers` + `useMapView` + `MapRow`) that both use, so the read-only page shows "Autonomous" and "Click to view" on a computer like the confirmation; `stackLong` (read-only page only) puts a text answer over 24 characters under its name, left-aligned, 500 weight, wrapping, as the 22 mock's `.ro-row.long` (same 24-character threshold). `ConfirmEntry`'s look is unchanged (its tests pass untouched). (5) "last changed …" is left out when `client_updated_at` is missing or equals `client_created_at`. (6) See (4). The field image: `loadSuper` now reads the season's `field_image_path` (as `EntryRoute`) and `SuperForm` passes it into its `EntryContext`. Also: `locked` is now computed before `useEntryForm`, which is handed the entry's own saved data when locked (a stray draft under that key is never shown as the author's answers); `Initials` gains a 34 px size for THEME's Author card; the e2e super form gains Start position (single point), Scoring spots (multi point) and Weaknesses so the fixture matches the 22 final, and its six super entries are by the signed-in user, Dana Mor (added to that spec's pull, handed five of the fixture's 1690 match entries by other scouters), Omer and Amit. Rejected: keeping the Warning notice (v1.19 amends v1.16); "a scouter" as the unknown-name tag ("✓ a scouter 10:40" reads oddly, "Done" is what the tag said before); a separate read-only row renderer (two copies of the confirmation's rows would drift); phase tabs or a peek sheet (variants C and D, rejected by the user).
 
 **Risk:** initial JS 226.2 → 226.4 KB gzip (the shared `EntryAnswers` sits in the initial chunk with `ConfirmEntry`); `BUDGET_KB` unchanged at 228. The read-only UI itself is in the lazy `SuperEntryPage` chunk (5.0 → 5.7 KB). On a computer, opening a team from the picker still resets its filter to To do (the route remounts the picker; existing behaviour, not changed here) — the e2e re-selects Done before the shot.
+
+## Task 1.47 — the sender reads the whole outbox once, the refused records too
+
+**Plan said:** "The page reads `pending(QR_BATCH_MAX_OPERATIONS)`, calls `encodeBatch`" — while the test and the design split a backlog above 200 into consecutive batches ("Batch 1 of 2", Next batch).
+
+**What was wrong:** `pending(200)` returns at most 200 operations, so batch 2 can never exist. And `pending()` leaves out every PARKED operation (a refused row, SPEC-FINAL 9.3.1), which Sync's Waiting list counts and shows: the sender would have carried fewer records than the indicator says are waiting.
+
+**What I did instead:** the new lazy module `features/qr/qrSendData.ts`: `readQrOutbox()` reads EVERY outbox operation in `seq` order (parked ones and bare matches included; timestamps through `asUtcIso`, as `pending()` does), `splitIntoBatches()` cuts it into runs of at most `QR_BATCH_MAX_OPERATIONS`, and each run goes through its own `encodeBatch` call (its own random batch id). `planQrSend()` does all of that once, when the page opens; nothing re-reads while it is open ("the batch is fixed when the page opens"), so a record saved meanwhile waits for the next send. Tests: batch 2's frames decode to operations 200–204; a parked operation is carried although `pending()` omits it; an operation enqueued while the code shows never reaches it, and every frame keeps one batch id. Rejected: `pending(200)` (no batch 2; parked rows dropped); a loop over `pending(200, skip)` (still drops parked rows); re-reading per batch (the batch would move under the user).
+
+**Risk:** a refused operation pushed again by the collector tablet will most likely be refused again there and park on the tablet, so it holds that tablet's Discard received QR data until a lead re-saves it (task 1.48 should expect this). Carrying it is still the durable choice: the typed data then exists on two devices. A bare match and its entry can fall either side of a batch boundary (they are cut in `seq` order); the tablet needs both batches for the entry to push cleanly.
+
+## Task 1.47 — Done only, a router-free page, and Sync beneath on a computer
+
+**Plan said:** a page at `/sync/qr/send` that cycles "until the sender stops"; the test renders `<QrSendPage />` with no router.
+
+**What was wrong:** the 20 final (user, 2026-10-20) has no Stop: Done — back to Sync is the only way out (Esc on a computer), and on a computer it is a dialog over Sync. A page rendered without a router cannot call `useNavigate`.
+
+**What I did instead:** `QrSendPage({ onDone })` uses no router hook; `routes.tsx`'s `QrSendRoute` passes `onDone` (back through history when Sync's More opened it, `state.fromSync`, so Back never returns to the code; else to `/sync` in its place) and, on a computer, renders `SyncRoute` beneath the dialog. Both shapes are portalled to `<body>`: on a phone a full-screen `role="dialog"` page on `--rail` over the top and bottom bars; on a computer the scrim and a 900 × 560 split dialog. While it is open `#root` is `inert` (the app beneath takes no focus, clicks or reading; axe flagged the sidebar's waiting count under the scrim before this: "color-contrast: Elements must meet minimum color contrast ratio thresholds .text-rail-warn"). Esc is a document listener (the More menu that opened it can still hold focus beneath), and Done is idempotent. The route's handle is `{ title: 'Sync', crumb: ['This device'] }`, so the crumb over the dialog reads "This device / Sync" as drawn, and it is NO_HYDRATION (it reads only the outbox). Rejected: a Stop button (user); the shared `Dialog` (its title row, × and padding are not the split panel); a nested `/sync` child route with an Outlet (it would change Sync's route shape for one dialog).
+
+**Risk:** `inert` on `#root` is new in this app; it is removed on unmount.
+
+## Task 1.47 — "shown by QR": when `qr_shown_at` is written
+
+**Plan said:** each record whose batch was shown records the time (`qr_shown_at`, local only).
+
+**What was wrong:** not said when, and the README says "the last time its batch was on screen".
+
+**What I did instead:** `SyncStateRecord.qr_shown_at?: string | null` (optional, not indexed, no Dexie version bump). `markShownByQr(rowIds, at)` stamps it with Dexie `modify` on that field alone — never `sync_state`, `acked_at`, `origin` or `rejection` — when a batch appears and again when it leaves (Next batch, Done, leaving the page), so the time is the last time it was on screen. A new local save writes a fresh sync state without it (the new content has not been shown). Sync shows "shown by QR hh:mm" (`savedLabel`, so another day reads "Sat 11:44") on a waiting card's second line and, on a computer, in the table's last column (the computer's mark is not drawn in 17's final). Rejected: a stamp on every frame (a write five times a second); only at open (not "the last time").
+
+**Risk:** a refusal written by `ackResults` rebuilds the state without `qr_shown_at`, so a refused record's mark goes until it is shown again.
+
+## Task 1.47 — test adaptations
+
+**Plan said:** the test file verbatim, with `vi.useFakeTimers()` and bare `vi.advanceTimersByTime`.
+
+**What was wrong:** verbatim, all six tests hang: "Test timed out in 15000ms." (each of the six) — the default fake timers include `setImmediate`, on which fake-indexeddb runs, and `setTimeout`, on which RTL's `findBy` waits. `toHaveTextContent('frame 1 of N')` is case-sensitive against "Frame 1 of N". "advances one frame every 200 ms" with 60 × `op()` is one frame (they deflate under 2,300 bytes), so its wrap was vacuous. `findByText(/batch 1 of 2/i)` matches only one text node.
+
+**What I did instead:** `vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })` (as AppShell.test does), each advance inside `act` (`tick`), and "Frame" capitalised. The advance test enqueues `bulky()` operations (random notes, several frames) and checks 1 → 2 → N−1 → N → 1. The unmount test also asserts `vi.getTimerCount()` is 0 after unmount (without it, removing `clearInterval` passed: an unmounted page never draws). The code is drawn in a `useLayoutEffect`, in the same commit as "Frame k of N" (the code and its number change in one paint; it also lets `waitFor` see the draw through its MutationObserver while `setInterval` is faked). "Batch 1 of 2" is one text node, so the design's bold numbers in that band are plain 600-weight text. Added tests: Next batch shows batch 2's frames; a parked operation is carried and the batch is read once; never an ack (every frame shown, Done, then the outbox and every sync state equal before, but for `qr_shown_at`); Done releases the wake lock; unmount releases it; a refused wake lock still renders the code without "Screen stays on"; Escape closes it. Mutations run, each failing its test: an `ackResults` call in `planQrSend`; `markShownByQr` also writing `origin`; `pending()` in place of the whole outbox; no `clearInterval`; Done without releasing the lock; the label shown when refused; one batch of everything; re-reading the outbox on every frame.
+
+**Risk:** none.
+
+## Task 1.47 — QR rendering, wake lock and copy details
+
+**Plan said:** `QRCode.toCanvas(canvas, [{ data: frame, mode: 'byte' }], { errorCorrectionLevel: 'M', version: 40 })`; hold the wake lock and hide "Screen stays on" if refused.
+
+**What was wrong:** nothing; these fill gaps. qrcode 1.5.4 takes a `Uint8Array` as byte-segment data (`ByteData` copies it with `new Uint8Array(data)`; `@types/qrcode` types it `Buffer | Uint8ClampedArray | Uint8Array`), so no conversion. A 2,331-byte segment fits version 40-M and 2,332 throws (checked against the installed library); a frame is at most 2,312. Its default margin is 4 modules and its canvas writes a pixel width on the element.
+
+**What I did instead:** `margin: 1` (the white card's 10 px padding is the rest of the quiet zone, about 6 modules at phone width) and `scale` = the device pixels per module the card allows (4 when unmeasured); the canvas is `w-full! h-auto!` with `image-rendering: pixelated`. `useWakeLock` now returns whether a lock is held (callers that ignore it are unchanged); "☀ Screen stays on" shows only while it is true, and Done turns the hook off before `onDone`, so the lock is released at once. The frame counter is `role="status"` with `aria-live="off"` (a region announcing five times a second would drown a screen reader). Reduced motion: the code still cycles (it is the data); nothing else moves (the strip changes state without transitions), so there is nothing to switch off. Copy: the empty state says "this device" on a computer and "this phone" on a phone, as Sync does (the test's "this device" is the jsdom desktop). Not drawn in the final and decided here: the computer's empty state is a 440 px light dialog with the shared `EmptyState` and Back to Sync; the computer's batch band and Done + Next batch sit in the right panel; "In this code" reads "Q28–Q39 · saved before 11:44" (the match range only when all its entries share a match type; the time is when the page read the outbox). Tokens added to `theme.css` (both themes) and `index.css`: `--qr-plate` #ffffff (the code's card, white in every theme), `--frame-shown` #9fcbb8 and `--frame-shown-rail` #3c6b5b (the strip's already-shown segments, from the mock).
+
+**Risk:** on a 1× screen the 177-module code is drawn at 1 px a module and stretched (`pixelated`) to the card, so modules are uneven by a pixel (visible in the 375 px shots); phones are 2–3×, where the scale is 3–5. The code is generated on every frame (about 18 ms per frame in Node on this machine); pre-rendering every frame would hold several MB per frame.
+
+## Task 1.47 — the e2e shots hold whichever frame is showing
+
+**Plan said:** shots of the sender at both widths in every theme.
+
+**What was wrong:** the frames move at five a second and the app has no test-only hold (none is allowed in app code). Playwright's clock API would also freeze `requestAnimationFrame`, which `shoot()`'s settle step waits on.
+
+**What I did instead:** the real `qrcode` draws the code and the shots take whichever frame is on screen; the spec reads the counter with `/^Frame \d+ of \d+$/`. With the fixture's records, 12 entries + 1 super entry deflate into one frame ("Frame 1 of 1"; the mock's 11 frames are illustrative) and 200 entries into four. Rejected: `page.clock` (hangs `settle`); a query flag in the app (not allowed).
+
+**Risk:** the pictures differ run to run in the code and counter only.
+
+## Task 1.47 — a bare match travels with its entry
+
+**Plan said:** split a backlog above 200 operations into consecutive batches (SPEC-FINAL 9.8); this task's first cut sliced the outbox in `seq` order every 200 operations.
+
+**What was wrong:** a slice can put a bare match (SPEC-FINAL 6.4, queued when a match number was new on the device) in batch 1 and an entry that names it in batch 2. A tablet that scans only batch 2 then holds an entry whose match the server does not have, and its push is refused (orchestrator review, 2026-10-20).
+
+**What I did instead:** `splitIntoBatches(ops, max = 200)` in `features/qr/qrSendData.ts` now walks the outbox in `seq` order and skips a queued match that some entry names. It adds that match to the batch of the first entry naming it, and repeats it in every later batch holding another entry that names it. Each batch is sorted by `seq`, so the match comes ahead of its entries; it is queued first, and `rebuildMatchFor` also gives it the entry's seq. A match and its entry are never split. When the pair does not fit, the batch ends early rather than going over 200. A queued match that no entry names travels where it stands.
+
+The repeat is safe, as I checked in `apps/server/src/core/commands/syncPush.ts`. `applyOne` asks `ctx.store.wasApplied(op.op_id)` (the `applied_operations` ledger) first. For a match already applied it answers `noop` with the canonical match id, and the client acks a `noop`. On the receiver, `enqueue` keeps one operation per row. The repeat is the identical operation, same op_id, so it stays one queued operation.
+
+Tests (`qrSendData.test.ts`, 6):
+- a match goes into the batch of its first entry, ahead of it
+- a match is repeated in a later batch (same object, same op_id)
+- the batch ends early rather than split a pair or exceed the cap
+- a match no entry names stays where it stands
+- 450 entries with matches: no entry lost or added, every batch at most 200, every entry with its match
+- `planQrSend` on 203 queued operations: the decoded batch 2 is `[match, 201, 202, 203]`
+
+Mutations, each failing:
+- plain slicing (the earlier behaviour): 4 tests
+- no repeat in later batches: 2 tests
+- batches not in `seq` order: 8 tests
+
+I also fixed a test race in "advances one frame every 200 ms". The interval starts in a passive effect, which `waitFor` could see before it was registered (1 failure in about 10 runs). An `act` flush (`tick(0)`) now comes before the clock moves.
+
+Rejected:
+- putting the match only in the first batch: a tablet that scans only a later batch still lacks it
+- stretching a batch over 200 to keep a pair: the cap is SPEC-FINAL's
+- moving the entry up to its match's batch: that reorders the entry's `seq` relative to other entries
+
+**Risk:** a batch can hold one repeated match per distinct new match among its entries, so slightly fewer than 200 records. Task 1.48's receiver must handle a match op it already holds: same op_id, same content. `enqueue`'s per-row coalescing does that.
