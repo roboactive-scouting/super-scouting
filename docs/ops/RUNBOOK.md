@@ -24,6 +24,30 @@ still holds unacknowledged entries is a loss.
 4. Never clear a device's data to "fix" sync. The wipe refuses while anything is
    unacknowledged, and that refusal is correct.
 
+## QR collector
+
+The arena has no internet; one **collector tablet** gathers everyone's records by QR, and
+a runner carries it outside to sync.
+
+- **Who sends:** each scouter, from their phone: Sync → ⋯ → **Send by QR**. The code loops
+  by itself; hold the phone still about 20 cm from the tablet's camera. With more than 200
+  records the phone shows **Next batch** — tap it once the tablet says "Got it". Sending
+  marks nothing sent: the phone keeps every record until it syncs itself ("shown by QR
+  11:44" on Sync is a display, not a receipt).
+- **Who receives:** the collector tablet only: Sync → ⋯ → **Receive by QR**. The screen
+  turns green with the scouter's name and the count; **Scan the next phone**. A damaged
+  code starts again by itself and saves nothing. A batch is saved only when complete, and
+  scanning the same phone twice changes nothing.
+- **When the runner goes out:** every few matches, and whenever Sync's "Received by QR"
+  block is large. Outside, open Sync and press **Sync now**. Each received copy leaves the
+  tablet's outbox the moment the cloud acknowledges it — never before.
+- **Escape hatch:** Sync → ⋯ → **Discard received QR data** removes the received copies,
+  and only once every one of them has reached the cloud; otherwise it refuses whole and
+  says how many are still waiting.
+- **The wipe:** Settings → **Wipe this device**, with the lead's code and typing to
+  confirm. It refuses while any record on the device has not reached the cloud. Sync
+  first; never wipe to "fix" sync.
+
 ## A device shows no matches
 
 A device that has loaded the competition once opens straight to it, with or without a

@@ -8635,3 +8635,66 @@ TestingLibraryElementError: Unable to find role="dialog" and name "Send by QR"
 Rejected: lazy-loading `data/qrReceive` inside Sync. That adds a third chunk round-trip for a page that opens offline.
 
 **Risk:** none. A real failure still fails, after 5 s.
+
+## Task 1.49 — an unfinished entry holds the wipe too; the given test's draft becomes a practice draft
+
+**Plan said:** the given `wipe.test.ts` puts a `db.drafts` record and expects `wipeDevice('2096')` to succeed and remove it ("wipes the dataset, the drafts and the watermark when everything is acked").
+
+**What was wrong:** task 1.38's `wipeHold.ts` already counts unfinished entries (`db.drafts`, match and super) as holding the wipe. Settings shows the row as "held: … 1 unfinished entry". The orchestrator asked that the UI's held state and `wipeDevice`'s refusal agree. With the given test as written they would not: the row would say held while the wipe ran.
+
+**What I did instead:** `wipeDevice` refuses on exactly `isHeld(readWipeHold())`, read inside its own transaction, so they cannot disagree. An unfinished entry holds it, like an unacked record. `unacked` in the refusal is `heldCount`, which is unacked records plus unfinished entries. The given test's third case puts a **practice** draft instead (thrown away anyway, SPEC-FINAL 8.5) and also checks that `syncState` and `practiceDrafts` are empty. A new test shows a `db.drafts` record refuses and removes nothing. The rest of the given test is used as written, with two changes. The `discarded` record is filled out to its real type, since `typecheck` covers tests. The `@/config` mock gains `builtAt: ''` and a URL `apiBaseUrl`, the real `ClientConfig` shape.
+
+Rejected: following the given test, so a wipe deletes unfinished entries. A scouter's unsubmitted entry is typed work, and "so nothing is lost" (16-settings final) covers it. Rejected: a fourth result, `reason: 'drafts'`. The orchestrator fixed the three-way result, and the held line already names the unfinished entries.
+
+**Risk:** a lead must resume and submit, or discard, a forgotten draft before wiping. The held line says so: "1 unfinished entry is not submitted yet. Wipe is held until it is submitted or discarded".
+
+## Task 1.49 — what the wipe removes and what it keeps
+
+**Plan said:** wipes the dataset, the drafts and the watermark; keeps the discarded-records log.
+
+**What I did instead:** the 16-settings final's sheet says "Removes everything this app keeps on this phone and signs out", so:
+- **Removed:** `rows`, `syncState`, `drafts`, `practiceDrafts` (the outbox is empty, or the wipe is refused), and every `meta` key except the kept ones. That covers the session, the station, `sync.watermark` / `sync.hydrated_event_id` / `sync.last_success_at`, the last sync failure, the match remap and gone events, the QR disposal notice and the token-loss diagnostic. Then the device's own settings go back to their defaults: `device.*` in localStorage, which is the theme, text size, Keep the screen on, Vibrate on taps and Sound on. `clearDevicePrefs` does it; task 1.38 left it for this. The look is re-applied and practice mode ends. `session.signOut()` tells this tab and the others, so the shell leaves for `/login`. Every listener re-reads (`notifyChanged` for rows, outbox and meta).
+- **Kept:** `discarded` (SPEC-FINAL 9.7, life of the install). In `meta`: `device.id` (this install's identity, push's `device_id`), `outbox.seq` (local order keeps rising) and a new `device.wiped_at` mark.
+- **Kept, not data:** the computer sidebar's fold (`shell.sidebar.collapsed`). It is a layout choice on a desktop, never on a phone, and holds nothing about anyone.
+
+Rejected: keeping the theme, text size and station across a wipe as per-device comfort. The wipe is "for a phone you are handing on", and the final says "everything". Rejected: keeping the session, because the final says the wipe signs out. Rejected: a new `device.id`. Nothing on the server keys a person by it, and a stable id keeps the server's logs per device continuous.
+
+**Risk:** a lead who wipes to clear a stale cache (not to hand the phone on) also loses the phone's theme and text size. They take two taps to set again.
+
+## Task 1.49 — a sync running across a wipe does not mark the device hydrated
+
+**Plan said:** nothing.
+
+**What was wrong:** take a sync whose pull started before the wipe. It would write its later pages and then set `sync.watermark` and `sync.hydrated_event_id` on the emptied device. The next sync would pull a delta from that watermark and skip everything the wipe removed, while the gate says "cached".
+
+**What I did instead:** `wipeDevice` writes `meta` `device.wiped_at`, and `syncNow` reads it as its pull begins. `syncNow` sets the watermark, the hydration mark and the last success only inside a `meta` transaction that first re-reads the mark and finds it unchanged. A wipe in between leaves the device unhydrated, and the next sync pulls from scratch. `wipe.test.ts` tests it with a wipe between two pull pages, and it is mutation-checked.
+
+Rejected: holding the wipe while a sync runs. The shell context does not expose sync state to Settings, and a sync can start a moment after the check anyway.
+
+**Risk:** rows from the pull's later pages may stay in the cache until the next sync's full pull overwrites them. They are the active competition's rows, the same ones that pull would bring.
+
+## Task 1.49 — DestructiveConfirm gains `ready`, `children` and a node `held`; its typed phrase is not autocapitalised
+
+**Plan said:** "`DeviceWipe` sits on the settings page behind `ConfirmDialog typeToConfirm`".
+
+**What I did instead:** I used the existing destructive pattern (`components/ui/destructive-confirm.tsx`) with `typeToConfirm`. It is extended without changing any other caller:
+- `children`: the caller's own fields, between the body and type-to-confirm (the wipe's **Lead's code**).
+- `ready` (default true): one more condition before the filled-ink button enables (a code is typed).
+- `held` takes a node as well as a string. A string is still the quiet muted line. The wipe passes the final's held line, a `Notice tone="warning"` (white, 3 px `--warn` edge) with the first sentence bold. `wipeHold.heldLines` splits the sentence; `heldSentence` is unchanged.
+- The type-to-confirm input gets `autoCapitalize="none" autoCorrect="off"`. The match is exact, so a phone keyboard that capitalises the first letter ("Wipe this device") would never match. This applies to every caller, and none of their phrases relies on autocapitalisation.
+
+The phrase is `wipe this device`. The code is compared exactly and case-sensitively against `VITE_DEVICE_WIPE_CODE`. Only surrounding spaces are ignored, on both sides: a phone keyboard's trailing space, or a padded env value. Rejected: case-insensitive. It weakens the accident guard for no gain, since the lead knows the code as configured. Rejected: no trimming. A trailing space from a keyboard suggestion would read as a wrong code.
+
+The code is checked when the button is pressed, not live. A wrong code shows the Error line under the field, "That is not the lead's code. Nothing was wiped.", and wipes nothing. A live check would turn the button on exactly when the code is right, which reveals the code one character at a time.
+
+**Risk:** none for the other callers. The new props are optional, and a string `held` renders as before.
+
+## Task 1.49 — the wipe confirmation is its own lazy chunk; known differences from the final
+
+**Plan said:** the wipe dialog is lazy.
+
+**What I did instead:** `SettingsPage` was already a lazy route. `DeviceWipe` is a second lazy chunk inside it (`DeviceWipe-*.js`, 1.4 KB gzip, precached), mounted only while open, so `data/wipe.ts` loads only then. Initial JS went from 226.9 KB to 227.0 KB gzip, from the sync guard and the `DestructiveConfirm` props. The budget stays at 228. `wipeHold.ts` no longer imports `unackedCount` from the outbox. It counts pending sync states and outbox rows itself, once per row. This is a defensive union, so an outbox row without a pending state still holds the wipe.
+
+Known differences from the 16-settings final come from task 1.38's shared component and are kept. The buttons sit side by side at the foot of the sheet, not stacked full width. The sheet keeps the component's bold object line ("Everything this app keeps on this device") above the body. The final does not draw the code field or the typed phrase ("not drawn"); they follow THEME "Type to confirm".
+
+**Risk:** none.

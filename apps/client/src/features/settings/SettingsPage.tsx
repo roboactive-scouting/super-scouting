@@ -7,10 +7,9 @@ import {
   Vibrate,
   type LucideIcon,
 } from 'lucide-react';
-import { useId, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useId, useState, type ReactNode } from 'react';
 import type { FormFieldDefinition } from '@frc/shared';
 import { Button } from '@/components/ui/button';
-import { DestructiveConfirm } from '@/components/ui/destructive-confirm';
 import { ResponsiveDialog } from '@/components/ui/responsive-dialog';
 import { Segmented } from '@/components/ui/segmented';
 import { Switch } from '@/components/ui/switch';
@@ -34,7 +33,10 @@ import {
   type TextScale,
   type ThemeId,
 } from './theme';
-import { heldSentence, holdParts, isHeld, readWipeHold, type WipeHold } from './wipeHold';
+import { holdParts, isHeld, readWipeHold, type WipeHold } from './wipeHold';
+
+/** The wipe's confirmation and its code (task 1.49): loaded when it opens, never up front. */
+const DeviceWipe = lazy(() => import('./DeviceWipe').then((m) => ({ default: m.DeviceWipe })));
 
 const THEME_NAME: Record<ThemeId, string> = { light: 'Light', outdoor: 'Outdoor' };
 const THEME_LINE: Record<ThemeId, string> = {
@@ -348,7 +350,8 @@ type Open = 'theme' | 'size' | 'wipe' | null;
  * device's own look and comfort, as rows with their values. Theme and Text size open a sheet on a
  * phone and a dialog on a computer, each with a live example; the switches save at once. "This
  * device" names who is signed in, the competition and the version, and holds Wipe this device,
- * which shows as held while anything would be lost. Task 1.49 builds the wipe itself.
+ * which shows as held while anything would be lost; its confirmation (`DeviceWipe`, task 1.49)
+ * asks for the lead's code and the typed phrase.
  */
 export function SettingsPage() {
   const { user, eventId } = useShellContext();
@@ -465,24 +468,11 @@ export function SettingsPage() {
         <TextSteps value={scale} onPick={(s) => void textScale.set(s)} />
       </ResponsiveDialog>
 
-      <DestructiveConfirm
-        open={open === 'wipe'}
-        title="Wipe this device?"
-        objectName="Everything this app keeps on this device"
-        body="Removes it all and signs out. For a phone you are handing on."
-        cancelLabel="Keep this device"
-        confirmLabel="Wipe this device"
-        icon={null}
-        held={
-          hold === undefined
-            ? 'Checking what is waiting to send.'
-            : held
-              ? heldSentence(hold)
-              : 'This version of the app cannot wipe a device yet.'
-        }
-        onConfirm={close}
-        onCancel={close}
-      />
+      {open === 'wipe' && (
+        <Suspense fallback={null}>
+          <DeviceWipe onClose={close} />
+        </Suspense>
+      )}
     </main>
   );
 }

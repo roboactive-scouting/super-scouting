@@ -112,6 +112,13 @@ class ScoutingDb extends Dexie {
 
 export const db = new ScoutingDb();
 
+/**
+ * When this device was last wiped (SPEC-FINAL 9.9; task 1.49, `data/wipe.ts`). A sync reads it
+ * as its pull begins and again as it marks the device hydrated: a wipe in between means the pull
+ * was partly written to a device that has since been emptied, so it does not claim hydration.
+ */
+export const WIPED_AT_KEY = 'device.wiped_at';
+
 export async function getMeta<T>(key: string, fallback: T): Promise<T> {
   const record = await db.meta.get(key);
   return record === undefined ? fallback : (record.value as T);
