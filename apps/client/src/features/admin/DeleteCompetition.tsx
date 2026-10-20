@@ -1,11 +1,11 @@
 import { useId, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { SWITCH_EVENT_FIRST, SWITCH_SEASON_FIRST, type DeleteImpactOutput } from '@frc/shared';
+import { OFFLINE_GATE_LINE, useCapability } from '@/components/OfflineGate';
 import { Button } from '@/components/ui/button';
 import { DestructiveConfirm } from '@/components/ui/destructive-confirm';
 import { ErrorLine } from '@/components/ui/notice';
 import type { Rpc } from '@/data/rpc';
-import { useOnline } from '@/lib/useOnline';
 import { MANAGE_UNREACHABLE, panelErrorLine } from './adminMessages';
 
 export type DeleteTarget = {
@@ -51,7 +51,8 @@ export function DeleteCompetition({
   onDeleted: (id: string) => void;
 }) {
   const noteId = useId();
-  const online = useOnline();
+  /** SPEC-FINAL 9.6: deleting a season or an event is event management, held while offline. */
+  const canManage = useCapability('manage_events');
   const [impact, setImpact] = useState<DeleteImpactOutput | null>(null);
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -64,7 +65,7 @@ export function DeleteCompetition({
     ? season
       ? SWITCH_SEASON_FIRST
       : SWITCH_EVENT_FIRST
-    : online
+    : canManage
       ? null
       : MANAGE_UNREACHABLE;
 
@@ -134,6 +135,7 @@ export function DeleteCompetition({
           confirmLabel={`Delete ${target.name} for good`}
           icon={Trash2}
           typeToConfirm={target.name}
+          held={canManage ? null : OFFLINE_GATE_LINE}
           busy={busy}
           error={confirmError}
           onConfirm={() => void confirm()}

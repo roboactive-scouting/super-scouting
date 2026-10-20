@@ -1,6 +1,17 @@
-import { Calendar, ClipboardCheck, House, List, Users, type LucideIcon } from 'lucide-react';
-import type { Role } from '@frc/shared';
-import { canManageEvents, canManageUsers } from '@/features/admin/AdminOnly';
+import {
+  Calendar,
+  ClipboardCheck,
+  FileText,
+  GitMerge,
+  House,
+  List,
+  RefreshCw,
+  Settings,
+  Users,
+  type LucideIcon,
+} from 'lucide-react';
+import { can, type Role } from '@frc/shared';
+import { canManageEvents, canManageForms, canManageUsers } from '@/features/admin/AdminOnly';
 import { PATHS } from '@/lib/paths';
 
 /** Who is looking: what decides which destinations show (convenience only, SPEC-FINAL 7.4). */
@@ -11,11 +22,12 @@ export type NavAudience = {
   override: boolean;
 };
 
-export type NavGroup = 'competition' | 'admin';
+export type NavGroup = 'competition' | 'admin' | 'device';
 
 export const NAV_GROUP_LABEL: Record<NavGroup, string> = {
   competition: 'Competition',
   admin: 'Admin',
+  device: 'This device',
 };
 
 export type NavItem = {
@@ -41,6 +53,23 @@ export type NavItem = {
   visible: (who: NavAudience) => boolean;
   /** Shown but not a link — Scout while a session override is set (SPEC-FINAL 6.3). */
   disabled?: (who: NavAudience) => boolean;
+  /**
+   * A count beside the label in the sidebar and the phone menu: `waiting` is what waits to send
+   * (SPEC-FINAL 9.10), Sync's; `conflicts` the current event's open conflicts (SPEC-FINAL 9.5),
+   * Conflicts'. None while it is zero.
+   */
+  count?: NavCountKey;
+};
+
+export type NavCountKey = 'waiting' | 'conflicts';
+
+/** The counts nav rows can show (NavItem.count), read once by the shell. */
+export type NavCounts = Partial<Record<NavCountKey, number>>;
+
+/** How a count is said in the link's name: "Sync, 6 waiting to send", "Conflicts, 2 to review". */
+export const NAV_COUNT_WORDS: Record<NavCountKey, string> = {
+  waiting: 'waiting to send',
+  conflicts: 'to review',
 };
 
 /**
@@ -104,6 +133,53 @@ export const NAV_ITEMS: readonly NavItem[] = [
     bottomBar: null,
     visible: (who) => !who.expired && canManageEvents(who.user),
   },
+  {
+    id: 'forms',
+    label: 'Forms',
+    to: PATHS.forms,
+    icon: FileText,
+    group: 'admin',
+    bottomBar: null,
+    desktopOnly: true,
+    visible: (who) => !who.expired && canManageForms(who.user),
+  },
+  // SPEC-FINAL 9.10 (task 1.43): what this device has sent and what still waits, with the waiting
+  // count; every role; never in the bottom bar. No `end`: it is current on /sync/discarded too.
+  // The "This device" group reads Sync · Conflicts · Settings.
+  {
+    id: 'sync',
+    label: 'Sync',
+    to: PATHS.sync,
+    icon: RefreshCw,
+    group: 'device',
+    bottomBar: null,
+    count: 'waiting',
+    visible: () => true,
+  },
+  // SPEC-FINAL 9.5 (task 1.44): the conflict review worklist, with the current event's open count.
+  // Leads and admins only; a scouter who opens /conflicts by URL reads it with every action off.
+  {
+    id: 'conflicts',
+    label: 'Conflicts',
+    to: PATHS.conflicts,
+    icon: GitMerge,
+    group: 'device',
+    bottomBar: null,
+    count: 'conflicts',
+    visible: (who) =>
+      can({ kind: 'user', userId: who.user.id, role: who.user.role }, 'resolve_conflict'),
+  },
+  // SPEC-FINAL 8.6 (v1.25, task 1.38): this device's own settings, for every role, in the sidebar
+  // and the phone menu; never in the bottom bar.
+  {
+    id: 'settings',
+    label: 'Settings',
+    to: PATHS.settings,
+    icon: Settings,
+    group: 'device',
+    bottomBar: null,
+    visible: () => true,
+  },
 ];
 
 export function navItemsFor(who: NavAudience, items: readonly NavItem[] = NAV_ITEMS): NavItem[] {
@@ -139,7 +215,7 @@ export function bottomBar(
 }
 
 export function groupsOf(items: readonly NavItem[]): { group: NavGroup; items: NavItem[] }[] {
-  return (['competition', 'admin'] as const)
+  return (['competition', 'admin', 'device'] as const)
     .map((group) => ({ group, items: items.filter((item) => item.group === group) }))
     .filter((entry) => entry.items.length > 0);
 }

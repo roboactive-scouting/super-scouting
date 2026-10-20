@@ -1,0 +1,80 @@
+/* Conflicts page (/conflicts), final. Colours only from theme.css; classes cf-*. Loads after 05-entries/src/entries.css
+   (robot status .st, station .stn) and 17-sync/src/sync.css (sn-super, sn-prog). */
+.dot.off { background: var(--faint); }
+
+.cf-pad { padding: 14px 14px 20px; display: flex; flex-direction: column; gap: 12px; }
+.cf-h1 { font-size: 24px; font-weight: 750; letter-spacing: -0.02em; }
+.cf-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+
+/* kind tag */
+.cf-kind { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: var(--radius-tag); background: var(--line-2); color: var(--ink-2); font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+.cf-kind svg { width: 13px; height: 13px; }
+.cf-live { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: var(--radius-tag); background: var(--accent-tint); color: var(--accent-ink); font-size: 11px; font-weight: 700; white-space: nowrap; }
+
+/* item card */
+.cf-item { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); overflow: hidden; }
+.cf-ih { padding: 12px 12px 10px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid var(--line-2); }
+.cf-ih .l1 { display: flex; align-items: center; gap: 8px; }
+.cf-ih .m { font-family: var(--font-num); font-size: 13px; font-weight: 600; color: var(--muted); }
+.cf-ih .tn { font-family: var(--font-num); font-size: 17px; font-weight: 600; }
+.cf-ih .nm { font-size: 14.5px; color: var(--ink-2); font-weight: 500; }
+.cf-ih p { font-size: 12.5px; color: var(--ink-2); line-height: 1.4; }
+
+/* diff table: field | copy A | copy B */
+.cf-diff { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.cf-diff th { font-size: 11.5px; font-weight: 700; color: var(--muted); text-align: left; padding: 8px 8px 6px; background: var(--bg); border-bottom: 1px solid var(--line); vertical-align: bottom; }
+.cf-diff th b { display: block; color: var(--ink); font-size: 12.5px; font-weight: 700; }
+.cf-diff th .t { font-family: var(--font-num); font-weight: 500; }
+.cf-diff td { font-size: 12.5px; padding: 7px 8px; border-bottom: 1px solid var(--line-2); color: var(--muted); vertical-align: top; line-height: 1.35; }
+.cf-diff td:first-child { color: var(--muted); }
+.cf-diff tr:last-child td { border-bottom: 0; }
+.cf-diff td .num { font-family: var(--font-num); }
+.cf-diff tr.d td { color: var(--ink); font-weight: 650; background: var(--warn-tint); }
+.cf-diff tr.d td:first-child { box-shadow: inset 3px 0 0 var(--warn); color: var(--ink-2); font-weight: 600; }
+.cf-diff tr.more td { color: var(--accent-ink); font-weight: 650; background: var(--surface); }
+.cf-diff col.f { width: 34%; }
+
+/* actions */
+.cf-acts { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+.cf-acts .btn { width: 100%; height: 46px; font-size: 14px; }
+.cf-acts2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px 12px 12px; }
+.cf-acts2 .btn { height: 44px; font-size: 13.5px; padding: 0 8px; }
+.btn[disabled] { opacity: 0.45; }
+
+/* settled card folded, with the Undo countdown */
+.cf-done { display: flex; align-items: center; gap: 10px; background: var(--accent-tint); border: 1px solid #b9dccb; border-radius: var(--radius-card); padding: 10px 12px; font-size: 13px; }
+.cf-done .ck { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center; flex: none; }
+.cf-done .ck svg { width: 14px; height: 14px; stroke-width: 3; }
+.cf-done b { color: var(--accent-ink); }
+.cf-done .u { margin-left: auto; font-weight: 700; color: var(--accent-ink); }
+
+/* banners */
+.cf-note { display: flex; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--ink); border-radius: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.4; color: var(--ink-2); }
+.cf-note svg { width: 18px; height: 18px; flex: none; color: var(--ink-2); margin-top: 1px; }
+.cf-note b { color: var(--ink); }
+.cf-warnbar { display: flex; gap: 10px; background: var(--warn-tint); border: 1px solid #ecd3a8; border-radius: var(--radius-card); padding: 10px 12px; font-size: 13px; line-height: 1.4; }
+.cf-warnbar svg { width: 18px; height: 18px; color: var(--warn); flex: none; margin-top: 1px; }
+
+/* empty / finished */
+.cf-empty { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 26px 18px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; }
+.cf-empty .ei { width: 48px; height: 48px; border-radius: 14px; background: var(--accent-tint); color: var(--accent-ink); display: grid; place-items: center; }
+.cf-empty .ei svg { width: 24px; height: 24px; stroke-width: 2.4; }
+.cf-empty b { font-size: 17px; font-weight: 700; }
+.cf-empty p { font-size: 13px; color: var(--muted); max-width: 280px; line-height: 1.45; }
+.cf-log { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); overflow: hidden; }
+.cf-log div { display: flex; gap: 8px; align-items: center; padding: 9px 12px; border-bottom: 1px solid var(--line-2); font-size: 12.5px; color: var(--ink-2); }
+.cf-log div:last-child { border-bottom: 0; }
+.cf-log .num { font-family: var(--font-num); color: var(--muted); }
+.cf-log b { color: var(--ink); font-weight: 650; }
+.cf-log svg { width: 14px; height: 14px; color: var(--accent-ink); flex: none; stroke-width: 2.6; }
+
+/* desktop */
+.cf-desk { padding: 22px 32px; height: 100%; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+.cf-desk .cf-h1 { font-size: 26px; }
+.cf-desk .cf-diff td, .cf-desk .cf-diff th { padding-left: 12px; padding-right: 12px; font-size: 13px; }
+
+.cf-diff tr.more svg { width: 14px; height: 14px; vertical-align: -2px; }
+.cf-log .num { white-space: nowrap; }
+.cf-nd { font-size: 12px; font-weight: 650; color: var(--warn); }
+.cf-done .u .num { font-family: var(--font-num); display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--accent); margin-left: 4px; font-size: 11px; }
+.cf-lab { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: 0.05em; text-transform: uppercase; padding: 4px 2px 0; }

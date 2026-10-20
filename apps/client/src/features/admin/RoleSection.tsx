@@ -3,6 +3,7 @@ import { useState } from 'react';
 import type { PublicUser, Role } from '@frc/shared';
 import { session } from '@/auth/session';
 import type { Rpc } from '@/data/rpc';
+import { useCapability } from '@/components/OfflineGate';
 import { Card, CardDescription, CardTitle } from '@/components/ui/card';
 import { DescribedChoice } from '@/components/ui/described-choice';
 import { ErrorLine } from '@/components/ui/notice';
@@ -46,6 +47,8 @@ export function RoleSection({
   onChanged: (u: PublicUser) => void;
 }) {
   const [saving, setSaving] = useState<Role | null>(null);
+  /** SPEC-FINAL 9.6: user management is held while offline. */
+  const can = useCapability('manage_users');
   const [line, setLine] = useState<{ ok: boolean; text: string } | null>(null);
 
   async function change(role: Role) {
@@ -79,6 +82,7 @@ export function RoleSection({
         options={ROLE_OPTIONS}
         value={user.role}
         saving={saving}
+        disabled={!can}
         onChange={(role) => void change(role)}
       />
       {line?.ok && (

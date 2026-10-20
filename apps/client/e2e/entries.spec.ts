@@ -98,7 +98,7 @@ test('entries: newest first, waiting arrows, the refused line', async ({ page })
   await expect(page.getByRole('banner').getByText('4 waiting')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Needs a look 2/ })).toBeVisible();
   await expect(page.getByText('Not synced:')).toBeVisible();
-  await expect(page.getByLabel('waiting to send')).toHaveCount(3);
+  await expect(page.getByLabel('waiting to send', { exact: true })).toHaveCount(3);
   // Rows open nothing yet (the entry preview is a later page): no pointer, no hover tint.
   const first = rows.nth(1);
   await first.hover();
@@ -158,6 +158,9 @@ test('entries: an empty device says so and offers Scout a match', async ({ page 
 });
 
 test('entries: a failed sync says why above the list (UF.13)', async ({ page }) => {
+  // About 14 s alone (a sign-in sync, then a held push); beside the builder specs in a full
+  // parallel run it passed 30 s (Phase 1 D client, DEVIATIONS).
+  test.slow();
   await setClock(page);
   await signIn(page, 'lead', {
     overrides: {

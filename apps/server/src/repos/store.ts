@@ -8,13 +8,20 @@ import {
 import type {
   MatchKeyset,
   PullScope,
+  FormDeletion,
+  NewConflict,
   Store,
+  StoredConflict,
   StoredEvent,
+  StoredForm,
+  StoredFormExport,
+  StoredFormVersion,
   StoredFullUser,
   StoredMatch,
   StoredMatchSlot,
   StoredPublicUser,
   StoredRow,
+  StoredScoringRule,
   StoredSeason,
   StoredTeam,
   StoredUser,
@@ -44,7 +51,21 @@ const TEAM_COLUMNS = 'id, number, name, created_at, updated_at';
 /** Never the reserved official-result columns: they are not read in v1 (SPEC-FINAL 3.1). */
 const MATCH_COLUMNS = 'id, event_id, match_type, number, created_at, updated_at';
 const SLOT_COLUMNS = 'match_id, alliance, station, team_id';
+const FORM_COLUMNS =
+  'id, season_id, kind, name, active_version_id, timer_config, created_at, updated_at';
+const FORM_VERSION_COLUMNS =
+  'id, form_id, version_no, published_at, is_locked, updated_by, created_at, updated_at';
+const SCORING_RULE_COLUMNS =
+  'id, form_id, field_key, points, option_points, created_at, updated_at';
+const FORM_EXPORT_COLUMNS = 'id, form_id, label, definition, created_by, created_at';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** The columns of sync_conflicts (SPEC-FINAL 3.6), `resolution` included (task 1.41). */
+const CONFLICT_COLUMNS =
+  'id, event_id, entity, row_id, kind, superseded_payload, superseded_author_id, ' +
+  'superseded_client_updated_at, base_version, duplicate_row_id, created_at, updated_at, ' +
+  'resolved_at, resolved_by, resolution';
+/** An ISO instant as PostgREST returns one: what a conflict keyset may carry, and nothing else. */
+const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/;
 
 /**
  * The most ids one `in` filter carries. The list goes into the request URL, and 100 uuids
@@ -57,6 +78,8 @@ const IN_CHUNK = 100;
  * event holds at most one row per team that was ever on its roster.
  */
 const EVENT_TEAMS_READ_LIMIT = 1000;
+/** A bound on one read of the saved exports; they are deleted after 24 hours. */
+const FORM_EXPORTS_READ_LIMIT = 200;
 
 function chunks<T>(items: T[]): T[][] {
   const out: T[][] = [];
@@ -213,34 +236,401 @@ export function supabaseStore(db: Db): Store {
       // dbError keeps the code: a foreign-key failure ('23503') is syncPush's parent-deleted.
       if (error) throw dbError(error);
     },
-    // Three reads, together; the order of the answer is the order of the checks. An event
-    // delete cascades to its matches, so a gone event is reported as the event.
+    // Up to four reads, together; the order of the answer is the order of the checks. An
+    // event delete cascades to its matches, so a gone event is reported as the event.
     async missingParent(parents) {
+      const versionId = parents.form_version_id;
       // A non-uuid id names no row, and Postgres would refuse the filter (22P02).
       if (!UUID.test(parents.event_id)) return 'event';
       if (parents.match_id !== null && !UUID.test(parents.match_id)) return 'match';
       if (!UUID.test(parents.team_id)) return 'team';
-      const [event, match, team] = await Promise.all([
+      if (versionId !== undefined && !UUID.test(versionId)) return 'form_version';
+      const skipped = Promise.resolve({ data: { id: null }, error: null });
+      const [event, match, team, version] = await Promise.all([
         db.from('events').select('id').eq('id', parents.event_id).maybeSingle(),
         parents.match_id === null
-          ? Promise.resolve({ data: { id: null }, error: null })
+          ? skipped
           : db.from('matches').select('id').eq('id', parents.match_id).maybeSingle(),
         db.from('teams').select('id').eq('id', parents.team_id).maybeSingle(),
+        // Task 1.40: a deleted form version is parent-deleted, never `invalid` for want of
+        // fields to validate against (SPEC-FINAL 9.5).
+        versionId === undefined
+          ? skipped
+          : db.from('form_versions').select('id').eq('id', versionId).maybeSingle(),
       ]);
-      for (const result of [event, match, team]) if (result.error) throw dbError(result.error);
+      for (const result of [event, match, team, version]) {
+        if (result.error) throw dbError(result.error);
+      }
       if (event.data === null) return 'event';
       if (match.data === null) return 'match';
       if (team.data === null) return 'team';
+      if (version.data === null) return 'form_version';
       return null;
     },
+    // Task 1.40 (SPEC-FINAL 9.5): the duplicate lookup, on the logical-key index
+    // (scouting_entries_logical_key_idx, `where deleted_at is null`). Null-safe on match_id.
+    async findByLogicalKey(key, excludeId) {
+      // A non-uuid id names no row, and Postgres would refuse the filter (22P02).
+      const ids = [key.event_id, key.team_id, excludeId, ...(key.match_id ? [key.match_id] : [])];
+      if (!ids.every((id) => UUID.test(id))) return null;
+      let query = db
+        .from('scouting_entries')
+        .select('*')
+        .eq('event_id', key.event_id)
+        .eq('form_kind', key.form_kind)
+        .eq('team_id', key.team_id)
+        .is('deleted_at', null)
+        .neq('id', excludeId);
+      query =
+        key.match_id === null ? query.is('match_id', null) : query.eq('match_id', key.match_id);
+      const { data, error } = await query
+        .order('client_updated_at', { ascending: false })
+        .order('id', { ascending: true })
+        .limit(1);
+      if (error) throw dbError(error);
+      return ((data ?? [])[0] as StoredRow | undefined) ?? null;
+    },
+    async insertConflict(row: NewConflict): Promise<void> {
+      // `row` is the column set of sync_conflicts minus its defaults; the generated insert
+      // type wants Json for superseded_payload, which Record<string, unknown> is not.
+      // A retried operation carries the same id (conflictIdFor): keep the first row.
+      const { error } = await db
+        .from('sync_conflicts')
+        .upsert(row as never, { onConflict: 'id', ignoreDuplicates: true });
+      if (error) throw dbError(error);
+    },
+    // Task 1.41 (SPEC-FINAL 9.5): the review queue's reads and the resolve command's guard.
+    async listOpenConflicts(eventId, entity, limit, after) {
+      // The keyset is interpolated into a PostgREST filter string, so both values are
+      // checked here as well as in the use case's cursor schema. The instant is the
+      // database's own string, quoted, so microseconds survive and nothing repeats.
+      if (after && (!TIMESTAMP.test(after.created_at) || !UUID.test(after.id))) {
+        throw new Error('listOpenConflicts: a keyset must be a timestamp and a uuid');
+      }
+      if (!UUID.test(eventId)) return [];
+      let query = db
+        .from('sync_conflicts')
+        .select(CONFLICT_COLUMNS)
+        .eq('event_id', eventId)
+        .eq('entity', entity)
+        .is('resolved_at', null);
+      if (after) {
+        query = query.or(
+          `created_at.gt."${after.created_at}",and(created_at.eq."${after.created_at}",id.gt.${after.id})`,
+        );
+      }
+      const { data, error } = await query
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .limit(limit);
+      if (error) throw dbError(error);
+      return (data ?? []) as unknown as StoredConflict[];
+    },
+    async listSettledConflicts(eventId, entity, since, limit) {
+      if (!UUID.test(eventId)) return [];
+      const { data, error } = await db
+        .from('sync_conflicts')
+        .select(CONFLICT_COLUMNS)
+        .eq('event_id', eventId)
+        .eq('entity', entity)
+        .gte('resolved_at', since)
+        .order('resolved_at', { ascending: false })
+        .order('id', { ascending: true })
+        .limit(limit);
+      if (error) throw dbError(error);
+      return (data ?? []) as unknown as StoredConflict[];
+    },
+    async getConflict(id) {
+      // A non-uuid id names no row, and Postgres would refuse the filter (22P02).
+      if (!UUID.test(id)) return null;
+      const { data, error } = await db
+        .from('sync_conflicts')
+        .select(CONFLICT_COLUMNS)
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw dbError(error);
+      return (data as unknown as StoredConflict | null) ?? null;
+    },
+    // ONE conditional update: two leads resolving the same conflict at once cannot both
+    // take it. The row comes back only when the update matched.
+    async resolveConflictRow(id, resolved) {
+      if (!UUID.test(id)) return false;
+      const { data, error } = await db
+        .from('sync_conflicts')
+        .update(resolved as never)
+        .eq('id', id)
+        .is('resolved_at', null)
+        .select('id');
+      if (error) throw dbError(error);
+      return (data ?? []).length > 0;
+    },
+    async reopenConflictRow(id, resolvedAt) {
+      const { error } = await db
+        .from('sync_conflicts')
+        .update({ resolved_at: null, resolved_by: null, resolution: null } as never)
+        .eq('id', id)
+        .eq('resolved_at', resolvedAt);
+      if (error) throw dbError(error);
+    },
+    async getEntriesByIds(ids) {
+      const wanted = ids.filter((id) => UUID.test(id));
+      const out: StoredRow[] = [];
+      for (const chunk of chunks(wanted)) {
+        const { data, error } = await db.from('scouting_entries').select('*').in('id', chunk);
+        if (error) throw dbError(error);
+        out.push(...((data ?? []) as StoredRow[]));
+      }
+      return out;
+    },
+    async getTeamsByIds(ids) {
+      const wanted = ids.filter((id) => UUID.test(id));
+      const out: StoredTeam[] = [];
+      for (const chunk of chunks(wanted)) {
+        const { data, error } = await db.from('teams').select(TEAM_COLUMNS).in('id', chunk);
+        if (error) throw dbError(error);
+        out.push(...((data ?? []) as StoredTeam[]));
+      }
+      return out;
+    },
+    async getMatchesByIds(ids) {
+      const wanted = ids.filter((id) => UUID.test(id));
+      const out: StoredMatch[] = [];
+      for (const chunk of chunks(wanted)) {
+        const { data, error } = await db.from('matches').select(MATCH_COLUMNS).in('id', chunk);
+        if (error) throw dbError(error);
+        out.push(...((data ?? []) as StoredMatch[]));
+      }
+      return out;
+    },
     async getFormFields(formVersionId: string): Promise<FormFieldDefinition[]> {
+      // Ordered (task 1.27): the builder and an export read the fields in display order.
       const { data, error } = await db
         .from('form_fields')
         .select('*')
-        .eq('form_version_id', formVersionId);
+        .eq('form_version_id', formVersionId)
+        .order('display_order', { ascending: true })
+        .order('key', { ascending: true });
       // Swallowed, an entry would be validated against no fields at all.
       if (error) throw dbError(error);
       return (data ?? []) as unknown as FormFieldDefinition[];
+    },
+    // Task 1.27: forms, versions, fields, scoring rules and saved exports. Every method
+    // THROWS on a database error, keeping Postgres's code (dbError).
+    async getForm(id: string): Promise<StoredForm | null> {
+      const { data, error } = await db
+        .from('forms')
+        .select(FORM_COLUMNS)
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw dbError(error);
+      return (data as StoredForm | null) ?? null;
+    },
+    async getFormByKind(seasonId: string, kind: 'match' | 'super'): Promise<StoredForm | null> {
+      const { data, error } = await db
+        .from('forms')
+        .select(FORM_COLUMNS)
+        .eq('season_id', seasonId)
+        .eq('kind', kind)
+        .maybeSingle();
+      if (error) throw dbError(error);
+      return (data as StoredForm | null) ?? null;
+    },
+    async insertForm(row: Record<string, unknown>): Promise<StoredForm> {
+      const { data, error } = await db
+        .from('forms')
+        .insert(row as never)
+        .select(FORM_COLUMNS)
+        .single();
+      if (error) throw dbError(error);
+      return data as StoredForm;
+    },
+    async updateForm(id: string, patch: Record<string, unknown>): Promise<StoredForm> {
+      // updated_at is set by the table's set_updated_at trigger.
+      const { data, error } = await db
+        .from('forms')
+        .update(patch as never)
+        .eq('id', id)
+        .select(FORM_COLUMNS)
+        .single();
+      if (error) throw dbError(error);
+      return data as StoredForm;
+    },
+    async getFormVersion(id: string): Promise<StoredFormVersion | null> {
+      const { data, error } = await db
+        .from('form_versions')
+        .select(FORM_VERSION_COLUMNS)
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw dbError(error);
+      return (data as StoredFormVersion | null) ?? null;
+    },
+    async listFormVersions(formId: string): Promise<StoredFormVersion[]> {
+      const { data, error } = await db
+        .from('form_versions')
+        .select(FORM_VERSION_COLUMNS)
+        .eq('form_id', formId)
+        .order('version_no', { ascending: true });
+      if (error) throw dbError(error);
+      return (data ?? []) as StoredFormVersion[];
+    },
+    async insertFormVersion(row: Record<string, unknown>): Promise<StoredFormVersion> {
+      const { data, error } = await db
+        .from('form_versions')
+        .insert(row as never)
+        .select(FORM_VERSION_COLUMNS)
+        .single();
+      if (error) throw dbError(error);
+      return data as StoredFormVersion;
+    },
+    async updateFormVersion(
+      id: string,
+      patch: Record<string, unknown>,
+    ): Promise<StoredFormVersion> {
+      // updated_at is set by the table's set_updated_at trigger.
+      const { data, error } = await db
+        .from('form_versions')
+        .update(patch as never)
+        .eq('id', id)
+        .select(FORM_VERSION_COLUMNS)
+        .single();
+      if (error) throw dbError(error);
+      return data as StoredFormVersion;
+    },
+    // Soft-deleted entries count: they are bound to the version all the same.
+    async countEntriesByFormVersion(formVersionId: string): Promise<number> {
+      const { count, error } = await db
+        .from('scouting_entries')
+        .select('id', { count: 'exact', head: true })
+        .eq('form_version_id', formVersionId);
+      if (error) throw dbError(error);
+      return count ?? 0;
+    },
+    // Ids survive a save: deletes first, then ONE upsert on (form_version_id, key), so a
+    // key already saved is updated in place (keeping its id) and a new one is inserted.
+    // Not one transaction; re-sending the same save completes a half-done one.
+    async writeFormFields(
+      formVersionId: string,
+      rows: Record<string, unknown>[],
+      deleteKeys: string[],
+    ): Promise<void> {
+      for (const chunk of chunks(deleteKeys)) {
+        const res = await db
+          .from('form_fields')
+          .delete()
+          .eq('form_version_id', formVersionId)
+          .in('key', chunk);
+        if (res.error) throw dbError(res.error);
+      }
+      if (rows.length === 0) return;
+      const res = await db
+        .from('form_fields')
+        .upsert(rows.map((row) => ({ ...row, form_version_id: formVersionId })) as never, {
+          onConflict: 'form_version_id,key',
+        });
+      if (res.error) throw dbError(res.error);
+    },
+    async getScoringRules(formId: string): Promise<StoredScoringRule[]> {
+      const { data, error } = await db
+        .from('scoring_rules')
+        .select(SCORING_RULE_COLUMNS)
+        .eq('form_id', formId)
+        .order('field_key', { ascending: true });
+      if (error) throw dbError(error);
+      return ((data ?? []) as StoredScoringRule[]).map((r) => ({ ...r, points: Number(r.points) }));
+    },
+    // Upserted on (form_id, field_key), so a rule keeps its id; the form's rules for any
+    // other key are deleted first. Not one transaction.
+    async replaceScoringRules(formId: string, rules: Record<string, unknown>[]): Promise<void> {
+      const keep = rules.map((r) => String(r.field_key));
+      let remove = db.from('scoring_rules').delete().eq('form_id', formId);
+      if (keep.length > 0) {
+        // Field keys are [a-z0-9_] (validateFieldDefinition), safe inside a PostgREST list.
+        remove = remove.not('field_key', 'in', `(${keep.map((k) => `"${k}"`).join(',')})`);
+      }
+      const removed = await remove;
+      if (removed.error) throw dbError(removed.error);
+      if (rules.length === 0) return;
+      const res = await db
+        .from('scoring_rules')
+        .upsert(rules.map((r) => ({ ...r, form_id: formId })) as never, {
+          onConflict: 'form_id,field_key',
+        });
+      if (res.error) throw dbError(res.error);
+    },
+    async insertFormExport(row: Record<string, unknown>): Promise<StoredFormExport> {
+      const { data, error } = await db
+        .from('form_exports')
+        .insert(row as never)
+        .select(FORM_EXPORT_COLUMNS)
+        .single();
+      if (error) throw dbError(error);
+      return data as StoredFormExport;
+    },
+    async purgeFormExports(olderThan: Date): Promise<number> {
+      const { count, error } = await db
+        .from('form_exports')
+        .delete({ count: 'exact' })
+        .lt('created_at', olderThan.toISOString());
+      if (error) throw dbError(error);
+      return count ?? 0;
+    },
+    // Task 1.28: the Exports picker. Bounded: exports live 24 hours, so 200 is far beyond use.
+    async listFormExports(): Promise<StoredFormExport[]> {
+      const { data, error } = await db
+        .from('form_exports')
+        .select(FORM_EXPORT_COLUMNS)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true })
+        .limit(FORM_EXPORTS_READ_LIMIT);
+      if (error) throw dbError(error);
+      return (data ?? []) as StoredFormExport[];
+    },
+    async getFormExport(id: string): Promise<StoredFormExport | null> {
+      const { data, error } = await db
+        .from('form_exports')
+        .select(FORM_EXPORT_COLUMNS)
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw dbError(error);
+      return (data as StoredFormExport | null) ?? null;
+    },
+    // Task 1.28: one head count per version, in parallel — no rows read, no 1000-row cap, and
+    // a form has a handful of versions. Live entries only: the forms list's "entries".
+    async countLiveEntriesByFormVersions(versionIds: string[]): Promise<Map<string, number>> {
+      const counted = await Promise.all(
+        versionIds.map(async (id) => {
+          const { count, error } = await db
+            .from('scouting_entries')
+            .select('id', { count: 'exact', head: true })
+            .eq('form_version_id', id)
+            .is('deleted_at', null);
+          if (error) throw dbError(error);
+          return [id, count ?? 0] as const;
+        }),
+      );
+      return new Map(counted);
+    },
+    // Task 1.28: names for "last edited · who", one read per IN_CHUNK ids.
+    async listUserNames(ids: string[]): Promise<{ id: string; full_name: string }[]> {
+      const out: { id: string; full_name: string }[] = [];
+      for (const chunk of chunks(ids)) {
+        const { data, error } = await db.from('users').select('id, full_name').in('id', chunk);
+        if (error) throw dbError(error);
+        out.push(...((data ?? []) as { id: string; full_name: string }[]));
+      }
+      return out;
+    },
+    // ONE statement (decision G): form_versions, form_fields, scoring_rules and, through
+    // form_versions, scouting_entries are all ON DELETE CASCADE; form_exports.form_id is
+    // ON DELETE SET NULL. Nothing references scouting_entries, so nothing can refuse it.
+    async deleteFormCascade(id: string): Promise<void> {
+      const { error } = await db.from('forms').delete().eq('id', id);
+      if (error) throw dbError(error);
+    },
+    // Its fields and entries cascade; the use case refuses a version with entries first.
+    async deleteFormVersion(id: string): Promise<void> {
+      const { error } = await db.from('form_versions').delete().eq('id', id);
+      if (error) throw dbError(error);
     },
     async eventExists(eventId: string): Promise<boolean> {
       const { data, error } = await db.from('events').select('id').eq('id', eventId).maybeSingle();
@@ -274,6 +664,27 @@ export function supabaseStore(db: Db): Store {
           .range(from, from + PAGE - 1);
         if (error) throw dbError(error);
         out.push(...(data ?? []));
+        if ((data ?? []).length < PAGE) break;
+      }
+      return out;
+    },
+    // Task 1.40, paged like listMatchDeletions. A tombstone whose season_id is null (a row
+    // that went by cascade) never matches the season filter.
+    async listFormDeletions(seasonId: string, since: string): Promise<FormDeletion[]> {
+      const PAGE = 1000;
+      const out: FormDeletion[] = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await db
+          .from('form_deletions')
+          .select('entity, row_id, deleted_at')
+          .eq('season_id', seasonId)
+          .gt('deleted_at', since)
+          .order('deleted_at', { ascending: true })
+          .order('entity', { ascending: true })
+          .order('row_id', { ascending: true })
+          .range(from, from + PAGE - 1);
+        if (error) throw dbError(error);
+        out.push(...((data ?? []) as FormDeletion[]));
         if ((data ?? []).length < PAGE) break;
       }
       return out;
@@ -678,38 +1089,48 @@ export function supabaseStore(db: Db): Store {
         const { data, error } = await db
           .from('match_teams')
           .select(SLOT_COLUMNS)
-          .in('match_id', chunk);
+          .in('match_id', chunk)
+          .is('deleted_at', null);
         if (error) throw dbError(error);
         slots.push(...((data ?? []) as StoredMatchSlot[]));
       }
       return slots;
     },
-    // Writes only the difference, so an unchanged slot keeps its row and its updated_at:
-    // cleared slots deleted, a changed team updated IN PLACE (the delta pull sees an
-    // update; it never sees a delete), new slots inserted. Not one transaction.
-    async setMatchTeams(matchId: string, slots: MatchSlot[]): Promise<void> {
+    // Writes only the difference, so an unchanged slot keeps its row and its updated_at.
+    // Task 1.40 (spec 7.5 item 1): a cleared slot is TOMBSTONED, not deleted, so the delta
+    // pull carries the removal; a changed team is updated in place; a refilled tombstone is
+    // revived in place (the unique (match, alliance, station) allows one row per slot, live
+    // or not); a slot never filled is inserted. Every row of the match is read, tombstones
+    // included. Not one transaction.
+    async setMatchTeams(matchId: string, slots: MatchSlot[], at: string): Promise<void> {
       const { data, error } = await db
         .from('match_teams')
-        .select('id, alliance, station, team_id')
+        .select('id, alliance, station, team_id, deleted_at')
         .eq('match_id', matchId);
       if (error) throw dbError(error);
       const key = (s: { alliance: string; station: number }) => `${s.alliance}:${s.station}`;
       const current = new Map((data ?? []).map((row) => [key(row), row]));
       const wanted = new Map(slots.map((slot) => [key(slot), slot]));
 
-      const cleared = [...current].filter(([k]) => !wanted.has(k)).map(([, row]) => row.id);
+      const cleared = [...current]
+        .filter(([k, row]) => row.deleted_at === null && !wanted.has(k))
+        .map(([, row]) => row.id);
       if (cleared.length > 0) {
-        const res = await db.from('match_teams').delete().in('id', cleared);
+        const res = await db.from('match_teams').update({ deleted_at: at }).in('id', cleared);
         if (res.error) throw dbError(res.error);
       }
       const insert: Record<string, unknown>[] = [];
       for (const [k, slot] of wanted) {
         const row = current.get(k);
-        if (row && row.team_id === slot.team_id) continue;
+        if (row && row.deleted_at === null && row.team_id === slot.team_id) continue;
         if (row) {
           const res = await db
             .from('match_teams')
-            .update({ team_id: slot.team_id })
+            .update(
+              row.deleted_at === null
+                ? { team_id: slot.team_id }
+                : { team_id: slot.team_id, deleted_at: null },
+            )
             .eq('id', row.id);
           if (res.error) throw dbError(res.error);
         } else {
@@ -730,7 +1151,8 @@ export function supabaseStore(db: Db): Store {
       if (error) throw dbError(error);
       return count ?? 0;
     },
-    // A hard delete. The match's match_teams cascade; an entry refuses it with 23503.
+    // A hard delete. The match's match_teams cascade (tombstones too: the match_deletions
+    // tombstone covers them); an entry refuses it with 23503.
     async deleteMatch(id: string): Promise<void> {
       const { error } = await db.from('matches').delete().eq('id', id);
       if (error) throw dbError(error);
@@ -783,32 +1205,7 @@ export function supabaseStore(db: Db): Store {
     // The remaining methods start as loud stubs, exactly as the fake does. Each later
     // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
     // without these the file does not compile at all.
-    ...stubsFor([
-      'findByLogicalKey',
-      'parentsExist',
-      'insertConflict',
-      'listConflicts',
-      'getConflict',
-      'resolveConflictRow',
-      'getForm',
-      'getFormByKind',
-      'insertForm',
-      'updateForm',
-      'getFormVersion',
-      'listFormVersions',
-      'insertFormVersion',
-      'updateFormVersion',
-      'countEntriesByFormVersion',
-      'replaceFormFields',
-      'getScoringRules',
-      'replaceScoringRules',
-      'getEntry',
-      'queryEntries',
-      'entriesForScope',
-      'listTeamEvents',
-      'deleteFormCascade',
-      'deleteFormVersion',
-    ]),
+    ...stubsFor(['getEntry', 'queryEntries', 'entriesForScope', 'listTeamEvents']),
     // The spread above only carries an index signature (its keys come from a plain
     // string[]), so TS can't see that it supplies the remaining named Store methods;
     // the assertion tells it what `stubsFor` guarantees at runtime instead.

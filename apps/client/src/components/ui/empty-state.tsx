@@ -13,6 +13,7 @@ export function EmptyState({
   detail,
   action,
   headingLevel = 2,
+  tone = 'default',
   className,
 }: {
   icon: LucideIcon;
@@ -20,6 +21,8 @@ export function EmptyState({
   detail: string;
   action?: ReactNode;
   headingLevel?: 1 | 2;
+  /** `success`: a finished worklist (18-conflicts final) — the icon square in `--accent-tint`. */
+  tone?: 'default' | 'success';
   className?: string;
 }) {
   const Heading = headingLevel === 1 ? 'h1' : 'h2';
@@ -32,9 +35,12 @@ export function EmptyState({
     >
       <span
         aria-hidden="true"
-        className="mx-auto mb-3 grid size-11 place-items-center rounded-xl bg-line-2 text-ink-2"
+        className={cn(
+          'mx-auto mb-3 grid size-11 place-items-center rounded-xl',
+          tone === 'success' ? 'bg-accent-tint text-accent-ink' : 'bg-line-2 text-ink-2',
+        )}
       >
-        <Icon className="size-[22px]" strokeWidth={1.75} />
+        <Icon className="size-[22px]" strokeWidth={tone === 'success' ? 2.4 : 1.75} />
       </span>
       <Heading className="text-[1.0625rem] font-bold" dir="auto">
         {title}

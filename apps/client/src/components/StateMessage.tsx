@@ -77,8 +77,8 @@ const VARIANTS: Record<StateVariant, { glyph: LucideIcon; title: string; detail:
  * happened, one muted line of why, and exactly one primary action. No dead ends.
  *
  * `detail` must be a sentence for a person: pass an error through `sentence()` or a
- * `…ErrorLine()` helper, never an error code. The offline variant always ends with
- * SAFE_ON_DEVICE, whatever `detail` says.
+ * `…ErrorLine()` helper, never an error code. The offline variant always says the data is safe
+ * on the device: it ends with SAFE_ON_DEVICE unless `detail` already says so.
  */
 export function StateMessage({
   variant,
@@ -95,7 +95,11 @@ export function StateMessage({
 }) {
   const copy = VARIANTS[variant];
   const why = detail ?? copy.detail;
-  const line = variant === 'offline-needs-server' ? `${why} ${SAFE_ON_DEVICE}` : why;
+  // A `detail` that already says it (OfflineGate's line, task 1.45) is not told twice.
+  const line =
+    variant === 'offline-needs-server' && !/safe on this device/i.test(why)
+      ? `${why} ${SAFE_ON_DEVICE}`
+      : why;
 
   return (
     <div className="mx-auto max-w-md px-4 py-10">

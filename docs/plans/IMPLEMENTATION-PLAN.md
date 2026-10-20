@@ -1,6 +1,17 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.4 · **Date:** 2026-10-07 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.15 · **Date:** 2026-10-20 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.15 (2026-10-20): task 1.47 carries a side task: small start and end marks on a cycle path (spec v0.83 / SPEC-FINAL v1.31 §8.2, user). Phase 1 F and UI fix round 3 are on `develop`.*
+*v1.14 (2026-10-12): the discarded-records log is designed (`docs/design/pages/19-discarded/final/`, spec v0.81 / SPEC-FINAL v1.29 §9.7); task 1.42 points at it. Phase 1 F's pages are all designed.*
+*v1.13 (2026-10-12): the Conflicts page is designed (`docs/design/pages/18-conflicts/final/`, spec v0.80 / SPEC-FINAL v1.28 §9.5); task 1.44 points at it, and task 1.41 adds `sync_conflicts.resolution`.*
+*v1.12 (2026-10-12): the Sync page is designed (`docs/design/pages/17-sync/final/`, spec v0.79 / SPEC-FINAL v1.27 §9.10); tasks 1.42, 1.43, 1.47 and 1.48 point at it, and task 1.49's wipe is reached from Settings only. Q7.8 is closed (A, user): a lead clears a refused record by re-saving it on that device (SPEC-FINAL v1.27 §9.3.1) — server side in 1.40, client side in 1.43.*
+*v1.11 (2026-10-12): super entries are exempt from the 5-minute self-edit window (spec v0.78 / SPEC-FINAL v1.26 §7.6, user). Task 1.40 carries the code change as a side task, so it ships with Phase 1 F rather than as its own deployment (user).*
+*v1.10 (2026-10-09): the Settings page is designed (`docs/design/pages/16-settings/final/`, spec v0.76 / SPEC-FINAL v1.25); task 1.38 points at it. Every closed page was checked in Outdoor (2026-10-09): nothing breaks; the timer's literal colours become tokens (1.34).*
+*v1.9 (2026-10-09): the super-scouting page is designed (`docs/design/pages/15-super/final/`, spec v0.75 / SPEC-FINAL v1.24); task 1.36 points at it.*
+*v1.8 (2026-10-09): Phase 1 E's small parts are designed (`docs/design/pages/14-entry-parts/final/`, spec v0.74 / SPEC-FINAL v1.23). 1.33, 1.34, 1.36 and 1.37 point at them; 1.36 drops the `<details>` phase cards (the entry form uses phase tabs) and the "danger" range notice (it is amber).*
+*v1.7 (2026-10-08): the builder's remaining screens are designed (`docs/design/pages/12-form-builder/final/`, spec v0.70 / SPEC-FINAL v1.22). 1.31's export/import go through a 24-hour `form_exports` store, 1.32 gets its look and a standard-phases preset, and the form delete in 1.29 is confirmed by typing.*
+*v1.6 (2026-10-08): the forms list is designed (`docs/design/pages/13-forms/final/`, spec v0.69 / SPEC-FINAL v1.21). Task 1.29 builds it with the version timeline, the builder route takes `?version=n`, and it needs an entries-per-version count and `form_versions.updated_by`.*
+*v1.5 (2026-10-08): the form builder is designed (`docs/design/pages/12-form-builder/final/`, spec v0.68 / SPEC-FINAL v1.20). Tasks 1.29–1.31 point at it: `/admin/forms` is decided, a new field's key follows its label until the first save, the incomplete marker is the warning colour (never red), the canvas pages by phase and its Try it mode is the preview. Tasks 1.34–1.35 gain the map pop-up and the event log's optional "where?".*
 *v1.4 (2026-10-07): the redesign build RB.1 – RB.20 (`REDESIGN-BUILD-PLAN.md`) is coded; the execution-order note and the visual-reference banner point at it, and a release note records that the delete-cascade migration goes to production before the server.*
 *v1.3 (2026-10-06): the previous design's styling — colours, fonts, reference apps, motion style — is removed from the global constraints, "The redesign system", the unfinished tasks (1.24 on, phase 2) and the appendix, ahead of the from-scratch redesign (spec v0.52). Finished tasks are untouched and carry a banner. Structural requirements are unchanged.*
 *v1.2 (2026-10-01): the redesign runs now. It is the redesign tasks R.1–R.14 (executed 2026-10-01; their plan file was deleted 2026-10-06 and is in git history), after task 1.23 and before 1.24. Every UI task from 1.29 on carries a "Design (redesign system)" block, and the new section "The redesign system" binds them all.*
@@ -151,6 +162,8 @@ So the execution order is: … 1.49, **1.54, 1.55, 1.56**, 1.50, 1.51, 1.52, **1
 **Release note — delete cascade.** Migration `20261007120000_delete_cascade` must be pushed to **production before the server containing RB.20 is deployed** (by hand, one deliberate command, BUILD-CONTEXT §4). A server that calls the new cascade function before the migration exists fails every season / event delete.
 
 **Release note — match deletions (UF.1).** Migration `20261008090000_match_deletions` must be pushed to **production before the server containing UF.1 is deployed**, the same way (by hand, BUILD-CONTEXT §4). That server's delta pull reads `match_deletions`; without the table every delta pull fails, so no device can sync.
+
+**Release note — form versions and exports (1.27).** Migrations `20261008100000_form_versions_updated_by` and `20261008101000_form_exports` must be pushed to **production before the server containing task 1.27 is deployed**, the same way (by hand, BUILD-CONTEXT §4). That server stamps `form_versions.updated_by` on every form write and reads and writes `form_exports`; without them every form save and every export fails.
 
 If you would rather the file read in execution order, renumber it once before the first build chat and never again — but do not renumber halfway through, because the commit messages and the branch names will stop matching.
 
@@ -13115,8 +13128,9 @@ git add -A && git commit -m "feat(server): add the scoring-model editor and the 
 
 ## Task 1.29: Client — the form builder shell
 
-**Design (redesign system).** The three panes sit side by side (palette · canvas · settings). Canvas rows are rows of one list. An incomplete field shows a visible marker with `sr-only` text "incomplete".
-**Open input [RAISED BY ME]:** nothing lists forms or links to `/admin/forms/:formId` (living spec §4.3, 2026-10-01). Decide before this task runs. The recommendation is a minimal `/admin/forms` page (the season's match and super forms through `getFormByKind`), `PATHS.forms`, and `NAV_ITEMS` row `{ id: 'forms', label: 'Forms', icon: FileText, group: 'admin', bottomBar: null, visible: admin }`.
+**Design (closed 2026-10-08) — match `docs/design/pages/12-form-builder/final/` and its README.** The three panes sit side by side (palette · canvas · settings). The canvas draws each field with the real `FieldInput`, **one phase at a time under the entry form's phase tabs** ("Phase n of 4", dots, ← →), with the key and points at each item's top right. An incomplete field shows the **warning-colour "Needs meaning" marker** with `sr-only` text "incomplete" — never a red dot (red is the red alliance). The top bar is Match timer · More (Edit as JSON · Export · Import · Delete form) · Save draft · Publish, with "Next incomplete →" when Publish is held.
+**Delete form (closed 2026-10-08, `form-builder-desktop-delete.png`):** the locked destructive confirmation naming the versions and entries removed, Export first, and a typed phrase (`delete match form`) before the filled-ink button enables. **Offline** (`-offline.png`): the builder pauses editing and keeps unsaved changes on screen.
+**Decided 2026-10-08 (spec v0.68):** nothing listed forms (living spec §4.3); this task also adds a minimal `/admin/forms` page (the season's match and super forms through `getFormByKind`), `PATHS.forms`, and `NAV_ITEMS` row `{ id: 'forms', label: 'Forms', icon: FileText, group: 'admin', bottomBar: null, visible: admin }`. **The list page is designed (closed 2026-10-08): match `docs/design/pages/13-forms/final/` and its README.** Per form: status, counts, last edited · who, and a version timeline whose rows open the builder on that version (Continue · Open · View, with Restore via `restoreFormVersion`). The builder route takes the version, `/admin/forms/:formId?version=n` (default: the draft if any, else the active version); an older published version opens read-only. **Two additions [RAISED BY ME]:** a migration adding `form_versions.updated_by uuid references users(id)`, stamped by the form use cases (task 1.27), and an entries-per-version count (grouped by the entry's form version) in the form read queries (task 1.28).
 
 **Files:**
 - Create: `apps/client/src/features/builder/BuilderPage.tsx`, `apps/client/src/features/builder/FieldPalette.tsx`, `apps/client/src/features/builder/BuilderCanvas.tsx`, `apps/client/src/features/builder/useBuilderState.ts`
@@ -13177,9 +13191,16 @@ describe('useBuilderState', () => {
     expect(result.current.fields[0]!.type).toBe('toggle');
   });
 
-  it('never lets a key be edited once the field exists', () => {
+  it('derives a new field's key from its label until the first save (SPEC-FINAL 5.1)', () => {
     const { result } = renderHook(() => useBuilderState(initial));
-    act(() => result.current.updateField('auto_notes', { key: 'renamed' } as never));
+    act(() => result.current.addField('counter'));
+    act(() => result.current.updateField(result.current.selectedKey!, { label: 'Pieces dropped' }));
+    expect(result.current.fields.at(-1)!.key).toBe('pieces_dropped');
+  });
+
+  it('never lets a saved field's key change', () => {
+    const { result } = renderHook(() => useBuilderState(initial));
+    act(() => result.current.updateField('auto_notes', { key: 'renamed', label: 'Renamed' } as never));
     expect(result.current.fields[0]!.key).toBe('auto_notes');
   });
 
@@ -13204,11 +13225,11 @@ describe('useBuilderState', () => {
 });
 ```
 
-`apps/client/src/features/builder/BuilderPage.test.tsx` asserts: the three panes are present at 1280 px; the palette lists all fourteen types and no Photo; the canvas groups fields under their section headings; clicking a canvas row selects it in the settings pane; the page renders the desktop-only panel at 640 px; a banner shows while the version is locked, saying a structural edit will create a new version and an in-place edit will not.
+`apps/client/src/features/builder/BuilderPage.test.tsx` asserts: the three panes are present at 1280 px; the palette lists all fourteen types and no Photo; the canvas shows one phase at a time under the phase tabs, that phase's fields under their section headings; clicking a canvas row selects it in the settings pane; the page renders the desktop-only panel at 640 px; a banner shows while the version is locked, saying a structural edit will create a new version and an in-place edit will not.
 
 - [ ] **Step 2: Run, implement, re-run**
 
-`useBuilderState` holds `fields` as an array, computes `willForkNewVersion` by calling the **same `isStructuralChange`** helper (moved to `packages/shared/src/forms/version.ts` in this task so both sides share it), validates with `validateFieldDefinition`, and refuses key edits outright. `FieldPalette` renders one draggable button per `FIELD_TYPES` entry with a one-line description. `BuilderCanvas` is a `@dnd-kit/sortable` list with an explicit drag handle, grouped by `section`, each row showing the label, the type and a red dot when `issuesFor(key)` is non-empty.
+`useBuilderState` holds `fields` as an array, computes `willForkNewVersion` by calling the **same `isStructuralChange`** helper (which also counts adding, removing or reordering a select option as structural, SPEC-FINAL v1.20 §5.1; an option label rename is not) (moved to `packages/shared/src/forms/version.ts` in this task so both sides share it), validates with `validateFieldDefinition`, and refuses key edits on any saved field. `FieldPalette` renders one draggable button per `FIELD_TYPES` entry with a one-line description. `BuilderCanvas` is a `@dnd-kit/sortable` list with an explicit drag handle, grouped by `section`, each item drawing the field's real input, its key and the warning "Needs meaning" marker when `issuesFor(key)` is non-empty. A field's key is the label's slug (deduplicated with `_2`, `_3`) until the field is first saved; then key edits are refused outright.
 
 ```bash
 pnpm install && pnpm --filter @frc/client exec vitest run src/features/builder && pnpm typecheck
@@ -13226,7 +13247,7 @@ git add -A && git commit -m "feat(client): add the three-pane form builder shell
 
 ## Task 1.30: Client — the builder settings pane
 
-**Design (redesign system).** The settings pane is one `Card` with three `SectionHeader level={3}` groups: Configuration, Meaning (the semantic metadata), Scoring. Fields come from `features/admin/fields.tsx` and `Textarea`; errors are `FormError`.
+**Design (closed 2026-10-08) — match `docs/design/pages/12-form-builder/final/`.** The settings pane is one `Card`: the key line, then `SectionHeader level={3}` groups Field · Configuration · Meaning (the semantic metadata) · Scoring · Show when; a complete group folds to a one-line summary. Scoring is a phase × value matrix. Fields come from `features/admin/fields.tsx` and `Textarea`; errors are `FormError`.
 
 **Files:**
 - Create: `apps/client/src/features/builder/SettingsPane.tsx`, `apps/client/src/features/builder/MetadataFields.tsx`, `apps/client/src/features/builder/ScoringFields.tsx`, `apps/client/src/features/builder/ConfigFields.tsx`, `apps/client/src/features/builder/MirrorPreview.tsx`
@@ -13347,26 +13368,26 @@ git add -A && git commit -m "feat(client): add the builder settings pane with me
 
 ## Task 1.31: Client — live preview, the raw-JSON editor and export/import
 
-**Design (redesign system).** The phone-width preview is a 375 px-wide frame rendering the real `FieldInput`. The raw-JSON editor is a `Textarea`; its line-numbered error is a `Notice tone="danger" role="alert"`. Export and import are `Button`s.
+**Design (closed 2026-10-08) — match `docs/design/pages/12-form-builder/final/`.** The preview is the canvas's **Try it** mode: the phone-width column (410 px) rendering the real `FieldInput` without grips or keys, while the settings pane shows **what the entry would save** (its JSON) and what the analysis gets. Edit as JSON, Export and Import live in the top bar's **More** menu. The raw-JSON editor is a `Textarea`; its line-numbered error is a `Notice tone="danger" role="alert"`. Export and import are `Button`s.
 
 **Files:**
 - Create: `apps/client/src/features/builder/LivePreview.tsx`, `apps/client/src/features/builder/RawJsonEditor.tsx`, `apps/client/src/features/builder/ImportExport.tsx`
 - Create: `apps/client/src/features/builder/LivePreview.test.tsx`, `apps/client/src/features/builder/RawJsonEditor.test.tsx`
 
 **Interfaces:**
-- Produces: a preview rendering the form **at phone width** with the real `FieldInput` — imported, never duplicated; an "advanced" raw-JSON editor that round-trips the definition and refuses invalid JSON with a line number; export to a `.json` file and import from one.
+- Produces: a preview rendering the form **at phone width** with the real `FieldInput` — imported, never duplicated; an "advanced" raw-JSON editor that round-trips the definition and refuses invalid JSON with a line number; export into the 24-hour **Exports** store (with an optional `.json` download) and import from a saved export or a file.
 
 **Scope note.** At this point `FieldInput` still renders the four walking-skeleton types from task 1.7; task 1.33 widens it to all fourteen and the preview picks that up for free, because it imports the component rather than reimplementing it. This task's tests therefore use a four-type fixture form. Do not widen `FieldInput` here.
 
 - [ ] **Step 1: Write the failing tests**
 
-`LivePreview.test.tsx` asserts: the preview renders inside a 390 px-wide frame; it uses the same `FieldInput` the scouter sees, so a counter shows as −/value/+ and never as a text box; conditional fields appear and disappear as the preview is filled; **nothing typed in the preview is ever submitted or drafted**.
+`LivePreview.test.tsx` asserts: Try it renders inside the canvas's phone-width column (≤ 410 px) and the side pane shows the would-be-saved JSON; it uses the same `FieldInput` the scouter sees, so a counter shows as −/value/+ and never as a text box; conditional fields appear and disappear as the preview is filled; **nothing typed in the preview is ever submitted or drafted**.
 
 `RawJsonEditor.test.tsx` asserts: it opens closed, behind an "Advanced" toggle; editing valid JSON updates the builder state; invalid JSON shows one message naming the position and leaves the state untouched; a definition that fails `validateFieldDefinition` is refused with the field key named.
 
 - [ ] **Step 2: Run, implement, re-run**
 
-`ImportExport` serialises exactly what `exportForm` returns and downloads it as `form-<kind>-<season>.json`; import reads a file, parses, validates, and shows a diff summary — *"adds 3 fields, changes 1 type, removes 0"* — before it is applied, because an import is a structural change and will fork a version.
+`ImportExport` (closed design: `form-builder-desktop-export.png`, `-import.png`, `-import-new-season.png`) lets the admin pick the version, then saves exactly what `exportForm` returns as a `form_exports` row (label "Match form 2026 · draft v4", kept 24 hours; expired rows are deleted whenever exports are listed or saved — **a migration adds the table, SPEC-FINAL v1.22 §3**), with an optional download as `form-<kind>-<season>-v<n>.json`; import lists the saved exports (or reads a file), parses, validates, and shows a diff summary — *"adds 3 fields, changes 1 type, removes 0"* — before it is applied, because an import is a structural change and will fork a version.
 
 ```bash
 pnpm --filter @frc/client exec vitest run src/features/builder && pnpm typecheck
@@ -13384,7 +13405,7 @@ git add -A && git commit -m "feat(client): add the builder live preview, raw JSO
 
 ## Task 1.32: The match-timer configuration editor
 
-**Design (redesign system).** Phases are a `Table` (numeric columns right-aligned) with `NumberField`s, and the add/remove row actions are icon `Button`s with their names in `aria-label`.
+**Design (closed 2026-10-08) — match `docs/design/pages/12-form-builder/final/form-builder-desktop-timer*.png`.** A dialog opened from the builder's **Match timer** button: phase rows (grip · phase select · seconds with m:ss · delete, names in `aria-label`), a proportional bar, "Match ends at 180 s (3:00)", and with no phases a one-click **Start from Auto 0:15 · Teleop 2:15 · Endgame 0:30**.
 
 **Files:**
 - Create: `packages/shared/src/forms/timer.ts`, `packages/shared/src/forms/timer.test.ts`
@@ -13497,7 +13518,7 @@ This group replaces the walking skeleton's four-type entry screen with the real 
 
 ## Task 1.33: The entry renderer — every simple field type
 
-**Design (redesign system).** Build every type from `components/entry`:
+**Design (closed 2026-10-09) — match `docs/design/pages/14-entry-parts/final/entry-parts-fields-phone.png` and `entry-parts-desktop.png`, README there.** Rating stars are boxed stars with a word under each (Poor · Weak · OK · Good · Great); on a computer each field is a row with the control in a 440 px column. Build every type from `components/entry`:
 - counter → `CounterControl`;
 - toggle → `ToggleField` (a native checkbox);
 - single_select → `ChoiceGroup`;
@@ -13664,7 +13685,7 @@ git add -A && git commit -m "feat(client): render every simple field type in the
 
 ## Task 1.34: The sticky match timer, the Timer field and the Event-log field
 
-**Design (redesign system).** The sticky timer sits under the phone top bar and stays visible while the form scrolls. Event-log buttons are `Button`s, and taps show as `Badge` chips with undo.
+**Design (redesign system).** The sticky timer sits under the phone top bar and stays visible while the form scrolls. **Its colours are tokens, with outdoor values — the mockup's literal `#f2c36b` / `#3a414c` / `#6f7a88` must not be copied (outdoor check, 2026-10-09).** **Its look is closed (2026-10-09): `docs/design/pages/14-entry-parts/final/entry-parts-timer-phone.png`, at the smaller sizes in that README and THEME.md "Sticky match timer" (they win over the image); on a computer a slim bar across the top of the form card; reset has an Undo toast.** Event-log buttons are `Button`s, and taps show as `Badge` chips with undo. **Closed 2026-10-08 (`docs/design/pages/12-form-builder/final/maps-phone.png`):** an event-log field with `ask_position` on opens the map after each tap ("High goal · where?", earlier taps grey); **Skip · no place** keeps `{type, t}`, **Save tap** stores `{type, t, x, y}` (alliance-normalized like §5.6); a chip with a place carries a pin. **The Timer field** (`timer-phone.png`): one centred green Start; running shows the time with Pause and Clear; paused shows Resume, Clear and ✎ to correct the time; "Unsure — no time" records no value.
 
 **Files:**
 - Create: `apps/client/src/features/entry/MatchTimer.tsx`, `apps/client/src/features/entry/MatchTimer.test.tsx`
@@ -13786,7 +13807,7 @@ git add -A && git commit -m "feat(client): add the sticky match timer, the timer
 
 ## Task 1.35: Spatial fields — the position picker and the cycle path
 
-**Design (redesign system).** The game image sits in a `Card`. Tapped points are drawn in the scout's alliance colour. A missing image is `FieldImage`'s alert, unchanged.
+**Design (closed 2026-10-08) — match `docs/design/pages/12-form-builder/final/maps-phone.png` and `form-builder-desktop-try*.png`.** In the form a map field is one **button** (thumbnail + count + ›). It opens the map **full screen on a phone** and **as a dialog on a computer**, drawn with **the scout's own alliance end at the bottom** (phone) / left (computer) — a display rotation only; stored coordinates are unchanged. Tapped points are drawn in the scout's alliance colour. Tap a mark to select it and show **✕ Remove**; Undo; the Delete key on a computer. A cycle path shows only the routes; while drawing: Undo · **Clear path** (restart the path being drawn) · Finish; otherwise + New path. A missing image is `FieldImage`'s alert, unchanged.
 
 **Files:**
 - Create: `packages/shared/src/forms/mirror.ts`, `packages/shared/src/forms/mirror.test.ts`
@@ -13883,7 +13904,7 @@ git add -A && git commit -m "feat: add the position picker and cycle path with a
 
 ## Task 1.36: The entry form's rules — phases, status, conditions, range block, confirmation
 
-**Design (redesign system).** Phase sections are R.10's `<details>` cards. The range block is a `Notice tone="danger" role="alert"`, and the confirmation is R.10's `ReviewDialog`. `/super` → add `PATHS.super`, and add `'/super'` to `ENTRY_PATH_PREFIXES`. It is **not** a nav row: it is linked from `/scout`.
+**Design (closed 2026-10-09) — match `docs/design/pages/14-entry-parts/final/entry-parts-rules-phone.png` and `entry-parts-desktop-review.png`.** Phases are the Entry page's **phase tabs** (not `<details>` cards: superseded by the Entry design, SPEC-FINAL v1.23 §8.2). An out-of-range number is marked **as it is typed** — the `--warn` edge and one line naming the limit, never `tone="danger"` (red is the red alliance) — and a missed required field says "Required — pick one". Review entry, when anything blocks it, opens the problems list (sheet / dialog) with **Go to** per problem instead of R.10's `ReviewDialog`; with nothing blocking, the `ReviewDialog` confirmation as today. `/super` → add `PATHS.super`, and add `'/super'` to `ENTRY_PATH_PREFIXES`. It is **not** a nav row: it is linked from `/scout`.
 
 **Files:**
 - Modify: `apps/client/src/features/entry/EntryPage.tsx`, `apps/client/src/features/entry/EntryPage.test.tsx`, `apps/client/src/routes.tsx`
@@ -14000,7 +14021,7 @@ git add -A && git commit -m "feat: add the position picker and cycle path with a
 
 - [ ] **Step 2: Implement**
 
-**The super-scouting entry point (SPEC-FINAL §8.1).** A second, separate route at `/super`, because a super record is one per **(team, event)**, not per match. It asks for three things and no more:
+**The super-scouting entry point (SPEC-FINAL §8.1).** A second, separate route at `/super`, because a super record is one per **(team, event)**, not per match. **Design closed 2026-10-09 — match `docs/design/pages/15-super/final/` and its README:** a Super scouting card at the foot of Scout; the picker = the progress line, search, To do / Done / All chips and the roster list ordered by matches seen on this device; the form header with the SUPER tag and "Seen here in …" chips; the confirmation states no match is recorded. All of it is derived from what the device holds — no new server query. It asks for three things and no more:
 
 1. the active season's `super` form, resolved by `kind` — never chosen by the scouter;
 2. the **team**, from the event roster;
@@ -14046,7 +14067,7 @@ git add -A && git commit -m "feat(client): finish the entry form rules — phase
 
 ## Task 1.37: Drafts, recovery and practice mode
 
-**Design (redesign system).** `DraftRecovery` is a `Notice` with its one action. Practice mode is a persistent `Notice tone="warning"` strip in the shell's notices (AppShell `notices`), so no screen can be mistaken for a real entry.
+**Design (closed 2026-10-09) — match `docs/design/pages/14-entry-parts/final/entry-parts-drafts-phone.png`.** `DraftRecovery` is the Note at the top of Scout with **Resume** and **Discard** (Discard deletes the draft, with an Undo toast). Practice is entered from a **"Practice a match"** card at the foot of Scout. Practice mode is a persistent `Notice tone="warning"` strip in the shell's notices (AppShell `notices`) — PRACTICE tag, "Nothing is saved", Exit practice — so no screen can be mistaken for a real entry; Review entry becomes **Finish practice**, which ends in a "Practice finished" sheet.
 
 **Files:**
 - Create: `apps/client/src/features/entry/practice.ts`, `apps/client/src/features/entry/practice.test.ts`
@@ -14136,7 +14157,7 @@ git add -A && git commit -m "feat(client): add draft recovery and practice mode"
 
 ## Task 1.38: Arena comfort — themes, large text, wake lock, haptics
 
-**Design (redesign system).** `/settings` → `PATHS.settings`, plus a `NAV_ITEMS` row `{ id: 'settings', label: 'Settings', icon: Settings, group: 'device', bottomBar: null, visible: () => true }`. Add `'device'` to `NavGroup`, with the label "This device". The theme and text-size pickers are `ChoiceGroup`s. **From this task on, BUILD-CONTEXT §12's screenshots are taken in every theme.** Re-check every existing screen in each theme here and log what needed fixing.
+**Design (redesign system).** `/settings` → `PATHS.settings`, plus a `NAV_ITEMS` row `{ id: 'settings', label: 'Settings', icon: Settings, group: 'device', bottomBar: null, visible: () => true }`. Add `'device'` to `NavGroup`, with the label "This device". **Design closed 2026-10-09 — match `docs/design/pages/16-settings/final/` and its README:** settings **rows** with their values; Theme and Text size open a sheet (phone) / dialog (computer) with a **live example** of real entry controls in the picked theme or size, then the theme picture tiles or the four size steps; Vibrate is disabled where `navigator.vibrate` is missing; Wipe shows as held while entries wait (1.49 builds the wipe). The theme ids are `light` and `outdoor`, default `light`. **From this task on, BUILD-CONTEXT §12's screenshots are taken in every theme.** Re-check every existing screen in each theme here and log what needed fixing.
 
 **Files:**
 - Create: `apps/client/src/features/settings/theme.ts`, `apps/client/src/features/settings/theme.test.ts`
@@ -14505,6 +14526,8 @@ git add -A && git commit -m "feat(shared): implement the conflict policy as pure
 
 **Open input from phase 1C — close both before this task's commit.** Spec §7.5 items 1 and 2 (`docs/spec/frc-scouting-app-spec.md`). **(1)** `deleteMatch` and `setMatchTeams` hard-delete, so a deleted match or a cleared slot never reaches a device: add a `deleted_at` migration on `matches` and `match_teams` and tombstone instead, as `event_teams` already does, so the delta pull carries the removal. **(2)** When a bare match resolves to an id the server already holds (`noop` with the server's `row_id`), rewrite that id in every later operation of the **same push batch** before applying it, so an entry sent alongside its bare match does not fail the foreign key as `rejected: invalid`.
 
+**Open input from phase 1D — close before this task's commit.** Spec §7.5 item 5: `form_fields`, `form_versions`, `forms` and `scoring_rules` have no `deleted_at`, so a field removed from a draft, a deleted version, a dropped scoring rule and a deleted form (with every entry bound to it) never reach a device through the delta pull. A device then scores with a rule the admin removed. Carry the removals to devices — a trigger-written tombstone table like `match_deletions` (UF.1) is the existing pattern — and drop the deleted form's entries on the device under item 3's rule (never an unsynced row).
+
 **Files:**
 - Modify: `apps/server/src/core/commands/syncPush.ts`, `apps/server/src/core/commands/syncPush.test.ts`
 - Modify: `apps/server/src/repos/store.ts` and `apps/server/src/test/fake-context.ts` (replace the `findByLogicalKey`, `parentsExist` and `insertConflict` stubs — all three are already declared by task 1.3)
@@ -14610,6 +14633,10 @@ git add -A && git commit -m "feat(shared): implement the conflict policy as pure
 
 > **Keep 1.14's guard.** The fragment below starts at the parent check and says nothing about ownership or the five-minute window. That is because **neither changes** — the `scouter`-role ownership check and the `withinSelfEditWindow` / `edit-window-expired` branch stay exactly where task 1.14 put them, between the parent check and the duplicate lookup. If 1.14's five tests go red while you are doing this task, you deleted them. Put them back.
 
+> **Side task (v1.11, user 2026-10-12): super entries are exempt from the window** (SPEC-FINAL v1.26 §7.6). The one change to 1.14's guard: the `withinSelfEditWindow` / `edit-window-expired` branch applies only when the target entry's `form_kind` is `'match'`. A scouter's update to their **own super** entry is accepted at any age; a scouter's update to **someone else's** super entry is still refused by the ownership check (`forbidden`). On the client, `canSelfEdit` (`apps/client/src/features/entry/localEntries.ts`) returns true for the author's own super entry at any age, so `SuperForm` never shows "locked — ask a lead" for it, and the `SuperEntryPage` tests "shows a scouter their own super entry locked once its five-minute window has closed" flip to "lets a scouter edit their own super entry an hour later". **Prove the negatives** (BUILD-CONTEXT §10): server tests — a scouter's own match entry is still refused at 5 min + 1 s; their own super entry is accepted at 60 min; another scouter's super entry is refused. Rebuild `apps/server/api/index.js` (BUILD-CONTEXT §6). Log it in `DEVIATIONS.md` under Task 1.40. The phase branch starts from `spec/super-edit-anytime` (it carries the spec and this plan note), so both reach `develop` in Phase 1 F's single push.
+
+> **Q7.8 (v1.12, user 2026-10-12): a lead's re-save clears a refused record** (SPEC-FINAL v1.27 §9.3.1). `syncPush` must accept a **create** whose `author_user_id` is a lead or admin and whose payload's `scouter_id` is **another** user — the entry keeps crediting its scouter; only the operation's author changes. A scouter-authored create naming someone else's `scouter_id` stays `forbidden`. **Prove the negatives:** a lead's create with another scouter's `scouter_id` → `applied`; a scouter's create with another scouter's `scouter_id` → `forbidden`; a lead's update of a scouter's match entry at 60 min → `applied`. Log it in `DEVIATIONS.md` under Task 1.40.
+
 ```ts
   if (!(await ctx.store.parentsExist({
     event_id: String(payload.event_id),
@@ -14701,7 +14728,7 @@ git add -A && git commit -m "feat(server): add divergence, duplicate and parent-
 **Interfaces:**
 - Produces: `listConflicts(caller, { event_id, limit, cursor })` — the review queue with **both copies and a field-by-field diff**, showing the team, the match, **both authors' names** and both client timestamps; `resolveConflict(caller, { conflict_id, resolution })` — **lead or admin only**.
 
-**Resolutions (SPEC-FINAL §9.5).** A **divergence** resolves by keeping the live copy or restoring the superseded one. A **duplicate** resolves by soft-deleting one of the two rows. Resolution sets `resolved_at` and `resolved_by`. A row has an open conflict **exactly while it has an unresolved `sync_conflicts` row** — there is no `conflict_state` column.
+**Resolutions (SPEC-FINAL §9.5).** A **divergence** resolves by keeping the live copy or restoring the superseded one. A **duplicate** resolves by soft-deleting one of the two rows. Resolution sets `resolved_at` and `resolved_by`, *(v1.13)* **and `resolution`** — the command's choice as given (`{ keep: 'live' | 'superseded' }` or `{ keep_row_id }`), so the page's "Settled today" log can say what was kept. A new migration adds the nullable `resolution jsonb` column (SPEC-FINAL v1.28 §3.6); `listConflicts` also returns today's resolved rows for the event with `resolution`, `resolved_at` and the resolver's name. A row has an open conflict **exactly while it has an unresolved `sync_conflicts` row** — there is no `conflict_state` column.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -14809,6 +14836,8 @@ git add -A && git commit -m "feat(server): add the conflict review queue and res
 ## Task 1.42: Client — parent-deleted records and the discarded-records log
 
 **Design (redesign system).** The dismissible notice is a `Notice` with a "Dismiss" `Button variant="ghost"`. The log page is a `PageHeader` and a `Table`.
+*(v1.12)* The notice's look is THEME.md "Discarded notice" (`docs/design/pages/17-sync/final/`, phone image 3): it lists each record (match · team · scouter · time) and has **Dismiss** and **See the log**; it shows on the Sync page's Problems tab.
+*(v1.14)* **The log page must look like `docs/design/pages/19-discarded/final/`**: reached from Sync only (not a nav row); records grouped by removal time (newest first) with their competition's name, so `recordDiscarded` stores `discarded_at` and the event's name (read from the cache before the eviction) beside match, station, team, robot status, form kind, scouter and `client_updated_at`; the cause in general words; an empty state. **No entered values are shown** (user).
 
 **Open input from phase 1C.** Spec §7.5 item 3: since task 1.22 an open device moves to a changed default mid-session, and nothing evicts the event it left from `db.rows`, which breaks §7.3's active-competition-only bound. Evict that event's rows once every outbox operation for it is acknowledged. Never evict a draft, an unacknowledged row, or anything the outbox still references.
 
@@ -14913,6 +14942,7 @@ git add -A && git commit -m "feat(client): handle parent-deleted records and kee
 - `ConnectionIndicator` becomes a `Link` to `PATHS.sync` with its `role="status"` span inside, so its words and count are still announced.
 - The pending list is `Table` rows with `Badge`s ("local" / "QR", robot status); rejections are `Notice tone="warning"`.
 - "Sync now" is the page's one `Button variant="primary"`.
+- *(v1.12)* **The page must look like `docs/design/pages/17-sync/final/` (SPEC-FINAL v1.27 §9.10, README there).** A status strip (state, last sync, Sync now; progress "Sent · n of N" while sending); tabs **Waiting · Sent · Problems** with counts; Waiting grouped by competition; Problems = rejected records + task 1.42's notice; a refused record offers **Open entry** only (the entry preview); **a lead clears it by re-saving it** (Q7.8 A, SPEC-FINAL §9.3.1): with a lead or admin signed in on the device, saving the opened record replaces the refused outbox operation with one authored by them (same `row_id`, action and `base_version`; `scouter_id` unchanged) and clears its rejected state; test that the waiting count stays the same until the ack and drops after it; a conflicts link for leads and admins while `sync_conflicts` has open rows; **More** (a `Sheet` on a phone, the More menu on a computer) holds Send by QR, Receive by QR, the discarded log and Discard received QR data. **No wipe here** — it is in Settings (task 1.49). The "This device" nav group orders Sync · Conflicts · Settings.
 
 **Open input from phase 1C.** Spec §7.5 item 4: `EntriesPage` lists only the shell's event, so after a default move the old event's unsynced or rejected entries are on no screen. The pending list here covers **every** unsynced or rejected record on the device, whatever its event, and names the event when it is not the current one.
 
@@ -15016,6 +15046,7 @@ git add -A && git commit -m "feat(client): add the sync page with pending, rejec
 **Design (redesign system).** A worklist you can finish.
 - `/conflicts` → `PATHS.conflicts`, plus a `NAV_ITEMS` row `{ id: 'conflicts', label: 'Conflicts', icon: GitMerge, group: 'device', bottomBar: null, visible: lead or admin }`.
 - Works at any width, so no `DesktopOnly`. The two versions are two `Card`s side by side at ≥ 1024 px and stacked below.
+- *(v1.13)* **The page must look like `docs/design/pages/18-conflicts/final/` (SPEC-FINAL v1.28 §9.5, README there)**, which replaces the two-cards layout above: one scroll of conflict cards; a diff table showing only the differing fields until "Show the n that match"; the kind in words and "n fields differ"; "Counted now" on the live copy; on a computer each card is two columns (who and the buttons left, the diff right). **Undo is a delayed send:** a choice folds the card to a "Kept …" line with a 5-second countdown and calls `resolveConflict` only when it ends; Undo cancels the timer; leaving the page flushes a pending choice; a failed call reopens the card with the error. Add tests for each (fake timers). **Settled today** lists the event's conflicts resolved today. The nav row stays leads and admins only; a scouter who opens the page reads it with every action disabled (the test below).
 
 **Files:**
 - Create: `apps/client/src/features/sync/ConflictsPage.tsx`, `apps/client/src/features/sync/ConflictDiff.tsx`, `apps/client/src/features/sync/ConflictsPage.test.tsx`
@@ -15491,7 +15522,10 @@ git add -A && git commit -m "feat(shared): add the deflate + framed QR codec wit
 
 ## Task 1.47: Client — the QR sender
 
+> **Side task (v1.15, user 2026-10-20): start and end marks on a cycle path** (SPEC-FINAL v1.31 §8.2). Small, and taking no extra screen room: each path's **first point is a hollow ring** and its **last point a small arrowhead pointing along the last leg**, in the path's own colour, no larger than a point's dot, with no labels. Draw them in `MapSheet`'s editing map, its view-only mode (UF.24) and the form's map button thumbnail; a one-point path shows only the ring; selection, ✕ Remove and the blue mirroring are unchanged (the arrow turns with the drawing). Add unit tests (ring on the first point, arrow on the last, the arrow's angle after mirroring) and refresh the map e2e shots in both themes. Logged under Task 1.47 in `DEVIATIONS.md`. Not a separate deployment: it ships with Phase 1 G.
+
 **Design (redesign system).** The sender is a full-screen `Sheet side="bottom"` or page with a frame counter. The QR canvas draws black on white, which the QR format needs for scanning.
+*(v1.12)* Each record whose batch was shown records the time (`qr_shown_at`, local only); the Sync page's Waiting list shows **"shown by QR hh:mm"** on it (SPEC-FINAL v1.27 §9.10). It is a display, not a receipt: the record stays pending.
 
 **Files:**
 - Create: `apps/client/src/features/qr/QrSendPage.tsx`, `apps/client/src/features/qr/QrSendPage.test.tsx`
@@ -15605,6 +15639,7 @@ git add -A && git commit -m "feat(client): add the QR sender with a cyclic five-
 ## Task 1.48: Client — the QR receiver and disposal on ack
 
 **Design (redesign system).** The camera view fills a `Card`, and its progress ("12 of 30 frames") is a `Badge`. Disposal on ack is a `Notice tone="success"`.
+*(v1.12)* While the device holds received copies, the Sync page's Waiting tab opens with a **"Received by QR"** block: the count by `author_user_id`, each with its last scan time (store `received_at` with each copy). See `docs/design/pages/17-sync/final/` phone image 6.
 
 **Files:**
 - Create: `apps/client/src/features/qr/QrReceivePage.tsx`, `apps/client/src/features/qr/QrReceivePage.test.tsx`
@@ -15725,7 +15760,7 @@ git add -A && git commit -m "feat(client): add the QR receiver with ack-gated di
 
 ## Task 1.49: Client — the lead-approved device wipe
 
-**Design (redesign system).** The wipe is `ConfirmDialog` with `typeToConfirm` (a multi-record irreversible, SPEC-FINAL §17.8), reached from the sync page; not a nav row.
+**Design (redesign system).** The wipe is `ConfirmDialog` with `typeToConfirm` (a multi-record irreversible, SPEC-FINAL §17.8), reached from **Settings** ("Wipe this device", `docs/design/pages/16-settings/final/`) — *amended v1.12: not from the sync page* (user, 2026-10-12); not a nav row.
 
 **Files:**
 - Create: `apps/client/src/features/settings/DeviceWipe.tsx`, `apps/client/src/features/settings/DeviceWipe.test.tsx`
@@ -17755,7 +17790,7 @@ git add -A && git commit -m "docs(ops): record the phase 1 gate rehearsal result
 
 The order below is SPEC-FINAL §20.2's order. The gate is §20.4: *a strategy lead builds a metric and a chart unaided, and a pick list survives being edited offline and synced.*
 
-**Schedule checkpoint (§20.6).** The phase 1 gate should pass by **~2026-10-20**. **If it has not passed by 2026-11-01, phase 2 is cut to the metric builder and the configurable ranking dashboard** — everything below those two waits. Phase 1's fixed ranking table already works, so a cut ships a usable ranking either way. v1 ships on **2026-11-20** with less analysis rather than late with more.
+**Schedule checkpoint (§20.6, amended 2026-10-08 / SPEC-FINAL v1.19).** The phase 1 gate should pass by **~2026-11-01**. **No scope cut:** every phase 2 item is built, and v1 ships on **2026-12-01**. A slipped gate raises the pace, not the cut.
 
 1. **Metric builder and metric storage** — the menu builder of §11.2 (field(s) → aggregation → filters), `createMetric` / `updateMetric` / `deleteMetric`, and the `metrics` table that already exists from task 0.11.
 2. **The chart and dashboard builder** — the chart set of §12.2, the closed dimension vocabulary of §12.3, the 12-column grid of §12.4, the view-time metric selector and expand-to-stack of §12.5, and the mobile density rules of §12.10. Including the **heatmap, field-position scatter and cycle-path renderings** of phase 1's spatial data.

@@ -1,4 +1,4 @@
-import { Check } from 'lucide-react';
+import { Check, TriangleAlert } from 'lucide-react';
 import { useId, useRef, type KeyboardEvent } from 'react';
 import { cn } from '@/lib/utils';
 
@@ -23,6 +23,9 @@ export function Tabs<K extends string>({
   value,
   onChange,
   done,
+  flagged,
+  flagLabel = 'needs attention',
+  dotted,
   flush = false,
 }: {
   label: string;
@@ -31,6 +34,17 @@ export function Tabs<K extends string>({
   onChange: (key: K) => void;
   /** Keys of the tabs that are finished: each shows a ✓. */
   done?: ReadonlySet<K>;
+  /**
+   * Keys of the tabs holding something to fix: each shows a `--warn` ⚠ after its count, and
+   * `flagLabel` (sr-only) says what (the form builder's phase holding an incomplete field).
+   */
+  flagged?: ReadonlySet<K>;
+  flagLabel?: string;
+  /**
+   * Keys of the tabs that need attention, shown as THEME "Tabs in a card (with counts)" draws
+   * it: a 7 px `--warn` dot before the label (Sync's Problems), with `flagLabel` (sr-only).
+   */
+  dotted?: ReadonlySet<K>;
   /**
    * Manage's page tabs (07-manage final): flush, full-height tabs with no inset, the inactive
    * labels in `--ink-2` 650 and the counts in muted mono; the underline spans the tab.
@@ -99,6 +113,13 @@ export function Tabs<K extends string>({
                 strokeWidth={3}
               />
             )}
+            {dotted?.has(tab.key) && (
+              <span
+                aria-hidden="true"
+                data-dot-mark=""
+                className="size-[7px] shrink-0 rounded-full bg-warn"
+              />
+            )}
             <span className="truncate" dir="auto">
               {tab.label}
             </span>
@@ -106,6 +127,17 @@ export function Tabs<K extends string>({
               <span className={cn('num text-[0.8125rem]', flush && 'font-medium text-muted')}>
                 {tab.count}
               </span>
+            )}
+            {dotted?.has(tab.key) && <span className="sr-only">{flagLabel}</span>}
+            {flagged?.has(tab.key) && (
+              <>
+                <TriangleAlert
+                  aria-hidden="true"
+                  data-flag-mark=""
+                  className="size-3.5 shrink-0 text-warn"
+                />
+                <span className="sr-only">{flagLabel}</span>
+              </>
             )}
             {finished && (
               // aria-hidden keeps "Done" out of the tab's name; describedby still reads it.

@@ -1,11 +1,14 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CachedRow } from '@/data/db';
 import { db } from '@/data/db';
 import { pending } from '@/data/outbox';
 import { EntryPage } from './EntryPage';
+import { loadTimedParts } from './lazyParts';
+import { matchClock } from './matchClock';
+import { stopwatches } from './stopwatches';
 
 const field = (over: Record<string, unknown>) =>
   ({
@@ -246,6 +249,51 @@ describe('EntryPage', () => {
     await waitFor(async () => expect((await pending(10))[0]?.payload.data).toEqual({}));
   });
 
+  it('draws a section in the phase of the field after it, and a computed field that follows the taps (1.33)', async () => {
+    await db.rows.bulkPut([
+      field({
+        id: 'f0',
+        key: 'auto_section',
+        label: 'Scoring',
+        type: 'section',
+        display_order: 0,
+        phase: null,
+      }),
+      field({
+        id: 'f9',
+        key: 'auto_points',
+        label: 'Auto points',
+        type: 'computed',
+        display_order: 9,
+        phase: 'auto',
+        unit: 'points',
+        direction: 'higher_is_better',
+        config: {
+          result_type: 'float',
+          expression: {
+            kind: 'op',
+            op: '*',
+            left: { kind: 'field', key: 'auto_notes' },
+            right: { kind: 'literal', value: 5 },
+          },
+        },
+      }),
+    ]);
+    await renderEntry();
+    await userEvent.click(screen.getByRole('radio', { name: 'Played' }));
+    const pane = screen.getByRole('tabpanel', { name: 'Autonomous' });
+    expect(within(pane).getByRole('heading', { name: 'Scoring', level: 3 })).toBeInTheDocument();
+    // The counter starts at 0 and holds it (seedValues, task 1.36): 0 × 5 is 0, as it saves.
+    expect(within(pane).getByLabelText('Auto points')).toHaveTextContent(/^0$/);
+    const plus = within(pane).getByRole('button', { name: 'Auto notes plus one' });
+    await userEvent.click(plus);
+    await userEvent.click(plus);
+    expect(within(pane).getByLabelText('Auto points')).toHaveTextContent('10');
+    // The section and the computed field are not fields to fill: Autonomous is 1 of 1.
+    const summary = screen.getByRole('button', { name: /Autonomous/ });
+    expect(summary).toHaveTextContent('1 of 1');
+  });
+
   it('increments a counter by tapping plus, and never renders a text input for it', async () => {
     const user = userEvent.setup();
     render(<EntryPage {...props} />);
@@ -307,24 +355,47 @@ describe('EntryPage', () => {
     expect(await db.rows.where('entity').equals('scouting_entries').count()).toBe(1);
   });
 
-  it('blocks submission and names the field when a value is outside its expected range', async () => {
+  it('marks a value outside its expected range as it is typed, and Review entry lists it instead of confirming', async () => {
     const user = userEvent.setup();
     render(<EntryPage {...props} />);
     await user.click(await screen.findByRole('radio', { name: /played/i }));
     const plus = await screen.findByRole('button', { name: 'Auto notes plus one' });
-    for (let i = 0; i < 11; i += 1) await user.click(plus);
+    for (let i = 0; i < 10; i += 1) await user.click(plus);
+    expect(screen.queryByText(/Most is 10/)).not.toBeInTheDocument();
+    await user.click(plus);
+    // As it is typed: the limit in words, and the value kept.
+    expect(screen.getByText('Most is 10 — check this number')).toBeInTheDocument();
+    expect(screen.getByLabelText('Auto notes value')).toHaveTextContent('11');
     await user.click(screen.getByRole('button', { name: /review entry/i }));
-    await user.click(await screen.findByRole('button', { name: /submit entry/i }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(/Auto notes/);
+    const dialog = await screen.findByRole('dialog', { name: '1 thing to fix first' });
+    expect(within(dialog).getByRole('list', { name: 'Things to fix' })).toHaveTextContent(
+      /Auto notes\s*Autonomous · 11 is over the most, 10/,
+    );
+    expect(screen.queryByRole('button', { name: /submit entry/i })).not.toBeInTheDocument();
     expect(await pending(10)).toHaveLength(0);
   });
 
   it('keeps the sheet and the values on a failed submit, with the reason focused beside Submit', async () => {
+    // The self-edit window closed while the scout was on the screen (SPEC-FINAL 7.6).
+    const entry = {
+      id: 'e-1',
+      event_id: 'ev-1',
+      form_kind: 'match' as const,
+      form_version_id: 'fv-1',
+      match_id: 'm-1',
+      team_id: 't-1',
+      alliance: 'red' as const,
+      scouter_id: 'u-1',
+      robot_status: 'played',
+      breakdown_seconds: null,
+      data: { auto_notes: 3 },
+      client_created_at: new Date(Date.now() - 6 * 60 * 1000).toISOString(),
+      deleted_at: null,
+    };
     const user = userEvent.setup();
-    render(<EntryPage {...props} />);
-    await user.click(await screen.findByRole('radio', { name: /played/i }));
+    render(<EntryPage {...props} existing={entry} />);
     const plus = await screen.findByRole('button', { name: 'Auto notes plus one' });
-    for (let i = 0; i < 11; i += 1) await user.click(plus);
+    await user.click(plus);
     await user.click(screen.getByRole('button', { name: /review entry/i }));
     const submit = await screen.findByRole('button', { name: /submit entry/i });
     await user.click(submit);
@@ -336,7 +407,7 @@ describe('EntryPage', () => {
     expect(alert.parentElement).toBe(submit.closest('.sticky'));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /keep editing/i }));
-    expect(screen.getByLabelText('Auto notes value')).toHaveTextContent('11');
+    expect(screen.getByLabelText('Auto notes value')).toHaveTextContent('4');
   });
 
   describe("editing this device's existing entry (SPEC-FINAL 7.6)", () => {
@@ -422,8 +493,14 @@ describe('breakdown time (UF.5, SPEC-FINAL 3.5)', () => {
     render(<EntryPage {...props} />);
     await user.click(await screen.findByRole('radio', { name: 'Broke down' }));
     await user.click(screen.getByRole('button', { name: /review entry/i }));
-    await user.click(await screen.findByRole('button', { name: /submit entry/i }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(/needs its breakdown time/);
+    const dialog = await screen.findByRole('dialog', { name: '1 thing to fix first' });
+    expect(dialog).toHaveTextContent(
+      /Breakdown time\s*Robot status · Broke down needs the time it stopped/,
+    );
+    await user.click(within(dialog).getByRole('button', { name: 'Go to Breakdown time' }));
+    await waitFor(() => expect(box()).toHaveFocus());
+    expect(box()).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText('Required — seconds from match start')).toBeInTheDocument();
     expect(await pending(10)).toHaveLength(0);
   });
 
@@ -674,5 +751,450 @@ describe('phase swipe on a phone (UF.5)', () => {
     expect(panel().style.transform).toBe('');
     pointer(main, 'pointerup', 50, 300, 2000);
     expect(selected('Teleop')).toBeInTheDocument();
+  });
+});
+
+/**
+ * Task 1.36: the entry form's rules. The plan's Step-1 tests, written against the phase tabs
+ * (SPEC-FINAL v1.23 §8.2 superseded the collapsible sections), the "Notes" tab (RB.8) and the
+ * problems list Review entry opens instead of the confirmation (entry parts 14, v1.23).
+ */
+describe('the entry form rules (1.36)', () => {
+  beforeEach(async () => {
+    await db.rows.bulkPut([
+      field({
+        id: 'r3',
+        key: 'teleop_notes',
+        label: 'Teleop notes',
+        type: 'counter',
+        display_order: 3,
+        phase: 'teleop',
+        unit: 'count',
+        direction: 'higher_is_better',
+        config: { min: 0, step: 1 },
+        expected_range: { min: 0, max: 40 },
+      }),
+      field({
+        id: 'r4',
+        key: 'climbed',
+        label: 'Climbed',
+        type: 'toggle',
+        display_order: 4,
+        phase: 'endgame',
+        unit: 'boolean',
+        direction: 'higher_is_better',
+      }),
+      field({
+        id: 'r5',
+        key: 'climb_time',
+        label: 'Climb time',
+        type: 'number',
+        display_order: 5,
+        phase: 'endgame',
+        unit: 'seconds',
+        direction: 'lower_is_better',
+        visibility_condition: { field_key: 'climbed', op: '=', value: true },
+      }),
+      field({
+        id: 'r6',
+        key: 'total',
+        label: 'Total points',
+        type: 'computed',
+        display_order: 6,
+        phase: 'auto',
+        unit: 'points',
+        direction: 'higher_is_better',
+        config: {
+          result_type: 'float',
+          expression: {
+            kind: 'op',
+            op: '*',
+            left: { kind: 'field', key: 'auto_notes' },
+            right: { kind: 'literal', value: 5 },
+          },
+        },
+      }),
+    ]);
+  });
+
+  /** A required single select in Endgame, for the tests of a missed answer. */
+  const climbLevel = () =>
+    db.rows.put(
+      field({
+        id: 'r7',
+        key: 'climb_level',
+        label: 'Climb level',
+        type: 'single_select',
+        display_order: 7,
+        phase: 'endgame',
+        unit: 'enum',
+        direction: 'higher_is_better',
+        required: true,
+        config: {
+          options: [
+            { value: 'none', label: 'None' },
+            { value: 'low', label: 'Low' },
+          ],
+        },
+      }),
+    );
+
+  async function played(extra: Partial<Parameters<typeof EntryPage>[0]> = {}) {
+    const user = userEvent.setup();
+    render(<EntryPage {...props} {...extra} />);
+    await user.click(await screen.findByRole('radio', { name: /played/i }));
+    await screen.findByText('Auto notes');
+    return user;
+  }
+
+  it('orders the phase tabs Auto, Teleop, Endgame, Notes by the fields phase metadata', async () => {
+    await played();
+    const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
+    expect(tabs.join('|')).toMatch(/Auto[\s\S]*Teleop[\s\S]*Endgame[\s\S]*Notes/);
+  });
+
+  it('lets a phase be left and opened again at will, in either direction — not one-way paging', async () => {
+    const user = await played();
+    await user.click(screen.getByRole('tab', { name: 'Endgame' }));
+    expect(screen.queryByText('Auto notes')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Auto' }));
+    expect(await screen.findByText('Auto notes')).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Notes' }));
+    await user.click(screen.getByRole('tab', { name: 'Teleop' }));
+    expect(screen.getByLabelText('Teleop notes value')).toBeInTheDocument();
+  });
+
+  it('recomputes a computed field as its operands change, without the scouter typing it', async () => {
+    const user = await played();
+    await user.click(screen.getByRole('button', { name: 'Auto notes plus one' }));
+    expect(screen.getByLabelText('Total points')).toHaveTextContent('5');
+  });
+
+  it('shows a conditional field when its condition becomes true and hides it again', async () => {
+    const user = await played();
+    await user.click(screen.getByRole('tab', { name: 'Endgame' }));
+    expect(screen.queryByText('Climb time')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('switch', { name: 'Climbed' }));
+    expect(await screen.findByText('Climb time')).toBeInTheDocument();
+    await user.click(screen.getByRole('switch', { name: 'Climbed' }));
+    expect(screen.queryByText('Climb time')).not.toBeInTheDocument();
+  });
+
+  it('records no value for a field that is hidden at submit time', async () => {
+    const user = await played();
+    await user.click(screen.getByRole('tab', { name: 'Endgame' }));
+    await user.click(screen.getByRole('switch', { name: 'Climbed' }));
+    await user.type(screen.getByLabelText('Climb time'), '9');
+    await user.click(screen.getByRole('switch', { name: 'Climbed' }));
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    await user.click(await screen.findByRole('button', { name: /submit entry/i }));
+    await waitFor(async () => {
+      const [op] = await pending(10);
+      expect(op!.payload.data).not.toHaveProperty('climb_time');
+      expect(op!.payload.data).toMatchObject({ climbed: false });
+    });
+  });
+
+  it('keeps a shown conditional value, and writes the computed value into the saved data (5.7)', async () => {
+    const user = await played();
+    await user.click(screen.getByRole('button', { name: 'Auto notes plus one' }));
+    await user.click(screen.getByRole('button', { name: 'Auto notes plus one' }));
+    await user.click(screen.getByRole('tab', { name: 'Endgame' }));
+    await user.click(screen.getByRole('switch', { name: 'Climbed' }));
+    await user.type(screen.getByLabelText('Climb time'), '9');
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm this entry' });
+    const valueOf = (label: string) =>
+      within(dialog).getByText(label, { selector: 'dt' }).nextElementSibling;
+    // The confirm shows the worked-out value, not "—".
+    expect(valueOf('Total points')).toHaveTextContent(/^10$/);
+    await user.click(within(dialog).getByRole('button', { name: /submit entry/i }));
+    await waitFor(async () => {
+      const [op] = await pending(10);
+      expect(op!.payload.data).toEqual({
+        auto_notes: 2,
+        teleop_notes: 0,
+        climbed: true,
+        climb_time: 9,
+        total: 10,
+      });
+    });
+  });
+
+  it('keeps breakdown_seconds visible only for broke_down, and keeps all fields visible with it', async () => {
+    const user = userEvent.setup();
+    render(<EntryPage {...props} />);
+    await user.click(await screen.findByRole('radio', { name: /broke down/i }));
+    expect(screen.getByLabelText(/breakdown time/i)).toBeInTheDocument();
+    expect(await screen.findByText('Auto notes')).toBeInTheDocument();
+    await user.click(screen.getByRole('radio', { name: /played/i }));
+    expect(screen.queryByLabelText(/breakdown time/i)).not.toBeInTheDocument();
+  });
+
+  it('blocks submit and lists every out-of-range field, not just the first', async () => {
+    const user = await played();
+    for (let i = 0; i < 11; i += 1)
+      await user.click(screen.getByRole('button', { name: 'Auto notes plus one' }));
+    await user.click(screen.getByRole('tab', { name: 'Teleop' }));
+    for (let i = 0; i < 41; i += 1)
+      await user.click(screen.getByRole('button', { name: 'Teleop notes plus one' }));
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    const dialog = await screen.findByRole('dialog', { name: '2 things to fix first' });
+    const list = within(dialog).getByRole('list', { name: 'Things to fix' });
+    expect(list).toHaveTextContent(/Auto notes/);
+    expect(list).toHaveTextContent(/Teleop notes\s*Teleop · 41 is over the most, 40/);
+    expect(within(list).getAllByRole('button', { name: /^Go to/ })).toHaveLength(2);
+    // Review entry stays pressable, and no confirmation, no Submit, nothing queued.
+    expect(screen.queryByRole('button', { name: /submit entry/i })).not.toBeInTheDocument();
+    expect(await pending(10)).toHaveLength(0);
+    // 52 taps: over the default 5 s on a loaded machine (DEVIATIONS 1.37).
+  }, 15_000);
+
+  it('marks each phase holding a problem on the desktop panel: "1 to fix"', async () => {
+    const user = await played();
+    await user.click(screen.getByRole('tab', { name: 'Teleop' }));
+    for (let i = 0; i < 41; i += 1)
+      await user.click(screen.getByRole('button', { name: 'Teleop notes plus one' }));
+    const panel = screen.getByRole('complementary', { name: 'This entry' });
+    expect(within(panel).getByRole('button', { name: /Teleop/ })).toHaveTextContent(/1 to fix/);
+    expect(within(panel).getByRole('button', { name: /Autonomous/ })).not.toHaveTextContent(
+      /to fix/,
+    );
+  }, 15_000);
+
+  it('Go to opens the phase, focuses the field and says "Required — pick one"', async () => {
+    await climbLevel();
+    const user = await played();
+    expect(screen.queryByText('Required — pick one')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    const dialog = await screen.findByRole('dialog', { name: '1 thing to fix first' });
+    expect(dialog).toHaveTextContent(/Climb level\s*Endgame · required, not answered/);
+    await user.click(within(dialog).getByRole('button', { name: 'Go to Climb level' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Endgame' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('Required — pick one')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'None' })).toHaveFocus());
+    // Answering it clears the mark, and Review entry now confirms.
+    await user.click(screen.getByRole('radio', { name: 'Low' }));
+    expect(screen.queryByText('Required — pick one')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    expect(await screen.findByRole('dialog', { name: 'Confirm this entry' })).toBeInTheDocument();
+  });
+
+  it('Keep editing closes the problems and keeps every value', async () => {
+    const user = await played();
+    for (let i = 0; i < 11; i += 1)
+      await user.click(screen.getByRole('button', { name: 'Auto notes plus one' }));
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    await user.click(await screen.findByRole('button', { name: 'Keep editing' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Auto notes value')).toHaveTextContent('11');
+  });
+
+  it.each(['No show', 'Disabled'])(
+    '%s skips every check and records no field data',
+    async (status) => {
+      await climbLevel();
+      const user = await played();
+      for (let i = 0; i < 11; i += 1)
+        await user.click(screen.getByRole('button', { name: 'Auto notes plus one' }));
+      await user.click(screen.getByRole('radio', { name: status }));
+      await user.click(screen.getByRole('button', { name: /review entry/i }));
+      await user.click(await screen.findByRole('button', { name: /submit entry/i }));
+      await waitFor(async () => expect((await pending(10))[0]?.payload.data).toEqual({}));
+    },
+  );
+
+  it('summarises every phase in the confirmation, including empty ones', async () => {
+    const user = await played();
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    const dialog = await screen.findByRole('dialog');
+    for (const phase of ['Autonomous', 'Teleop', 'Endgame', 'Notes']) {
+      expect(within(dialog).getByRole('heading', { name: phase })).toBeInTheDocument();
+    }
+  });
+
+  it('returns to a fresh manual selection after a successful submit', async () => {
+    const onSubmitted = vi.fn();
+    const user = await played({ onSubmitted });
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    await user.click(await screen.findByRole('button', { name: /submit entry/i }));
+    await waitFor(() => expect(onSubmitted).toHaveBeenCalledOnce());
+  });
+
+  it('keeps writing the draft after a submit that failed (UF.23)', async () => {
+    // submitEntry's backstop refuses: the device already holds an entry for this robot.
+    await db.rows.put({
+      entity: 'scouting_entries',
+      id: 'e-other',
+      event_id: 'ev-1',
+      form_kind: 'match',
+      match_id: 'm-1',
+      team_id: 't-1',
+      deleted_at: null,
+    } as unknown as CachedRow);
+    const user = await played();
+    const key = `${props.formVersionId}:${props.matchId}:${props.teamId}`;
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    await user.click(await screen.findByRole('button', { name: /submit entry/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/already an entry/);
+    await user.click(screen.getByRole('button', { name: /keep editing/i }));
+    await user.click(screen.getByRole('button', { name: 'Auto notes plus one' }));
+    await waitFor(async () =>
+      expect((await db.drafts.get(key))?.payload.data).toEqual({ auto_notes: 1 }),
+    );
+  });
+
+  it('writes no draft back after a submit, from a timer or a phase tab (UF.23)', async () => {
+    const onSubmitted = vi.fn();
+    const user = await played({ onSubmitted });
+    const key = `${props.formVersionId}:${props.matchId}:${props.teamId}`;
+    act(() => matchClock.start());
+    await waitFor(async () => expect(await db.drafts.get(key)).toBeDefined());
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    await user.click(await screen.findByRole('button', { name: /submit entry/i }));
+    await waitFor(() => expect(onSubmitted).toHaveBeenCalledOnce());
+    expect(await db.drafts.get(key)).toBeUndefined();
+
+    // The page is still on screen for a moment: the route leaves in a transition.
+    try {
+      act(() => {
+        matchClock.reset();
+        stopwatches.start('climb_time', 1);
+      });
+      await user.click(screen.getByRole('tab', { name: 'Teleop' }));
+      await new Promise((done) => setTimeout(done, 50));
+      expect(await db.drafts.get(key)).toBeUndefined();
+    } finally {
+      matchClock.reset();
+      stopwatches.resetAll();
+    }
+  });
+});
+
+describe('Timer fields at Review entry (1.36)', () => {
+  beforeEach(async () => {
+    await db.rows.put(
+      field({
+        id: 't1',
+        key: 'hang_time',
+        label: 'Hang time',
+        type: 'timer',
+        display_order: 3,
+        phase: 'auto',
+        unit: 'seconds',
+        direction: 'lower_is_better',
+        required: true,
+        config: { allow_unsure: true },
+      }),
+    );
+  });
+
+  it('takes "Unsure — no time" as the answer to a required timer', async () => {
+    const user = userEvent.setup();
+    render(<EntryPage {...props} />);
+    await user.click(await screen.findByRole('radio', { name: /played/i }));
+    await user.click(await screen.findByRole('switch', { name: 'Unsure — no time' }));
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm this entry' });
+    const value = within(dialog).getByText('Hang time', { selector: 'dt' }).nextElementSibling;
+    expect(value).toHaveTextContent('Unsure');
+    await user.click(within(dialog).getByRole('button', { name: /submit entry/i }));
+    await waitFor(async () =>
+      expect((await pending(10))[0]?.payload.data).toMatchObject({ hang_time: null }),
+    );
+  });
+
+  it('lists a stopwatch still running as a problem: "still running — stop it"', async () => {
+    const user = userEvent.setup();
+    render(<EntryPage {...props} />);
+    await user.click(await screen.findByRole('radio', { name: /played/i }));
+    await user.click(await screen.findByRole('button', { name: 'Start Hang time' }));
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    const dialog = await screen.findByRole('dialog', { name: '1 thing to fix first' });
+    expect(dialog).toHaveTextContent(/Hang time\s*Autonomous · still running — stop it/);
+    await user.click(within(dialog).getByRole('button', { name: 'Go to Hang time' }));
+    expect(screen.getByText('Still running — stop it')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Pause' }));
+    expect(screen.queryByText('Still running — stop it')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    expect(await screen.findByRole('dialog', { name: 'Confirm this entry' })).toBeInTheDocument();
+    expect(await pending(10)).toHaveLength(0);
+  });
+});
+
+describe('map fields at Review entry (UF.24)', () => {
+  const START = { x: 0.27, y: 0.3 };
+  const SHOTS = [
+    { type: 'high', t: 12, x: 0.26, y: 0.4 },
+    { type: 'def', t: 65 },
+  ];
+
+  beforeEach(async () => {
+    await loadTimedParts();
+    await db.rows.bulkPut([
+      field({
+        id: 'm1',
+        key: 'start',
+        label: 'Start position',
+        type: 'position',
+        display_order: 3,
+        phase: 'auto',
+        unit: 'coordinate',
+        direction: 'neutral',
+        config: { mirror_axis: 'horizontal' },
+      }),
+      field({
+        id: 'm2',
+        key: 'shots',
+        label: 'Shots',
+        type: 'event_log',
+        display_order: 4,
+        phase: 'teleop',
+        unit: 'count',
+        direction: 'neutral',
+        config: {
+          ask_position: true,
+          mirror_axis: 'horizontal',
+          event_types: [
+            { value: 'high', label: 'High goal' },
+            { value: 'def', label: 'Defended' },
+          ],
+        },
+      }),
+    ]);
+    await db.drafts.put({
+      key: `${props.formVersionId}:${props.matchId}:${props.teamId}`,
+      row_id: '',
+      payload: { robot_status: 'played', data: { start: START, shots: SHOTS } },
+      updated_at: new Date().toISOString(),
+    });
+  });
+
+  it('opens a map field view only from the confirmation; Close keeps the sheet and Submit saves the values', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <EntryPage {...props} fieldImagePath="seasons/2026/field.webp" />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('button', { name: 'Start position: 1 spot' });
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm this entry' });
+    const row = within(dialog).getByRole('button', { name: 'Shots: 2 events · 1 on the map' });
+    await user.click(row);
+    const map = await screen.findByRole('dialog', { name: 'Shots' });
+    expect(map).toHaveTextContent('Q12 · 2096 · Teleop');
+    expect(within(map).getByText('View only')).toBeInTheDocument();
+    expect(within(map).queryByRole('button', { name: /Undo|Skip|Save tap|Done/ })).toBeNull();
+    await user.click(within(map).getByTestId('map-drawing'));
+    await user.click(within(map).getAllByRole('button', { name: 'Close' }).at(-1)!);
+    expect(screen.queryByRole('dialog', { name: 'Shots' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Confirm this entry' })).toBe(dialog);
+    expect(row).toHaveFocus();
+    expect(within(dialog).getByRole('button', { name: 'Start position: 1 spot' })).toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: /submit entry/i }));
+    await waitFor(async () => expect(await pending(10)).toHaveLength(1));
+    expect((await pending(10))[0]!.payload.data).toMatchObject({ start: START, shots: SHOTS });
   });
 });

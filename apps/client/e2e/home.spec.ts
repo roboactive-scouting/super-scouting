@@ -218,3 +218,57 @@ test('home: a scouter has no admin tiles', async ({ page }) => {
   await expect(goTo.getByRole('link', { name: /Matches|Manage|Users/ })).toHaveCount(0);
   await shoot(page, 'home-scouter', 'phone');
 });
+
+test.describe('on a touch phone', () => {
+  test.use({ hasTouch: true });
+
+  test('home: tapping a coverage square names the match; another moves it, elsewhere closes it (UF.21)', async ({
+    page,
+  }) => {
+    await setClock(page);
+    await signIn(page, 'lead', HOLD_PUSH);
+    await seedDevice(page, 'B2');
+    await page.setViewportSize({ width: 375, height: 812 });
+    const coverage = page.getByRole('region', { name: 'Schedule coverage' });
+    const tip = coverage.getByText(/ · \d+ scouted$/);
+    await expect(coverage.getByRole('button', { name: 'Q37 · 4 scouted' })).toBeVisible();
+    await expect(tip).toHaveCount(0);
+
+    // A tap in the 3 px gap between two squares goes to the nearer one.
+    const q6 = (await coverage.getByRole('button', { name: /^Q6 · / }).boundingBox())!;
+    await page.touchscreen.tap(q6.x + q6.width + 1, q6.y + q6.height / 2);
+    await expect(tip).toHaveText('Q6 · 6 scouted');
+
+    // Another square moves it; the bubble stays inside the card.
+    await coverage.getByRole('button', { name: 'Q37 · 4 scouted' }).tap();
+    await expect(tip).toHaveText('Q37 · 4 scouted');
+    await expect(tip).toHaveCount(1);
+    const card = (await coverage.boundingBox())!;
+    const bubble = (await tip.boundingBox())!;
+    expect(bubble.x).toBeGreaterThanOrEqual(card.x);
+    expect(bubble.x + bubble.width).toBeLessThanOrEqual(card.x + card.width);
+    await shoot(page, 'home-coverage-tap', 'phone');
+
+    // A tap elsewhere closes it.
+    await page.getByRole('heading', { level: 1 }).tap();
+    await expect(tip).toHaveCount(0);
+  });
+});
+
+test('home: on a computer a coverage square names its match on hover and on focus (UF.21)', async ({
+  page,
+}) => {
+  await setClock(page);
+  await signIn(page, 'lead', HOLD_PUSH);
+  await seedDevice(page, 'B2');
+  const coverage = page.getByRole('region', { name: 'Schedule coverage' });
+  const tip = coverage.getByText(/ · \d+ scouted$/);
+  await coverage.getByRole('button', { name: 'Q19 · 5 scouted' }).hover();
+  await expect(tip).toHaveText('Q19 · 5 scouted');
+  await page.mouse.move(0, 0);
+  await expect(tip).toHaveCount(0);
+  await coverage.getByRole('button', { name: 'Q1 · 6 scouted' }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(coverage.getByRole('button', { name: 'Q2 · 6 scouted' })).toBeFocused();
+  await expect(tip).toHaveText('Q2 · 6 scouted');
+});

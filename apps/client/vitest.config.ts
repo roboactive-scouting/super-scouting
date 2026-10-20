@@ -16,5 +16,8 @@ export default defineConfig({
     globals: true,
     include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['./src/test/setup.ts'],
+    // userEvent-heavy page tests (the builder's, the entry's) run 3–5.5 s on this machine under a
+    // full-suite load, so the 5 s default failed them at random (DEVIATIONS 1.37). A hang still fails.
+    testTimeout: 15_000,
   },
 });

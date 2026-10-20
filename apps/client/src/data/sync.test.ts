@@ -5,12 +5,15 @@ import { session } from '@/auth/session';
 import { apiClient } from './api';
 import { onChanged } from './changes';
 import { db, getMeta } from './db';
+import { cachedFormFields, type cachedRows } from './cache';
 import { enqueue, pending } from './outbox';
 import {
   activeEvent,
   cachedActiveEventId,
   cachedDefaultEventId,
+  evictLeftEvents,
   hydrate,
+  pruneDeletedFormRows,
   pruneDeletedMatches,
   syncNow,
 } from './sync';
@@ -165,6 +168,60 @@ describe('syncNow', () => {
     });
     expect(outcome.status).toBe('event-gone');
     expect(await db.rows.where('event_id').equals('ev-1').count()).toBe(0);
+  });
+});
+
+describe('syncNow reports its push progress (SPEC-FINAL 9.10, task 1.43)', () => {
+  const okPull = async (): Promise<PullResponse> => ({
+    watermark: '2026-11-14T09:00:55.000Z',
+    next_cursor: null,
+    complete: true,
+    entities: emptyEntities,
+  });
+
+  it('counts records, not bare matches, and ticks off the acked ones by row id', async () => {
+    await enqueue({
+      ...op('m-new'),
+      op_id: 'op-m-new',
+      entity: 'match',
+      payload: { event_id: 'ev-1', match_type: 'qualification', number: 40 },
+    });
+    for (const id of ['row-a', 'row-b', 'row-c']) await enqueue(op(id));
+    const push = vi.fn(async (req: PushRequest): Promise<PushResponse> => ({
+      // The server takes the bare match and two of the three entries; one is refused.
+      results: req.operations.map((o) =>
+        o.row_id === 'row-c'
+          ? { op_id: o.op_id, status: 'rejected', reason: 'invalid', detail: 'x: bad' }
+          : { op_id: o.op_id, status: 'applied', row_id: o.row_id, new_version: 1 },
+      ),
+    }));
+    const seen: unknown[] = [];
+    const outcome = await syncNow({
+      api: { push, pull: okPull },
+      eventId: 'ev-1',
+      deviceId: 'd-1',
+      onProgress: (p) => seen.push(p),
+    });
+    expect(outcome).toEqual({ status: 'ok', pushed: 4, pulled: 0 });
+    expect(seen).toEqual([
+      { sent: 0, total: 3, acked: [] },
+      { sent: 2, total: 3, acked: ['row-a', 'row-b'] },
+    ]);
+  });
+
+  it('says nothing when there is nothing to send, and leaves parked records out of the total', async () => {
+    const onProgress = vi.fn();
+    const push = vi.fn(async (): Promise<PushResponse> => ({ results: [] }));
+    await syncNow({ api: { push, pull: okPull }, eventId: 'ev-1', deviceId: 'd-1', onProgress });
+    expect(onProgress).not.toHaveBeenCalled();
+
+    await enqueue(op('row-parked'));
+    await db.syncState.update('row-parked', {
+      rejection: { code: 'forbidden', message: 'the author is disabled', at: 'x' },
+    });
+    await enqueue(op('row-fresh'));
+    await syncNow({ api: { push, pull: okPull }, eventId: 'ev-1', deviceId: 'd-1', onProgress });
+    expect(onProgress).toHaveBeenNthCalledWith(1, { sent: 0, total: 1, acked: [] });
   });
 });
 
@@ -706,5 +763,269 @@ describe('an entry on a deleted match lands without anyone acting (UF.1, SPEC-FI
       'scouting_entry',
     ]);
     expect(batches.flat()[1]!.row_id).toBe(MATCH);
+  });
+});
+
+describe('evicting the event this device has left (spec 7.5 item 3)', () => {
+  const OLD = 'ev-old';
+  const NOW = 'ev-now';
+
+  /** One event's worth of every event-scoped entity. */
+  async function cacheEvent(eventId: string) {
+    const p = eventId;
+    await db.rows.bulkPut([
+      { entity: 'events', id: p, name: `Event ${p}`, season_id: 'se-1' },
+      { entity: 'event_teams', id: `${p}-et`, event_id: p, team_id: 't-1' },
+      { entity: 'matches', id: `${p}-m`, event_id: p, match_type: 'qualification', number: 1 },
+      { entity: 'match_teams', id: `${p}-mt`, match_id: `${p}-m`, team_id: 't-1' },
+      { entity: 'scouting_entries', id: `${p}-e`, event_id: p, match_id: `${p}-m` },
+      { entity: 'sync_conflicts', id: `${p}-c`, event_id: p },
+      { entity: 'pick_lists', id: `${p}-pl`, event_id: p },
+      { entity: 'pick_list_entries', id: `${p}-ple`, pick_list_id: `${p}-pl` },
+      { entity: 'do_not_pick', id: `${p}-dnp`, event_id: p },
+      { entity: 'alliances', id: `${p}-a`, event_id: p },
+      { entity: 'alliance_slots', id: `${p}-as`, alliance_id: `${p}-a` },
+      { entity: 'alliance_declines', id: `${p}-ad`, alliance_id: `${p}-a` },
+    ]);
+  }
+
+  async function cacheShared() {
+    await db.rows.bulkPut([
+      { entity: 'app_settings', id: 'singleton', active_event_id: NOW },
+      { entity: 'seasons', id: 'se-1', year: 2026 },
+      { entity: 'teams', id: 't-1', number: 2096 },
+      { entity: 'users', id: 'u-1', full_name: 'Noa Levi' },
+      { entity: 'forms', id: 'f-1', season_id: 'se-1' },
+      { entity: 'form_versions', id: 'fv-1', form_id: 'f-1' },
+      { entity: 'form_fields', id: 'ff-1', form_version_id: 'fv-1' },
+      { entity: 'scoring_rules', id: 'sr-1', form_id: 'f-1' },
+      { entity: 'metrics', id: 'mx-1', season_id: 'se-1' },
+    ]);
+  }
+
+  const heldOf = async (eventId: string) =>
+    (await db.rows.toArray()).filter((r) => String(r.id).startsWith(eventId)).length;
+
+  beforeEach(async () => {
+    await cacheShared();
+    await cacheEvent(OLD);
+    await cacheEvent(NOW);
+  });
+
+  it("removes an old event's fully acked rows, and nothing season-wide, global or current", async () => {
+    await db.discarded.put({
+      id: 'd-1',
+      discarded_at: '2026-10-12T08:02:00.000Z',
+      reason: 'r',
+      row_id: 'x',
+      event_id: OLD,
+      event_name: 'Old',
+      summary: {} as never,
+    });
+    expect(await evictLeftEvents([NOW])).toBe(12);
+    expect(await heldOf(OLD)).toBe(0);
+    expect(await heldOf(NOW)).toBe(12);
+    for (const [entity, id] of [
+      ['app_settings', 'singleton'],
+      ['seasons', 'se-1'],
+      ['teams', 't-1'],
+      ['users', 'u-1'],
+      ['forms', 'f-1'],
+      ['form_versions', 'fv-1'],
+      ['form_fields', 'ff-1'],
+      ['scoring_rules', 'sr-1'],
+      ['metrics', 'mx-1'],
+    ] as const) {
+      expect(await db.rows.get([entity, id]), entity).toBeDefined();
+    }
+    expect(await db.discarded.count()).toBe(1);
+  });
+
+  it('never evicts the current event', async () => {
+    expect(await evictLeftEvents([NOW, OLD])).toBe(0);
+    expect(await heldOf(OLD)).toBe(12);
+  });
+
+  it('keeps the whole event while the outbox holds one of its entries', async () => {
+    await enqueue({ ...op(`${OLD}-e`), payload: { event_id: OLD, data: {} } });
+    expect(await evictLeftEvents([NOW])).toBe(0);
+    expect(await heldOf(OLD)).toBe(12);
+  });
+
+  it('keeps it for a queued delete, whose event is read from the cached row', async () => {
+    await db.outbox.put({ ...op(`${OLD}-e`), action: 'delete', base_version: 1, payload: {} });
+    expect(await evictLeftEvents([NOW])).toBe(0);
+  });
+
+  it('keeps it for a queued bare match of it', async () => {
+    await db.outbox.put({
+      ...op('m-new'),
+      entity: 'match',
+      payload: { event_id: OLD, match_type: 'qualification', number: 9 },
+    });
+    expect(await evictLeftEvents([NOW])).toBe(0);
+  });
+
+  it.each([
+    ['pending', { sync_state: 'pending' as const, rejection: null }],
+    [
+      'refused',
+      {
+        sync_state: 'acked' as const,
+        rejection: { code: 'forbidden' as const, message: 'no', at: '2026-10-12T08:00:00Z' },
+      },
+    ],
+  ])('keeps it while one of its rows is %s', async (_, state) => {
+    await db.syncState.put({ row_id: `${OLD}-e`, acked_at: null, origin: 'local', ...state });
+    expect(await evictLeftEvents([NOW])).toBe(0);
+    expect(await heldOf(OLD)).toBe(12);
+  });
+
+  it('keeps it while a draft is open on one of its matches, and never touches a draft', async () => {
+    const draft = { key: `fv-1:${OLD}-m:t-1`, row_id: '', payload: { a: 1 }, updated_at: 'x' };
+    await db.drafts.put(draft);
+    expect(await evictLeftEvents([NOW])).toBe(0);
+    await db.drafts.clear();
+    await db.practiceDrafts.put(draft);
+    expect(await evictLeftEvents([NOW])).toBe(0);
+    expect(await db.practiceDrafts.get(draft.key)).toEqual(draft);
+  });
+
+  it('a completed sync evicts the event left behind, keeping the cached default', async () => {
+    const pull = async (): Promise<PullResponse> => ({
+      watermark: '2026-11-14T09:00:55.000Z',
+      next_cursor: null,
+      complete: true,
+      entities: emptyEntities,
+    });
+    const push = async (): Promise<PushResponse> => ({ results: [] });
+    await cacheEvent('ev-default');
+    await db.rows.put({ entity: 'app_settings', id: 'singleton', active_event_id: 'ev-default' });
+    await syncNow({ api: { push, pull }, eventId: NOW, deviceId: 'd-1' });
+    expect(await heldOf(OLD)).toBe(0);
+    expect(await heldOf(NOW)).toBe(12);
+    expect(await heldOf('ev-default')).toBe(12);
+  });
+
+  it('a failed pull evicts nothing', async () => {
+    const pull = async (): Promise<PullResponse> => {
+      throw new Error('network');
+    };
+    const push = async (): Promise<PushResponse> => ({ results: [] });
+    await syncNow({ api: { push, pull }, eventId: NOW, deviceId: 'd-1' });
+    expect(await heldOf(OLD)).toBe(12);
+  });
+});
+
+describe('form rows an admin deleted leave the device (spec 7.5 item 5)', () => {
+  const none = { forms: [], form_versions: [], form_fields: [], scoring_rules: [] };
+
+  beforeEach(async () => {
+    await db.rows.bulkPut([
+      { entity: 'forms', id: 'f-gone', season_id: 's' },
+      { entity: 'form_versions', id: 'fv-gone', form_id: 'f-gone' },
+      { entity: 'form_fields', id: 'ff-gone', form_version_id: 'fv-gone' },
+      { entity: 'scoring_rules', id: 'sr-gone', form_id: 'f-gone' },
+      { entity: 'forms', id: 'f-kept', season_id: 's' },
+      { entity: 'form_versions', id: 'fv-kept', form_id: 'f-kept' },
+      { entity: 'form_versions', id: 'fv-old', form_id: 'f-kept' },
+      { entity: 'form_fields', id: 'ff-kept', form_version_id: 'fv-kept', display_order: 1 },
+      { entity: 'form_fields', id: 'ff-old', form_version_id: 'fv-old', display_order: 1 },
+      { entity: 'scoring_rules', id: 'sr-kept', form_id: 'f-kept' },
+      { entity: 'scouting_entries', id: 'e-acked', form_version_id: 'fv-gone', event_id: 'ev' },
+      { entity: 'scouting_entries', id: 'e-unacked', form_version_id: 'fv-gone', event_id: 'ev' },
+      { entity: 'scouting_entries', id: 'e-other', form_version_id: 'fv-kept', event_id: 'ev' },
+    ]);
+    await enqueue({ ...op('e-unacked'), payload: { event_id: 'ev', data: {} } });
+  });
+
+  const has = async (entity: Parameters<typeof cachedRows>[0], id: string) =>
+    (await db.rows.get([entity, id])) !== undefined;
+
+  it("drops a deleted form's versions, their fields and its rules when ONLY the form is named", async () => {
+    await pruneDeletedFormRows({ ...none, forms: ['f-gone'] });
+    expect(await has('forms', 'f-gone')).toBe(false);
+    expect(await has('form_versions', 'fv-gone')).toBe(false);
+    expect(await has('form_fields', 'ff-gone')).toBe(false);
+    expect(await has('scoring_rules', 'sr-gone')).toBe(false);
+    for (const [entity, id] of [
+      ['forms', 'f-kept'],
+      ['form_versions', 'fv-kept'],
+      ['form_fields', 'ff-kept'],
+      ['scoring_rules', 'sr-kept'],
+    ] as const) {
+      expect(await has(entity, id), id).toBe(true);
+    }
+  });
+
+  it("drops a deleted version's fields with it, and nothing of its form", async () => {
+    await pruneDeletedFormRows({ ...none, form_versions: ['fv-old'] });
+    expect(await has('form_versions', 'fv-old')).toBe(false);
+    expect(await has('form_fields', 'ff-old')).toBe(false);
+    expect(await has('form_fields', 'ff-kept')).toBe(true);
+    expect(await cachedFormFields('fv-old')).toEqual([]);
+  });
+
+  it('drops a listed field or rule on its own', async () => {
+    await pruneDeletedFormRows({ ...none, form_fields: ['ff-kept'], scoring_rules: ['sr-kept'] });
+    expect(await has('form_fields', 'ff-kept')).toBe(false);
+    expect(await has('scoring_rules', 'sr-kept')).toBe(false);
+    expect(await has('form_versions', 'fv-kept')).toBe(true);
+  });
+
+  it('an acked entry of a removed version leaves the cache, unlogged; an unacked one stays', async () => {
+    await pruneDeletedFormRows({ ...none, form_versions: ['fv-gone'] });
+    expect(await has('scouting_entries', 'e-acked')).toBe(false);
+    expect(await has('scouting_entries', 'e-unacked')).toBe(true);
+    expect(await has('scouting_entries', 'e-other')).toBe(true);
+    expect(await db.outbox.count()).toBe(1);
+    expect(await db.discarded.count()).toBe(0);
+  });
+
+  it('keeps a refused entry of a removed version', async () => {
+    await db.syncState.put({
+      row_id: 'e-acked',
+      sync_state: 'acked',
+      acked_at: null,
+      origin: 'local',
+      rejection: { code: 'invalid', message: 'x', at: 'y' },
+    });
+    await pruneDeletedFormRows({ ...none, form_versions: ['fv-gone'] });
+    expect(await has('scouting_entries', 'e-acked')).toBe(true);
+  });
+
+  it('never touches a draft', async () => {
+    const draft = { key: 'fv-gone:m:t', row_id: '', payload: {}, updated_at: 'x' };
+    await db.drafts.put(draft);
+    await pruneDeletedFormRows({ ...none, forms: ['f-gone'] });
+    expect(await db.drafts.get(draft.key)).toEqual(draft);
+  });
+
+  it('keeps a named row the same response delivered again', async () => {
+    await pruneDeletedFormRows(
+      { ...none, form_fields: ['ff-kept'] },
+      { form_fields: [{ id: 'ff-kept' }] },
+    );
+    expect(await has('form_fields', 'ff-kept')).toBe(true);
+  });
+
+  it('a delta pull applies deleted_form_rows, and a server without it changes nothing', async () => {
+    const pullWith = (extra: Partial<PullResponse>) => async (): Promise<PullResponse> => ({
+      watermark: '2026-11-14T09:00:55.000Z',
+      next_cursor: null,
+      complete: true,
+      entities: emptyEntities,
+      ...extra,
+    });
+    const push = async (): Promise<PushResponse> => ({ results: [] });
+    await syncNow({ api: { push, pull: pullWith({}) }, eventId: 'ev', deviceId: 'd-1' });
+    expect(await has('forms', 'f-gone')).toBe(true);
+    await syncNow({
+      api: { push, pull: pullWith({ deleted_form_rows: { ...none, forms: ['f-gone'] } }) },
+      eventId: 'ev',
+      deviceId: 'd-1',
+    });
+    expect(await has('forms', 'f-gone')).toBe(false);
+    expect(await has('form_fields', 'ff-gone')).toBe(false);
   });
 });

@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { FormFieldDefinition } from '@frc/shared';
-import { displayValue, donePhases, filledCount, isFilled, phasesOf, swipeStep } from './phases';
+import {
+  displayValue,
+  donePhases,
+  filledCount,
+  isFilled,
+  phasesOf,
+  scoutedFields,
+  swipeStep,
+} from './phases';
 
 const f = (key: string, phase: FormFieldDefinition['phase'], over: object = {}) =>
   ({ key, label: key, type: 'counter', phase, config: {}, ...over }) as FormFieldDefinition;
@@ -10,6 +18,40 @@ describe('entry phases', () => {
     const phases = phasesOf([f('n', 'post_match'), f('x', null), f('a', 'auto')]);
     expect(phases.map((p) => p.key)).toEqual(['auto', 'post_match']);
     expect(phases[1]!.fields.map((x) => x.key)).toEqual(['n', 'x']);
+  });
+
+  it('puts a section heading with the data field after it (else before it), as the builder does', () => {
+    const sec = (key: string) => f(key, null, { type: 'section' });
+    const phases = phasesOf([
+      sec('s_auto'),
+      f('a', 'auto'),
+      sec('s_driver'),
+      f('d', 'post_match'),
+      f('t', 'teleop'),
+      sec('s_last'),
+    ]);
+    expect(phases.map((p) => [p.key, p.fields.map((x) => x.key)])).toEqual([
+      ['auto', ['s_auto', 'a']],
+      ['teleop', ['t', 's_last']],
+      ['post_match', ['s_driver', 'd']],
+    ]);
+    // A form of headings alone has nothing to fill: no phase at all.
+    expect(phasesOf([sec('lonely')])).toEqual([]);
+  });
+
+  it('counts only the fields a scout fills: never a section or a computed field', () => {
+    const [notes] = phasesOf([
+      f('s', 'post_match', { type: 'section' }),
+      f('total', 'post_match', { type: 'computed' }),
+      f('n', 'post_match', { type: 'long_text' }),
+    ]);
+    expect(scoutedFields(notes!).map((x) => x.key)).toEqual(['n']);
+    expect(filledCount(notes!, { total: 9, n: 'Fast' })).toBe(1);
+  });
+
+  it('counts an emptied multi-select as not filled', () => {
+    expect(isFilled([])).toBe(false);
+    expect(isFilled(['near'])).toBe(true);
   });
 
   it('counts a chosen 0 or false as filled, an untouched or empty field as not', () => {
@@ -48,5 +90,24 @@ describe('entry phases', () => {
     expect(displayValue(f('c', 'endgame', { type: 'single_select' }), undefined)).toBe('—');
     expect(displayValue(f('n', 'post_match', { type: 'long_text' }), '')).toBe('—');
     expect(displayValue(f('a', 'auto'), 3)).toBe('3');
+    // Task 1.36: a rating as its word, a computed value as its row shows it, unsure as such.
+    expect(displayValue(f('r', 'teleop', { type: 'rating', config: { max: 5 } }), 4)).toBe('Good');
+    expect(displayValue(f('r', 'teleop', { type: 'rating', config: { max: 7 } }), 4)).toBe(
+      '4 of 7',
+    );
+    expect(displayValue(f('c', 'auto', { type: 'computed' }), 12.5)).toBe('12.50');
+    expect(displayValue(f('c', 'auto', { type: 'computed' }), undefined)).toBe('—');
+    expect(displayValue(f('h', 'auto', { type: 'timer' }), null)).toBe('Unsure');
+    const multi = f('m', 'teleop', {
+      type: 'multi_select',
+      config: {
+        options: [
+          { value: 'near', label: 'Near' },
+          { value: 'far', label: 'Far' },
+        ],
+      },
+    });
+    expect(displayValue(multi, ['near', 'far'])).toBe('Near, Far');
+    expect(displayValue(multi, [])).toBe('—');
   });
 });

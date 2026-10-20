@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { formatCount } from '@frc/shared';
+import { formatCount, type TimerConfig } from '@frc/shared';
 import { StateMessage } from '@/components/StateMessage';
 import { Button } from '@/components/ui/button';
 import { Notice } from '@/components/ui/notice';
@@ -9,12 +9,21 @@ import { db } from '@/data/db';
 import { matchLabel } from '@/lib/matchLabel';
 import { EntryPage } from './EntryPage';
 import { canSelfEdit, findLocalEntry, type Editor, type LocalEntry } from './localEntries';
+import { usePracticeMode } from './practice';
 import type { SavedNotice } from './SelectRobotPage';
+import { draftedVersion } from './useDraft';
 import { PATHS } from '@/lib/paths';
 
 type MatchRow = { id: string; event_id?: string; match_type: string; number: number };
 type TeamRow = { id: string; number: number; name: string };
-type FormRow = { id: string; kind: string; season_id: string; active_version_id: string | null };
+type FormRow = {
+  id: string;
+  kind: string;
+  season_id: string;
+  active_version_id: string | null;
+  timer_config?: TimerConfig | null;
+};
+type SeasonRow = { id: string; field_image_path?: string | null };
 type AppSettingsRow = { active_season_id: string | null };
 type EventRow = { id: string; season_id: string; name: string };
 
@@ -35,6 +44,10 @@ type Resolved = {
   teamLabel: string;
   /** This device's entry for the same (event, match, team), if it has one. */
   existing: LocalEntry | undefined;
+  /** The form's match timer (SPEC-FINAL 8.4); an in-place edit, so the form's, not the version's. */
+  timerConfig: TimerConfig | null;
+  /** The season's game image for the map fields (16.7); null when this device lacks the season. */
+  fieldImagePath: string | null;
 };
 
 export function EntryRoute({ eventId, author }: { eventId: string; author: Editor }) {
@@ -46,18 +59,22 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
   // Set instead of `resolved` when the resolve effect finds nothing to resolve, so
   // "Loading…" never becomes the permanent state (branch review, phase 1C follow-up).
   const [blocked, setBlocked] = useState<'not-cached' | 'no-form' | null>(null);
+  // Practice (SPEC-FINAL 8.5, task 1.37) is a blank run of the real form: it never opens the
+  // device's entry for the robot, so it never shows or locks on one.
+  const practice = usePracticeMode();
 
   useEffect(() => {
     if (!matchId || !teamId) return;
     setResolved(null);
     setBlocked(null);
     void (async () => {
-      const [matches, teams, forms, appSettings, events] = await Promise.all([
+      const [matches, teams, forms, appSettings, events, seasons] = await Promise.all([
         cachedRows<MatchRow>('matches'),
         cachedRows<TeamRow>('teams'),
         cachedRows<FormRow>('forms'),
         cachedRows<AppSettingsRow>('app_settings'),
         cachedRows<EventRow>('events'),
+        cachedRows<SeasonRow>('seasons'),
       ]);
       const match = matches.find((m) => m.id === matchId);
       const team = teams.find((t) => t.id === teamId);
@@ -78,14 +95,13 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
         setBlocked('no-form');
         return;
       }
-      const existing = await findLocalEntry({
-        eventId: entryEventId,
-        formKind: 'match',
-        matchId,
-        teamId,
-      });
-      // An existing entry is edited under the form version it was recorded with.
-      const formVersionId = existing?.form_version_id ?? form.active_version_id;
+      const existing = practice
+        ? undefined
+        : await findLocalEntry({ eventId: entryEventId, formKind: 'match', matchId, teamId });
+      // An existing entry is edited under the form version it was recorded with; an unfinished
+      // draft is finished under the version it was begun on, when the device holds it (UF.23).
+      const drafted = existing || practice ? undefined : await draftedVersion(matchId, teamId);
+      const formVersionId = existing?.form_version_id ?? drafted ?? form.active_version_id;
       const foreign = entryEventId !== eventId;
       // Outside the default, only an entry this device already began is finished: a draft
       // (keyed as EntryPage keys it) or a local entry. Nothing new is ever started there.
@@ -106,9 +122,11 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
         matchLabel: matchLabel(match),
         teamLabel: `${formatCount(team.number)} ${team.name}`,
         existing,
+        timerConfig: form.timer_config ?? null,
+        fieldImagePath: seasons.find((s) => s.id === seasonId)?.field_image_path ?? null,
       });
     })();
-  }, [eventId, matchId, teamId]);
+  }, [eventId, matchId, teamId, practice]);
 
   if (!matchId || !teamId) {
     return <p className="p-4 text-muted">No match selected.</p>;
@@ -198,6 +216,8 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
       teamLabel={resolved.teamLabel}
       matchLabel={resolved.matchLabel}
       existing={resolved.existing}
+      timerConfig={resolved.timerConfig}
+      fieldImagePath={resolved.fieldImagePath}
       onSubmitted={() => {
         // SPEC-FINAL 8.1: submit returns to a fresh manual selection, offering the next match
         // after a new entry. Replace, so Back does not reopen a form that has already been saved.

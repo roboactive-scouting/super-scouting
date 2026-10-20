@@ -6,13 +6,52 @@
 export const PATHS = {
   home: '/',
   scout: '/scout',
+  /** Super scouting (SPEC-FINAL 8.1, task 1.36): one entry per team for the whole event. */
+  super: '/super',
+  /**
+   * The way into practice mode (SPEC-FINAL 8.5, task 1.37): picks a match the device holds, turns
+   * practice on and replaces itself with that entry.
+   */
+  practice: '/practice',
   entries: '/entries',
   switchScouter: '/switch-scouter',
   changePassword: '/change-password',
   login: '/login',
   users: '/admin/users',
   manage: '/admin/manage',
+  forms: '/admin/forms',
+  /** This device's settings (SPEC-FINAL 8.6, task 1.38): theme, text size, screen, vibration, wipe. */
+  settings: '/settings',
+  /** What this device has sent and what still waits (SPEC-FINAL 9.10, task 1.43). */
+  sync: '/sync',
+  /**
+   * The discarded-records log (SPEC-FINAL 9.7, task 1.42): opened from Sync only — its notice's
+   * "See the log" and More — never a nav row.
+   */
+  syncDiscarded: '/sync/discarded',
+  /**
+   * The conflict review worklist (SPEC-FINAL 9.5, 17.9): Sync's conflicts link opens it. Its page
+   * and nav row are task 1.44.
+   */
+  conflicts: '/conflicts',
 } as const;
+
+/** The form builder's route pattern (SPEC-FINAL 5.9, v1.21): the version is a query, `?version=n`. */
+export const FORM_BUILDER_ROUTE = '/admin/forms/:formId';
+
+/**
+ * The form builder on one form. `version` is the version NUMBER (v3 → 3), never an id; without
+ * it the builder opens the draft if there is one, else the active version (13-forms README).
+ */
+export function formBuilderPath(formId: string, version?: number): string {
+  const base = `${PATHS.forms}/${formId}`;
+  return version === undefined ? base : `${base}?version=${version}`;
+}
+
+/** The forms list on one season, by its year (`?season=2026`); the list honours it on arrival. */
+export function formsSeasonPath(year: number): string {
+  return `${PATHS.forms}?season=${year}`;
+}
 
 /** The entry route's pattern, for `matchPath` and the route tree. */
 export const ENTRY_ROUTE = '/entry/:matchId/:teamId';
@@ -21,12 +60,26 @@ export function entryPath(matchId: string, teamId: string, alliance: 'red' | 'bl
   return `/entry/${matchId}/${teamId}?alliance=${alliance}`;
 }
 
+/** The super entry's route pattern: the picker at `/super`, one team's form under it. */
+export const SUPER_TEAM_ROUTE = '/super/:teamId';
+
+/** One team's super entry (SPEC-FINAL 8.1): opens this device's entry for it, else a new one. */
+export function superTeamPath(teamId: string): string {
+  return `${PATHS.super}/${teamId}`;
+}
+
 /**
  * The data-entry path (SPEC-FINAL 17.9): the screens a scout uses mid-match. No route
  * transition plays into them and nothing on them moves unless it carries information.
- * Task 1.36 adds `/super`.
+ * Super scouting (`/super`, task 1.36) is on it too, and `/practice` (task 1.37), which only
+ * hands over to an entry.
  */
-export const ENTRY_PATH_PREFIXES: readonly string[] = [PATHS.scout, '/entry/'];
+export const ENTRY_PATH_PREFIXES: readonly string[] = [
+  PATHS.scout,
+  '/entry/',
+  PATHS.super,
+  PATHS.practice,
+];
 
 export function isEntryPath(pathname: string): boolean {
   return ENTRY_PATH_PREFIXES.some((prefix) =>

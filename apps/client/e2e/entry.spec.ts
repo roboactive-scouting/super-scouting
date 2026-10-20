@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { signIn } from './api-mock';
 import { matchId, teamId } from './fixtures';
-import { shoot } from './shoot';
+import { setTextScale, shoot } from './shoot';
 import { touchDrag } from './touch';
 
 /**
@@ -25,6 +25,10 @@ test('entry: phase tabs, swipe, no-show and the confirm', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Teleop' })).toBeVisible();
   await expect(page.getByText('Phase 2 of 4')).toBeVisible();
   await shoot(page, 'entry');
+  // Task 1.38: the largest in-app text size (150 %) must not break the layout (SPEC-FINAL 17.7).
+  await setTextScale(page, 1.5);
+  await shoot(page, 'entry-150', undefined, { long: true });
+  await setTextScale(page, 1);
 
   // Phone: a swipe left on the pane goes to the next phase, a pager tap comes back.
   await touchDrag(page, page.getByRole('heading', { name: 'Teleop' }), { dx: -160 });
@@ -108,4 +112,52 @@ test('entry: a swipe on the empty page below the form changes phase', async ({ p
 
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await shoot(page, 'entry-auto', 'phone');
+});
+
+/**
+ * UF.18: the option buttons lay out by their own width. The Endgame climb select has four
+ * options: two columns on a phone, four on a tablet held upright and on a wide computer; two on
+ * a small desktop (1100 px), where the entry's main column is narrower than on the tablet. The
+ * ✓ of the chosen one is clear of its card's edge, and a tap shows no focus ring.
+ */
+test('entry: a four-option select at phone, tablet and desktop widths', async ({ page }) => {
+  await signIn(page, 'scouter');
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.goto(`/entry/${matchId(39)}/${teamId(2630)}?alliance=red`);
+  await page.getByRole('radio', { name: 'Played' }).click();
+  await page.getByRole('tab', { name: 'Endgame' }).click();
+  await page.getByText('High rung', { exact: true }).click();
+  await expect(page.getByRole('radio', { name: 'High rung' })).toBeChecked();
+  const cards = page.getByRole('group', { name: /climb/i }).locator('label');
+  await expect(cards).toHaveCount(4);
+  const columns = async () => {
+    const ys = await cards.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().top));
+    return new Set(ys.map((y) => Math.round(y))).size === 1 ? 4 : 2;
+  };
+  const chosen = page.locator('label', { has: page.getByRole('radio', { name: 'High rung' }) });
+  const markClear = async () => {
+    const tile = (await chosen.boundingBox())!;
+    const mark = (await chosen.locator('[data-chosen-mark]').boundingBox())!;
+    return tile.x + tile.width - (mark.x + mark.width);
+  };
+  expect(await columns()).toBe(4);
+  expect(await markClear()).toBeGreaterThanOrEqual(12);
+  await expect(chosen).toHaveCSS('outline-style', 'none');
+  await shoot(page, 'entry-endgame', 'tablet');
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await columns()).toBe(2);
+  expect(await markClear()).toBeGreaterThanOrEqual(12);
+  await page.setViewportSize({ width: 1100, height: 800 });
+  expect(await columns()).toBe(2);
+  expect(await markClear()).toBeGreaterThanOrEqual(12);
+  await shoot(page, 'entry-endgame', 'small');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  expect(await columns()).toBe(4);
+  expect(await markClear()).toBeGreaterThanOrEqual(12);
+  await shoot(page, 'entry-endgame');
+  // Task 1.38: the largest in-app text size (150 %) must not break the layout (SPEC-FINAL 17.7).
+  await setTextScale(page, 1.5);
+  await shoot(page, 'entry-endgame-150', undefined, { long: true });
+  await setTextScale(page, 1);
 });

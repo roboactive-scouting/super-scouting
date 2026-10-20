@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Entry parts — field types</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../01-entry/src/entry.css"><link rel="stylesheet" href="../../01-entry/final/final.css"><link rel="stylesheet" href="../src/parts.css">
+</head><body>
+<div id="root"></div>
+<script src="../../01-entry/src/entry.js"></script><script src="../src/parts.js"></script>
+<script>
+const P = PX;
+const f1 = P.screen({ body: P.tabs(1, 1) + `<div class="pane">${P.phead('Teleop', 2)}
+  ${P.counter('Pieces scored high', 4, 'Upper goal')}
+  ${P.number('Cycle estimate', { hint: 'Your best guess of seconds per cycle', v: 14, unit: 'seconds', range: 'Between 3 and 60' })}
+  ${P.multi('Scored from', ['Near', 'Mid', 'Far'], ['Near', 'Far'], { undo: 'Far' })}</div>` });
+const f2 = P.screen({ body: P.tabs(2, 2) + `<div class="pane">${P.phead('Endgame', 3)}
+  ${P.select('Climb level', ['None', 'Parked', 'Low', 'High'], null, { req: true })}
+  ${P.stars('Climb stability', 4, { hint: 'How steady it hung' })}
+  ${P.text('What it climbed on', 'Left chain')}</div>` });
+const f3 = P.screen({ body: P.tabs(3, 3) + `<div class="pane">${P.phead('Notes', 4)}
+  ${P.sec('Driver')}
+  ${P.slider('Driving speed', 4, { hint: '1 slow · 5 fast' })}
+  ${P.stars('Driver skill', 3)}
+  ${P.sec('Totals')}
+  ${P.comp('Total pieces scored', 'Worked out: auto + teleop, high + low', 9)}</div>` });
+P.page('Entry parts · 1 of 4 — the remaining field types (task 1.33)', 'The types the Entry final did not show yet, built from its locked parts.', [
+  P.fig(f1, '1 · Number (with unit and range), multi select with undo'),
+  P.fig(f2, '2 · Required select, rating as stars, short text'),
+  P.fig(f3, '3 · Section headings, rating as slider, computed value'),
+], P.card('Field types', [
+  '<b>Number:</b> the locked number input with the unit at the right; the expected range shows under it as a hint.',
+  '<b>Multi select:</b> equal 48 px buttons with a check box; several can be on. <b>Undo “Far”</b> takes back the last one toggled, not all of them (§8.2).',
+  '<b>Rating:</b> five boxed 48 px stars, filled up to the pick, with a word under each (Poor · Weak · OK · Good · Great); the pick is ringed. Or a slider with 1–5 under it, by the field’s style.',
+  '<b>Short text:</b> the 48 px text input. <b>Computed:</b> a grey read-only row with a calculator icon and its formula in words.',
+  '<b>Section:</b> a small uppercase heading with a rule. <b>Required</b> is a quiet grey word beside the label until it is missed.',
+]));
+</script>
+<script src="../../shell.js"></script>
+</body></html>

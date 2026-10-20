@@ -27,6 +27,8 @@ export const buttonVariants = cva(
         ghost: 'border-transparent bg-transparent text-ink-2',
         /** The action that starts a destructive flow, and its confirm. Filled ink, never red. */
         destructive: 'border-ink bg-ink text-surface',
+        /** An action inside a sentence ("Export it first"): accent-ink text, underlined on hover. */
+        link: 'border-transparent bg-transparent font-[650] text-accent-ink underline-offset-2 before:hidden hover:underline',
       },
       size: {
         sm: `${HIT_AREA} min-h-9 px-3 text-[0.84375rem] after:-inset-y-1.5`,
@@ -34,6 +36,11 @@ export const buttonVariants = cva(
         lg: 'min-h-[52px] px-6 text-base',
         block: 'min-h-[52px] w-full px-4 text-base',
         icon: 'px-0',
+        /** A 32 px icon button in a dense row; its ::after grows the hit area to 48 px. */
+        'icon-sm':
+          "relative size-8 min-h-8 min-w-8 px-0 after:absolute after:-inset-2 after:content-['']",
+        /** In a line of text (with `link`): no box of its own; its ::after grows the hit area. */
+        inline: `${HIT_AREA} min-h-0 min-w-0 border-0 px-0 align-baseline after:-inset-y-3.5`,
       },
     },
     defaultVariants: { variant: 'secondary', size: 'md' },
@@ -47,7 +54,7 @@ export type ButtonProps = ComponentProps<'button'> &
     busyLabel?: string;
   };
 
-/** A native button in one of four variants. `type` defaults to "button", never "submit". */
+/** A native button in one of five variants. `type` defaults to "button", never "submit". */
 export function Button({
   className,
   variant,

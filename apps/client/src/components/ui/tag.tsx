@@ -1,4 +1,4 @@
-import { Flag } from 'lucide-react';
+import { Flag, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { formatDate, type Role } from '@frc/shared';
 import type { Station } from '@/data/station';
@@ -9,7 +9,8 @@ import { cn } from '@/lib/utils';
  * only signal: every status carries a word and a shape. None is red; red is the red alliance.
  */
 
-const TAG =
+/** The tag's box and type, for a tag drawn elsewhere (the map's "View only", UF.24). */
+export const TAG =
   'inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-tag px-[9px] text-[0.78125rem] font-[650]';
 
 const ALLIANCE = {
@@ -93,6 +94,18 @@ export function RobotStatusTag({ status }: { status: RobotStatus }) {
   );
 }
 
+/**
+ * The dark SUPER tag (15-super final): `--rail` with white text, like the admin tag. It stands
+ * where a match entry shows its robot status (super scouting, Sync, the discarded log).
+ */
+export function SuperTag() {
+  return (
+    <span className="inline-flex h-6 items-center rounded-tag bg-rail px-[9px] text-[0.71875rem] font-bold tracking-[0.04em] text-surface">
+      SUPER
+    </span>
+  );
+}
+
 const ROLE: Record<Role, { label: string; tag: string }> = {
   admin: { label: 'Admin', tag: 'bg-rail text-surface' },
   lead: { label: 'Scout lead', tag: 'bg-surface text-ink ring-1 ring-inset ring-control-border' },
@@ -120,12 +133,18 @@ export function AccountStatusTag({ disabledAt }: { disabledAt: string | null }) 
 
 /**
  * A flag on a record that needs a look, e.g. "Not in line-up": `--warn-tint` on `--warn`, with
- * a flag glyph (Entries final ⚑).
+ * a flag glyph (Entries final ⚑), or another glyph (the builder's ⚠ "Needs meaning").
  */
-export function WarningFlag({ children }: { children: ReactNode }) {
+export function WarningFlag({
+  children,
+  icon: Icon = Flag,
+}: {
+  children: ReactNode;
+  icon?: LucideIcon;
+}) {
   return (
     <span className="inline-flex min-h-[22px] items-center gap-1.5 whitespace-nowrap rounded-tag bg-warn-tint px-[7px] text-xs font-[650] text-warn">
-      <Flag aria-hidden="true" className="size-[13px]" />
+      <Icon aria-hidden="true" className="size-[13px]" />
       {children}
     </span>
   );

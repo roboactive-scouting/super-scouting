@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Alliance, MatchRow, MatchType } from '@frc/shared';
+import { OFFLINE_GATE_LINE, useCapability } from '@/components/OfflineGate';
 import { DestructiveConfirm } from '@/components/ui/destructive-confirm';
 import { Segmented } from '@/components/ui/segmented';
 import { matchLabel } from '@/lib/matchLabel';
@@ -37,6 +38,8 @@ export function MatchesPanel(props: MatchEditingProps) {
   const [confirming, setConfirming] = useState<MatchRow | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  /** SPEC-FINAL 9.6: season, event, match and roster management is held while offline. */
+  const can = useCapability('manage_events');
 
   function onSlot(match: MatchRow, alliance: Alliance, station: Station, typed: Typed) {
     if (typed.kind === 'unknown') {
@@ -119,6 +122,7 @@ export function MatchesPanel(props: MatchEditingProps) {
         body={DELETE_MATCH_BODY}
         confirmLabel="Delete"
         busy={deleteBusy}
+        held={can ? null : OFFLINE_GATE_LINE}
         error={deleteError}
         onConfirm={() => void confirmDelete()}
         onCancel={() => setConfirming(null)}

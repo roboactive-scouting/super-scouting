@@ -95,140 +95,54 @@ var loginOutput = z2.object({
 });
 var refreshTokenInput = z2.object({ token: z2.string().min(1) });
 
-// ../../packages/shared/src/api/context.ts
-import { z as z3 } from "zod";
-var getActiveContextInput = z3.object({}).strict();
-var activeContext = z3.object({
-  active_season_id: z3.string().uuid().nullable(),
-  active_event_id: z3.string().uuid().nullable()
-});
-var uuid = z3.string().uuid();
-var SEASON_YEAR_MIN = 1992;
-var SEASON_YEAR_MAX = 2100;
-var NAME_MAX_LENGTH = 80;
-var REORDER_EVENTS_MAX = 200;
-var LIST_SEASONS_DEFAULT_LIMIT = 50;
-var LIST_SEASONS_MAX_LIMIT = 200;
-var LIST_EVENTS_DEFAULT_LIMIT = 50;
-var LIST_EVENTS_MAX_LIMIT = 200;
-var seasonYear = z3.number().int().min(SEASON_YEAR_MIN).max(SEASON_YEAR_MAX);
-var displayName = z3.string().trim().min(1).max(NAME_MAX_LENGTH);
-var fieldImagePath = z3.string().trim().min(1).max(200);
-var seasonRow = z3.object({
-  id: uuid,
-  year: z3.number().int(),
-  game_name: z3.string(),
-  field_image_path: z3.string(),
-  created_at: z3.string(),
-  updated_at: z3.string()
-});
-var eventRow = z3.object({
-  id: uuid,
-  season_id: uuid,
-  name: z3.string(),
-  code: z3.string().nullable(),
-  sort_order: z3.number().int(),
-  created_at: z3.string(),
-  updated_at: z3.string()
-});
-var createSeasonInput = z3.object({ year: seasonYear, game_name: displayName, field_image_path: fieldImagePath }).strict();
-var updateSeasonInput = z3.object({
-  season_id: uuid,
-  year: seasonYear.optional(),
-  game_name: displayName.optional(),
-  field_image_path: fieldImagePath.optional()
-}).strict().refine(
-  (value) => value.year !== void 0 || value.game_name !== void 0 || value.field_image_path !== void 0,
-  { message: "give a new year, game name or game image path" }
-);
-var setActiveSeasonInput = z3.object({ season_id: uuid }).strict();
-var listSeasonsInput = z3.object({
-  limit: z3.number().int().min(1).optional(),
-  cursor: z3.string().min(1).optional()
-}).strict();
-var listSeasonsOutput = z3.object({
-  items: z3.array(seasonRow),
-  next_cursor: z3.string().nullable()
-});
-var createEventInput = z3.object({ season_id: uuid, name: displayName }).strict();
-var updateEventInput = z3.object({ event_id: uuid, name: displayName }).strict();
-var reorderEventsInput = z3.object({ season_id: uuid, event_ids: z3.array(uuid).max(REORDER_EVENTS_MAX) }).strict();
-var reorderEventsOutput = z3.object({ items: z3.array(eventRow) });
-var setActiveEventInput = z3.object({ event_id: uuid }).strict();
-var listEventsInput = z3.object({
-  season_id: uuid,
-  limit: z3.number().int().min(1).optional(),
-  cursor: z3.string().min(1).optional()
-}).strict();
-var listEventsOutput = z3.object({
-  items: z3.array(eventRow),
-  next_cursor: z3.string().nullable()
-});
-var deleteSeasonInput = z3.object({
-  season_id: uuid,
-  dry_run: z3.boolean().default(false),
-  confirm_name: z3.string().optional()
-}).strict();
-var deleteEventInput = z3.object({
-  event_id: uuid,
-  dry_run: z3.boolean().default(false),
-  confirm_name: z3.string().optional()
-}).strict();
-var SWITCH_SEASON_FIRST = "Switch the active season first.";
-var SWITCH_EVENT_FIRST = "Switch the default event first.";
-var deleteImpactOutput = z3.object({
-  deleted: z3.boolean(),
-  events: z3.number().int(),
-  matches: z3.number().int(),
-  entries: z3.number().int(),
-  forms: z3.number().int()
-});
+// ../../packages/shared/src/api/conflicts.ts
+import { z as z4 } from "zod";
 
 // ../../packages/shared/src/api/matches.ts
-import { z as z4 } from "zod";
-var uuid2 = z4.string().uuid();
+import { z as z3 } from "zod";
+var uuid = z3.string().uuid();
 var MATCH_TYPES = ["practice", "qualification", "playoff"];
-var matchType = z4.enum(MATCH_TYPES);
+var matchType = z3.enum(MATCH_TYPES);
 var ALLIANCES = ["red", "blue"];
 var MATCH_NUMBER_MAX = 999;
 var MATCH_BULK_MAX = 200;
 var LIST_MATCHES_DEFAULT_LIMIT = 50;
 var LIST_MATCHES_MAX_LIMIT = 200;
-var matchNumber = z4.number().int().min(1).max(MATCH_NUMBER_MAX);
-var matchSlot = z4.object({
-  alliance: z4.enum(ALLIANCES),
-  station: z4.number().int().min(1).max(3),
-  team_id: uuid2
+var matchNumber = z3.number().int().min(1).max(MATCH_NUMBER_MAX);
+var matchSlot = z3.object({
+  alliance: z3.enum(ALLIANCES),
+  station: z3.number().int().min(1).max(3),
+  team_id: uuid
 }).strict();
-var matchRow = z4.object({
-  id: uuid2,
-  event_id: uuid2,
+var matchRow = z3.object({
+  id: uuid,
+  event_id: uuid,
   match_type: matchType,
-  number: z4.number().int(),
-  created_at: z4.string(),
-  updated_at: z4.string(),
-  slots: z4.array(matchSlot)
+  number: z3.number().int(),
+  created_at: z3.string(),
+  updated_at: z3.string(),
+  slots: z3.array(matchSlot)
 });
-var createMatchInput = z4.object({
-  event_id: uuid2,
+var createMatchInput = z3.object({
+  event_id: uuid,
   match_type: matchType,
   number: matchNumber.optional(),
-  count: z4.number().int().min(1).max(MATCH_BULK_MAX).optional()
+  count: z3.number().int().min(1).max(MATCH_BULK_MAX).optional()
 }).strict().refine((value) => value.number === void 0 !== (value.count === void 0), {
   message: "give either a match number or a count of matches, not both"
 });
-var createMatchOutput = z4.object({
-  created: z4.number().int(),
-  items: z4.array(matchRow)
+var createMatchOutput = z3.object({
+  created: z3.number().int(),
+  items: z3.array(matchRow)
 });
-var updateMatchInput = z4.object({
-  match_id: uuid2,
+var updateMatchInput = z3.object({
+  match_id: uuid,
   match_type: matchType.optional(),
   number: matchNumber.optional()
 }).strict().refine((value) => value.match_type !== void 0 || value.number !== void 0, {
   message: "give a new match type or number"
 });
-var setMatchTeamsInput = z4.object({ match_id: uuid2, slots: z4.array(matchSlot).max(6) }).strict().superRefine((value, ctx) => {
+var setMatchTeamsInput = z3.object({ match_id: uuid, slots: z3.array(matchSlot).max(6) }).strict().superRefine((value, ctx) => {
   const stations = new Set(value.slots.map((s) => `${s.alliance} ${s.station}`));
   if (stations.size !== value.slots.length) {
     ctx.addIssue({
@@ -246,67 +160,616 @@ var setMatchTeamsInput = z4.object({ match_id: uuid2, slots: z4.array(matchSlot)
     });
   }
 });
-var deleteMatchInput = z4.object({ match_id: uuid2 }).strict();
-var deleteMatchOutput = z4.object({ id: uuid2, deleted: z4.literal(true) });
-var listMatchesInput = z4.object({
-  event_id: uuid2,
-  limit: z4.number().int().min(1).optional(),
-  cursor: z4.string().min(1).optional()
+var deleteMatchInput = z3.object({ match_id: uuid }).strict();
+var deleteMatchOutput = z3.object({ id: uuid, deleted: z3.literal(true) });
+var listMatchesInput = z3.object({
+  event_id: uuid,
+  limit: z3.number().int().min(1).optional(),
+  cursor: z3.string().min(1).optional()
 }).strict();
-var listMatchesOutput = z4.object({
-  items: z4.array(matchRow),
-  next_cursor: z4.string().nullable()
+var listMatchesOutput = z3.object({
+  items: z3.array(matchRow),
+  next_cursor: z3.string().nullable()
 });
-var ensureMatchInput = z4.object({
-  id: uuid2,
-  event_id: uuid2,
+var ensureMatchInput = z3.object({
+  id: uuid,
+  event_id: uuid,
   match_type: matchType,
   number: matchNumber
 }).strict();
-var ensureMatchOutput = z4.object({ id: uuid2, created: z4.boolean() });
+var ensureMatchOutput = z3.object({ id: uuid, created: z3.boolean() });
+
+// ../../packages/shared/src/api/conflicts.ts
+var uuid2 = z4.string().uuid();
+var rowId = z4.string().min(1);
+var CONFLICT_KINDS = ["divergence", "duplicate"];
+var LIST_CONFLICTS_DEFAULT_LIMIT = 20;
+var LIST_CONFLICTS_MAX_LIMIT = 50;
+var SETTLED_CONFLICTS_MAX = 100;
+var SETTLED_DEFAULT_WINDOW_MS = 24 * 60 * 60 * 1e3;
+var divergenceResolution = z4.object({ keep: z4.enum(["live", "superseded"]) }).strict();
+var duplicateResolution = z4.object({ keep_row_id: rowId }).strict();
+var conflictResolution = z4.union([divergenceResolution, duplicateResolution]);
+var listConflictsInput = z4.object({
+  event_id: uuid2,
+  limit: z4.number().int().min(1).optional(),
+  cursor: z4.string().min(1).optional(),
+  /**
+   * The start of "Settled today": the DEVICE's local midnight, as an ISO instant with an
+   * offset. The server does not know the venue's day. Omitted: the last 24 hours.
+   */
+  settled_since: z4.string().datetime({ offset: true }).optional()
+}).strict();
+var person = z4.object({ id: z4.string(), full_name: z4.string().nullable() });
+var conflictTeam = z4.object({ id: z4.string(), number: z4.number().int(), name: z4.string() });
+var conflictMatch = z4.object({ id: z4.string(), match_type: matchType, number: z4.number().int() });
+var entryData = z4.record(z4.unknown());
+var liveCopy = z4.object({
+  row_id: z4.string(),
+  version: z4.number().int(),
+  form_version_id: z4.string().nullable(),
+  author: person,
+  client_updated_at: z4.string(),
+  robot_status: z4.string().nullable(),
+  breakdown_seconds: z4.number().nullable(),
+  data: entryData,
+  /** A soft-deleted row is still shown, so the reader sees why it does not count. */
+  deleted_at: z4.string().nullable()
+});
+var supersededCopy = z4.object({
+  form_version_id: z4.string().nullable(),
+  author: z4.object({ id: z4.string().nullable(), full_name: z4.string().nullable() }),
+  client_updated_at: z4.string().nullable(),
+  base_version: z4.number().int().nullable(),
+  robot_status: z4.string().nullable(),
+  breakdown_seconds: z4.number().nullable(),
+  data: entryData
+});
+var divergenceDiff = z4.object({
+  field_key: z4.string(),
+  live: z4.unknown(),
+  superseded: z4.unknown(),
+  differs: z4.boolean()
+});
+var duplicateDiff = z4.object({
+  field_key: z4.string(),
+  a: z4.unknown(),
+  b: z4.unknown(),
+  differs: z4.boolean()
+});
+var itemBase = {
+  id: z4.string(),
+  created_at: z4.string(),
+  form_kind: z4.enum(["match", "super"]),
+  team: conflictTeam.nullable(),
+  /** Null for a super entry. */
+  match: conflictMatch.nullable(),
+  alliance: z4.enum(["red", "blue"]).nullable()
+};
+var divergenceItem = z4.object({
+  ...itemBase,
+  kind: z4.literal("divergence"),
+  live: liveCopy,
+  superseded: supersededCopy,
+  /** The live copy is always the one the statistics use (SPEC-FINAL 9.5). */
+  counted: z4.literal("live"),
+  diff: z4.array(divergenceDiff)
+});
+var duplicateItem = z4.object({
+  ...itemBase,
+  kind: z4.literal("duplicate"),
+  /** The conflict's `row_id`: the row that arrived second. */
+  a: liveCopy,
+  /** The conflict's `duplicate_row_id`: the row the server already held. */
+  b: liveCopy,
+  /** The live row with the greater client_updated_at: what the statistics use now. */
+  counted: z4.enum(["a", "b"]),
+  diff: z4.array(duplicateDiff)
+});
+var conflictItem = z4.discriminatedUnion("kind", [divergenceItem, duplicateItem]);
+var settledConflict = z4.object({
+  id: z4.string(),
+  kind: z4.enum(CONFLICT_KINDS),
+  form_kind: z4.enum(["match", "super"]).nullable(),
+  team: conflictTeam.nullable(),
+  match: conflictMatch.nullable(),
+  resolution: conflictResolution.nullable(),
+  resolved_at: z4.string(),
+  resolved_by: person.nullable(),
+  /** Whose copy stayed. Null only for a conflict resolved with no recorded choice. */
+  kept: z4.object({ row_id: z4.string(), author_full_name: z4.string().nullable() }).nullable()
+});
+var listConflictsOutput = z4.object({
+  /** The event's OPEN conflicts, oldest first, one page. */
+  items: z4.array(conflictItem),
+  next_cursor: z4.string().nullable(),
+  /** Resolved at or after `settled_since`, newest first, at most SETTLED_CONFLICTS_MAX. */
+  settled: z4.array(settledConflict)
+});
+var resolveConflictInput = z4.object({ conflict_id: rowId, resolution: conflictResolution }).strict();
+var resolveConflictOutput = z4.object({
+  conflict_id: z4.string(),
+  resolved_at: z4.string(),
+  resolution: conflictResolution,
+  /** The row that stays live. */
+  row_id: z4.string(),
+  /** `row_id`'s new version when it was rewritten (a restore), else null. */
+  new_version: z4.number().int().nullable(),
+  /** A duplicate's row that was soft-deleted, with its new version; null otherwise. */
+  soft_deleted: z4.object({ row_id: z4.string(), new_version: z4.number().int() }).nullable()
+});
+
+// ../../packages/shared/src/api/context.ts
+import { z as z5 } from "zod";
+var getActiveContextInput = z5.object({}).strict();
+var activeContext = z5.object({
+  active_season_id: z5.string().uuid().nullable(),
+  active_event_id: z5.string().uuid().nullable()
+});
+var uuid3 = z5.string().uuid();
+var SEASON_YEAR_MIN = 1992;
+var SEASON_YEAR_MAX = 2100;
+var NAME_MAX_LENGTH = 80;
+var REORDER_EVENTS_MAX = 200;
+var LIST_SEASONS_DEFAULT_LIMIT = 50;
+var LIST_SEASONS_MAX_LIMIT = 200;
+var LIST_EVENTS_DEFAULT_LIMIT = 50;
+var LIST_EVENTS_MAX_LIMIT = 200;
+var seasonYear = z5.number().int().min(SEASON_YEAR_MIN).max(SEASON_YEAR_MAX);
+var displayName = z5.string().trim().min(1).max(NAME_MAX_LENGTH);
+var fieldImagePath = z5.string().trim().min(1).max(200);
+var seasonRow = z5.object({
+  id: uuid3,
+  year: z5.number().int(),
+  game_name: z5.string(),
+  field_image_path: z5.string(),
+  created_at: z5.string(),
+  updated_at: z5.string()
+});
+var eventRow = z5.object({
+  id: uuid3,
+  season_id: uuid3,
+  name: z5.string(),
+  code: z5.string().nullable(),
+  sort_order: z5.number().int(),
+  created_at: z5.string(),
+  updated_at: z5.string()
+});
+var createSeasonInput = z5.object({ year: seasonYear, game_name: displayName, field_image_path: fieldImagePath }).strict();
+var updateSeasonInput = z5.object({
+  season_id: uuid3,
+  year: seasonYear.optional(),
+  game_name: displayName.optional(),
+  field_image_path: fieldImagePath.optional()
+}).strict().refine(
+  (value) => value.year !== void 0 || value.game_name !== void 0 || value.field_image_path !== void 0,
+  { message: "give a new year, game name or game image path" }
+);
+var setActiveSeasonInput = z5.object({ season_id: uuid3 }).strict();
+var listSeasonsInput = z5.object({
+  limit: z5.number().int().min(1).optional(),
+  cursor: z5.string().min(1).optional()
+}).strict();
+var listSeasonsOutput = z5.object({
+  items: z5.array(seasonRow),
+  next_cursor: z5.string().nullable()
+});
+var createEventInput = z5.object({ season_id: uuid3, name: displayName }).strict();
+var updateEventInput = z5.object({ event_id: uuid3, name: displayName }).strict();
+var reorderEventsInput = z5.object({ season_id: uuid3, event_ids: z5.array(uuid3).max(REORDER_EVENTS_MAX) }).strict();
+var reorderEventsOutput = z5.object({ items: z5.array(eventRow) });
+var setActiveEventInput = z5.object({ event_id: uuid3 }).strict();
+var listEventsInput = z5.object({
+  season_id: uuid3,
+  limit: z5.number().int().min(1).optional(),
+  cursor: z5.string().min(1).optional()
+}).strict();
+var listEventsOutput = z5.object({
+  items: z5.array(eventRow),
+  next_cursor: z5.string().nullable()
+});
+var deleteSeasonInput = z5.object({
+  season_id: uuid3,
+  dry_run: z5.boolean().default(false),
+  confirm_name: z5.string().optional()
+}).strict();
+var deleteEventInput = z5.object({
+  event_id: uuid3,
+  dry_run: z5.boolean().default(false),
+  confirm_name: z5.string().optional()
+}).strict();
+var SWITCH_SEASON_FIRST = "Switch the active season first.";
+var SWITCH_EVENT_FIRST = "Switch the default event first.";
+var deleteImpactOutput = z5.object({
+  deleted: z5.boolean(),
+  events: z5.number().int(),
+  matches: z5.number().int(),
+  entries: z5.number().int(),
+  forms: z5.number().int()
+});
+
+// ../../packages/shared/src/api/forms.ts
+import { z as z8 } from "zod";
+
+// ../../packages/shared/src/forms/config.ts
+import { z as z7 } from "zod";
+
+// ../../packages/shared/src/forms/expression.ts
+import { z as z6 } from "zod";
+var exprSchema = z6.lazy(
+  () => z6.union([
+    z6.object({ kind: z6.literal("field"), key: z6.string().min(1) }).strict(),
+    z6.object({ kind: z6.literal("literal"), value: z6.union([z6.number(), z6.string()]) }).strict(),
+    z6.object({
+      kind: z6.literal("op"),
+      op: z6.enum(["+", "-", "*", "/", "concat"]),
+      left: exprSchema,
+      right: exprSchema
+    }).strict()
+  ])
+);
+
+// ../../packages/shared/src/forms/config.ts
+var FIELD_TYPES = [
+  "counter",
+  "number",
+  "toggle",
+  "single_select",
+  "multi_select",
+  "rating",
+  "short_text",
+  "long_text",
+  "timer",
+  "event_log",
+  "position",
+  "cycle_path",
+  "computed",
+  "section"
+];
+var option = z7.object({ value: z7.string().min(1), label: z7.string().min(1) });
+var optionList = z7.array(option).min(1).superRefine((list, ctx) => {
+  const seen = /* @__PURE__ */ new Set();
+  list.forEach((o, i) => {
+    if (seen.has(o.value)) {
+      ctx.addIssue({
+        code: z7.ZodIssueCode.custom,
+        path: [i, "value"],
+        message: `the value '${o.value}' is listed twice; each value names one choice`
+      });
+    }
+    seen.add(o.value);
+  });
+});
+var mirrorAxis = z7.enum(["none", "horizontal", "vertical", "both"]);
+var numericRange = z7.object({
+  min: z7.number().optional(),
+  max: z7.number().optional(),
+  step: z7.number().positive().optional()
+}).strict().refine((r) => r.min === void 0 || r.max === void 0 || r.min <= r.max, {
+  path: ["max"],
+  message: "max must not be below min"
+});
+var eventLog = z7.object({
+  event_types: optionList,
+  ask_position: z7.boolean().default(false),
+  mirror_axis: mirrorAxis.optional()
+}).strict().superRefine((config2, ctx) => {
+  if (config2.ask_position && config2.mirror_axis === void 0) {
+    ctx.addIssue({
+      code: z7.ZodIssueCode.custom,
+      path: ["mirror_axis"],
+      message: "mirror_axis is required when ask_position is on"
+    });
+  }
+});
+var FIELD_TYPE_CONFIG = {
+  counter: numericRange,
+  number: numericRange,
+  toggle: z7.object({}).strict(),
+  single_select: z7.object({ options: optionList, is_ordinal: z7.boolean().optional() }).strict(),
+  multi_select: z7.object({ options: optionList, is_ordinal: z7.boolean().optional() }).strict(),
+  rating: z7.object({ max: z7.number().int().positive().default(5), style: z7.enum(["stars", "slider"]) }).strict(),
+  short_text: z7.object({ max_length: z7.number().int().positive().optional() }).strict(),
+  long_text: z7.object({ max_length: z7.number().int().positive().optional() }).strict(),
+  // SPEC-FINAL 5.3: allow_unsure is "always true in v1", so it defaults to true and
+  // cannot be set to false — but a field that omits it entirely is still valid.
+  timer: z7.object({ allow_unsure: z7.literal(true).default(true) }).strict(),
+  event_log: eventLog,
+  position: z7.object({ multi_point: z7.boolean(), mirror_axis: mirrorAxis }).strict(),
+  cycle_path: z7.object({
+    max_points_per_cycle: z7.number().int().positive().default(6),
+    mirror_axis: mirrorAxis
+  }).strict(),
+  computed: z7.object({ expression: exprSchema.nullable(), result_type: z7.enum(["float", "string"]) }).strict(),
+  section: z7.object({}).strict()
+};
+
+// ../../packages/shared/src/api/forms.ts
+var uuid4 = z8.string().uuid();
+var FORM_KINDS = ["match", "super"];
+var formKind = z8.enum(FORM_KINDS);
+var FORM_NAME_MAX_LENGTH = 80;
+var FIELD_LABEL_MAX_LENGTH = 200;
+var FORM_FIELDS_MAX = 500;
+var TIMER_PHASES_MAX = 8;
+var TIMER_PHASE_SECONDS_MAX = 3600;
+var FORM_EXPORT_TTL_MS = 24 * 60 * 60 * 1e3;
+var FORM_DEFINITION_FORMAT = 1;
+var formName = z8.string().trim().min(1).max(FORM_NAME_MAX_LENGTH);
+var FIELD_PHASES = ["auto", "teleop", "endgame", "post_match"];
+var FIELD_UNITS = [
+  "count",
+  "seconds",
+  "points",
+  "boolean",
+  "enum",
+  "text",
+  "coordinate"
+];
+var FIELD_DIRECTIONS = ["higher_is_better", "lower_is_better", "neutral"];
+var VISIBILITY_OPS = ["=", "!=", ">", "<", ">=", "<="];
+var timerConfig = z8.object({
+  phases: z8.array(
+    z8.object({
+      phase: z8.enum(FIELD_PHASES),
+      seconds: z8.number().int().positive().max(TIMER_PHASE_SECONDS_MAX)
+    }).strict()
+  ).max(TIMER_PHASES_MAX)
+}).strict().superRefine((value, ctx) => {
+  const seen = /* @__PURE__ */ new Set();
+  value.phases.forEach((p, i) => {
+    if (seen.has(p.phase)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["phases", i, "phase"],
+        message: `the timer names ${p.phase} twice`
+      });
+    }
+    seen.add(p.phase);
+  });
+});
+var fieldShape = {
+  key: z8.string().min(1).max(63),
+  label: z8.string().trim().min(1).max(FIELD_LABEL_MAX_LENGTH),
+  help_text: z8.string().nullable().default(null),
+  type: z8.enum(FIELD_TYPES),
+  section: z8.string().nullable().default(null),
+  display_order: z8.number().int(),
+  required: z8.boolean().default(false),
+  default_value: z8.unknown().default(null),
+  config: z8.record(z8.unknown()).default({}),
+  visibility_condition: z8.object({ field_key: z8.string().min(1), op: z8.enum(VISIBILITY_OPS), value: z8.unknown() }).strict().nullable().default(null),
+  description: z8.string().nullable().default(null),
+  unit: z8.enum(FIELD_UNITS).nullable().default(null),
+  phase: z8.enum(FIELD_PHASES).nullable().default(null),
+  direction: z8.enum(FIELD_DIRECTIONS).nullable().default(null),
+  category: z8.string().nullable().default(null),
+  expected_range: z8.object({ min: z8.number(), max: z8.number() }).strict().refine((r) => r.min <= r.max, { message: "expected_range min must not exceed max" }).nullable().default(null),
+  include_in_ai_context: z8.boolean().nullable().default(null),
+  is_ordinal: z8.boolean().nullable().default(null)
+};
+var formFieldDraft = z8.object(fieldShape).strict();
+var formFieldInput = z8.object({ id: uuid4.optional(), ...fieldShape }).strict();
+var formFieldRow = z8.object({
+  id: uuid4,
+  form_version_id: uuid4,
+  key: z8.string(),
+  label: z8.string(),
+  help_text: z8.string().nullable(),
+  type: z8.enum(FIELD_TYPES),
+  section: z8.string().nullable(),
+  display_order: z8.number().int(),
+  required: z8.boolean(),
+  default_value: z8.unknown(),
+  config: z8.record(z8.unknown()),
+  visibility_condition: z8.object({ field_key: z8.string(), op: z8.string(), value: z8.unknown() }).nullable(),
+  deprecated: z8.boolean(),
+  description: z8.string().nullable(),
+  unit: z8.enum(FIELD_UNITS).nullable(),
+  phase: z8.enum(FIELD_PHASES).nullable(),
+  direction: z8.enum(FIELD_DIRECTIONS).nullable(),
+  category: z8.string().nullable(),
+  expected_range: z8.object({ min: z8.number(), max: z8.number() }).nullable(),
+  include_in_ai_context: z8.boolean().nullable(),
+  is_ordinal: z8.boolean().nullable()
+});
+var formIssue = z8.object({
+  field_key: z8.string().nullable(),
+  path: z8.string(),
+  message: z8.string()
+});
+var formRow = z8.object({
+  id: uuid4,
+  season_id: uuid4,
+  kind: formKind,
+  name: z8.string(),
+  active_version_id: uuid4.nullable(),
+  timer_config: timerConfig,
+  created_at: z8.string(),
+  updated_at: z8.string()
+});
+var createFormInput = z8.object({ season_id: uuid4, kind: formKind, name: formName }).strict();
+var createFormOutput = z8.object({ id: uuid4, draft_version_id: uuid4 });
+var updateFormInput = z8.object({ form_id: uuid4, name: formName.optional(), timer_config: timerConfig.optional() }).strict().refine((value) => value.name !== void 0 || value.timer_config !== void 0, {
+  message: "give a new name or match timer"
+});
+var saveDraftFieldsInput = z8.object({
+  form_version_id: uuid4,
+  base_updated_at: z8.string().datetime({ offset: true }).optional(),
+  fields: z8.array(formFieldInput).max(FORM_FIELDS_MAX)
+}).strict();
+var saveDraftFieldsOutput = z8.object({
+  form_version_id: uuid4,
+  new_version_id: uuid4.nullable(),
+  version_no: z8.number().int(),
+  updated_at: z8.string(),
+  fields: z8.array(formFieldRow),
+  incomplete: z8.array(formIssue)
+});
+var publishFormVersionInput = z8.object({ form_version_id: uuid4 }).strict();
+var publishFormVersionOutput = z8.object({
+  form_version_id: uuid4,
+  published_at: z8.string(),
+  active_version_id: uuid4.nullable()
+});
+var restoreFormVersionInput = z8.object({ form_version_id: uuid4 }).strict();
+var restoreFormVersionOutput = z8.object({ active_version_id: uuid4 });
+var deleteFormVersionInput = z8.object({ form_version_id: uuid4 }).strict();
+var deleteFormVersionOutput = z8.object({ deleted: z8.literal(true) });
+var deleteFormInput = z8.object({ form_id: uuid4, dry_run: z8.boolean().default(false) }).strict();
+var deleteFormOutput = z8.object({
+  versions: z8.number().int(),
+  entries: z8.number().int(),
+  deleted: z8.boolean()
+});
+var definitionScoringRule = z8.object({
+  field_key: z8.string().min(1),
+  points: z8.number().min(0),
+  option_points: z8.record(z8.number().min(0)).nullable().default(null)
+}).strict();
+var formDefinition = z8.object({
+  format: z8.literal(FORM_DEFINITION_FORMAT),
+  kind: formKind,
+  name: formName,
+  timer_config: timerConfig,
+  fields: z8.array(formFieldDraft).max(FORM_FIELDS_MAX),
+  scoring_rules: z8.array(definitionScoringRule).max(FORM_FIELDS_MAX)
+}).strict();
+var exportFormInput = z8.object({ form_id: uuid4, form_version_id: uuid4.optional() }).strict();
+var saveFormExportInput = z8.object({ form_id: uuid4, form_version_id: uuid4 }).strict();
+var exportSummary = z8.object({
+  id: uuid4,
+  form_id: uuid4.nullable(),
+  kind: formKind,
+  label: z8.string(),
+  field_count: z8.number().int(),
+  created_by: z8.object({ id: uuid4, full_name: z8.string() }),
+  created_at: z8.string(),
+  expires_at: z8.string(),
+  expires_in_seconds: z8.number().int()
+});
+var importFormInput = z8.object({ season_id: uuid4, definition: formDefinition, form_id: uuid4.optional() }).strict();
+var importFormOutput = z8.object({
+  form_id: uuid4,
+  draft_version_id: uuid4,
+  created: z8.boolean()
+});
+var scoringRuleInput = z8.object({
+  field_key: z8.string().min(1).max(63),
+  points: z8.number().finite(),
+  option_points: z8.record(z8.number().finite()).nullable().optional()
+}).strict();
+var setScoringRulesInput = z8.object({ form_id: uuid4, rules: z8.array(scoringRuleInput).max(FORM_FIELDS_MAX) }).strict();
+var scoringRuleRow = z8.object({
+  field_key: z8.string(),
+  points: z8.number(),
+  option_points: z8.record(z8.number()).nullable()
+});
+var setScoringRulesOutput = z8.object({ rules: z8.array(scoringRuleRow) });
+var userRef = z8.object({ id: uuid4, full_name: z8.string() });
+var versionSummary = z8.object({
+  id: uuid4,
+  version_no: z8.number().int(),
+  status: z8.enum(["draft", "published"]),
+  published_at: z8.string().nullable(),
+  is_active: z8.boolean(),
+  is_locked: z8.boolean(),
+  field_count: z8.number().int(),
+  entry_count: z8.number().int(),
+  updated_at: z8.string(),
+  updated_by: userRef.nullable()
+});
+var getFormInput = z8.object({ form_id: uuid4 }).strict();
+var getFormOutput = formRow.extend({ versions: z8.array(versionSummary) });
+var getFormVersionInput = z8.object({ form_version_id: uuid4 }).strict();
+var scoredFieldRow = formFieldRow.extend({
+  points: z8.number().nullable(),
+  option_points: z8.record(z8.number()).nullable()
+});
+var getFormVersionOutput = versionSummary.extend({
+  form_id: uuid4,
+  fields: z8.array(scoredFieldRow)
+});
+var getFormDictionaryInput = z8.object({ form_id: uuid4 }).strict();
+var dictionaryField = z8.object({
+  key: z8.string(),
+  label: z8.string(),
+  description: z8.string().nullable(),
+  type: z8.enum(FIELD_TYPES),
+  unit: z8.enum(FIELD_UNITS).nullable(),
+  phase: z8.enum(FIELD_PHASES).nullable(),
+  direction: z8.enum(FIELD_DIRECTIONS).nullable(),
+  category: z8.string().nullable(),
+  expected_range: z8.object({ min: z8.number(), max: z8.number() }).nullable(),
+  include_in_ai_context: z8.boolean().nullable(),
+  is_ordinal: z8.boolean().nullable(),
+  /** A select's options in order (worst → best when ordinal); null for every other type. */
+  options: z8.array(z8.object({ value: z8.string(), label: z8.string() })).nullable(),
+  points: z8.number().nullable(),
+  option_points: z8.record(z8.number()).nullable()
+});
+var getFormDictionaryOutput = z8.object({
+  form_id: uuid4,
+  version_no: z8.number().int().nullable(),
+  fields: z8.array(dictionaryField)
+});
+var listFormsInput = z8.object({ season_id: uuid4 }).strict();
+var formListItem = z8.object({
+  id: uuid4,
+  kind: formKind,
+  name: z8.string(),
+  active_version_id: uuid4.nullable(),
+  updated_at: z8.string(),
+  versions: z8.array(versionSummary)
+});
+var listFormsOutput = z8.object({ season_id: uuid4, forms: z8.array(formListItem) });
+var listFormExportsInput = z8.object({}).strict();
+var listFormExportsOutput = z8.object({ exports: z8.array(exportSummary) });
+var getFormExportInput = z8.object({ export_id: uuid4 }).strict();
+var getFormExportOutput = exportSummary.extend({ definition: formDefinition });
 
 // ../../packages/shared/src/api/teams.ts
-import { z as z5 } from "zod";
-var uuid3 = z5.string().uuid();
+import { z as z9 } from "zod";
+var uuid5 = z9.string().uuid();
 var TEAM_NUMBER_MIN = 1;
 var TEAM_NUMBER_MAX = 99999;
 var TEAM_QUERY_MAX_LENGTH = NAME_MAX_LENGTH;
 var ROSTER_MAX_TEAMS = 200;
 var LIST_TEAMS_DEFAULT_LIMIT = 50;
 var LIST_TEAMS_MAX_LIMIT = 200;
-var teamNumber = z5.number().int().min(TEAM_NUMBER_MIN).max(TEAM_NUMBER_MAX);
-var teamName = z5.string().trim().min(1).max(NAME_MAX_LENGTH);
-var teamRow = z5.object({
-  id: uuid3,
-  number: z5.number().int(),
-  name: z5.string(),
-  created_at: z5.string(),
-  updated_at: z5.string()
+var teamNumber = z9.number().int().min(TEAM_NUMBER_MIN).max(TEAM_NUMBER_MAX);
+var teamName = z9.string().trim().min(1).max(NAME_MAX_LENGTH);
+var teamRow = z9.object({
+  id: uuid5,
+  number: z9.number().int(),
+  name: z9.string(),
+  created_at: z9.string(),
+  updated_at: z9.string()
 });
-var createTeamInput = z5.object({ number: teamNumber, name: teamName }).strict();
-var updateTeamInput = z5.object({ team_id: uuid3, name: teamName }).strict();
-var listTeamsInput = z5.object({
-  query: z5.string().trim().max(TEAM_QUERY_MAX_LENGTH).optional().transform((value) => value ? value : void 0),
-  limit: z5.number().int().min(1).optional(),
-  cursor: z5.string().min(1).optional()
+var createTeamInput = z9.object({ number: teamNumber, name: teamName }).strict();
+var updateTeamInput = z9.object({ team_id: uuid5, name: teamName }).strict();
+var listTeamsInput = z9.object({
+  query: z9.string().trim().max(TEAM_QUERY_MAX_LENGTH).optional().transform((value) => value ? value : void 0),
+  limit: z9.number().int().min(1).optional(),
+  cursor: z9.string().min(1).optional()
 }).strict();
-var listTeamsOutput = z5.object({
-  items: z5.array(teamRow),
-  next_cursor: z5.string().nullable()
+var listTeamsOutput = z9.object({
+  items: z9.array(teamRow),
+  next_cursor: z9.string().nullable()
 });
-var rosterRow = z5.object({
-  team_id: uuid3,
-  number: z5.number().int(),
-  name: z5.string()
+var rosterRow = z9.object({
+  team_id: uuid5,
+  number: z9.number().int(),
+  name: z9.string()
 });
-var setEventRosterInput = z5.object({
-  event_id: uuid3,
-  team_ids: z5.array(uuid3).max(ROSTER_MAX_TEAMS).refine((ids) => new Set(ids).size === ids.length, {
+var setEventRosterInput = z9.object({
+  event_id: uuid5,
+  team_ids: z9.array(uuid5).max(ROSTER_MAX_TEAMS).refine((ids) => new Set(ids).size === ids.length, {
     message: "name each team only once"
   })
 }).strict();
-var listEventRosterInput = z5.object({ event_id: uuid3 }).strict();
-var eventRosterOutput = z5.object({ items: z5.array(rosterRow) });
+var listEventRosterInput = z9.object({ event_id: uuid5 }).strict();
+var eventRosterOutput = z9.object({ items: z9.array(rosterRow) });
 
 // ../../packages/shared/src/api/index.ts
 var API = {
@@ -343,7 +806,26 @@ var API = {
   setMatchTeams: { input: setMatchTeamsInput, output: matchRow },
   deleteMatch: { input: deleteMatchInput, output: deleteMatchOutput },
   listMatches: { input: listMatchesInput, output: listMatchesOutput },
-  ensureMatch: { input: ensureMatchInput, output: ensureMatchOutput }
+  ensureMatch: { input: ensureMatchInput, output: ensureMatchOutput },
+  createForm: { input: createFormInput, output: createFormOutput },
+  updateForm: { input: updateFormInput, output: formRow },
+  saveDraftFields: { input: saveDraftFieldsInput, output: saveDraftFieldsOutput },
+  publishFormVersion: { input: publishFormVersionInput, output: publishFormVersionOutput },
+  restoreFormVersion: { input: restoreFormVersionInput, output: restoreFormVersionOutput },
+  deleteFormVersion: { input: deleteFormVersionInput, output: deleteFormVersionOutput },
+  deleteForm: { input: deleteFormInput, output: deleteFormOutput },
+  exportForm: { input: exportFormInput, output: formDefinition },
+  saveFormExport: { input: saveFormExportInput, output: exportSummary },
+  importForm: { input: importFormInput, output: importFormOutput },
+  setScoringRules: { input: setScoringRulesInput, output: setScoringRulesOutput },
+  listForms: { input: listFormsInput, output: listFormsOutput },
+  getForm: { input: getFormInput, output: getFormOutput },
+  getFormVersion: { input: getFormVersionInput, output: getFormVersionOutput },
+  getFormDictionary: { input: getFormDictionaryInput, output: getFormDictionaryOutput },
+  listFormExports: { input: listFormExportsInput, output: listFormExportsOutput },
+  getFormExport: { input: getFormExportInput, output: getFormExportOutput },
+  listConflicts: { input: listConflictsInput, output: listConflictsOutput },
+  resolveConflict: { input: resolveConflictInput, output: resolveConflictOutput }
 };
 
 // ../../packages/shared/src/errors.ts
@@ -407,45 +889,69 @@ var SEASON_IMAGE_MANIFEST = [
   "seasons/2026/field.webp"
 ];
 
-// ../../packages/shared/src/forms/entryShape.ts
-var MAX_BREAKDOWN_SECONDS = 2147483647;
-function validateEntryShape(row) {
-  const issues = [];
-  if (row.form_kind === "match") {
-    if (row.match_id === null) issues.push("a match entry needs a match");
-    if (row.alliance === null) issues.push("a match entry needs an alliance");
-    if (row.robot_status === null) issues.push("a match entry needs a robot status");
-  } else {
-    if (row.match_id !== null) issues.push("a super entry has no match");
-    if (row.alliance !== null) issues.push("a super entry has no alliance");
-    if (row.robot_status !== null) issues.push("a super entry has no robot status");
-    if (row.breakdown_seconds !== null) issues.push("a super entry has no breakdown time");
-  }
-  const brokeDown = row.robot_status === "broke_down";
-  if (brokeDown && row.breakdown_seconds === null) {
-    issues.push("a robot that broke down needs its breakdown time in seconds");
-  }
-  if (!brokeDown && row.breakdown_seconds !== null) {
-    issues.push("breakdown time is recorded only when the robot broke down");
-  }
-  const seconds = row.breakdown_seconds;
-  if (seconds !== null && !(Number.isInteger(seconds) && seconds >= 0 && seconds <= MAX_BREAKDOWN_SECONDS)) {
-    issues.push("breakdown time must be a whole number of seconds, 0 or more");
-  }
-  return issues;
-}
-
 // ../../packages/shared/src/forms/types.ts
 function selectOptions(field) {
   const raw = field.config.options;
   return Array.isArray(raw) ? raw : [];
 }
 
+// ../../packages/shared/src/forms/visibility.ts
+function compare(left, op, right) {
+  switch (op) {
+    case "=":
+      return left === right;
+    case "!=":
+      return left !== right;
+    default: {
+      if (typeof left !== "number" || typeof right !== "number") return false;
+      switch (op) {
+        case ">":
+          return left > right;
+        case "<":
+          return left < right;
+        case ">=":
+          return left >= right;
+        case "<=":
+          return left <= right;
+      }
+    }
+  }
+}
+function isVisible(field, values) {
+  const condition = field.visibility_condition;
+  if (!condition) return true;
+  const controlling = values[condition.field_key];
+  if (controlling === void 0) return false;
+  return compare(controlling, condition.op, condition.value);
+}
+
 // ../../packages/shared/src/forms/validate.ts
+var LIST_TYPES = /* @__PURE__ */ new Set([
+  "multi_select",
+  "event_log",
+  "position",
+  "cycle_path"
+]);
 function isDeadRobot(status) {
   return status === "no_show" || status === "disabled";
 }
-function validateEntryData(fields, robotStatus, data) {
+var isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+var inUnit = (n) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1;
+var inUnitSquare = (p) => isRecord(p) && inUnit(p.x) && inUnit(p.y);
+var TAP_KEYS = /* @__PURE__ */ new Set(["type", "t", "x", "y"]);
+function validTap(tap, allowed) {
+  if (!isRecord(tap)) return false;
+  if (Object.keys(tap).some((k) => !TAP_KEYS.has(k))) return false;
+  if (typeof tap.type !== "string" || tap.type === "") return false;
+  if (allowed !== null && !allowed.has(tap.type)) return false;
+  if (typeof tap.t !== "number" || !Number.isFinite(tap.t)) return false;
+  const hasX = "x" in tap;
+  const hasY = "y" in tap;
+  if (hasX !== hasY) return false;
+  return !hasX || inUnit(tap.x) && inUnit(tap.y);
+}
+function validateEntryData(fields, robotStatus, data, options = {}) {
+  const submit = (options.mode ?? "submit") === "submit";
   const issues = [];
   if (isDeadRobot(robotStatus)) {
     if (Object.keys(data).length > 0) {
@@ -465,10 +971,13 @@ function validateEntryData(fields, robotStatus, data) {
     }
   }
   for (const field of live) {
+    if (field.type === "computed" || field.type === "section") continue;
     const value = data[field.key];
-    const missing = value === void 0 || value === null || value === "";
+    if (field.type === "timer" && value === null) continue;
+    const emptyList = submit && LIST_TYPES.has(field.type) && Array.isArray(value) && value.length === 0;
+    const missing = value === void 0 || value === null || value === "" || emptyList;
     if (missing) {
-      if (field.required) {
+      if (submit && field.required && isVisible(field, data)) {
         issues.push({
           field_key: field.key,
           code: "required",
@@ -477,8 +986,10 @@ function validateEntryData(fields, robotStatus, data) {
       }
       continue;
     }
+    const wrongType = (message) => issues.push({ field_key: field.key, code: "wrong-type", message });
     switch (field.type) {
-      case "counter": {
+      case "counter":
+      case "number": {
         if (typeof value !== "number" || !Number.isFinite(value)) {
           issues.push({
             field_key: field.key,
@@ -487,6 +998,7 @@ function validateEntryData(fields, robotStatus, data) {
           });
           break;
         }
+        if (!submit) break;
         const min = typeof field.config.min === "number" ? field.config.min : void 0;
         const max = typeof field.config.max === "number" ? field.config.max : void 0;
         if (min !== void 0 && value < min || max !== void 0 && value > max) {
@@ -530,13 +1042,73 @@ function validateEntryData(fields, robotStatus, data) {
         }
         break;
       }
-      case "long_text": {
-        if (typeof value !== "string") {
+      case "multi_select": {
+        const allowed = selectOptions(field).map((o) => o.value);
+        if (!Array.isArray(value) || value.some((v) => typeof v !== "string" || !allowed.includes(v))) {
           issues.push({
             field_key: field.key,
-            code: "wrong-type",
-            message: `${field.label} must be text`
+            code: "not-an-option",
+            message: `${field.label} must be a list drawn from: ${allowed.join(", ")}`
           });
+        }
+        break;
+      }
+      case "short_text":
+      case "long_text": {
+        if (typeof value !== "string") wrongType(`${field.label} must be text`);
+        break;
+      }
+      case "rating": {
+        const max = typeof field.config.max === "number" ? field.config.max : 5;
+        if (typeof value !== "number" || !Number.isFinite(value) || value < 1) {
+          wrongType(`${field.label} must be a rating from 1 to ${max}`);
+        } else if (submit && value > max) {
+          wrongType(`${field.label} must be a rating from 1 to ${max}`);
+        }
+        break;
+      }
+      case "timer": {
+        if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+          wrongType(`${field.label} must be a time in seconds, 0 or more`);
+        }
+        break;
+      }
+      case "event_log": {
+        if (!Array.isArray(value)) {
+          wrongType(`${field.label} must be a list of taps`);
+          break;
+        }
+        const allowed = submit ? new Set(
+          (Array.isArray(field.config.event_types) ? field.config.event_types : []).filter(isRecord).map((o) => o.value)
+        ) : null;
+        let previous = -Infinity;
+        let good = true;
+        for (const tap of value) {
+          if (!validTap(tap, allowed) || tap.t < previous) {
+            good = false;
+            break;
+          }
+          previous = tap.t;
+        }
+        if (!good) wrongType(`${field.label} must be taps of a known type, in time order`);
+        break;
+      }
+      case "position": {
+        const points = Array.isArray(value) ? value : [value];
+        if (!points.every(inUnitSquare)) {
+          wrongType(`${field.label} must be points inside the map (0 to 1)`);
+        } else if (submit && field.config.multi_point !== true && points.length > 1) {
+          wrongType(`${field.label} takes one point`);
+        }
+        break;
+      }
+      case "cycle_path": {
+        const cap = typeof field.config.max_points_per_cycle === "number" ? field.config.max_points_per_cycle : 6;
+        const cycles = value;
+        if (!Array.isArray(cycles) || cycles.some(
+          (c) => !Array.isArray(c) || submit && c.length > cap || !c.every(inUnitSquare)
+        )) {
+          wrongType(`${field.label} must be cycles of at most ${cap} points inside the map`);
         }
         break;
       }
@@ -545,8 +1117,370 @@ function validateEntryData(fields, robotStatus, data) {
   return issues.length === 0 ? { ok: true } : { ok: false, issues };
 }
 
+// ../../packages/shared/src/forms/definition.ts
+var KEY_PATTERN = /^[a-z][a-z0-9_]{0,62}$/;
+var SEMANTIC_COLUMNS = [
+  "description",
+  "unit",
+  "phase",
+  "direction",
+  "category",
+  "expected_range",
+  "include_in_ai_context"
+];
+var blank = (value) => value === null || value === void 0 || typeof value === "string" && value.trim() === "";
+function validateFieldDefinition(field) {
+  const issues = [];
+  if (!KEY_PATTERN.test(field.key)) {
+    issues.push({
+      path: "key",
+      message: "a key is permanent: lowercase letters, digits and underscores, starting with a letter"
+    });
+  }
+  if (field.type === "section") {
+    for (const column of SEMANTIC_COLUMNS) {
+      if (field[column] !== null && field[column] !== void 0) {
+        issues.push({
+          path: column,
+          message: "a section holds no data and carries no semantic metadata"
+        });
+      }
+    }
+  } else {
+    for (const required of ["description", "unit", "phase", "direction"]) {
+      if (blank(field[required])) {
+        issues.push({
+          path: required,
+          message: `${required} is required on every data field and cannot be backfilled later`
+        });
+      }
+    }
+  }
+  const ordinalAllowed = field.type === "single_select" || field.type === "multi_select";
+  if (!ordinalAllowed && field.is_ordinal !== null && field.is_ordinal !== void 0) {
+    issues.push({
+      path: "is_ordinal",
+      message: "is_ordinal applies only to single and multi select"
+    });
+  }
+  const schema2 = FIELD_TYPE_CONFIG[field.type];
+  if (!schema2) {
+    issues.push({ path: "type", message: `unknown field type '${field.type}'` });
+  } else {
+    const parsed = schema2.safeParse(field.config);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        issues.push({
+          path: issue.path.length > 0 ? `config.${issue.path.join(".")}` : "config",
+          message: issue.message
+        });
+      }
+    } else if (field.default_value !== null && field.default_value !== void 0) {
+      const message = defaultValueProblem(field);
+      if (message !== null) issues.push({ path: "default_value", message });
+    }
+  }
+  return issues;
+}
+function defaultValueProblem(field) {
+  const alone = {
+    ...field,
+    required: false,
+    visibility_condition: null,
+    deprecated: false
+  };
+  const result = validateEntryData([alone], "played", { [field.key]: field.default_value });
+  if (result.ok) return null;
+  return `the default is not a valid value: ${result.issues[0].message}`;
+}
+
+// ../../packages/shared/src/forms/entryShape.ts
+var MAX_BREAKDOWN_SECONDS = 2147483647;
+function validateEntryShape(row) {
+  const issues = [];
+  if (row.form_kind === "match") {
+    if (row.match_id === null) issues.push("a match entry needs a match");
+    if (row.alliance === null) issues.push("a match entry needs an alliance");
+    if (row.robot_status === null) issues.push("a match entry needs a robot status");
+  } else {
+    if (row.match_id !== null) issues.push("a super entry has no match");
+    if (row.alliance !== null) issues.push("a super entry has no alliance");
+    if (row.robot_status !== null) issues.push("a super entry has no robot status");
+    if (row.breakdown_seconds !== null) issues.push("a super entry has no breakdown time");
+  }
+  const brokeDown = row.robot_status === "broke_down";
+  if (brokeDown && row.breakdown_seconds === null) {
+    issues.push("a robot that broke down needs its breakdown time in seconds");
+  }
+  if (!brokeDown && row.breakdown_seconds !== null) {
+    issues.push("breakdown time is recorded only when the robot broke down");
+  }
+  const seconds = row.breakdown_seconds;
+  if (seconds !== null && !(Number.isInteger(seconds) && seconds >= 0 && seconds <= MAX_BREAKDOWN_SECONDS)) {
+    issues.push("breakdown time must be a whole number of seconds, 0 or more");
+  }
+  return issues;
+}
+
+// ../../packages/shared/src/forms/expressionCheck.ts
+var NUMERIC_UNITS = /* @__PURE__ */ new Set(["count", "seconds", "points"]);
+var NUMERIC_TYPES = /* @__PURE__ */ new Set(["counter", "number", "rating", "timer", "toggle"]);
+function staticType(expr, byKey) {
+  switch (expr.kind) {
+    case "literal":
+      return typeof expr.value === "number" ? "float" : "string";
+    case "field": {
+      const field = byKey.get(expr.key);
+      if (!field) return "invalid";
+      if (field.type === "computed") return "invalid";
+      if (field.type === "toggle") return "float";
+      if (field.unit === null || field.unit === void 0) {
+        return NUMERIC_TYPES.has(field.type) ? "float" : "string";
+      }
+      return NUMERIC_UNITS.has(field.unit) ? "float" : "string";
+    }
+    case "op": {
+      const left = staticType(expr.left, byKey);
+      const right = staticType(expr.right, byKey);
+      if (left === "invalid" || right === "invalid" || left !== right) return "invalid";
+      if (expr.op === "concat") return left === "string" ? "string" : "invalid";
+      return left === "float" ? "float" : "invalid";
+    }
+  }
+}
+function validateExpr(expr, fields, resultType) {
+  const byKey = new Map(fields.map((f) => [f.key, f]));
+  const issues = [];
+  const walk = (node) => {
+    if (node.kind === "field") {
+      const field = byKey.get(node.key);
+      if (!field) {
+        issues.push({ path: "expression", message: `'${node.key}' is not a field on this form` });
+      } else if (field.type === "computed") {
+        issues.push({
+          path: "expression",
+          message: `a computed field may not reference another computed field ('${node.key}')`
+        });
+      }
+    }
+    if (node.kind === "op") {
+      walk(node.left);
+      walk(node.right);
+    }
+  };
+  walk(expr);
+  if (issues.length === 0) {
+    const type = staticType(expr, byKey);
+    if (type === "invalid") {
+      issues.push({
+        path: "expression",
+        message: "operands must be the same type: numbers take + \u2212 \xD7 \xF7, strings take concat"
+      });
+    } else if (resultType !== void 0 && type !== resultType) {
+      issues.push({
+        path: "expression",
+        message: `the expression gives a ${type}, but the field says ${resultType}`
+      });
+    }
+  }
+  return issues;
+}
+
+// ../../packages/shared/src/forms/scoring.ts
+var SCORABLE_FIELD_TYPES = [
+  "toggle",
+  "counter",
+  "number",
+  "single_select",
+  "multi_select"
+];
+var SCORABLE = SCORABLE_FIELD_TYPES;
+var SELECT_FIELD_TYPES = [
+  "single_select",
+  "multi_select"
+];
+var SELECTS = SELECT_FIELD_TYPES;
+function isSelectType(type) {
+  return SELECTS.includes(type);
+}
+function scoringUniverse(active, draft) {
+  const byKey = /* @__PURE__ */ new Map();
+  for (const field of [...active, ...draft]) {
+    if (field.deprecated) continue;
+    const earlier = byKey.get(field.key);
+    if (earlier && isSelectType(field.type) && isSelectType(earlier.type)) {
+      const own = selectOptions(field);
+      const seen = new Set(own.map((o) => o.value));
+      const union = [...own, ...selectOptions(earlier).filter((o) => !seen.has(o.value))];
+      byKey.set(field.key, { ...field, config: { ...field.config, options: union } });
+    } else {
+      byKey.set(field.key, field);
+    }
+  }
+  return [...byKey.values()];
+}
+var validPoints = (n) => Number.isFinite(n) && n >= 0;
+function optionValues(field) {
+  const raw = field.config.options;
+  if (!Array.isArray(raw)) return /* @__PURE__ */ new Set();
+  return new Set(
+    raw.map((o) => o?.value).filter((v) => typeof v === "string")
+  );
+}
+function validateScoringRules(rules, liveFields, options) {
+  const byKey = new Map(liveFields.map((f) => [f.key, f]));
+  const seen = /* @__PURE__ */ new Set();
+  const issues = [];
+  rules.forEach((rule, i) => {
+    const at = `${options.prefix}.${i}`;
+    const key2 = rule.field_key;
+    const push = (path, message) => issues.push({ field_key: key2, path: `${at}.${path}`, message });
+    if (seen.has(key2)) push("field_key", `two rules name '${key2}'; a field has one scoring rule`);
+    seen.add(key2);
+    const field = byKey.get(key2);
+    if (!field) {
+      push("field_key", `scoring names '${key2}', which is not a field of this ${options.noun}`);
+      return;
+    }
+    if (!SCORABLE.includes(field.type)) {
+      push(
+        "field_key",
+        `'${key2}' is a ${field.type} field; only toggle, counter, number, single_select and multi_select fields are scored`
+      );
+      return;
+    }
+    const isSelect2 = isSelectType(field.type);
+    if (!validPoints(rule.points)) {
+      push("points", "points must be a number of at least 0; penalties are never subtracted");
+    } else if (isSelect2 && rule.points !== 0) {
+      push("points", `a ${field.type} scores by option_points; its points must be 0`);
+    }
+    const optionPoints = rule.option_points ?? null;
+    if (optionPoints === null) return;
+    if (!isSelect2) {
+      push("option_points", `only a select scores by option; '${key2}' is a ${field.type} field`);
+      return;
+    }
+    const values = optionValues(field);
+    for (const [value, points] of Object.entries(optionPoints)) {
+      if (!values.has(value)) {
+        push(`option_points.${value}`, `'${value}' is not an option of '${key2}'`);
+      } else if (!validPoints(points)) {
+        push(
+          `option_points.${value}`,
+          "option points must be a number of at least 0; penalties are never subtracted"
+        );
+      }
+    }
+  });
+  return issues;
+}
+function countDataFields(fields) {
+  return fields.filter((f) => f.deprecated !== true && f.type !== "section").length;
+}
+
+// ../../packages/shared/src/forms/version.ts
+var isSelect = (type) => type === "single_select" || type === "multi_select";
+function optionValues2(config2) {
+  const options = config2.options;
+  if (!Array.isArray(options)) return [];
+  return options.map(
+    (option2) => typeof option2 === "object" && option2 !== null ? String(option2.value) : ""
+  );
+}
+var sameList = (a, b) => a.length === b.length && a.every((value, i) => value === b[i]);
+function isStructuralChange(current, next) {
+  const currentLive = new Map(current.filter((f) => !f.deprecated).map((f) => [f.key, f]));
+  const nextLive = next.filter((f) => !f.deprecated);
+  const nextKeys = new Set(nextLive.map((f) => f.key));
+  for (const field of nextLive) {
+    const existing = currentLive.get(field.key);
+    if (!existing) return true;
+    if (existing.type !== field.type) return true;
+    if (isSelect(field.type) && !sameList(optionValues2(existing.config), optionValues2(field.config))) {
+      return true;
+    }
+  }
+  for (const key2 of currentLive.keys()) {
+    if (!nextKeys.has(key2)) return true;
+  }
+  return false;
+}
+
+// ../../packages/shared/src/forms/visibilityCheck.ts
+var OPS = ["=", "!=", ">", "<", ">=", "<="];
+var ORDERING_OPS = /* @__PURE__ */ new Set([">", "<", ">=", "<="]);
+function validateVisibilityCondition(field, fields) {
+  const condition = field.visibility_condition;
+  if (!condition) return [];
+  const issues = [];
+  const issue = (message) => issues.push({ path: "visibility_condition", message });
+  if (condition.field_key === field.key) {
+    issue("a field cannot be shown or hidden by its own value");
+  } else {
+    const target = fields.find((f) => f.key === condition.field_key && !f.deprecated);
+    if (!target) {
+      issue(`'${condition.field_key}' is not a field in this form`);
+    } else if (target.type === "section") {
+      issue(`'${condition.field_key}' is a section and holds no value`);
+    }
+  }
+  if (!OPS.includes(condition.op)) {
+    issue(`'${String(condition.op)}' is not one of ${OPS.join(" ")}`);
+  } else if (ORDERING_OPS.has(condition.op) && !(typeof condition.value === "number" && Number.isFinite(condition.value))) {
+    issue(`'${condition.op}' compares against a number`);
+  }
+  return issues;
+}
+
+// ../../packages/shared/src/sync/conflict.ts
+function isLater(a, b) {
+  return Date.parse(a) > Date.parse(b);
+}
+function latestWins(a, b) {
+  return isLater(b.client_updated_at, a.client_updated_at) ? b : a;
+}
+function classifyPush(input) {
+  const { operation, existingRow, duplicateRow } = input;
+  const incoming = { ...operation.payload, client_updated_at: operation.client_updated_at };
+  if (existingRow === null) {
+    const isRealDuplicate = duplicateRow !== null && duplicateRow.id !== operation.row_id && duplicateRow.deleted_at === null;
+    if (isRealDuplicate) {
+      return { kind: "duplicate", nextVersion: 1, live: incoming, duplicateRowId: duplicateRow.id };
+    }
+    return { kind: "fast-forward", nextVersion: 1, live: incoming };
+  }
+  if (operation.base_version === existingRow.version) {
+    return { kind: "fast-forward", nextVersion: existingRow.version + 1, live: incoming };
+  }
+  const incomingWins = isLater(operation.client_updated_at, existingRow.client_updated_at);
+  const superseded = incomingWins ? {
+    payload: stripServerColumns(existingRow),
+    author_id: String(existingRow.scouter_id ?? ""),
+    client_updated_at: existingRow.client_updated_at,
+    base_version: existingRow.version
+  } : {
+    payload: operation.payload,
+    author_id: operation.author_user_id,
+    client_updated_at: operation.client_updated_at,
+    base_version: operation.base_version
+  };
+  return {
+    kind: "divergence",
+    nextVersion: existingRow.version + 1,
+    winner: incomingWins ? "incoming" : "existing",
+    // No automatic field-level merge, ever. One whole payload wins.
+    live: incomingWins ? incoming : stripServerColumns(existingRow),
+    superseded
+  };
+}
+function stripServerColumns(row) {
+  const { version: _v, created_at: _c, updated_at: _u, ...rest } = row;
+  return rest;
+}
+
 // ../../packages/shared/src/sync/operation.ts
-import { z as z6 } from "zod";
+import { z as z10 } from "zod";
 var SYNC_ENTITIES = [
   "scouting_entry",
   "match",
@@ -556,26 +1490,26 @@ var SYNC_ENTITIES = [
   "alliance_slot",
   "alliance_decline"
 ];
-var isoDateTime = z6.string().datetime({ offset: true }).transform((value, ctx) => {
+var isoDateTime = z10.string().datetime({ offset: true }).transform((value, ctx) => {
   const ms = Date.parse(value);
   if (Number.isNaN(ms)) {
     ctx.addIssue({ code: "custom", message: "Invalid datetime" });
-    return z6.NEVER;
+    return z10.NEVER;
   }
   return new Date(ms).toISOString();
 });
-var operationSchema = z6.object({
-  op_id: z6.string().min(1),
-  entity: z6.enum(SYNC_ENTITIES),
-  row_id: z6.string().uuid(),
-  action: z6.enum(["create", "update", "delete"]),
-  base_version: z6.number().int().positive().nullable(),
+var operationSchema = z10.object({
+  op_id: z10.string().min(1),
+  entity: z10.enum(SYNC_ENTITIES),
+  row_id: z10.string().uuid(),
+  action: z10.enum(["create", "update", "delete"]),
+  base_version: z10.number().int().positive().nullable(),
   /** Always the whole row, never a patch. Field-level merging does not exist. */
-  payload: z6.record(z6.unknown()),
-  author_user_id: z6.string().uuid(),
+  payload: z10.record(z10.unknown()),
+  author_user_id: z10.string().uuid(),
   client_created_at: isoDateTime,
   client_updated_at: isoDateTime,
-  seq: z6.number().int().nonnegative()
+  seq: z10.number().int().nonnegative()
 }).superRefine((op, ctx) => {
   if (op.action === "create" && op.base_version !== null) {
     ctx.addIssue({
@@ -601,16 +1535,16 @@ var operationSchema = z6.object({
 });
 
 // ../../packages/shared/src/sync/protocol.ts
-import { z as z7 } from "zod";
+import { z as z11 } from "zod";
 var MAX_OPERATIONS_PER_PUSH = 200;
 var WATERMARK_OVERLAP_MS = 5e3;
-var pushRequestSchema = z7.object({
-  device_id: z7.string().uuid(),
-  operations: z7.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
+var pushRequestSchema = z11.object({
+  device_id: z11.string().uuid(),
+  operations: z11.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
 });
-var pushEnvelopeSchema = z7.object({
-  device_id: z7.string().uuid(),
-  operations: z7.array(z7.unknown()).max(MAX_OPERATIONS_PER_PUSH)
+var pushEnvelopeSchema = z11.object({
+  device_id: z11.string().uuid(),
+  operations: z11.array(z11.unknown()).max(MAX_OPERATIONS_PER_PUSH)
 });
 var PARENT_DELETED_DETAIL = {
   event: "the event no longer exists",
@@ -645,11 +1579,17 @@ var PULL_ENTITY_KEYS = [
   "dashboard_charts",
   "weight_presets"
 ];
-var pullRequestSchema = z7.object({
-  event_id: z7.string().uuid(),
-  since: z7.string().datetime({ offset: false }).optional(),
-  cursor: z7.string().optional()
+var pullRequestSchema = z11.object({
+  event_id: z11.string().uuid(),
+  since: z11.string().datetime({ offset: false }).optional(),
+  cursor: z11.string().optional()
 });
+var FORM_DELETION_ENTITIES = [
+  "forms",
+  "form_versions",
+  "form_fields",
+  "scoring_rules"
+];
 
 // src/routes/errors.ts
 var STATUS = {
@@ -716,13 +1656,13 @@ function createApp(deps) {
 
 // src/auth/token.ts
 import { jwtVerify, SignJWT } from "jose";
-import { z as z8 } from "zod";
-var sessionClaims = z8.object({
-  sub: z8.string().min(1),
-  role: z8.enum(["scouter", "lead", "admin"]),
-  username: z8.string().min(1),
-  iat: z8.number().int(),
-  exp: z8.number().int()
+import { z as z12 } from "zod";
+var sessionClaims = z12.object({
+  sub: z12.string().min(1),
+  role: z12.enum(["scouter", "lead", "admin"]),
+  username: z12.string().min(1),
+  iat: z12.number().int(),
+  exp: z12.number().int()
 });
 var key = (config2) => new TextEncoder().encode(config2.authJwtSecret);
 async function issueToken(user, config2) {
@@ -762,18 +1702,18 @@ async function callerFor(request, config2, store, options = {}) {
 }
 
 // src/config.ts
-import { z as z9 } from "zod";
-var schema = z9.object({
-  SUPABASE_URL: z9.string().url(),
-  SUPABASE_SERVICE_ROLE_KEY: z9.string().min(1),
-  AUTH_JWT_SECRET: z9.string().min(32, "must be at least 32 characters"),
-  AUTH_TOKEN_TTL_DAYS: z9.coerce.number().int().positive().default(30),
-  AUTH_TOKEN_REFRESH_AFTER_DAYS: z9.coerce.number().int().positive().default(7),
-  ALLOWED_ORIGIN: z9.string().url(),
-  NODE_ENV: z9.enum(["development", "production", "test"]).default("development"),
+import { z as z13 } from "zod";
+var schema = z13.object({
+  SUPABASE_URL: z13.string().url(),
+  SUPABASE_SERVICE_ROLE_KEY: z13.string().min(1),
+  AUTH_JWT_SECRET: z13.string().min(32, "must be at least 32 characters"),
+  AUTH_TOKEN_TTL_DAYS: z13.coerce.number().int().positive().default(30),
+  AUTH_TOKEN_REFRESH_AFTER_DAYS: z13.coerce.number().int().positive().default(7),
+  ALLOWED_ORIGIN: z13.string().url(),
+  NODE_ENV: z13.enum(["development", "production", "test"]).default("development"),
   // Vercel's own system env var (https://vercel.com/docs/environment-variables/system-environment-variables),
   // not something anyone sets by hand. Absent locally and in tests.
-  VERCEL_GIT_COMMIT_SHA: z9.string().min(1).optional()
+  VERCEL_GIT_COMMIT_SHA: z13.string().min(1).optional()
 });
 function loadServerConfig(env) {
   const parsed = schema.safeParse(env);
@@ -941,9 +1881,16 @@ var EVENT_COLUMNS = "id, season_id, name, code, sort_order, created_at, updated_
 var TEAM_COLUMNS = "id, number, name, created_at, updated_at";
 var MATCH_COLUMNS = "id, event_id, match_type, number, created_at, updated_at";
 var SLOT_COLUMNS = "match_id, alliance, station, team_id";
+var FORM_COLUMNS = "id, season_id, kind, name, active_version_id, timer_config, created_at, updated_at";
+var FORM_VERSION_COLUMNS = "id, form_id, version_no, published_at, is_locked, updated_by, created_at, updated_at";
+var SCORING_RULE_COLUMNS = "id, form_id, field_key, points, option_points, created_at, updated_at";
+var FORM_EXPORT_COLUMNS = "id, form_id, label, definition, created_by, created_at";
 var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+var CONFLICT_COLUMNS = "id, event_id, entity, row_id, kind, superseded_payload, superseded_author_id, superseded_client_updated_at, base_version, duplicate_row_id, created_at, updated_at, resolved_at, resolved_by, resolution";
+var TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/;
 var IN_CHUNK = 100;
 var EVENT_TEAMS_READ_LIMIT = 1e3;
+var FORM_EXPORTS_READ_LIMIT = 200;
 function chunks(items) {
   const out = [];
   for (let i = 0; i < items.length; i += IN_CHUNK) out.push(items.slice(i, i + IN_CHUNK));
@@ -1032,27 +1979,259 @@ function supabaseStore(db) {
       const { error } = await db.from(TABLE[entity]).upsert({ ...row, id });
       if (error) throw dbError(error);
     },
-    // Three reads, together; the order of the answer is the order of the checks. An event
-    // delete cascades to its matches, so a gone event is reported as the event.
+    // Up to four reads, together; the order of the answer is the order of the checks. An
+    // event delete cascades to its matches, so a gone event is reported as the event.
     async missingParent(parents) {
+      const versionId = parents.form_version_id;
       if (!UUID.test(parents.event_id)) return "event";
       if (parents.match_id !== null && !UUID.test(parents.match_id)) return "match";
       if (!UUID.test(parents.team_id)) return "team";
-      const [event, match, team] = await Promise.all([
+      if (versionId !== void 0 && !UUID.test(versionId)) return "form_version";
+      const skipped = Promise.resolve({ data: { id: null }, error: null });
+      const [event, match, team, version] = await Promise.all([
         db.from("events").select("id").eq("id", parents.event_id).maybeSingle(),
-        parents.match_id === null ? Promise.resolve({ data: { id: null }, error: null }) : db.from("matches").select("id").eq("id", parents.match_id).maybeSingle(),
-        db.from("teams").select("id").eq("id", parents.team_id).maybeSingle()
+        parents.match_id === null ? skipped : db.from("matches").select("id").eq("id", parents.match_id).maybeSingle(),
+        db.from("teams").select("id").eq("id", parents.team_id).maybeSingle(),
+        // Task 1.40: a deleted form version is parent-deleted, never `invalid` for want of
+        // fields to validate against (SPEC-FINAL 9.5).
+        versionId === void 0 ? skipped : db.from("form_versions").select("id").eq("id", versionId).maybeSingle()
       ]);
-      for (const result of [event, match, team]) if (result.error) throw dbError(result.error);
+      for (const result of [event, match, team, version]) {
+        if (result.error) throw dbError(result.error);
+      }
       if (event.data === null) return "event";
       if (match.data === null) return "match";
       if (team.data === null) return "team";
+      if (version.data === null) return "form_version";
       return null;
     },
-    async getFormFields(formVersionId) {
-      const { data, error } = await db.from("form_fields").select("*").eq("form_version_id", formVersionId);
+    // Task 1.40 (SPEC-FINAL 9.5): the duplicate lookup, on the logical-key index
+    // (scouting_entries_logical_key_idx, `where deleted_at is null`). Null-safe on match_id.
+    async findByLogicalKey(key2, excludeId) {
+      const ids = [key2.event_id, key2.team_id, excludeId, ...key2.match_id ? [key2.match_id] : []];
+      if (!ids.every((id) => UUID.test(id))) return null;
+      let query = db.from("scouting_entries").select("*").eq("event_id", key2.event_id).eq("form_kind", key2.form_kind).eq("team_id", key2.team_id).is("deleted_at", null).neq("id", excludeId);
+      query = key2.match_id === null ? query.is("match_id", null) : query.eq("match_id", key2.match_id);
+      const { data, error } = await query.order("client_updated_at", { ascending: false }).order("id", { ascending: true }).limit(1);
+      if (error) throw dbError(error);
+      return (data ?? [])[0] ?? null;
+    },
+    async insertConflict(row) {
+      const { error } = await db.from("sync_conflicts").upsert(row, { onConflict: "id", ignoreDuplicates: true });
+      if (error) throw dbError(error);
+    },
+    // Task 1.41 (SPEC-FINAL 9.5): the review queue's reads and the resolve command's guard.
+    async listOpenConflicts(eventId, entity, limit, after) {
+      if (after && (!TIMESTAMP.test(after.created_at) || !UUID.test(after.id))) {
+        throw new Error("listOpenConflicts: a keyset must be a timestamp and a uuid");
+      }
+      if (!UUID.test(eventId)) return [];
+      let query = db.from("sync_conflicts").select(CONFLICT_COLUMNS).eq("event_id", eventId).eq("entity", entity).is("resolved_at", null);
+      if (after) {
+        query = query.or(
+          `created_at.gt."${after.created_at}",and(created_at.eq."${after.created_at}",id.gt.${after.id})`
+        );
+      }
+      const { data, error } = await query.order("created_at", { ascending: true }).order("id", { ascending: true }).limit(limit);
       if (error) throw dbError(error);
       return data ?? [];
+    },
+    async listSettledConflicts(eventId, entity, since, limit) {
+      if (!UUID.test(eventId)) return [];
+      const { data, error } = await db.from("sync_conflicts").select(CONFLICT_COLUMNS).eq("event_id", eventId).eq("entity", entity).gte("resolved_at", since).order("resolved_at", { ascending: false }).order("id", { ascending: true }).limit(limit);
+      if (error) throw dbError(error);
+      return data ?? [];
+    },
+    async getConflict(id) {
+      if (!UUID.test(id)) return null;
+      const { data, error } = await db.from("sync_conflicts").select(CONFLICT_COLUMNS).eq("id", id).maybeSingle();
+      if (error) throw dbError(error);
+      return data ?? null;
+    },
+    // ONE conditional update: two leads resolving the same conflict at once cannot both
+    // take it. The row comes back only when the update matched.
+    async resolveConflictRow(id, resolved) {
+      if (!UUID.test(id)) return false;
+      const { data, error } = await db.from("sync_conflicts").update(resolved).eq("id", id).is("resolved_at", null).select("id");
+      if (error) throw dbError(error);
+      return (data ?? []).length > 0;
+    },
+    async reopenConflictRow(id, resolvedAt) {
+      const { error } = await db.from("sync_conflicts").update({ resolved_at: null, resolved_by: null, resolution: null }).eq("id", id).eq("resolved_at", resolvedAt);
+      if (error) throw dbError(error);
+    },
+    async getEntriesByIds(ids) {
+      const wanted = ids.filter((id) => UUID.test(id));
+      const out = [];
+      for (const chunk of chunks(wanted)) {
+        const { data, error } = await db.from("scouting_entries").select("*").in("id", chunk);
+        if (error) throw dbError(error);
+        out.push(...data ?? []);
+      }
+      return out;
+    },
+    async getTeamsByIds(ids) {
+      const wanted = ids.filter((id) => UUID.test(id));
+      const out = [];
+      for (const chunk of chunks(wanted)) {
+        const { data, error } = await db.from("teams").select(TEAM_COLUMNS).in("id", chunk);
+        if (error) throw dbError(error);
+        out.push(...data ?? []);
+      }
+      return out;
+    },
+    async getMatchesByIds(ids) {
+      const wanted = ids.filter((id) => UUID.test(id));
+      const out = [];
+      for (const chunk of chunks(wanted)) {
+        const { data, error } = await db.from("matches").select(MATCH_COLUMNS).in("id", chunk);
+        if (error) throw dbError(error);
+        out.push(...data ?? []);
+      }
+      return out;
+    },
+    async getFormFields(formVersionId) {
+      const { data, error } = await db.from("form_fields").select("*").eq("form_version_id", formVersionId).order("display_order", { ascending: true }).order("key", { ascending: true });
+      if (error) throw dbError(error);
+      return data ?? [];
+    },
+    // Task 1.27: forms, versions, fields, scoring rules and saved exports. Every method
+    // THROWS on a database error, keeping Postgres's code (dbError).
+    async getForm(id) {
+      const { data, error } = await db.from("forms").select(FORM_COLUMNS).eq("id", id).maybeSingle();
+      if (error) throw dbError(error);
+      return data ?? null;
+    },
+    async getFormByKind(seasonId, kind) {
+      const { data, error } = await db.from("forms").select(FORM_COLUMNS).eq("season_id", seasonId).eq("kind", kind).maybeSingle();
+      if (error) throw dbError(error);
+      return data ?? null;
+    },
+    async insertForm(row) {
+      const { data, error } = await db.from("forms").insert(row).select(FORM_COLUMNS).single();
+      if (error) throw dbError(error);
+      return data;
+    },
+    async updateForm(id, patch) {
+      const { data, error } = await db.from("forms").update(patch).eq("id", id).select(FORM_COLUMNS).single();
+      if (error) throw dbError(error);
+      return data;
+    },
+    async getFormVersion(id) {
+      const { data, error } = await db.from("form_versions").select(FORM_VERSION_COLUMNS).eq("id", id).maybeSingle();
+      if (error) throw dbError(error);
+      return data ?? null;
+    },
+    async listFormVersions(formId) {
+      const { data, error } = await db.from("form_versions").select(FORM_VERSION_COLUMNS).eq("form_id", formId).order("version_no", { ascending: true });
+      if (error) throw dbError(error);
+      return data ?? [];
+    },
+    async insertFormVersion(row) {
+      const { data, error } = await db.from("form_versions").insert(row).select(FORM_VERSION_COLUMNS).single();
+      if (error) throw dbError(error);
+      return data;
+    },
+    async updateFormVersion(id, patch) {
+      const { data, error } = await db.from("form_versions").update(patch).eq("id", id).select(FORM_VERSION_COLUMNS).single();
+      if (error) throw dbError(error);
+      return data;
+    },
+    // Soft-deleted entries count: they are bound to the version all the same.
+    async countEntriesByFormVersion(formVersionId) {
+      const { count, error } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).eq("form_version_id", formVersionId);
+      if (error) throw dbError(error);
+      return count ?? 0;
+    },
+    // Ids survive a save: deletes first, then ONE upsert on (form_version_id, key), so a
+    // key already saved is updated in place (keeping its id) and a new one is inserted.
+    // Not one transaction; re-sending the same save completes a half-done one.
+    async writeFormFields(formVersionId, rows, deleteKeys) {
+      for (const chunk of chunks(deleteKeys)) {
+        const res2 = await db.from("form_fields").delete().eq("form_version_id", formVersionId).in("key", chunk);
+        if (res2.error) throw dbError(res2.error);
+      }
+      if (rows.length === 0) return;
+      const res = await db.from("form_fields").upsert(rows.map((row) => ({ ...row, form_version_id: formVersionId })), {
+        onConflict: "form_version_id,key"
+      });
+      if (res.error) throw dbError(res.error);
+    },
+    async getScoringRules(formId) {
+      const { data, error } = await db.from("scoring_rules").select(SCORING_RULE_COLUMNS).eq("form_id", formId).order("field_key", { ascending: true });
+      if (error) throw dbError(error);
+      return (data ?? []).map((r) => ({ ...r, points: Number(r.points) }));
+    },
+    // Upserted on (form_id, field_key), so a rule keeps its id; the form's rules for any
+    // other key are deleted first. Not one transaction.
+    async replaceScoringRules(formId, rules) {
+      const keep = rules.map((r) => String(r.field_key));
+      let remove = db.from("scoring_rules").delete().eq("form_id", formId);
+      if (keep.length > 0) {
+        remove = remove.not("field_key", "in", `(${keep.map((k) => `"${k}"`).join(",")})`);
+      }
+      const removed = await remove;
+      if (removed.error) throw dbError(removed.error);
+      if (rules.length === 0) return;
+      const res = await db.from("scoring_rules").upsert(rules.map((r) => ({ ...r, form_id: formId })), {
+        onConflict: "form_id,field_key"
+      });
+      if (res.error) throw dbError(res.error);
+    },
+    async insertFormExport(row) {
+      const { data, error } = await db.from("form_exports").insert(row).select(FORM_EXPORT_COLUMNS).single();
+      if (error) throw dbError(error);
+      return data;
+    },
+    async purgeFormExports(olderThan) {
+      const { count, error } = await db.from("form_exports").delete({ count: "exact" }).lt("created_at", olderThan.toISOString());
+      if (error) throw dbError(error);
+      return count ?? 0;
+    },
+    // Task 1.28: the Exports picker. Bounded: exports live 24 hours, so 200 is far beyond use.
+    async listFormExports() {
+      const { data, error } = await db.from("form_exports").select(FORM_EXPORT_COLUMNS).order("created_at", { ascending: false }).order("id", { ascending: true }).limit(FORM_EXPORTS_READ_LIMIT);
+      if (error) throw dbError(error);
+      return data ?? [];
+    },
+    async getFormExport(id) {
+      const { data, error } = await db.from("form_exports").select(FORM_EXPORT_COLUMNS).eq("id", id).maybeSingle();
+      if (error) throw dbError(error);
+      return data ?? null;
+    },
+    // Task 1.28: one head count per version, in parallel — no rows read, no 1000-row cap, and
+    // a form has a handful of versions. Live entries only: the forms list's "entries".
+    async countLiveEntriesByFormVersions(versionIds) {
+      const counted = await Promise.all(
+        versionIds.map(async (id) => {
+          const { count, error } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).eq("form_version_id", id).is("deleted_at", null);
+          if (error) throw dbError(error);
+          return [id, count ?? 0];
+        })
+      );
+      return new Map(counted);
+    },
+    // Task 1.28: names for "last edited · who", one read per IN_CHUNK ids.
+    async listUserNames(ids) {
+      const out = [];
+      for (const chunk of chunks(ids)) {
+        const { data, error } = await db.from("users").select("id, full_name").in("id", chunk);
+        if (error) throw dbError(error);
+        out.push(...data ?? []);
+      }
+      return out;
+    },
+    // ONE statement (decision G): form_versions, form_fields, scoring_rules and, through
+    // form_versions, scouting_entries are all ON DELETE CASCADE; form_exports.form_id is
+    // ON DELETE SET NULL. Nothing references scouting_entries, so nothing can refuse it.
+    async deleteFormCascade(id) {
+      const { error } = await db.from("forms").delete().eq("id", id);
+      if (error) throw dbError(error);
+    },
+    // Its fields and entries cascade; the use case refuses a version with entries first.
+    async deleteFormVersion(id) {
+      const { error } = await db.from("form_versions").delete().eq("id", id);
+      if (error) throw dbError(error);
     },
     async eventExists(eventId) {
       const { data, error } = await db.from("events").select("id").eq("id", eventId).maybeSingle();
@@ -1073,6 +2252,19 @@ function supabaseStore(db) {
       const out = [];
       for (let from = 0; ; from += PAGE) {
         const { data, error } = await db.from("match_deletions").select("match_id, deleted_at").eq("event_id", eventId).gt("deleted_at", since).order("deleted_at", { ascending: true }).order("match_id", { ascending: true }).range(from, from + PAGE - 1);
+        if (error) throw dbError(error);
+        out.push(...data ?? []);
+        if ((data ?? []).length < PAGE) break;
+      }
+      return out;
+    },
+    // Task 1.40, paged like listMatchDeletions. A tombstone whose season_id is null (a row
+    // that went by cascade) never matches the season filter.
+    async listFormDeletions(seasonId, since) {
+      const PAGE = 1e3;
+      const out = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await db.from("form_deletions").select("entity, row_id, deleted_at").eq("season_id", seasonId).gt("deleted_at", since).order("deleted_at", { ascending: true }).order("entity", { ascending: true }).order("row_id", { ascending: true }).range(from, from + PAGE - 1);
         if (error) throw dbError(error);
         out.push(...data ?? []);
         if ((data ?? []).length < PAGE) break;
@@ -1339,32 +2531,37 @@ function supabaseStore(db) {
     async listMatchSlots(matchIds) {
       const slots = [];
       for (const chunk of chunks(matchIds)) {
-        const { data, error } = await db.from("match_teams").select(SLOT_COLUMNS).in("match_id", chunk);
+        const { data, error } = await db.from("match_teams").select(SLOT_COLUMNS).in("match_id", chunk).is("deleted_at", null);
         if (error) throw dbError(error);
         slots.push(...data ?? []);
       }
       return slots;
     },
-    // Writes only the difference, so an unchanged slot keeps its row and its updated_at:
-    // cleared slots deleted, a changed team updated IN PLACE (the delta pull sees an
-    // update; it never sees a delete), new slots inserted. Not one transaction.
-    async setMatchTeams(matchId, slots) {
-      const { data, error } = await db.from("match_teams").select("id, alliance, station, team_id").eq("match_id", matchId);
+    // Writes only the difference, so an unchanged slot keeps its row and its updated_at.
+    // Task 1.40 (spec 7.5 item 1): a cleared slot is TOMBSTONED, not deleted, so the delta
+    // pull carries the removal; a changed team is updated in place; a refilled tombstone is
+    // revived in place (the unique (match, alliance, station) allows one row per slot, live
+    // or not); a slot never filled is inserted. Every row of the match is read, tombstones
+    // included. Not one transaction.
+    async setMatchTeams(matchId, slots, at) {
+      const { data, error } = await db.from("match_teams").select("id, alliance, station, team_id, deleted_at").eq("match_id", matchId);
       if (error) throw dbError(error);
       const key2 = (s) => `${s.alliance}:${s.station}`;
       const current = new Map((data ?? []).map((row) => [key2(row), row]));
       const wanted = new Map(slots.map((slot) => [key2(slot), slot]));
-      const cleared = [...current].filter(([k]) => !wanted.has(k)).map(([, row]) => row.id);
+      const cleared = [...current].filter(([k, row]) => row.deleted_at === null && !wanted.has(k)).map(([, row]) => row.id);
       if (cleared.length > 0) {
-        const res = await db.from("match_teams").delete().in("id", cleared);
+        const res = await db.from("match_teams").update({ deleted_at: at }).in("id", cleared);
         if (res.error) throw dbError(res.error);
       }
       const insert = [];
       for (const [k, slot] of wanted) {
         const row = current.get(k);
-        if (row && row.team_id === slot.team_id) continue;
+        if (row && row.deleted_at === null && row.team_id === slot.team_id) continue;
         if (row) {
-          const res = await db.from("match_teams").update({ team_id: slot.team_id }).eq("id", row.id);
+          const res = await db.from("match_teams").update(
+            row.deleted_at === null ? { team_id: slot.team_id } : { team_id: slot.team_id, deleted_at: null }
+          ).eq("id", row.id);
           if (res.error) throw dbError(res.error);
         } else {
           insert.push({ id: crypto.randomUUID(), match_id: matchId, ...slot });
@@ -1381,7 +2578,8 @@ function supabaseStore(db) {
       if (error) throw dbError(error);
       return count ?? 0;
     },
-    // A hard delete. The match's match_teams cascade; an entry refuses it with 23503.
+    // A hard delete. The match's match_teams cascade (tombstones too: the match_deletions
+    // tombstone covers them); an entry refuses it with 23503.
     async deleteMatch(id) {
       const { error } = await db.from("matches").delete().eq("id", id);
       if (error) throw dbError(error);
@@ -1424,32 +2622,7 @@ function supabaseStore(db) {
     // The remaining methods start as loud stubs, exactly as the fake does. Each later
     // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
     // without these the file does not compile at all.
-    ...stubsFor([
-      "findByLogicalKey",
-      "parentsExist",
-      "insertConflict",
-      "listConflicts",
-      "getConflict",
-      "resolveConflictRow",
-      "getForm",
-      "getFormByKind",
-      "insertForm",
-      "updateForm",
-      "getFormVersion",
-      "listFormVersions",
-      "insertFormVersion",
-      "updateFormVersion",
-      "countEntriesByFormVersion",
-      "replaceFormFields",
-      "getScoringRules",
-      "replaceScoringRules",
-      "getEntry",
-      "queryEntries",
-      "entriesForScope",
-      "listTeamEvents",
-      "deleteFormCascade",
-      "deleteFormVersion"
-    ])
+    ...stubsFor(["getEntry", "queryEntries", "entriesForScope", "listTeamEvents"])
     // The spread above only carries an index signature (its keys come from a plain
     // string[]), so TS can't see that it supplies the remaining named Store methods;
     // the assertion tells it what `stubsFor` guarantees at runtime instead.
@@ -1796,7 +2969,7 @@ function pgCode(e) {
 }
 
 // src/core/queries/listEvents.ts
-import { z as z10 } from "zod";
+import { z as z14 } from "zod";
 
 // src/core/cursor.ts
 function encodeCursor(value) {
@@ -1817,7 +2990,7 @@ function decodeCursor(schema2, raw) {
 }
 
 // src/core/queries/listEvents.ts
-var eventCursor = z10.object({ s: z10.number().int(), i: z10.string().uuid() }).strict();
+var eventCursor = z14.object({ s: z14.number().int(), i: z14.string().uuid() }).strict();
 async function listEvents(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listEventsInput, input);
@@ -1924,8 +3097,8 @@ async function setActiveEvent(caller, input, ctx) {
 }
 
 // src/core/queries/listSeasons.ts
-import { z as z11 } from "zod";
-var seasonCursor = z11.object({ y: z11.number().int() }).strict();
+import { z as z15 } from "zod";
+var seasonCursor = z15.object({ y: z15.number().int() }).strict();
 async function listSeasons(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listSeasonsInput, input);
@@ -2085,8 +3258,8 @@ async function inWaves(items, fn) {
 }
 
 // src/core/queries/listMatches.ts
-import { z as z12 } from "zod";
-var matchCursor = z12.object({ t: matchType, n: z12.number().int() }).strict();
+import { z as z16 } from "zod";
+var matchCursor = z16.object({ t: matchType, n: z16.number().int() }).strict();
 async function listMatches(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listMatchesInput, input);
@@ -2224,19 +3397,19 @@ async function setMatchTeams(caller, input, ctx) {
       s.team_id
     ])
   );
-  const changed = parsed.slots.filter(
+  const changed2 = parsed.slots.filter(
     (s) => current.get(`${s.alliance}:${s.station}`) !== s.team_id
   );
-  if (changed.length > 0) {
+  if (changed2.length > 0) {
     const roster = new Set((await ctx.store.getRoster(match.event_id)).map((t) => t.id));
-    const stranger = changed.find((s) => !roster.has(s.team_id));
+    const stranger = changed2.find((s) => !roster.has(s.team_id));
     if (stranger) {
       const team = await ctx.store.getTeam(stranger.team_id);
       throw notOnRoster(team ? String(team.number) : stranger.team_id);
     }
   }
   try {
-    await ctx.store.setMatchTeams(match.id, parsed.slots);
+    await ctx.store.setMatchTeams(match.id, parsed.slots, ctx.now().toISOString());
   } catch (e) {
     const code = pgCode(e);
     if (code === "23503") {
@@ -2317,8 +3490,8 @@ async function teamOrNotFound(ctx, id) {
 }
 
 // src/core/queries/listTeams.ts
-import { z as z13 } from "zod";
-var teamCursor = z13.object({ n: z13.number().int() }).strict();
+import { z as z17 } from "zod";
+var teamCursor = z17.object({ n: z17.number().int() }).strict();
 async function listTeams(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listTeamsInput, input);
@@ -2443,6 +3616,1012 @@ async function deleteEvent(caller, input, ctx) {
   return { deleted: true, ...impact };
 }
 
+// src/core/commands/forms.ts
+var DRAFT_COLUMNS = [
+  "key",
+  "label",
+  "help_text",
+  "type",
+  "section",
+  "display_order",
+  "required",
+  "default_value",
+  "config",
+  "visibility_condition",
+  "description",
+  "unit",
+  "phase",
+  "direction",
+  "category",
+  "expected_range",
+  "include_in_ai_context",
+  "is_ordinal"
+];
+var IN_PLACE_COLUMNS = [
+  "label",
+  "help_text",
+  "config",
+  "expected_range",
+  "display_order",
+  "section",
+  "description",
+  "unit",
+  "phase",
+  "direction",
+  "category",
+  "include_in_ai_context",
+  "is_ordinal",
+  "required",
+  "default_value",
+  "visibility_condition"
+];
+var MEANING_PATHS = /* @__PURE__ */ new Set(["description", "unit", "phase", "direction"]);
+function userIdOf(caller) {
+  if (!isUser(caller)) throw new AppError("forbidden", "a service caller may not edit forms");
+  return caller.userId;
+}
+function toFormRow(row) {
+  return {
+    id: row.id,
+    season_id: row.season_id,
+    kind: row.kind,
+    name: row.name,
+    active_version_id: row.active_version_id ?? null,
+    timer_config: row.timer_config,
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  };
+}
+function toFieldRow(field) {
+  const row = field;
+  return {
+    id: row.id,
+    form_version_id: row.form_version_id,
+    key: row.key,
+    label: row.label,
+    help_text: row.help_text ?? null,
+    type: row.type,
+    section: row.section ?? null,
+    display_order: row.display_order,
+    required: row.required,
+    default_value: row.default_value ?? null,
+    config: row.config ?? {},
+    visibility_condition: row.visibility_condition ?? null,
+    deprecated: row.deprecated,
+    description: row.description ?? null,
+    unit: row.unit ?? null,
+    phase: row.phase ?? null,
+    direction: row.direction ?? null,
+    category: row.category ?? null,
+    expected_range: row.expected_range ?? null,
+    include_in_ai_context: row.include_in_ai_context ?? null,
+    is_ordinal: row.is_ordinal ?? null
+  };
+}
+function draftColumns(field) {
+  const out = {};
+  for (const column of DRAFT_COLUMNS) out[column] = field[column] ?? null;
+  out.config = field.config ?? {};
+  out.required = field.required ?? false;
+  return out;
+}
+function toDraft(field) {
+  return {
+    key: field.key,
+    label: field.label,
+    help_text: field.help_text ?? null,
+    type: field.type,
+    section: field.section ?? null,
+    display_order: field.display_order,
+    required: field.required ?? false,
+    default_value: field.default_value ?? null,
+    config: field.config ?? {},
+    visibility_condition: field.visibility_condition ?? null,
+    deprecated: false,
+    description: field.description ?? null,
+    unit: field.unit ?? null,
+    phase: field.phase ?? null,
+    direction: field.direction ?? null,
+    category: field.category ?? null,
+    expected_range: field.expected_range ?? null,
+    include_in_ai_context: field.include_in_ai_context ?? null,
+    is_ordinal: field.is_ordinal ?? null
+  };
+}
+async function formOrNotFound(ctx, id) {
+  const form = await ctx.store.getForm(id);
+  if (!form) {
+    throw new AppError("not-found", "that form does not exist; it may have been deleted", {
+      form_id: id
+    });
+  }
+  return form;
+}
+async function versionOrNotFound(ctx, id) {
+  const version = await ctx.store.getFormVersion(id);
+  if (!version) {
+    throw new AppError("not-found", "that form version does not exist; it may have been deleted", {
+      form_version_id: id
+    });
+  }
+  return version;
+}
+var newestOf = (versions) => [...versions].sort((a, b) => b.version_no - a.version_no)[0];
+var draftOf = (versions) => versions.find((v) => v.published_at === null);
+async function stamp(ctx, versionId, userId2) {
+  await ctx.store.updateFormVersion(versionId, { updated_by: userId2 });
+}
+async function stampLockIfBound(ctx, version) {
+  if (version.is_locked) return;
+  if (await ctx.store.countEntriesByFormVersion(version.id) > 0) {
+    await ctx.store.updateFormVersion(version.id, { is_locked: true });
+  }
+}
+function checkFields(live) {
+  const definition = [];
+  const incomplete = [];
+  const siblings = live.map((f, i) => ({ id: `field-${i}`, ...f }));
+  for (const field of siblings) {
+    for (const issue of validateFieldDefinition(field)) {
+      (MEANING_PATHS.has(issue.path) ? incomplete : definition).push({
+        field_key: field.key,
+        ...issue
+      });
+    }
+    for (const issue of validateVisibilityCondition(field, siblings)) {
+      definition.push({ field_key: field.key, ...issue });
+    }
+    if (field.type === "computed") {
+      const config2 = FIELD_TYPE_CONFIG.computed.safeParse(field.config);
+      const parsed = config2.success ? config2.data : null;
+      if (parsed?.expression) {
+        for (const issue of validateExpr(parsed.expression, siblings, parsed.result_type)) {
+          definition.push({
+            field_key: field.key,
+            path: `config.${issue.path}`,
+            message: issue.message
+          });
+        }
+      }
+    }
+  }
+  return { definition, incomplete };
+}
+function publishOnlyIssues(live) {
+  const issues = [];
+  for (const field of live) {
+    if (field.type !== "computed") continue;
+    const config2 = FIELD_TYPE_CONFIG.computed.safeParse(field.config);
+    if (config2.success && config2.data.expression === null) {
+      issues.push({
+        field_key: field.key,
+        path: "config.expression",
+        message: "a computed field needs its expression before the form can be published"
+      });
+    }
+  }
+  if (!live.some((f) => f.type !== "section")) {
+    issues.push({
+      field_key: null,
+      path: "fields",
+      message: "a form needs at least one data field before it can be published"
+    });
+  }
+  return issues;
+}
+function definitionError(issues) {
+  const first = issues[0];
+  const one = `${first.field_key ?? "the form"}: ${first.message}`;
+  const summary = issues.length === 1 ? one : `${issues.length} problems in the form definition; first, ${one}`;
+  return new AppError("invalid", summary, { reason: "invalid-definition", issues });
+}
+function resolveIdentity(incoming, target, lastType) {
+  const seenKeys = /* @__PURE__ */ new Set();
+  const seenIds = /* @__PURE__ */ new Set();
+  for (const { id, draft } of incoming) {
+    if (seenKeys.has(draft.key)) {
+      throw new AppError(
+        "invalid",
+        `two fields have the key '${draft.key}'; a key names one field`,
+        {
+          reason: "duplicate-key",
+          key: draft.key
+        }
+      );
+    }
+    seenKeys.add(draft.key);
+    if (id !== void 0) {
+      if (seenIds.has(id)) {
+        throw new AppError("invalid", "two fields name the same saved field", {
+          reason: "duplicate-field-id",
+          field_id: id
+        });
+      }
+      seenIds.add(id);
+    }
+  }
+  const byId = new Map(target.map((f) => [f.id, f]));
+  const liveByKey = new Map(target.filter((f) => !f.deprecated).map((f) => [f.key, f]));
+  const deprecatedByKey = new Map(target.filter((f) => f.deprecated).map((f) => [f.key, f]));
+  const assertRevivable = (draft) => {
+    const was = lastType.get(draft.key);
+    if (was !== void 0 && was !== draft.type) {
+      throw new AppError(
+        "invalid",
+        `the key '${draft.key}' was last used by a removed ${was} field of this form; bring it back as a ${was}, or give the new field another key`,
+        { reason: "key-retired", key: draft.key, last_type: was }
+      );
+    }
+  };
+  const matched = /* @__PURE__ */ new Map();
+  for (const { id, draft } of incoming) {
+    if (id !== void 0) {
+      const saved = byId.get(id);
+      if (!saved) {
+        throw new AppError("invalid", "a field names a saved field this version does not have", {
+          reason: "unknown-field-id",
+          field_id: id
+        });
+      }
+      if (saved.key !== draft.key) {
+        throw new AppError("invalid", "a saved field's key never changes", {
+          reason: "key-change",
+          field_id: id,
+          key_was: saved.key,
+          key_now: draft.key
+        });
+      }
+      if (saved.deprecated) assertRevivable(draft);
+      matched.set(draft.key, saved.id);
+      continue;
+    }
+    const live = liveByKey.get(draft.key);
+    if (live) {
+      matched.set(draft.key, live.id);
+      continue;
+    }
+    assertRevivable(draft);
+    const removed = deprecatedByKey.get(draft.key);
+    if (removed) matched.set(draft.key, removed.id);
+  }
+  return matched;
+}
+function stable(value) {
+  if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value).filter(([, v]) => v !== void 0).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stable(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+function changed(row, existing) {
+  if (!existing) return true;
+  const before = existing;
+  return Object.keys(row).some((column) => stable(row[column]) !== stable(before[column]));
+}
+async function formHistory(ctx, versions) {
+  const out = /* @__PURE__ */ new Map();
+  for (const version of versions) out.set(version.id, await ctx.store.getFormFields(version.id));
+  return out;
+}
+function lastTypes(versions, byVersion) {
+  const out = /* @__PURE__ */ new Map();
+  for (const version of [...versions].sort((a, b) => b.version_no - a.version_no)) {
+    for (const field of byVersion.get(version.id) ?? []) {
+      if (!out.has(field.key)) out.set(field.key, field.type);
+    }
+  }
+  return out;
+}
+async function fork(ctx, userId2, form, versions, carriedFrom, drafts) {
+  const versionNo = Math.max(0, ...versions.map((v) => v.version_no)) + 1;
+  let created;
+  try {
+    created = await ctx.store.insertFormVersion({
+      id: crypto.randomUUID(),
+      form_id: form.id,
+      version_no: versionNo,
+      updated_by: userId2
+    });
+  } catch (e) {
+    if (pgCode(e) === "23505") {
+      throw new AppError(
+        "conflict",
+        "another save just created a version of this form; reload it",
+        {
+          reason: "version-race",
+          form_id: form.id
+        }
+      );
+    }
+    throw e;
+  }
+  try {
+    const live = new Set(drafts.map((d) => d.key));
+    const rows = [
+      ...drafts.map((d) => ({ id: crypto.randomUUID(), ...draftColumns(d), deprecated: false })),
+      ...carriedFrom.filter((f) => !live.has(f.key)).map((f) => ({ id: crypto.randomUUID(), ...draftColumns(f), deprecated: true }))
+    ];
+    await ctx.store.writeFormFields(created.id, rows, []);
+  } catch (e) {
+    await ctx.store.deleteFormVersion(created.id).catch(() => void 0);
+    throw e;
+  }
+  return created;
+}
+var CHOICE_LISTS = /* @__PURE__ */ new Set(["options", "event_types"]);
+var choiceValues = (list) => Array.isArray(list) ? list.map((o) => String(o?.value)) : [];
+var choiceLabels = (list) => new Map(
+  (Array.isArray(list) ? list : []).map((o) => [
+    String(o?.value),
+    o?.label
+  ])
+);
+function carryConfig(before, after, twin) {
+  const out = { ...twin };
+  for (const key2 of /* @__PURE__ */ new Set([...Object.keys(before), ...Object.keys(after)])) {
+    if (stable(before[key2]) === stable(after[key2])) continue;
+    const reshaped = CHOICE_LISTS.has(key2) && Array.isArray(out[key2]) && stable(choiceValues(out[key2])) !== stable(choiceValues(before[key2]));
+    if (reshaped) {
+      const was = choiceLabels(before[key2]);
+      const now = choiceLabels(after[key2]);
+      out[key2] = out[key2].map((choice) => {
+        const value = String(choice.value);
+        return now.has(value) && stable(now.get(value)) !== stable(was.get(value)) ? { ...choice, label: now.get(value) } : choice;
+      });
+    } else if (after[key2] === void 0) {
+      delete out[key2];
+    } else {
+      out[key2] = after[key2];
+    }
+  }
+  return out;
+}
+async function carryToDraft(ctx, userId2, draft, draftFields, edits) {
+  const twins = new Map(draftFields.filter((f) => !f.deprecated).map((f) => [f.key, f]));
+  const writes = [];
+  for (const { existing, row } of edits) {
+    const twin = twins.get(existing.key);
+    if (!twin || twin.type !== existing.type) continue;
+    const before = draftColumns(existing);
+    const next = { id: twin.id, ...draftColumns(twin), deprecated: false };
+    for (const column of IN_PLACE_COLUMNS) {
+      if (stable(row[column]) === stable(before[column])) continue;
+      next[column] = column === "config" ? carryConfig(
+        before.config,
+        row.config,
+        next.config
+      ) : row[column];
+    }
+    if (changed(next, twin)) writes.push(next);
+  }
+  if (writes.length === 0) return;
+  await ctx.store.writeFormFields(draft.id, writes, []);
+  await stamp(ctx, draft.id, userId2);
+}
+async function writeFieldSet(ctx, userId2, form, target, incoming, alwaysFork = false) {
+  const versions = await ctx.store.listFormVersions(form.id);
+  const history = await formHistory(ctx, versions);
+  const current = target ? history.get(target.id) ?? [] : [];
+  const matched = resolveIdentity(incoming, current, lastTypes(versions, history));
+  const drafts = incoming.map((f) => f.draft);
+  const { definition, incomplete } = checkFields(drafts);
+  if (target && target.published_at === null && !alwaysFork) {
+    if (definition.length > 0) throw definitionError(definition);
+    await stampLockIfBound(ctx, target);
+    const byKey = new Map(current.map((f) => [f.key, f]));
+    const rows = drafts.map((d) => ({
+      id: matched.get(d.key) ?? crypto.randomUUID(),
+      ...draftColumns(d),
+      deprecated: false
+    }));
+    const wanted = new Set(drafts.map((d) => d.key));
+    for (const field of current) {
+      if (field.deprecated || wanted.has(field.key)) continue;
+      rows.push({ id: field.id, ...draftColumns(field), deprecated: true });
+    }
+    const writes = rows.filter((row) => changed(row, byKey.get(String(row.key))));
+    await ctx.store.writeFormFields(target.id, writes, []);
+    await stamp(ctx, target.id, userId2);
+    return { version: target, forked: false, incomplete };
+  }
+  if (target && !alwaysFork && !isStructuralChange(current, drafts)) {
+    const all = [...definition, ...incomplete];
+    if (all.length > 0) throw definitionError(all);
+    await stampLockIfBound(ctx, target);
+    const byKey = new Map(current.filter((f) => !f.deprecated).map((f) => [f.key, f]));
+    const writes = [];
+    const edits = [];
+    for (const draft2 of drafts) {
+      const existing = byKey.get(draft2.key);
+      const row = {
+        id: existing.id,
+        ...draftColumns(existing),
+        deprecated: false
+      };
+      for (const column of IN_PLACE_COLUMNS) row[column] = draftColumns(draft2)[column];
+      if (changed(row, existing)) {
+        writes.push(row);
+        edits.push({ existing, row });
+      }
+    }
+    await ctx.store.writeFormFields(target.id, writes, []);
+    await stamp(ctx, target.id, userId2);
+    const open = draftOf(versions);
+    if (open && edits.length > 0) {
+      await carryToDraft(ctx, userId2, open, history.get(open.id) ?? [], edits);
+    }
+    return { version: target, forked: false, incomplete };
+  }
+  if (definition.length > 0) throw definitionError(definition);
+  const draft = draftOf(versions);
+  if (draft) {
+    throw new AppError("conflict", `draft v${draft.version_no} already exists; edit it`, {
+      reason: "draft-exists",
+      draft_version_id: draft.id,
+      version_no: draft.version_no
+    });
+  }
+  if (target) await stampLockIfBound(ctx, target);
+  const created = await fork(ctx, userId2, form, versions, current, drafts);
+  return { version: created, forked: true, incomplete };
+}
+async function savedOutput(ctx, written) {
+  const fields = await ctx.store.getFormFields(written.version.id);
+  const after = await ctx.store.getFormVersion(written.version.id);
+  return {
+    form_version_id: written.version.id,
+    new_version_id: written.forked ? written.version.id : null,
+    version_no: written.version.version_no,
+    updated_at: after?.updated_at ?? written.version.updated_at,
+    fields: fields.map(toFieldRow),
+    incomplete: written.incomplete
+  };
+}
+async function createForm(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const userId2 = userIdOf(caller);
+  const parsed = parseInput(createFormInput, input);
+  await seasonOrNotFound(ctx, parsed.season_id);
+  const taken = () => new AppError("conflict", `this season already has a ${parsed.kind} form`, {
+    reason: "form-exists",
+    kind: parsed.kind
+  });
+  if (await ctx.store.getFormByKind(parsed.season_id, parsed.kind)) throw taken();
+  let form;
+  try {
+    form = await ctx.store.insertForm({
+      id: crypto.randomUUID(),
+      season_id: parsed.season_id,
+      kind: parsed.kind,
+      name: parsed.name
+    });
+  } catch (e) {
+    if (pgCode(e) === "23505") throw taken();
+    throw e;
+  }
+  try {
+    const draft = await ctx.store.insertFormVersion({
+      id: crypto.randomUUID(),
+      form_id: form.id,
+      version_no: 1,
+      updated_by: userId2
+    });
+    return { id: form.id, draft_version_id: draft.id };
+  } catch (e) {
+    await ctx.store.deleteFormCascade(form.id).catch(() => void 0);
+    throw e;
+  }
+}
+async function updateForm(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const userId2 = userIdOf(caller);
+  const parsed = parseInput(updateFormInput, input);
+  const form = await formOrNotFound(ctx, parsed.form_id);
+  const patch = {};
+  if (parsed.name !== void 0) patch.name = parsed.name;
+  if (parsed.timer_config !== void 0) patch.timer_config = parsed.timer_config;
+  const row = await ctx.store.updateForm(form.id, patch);
+  const versions = await ctx.store.listFormVersions(form.id);
+  const stamped = draftOf(versions) ?? versions.find((v) => v.id === form.active_version_id);
+  if (stamped) await stamp(ctx, stamped.id, userId2);
+  return toFormRow(row);
+}
+async function saveDraftFields(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const userId2 = userIdOf(caller);
+  const parsed = parseInput(saveDraftFieldsInput, input);
+  const target = await versionOrNotFound(ctx, parsed.form_version_id);
+  if (parsed.base_updated_at !== void 0 && Date.parse(parsed.base_updated_at) !== Date.parse(target.updated_at)) {
+    throw new AppError("conflict", "someone else saved this version; reload it", {
+      reason: "stale-version",
+      updated_at: target.updated_at
+    });
+  }
+  const form = await formOrNotFound(ctx, target.form_id);
+  const incoming = parsed.fields.map((f) => ({ id: f.id, draft: toDraft(f) }));
+  return savedOutput(ctx, await writeFieldSet(ctx, userId2, form, target, incoming));
+}
+async function publishFormVersion(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const userId2 = userIdOf(caller);
+  const parsed = parseInput(publishFormVersionInput, input);
+  const version = await versionOrNotFound(ctx, parsed.form_version_id);
+  const form = await formOrNotFound(ctx, version.form_id);
+  if (version.published_at !== null) {
+    throw new AppError("invalid", `v${version.version_no} is already published`, {
+      reason: "already-published"
+    });
+  }
+  const live = (await ctx.store.getFormFields(version.id)).filter((f) => !f.deprecated);
+  const { definition, incomplete } = checkFields(live);
+  const issues = [...definition, ...incomplete, ...publishOnlyIssues(live)];
+  if (issues.length > 0) throw definitionError(issues);
+  const publishedAt = ctx.now().toISOString();
+  await ctx.store.updateFormVersion(version.id, { published_at: publishedAt, updated_by: userId2 });
+  let activeVersionId = form.active_version_id ?? null;
+  const newest = newestOf(await ctx.store.listFormVersions(form.id));
+  if (newest?.id === version.id) {
+    await ctx.store.updateForm(form.id, { active_version_id: version.id });
+    activeVersionId = version.id;
+  }
+  return {
+    form_version_id: version.id,
+    published_at: publishedAt,
+    active_version_id: activeVersionId
+  };
+}
+async function restoreFormVersion(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const userId2 = userIdOf(caller);
+  const parsed = parseInput(restoreFormVersionInput, input);
+  const version = await versionOrNotFound(ctx, parsed.form_version_id);
+  const form = await formOrNotFound(ctx, version.form_id);
+  if (version.published_at === null) {
+    throw new AppError("invalid", "a draft cannot be restored; publish it instead", {
+      reason: "not-published"
+    });
+  }
+  await ctx.store.updateForm(form.id, { active_version_id: version.id });
+  await stamp(ctx, version.id, userId2);
+  return { active_version_id: version.id };
+}
+async function deleteFormVersion(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const parsed = parseInput(deleteFormVersionInput, input);
+  const version = await versionOrNotFound(ctx, parsed.form_version_id);
+  const form = await formOrNotFound(ctx, version.form_id);
+  const entries = await ctx.store.countEntriesByFormVersion(version.id);
+  if (entries > 0) {
+    throw new AppError(
+      "invalid",
+      `this version has ${entries} ${entries === 1 ? "entry" : "entries"} bound to it and cannot be deleted; delete the form to remove them, or leave it`,
+      { reason: "has-entries", entries }
+    );
+  }
+  if (version.published_at !== null) {
+    throw new AppError(
+      "invalid",
+      `v${version.version_no} is published, and a device may still hold entries for it that have not reached the server; only a draft can be deleted on its own. Delete the whole form to remove it`,
+      { reason: "published" }
+    );
+  }
+  if (form.active_version_id === version.id) {
+    throw new AppError(
+      "invalid",
+      "this is the active version; deleting it would leave the form with nothing to scout. Restore another version first",
+      { reason: "active-version" }
+    );
+  }
+  await ctx.store.deleteFormVersion(version.id);
+  return { deleted: true };
+}
+async function deleteForm(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const parsed = parseInput(deleteFormInput, input);
+  const form = await formOrNotFound(ctx, parsed.form_id);
+  const versions = await ctx.store.listFormVersions(form.id);
+  let entries = 0;
+  for (const version of versions) entries += await ctx.store.countEntriesByFormVersion(version.id);
+  if (parsed.dry_run) return { versions: versions.length, entries, deleted: false };
+  await ctx.store.deleteFormCascade(form.id);
+  return { versions: versions.length, entries, deleted: true };
+}
+async function exportableVersion(ctx, form, versionId) {
+  const versions = await ctx.store.listFormVersions(form.id);
+  if (versionId !== void 0) {
+    const version = versions.find((v) => v.id === versionId);
+    if (!version) {
+      throw new AppError(
+        "not-found",
+        "that form version does not exist; it may have been deleted",
+        {
+          form_version_id: versionId
+        }
+      );
+    }
+    if (version.published_at !== null && version.id !== form.active_version_id) {
+      throw new AppError("invalid", "only the draft or the active version can be exported", {
+        reason: "not-exportable"
+      });
+    }
+    return version;
+  }
+  const chosen = draftOf(versions) ?? versions.find((v) => v.id === form.active_version_id);
+  if (!chosen) {
+    throw new AppError("invalid", "this form has no draft and no active version to export", {
+      reason: "not-exportable"
+    });
+  }
+  return chosen;
+}
+async function definitionOf(ctx, form, version) {
+  const live = (await ctx.store.getFormFields(version.id)).filter((f) => !f.deprecated);
+  const keys = new Set(live.map((f) => f.key));
+  const rules = (await ctx.store.getScoringRules(form.id)).filter((r) => keys.has(r.field_key)).sort((a, b) => a.field_key < b.field_key ? -1 : a.field_key > b.field_key ? 1 : 0).map((r) => ({
+    field_key: r.field_key,
+    points: Number(r.points),
+    option_points: r.option_points ?? null
+  }));
+  return {
+    format: FORM_DEFINITION_FORMAT,
+    kind: form.kind,
+    name: form.name,
+    timer_config: form.timer_config,
+    fields: live.map(draftColumns),
+    scoring_rules: rules
+  };
+}
+async function exportForm(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const parsed = parseInput(exportFormInput, input);
+  const form = await formOrNotFound(ctx, parsed.form_id);
+  return definitionOf(ctx, form, await exportableVersion(ctx, form, parsed.form_version_id));
+}
+function toExportSummary(row, creator, now) {
+  const definition = row.definition;
+  const expiresAt = Date.parse(row.created_at) + FORM_EXPORT_TTL_MS;
+  return {
+    id: row.id,
+    form_id: row.form_id ?? null,
+    kind: definition?.kind === "super" ? "super" : "match",
+    label: row.label,
+    // Live, non-section fields: the count every form surface shows (task 1.28).
+    field_count: Array.isArray(definition?.fields) ? countDataFields(definition.fields) : 0,
+    created_by: creator,
+    created_at: row.created_at,
+    expires_at: new Date(expiresAt).toISOString(),
+    expires_in_seconds: Math.max(0, Math.floor((expiresAt - now.getTime()) / 1e3))
+  };
+}
+async function saveFormExport(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const userId2 = userIdOf(caller);
+  const parsed = parseInput(saveFormExportInput, input);
+  const form = await formOrNotFound(ctx, parsed.form_id);
+  const version = await exportableVersion(ctx, form, parsed.form_version_id);
+  const definition = await definitionOf(ctx, form, version);
+  const now = ctx.now();
+  await ctx.store.purgeFormExports(new Date(now.getTime() - FORM_EXPORT_TTL_MS));
+  const season = await ctx.store.getSeason(form.season_id);
+  const name = season ? `${form.name} ${season.year}` : form.name;
+  const label = version.published_at === null ? `${name} \xB7 draft v${version.version_no}` : `${name} \xB7 v${version.version_no}`;
+  const row = await ctx.store.insertFormExport({
+    id: crypto.randomUUID(),
+    form_id: form.id,
+    label,
+    definition,
+    created_by: userId2
+  });
+  const creator = await ctx.store.getFullUser(userId2);
+  return toExportSummary(row, { id: userId2, full_name: creator?.full_name ?? "" }, now);
+}
+function parseDefinition(raw) {
+  const parsed = formDefinition.safeParse(raw);
+  if (parsed.success) return parsed.data;
+  const fields = raw?.fields;
+  const issues = parsed.error.issues.map((issue) => {
+    const [head, index, ...rest] = issue.path;
+    if (head === "fields" && typeof index === "number" && Array.isArray(fields)) {
+      const key2 = fields[index]?.key;
+      return {
+        field_key: typeof key2 === "string" ? key2 : null,
+        path: rest.length > 0 ? rest.join(".") : "field",
+        message: issue.message
+      };
+    }
+    return {
+      field_key: null,
+      path: issue.path.length > 0 ? issue.path.join(".") : "definition",
+      message: issue.message
+    };
+  });
+  throw definitionError(issues);
+}
+function checkScoring(definition) {
+  const issues = validateScoringRules(definition.scoring_rules, definition.fields, {
+    prefix: "scoring_rules",
+    noun: "definition"
+  });
+  if (issues.length > 0) throw definitionError(issues);
+}
+async function importForm(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const userId2 = userIdOf(caller);
+  const definition = parseDefinition(input?.definition);
+  const parsed = parseInput(importFormInput, input);
+  await seasonOrNotFound(ctx, parsed.season_id);
+  checkScoring(definition);
+  const incoming = definition.fields.map((f) => ({ draft: toDraft(f) }));
+  let existing;
+  if (parsed.form_id !== void 0) {
+    existing = await formOrNotFound(ctx, parsed.form_id);
+    if (existing.season_id !== parsed.season_id || existing.kind !== definition.kind) {
+      throw new AppError("invalid", `that form is not this season's ${definition.kind} form`, {
+        reason: "kind-mismatch"
+      });
+    }
+  } else {
+    existing = await ctx.store.getFormByKind(parsed.season_id, definition.kind);
+  }
+  if (existing) {
+    const versions = await ctx.store.listFormVersions(existing.id);
+    const draft = draftOf(versions);
+    const written = draft ? await writeFieldSet(ctx, userId2, existing, draft, incoming) : await writeFieldSet(ctx, userId2, existing, newestOf(versions) ?? null, incoming, true);
+    return { form_id: existing.id, draft_version_id: written.version.id, created: false };
+  }
+  resolveIdentity(incoming, [], /* @__PURE__ */ new Map());
+  const { definition: problems } = checkFields(incoming.map((f) => f.draft));
+  if (problems.length > 0) throw definitionError(problems);
+  let form;
+  try {
+    form = await ctx.store.insertForm({
+      id: crypto.randomUUID(),
+      season_id: parsed.season_id,
+      kind: definition.kind,
+      name: definition.name,
+      timer_config: definition.timer_config
+    });
+  } catch (e) {
+    if (pgCode(e) === "23505") {
+      throw new AppError("conflict", `this season already has a ${definition.kind} form`, {
+        reason: "form-exists",
+        kind: definition.kind
+      });
+    }
+    throw e;
+  }
+  try {
+    const version = await ctx.store.insertFormVersion({
+      id: crypto.randomUUID(),
+      form_id: form.id,
+      version_no: 1,
+      updated_by: userId2
+    });
+    await ctx.store.writeFormFields(
+      version.id,
+      incoming.map((f) => ({
+        id: crypto.randomUUID(),
+        ...draftColumns(f.draft),
+        deprecated: false
+      })),
+      []
+    );
+    await ctx.store.replaceScoringRules(
+      form.id,
+      definition.scoring_rules.map((r) => ({
+        id: crypto.randomUUID(),
+        field_key: r.field_key,
+        points: r.points,
+        option_points: r.option_points
+      }))
+    );
+    return { form_id: form.id, draft_version_id: version.id, created: true };
+  } catch (e) {
+    await ctx.store.deleteFormCascade(form.id).catch(() => void 0);
+    throw e;
+  }
+}
+
+// src/core/commands/resolveConflict.ts
+var ENTRY_CONTENT_COLUMNS = [
+  "form_version_id",
+  "form_kind",
+  "event_id",
+  "match_id",
+  "team_id",
+  "alliance",
+  "robot_status",
+  "breakdown_seconds",
+  "data"
+];
+var noSuchConflict = (id) => new AppError("not-found", "that conflict does not exist; it may have been deleted", {
+  conflict_id: id
+});
+var rowGone = (id) => new AppError("not-found", "an entry this conflict names no longer exists", { row_id: id });
+function withoutStamps(row) {
+  const { created_at: _c, updated_at: _u, ...rest } = row;
+  return rest;
+}
+function restoredRow(live, conflict) {
+  const payload = conflict.superseded_payload ?? {};
+  const content = Object.fromEntries(
+    ENTRY_CONTENT_COLUMNS.filter((key2) => key2 in payload).map((key2) => [key2, payload[key2]])
+  );
+  return {
+    ...withoutStamps(live),
+    ...content,
+    id: live.id,
+    scouter_id: live.scouter_id,
+    client_created_at: live.client_created_at,
+    client_updated_at: conflict.superseded_client_updated_at ?? live.client_updated_at,
+    deleted_at: live.deleted_at ?? null,
+    version: live.version + 1
+  };
+}
+async function writeAfterResolving(ctx, conflictId, resolvedAt, write) {
+  try {
+    await write();
+  } catch (e) {
+    try {
+      await ctx.store.reopenConflictRow(conflictId, resolvedAt);
+    } catch (reopen) {
+      const message = reopen instanceof Error ? reopen.message : String(reopen);
+      console.error(`resolveConflict: could not reopen ${conflictId}: ${message}`);
+    }
+    if (pgCode(e) === "23503") {
+      throw new AppError("parent-deleted", "a record this entry belongs to no longer exists", {
+        conflict_id: conflictId
+      });
+    }
+    throw e;
+  }
+}
+async function resolveConflict(caller, input, ctx) {
+  assertCan(caller, "resolve_conflict");
+  if (caller.kind !== "user") throw new AppError("forbidden", "a service caller may not resolve");
+  const { conflict_id: conflictId, resolution } = parseInput(resolveConflictInput, input);
+  const conflict = await ctx.store.getConflict(conflictId);
+  if (!conflict) throw noSuchConflict(conflictId);
+  if (conflict.resolved_at != null) {
+    throw new AppError("conflict", "this conflict is already resolved", {
+      conflict_id: conflictId,
+      resolved_at: conflict.resolved_at
+    });
+  }
+  if (conflict.entity !== "scouting_entry") {
+    throw new AppError("invalid", `a ${conflict.entity} conflict cannot be resolved yet`);
+  }
+  const at = ctx.now().toISOString();
+  const take = async () => {
+    const took = await ctx.store.resolveConflictRow(conflictId, {
+      resolved_at: at,
+      resolved_by: caller.userId,
+      resolution
+    });
+    if (!took) {
+      throw new AppError("conflict", "this conflict is already resolved", {
+        conflict_id: conflictId
+      });
+    }
+  };
+  const answer = { conflict_id: conflictId, resolved_at: at, resolution };
+  if (conflict.kind === "divergence") {
+    if (!("keep" in resolution)) {
+      throw new AppError(
+        "invalid",
+        "a divergence is resolved with { keep: 'live' | 'superseded' }"
+      );
+    }
+    const live = await ctx.store.getRow("scouting_entry", conflict.row_id);
+    if (!live) throw rowGone(conflict.row_id);
+    if (resolution.keep === "live") {
+      await take();
+      return { ...answer, row_id: live.id, new_version: null, soft_deleted: null };
+    }
+    if (conflict.superseded_payload === null) {
+      throw new AppError("invalid", "this conflict holds no superseded copy to restore");
+    }
+    const restored = restoredRow(live, conflict);
+    await take();
+    await writeAfterResolving(
+      ctx,
+      conflictId,
+      at,
+      () => ctx.store.putRow("scouting_entry", live.id, restored)
+    );
+    return { ...answer, row_id: live.id, new_version: live.version + 1, soft_deleted: null };
+  }
+  if (!("keep_row_id" in resolution)) {
+    throw new AppError("invalid", "a duplicate is resolved with { keep_row_id }");
+  }
+  const pair = [conflict.row_id, conflict.duplicate_row_id];
+  if (conflict.duplicate_row_id === null || !pair.includes(resolution.keep_row_id)) {
+    throw new AppError("invalid", "keep_row_id must be one of the two rows of this conflict", {
+      row_ids: pair
+    });
+  }
+  const otherId = resolution.keep_row_id === conflict.row_id ? conflict.duplicate_row_id : conflict.row_id;
+  const [kept, other] = await Promise.all([
+    ctx.store.getRow("scouting_entry", resolution.keep_row_id),
+    ctx.store.getRow("scouting_entry", otherId)
+  ]);
+  if (!kept) throw rowGone(resolution.keep_row_id);
+  if (!other) throw rowGone(otherId);
+  if (kept.deleted_at != null) {
+    throw new AppError("invalid", "that copy has been deleted; keep the other one", {
+      row_id: kept.id
+    });
+  }
+  await take();
+  if (other.deleted_at != null) {
+    return { ...answer, row_id: kept.id, new_version: null, soft_deleted: null };
+  }
+  const newVersion = other.version + 1;
+  await writeAfterResolving(
+    ctx,
+    conflictId,
+    at,
+    () => ctx.store.putRow("scouting_entry", other.id, {
+      ...withoutStamps(other),
+      deleted_at: at,
+      version: newVersion
+    })
+  );
+  return {
+    ...answer,
+    row_id: kept.id,
+    new_version: null,
+    soft_deleted: { row_id: other.id, new_version: newVersion }
+  };
+}
+
+// src/core/commands/scoring.ts
+function toScoringRuleRow(rule) {
+  return {
+    field_key: rule.field_key,
+    points: Number(rule.points),
+    option_points: rule.option_points ?? null
+  };
+}
+var byFieldKey = (a, b) => a.field_key < b.field_key ? -1 : a.field_key > b.field_key ? 1 : 0;
+function scoringError(issues) {
+  const first = issues[0];
+  const one = `${first.field_key}: ${first.message}`;
+  const summary = issues.length === 1 ? one : `${issues.length} problems in the scoring; first, ${one}`;
+  return new AppError("invalid", summary, { reason: "invalid-scoring", issues });
+}
+async function scorableUniverse(ctx, formId, activeVersionId) {
+  const versions = await ctx.store.listFormVersions(formId);
+  const draft = versions.find((v) => v.published_at === null);
+  const active = activeVersionId ? await ctx.store.getFormFields(activeVersionId) : [];
+  const drafted = draft ? await ctx.store.getFormFields(draft.id) : [];
+  return scoringUniverse(active, drafted);
+}
+async function setScoringRules(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const parsed = parseInput(setScoringRulesInput, input);
+  const form = await formOrNotFound(ctx, parsed.form_id);
+  const fields = await scorableUniverse(ctx, form.id, form.active_version_id ?? null);
+  const issues = validateScoringRules(parsed.rules, fields, { prefix: "rules", noun: "form" });
+  if (issues.length > 0) throw scoringError(issues);
+  const isSelect2 = new Map(fields.map((f) => [f.key, isSelectType(f.type)]));
+  const existingIds = new Map(
+    (await ctx.store.getScoringRules(form.id)).map((r) => [r.field_key, r.id])
+  );
+  await ctx.store.replaceScoringRules(
+    form.id,
+    parsed.rules.map((rule) => ({
+      id: existingIds.get(rule.field_key) ?? crypto.randomUUID(),
+      field_key: rule.field_key,
+      points: rule.points,
+      option_points: isSelect2.get(rule.field_key) ? rule.option_points ?? null : null
+    }))
+  );
+  const stored = await ctx.store.getScoringRules(form.id);
+  return { rules: stored.map(toScoringRuleRow).sort(byFieldKey) };
+}
+
 // src/core/queries/context.ts
 async function getActiveContext(caller, input, ctx) {
   void caller;
@@ -2453,6 +4632,372 @@ async function getActiveContext(caller, input, ctx) {
   return {
     active_season_id: current.active_season_id,
     active_event_id: eventLives ? eventId : null
+  };
+}
+
+// src/core/queries/forms.ts
+async function userRefs(ctx, ids) {
+  const wanted = [...new Set(ids.filter((id) => id !== null))];
+  if (wanted.length === 0) return /* @__PURE__ */ new Map();
+  const found = await ctx.store.listUserNames(wanted);
+  return new Map(found.map((u) => [u.id, { id: u.id, full_name: u.full_name }]));
+}
+async function summarise(ctx, form, versions) {
+  const live = await ctx.store.countLiveEntriesByFormVersions(versions.map((v) => v.id));
+  const users = await userRefs(
+    ctx,
+    versions.map((v) => v.updated_by ?? null)
+  );
+  const out = [];
+  for (const version of versions) {
+    const fields = await ctx.store.getFormFields(version.id);
+    const entryCount = live.get(version.id) ?? 0;
+    const locked = version.is_locked || entryCount > 0 || await ctx.store.countEntriesByFormVersion(version.id) > 0;
+    const by = version.updated_by ?? null;
+    out.push({
+      fields,
+      summary: {
+        id: version.id,
+        version_no: version.version_no,
+        status: version.published_at === null ? "draft" : "published",
+        published_at: version.published_at ?? null,
+        is_active: version.id === form.active_version_id,
+        is_locked: locked,
+        field_count: countDataFields(fields),
+        entry_count: entryCount,
+        updated_at: version.updated_at,
+        updated_by: by === null ? null : users.get(by) ?? { id: by, full_name: "" }
+      }
+    });
+  }
+  return out;
+}
+async function versionsNewestFirst(ctx, form) {
+  const versions = (await ctx.store.listFormVersions(form.id)).sort(
+    (a, b) => b.version_no - a.version_no
+  );
+  return (await summarise(ctx, form, versions)).map((s) => s.summary);
+}
+async function rulesByKey(ctx, formId) {
+  const rules = await ctx.store.getScoringRules(formId);
+  return new Map(rules.map((r) => [r.field_key, toScoringRuleRow(r)]));
+}
+async function listForms(caller, input, ctx) {
+  void caller;
+  const { season_id } = parseInput(listFormsInput, input);
+  await seasonOrNotFound(ctx, season_id);
+  const forms = [];
+  for (const kind of ["match", "super"]) {
+    const form = await ctx.store.getFormByKind(season_id, kind);
+    if (!form) continue;
+    forms.push({
+      id: form.id,
+      kind: form.kind,
+      name: form.name,
+      active_version_id: form.active_version_id ?? null,
+      updated_at: form.updated_at,
+      versions: await versionsNewestFirst(ctx, form)
+    });
+  }
+  return { season_id, forms };
+}
+async function getForm(caller, input, ctx) {
+  void caller;
+  const { form_id } = parseInput(getFormInput, input);
+  const form = await formOrNotFound(ctx, form_id);
+  return { ...toFormRow(form), versions: await versionsNewestFirst(ctx, form) };
+}
+async function getFormVersion(caller, input, ctx) {
+  void caller;
+  const { form_version_id } = parseInput(getFormVersionInput, input);
+  const version = await versionOrNotFound(ctx, form_version_id);
+  const form = await formOrNotFound(ctx, version.form_id);
+  const [{ summary, fields }] = await summarise(ctx, form, [version]);
+  const rules = await rulesByKey(ctx, form.id);
+  return {
+    ...summary,
+    form_id: form.id,
+    fields: fields.map((field) => {
+      const rule = rules.get(field.key);
+      return {
+        ...toFieldRow(field),
+        points: rule?.points ?? null,
+        option_points: rule?.option_points ?? null
+      };
+    })
+  };
+}
+async function getFormDictionary(caller, input, ctx) {
+  void caller;
+  const { form_id } = parseInput(getFormDictionaryInput, input);
+  const form = await formOrNotFound(ctx, form_id);
+  const activeId = form.active_version_id ?? null;
+  const active = activeId === null ? null : await ctx.store.getFormVersion(activeId);
+  if (!active) return { form_id: form.id, version_no: null, fields: [] };
+  const rules = await rulesByKey(ctx, form.id);
+  const fields = (await ctx.store.getFormFields(active.id)).filter(
+    (f) => !f.deprecated && f.type !== "section"
+  );
+  return {
+    form_id: form.id,
+    version_no: active.version_no,
+    fields: fields.map((field) => {
+      const rule = rules.get(field.key);
+      const isSelect2 = field.type === "single_select" || field.type === "multi_select";
+      return {
+        key: field.key,
+        label: field.label,
+        description: field.description ?? null,
+        type: field.type,
+        unit: field.unit ?? null,
+        phase: field.phase ?? null,
+        direction: field.direction ?? null,
+        category: field.category ?? null,
+        expected_range: field.expected_range ?? null,
+        include_in_ai_context: field.include_in_ai_context ?? null,
+        is_ordinal: field.is_ordinal ?? null,
+        options: isSelect2 ? selectOptions(field).map((o) => ({ value: o.value, label: o.label })) : null,
+        points: rule?.points ?? null,
+        option_points: rule?.option_points ?? null
+      };
+    })
+  };
+}
+var expired = (createdAt, now) => Date.parse(createdAt) + FORM_EXPORT_TTL_MS <= now.getTime();
+async function listFormExports(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  parseInput(listFormExportsInput, input);
+  const now = ctx.now();
+  await ctx.store.purgeFormExports(new Date(now.getTime() - FORM_EXPORT_TTL_MS));
+  const rows = (await ctx.store.listFormExports()).filter((r) => !expired(r.created_at, now));
+  const users = await userRefs(
+    ctx,
+    rows.map((r) => r.created_by)
+  );
+  return {
+    exports: rows.map(
+      (row) => toExportSummary(row, users.get(row.created_by) ?? { id: row.created_by, full_name: "" }, now)
+    )
+  };
+}
+async function getFormExport(caller, input, ctx) {
+  assertCan(caller, "manage_forms");
+  const { export_id } = parseInput(getFormExportInput, input);
+  const now = ctx.now();
+  const row = await ctx.store.getFormExport(export_id);
+  if (!row || expired(row.created_at, now)) {
+    throw new AppError("not-found", "that export does not exist; exports are kept 24 hours", {
+      export_id
+    });
+  }
+  const users = await userRefs(ctx, [row.created_by]);
+  return {
+    ...toExportSummary(
+      row,
+      users.get(row.created_by) ?? { id: row.created_by, full_name: "" },
+      now
+    ),
+    definition: formDefinition.parse(row.definition)
+  };
+}
+
+// src/core/queries/conflicts.ts
+import { isDeepStrictEqual } from "node:util";
+import { z as z18 } from "zod";
+var conflictCursor = z18.object({
+  c: z18.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/),
+  i: z18.string().uuid()
+}).strict();
+var STATUS_FIELDS = ["robot_status", "breakdown_seconds"];
+var str = (value) => typeof value === "string" ? value : null;
+var num = (value) => typeof value === "number" ? value : null;
+var record = (value) => typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
+var orNull = (value) => value === void 0 ? null : value;
+function diffOf(x, y) {
+  const xData = record(x.data);
+  const yData = record(y.data);
+  const dataKeys = [.../* @__PURE__ */ new Set([...Object.keys(xData), ...Object.keys(yData)])].sort();
+  const pairs = [
+    ...STATUS_FIELDS.map((key2) => [key2, x[key2], y[key2]]),
+    ...dataKeys.map((key2) => [key2, xData[key2], yData[key2]])
+  ];
+  return pairs.map(([field_key, a, b]) => ({
+    field_key,
+    x: orNull(a),
+    y: orNull(b),
+    differs: !isDeepStrictEqual(orNull(a), orNull(b))
+  }));
+}
+function teamOf(row, look) {
+  const team = row ? look.teams.get(String(row.team_id)) : void 0;
+  return team ? { id: team.id, number: team.number, name: team.name } : null;
+}
+function matchOf(row, look) {
+  const matchId = row ? str(row.match_id) : null;
+  const match = matchId ? look.matches.get(matchId) : void 0;
+  return match ? { id: match.id, match_type: match.match_type, number: match.number } : null;
+}
+var formKindOf = (row) => row.form_kind === "super" ? "super" : "match";
+var allianceOf = (row) => row.alliance === "red" || row.alliance === "blue" ? row.alliance : null;
+function copyOf(row, look) {
+  const scouterId = String(row.scouter_id);
+  return {
+    row_id: row.id,
+    version: row.version,
+    form_version_id: str(row.form_version_id),
+    author: { id: scouterId, full_name: look.names.get(scouterId) ?? null },
+    client_updated_at: String(row.client_updated_at),
+    robot_status: str(row.robot_status),
+    breakdown_seconds: num(row.breakdown_seconds),
+    data: record(row.data),
+    deleted_at: str(row.deleted_at)
+  };
+}
+function toItem(conflict, look) {
+  if (conflict.kind === "divergence") {
+    const live = look.entries.get(conflict.row_id);
+    if (!live) return null;
+    const payload = conflict.superseded_payload ?? {};
+    const authorId = conflict.superseded_author_id;
+    const superseded = {
+      form_version_id: str(payload.form_version_id),
+      author: { id: authorId, full_name: authorId ? look.names.get(authorId) ?? null : null },
+      client_updated_at: conflict.superseded_client_updated_at,
+      base_version: conflict.base_version,
+      robot_status: str(payload.robot_status),
+      breakdown_seconds: num(payload.breakdown_seconds),
+      data: record(payload.data)
+    };
+    const liveCopy2 = copyOf(live, look);
+    return {
+      id: conflict.id,
+      kind: "divergence",
+      created_at: conflict.created_at,
+      form_kind: formKindOf(live),
+      team: teamOf(live, look),
+      match: matchOf(live, look),
+      alliance: allianceOf(live),
+      live: liveCopy2,
+      superseded,
+      counted: "live",
+      diff: diffOf(liveCopy2, superseded).map(({ field_key, x, y, differs }) => ({
+        field_key,
+        live: x,
+        superseded: y,
+        differs
+      }))
+    };
+  }
+  const a = look.entries.get(conflict.row_id);
+  const b = conflict.duplicate_row_id ? look.entries.get(conflict.duplicate_row_id) : void 0;
+  if (!a || !b) return null;
+  const aLive = a.deleted_at == null;
+  const bLive = b.deleted_at == null;
+  const stamped = (row) => ({
+    ...row,
+    client_updated_at: String(row.client_updated_at)
+  });
+  const counted = aLive !== bLive ? aLive ? "a" : "b" : latestWins(stamped(a), stamped(b)).id === a.id ? "a" : "b";
+  const aCopy = copyOf(a, look);
+  const bCopy = copyOf(b, look);
+  return {
+    id: conflict.id,
+    kind: "duplicate",
+    created_at: conflict.created_at,
+    form_kind: formKindOf(a),
+    team: teamOf(a, look),
+    match: matchOf(a, look),
+    alliance: allianceOf(a),
+    a: aCopy,
+    b: bCopy,
+    counted,
+    diff: diffOf(aCopy, bCopy).map(({ field_key, x, y, differs }) => ({
+      field_key,
+      a: x,
+      b: y,
+      differs
+    }))
+  };
+}
+function toSettled(conflict, look) {
+  const parsed = conflictResolution.safeParse(conflict.resolution);
+  const resolution = parsed.success ? parsed.data : null;
+  const rowA = look.entries.get(conflict.row_id);
+  const rowB = conflict.duplicate_row_id ? look.entries.get(conflict.duplicate_row_id) : void 0;
+  const nameOf = (id) => id ? look.names.get(id) ?? null : null;
+  let kept = null;
+  if (resolution && "keep" in resolution) {
+    kept = {
+      row_id: conflict.row_id,
+      author_full_name: resolution.keep === "superseded" ? nameOf(conflict.superseded_author_id) : nameOf(rowA ? String(rowA.scouter_id) : null)
+    };
+  } else if (resolution) {
+    const keptRow2 = look.entries.get(resolution.keep_row_id);
+    kept = {
+      row_id: resolution.keep_row_id,
+      author_full_name: nameOf(keptRow2 ? String(keptRow2.scouter_id) : null)
+    };
+  }
+  const keptRow = kept ? look.entries.get(kept.row_id) : void 0;
+  const any = keptRow ?? rowA ?? rowB;
+  const resolverId = conflict.resolved_by;
+  return {
+    id: conflict.id,
+    kind: conflict.kind,
+    form_kind: any ? formKindOf(any) : null,
+    team: teamOf(any, look),
+    match: matchOf(any, look),
+    resolution,
+    resolved_at: String(conflict.resolved_at),
+    resolved_by: resolverId ? { id: resolverId, full_name: nameOf(resolverId) } : null,
+    kept
+  };
+}
+var unique = (values) => [
+  ...new Set(values.filter((v) => typeof v === "string" && v.length > 0))
+];
+async function listConflicts(caller, input, ctx) {
+  void caller;
+  const parsed = parseInput(listConflictsInput, input);
+  const limit = Math.min(parsed.limit ?? LIST_CONFLICTS_DEFAULT_LIMIT, LIST_CONFLICTS_MAX_LIMIT);
+  const cursor = parsed.cursor ? decodeCursor(conflictCursor, parsed.cursor) : void 0;
+  const since = parsed.settled_since ? new Date(parsed.settled_since).toISOString() : new Date(ctx.now().getTime() - SETTLED_DEFAULT_WINDOW_MS).toISOString();
+  const [open, settledRows] = await Promise.all([
+    ctx.store.listOpenConflicts(
+      parsed.event_id,
+      "scouting_entry",
+      limit + 1,
+      cursor ? { created_at: cursor.c, id: cursor.i } : void 0
+    ),
+    ctx.store.listSettledConflicts(parsed.event_id, "scouting_entry", since, SETTLED_CONFLICTS_MAX)
+  ]);
+  const page = open.slice(0, limit);
+  const conflicts = [...page, ...settledRows];
+  const entryRows = await ctx.store.getEntriesByIds(
+    unique(conflicts.flatMap((c) => [c.row_id, c.duplicate_row_id]))
+  );
+  const entries = new Map(entryRows.map((row) => [row.id, row]));
+  const [users, teams, matches] = await Promise.all([
+    ctx.store.listUserNames(
+      unique([
+        ...entryRows.map((row) => str(row.scouter_id)),
+        ...conflicts.flatMap((c) => [c.superseded_author_id, c.resolved_by])
+      ])
+    ),
+    ctx.store.getTeamsByIds(unique(entryRows.map((row) => str(row.team_id)))),
+    ctx.store.getMatchesByIds(unique(entryRows.map((row) => str(row.match_id))))
+  ]);
+  const look = {
+    entries,
+    names: new Map(users.map((u) => [u.id, u.full_name])),
+    teams: new Map(teams.map((t) => [t.id, t])),
+    matches: new Map(matches.map((m) => [m.id, m]))
+  };
+  const last = page[page.length - 1];
+  return {
+    items: page.map((c) => toItem(c, look)).filter((item) => item !== null),
+    next_cursor: open.length > limit && last ? encodeCursor({ c: last.created_at, i: last.id }) : null,
+    settled: settledRows.map((c) => toSettled(c, look))
   };
 }
 
@@ -2734,6 +5279,139 @@ var REGISTRY = {
     input: API.ensureMatch.input,
     output: API.ensureMatch.output,
     handler: ensureMatch
+  },
+  createForm: {
+    kind: "command",
+    description: "Admin only: create a season's match or super form as an empty draft version 1. One form of each kind per season; a second is a conflict.",
+    input: API.createForm.input,
+    output: API.createForm.output,
+    handler: createForm
+  },
+  updateForm: {
+    kind: "command",
+    description: "Admin only: rename a form or set its match timer (phases and seconds). In place: never creates a form version.",
+    input: API.updateForm.input,
+    output: API.updateForm.output,
+    handler: updateForm
+  },
+  saveDraftFields: {
+    kind: "command",
+    description: "Admin only: make a list of fields a form version's live fields. A draft is edited in place and saves with fields still missing their meaning. A published version takes labels, ranges, meaning and order in place; adding, removing or retyping a field, or changing a select's options, starts a new draft. A saved field's key never changes.",
+    input: API.saveDraftFields.input,
+    output: API.saveDraftFields.output,
+    handler: saveDraftFields
+  },
+  publishFormVersion: {
+    kind: "command",
+    description: "Admin only: publish a draft version; the newest published version becomes the one devices scout with. Refused while a field misses its meaning or breaks a rule.",
+    input: API.publishFormVersion.input,
+    output: API.publishFormVersion.output,
+    handler: publishFormVersion
+  },
+  restoreFormVersion: {
+    kind: "command",
+    description: "Admin only: make an older published version the active one again, without creating a version.",
+    input: API.restoreFormVersion.input,
+    output: API.restoreFormVersion.output,
+    handler: restoreFormVersion
+  },
+  deleteFormVersion: {
+    kind: "command",
+    description: "Admin only: delete one form version. Blocked while any entry is bound to it, and for the active version.",
+    input: API.deleteFormVersion.input,
+    output: API.deleteFormVersion.output,
+    handler: deleteFormVersion
+  },
+  deleteForm: {
+    kind: "command",
+    description: "Admin only: hard-delete a form with all its versions, fields, scoring and entries, irreversibly. dry_run answers how many versions and entries go, and deletes nothing.",
+    input: API.deleteForm.input,
+    output: API.deleteForm.output,
+    handler: deleteForm
+  },
+  exportForm: {
+    kind: "query",
+    description: "Admin only (a service caller is refused): the portable JSON definition of a form's draft or active version: fields, timer and scoring, with no ids or season.",
+    input: API.exportForm.input,
+    output: API.exportForm.output,
+    handler: exportForm
+  },
+  saveFormExport: {
+    kind: "command",
+    description: "Admin only: save a form version's definition into Exports, kept 24 hours. Older exports are deleted first.",
+    input: API.saveFormExport.input,
+    output: API.saveFormExport.output,
+    handler: saveFormExport
+  },
+  importForm: {
+    kind: "command",
+    description: "Admin only: import a form definition into a season. With no form of its kind there, it creates one as draft v1; otherwise its fields become that form's draft, and the form's name, timer and scoring stay.",
+    input: API.importForm.input,
+    output: API.importForm.output,
+    handler: importForm
+  },
+  setScoringRules: {
+    kind: "command",
+    description: "Admin only: replace a form's scoring model. The rules given become the whole rule set; a field not named loses its rule. Points are never negative, only toggle, counter, number and select fields score, and a select scores per option. Never creates a form version.",
+    input: API.setScoringRules.input,
+    output: API.setScoringRules.output,
+    handler: setScoringRules
+  },
+  listForms: {
+    kind: "query",
+    description: "A season's forms for the forms page, match then super, each with its versions newest first: status, active, effective lock, live fields, live entries, and who last saved it.",
+    input: API.listForms.input,
+    output: API.listForms.output,
+    handler: listForms
+  },
+  getForm: {
+    kind: "query",
+    description: "One form: its name, kind, match timer and active version, with every version summarised newest first.",
+    input: API.getForm.input,
+    output: API.getForm.output,
+    handler: getForm
+  },
+  getFormVersion: {
+    kind: "query",
+    description: "One form version for the builder: its summary and every field in display order, retired ones included and flagged, each with its points from the form's scoring.",
+    input: API.getFormVersion.input,
+    output: API.getFormVersion.output,
+    handler: getFormVersion
+  },
+  getFormDictionary: {
+    kind: "query",
+    description: "The machine-readable field dictionary of a form's active version: each live data field's key, label, meaning, unit, phase, direction, category, expected range, options and points.",
+    input: API.getFormDictionary.input,
+    output: API.getFormDictionary.output,
+    handler: getFormDictionary
+  },
+  listFormExports: {
+    kind: "query",
+    description: "Admin only (a service caller is refused): the saved form exports, newest first. Exports older than 24 hours are deleted first.",
+    input: API.listFormExports.input,
+    output: API.listFormExports.output,
+    handler: listFormExports
+  },
+  getFormExport: {
+    kind: "query",
+    description: "Admin only (a service caller is refused): one saved form export with the definition it holds, for import. An export older than 24 hours is not found.",
+    input: API.getFormExport.input,
+    output: API.getFormExport.output,
+    handler: getFormExport
+  },
+  listConflicts: {
+    kind: "query",
+    description: "An event's open sync conflicts, oldest first, paginated: each with the team, the match, both copies with their authors' names and client times, which copy counts now, and a field-by-field diff. Also the conflicts settled since a given time, with what was kept and by whom.",
+    input: API.listConflicts.input,
+    output: API.listConflicts.output,
+    handler: listConflicts
+  },
+  resolveConflict: {
+    kind: "command",
+    description: "Lead or admin only: settle one open conflict. A divergence keeps the live copy or restores the superseded one; a duplicate keeps one row and soft-deletes the other. A conflict already resolved is refused.",
+    input: API.resolveConflict.input,
+    output: API.resolveConflict.output,
+    handler: resolveConflict
   }
 };
 
@@ -2782,6 +5460,7 @@ function rpcRoutes(ctx, config2, registry = REGISTRY) {
 import { Hono as Hono3 } from "hono";
 
 // src/core/commands/syncPush.ts
+import { createHash } from "node:crypto";
 var rejected = (opId, reason, detail) => detail === void 0 ? { op_id: opId, status: "rejected", reason } : { op_id: opId, status: "rejected", reason, detail };
 var SERVER_OWNED_KEYS = /* @__PURE__ */ new Set([
   "id",
@@ -2796,6 +5475,18 @@ var SERVER_OWNED_KEYS = /* @__PURE__ */ new Set([
 function foreignKeyDetail(message) {
   const column = /_(event|match|team|form_version)_id_fkey/.exec(message)?.[1];
   return column ? PARENT_DELETED_DETAIL[column] : PARENT_DELETED_DETAIL.other;
+}
+var CONFLICT_ID_NAMESPACE = "frc-scouting/sync_conflicts/v1";
+function conflictIdFor(opId) {
+  const hex = createHash("sha256").update(`${CONFLICT_ID_NAMESPACE}:${opId}`).digest("hex");
+  const variant = (parseInt(hex.charAt(16), 16) & 3 | 8).toString(16);
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    `4${hex.slice(13, 16)}`,
+    `${variant}${hex.slice(17, 20)}`,
+    hex.slice(20, 32)
+  ].join("-");
 }
 var withoutServerOwnedKeys = (payload) => Object.fromEntries(Object.entries(payload).filter(([key2]) => !SERVER_OWNED_KEYS.has(key2)));
 var callerOf = (author) => ({
@@ -2834,12 +5525,24 @@ function screenOperations(raw) {
   });
   return { operations, rejections };
 }
+function withCanonicalMatch(op, canonical) {
+  if (op.entity !== "scouting_entry") return op;
+  const matchId = op.payload.match_id;
+  const remapped = typeof matchId === "string" ? canonical.get(matchId) : void 0;
+  return remapped === void 0 ? op : { ...op, payload: { ...op.payload, match_id: remapped } };
+}
 async function syncPush(caller, input, ctx) {
   const ordered = [...input.operations].sort((a, b) => a.seq - b.seq);
   const results = [];
-  for (const op of ordered) {
+  const canonicalMatch = /* @__PURE__ */ new Map();
+  for (const raw of ordered) {
+    const op = withCanonicalMatch(raw, canonicalMatch);
     try {
-      results.push(await applyOne(caller, op, ctx));
+      const result = await applyOne(caller, op, ctx);
+      results.push(result);
+      if (op.entity === "match" && (result.status === "applied" || result.status === "noop") && result.row_id !== op.row_id) {
+        canonicalMatch.set(op.row_id, result.row_id);
+      }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       console.error(`syncPush: op ${op.op_id} (${op.entity} ${op.action}) failed: ${message}`);
@@ -2934,27 +5637,42 @@ async function applyEntry(op, author, ctx) {
       new_version: existing.version + 1
     };
   }
+  let scouterId;
   if (existing) {
     if (!can(authorCaller, "manage_entries")) {
       if (existing.scouter_id !== author.id) {
         return rejected(op.op_id, "forbidden", "a scouter may edit only their own entry");
       }
-      if (!withinSelfEditWindow(String(existing.client_created_at), op.client_updated_at)) {
+      const exempt = existing.form_kind === "super" && payload.form_kind === "super";
+      if (!exempt && !withinSelfEditWindow(String(existing.client_created_at), op.client_updated_at)) {
         return rejected(op.op_id, "edit-window-expired", "this entry is locked \u2014 ask a lead");
       }
     }
-  } else if (!can(authorCaller, "submit_entry")) {
-    return rejected(op.op_id, "forbidden", "the author may not submit an entry");
-  }
-  if (existing && op.base_version !== existing.version) {
-    return rejected(op.op_id, "invalid", `stale base version ${op.base_version}`);
+    scouterId = String(existing.scouter_id);
+  } else {
+    if (!can(authorCaller, "submit_entry")) {
+      return rejected(op.op_id, "forbidden", "the author may not submit an entry");
+    }
+    const named = payload.scouter_id;
+    if (named === void 0 || named === null || named === author.id) {
+      scouterId = author.id;
+    } else if (typeof named !== "string") {
+      return rejected(op.op_id, "invalid", "scouter_id must be a user id");
+    } else if (!can(authorCaller, "manage_entries")) {
+      return rejected(op.op_id, "forbidden", "a scouter may submit an entry only as themselves");
+    } else if (!await ctx.store.getUser(named)) {
+      return rejected(op.op_id, "invalid", "unknown scouter");
+    } else {
+      scouterId = named;
+    }
   }
   const formVersionId = payload.form_version_id;
   if (typeof formVersionId !== "string") {
     return rejected(op.op_id, "invalid", "form_version_id is required");
   }
+  const formKind2 = payload.form_kind;
   const shapeIssues = validateEntryShape({
-    form_kind: payload.form_kind,
+    form_kind: formKind2,
     match_id: payload.match_id ?? null,
     alliance: payload.alliance ?? null,
     robot_status: payload.robot_status ?? null,
@@ -2970,30 +5688,81 @@ async function applyEntry(op, author, ctx) {
   const gone = await ctx.store.missingParent({
     event_id: eventId,
     match_id: matchId ?? null,
-    team_id: teamId
+    team_id: teamId,
+    form_version_id: formVersionId
   });
   if (gone !== null) return rejected(op.op_id, "parent-deleted", PARENT_DELETED_DETAIL[gone]);
   const fields = await ctx.store.getFormFields(formVersionId);
   const status = payload.robot_status ?? "played";
   const data = payload.data ?? {};
-  const validation = validateEntryData(fields, status, data);
+  const validation = validateEntryData(fields, status, data, { mode: "stored" });
   if (!validation.ok) {
     return rejected(op.op_id, "invalid", validation.issues.map((i) => i.message).join("; "));
   }
-  const version = existing ? existing.version + 1 : 1;
-  await ctx.store.putRow("scouting_entry", op.row_id, {
+  const duplicate = existing ? null : await ctx.store.findByLogicalKey(
+    { event_id: eventId, form_kind: formKind2, team_id: teamId, match_id: matchId ?? null },
+    op.row_id
+  );
+  const decision = classifyPush({
+    operation: op,
+    existingRow: existing,
+    duplicateRow: duplicate
+  });
+  const existingWins = decision.kind === "divergence" && decision.winner === "existing";
+  const live = existingWins ? (
+    // The row's own copy, untouched — data, author, window, deleted_at — with only the
+    // version moved on, so every device pulls the outcome.
+    { ...decision.live, id: op.row_id, version: decision.nextVersion }
+  ) : {
     ...withoutServerOwnedKeys(payload),
     id: op.row_id,
-    // An update never reassigns authorship, and never restarts the self-edit window: both
-    // stay the row's own (SPEC-FINAL 7.5, 7.6). A create takes them from the operation.
-    scouter_id: existing ? existing.scouter_id : op.author_user_id,
-    version,
+    // An update never reassigns authorship, and never restarts the self-edit window:
+    // both stay the row's own (SPEC-FINAL 7.5, 7.6). A create takes the window from the
+    // operation, and its scouter from Q7.8's rule above.
+    scouter_id: scouterId,
+    version: decision.nextVersion,
     client_created_at: existing ? existing.client_created_at : op.client_created_at,
     client_updated_at: op.client_updated_at,
     deleted_at: null
-  });
+  };
+  const conflictId = decision.kind === "fast-forward" ? null : conflictIdFor(op.op_id);
+  if (decision.kind === "divergence") {
+    await ctx.store.insertConflict({
+      id: conflictId,
+      event_id: String(live.event_id ?? eventId),
+      entity: "scouting_entry",
+      row_id: op.row_id,
+      kind: "divergence",
+      superseded_payload: decision.superseded.payload,
+      superseded_author_id: decision.superseded.author_id || null,
+      superseded_client_updated_at: decision.superseded.client_updated_at,
+      base_version: decision.superseded.base_version
+    });
+  } else if (decision.kind === "duplicate") {
+    await ctx.store.insertConflict({
+      id: conflictId,
+      event_id: eventId,
+      entity: "scouting_entry",
+      row_id: op.row_id,
+      kind: "duplicate",
+      duplicate_row_id: decision.duplicateRowId
+    });
+  }
+  await ctx.store.putRow("scouting_entry", op.row_id, live);
   await ctx.store.markApplied(op.op_id);
-  return { op_id: op.op_id, status: "applied", row_id: op.row_id, new_version: version };
+  const answer = { op_id: op.op_id, row_id: op.row_id, new_version: decision.nextVersion };
+  if (decision.kind === "divergence") {
+    return { ...answer, status: "divergence", conflict_id: conflictId };
+  }
+  if (decision.kind === "duplicate") {
+    return {
+      ...answer,
+      status: "duplicate",
+      conflict_id: conflictId,
+      duplicate_row_id: decision.duplicateRowId
+    };
+  }
+  return { ...answer, status: "applied" };
 }
 
 // src/core/queries/syncPull.ts
@@ -3044,9 +5813,16 @@ async function syncPull(caller, input, ctx) {
     if (nextCursor !== null) break;
   }
   const deletedMatches = [];
+  const deletedFormRows = Object.fromEntries(
+    FORM_DELETION_ENTITIES.map((entity) => [entity, []])
+  );
   if (input.since !== void 0 && input.cursor === void 0) {
     for (const deletion of await ctx.store.listMatchDeletions(input.event_id, input.since)) {
       deletedMatches.push(deletion.match_id);
+      if (deletion.deleted_at > newest) newest = deletion.deleted_at;
+    }
+    for (const deletion of await ctx.store.listFormDeletions(scope.seasonId, input.since)) {
+      deletedFormRows[deletion.entity].push(deletion.row_id);
       if (deletion.deleted_at > newest) newest = deletion.deleted_at;
     }
   }
@@ -3056,7 +5832,8 @@ async function syncPull(caller, input, ctx) {
     next_cursor: nextCursor,
     complete: nextCursor === null,
     entities,
-    deleted_matches: deletedMatches
+    deleted_matches: deletedMatches,
+    deleted_form_rows: deletedFormRows
   };
 }
 

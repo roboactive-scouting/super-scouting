@@ -7,7 +7,9 @@ import {
   type TouchEventHandler,
 } from 'react';
 import { useLocation } from 'react-router-dom';
+import { openConflictCount } from '@/data/cache';
 import { useSyncStatus } from '@/data/syncStatus';
+import { useDeviceQuery } from '@/data/useDeviceQuery';
 import { playOnce } from '@/lib/animate';
 import { isEntryPath } from '@/lib/paths';
 import { cn } from '@/lib/utils';
@@ -17,7 +19,7 @@ import { CrumbBar } from './CrumbBar';
 import { NavDrawer } from './NavDrawer';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
-import { bottomBar, menuItemsFor, type NavAudience } from './nav';
+import { bottomBar, menuItemsFor, type NavAudience, type NavCounts } from './nav';
 
 const COLLAPSED_KEY = 'shell.sidebar.collapsed';
 /** A new page fading in: opacity only — a transform would re-anchor every fixed descendant. */
@@ -47,6 +49,8 @@ export type ShellLayoutProps = {
   hideBottomBar: boolean;
   /** Who is looking: nav.ts decides the destinations from it. */
   who: NavAudience;
+  /** The event this device works on: Conflicts' count is its open conflicts (SPEC-FINAL 9.5). */
+  eventId?: string | null;
   account: Account;
   /** The app's version, at the foot of the phone menu. */
   version: string;
@@ -67,6 +71,7 @@ export function ShellLayout({
   desktop,
   hideBottomBar,
   who,
+  eventId = null,
   account,
   version,
   notices,
@@ -81,6 +86,9 @@ export function ShellLayout({
   const content = useRef<HTMLDivElement>(null);
   // One read of the sending state for every piece of chrome; it re-reads on a change, never polls.
   const status = useSyncStatus();
+  // The open conflicts as this device last pulled them; re-read when the cache changes.
+  const conflicts = useDeviceQuery(() => openConflictCount(eventId), [eventId], ['rows']);
+  const counts: NavCounts = { waiting: status.waiting, conflicts: conflicts ?? 0 };
 
   // SPEC-FINAL 17.9: a new page fades in — never on the first render, never into the
   // data-entry path. The content is never remounted: AppShell must not key its Outlet.
@@ -118,6 +126,7 @@ export function ShellLayout({
           collapsed={collapsed}
           onToggle={toggle}
           account={account}
+          counts={counts}
         />
       )}
       <div
@@ -174,6 +183,7 @@ export function ShellLayout({
           account={account}
           version={version}
           status={status}
+          counts={counts}
         />
       )}
     </div>

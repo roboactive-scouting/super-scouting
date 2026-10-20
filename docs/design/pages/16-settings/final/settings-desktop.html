@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Settings — final, desktop</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../01-entry/src/entry.css"><link rel="stylesheet" href="../../01-entry/final/final.css"><link rel="stylesheet" href="../../14-entry-parts/src/parts.css"><link rel="stylesheet" href="../src/settings.css">
+<style>body{background:var(--bg)}.desk.final{zoom:1;border-radius:0;box-shadow:none}</style>
+</head><body>
+<div id="root"></div>
+<script>window.FINAL = true;</script><script src="../../01-entry/src/entry.js"></script><script src="../../14-entry-parts/src/parts.js"></script><script src="../src/settings.js"></script>
+<script>
+const S = ST;
+
+const sizeDlg = `<div style="position:absolute;inset:0;background:rgba(20,24,32,.45);z-index:10;display:flex;align-items:center;justify-content:center">
+  <div style="width:520px;background:var(--surface);border-radius:16px;box-shadow:0 24px 60px -20px rgba(20,24,32,.45);padding:20px 22px;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;align-items:center"><b style="font-size:20px;font-weight:750">Text size</b><span style="margin-left:auto;color:var(--muted)">✕</span></div>
+    <div style="font-size:13px;color:var(--muted);margin-top:-6px">On top of your system’s own text size.</div>
+    ${S.preview(1.15)}${S.size(1.15)}<div style="display:flex;justify-content:flex-end"><a class="btn primary">Done</a></div></div></div>`;
+document.getElementById('root').innerHTML = `<div class="desk final" style="position:relative"><div data-desk-shell="settings" data-crumb="This device / <b>Settings</b>"><div class="st-desk">${S.finalRows('Light', '115%').replace('<div class="st-pad">', '<div style="display:flex;flex-direction:column;gap:14px">')}</div></div>${sizeDlg}</div>`;
+
+</script>
+<script src="../../shell.js"></script>
+<script>S.nav();</script>
+</body></html>

@@ -7,7 +7,9 @@ import {
 import { notifyChanged } from '@/data/changes';
 import { db } from '@/data/db';
 import { asUtcIso, enqueue, nextSeq } from '@/data/outbox';
+import { previewData } from './entryValues';
 import { findLocalEntry } from './localEntries';
+import { practiceMode } from './practice';
 
 export type SubmitEntryInput = {
   fields: FormFieldDefinition[];
@@ -32,8 +34,16 @@ export type SubmitEntryInput = {
  * devices, both offline.
  */
 export async function submitEntry(input: SubmitEntryInput): Promise<{ row_id: string }> {
+  // SPEC-FINAL 8.5: a practice entry is never written to `scouting_entries` and never enters the
+  // outbox. Finish practice does not call this; it is the backstop for any caller that does.
+  if (practiceMode.active()) {
+    if (input.draftKey) await db.practiceDrafts.delete(input.draftKey);
+    return { row_id: '' };
+  }
   const dead = input.robotStatus === 'no_show' || input.robotStatus === 'disabled';
-  const data = dead ? {} : input.data;
+  // SPEC-FINAL 5.7, 5.8: whatever the caller hands in, the entry saves computed fields worked
+  // out and no value for a field its condition hides — the one shared definition (entryValues).
+  const data = dead ? {} : previewData(input.fields, input.data);
 
   // The same three SPEC-FINAL 3.5 rules the server enforces on push. Checking them here
   // too is what turns a server rejection into a message the scouter sees before they

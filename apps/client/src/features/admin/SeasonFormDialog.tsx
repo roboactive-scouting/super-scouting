@@ -1,5 +1,6 @@
 import { useId, useState, type FormEvent } from 'react';
 import { createSeasonInput, SEASON_IMAGE_MANIFEST, type SeasonRow } from '@frc/shared';
+import { useCapability } from '@/components/OfflineGate';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -94,6 +95,8 @@ function SeasonForm({
   const [imagePath, setImagePath] = useState(season?.field_image_path ?? '');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** SPEC-FINAL 9.6: season, event, match and roster management is held while offline. */
+  const can = useCapability('manage_events');
 
   function payload(): { ok: true; data: unknown } | { ok: false; line: string } {
     const shape = createSeasonInput.shape;
@@ -135,6 +138,7 @@ function SeasonForm({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (!can) return;
     setError(null);
     const checked = payload();
     if (!checked.ok) {
@@ -225,7 +229,7 @@ function SeasonForm({
         <Button variant="secondary" disabled={busy} onClick={onClose}>
           Cancel
         </Button>
-        <Button type="submit" variant="primary" busy={busy} busyLabel="Saving…">
+        <Button type="submit" variant="primary" disabled={!can} busy={busy} busyLabel="Saving…">
           {season ? 'Save changes' : 'Create season'}
         </Button>
       </div>

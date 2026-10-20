@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { lazy, Suspense, useRef, useState, type ComponentType } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { formatCount } from '@frc/shared';
 import { ActionBar } from '@/components/ui/action-bar';
@@ -7,16 +7,32 @@ import { Note, SuccessBanner } from '@/components/ui/notice';
 import { stationLabel, WarningFlag } from '@/components/ui/tag';
 import { setStation } from '@/data/station';
 import { matchLabel } from '@/lib/matchLabel';
+import { useIsDesktop } from '@/lib/useMediaQuery';
 import { entryPath } from '@/lib/paths';
 import { cn } from '@/lib/utils';
 import { ensureMatchLocally } from './bareMatch';
 import { LineupTiles, OtherStationDialog } from './LineupTiles';
 import { editableUntil, editsAnyTime, type Editor } from './localEntries';
 import { MatchFields } from './MatchFields';
+import { usePracticeMode } from './practice';
+import { PracticeCard } from './PracticeCard';
 import { RosterHeading, RosterList } from './RosterList';
 import { hhmm } from './scoutChoice';
 import { StationHeading, StationSheet } from './StationSheet';
+import { SuperCard } from './SuperCard';
 import { useScoutSelection } from './useScoutSelection';
+
+/**
+ * The unfinished-entry offer (SPEC-FINAL 8.3, task 1.37) is a small lazy chunk the service worker
+ * precaches: it reads IndexedDB before it can show anything anyway, so the Scout page never waits
+ * on it. A chunk that fails to load offers nothing rather than taking the page down.
+ */
+const DraftRecovery = lazy<ComponentType>(() =>
+  import('./DraftRecovery').then(
+    (m) => ({ default: m.DraftRecovery }),
+    () => ({ default: () => null }),
+  ),
+);
 
 /** What EntryRoute hands back through router state after a submit (SPEC-FINAL 8.1). */
 export type SavedNotice = {
@@ -45,17 +61,37 @@ export function SelectRobotPage({ eventId, author }: { eventId: string; author: 
   const starting = useRef(false);
   const pick = useScoutSelection(eventId, author, matchType, number);
   const { station, parsed, valid, existing, chosen, notHere, showLineup } = pick;
+  // SPEC-FINAL 8.5: practice writes nothing, so it never creates a match: only a match this device
+  // holds can be practised on (ensureMatchLocally refuses the rest too).
+  const practice = usePracticeMode();
+  const desktop = useIsDesktop();
+  // SPEC-FINAL 8.3: an unfinished entry is offered back on Scout (task 1.37): at the very top on a
+  // phone (where the page title is hidden), under the page title on a computer.
+  const recovery = (
+    <Suspense fallback={null}>
+      <DraftRecovery />
+    </Suspense>
+  );
+  const canStart = chosen !== undefined && !(practice && !existing);
 
-  /** One tap, one bare match and one outbox operation, however fast the second tap comes. */
+  /**
+   * One tap, one bare match and one outbox operation, however fast the second tap comes. The
+   * router commits a navigation in a transition, so this page stays on screen for a moment after
+   * `navigate`: the guard stays up once it has navigated (UF.22), and drops only on a failure.
+   */
   function start() {
-    if (!chosen || starting.current) return;
+    if (!chosen || !canStart || starting.current) return;
     starting.current = true;
     const { team, entry } = chosen;
-    // Editing keeps the alliance the entry was recorded with.
+    // Editing keeps the alliance the entry was recorded with, and opens the entry's own match
+    // (on a device holding two copies of a match, UF.22, it may be the other copy).
     const side = entry?.alliance ?? chosen.side;
-    ensureMatchLocally(existing, { eventId, matchType, number: parsed, author })
+    const opened = entry?.match_id
+      ? Promise.resolve(entry.match_id)
+      : ensureMatchLocally(existing, { eventId, matchType, number: parsed, author });
+    opened
       .then((matchId) => navigate(entryPath(matchId, team.id, side)))
-      .finally(() => {
+      .catch(() => {
         starting.current = false;
       });
   }
@@ -71,6 +107,7 @@ export function SelectRobotPage({ eventId, author }: { eventId: string; author: 
       className="mx-auto flex w-full max-w-[920px] flex-1 flex-col px-4 pt-3.5 lg:px-8 lg:pt-6"
     >
       <div className="flex-1">
+        {!desktop && recovery}
         {saved && (
           // Static on purpose (SPEC-FINAL 17.9): the confirmation stands still on the entry path.
           // Submitting only queues the entry; the connection indicator owns sync state.
@@ -99,6 +136,7 @@ export function SelectRobotPage({ eventId, author }: { eventId: string; author: 
         ) : (
           <>
             <StationHeading station={station} onChange={() => setAsking('open')} />
+            {desktop && <div className="mt-[18px]">{recovery}</div>}
             <MatchFields
               matchType={matchType}
               onMatchType={setMatchType}
@@ -123,7 +161,12 @@ export function SelectRobotPage({ eventId, author }: { eventId: string; author: 
         {valid && !showLineup && (
           <section className={cn('flex flex-col gap-3', notHere ? 'mt-3.5' : 'mt-3')}>
             {!notHere &&
-              (existing ? (
+              (practice && !existing ? (
+                <Note>
+                  Match {formatCount(parsed)} is not on this device. Practice uses a match this
+                  device holds.
+                </Note>
+              ) : existing ? (
                 <Note>
                   {shortMatch} has no robots listed on this device. Choose the one you are watching.
                 </Note>
@@ -166,11 +209,34 @@ export function SelectRobotPage({ eventId, author }: { eventId: string; author: 
                 )}; a second one cannot be started.`}
           </Note>
         )}
+
+        {/* The ways into super scouting (15-super final; task 1.36) and practice (entry parts;
+            task 1.37), at the foot of Scout. Practice opens the robot picked here when its
+            match is on this device. */}
+        {!notHere && (
+          <div className="mt-5 mb-1 flex flex-col gap-3 lg:grid lg:grid-cols-2">
+            <SuperCard />
+            <PracticeCard
+              prefer={
+                chosen && existing
+                  ? { matchId: existing.id, teamId: chosen.team.id, alliance: chosen.side }
+                  : undefined
+              }
+            />
+          </div>
+        )}
       </div>
 
       {/* The primary action bar, pinned at every width: a long roster never hides it. */}
       <ActionBar desktop="flat">
-        <Button variant="primary" size="block" disabled={!chosen} onClick={start}>
+        <Button
+          variant="primary"
+          size="block"
+          disabled={!canStart}
+          onClick={start}
+          // A long team name at a large text size wraps inside the bar (task 1.38).
+          className="h-auto py-2 leading-tight whitespace-normal"
+        >
           {!chosen
             ? 'Start entry'
             : chosen.entry

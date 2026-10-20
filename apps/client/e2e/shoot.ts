@@ -7,6 +7,18 @@ const WIDTHS = {
   phone: { width: 375, height: 812 },
 } as const;
 
+/**
+ * Shot only when asked for by name: 1024 x 768, the narrowest desktop (desktop-only pages),
+ * 768 x 1024, a tablet held upright (UF.18: the entry controls between the phone and the desk),
+ * and 1100 x 800, a small desktop whose entry column is under the option buttons' four-column
+ * width (UF.18 review).
+ */
+const EXTRA = {
+  laptop: { width: 1024, height: 768 },
+  tablet: { width: 768, height: 1024 },
+  small: { width: 1100, height: 800 },
+} as const;
+
 const screenPath = (file: string) =>
   fileURLToPath(new URL(`./__screens__/${file}.png`, import.meta.url));
 
@@ -39,21 +51,72 @@ async function settle(page: Page, timeout = 3_000) {
   }, timeout);
 }
 
+/** Every theme the app offers (task 1.38: `features/settings/theme.ts`). */
+export const THEMES = ['light', 'outdoor'] as const;
+export type Theme = (typeof THEMES)[number];
+
+/** Puts `theme` on `<html data-theme>`, as the app's `theme.apply()` does. */
+export const setTheme = (page: Page, theme: Theme) =>
+  page.evaluate((t) => (document.documentElement.dataset.theme = t), theme);
+
 /**
- * One screen at both design widths: picture, no sideways scroll, no serious a11y problem.
- * The pictures are viewport-sized (phone 375x812, desktop 1440x900) like the design finals.
+ * The in-app text size (task 1.38): `--text-scale` on `<html>`, as `textScale.apply()` does. The
+ * 150 % shots use it; `1` puts it back.
+ */
+export const setTextScale = (page: Page, scale: 1 | 1.15 | 1.3 | 1.5) =>
+  page.evaluate(
+    (s) => document.documentElement.style.setProperty('--text-scale', String(s)),
+    scale,
+  );
+
+/**
+ * One screen at both design widths, in every theme (BUILD-CONTEXT §12.3, task 1.38): picture, no
+ * sideways scroll, no serious a11y problem. The pictures are viewport-sized (phone 375x812,
+ * desktop 1440x900) like the design finals. Light is `<name>-<width>.png`, Outdoor
+ * `<name>-outdoor-<width>.png`; the page's own theme is put back afterwards. `opts.themes` shoots
+ * only some (a spec that sets the theme through the app itself); `opts.before` re-sets a
+ * short-lived state (an Undo toast) before every picture.
  * `opts.long` adds `<name>-phone-long.png`: the whole phone page, with fixed/sticky bars
  * laid out once at their place in the page instead of floating over the middle.
  */
 export async function shoot(
   page: Page,
   name: string,
-  only?: keyof typeof WIDTHS,
-  opts: { long?: boolean } = {},
+  only?: keyof typeof WIDTHS | keyof typeof EXTRA,
+  opts: {
+    long?: boolean;
+    themes?: readonly Theme[];
+    before?: () => Promise<void>;
+  } = {},
 ) {
-  for (const [label, size] of Object.entries(WIDTHS)) {
+  const themes = opts.themes ?? THEMES;
+  const own = await page.evaluate(() => document.documentElement.dataset.theme ?? null);
+  try {
+    for (const theme of themes) {
+      await setTheme(page, theme);
+      await shootOne(page, theme === 'light' ? name : `${name}-${theme}`, only, opts);
+    }
+  } finally {
+    await page.evaluate((t) => {
+      if (t === null) delete document.documentElement.dataset.theme;
+      else document.documentElement.dataset.theme = t;
+    }, own);
+  }
+}
+
+async function shootOne(
+  page: Page,
+  name: string,
+  only: keyof typeof WIDTHS | keyof typeof EXTRA | undefined,
+  opts: { long?: boolean; before?: () => Promise<void> },
+) {
+  // `only: 'laptop'` writes `<name>-laptop.png` at 1024 x 768; `'tablet'`, 768 x 1024;
+  // `'small'`, 1100 x 800.
+  const extra = only !== undefined && only in EXTRA;
+  for (const [label, size] of Object.entries(extra ? EXTRA : WIDTHS)) {
     if (only && only !== label) continue;
     await page.setViewportSize(size);
+    await opts.before?.();
     // The pointer would stay on the last control clicked and its hover veil would tint it.
     await page.mouse.move(0, 0);
     await page.waitForLoadState('networkidle');

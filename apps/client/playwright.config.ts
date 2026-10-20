@@ -3,7 +3,9 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './e2e',
   outputDir: './e2e/test-results',
-  timeout: 30_000,
+  // 60 s since task 1.38: every shoot() takes each picture in Light and in Outdoor, axe each time,
+  // so a screen-heavy test does twice the work it did at 30 s.
+  timeout: 60_000,
   fullyParallel: true,
   reporter: 'list',
   use: {

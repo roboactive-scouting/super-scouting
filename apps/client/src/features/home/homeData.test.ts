@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agoText,
+  cellText,
   coverageCells,
   lastEntryOf,
   missingLine,
@@ -56,6 +57,28 @@ describe('coverageCells', () => {
     const cells = coverageCells(matches, [], [], 'e');
     expect(cells.map((c) => c.label)).toEqual(['Q1', 'Q2']);
     expect(cells.every((c) => c.state === 'none')).toBe(true);
+  });
+  it('passes through how many robots of each match are scouted, and names a square (UF.21)', () => {
+    const entries = ['t1', 't2', 't3', 't4'].map((t, i) => entry(`s${i}`, 'me', 1, { team_id: t }));
+    const cells = coverageCells(matches, [], entries, 'e');
+    expect(cells.map((c) => c.scouted)).toEqual([0, 4]);
+    expect(cellText(cells[1]!)).toBe('Q2 · 4 scouted');
+    expect(cellText({ matchId: 'm', label: 'Q12', state: 'gap', scouted: 4 })).toBe(
+      'Q12 · 4 scouted',
+    );
+  });
+  it('labels a match the device holds twice once (UF.22)', () => {
+    const twice = [
+      ...matches,
+      { id: 'm2-copy', event_id: 'e', match_type: 'qualification', number: 2 },
+    ];
+    const entries = [
+      entry('a', 'me', 1),
+      entry('b', 'me', 1, { match_id: 'm2-copy', team_id: 't2' }),
+    ];
+    const cells = coverageCells(twice, [], entries, 'e');
+    expect(cells.map((c) => c.label)).toEqual(['Q1', 'Q2']);
+    expect(cellText(cells[1]!)).toBe('Q2 · 2 scouted');
   });
 });
 

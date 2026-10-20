@@ -1,0 +1,151 @@
+/* Form builder round 2 (variant D): phase paging + the complex field types. Colours only from theme.css. */
+
+/* header menu */
+.fb-menu { position: absolute; z-index: 6; width: 300px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 18px 40px -16px rgba(20, 24, 32, 0.4); padding: 6px; }
+.fb-menu .mi { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border-radius: 7px; }
+.fb-menu .mi.hov { background: var(--accent-tint); }
+.fb-menu .mi svg { width: 16px; height: 16px; flex: none; margin-top: 2px; color: var(--ink-2); }
+.fb-menu .mi b { display: block; font-size: 13.5px; font-weight: 650; }
+.fb-menu .mi small { display: block; font-size: 12px; color: var(--muted); line-height: 1.35; }
+.fb-menu hr { border: 0; border-top: 1px solid var(--line-2); margin: 4px 0; }
+
+/* live canvas with the Entry page's phase paging */
+.fb-lp { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--line-2); }
+.fb-lp .fb-ptabs2 { display: flex; background: var(--surface); border-bottom: 1px solid var(--line); flex: none; }
+.fb-ptabs2 > span { flex: 1; height: 44px; display: flex; align-items: center; justify-content: center; gap: 6px; font-weight: 650; font-size: 13.5px; color: var(--ink-2); border-bottom: 3px solid transparent; }
+.fb-ptabs2 > span.on { background: var(--accent-tint); color: var(--accent-ink); border-bottom-color: var(--accent); }
+.fb-ptabs2 small { font-family: var(--font-num); font-size: 11.5px; font-weight: 500; color: var(--muted); }
+.fb-ptabs2 .w { color: var(--warn); display: inline-flex; }
+.fb-ptabs2 .w svg { width: 13px; height: 13px; }
+.fb-paneh { display: flex; align-items: baseline; gap: 10px; padding: 12px 0 2px; flex: none; }
+.fb-paneh b { font-size: 18px; font-weight: 750; }
+.fb-paneh small { color: var(--muted); font-size: 12.5px; }
+.fb-dots { margin-left: auto; display: flex; gap: 4px; align-items: center; align-self: center; }
+.fb-dots i { width: 6px; height: 6px; border-radius: 3px; background: var(--faint); }
+.fb-dots i.on { width: 20px; background: var(--accent); }
+.fb-lp .fb-lcol { padding-top: 0; flex: 1; min-height: 0; overflow: hidden; }
+.fb-lpfoot { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; background: var(--surface); border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
+.fb-lpfoot b { color: var(--ink-2); font-weight: 650; }
+.fb-lpfoot kbd { font-family: var(--font-num); font-size: 11.5px; border: 1px solid var(--control-border); border-radius: 4px; padding: 0 4px; color: var(--ink-2); }
+.fb-lsub { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; padding: 8px 2px 0; flex: none; }
+
+/* the season field image */
+.fb-field { display: block; width: 100%; height: auto; border-radius: 8px; }
+.fb-field .bg { fill: var(--line-2); stroke: var(--control-border); stroke-width: 0.6; }
+.fb-field .zr { fill: var(--alliance-red-tint); }
+.fb-field .zb { fill: var(--alliance-blue-tint); }
+.fb-field .mid { stroke: var(--faint); stroke-width: 0.6; stroke-dasharray: 2 2; }
+.fb-field .sr2 { stroke: var(--alliance-red); stroke-width: 0.6; opacity: 0.6; }
+.fb-field .sb2 { stroke: var(--alliance-blue); stroke-width: 0.6; opacity: 0.6; }
+.fb-field .goal { fill: var(--surface); stroke: var(--ink-2); stroke-width: 0.9; }
+.fb-field .lbr { fill: var(--alliance-red); font: 700 5.5px var(--font-ui); letter-spacing: 0.06em; }
+.fb-field .lbb { fill: var(--alliance-blue); font: 700 5.5px var(--font-ui); letter-spacing: 0.06em; }
+.fb-field .pr { fill: var(--alliance-red); stroke: #fff; stroke-width: 1; }
+.fb-field .pb { fill: var(--alliance-blue); stroke: #fff; stroke-width: 1; }
+.fb-field .pi { fill: var(--ink); stroke: #fff; stroke-width: 1; }
+.fb-field .pg { fill: none; stroke: var(--muted); stroke-width: 0.8; stroke-dasharray: 1.6 1.4; }
+.fb-field .lr { fill: none; stroke: var(--alliance-red); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+.fb-field .lr.old { opacity: 0.35; }
+.fb-field .lg { fill: none; stroke: var(--muted); stroke-width: 1.1; stroke-dasharray: 2 1.6; }
+.fb-field .nt { fill: #fff; font: 700 5.6px var(--font-num); text-anchor: middle; dominant-baseline: central; }
+.fb-field .hint { fill: var(--muted); font: 600 5px var(--font-ui); text-anchor: middle; }
+
+/* mirroring preview */
+.fb-mir { display: grid; grid-template-columns: 1fr 22px 1fr; gap: 6px; align-items: center; }
+.fb-mir figure { display: flex; flex-direction: column; gap: 4px; }
+.fb-mir figcaption { font-size: 11.5px; font-weight: 650; color: var(--muted); }
+.fb-mir .arr { color: var(--muted); }
+.fb-mir .arr svg { width: 18px; height: 18px; }
+
+/* complex field widgets (entry renderer look) */
+.fb-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.fb-chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 4px 0 9px; border-radius: var(--radius-tag); background: var(--line-2); font-size: 12.5px; font-weight: 650; color: var(--ink-2); }
+.fb-chip code { font-family: var(--font-num); font-weight: 500; color: var(--muted); font-size: 12px; }
+.fb-chip .x { width: 22px; height: 22px; display: grid; place-items: center; color: var(--muted); }
+.fb-chip .x svg { width: 12px; height: 12px; }
+.fb-chip svg.pin { width: 13px; height: 13px; color: var(--alliance-red); }
+.fb-evtb { display: flex; gap: 6px; margin-top: 10px; }
+.fb-evtb span { flex: 1; height: 52px; border-radius: var(--radius-control); background: var(--ink); color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 650; font-size: 14px; }
+.fb-evtb span small { font-family: var(--font-num); font-weight: 500; font-size: 11.5px; color: #c9cfd8; }
+.fb-evtb span.add { background: var(--surface); color: var(--muted); border: 1px dashed var(--control-border); font-size: 13px; }
+.fb-tools { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+.fb-tools .fb-tb { height: 34px; padding: 0 10px; border-radius: var(--radius-control); border: 1px solid var(--control-border); background: var(--surface); display: inline-flex; align-items: center; gap: 6px; font-weight: 650; font-size: 12.5px; color: var(--ink); }
+.fb-tools .fb-tb svg { width: 14px; height: 14px; }
+.fb-tools .fb-tb.pri { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.fb-tools .r { margin-left: auto; }
+.fb-cyc { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.fb-cyc div { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--ink-2); }
+.fb-cyc i { width: 16px; height: 3px; border-radius: 2px; background: var(--alliance-red); }
+.fb-cyc i.old { opacity: 0.35; }
+.fb-cyc code { font-family: var(--font-num); color: var(--muted); margin-left: auto; }
+.fb-li .fb-field { margin-top: 10px; }
+.fb-ghostnote { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+/* "what this would save" (Try it) */
+.fb-save { font-family: var(--font-num); font-size: 12px; line-height: 1.55; color: var(--ink-2); background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-control); padding: 10px 12px; white-space: pre; overflow: hidden; }
+.fb-save .k { color: var(--accent-ink); }
+.fb-dl { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius-control); }
+.fb-dl div { display: flex; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--line-2); font-size: 13px; }
+.fb-dl div:last-child { border-bottom: 0; }
+.fb-dl span { color: var(--muted); }
+.fb-dl b { font-family: var(--font-num); font-weight: 600; }
+
+/* the scouter's phone (entry page look) */
+.fb-eh { background: var(--surface); padding: 8px 14px 10px; border-bottom: 1px solid var(--line); flex: none; }
+.fb-eh .bk { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; align-items: center; }
+.fb-eh b { display: block; font-size: 20px; font-weight: 750; font-family: var(--font-num); letter-spacing: -0.02em; margin-top: 2px; }
+.fb-eh b span { font-family: var(--font-ui); }
+.fb-etimer { background: var(--rail-raised); color: #fff; display: flex; align-items: center; gap: 10px; padding: 8px 14px; flex: none; }
+.fb-etimer .tm { font-family: var(--font-num); font-size: 19px; font-weight: 600; }
+.fb-etimer small { color: var(--rail-ink); font-size: 12px; flex: 1; }
+.fb-etimer .ph { background: var(--accent); border-radius: 6px; padding: 3px 8px; font-size: 12px; font-weight: 700; }
+.fb-ebody { padding: 4px 14px 0; display: flex; flex-direction: column; gap: 14px; flex: 1; min-height: 0; overflow: hidden; }
+.fb-ebody .fb-pvf > b { font-size: 15px; }
+.fb-efoot { flex: none; padding: 10px 14px 14px; background: var(--surface); border-top: 1px solid var(--line); }
+.fb-efoot .btn { width: 100%; height: 50px; }
+.fb-ephase { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); padding: 2px 0 0; }
+.fb-ephase b { color: var(--ink-2); font-weight: 650; }
+
+/* sheet on the phone ("Where?") */
+.fb-scrim { position: absolute; inset: 0; background: rgba(20, 24, 32, 0.45); z-index: 3; }
+.fb-psheet { position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; background: var(--surface); border-radius: 20px 20px 0 0; box-shadow: 0 -18px 40px -16px rgba(20, 24, 32, 0.45); padding: 10px 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.fb-psheet .grab { width: 40px; height: 4px; border-radius: 2px; background: var(--line); align-self: center; }
+.fb-psheet b { font-size: 18px; font-weight: 750; }
+.fb-psheet small { color: var(--muted); font-size: 13px; }
+.fb-field { stroke: none; stroke-width: 0; }
+.fb-field rect, .fb-field text, .fb-field circle, .fb-field polygon, .fb-field polyline, .fb-field line { stroke-width: 0; }
+.fb-field .bg { stroke-width: 0.6; }
+.fb-field .mid, .fb-field .sr2, .fb-field .sb2 { stroke-width: 0.6; }
+.fb-field .goal { stroke-width: 0.9; }
+.fb-field .pr, .fb-field .pb, .fb-field .pi { stroke-width: 1; }
+.fb-field .pg { stroke-width: 0.8; }
+.fb-field .lr { stroke-width: 1.5; }
+.fb-field .lg { stroke-width: 1.1; }
+.fb-field text { stroke: none; }
+.fb-tools .r { white-space: nowrap; }
+
+/* Timer field (entry renderer look): Start centred; running splits into Pause / Clear */
+.fb-tmr { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
+.fb-tmr .start { align-self: center; width: 72%; height: 56px; border-radius: 999px; background: var(--accent); color: var(--on-accent); display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 17px; font-weight: 700; box-shadow: 0 6px 16px -10px var(--accent); }
+.fb-tmr .start svg, .fb-tmr .b2 svg { width: 18px; height: 18px; fill: currentColor; stroke: none; }
+.fb-tmr .face { display: flex; align-items: center; justify-content: center; gap: 10px; height: 64px; border-radius: 14px; background: var(--bg); border: 1px solid var(--line); }
+.fb-tmr .face.run { background: var(--accent-tint); border-color: var(--accent); }
+.fb-tmr .face .v { font-family: var(--font-num); font-size: 30px; font-weight: 600; color: var(--ink); letter-spacing: -0.02em; }
+.fb-tmr .face .v small { font-size: 16px; color: var(--muted); margin-left: 2px; }
+.fb-tmr .face .st { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; color: var(--accent-ink); }
+.fb-tmr .face .st i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px rgba(18, 121, 91, 0.2); }
+.fb-tmr .face .st.p { color: var(--muted); }
+.fb-tmr .face .st.p i { background: var(--muted); box-shadow: none; }
+.fb-tmr .face .ed { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--control-border); background: var(--surface); display: grid; place-items: center; color: var(--ink-2); }
+.fb-tmr .face .ed svg { width: 15px; height: 15px; }
+.fb-tmr .row { display: flex; gap: 8px; }
+.fb-tmr .b2 { flex: 1; height: 46px; border-radius: 999px; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 15px; font-weight: 650; border: 1px solid var(--control-border); background: var(--surface); color: var(--ink); }
+.fb-tmr .b2 svg.o { fill: none; stroke: currentColor; stroke-width: 2; }
+.fb-tmr .b2.pause { background: var(--accent-tint); border: 2px solid var(--accent); color: var(--accent-ink); }
+.fb-tmr .b2.go { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.fb-tmr .uns { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.fb-tmr .none { display: flex; align-items: center; justify-content: center; gap: 8px; height: 64px; border-radius: 14px; border: 1px dashed var(--control-border); background: var(--surface); color: var(--muted); font-size: 14px; font-weight: 650; }
+
+/* Timer field, smaller Start (2026-10-08): drawn 40 px, its tap area stays 48 px */
+.fb-tmr .start { width: auto; min-width: 128px; padding: 0 22px; height: 40px; margin: 4px 0; font-size: 14.5px; gap: 7px; box-shadow: none; }
+.fb-tmr .start svg { width: 14px; height: 14px; }

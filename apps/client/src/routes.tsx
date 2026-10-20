@@ -4,7 +4,12 @@ import { DesktopOnly } from '@/components/DesktopOnly';
 import { Skeleton } from '@/components/Skeleton';
 import { OverrideGuard } from '@/features/context/OverrideGuard';
 import { AppShell } from '@/features/shell/AppShell';
-import { NO_HYDRATION, useActiveEventId, useSignedInUser } from '@/features/shell/shellContext';
+import {
+  NO_HYDRATION,
+  useActiveEventId,
+  useShellContext,
+  useSignedInUser,
+} from '@/features/shell/shellContext';
 import { EntriesPage } from '@/features/entries/EntriesPage';
 import { HomePage } from '@/features/home/HomePage';
 import { SelectRobotPage } from '@/features/entry/SelectRobotPage';
@@ -29,6 +34,40 @@ const UsersPage = lazy(() =>
 );
 const UserDetailPage = lazy(() =>
   import('@/features/admin/UserDetailPage').then((m) => ({ default: m.UserDetailPage })),
+);
+const FormsPage = lazy(() =>
+  import('@/features/forms/FormsPage').then((m) => ({ default: m.FormsPage })),
+);
+// The builder's chunk carries @dnd-kit: it never reaches the initial bundle (task 1.29).
+const BuilderPage = lazy(() =>
+  import('@/features/builder/BuilderPage').then((m) => ({ default: m.BuilderPage })),
+);
+// Super scouting (task 1.36) is a lazy chunk the service worker precaches, so it opens offline;
+// the match entry path stays in the main bundle.
+const SuperEntryPage = lazy(() =>
+  import('@/features/entry/SuperEntryPage').then((m) => ({ default: m.SuperEntryPage })),
+);
+// The way into practice mode (task 1.37): a small lazy chunk, precached like the others.
+const PracticeStart = lazy(() =>
+  import('@/features/entry/PracticeStart').then((m) => ({ default: m.PracticeStart })),
+);
+// This device's settings (task 1.38): a lazy chunk, precached. The saved theme and text size are
+// applied by main.tsx before the first paint, without it.
+const SettingsPage = lazy(() =>
+  import('@/features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })),
+);
+// The Sync page (task 1.43): a lazy chunk, precached like the others, so it opens offline.
+const SyncPage = lazy(() =>
+  import('@/features/sync/SyncPage').then((m) => ({ default: m.SyncPage })),
+);
+// The conflict review worklist (task 1.44): a lazy chunk, precached, so it opens offline from the
+// cache.
+const ConflictsPage = lazy(() =>
+  import('@/features/sync/ConflictsPage').then((m) => ({ default: m.ConflictsPage })),
+);
+// The discarded-records log (task 1.42): a lazy chunk, precached, reached from Sync only.
+const DiscardedLogPage = lazy(() =>
+  import('@/features/sync/DiscardedLogPage').then((m) => ({ default: m.DiscardedLogPage })),
 );
 const ManageRoute = lazy(() =>
   import('@/features/admin/ManageRoute').then((m) => ({ default: m.ManageRoute })),
@@ -59,8 +98,8 @@ const named = (handle: PageHandle, base: object = {}) => ({ ...base, ...handle }
  * down; it is never a route-tree argument (task 1.17b).
  */
 /*
- * SPEC-FINAL 6.3: no new entry while a session override is in effect. Both routes that
- * create entries are guarded here, whatever the nav offers (task 1.22).
+ * SPEC-FINAL 6.3: no new entry while a session override is in effect. Every route that
+ * creates entries is guarded here, whatever the nav offers (task 1.22; /super, task 1.36).
  */
 function ScoutRoute() {
   const eventId = useActiveEventId();
@@ -77,6 +116,62 @@ function SignedInEntryRoute() {
     <OverrideGuard defaultEventId={eventId}>
       <EntryRoute eventId={eventId} author={useSignedInUser()} />
     </OverrideGuard>
+  );
+}
+
+function SignedInSuperRoute() {
+  const eventId = useActiveEventId();
+  return (
+    <OverrideGuard defaultEventId={eventId}>
+      <Loading>
+        <SuperEntryPage eventId={eventId} author={useSignedInUser()} />
+      </Loading>
+    </OverrideGuard>
+  );
+}
+
+/** SPEC-FINAL 8.5: practice opens a real entry screen, so it is guarded like one. */
+function SignedInPracticeRoute() {
+  const eventId = useActiveEventId();
+  return (
+    <OverrideGuard defaultEventId={eventId}>
+      <Loading>
+        <PracticeStart eventId={eventId} />
+      </Loading>
+    </OverrideGuard>
+  );
+}
+
+/**
+ * SPEC-FINAL 9.10: Sync names the shell's event as "this event" when there is one, and lists
+ * every unsynced record whatever its event, so it opens with none loaded (NO_HYDRATION).
+ */
+function SyncRoute() {
+  const { eventId, user, requestSync } = useShellContext();
+  return (
+    <Loading>
+      <SyncPage eventId={eventId} viewer={user} syncNow={requestSync} />
+    </Loading>
+  );
+}
+
+/**
+ * SPEC-FINAL 9.5: the current event's conflicts. Every role may open it (a scouter reads, every
+ * action off); the page checks the role itself, and the server again. It reads the event's data,
+ * so it waits for the event like Scout.
+ */
+function ConflictsRoute() {
+  const eventId = useActiveEventId();
+  const { user, requestSync } = useShellContext();
+  return (
+    <Loading>
+      <ConflictsPage
+        eventId={eventId}
+        role={user.role}
+        viewerName={user.full_name}
+        syncNow={requestSync}
+      />
+    </Loading>
   );
 }
 
@@ -126,6 +221,25 @@ export function routeTree(): RouteObject[] {
           element: <SignedInEntryRoute />,
           handle: named({ title: 'Entry', crumb: ['Scout'] }),
         },
+        // Super scouting (SPEC-FINAL 8.1): linked from Scout's card, not a nav row. The form for
+        // one team names itself ("Super · 1690") with usePageTitle.
+        {
+          path: 'super',
+          element: <SignedInSuperRoute />,
+          handle: named({ title: 'Super scouting', crumb: ['Scout'] }),
+        },
+        {
+          path: 'super/:teamId',
+          element: <SignedInSuperRoute />,
+          handle: named({ title: 'Super scouting', crumb: ['Scout'] }),
+        },
+        // Practice a match (SPEC-FINAL 8.5, task 1.37): from Scout's card and Practice another
+        // match. It reads the event's schedule, so it waits for the event like Scout.
+        {
+          path: 'practice',
+          element: <SignedInPracticeRoute />,
+          handle: named({ title: 'Practice', crumb: ['Scout'] }),
+        },
         { path: 'entries', element: <EntriesRoute />, handle: named({ title: 'Entries' }) },
         // Inside the shell: it needs a signed-in device, and never leaves the outbox. It
         // reads only the cached accounts, so it works before any event is loaded.
@@ -137,6 +251,46 @@ export function routeTree(): RouteObject[] {
             </Loading>
           ),
           handle: named({ title: 'Switch scouter' }, NO_HYDRATION),
+        },
+        // SPEC-FINAL 8.6 (task 1.38): this device's settings. Every role; it reads no event data
+        // (the competition's name only if one is loaded), so it opens with none.
+        {
+          path: 'settings',
+          element: (
+            <Loading>
+              <SettingsPage />
+            </Loading>
+          ),
+          handle: named({ title: 'Settings', crumb: ['This device'] }, NO_HYDRATION),
+        },
+        // SPEC-FINAL 9.10 (task 1.43): what this device has sent and what still waits, opened from
+        // the sync indicator on every screen and the "This device" nav group. It lists every
+        // unsynced record on the device whatever its event, so it opens with no event loaded.
+        {
+          path: 'sync',
+          element: <SyncRoute />,
+          handle: named({ title: 'Sync', crumb: ['This device'] }, NO_HYDRATION),
+        },
+        // SPEC-FINAL 9.7 (task 1.42): the discarded-records log, opened from Sync, not a nav row.
+        // It reads only this device's log, never event data, so it opens with no competition.
+        {
+          path: 'sync/discarded',
+          element: (
+            <Loading>
+              <DiscardedLogPage />
+            </Loading>
+          ),
+          handle: named(
+            { title: 'Discarded records', phoneTitle: 'Discarded', crumb: ['This device', 'Sync'] },
+            NO_HYDRATION,
+          ),
+        },
+        // SPEC-FINAL 9.5, 17.9 (task 1.44): the conflict review worklist, at any width — it cannot
+        // wait for a laptop (17.2). Opened from Sync's conflicts link and the "This device" group.
+        {
+          path: 'conflicts',
+          element: <ConflictsRoute />,
+          handle: named({ title: 'Conflicts', crumb: ['This device'] }),
         },
         // Task 1.22's path, kept so a bookmark or an old installed start page still lands.
         { path: 'context', element: <Navigate to={PATHS.home} replace />, handle: NO_HYDRATION },
@@ -178,6 +332,34 @@ export function routeTree(): RouteObject[] {
             <Loading>
               <ManageRoute />
             </Loading>
+          ),
+        },
+        // Task 1.29: the forms list and the form builder (SPEC-FINAL 5.9). Computer work for
+        // admins (17.2); they read no event data, so an install with no competition reaches them.
+        {
+          path: 'admin/forms',
+          handle: named({ title: 'Forms', crumb: ['Admin'] }, NO_HYDRATION),
+          element: (
+            <DesktopOnly what="the forms page">
+              <Loading>
+                <FormsPage />
+              </Loading>
+            </DesktopOnly>
+          ),
+        },
+        {
+          path: 'admin/forms/:formId',
+          // The page names the form (usePageCrumb): "Admin / Forms / Match form 2026".
+          handle: named(
+            { title: 'Form builder', phoneTitle: 'Forms', crumb: ['Admin', 'Forms'] },
+            NO_HYDRATION,
+          ),
+          element: (
+            <DesktopOnly what="the form builder">
+              <Loading>
+                <BuilderPage />
+              </Loading>
+            </DesktopOnly>
           ),
         },
       ],

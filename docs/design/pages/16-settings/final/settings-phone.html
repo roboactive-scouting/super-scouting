@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Settings — final, phone</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../01-entry/src/entry.css"><link rel="stylesheet" href="../../01-entry/final/final.css"><link rel="stylesheet" href="../../14-entry-parts/src/parts.css"><link rel="stylesheet" href="../src/settings.css">
+</head><body>
+<div id="root"></div>
+<script>window.FINAL = true;</script><script src="../../01-entry/src/entry.js"></script><script src="../../14-entry-parts/src/parts.js"></script><script src="../src/settings.js"></script>
+<script>
+const S = ST;
+
+const scr = (body, over, theme) => `<figure class="frame"><div class="phone" style="zoom:.8;position:relative" ${theme ? `data-theme="${theme}"` : ''}>${S.screen(body, { over })}</div></figure>`;
+const cap = (t) => `<figcaption>${t}</figcaption>`;
+const fig = (h, t) => h.replace('</figure>', cap(t) + '</figure>');
+document.getElementById('root').innerHTML = `<div class="canvas" style="height:940px"><div class="canvas-head"><b>Settings — final · phone</b><span>Variant C: rows with their values; Theme and Text size open sheets with live examples.</span></div>
+  <div class="frames" style="gap:14px">
+    ${fig(scr(S.finalRows('Light', '115%')), '1 · Rows with their current values')}
+    ${fig(scr(S.finalRows('Light', '115%'), S.themeSheet('light')), '2 · Theme: a picture of each')}
+    ${fig(scr(S.finalRows('Light', '130%'), S.sizeSheet(1.3)), '3 · Text size: the preview grows as you pick')}
+    ${fig(scr(S.finalRows('Outdoor', '115%'), '', 'outdoor'), '4 · Outdoor applied to the whole app')}
+    ${fig(scr(S.finalRows('Light', '115%'), S.wipeSheet), '5 · Wipe is held while entries wait')}
+  </div></div>`;
+
+</script>
+<script src="../../shell.js"></script>
+<script>S.nav();</script>
+</body></html>

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { createTeamInput, type RosterRow, type TeamRow } from '@frc/shared';
+import { useCapability } from '@/components/OfflineGate';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SuggestInput } from '@/components/ui/suggest-input';
@@ -35,6 +36,8 @@ export function RosterAdd({
   const [newNumber, setNewNumber] = useState<number | null>(null);
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /** SPEC-FINAL 9.6: season, event, match and roster management is held while offline. */
+  const can = useCapability('manage_events');
   const nameRef = useRef<HTMLInputElement>(null);
   const nameId = useId();
   const query = text.trim();
@@ -71,13 +74,14 @@ export function RosterAdd({
   const offerNew = answered && typed !== null && typed > 0 && !known;
 
   function pick(team: TeamRow) {
-    if (busy) return; // a save is in flight: a second one would be dropped on revert
+    if (busy || !can) return; // a save is in flight, or the device is offline: a second one would be dropped on revert
     onAdd(team);
     setText('');
   }
 
   async function submitNew(e: FormEvent) {
     e.preventDefault();
+    if (!can) return;
     if (newNumber === null) return;
     const checked = createTeamInput.safeParse({ number: newNumber, name });
     if (!checked.success) {
@@ -116,7 +120,7 @@ export function RosterAdd({
           offerNew
             ? {
                 label: `+ New team ${typed} — enter its name`,
-                onPick: () => !busy && setNewNumber(typed),
+                onPick: () => !busy && can && setNewNumber(typed),
               }
             : undefined
         }
@@ -144,7 +148,7 @@ export function RosterAdd({
               onChange={(e) => setName(e.target.value)}
             />
           </div>
-          <Button type="submit" variant="primary" busy={busy} busyLabel="Adding…">
+          <Button type="submit" variant="primary" disabled={!can} busy={busy} busyLabel="Adding…">
             Add team
           </Button>
           <Button variant="ghost" disabled={busy} onClick={() => setNewNumber(null)}>

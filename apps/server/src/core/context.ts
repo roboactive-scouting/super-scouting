@@ -1,4 +1,10 @@
-import type { FormFieldDefinition, MatchSlot, MatchType, SyncEntity } from '@frc/shared';
+import type {
+  FormDeletionEntity,
+  FormFieldDefinition,
+  MatchSlot,
+  MatchType,
+  SyncEntity,
+} from '@frc/shared';
 
 export type StoredUser = {
   id: string;
@@ -94,31 +100,79 @@ export type PullEntitySource = (
  * wants a method not on this list is a task that has drifted from the plan.
  */
 export type Store = {
-  // sync (task 1.3, 1.4, 1.40)
+  // sync (task 1.3, 1.4, 1.40, 1.41)
   wasApplied(opId: string): Promise<boolean>;
   markApplied(opId: string): Promise<void>;
   getRow(entity: SyncEntity, id: string): Promise<StoredRow | null>;
   putRow(entity: SyncEntity, id: string, row: Record<string, unknown>): Promise<void>;
-  findByLogicalKey(key: string): Promise<StoredRow | null>;
-  parentsExist(parents: {
-    event_id: string;
-    match_id: string | null;
-    form_version_id: string;
-  }): Promise<boolean>;
-  insertConflict(row: Record<string, unknown>): Promise<void>;
-  listConflicts(eventId: string, limit: number, cursor?: string): Promise<StoredRow[]>;
-  getConflict(id: string): Promise<StoredRow | null>;
-  resolveConflictRow(id: string, resolvedBy: string, at: string): Promise<void>;
+  /**
+   * Task 1.40 (SPEC-FINAL 9.5): the LIVE (`deleted_at is null`) scouting entry with this
+   * logical key and an id other than `excludeId`, matched null-safe on `match_id` (a super
+   * entry's is null on both sides); when there are several, the one with the greatest
+   * `client_updated_at`. THROWS on a database error: swallowed, a blip would hide a duplicate.
+   */
+  findByLogicalKey(key: EntryLogicalKey, excludeId: string): Promise<StoredRow | null>;
+  /**
+   * Task 1.40: one `sync_conflicts` row. A row whose id already exists is left as it is
+   * (`on conflict do nothing`): the id is derived from the op_id, so that is a retry of the
+   * same operation. THROWS on a database error, keeping its code.
+   */
+  insertConflict(row: NewConflict): Promise<void>;
+  /**
+   * Task 1.41 (replaces the task-1.3 stub `listConflicts(eventId, limit, cursor)`): the
+   * event's OPEN conflicts (`resolved_at is null`) of one entity, oldest first by
+   * (created_at, id); `after` is the last row of the previous page (keyset). THROWS on a
+   * database error.
+   */
+  listOpenConflicts(
+    eventId: string,
+    entity: ConflictEntity,
+    limit: number,
+    after?: ConflictKeyset,
+  ): Promise<StoredConflict[]>;
+  /**
+   * Task 1.41: the event's conflicts of one entity resolved at or after `since`, newest
+   * resolution first, at most `limit`. THROWS on a database error.
+   */
+  listSettledConflicts(
+    eventId: string,
+    entity: ConflictEntity,
+    since: string,
+    limit: number,
+  ): Promise<StoredConflict[]>;
+  /** Task 1.41: one conflict by id; an id that is not a uuid names no row (null). */
+  getConflict(id: string): Promise<StoredConflict | null>;
+  /**
+   * Task 1.41 (replaces the stub of the same name): marks an OPEN conflict resolved — ONE
+   * conditional update, `where id = $1 and resolved_at is null` — and answers whether it
+   * took. False means it was already resolved (or is gone): the caller changes nothing
+   * else. The table's trigger moves `updated_at`, so devices pull the resolution.
+   */
+  resolveConflictRow(id: string, resolved: ConflictResolutionWrite): Promise<boolean>;
+  /**
+   * Task 1.41: undoes resolveConflictRow when the entry write that follows it fails, so the
+   * conflict is open again and a retry can settle it — `where id = $1 and resolved_at = at`,
+   * so it never reopens a resolution it did not make. THROWS on a database error.
+   */
+  reopenConflictRow(id: string, resolvedAt: string): Promise<void>;
+  /** Task 1.41: the scouting entries with these ids (soft-deleted ones too), batched. */
+  getEntriesByIds(ids: string[]): Promise<StoredRow[]>;
+  /** Task 1.41: the teams with these ids, batched; unknown ids are absent. */
+  getTeamsByIds(ids: string[]): Promise<StoredTeam[]>;
+  /** Task 1.41: the matches with these ids, batched; unknown ids are absent. */
+  getMatchesByIds(ids: string[]): Promise<StoredMatch[]>;
   /**
    * UF.1 (SPEC-FINAL 9.3.1, v1.18): which of an entry's parents is gone, checked in this
-   * order — event, then match (skipped when null), then team — or null when all exist. An
-   * id that is not a uuid cannot name a row, so it reads as missing. THROWS on a database
-   * error: swallowed, a blip would read as a deleted parent.
+   * order — event, then match (skipped when null), then team, then form version (task 1.40;
+   * skipped when absent) — or null when all exist. An id that is not a uuid cannot name a
+   * row, so it reads as missing. THROWS on a database error: swallowed, a blip would read as
+   * a deleted parent.
    */
   missingParent(parents: {
     event_id: string;
     match_id: string | null;
     team_id: string;
+    form_version_id?: string;
   }): Promise<MissingParent | null>;
 
   // pull (task 1.4)
@@ -131,6 +185,14 @@ export type Store = {
    * same id has no tombstone. THROWS on a database error.
    */
   listMatchDeletions(eventId: string, since: string): Promise<MatchDeletion[]>;
+  /**
+   * Task 1.40 (spec §7.5 item 5): the season's form, version, field and scoring-rule rows
+   * hard-deleted after `since`, from the `form_deletions` tombstones the delete triggers
+   * write, oldest first. A row inserted again under the same id has no tombstone; a row that
+   * went by cascade has a null season and is never named (its parent's tombstone covers it).
+   * THROWS on a database error.
+   */
+  listFormDeletions(seasonId: string, since: string): Promise<FormDeletion[]>;
 
   // users (tasks 1.3, 1.11, 1.12, 1.13)
   getUser(id: string): Promise<StoredUser | null>;
@@ -221,13 +283,18 @@ export type Store = {
   updateMatch(id: string, patch: Record<string, unknown>): Promise<StoredMatch>;
   /** Practice, qualification, playoff, then by number; `after` is the keyset. */
   listMatches(eventId: string, limit: number, after?: MatchKeyset): Promise<StoredMatch[]>;
-  /** The filled slots of the given matches (at most six each), in no particular order. */
+  /**
+   * The LIVE filled slots of the given matches (at most six each), in no particular order.
+   * A cleared slot's tombstone (`deleted_at` set, task 1.40) is never one of them.
+   */
   listMatchSlots(matchIds: string[]): Promise<StoredMatchSlot[]>;
   /**
-   * Makes `slots` the match's filled slots: an omitted slot is deleted, a slot whose team
-   * changed is updated in place, a new slot is inserted, an unchanged one is not written.
+   * Makes `slots` the match's filled slots (task 1.40: tombstones, like setRoster): an
+   * omitted live slot is tombstoned (`deleted_at = at`), a slot whose team changed is
+   * updated in place, a refilled tombstone is revived in place (`deleted_at = null`, its new
+   * team), a slot never filled is inserted, an unchanged live one is not written.
    */
-  setMatchTeams(matchId: string, slots: MatchSlot[]): Promise<void>;
+  setMatchTeams(matchId: string, slots: MatchSlot[], at: string): Promise<void>;
   /** Every entry of the match, soft-deleted ones included: the foreign key counts them. */
   countEntriesByMatch(matchId: string): Promise<number>;
   /** Every entry of every event in the season, soft-deleted ones included (task 1.18). */
@@ -239,20 +306,58 @@ export type Store = {
   /** A hard delete; its match_teams go with it (`on delete cascade`). '23503' on entries. */
   deleteMatch(id: string): Promise<void>;
 
-  // forms and scoring (tasks 1.27, 1.28)
-  getForm(id: string): Promise<StoredRow | null>;
-  getFormByKind(seasonId: string, kind: 'match' | 'super'): Promise<StoredRow | null>;
-  insertForm(row: Record<string, unknown>): Promise<StoredRow>;
-  updateForm(id: string, patch: Record<string, unknown>): Promise<StoredRow>;
-  getFormVersion(id: string): Promise<StoredRow | null>;
-  listFormVersions(formId: string): Promise<StoredRow[]>;
-  insertFormVersion(row: Record<string, unknown>): Promise<StoredRow>;
-  updateFormVersion(id: string, patch: Record<string, unknown>): Promise<StoredRow>;
+  // forms and scoring (tasks 1.27, 1.28). Every method THROWS on a database error, keeping
+  // Postgres's code: '23505' on a second form of a kind in a season or a duplicate
+  // (form, version_no); '23503' when a row names a season, form or user that is gone.
+  getForm(id: string): Promise<StoredForm | null>;
+  getFormByKind(seasonId: string, kind: 'match' | 'super'): Promise<StoredForm | null>;
+  insertForm(row: Record<string, unknown>): Promise<StoredForm>;
+  updateForm(id: string, patch: Record<string, unknown>): Promise<StoredForm>;
+  getFormVersion(id: string): Promise<StoredFormVersion | null>;
+  /** The form's versions by version_no, oldest first. */
+  listFormVersions(formId: string): Promise<StoredFormVersion[]>;
+  insertFormVersion(row: Record<string, unknown>): Promise<StoredFormVersion>;
+  /** `updated_at` is the table trigger's; a write with `updated_by` stamps who saved it. */
+  updateFormVersion(id: string, patch: Record<string, unknown>): Promise<StoredFormVersion>;
+  /** Every entry bound to the version, soft-deleted ones included: they are bound too. */
   countEntriesByFormVersion(formVersionId: string): Promise<number>;
+  /** The version's fields, deprecated ones included, by display_order then key. */
   getFormFields(formVersionId: string): Promise<FormFieldDefinition[]>;
-  replaceFormFields(formVersionId: string, fields: Record<string, unknown>[]): Promise<void>;
-  getScoringRules(formId: string): Promise<StoredRow[]>;
+  /**
+   * Task 1.27 (replaces `replaceFormFields`): writes the version's fields so ids SURVIVE a
+   * save. Each row carries its id and is upserted on (form_version_id, key) — an existing
+   * key is updated in place, a new one inserted — and the rows whose keys are in
+   * `deleteKeys` are deleted first. A row the version holds that is in neither list is
+   * left alone. Not one transaction.
+   */
+  writeFormFields(
+    formVersionId: string,
+    rows: Record<string, unknown>[],
+    deleteKeys: string[],
+  ): Promise<void>;
+  getScoringRules(formId: string): Promise<StoredScoringRule[]>;
+  /**
+   * Makes `rules` the form's scoring rules: upserted on (form_id, field_key), and the
+   * form's rules for any other key deleted. Not one transaction.
+   */
   replaceScoringRules(formId: string, rules: Record<string, unknown>[]): Promise<void>;
+  /** Task 1.27: one saved export (SPEC-FINAL 3.3, v1.22). '23503' on an unknown user. */
+  insertFormExport(row: Record<string, unknown>): Promise<StoredFormExport>;
+  /** Deletes every saved export created before `olderThan`; answers how many went. */
+  purgeFormExports(olderThan: Date): Promise<number>;
+  /**
+   * Task 1.28: the saved exports, newest first, at most FORM_EXPORTS_READ_LIMIT (200) — far
+   * more than 24 hours of exports. The caller purges the expired ones first.
+   */
+  listFormExports(): Promise<StoredFormExport[]>;
+  getFormExport(id: string): Promise<StoredFormExport | null>;
+  /**
+   * Task 1.28: LIVE entries (`deleted_at is null`) bound to each version, one head count per
+   * id (in parallel); every id asked is in the answer, 0 when it has none.
+   */
+  countLiveEntriesByFormVersions(versionIds: string[]): Promise<Map<string, number>>;
+  /** Task 1.28: id and full name of each user named, in one batched read; unknown ids are absent. */
+  listUserNames(ids: string[]): Promise<{ id: string; full_name: string }[]>;
 
   // reads for browse, search and statistics (tasks 1.50, 1.57)
   getEntry(id: string): Promise<StoredRow | null>;
@@ -283,11 +388,120 @@ export type Store = {
   countDeleteImpact(kind: 'season' | 'event', id: string): Promise<DeleteImpact>;
 };
 
+/** A `forms` row (migration 20260903091000_forms.sql). Not synced by push; no `version`. */
+export type StoredForm = {
+  id: string;
+  season_id: string;
+  kind: 'match' | 'super';
+  name: string;
+  active_version_id: string | null;
+  timer_config: unknown;
+  created_at: string;
+  updated_at: string;
+};
+
+/** A `form_versions` row; `updated_by` arrived with migration 20261008100000. */
+export type StoredFormVersion = {
+  id: string;
+  form_id: string;
+  version_no: number;
+  published_at: string | null;
+  is_locked: boolean;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** A `scoring_rules` row (SPEC-FINAL 3.4), keyed by (form_id, field_key). */
+export type StoredScoringRule = {
+  id: string;
+  form_id: string;
+  field_key: string;
+  points: number;
+  option_points: Record<string, number> | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** A `form_exports` row (migration 20261008101000). `form_id` is set null with its form. */
+export type StoredFormExport = {
+  id: string;
+  form_id: string | null;
+  label: string;
+  definition: unknown;
+  created_by: string;
+  created_at: string;
+};
+
 /** The parent `missingParent` found gone. */
-export type MissingParent = 'event' | 'match' | 'team';
+export type MissingParent = 'event' | 'match' | 'team' | 'form_version';
 
 /** One `match_deletions` row (migration 20261008090000_match_deletions.sql). */
 export type MatchDeletion = { match_id: string; deleted_at: string };
+
+/** One `form_deletions` row the pull reads (migration 20261012091000_form_deletions.sql). */
+export type FormDeletion = { entity: FormDeletionEntity; row_id: string; deleted_at: string };
+
+/** The logical key of an entry (SPEC-FINAL 9.5): `match_id` is null for a super entry. */
+export type EntryLogicalKey = {
+  event_id: string;
+  form_kind: 'match' | 'super';
+  team_id: string;
+  match_id: string | null;
+};
+
+/**
+ * A new `sync_conflicts` row (SPEC-FINAL 3.6). A divergence carries the superseded copy in
+ * full; a duplicate names the other row. `resolved_*` start null, timestamps are the table's.
+ */
+export type NewConflict = {
+  id: string;
+  event_id: string;
+  entity: 'scouting_entry';
+  row_id: string;
+  kind: 'divergence' | 'duplicate';
+  superseded_payload?: Record<string, unknown>;
+  superseded_author_id?: string | null;
+  superseded_client_updated_at?: string;
+  base_version?: number | null;
+  duplicate_row_id?: string;
+};
+
+/** The entities a `sync_conflicts` row can name (its check constraint). */
+export type ConflictEntity =
+  'scouting_entry' | 'pick_list' | 'pick_list_entry' | 'do_not_pick' | 'alliance_slot';
+
+/**
+ * A `sync_conflicts` row (SPEC-FINAL 3.6). `resolution` arrived with migration
+ * 20261012092000 (v1.28): the resolve command's choice as given, null while open.
+ */
+export type StoredConflict = {
+  id: string;
+  event_id: string;
+  entity: ConflictEntity;
+  row_id: string;
+  kind: 'divergence' | 'duplicate';
+  superseded_payload: Record<string, unknown> | null;
+  superseded_author_id: string | null;
+  superseded_client_updated_at: string | null;
+  base_version: number | null;
+  duplicate_row_id: string | null;
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  resolution: Record<string, unknown> | null;
+};
+
+/** The listOpenConflicts keyset: created_at is not unique, so the id breaks ties. */
+export type ConflictKeyset = { created_at: string; id: string };
+
+/** What resolveConflictRow writes. */
+export type ConflictResolutionWrite = {
+  resolved_at: string;
+  resolved_by: string;
+  resolution: Record<string, unknown>;
+};
 
 /** The counts `countDeleteImpact` answers. */
 export type DeleteImpact = { events: number; matches: number; entries: number; forms: number };

@@ -169,6 +169,34 @@ describe('the RPC client (SPEC-FINAL 16.1, 7.5)', () => {
     });
   });
 
+  it("carries the server's error details, and nothing else changes (task 1.29)", async () => {
+    await session.signIn(user, 'token-abc');
+    const details = { reason: 'key-change', field_id: 'x', key_was: 'a', key_now: 'b' };
+    fetchMock.mockResolvedValueOnce(
+      json(400, {
+        error: { code: 'invalid', message: "a saved field's key never changes", details },
+      }),
+    );
+    const refused = await rpc.call('saveDraftFields', {}).catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(RpcError);
+    expect(refused).toMatchObject({
+      code: 'invalid',
+      message: "a saved field's key never changes",
+      status: 400,
+      answered: true,
+      details,
+    });
+    // No details sent: undefined, never an empty object.
+    fetchMock.mockResolvedValueOnce(json(404, { error: { code: 'not-found', message: 'gone' } }));
+    expect(await rpc.call('getForm', {}).catch((e: RpcError) => e.details)).toBeUndefined();
+    // A body that is not our server's never lends its "details".
+    fetchMock.mockResolvedValueOnce(json(502, { error: { details: { reason: 'x' } } }));
+    expect(await rpc.call('getForm', {}).catch((e: RpcError) => e.details)).toBeUndefined();
+    // Offline: nothing to carry.
+    fetchMock.mockRejectedValueOnce(new TypeError('offline'));
+    expect(await rpc.call('getForm', {}).catch((e: RpcError) => e.details)).toBeUndefined();
+  });
+
   it('refuses an input the shared schema rejects, before any request', async () => {
     await expect(
       call('changeOwnPassword', { current_password: 'a', new_password: 'short' }),

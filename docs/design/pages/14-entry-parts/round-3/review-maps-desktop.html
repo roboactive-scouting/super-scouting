@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Review entry — map fields, desktop</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../01-entry/src/entry.css"><link rel="stylesheet" href="../../01-entry/final/final.css"><link rel="stylesheet" href="../src/parts.css"><link rel="stylesheet" href="../src/desk.css"><link rel="stylesheet" href="../src/review.css">
+</head><body>
+<div id="root"></div>
+<script src="../../01-entry/src/entry.js"></script><script src="../src/parts.js"></script><script src="../src/desk.js"></script><script src="../src/review.js"></script>
+<script>
+const { row, ctl, page, P } = DX;
+const fields = row('Driver skill', '', ctl(P.stars('', 4)));
+document.getElementById('root').innerHTML = page({ cur: 3, phase: 'Notes', fields, over: RV.dialog() }).split('1690 Orbit').join('2630 Thunderbolts');
+</script>
+<script src="../../shell.js"></script>
+</body></html>

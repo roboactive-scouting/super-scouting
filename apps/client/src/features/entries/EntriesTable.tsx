@@ -15,21 +15,17 @@ import { EntryStation, refusedText, WaitingMark } from './EntryParts';
 import type { EntryRow } from './useEntriesView';
 
 /**
- * Rows open nothing until the entry preview exists (SPEC-FINAL 13.4), so they drop the data
- * table's hover tint: nothing here looks tappable (UF.8).
- */
-const STATIC_ROW = 'hover:bg-transparent';
-
-/**
  * Desktop: THEME "Data table" over the entries, newest first. No Points column until the
- * metric engine (task 1.54). A refused entry keeps its own line under its row.
+ * metric engine (task 1.54). A refused entry keeps its own line under its row. Rows open nothing
+ * until the entry preview exists (SPEC-FINAL 13.4), so the table is read-only: no row changes
+ * on hover (UF.8, UF.17).
  */
 export function EntriesTable({ rows }: { rows: EntryRow[] }) {
   return (
     <>
-      <Table containerClassName="rounded-card border border-line bg-surface">
+      <Table readOnly containerClassName="rounded-card border border-line bg-surface">
         <TableHeader>
-          <TableRow className={STATIC_ROW}>
+          <TableRow>
             <TableHead className="w-28 ps-5 text-ink">
               <span className="inline-flex items-center gap-1">
                 Match
@@ -45,7 +41,7 @@ export function EntriesTable({ rows }: { rows: EntryRow[] }) {
         <TableBody>
           {rows.map((row) => (
             <Fragment key={row.id}>
-              <TableRow className={cn(STATIC_ROW, row.refused && 'border-b-0')}>
+              <TableRow className={cn(row.refused && 'border-b-0')}>
                 <TableCell className="num ps-5 font-semibold">{row.matchLabel}</TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2.5">
@@ -67,7 +63,7 @@ export function EntriesTable({ rows }: { rows: EntryRow[] }) {
                 </TableCell>
               </TableRow>
               {row.refused ? (
-                <TableRow className={STATIC_ROW}>
+                <TableRow>
                   <TableCell colSpan={5} className="h-auto px-5 pb-2.5 pt-0">
                     <ErrorLine className="text-[0.8125rem] font-normal">
                       {refusedText(row.refused)}

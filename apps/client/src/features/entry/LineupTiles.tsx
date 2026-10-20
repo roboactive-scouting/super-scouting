@@ -143,8 +143,11 @@ function StationTile({
         'hover-veil motion-safe:transition relative flex min-h-[62px] flex-col justify-center rounded-control px-2 py-2 text-start lg:min-h-[70px] lg:px-2.5',
         red ? 'bg-alliance-red-tint text-alliance-red' : 'bg-alliance-blue-tint text-alliance-blue',
         tile.done && 'bg-line-2 text-muted',
-        on && 'bg-accent-tint text-accent-ink shadow-[inset_0_0_0_2px_var(--accent)]',
+        on && (red ? 'bg-alliance-red-strong' : 'bg-alliance-blue-strong'),
+        on && 'text-on-accent',
+        // The picked own-station tile draws no dashes: its YOUR STATION tag already marks it.
         mine &&
+          !on &&
           (red
             ? 'outline-2 -outline-offset-2 outline-alliance-red outline-dashed'
             : 'outline-2 -outline-offset-2 outline-alliance-blue outline-dashed'),
@@ -165,7 +168,13 @@ function StationTile({
           <span
             className={cn(
               'ms-auto rounded-[4px] px-1 py-px text-[0.65625rem] leading-[1.35] font-extrabold tracking-[0.02em] whitespace-nowrap text-on-accent',
-              on ? 'bg-accent' : red ? 'bg-alliance-red' : 'bg-alliance-blue',
+              on
+                ? red
+                  ? 'bg-on-accent text-alliance-red-strong'
+                  : 'bg-on-accent text-alliance-blue-strong'
+                : red
+                  ? 'bg-alliance-red'
+                  : 'bg-alliance-blue',
             )}
           >
             YOUR STATION
@@ -173,15 +182,18 @@ function StationTile({
         )}
       </span>
       <span className="font-num text-[1.1875rem] leading-tight font-semibold">{tile.number}</span>
-      <span dir="auto" className={cn('text-xs', !tile.done && 'text-ink-2')}>
+      <span dir="auto" className={cn('text-xs', !tile.done && !on && 'text-ink-2')}>
         {tileSubline(tile)}
       </span>
       {!mine && tile.done ? (
         <span
           aria-hidden="true"
-          className="absolute end-2 top-1.5 text-[0.6875rem] font-bold text-accent"
+          className={cn(
+            'absolute end-2 top-1.5 text-[0.6875rem] font-bold',
+            on ? 'text-on-accent' : 'text-accent',
+          )}
         >
-          {locked ? <Lock className="size-3.5 text-muted" /> : '✓'}
+          {locked ? <Lock className={cn('size-3.5', !on && 'text-muted')} /> : '✓'}
         </span>
       ) : null}
     </button>

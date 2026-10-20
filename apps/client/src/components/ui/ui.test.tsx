@@ -37,6 +37,14 @@ describe('design-system primitives (SPEC-FINAL 17.4, 17.7)', () => {
     );
   });
 
+  it('keeps an inline link button on the floor through its ::after, with no box of its own', () => {
+    const link = buttonVariants({ variant: 'link', size: 'inline' }).split(' ');
+    expect(link).toEqual(
+      expect.arrayContaining(['tap-target', 'min-h-0', 'after:absolute', 'after:-inset-y-3.5']),
+    );
+    expect(link).toContain('text-accent-ink');
+  });
+
   it('defaults a Button to type="button", never an accidental submit', () => {
     render(<Button>Save</Button>);
     expect(screen.getByRole('button', { name: 'Save' })).toHaveAttribute('type', 'button');
@@ -93,5 +101,38 @@ describe('design-system primitives (SPEC-FINAL 17.4, 17.7)', () => {
     );
     expect(screen.getByRole('region', { name: 'Role' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: 'Role' })).toBeInTheDocument();
+  });
+});
+
+describe('Table rows and hover (UF.17)', () => {
+  const rows = (readOnly: boolean) =>
+    render(
+      <Table readOnly={readOnly}>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow>
+            <TableCell>One</TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>,
+    );
+
+  it('a read-only table’s rows do not change on hover; a header row never does', () => {
+    rows(true);
+    for (const row of screen.getAllByRole('row')) {
+      expect(row.className).not.toMatch(/hover:/);
+      expect(row.className).not.toMatch(/transition/);
+    }
+  });
+
+  it('a clickable table keeps the hover tint on its body rows', () => {
+    rows(false);
+    const [head, body] = screen.getAllByRole('row');
+    expect(body!.className).toMatch(/(^|\s)hover:bg-bg(\s|$)/);
+    expect(head!.className).not.toMatch(/hover:/);
   });
 });

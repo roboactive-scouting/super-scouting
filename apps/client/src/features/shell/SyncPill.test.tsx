@@ -1,7 +1,12 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, type RenderResult } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { formatTime } from '@frc/shared';
 import { compactSync, failureLine, syncLine, SyncPill, type SyncStatus } from './SyncPill';
+
+/** The pill is a link to /sync (task 1.43), so it renders inside a router. */
+const show = (ui: ReactElement): RenderResult => render(ui, { wrapper: MemoryRouter });
 
 function status(over: Partial<SyncStatus>): SyncStatus {
   return {
@@ -62,8 +67,19 @@ describe('syncLine (the menu)', () => {
 });
 
 describe('SyncPill', () => {
+  it('opens the Sync page from every screen, its words still announced (SPEC-FINAL 9.10)', () => {
+    const { rerender } = show(<SyncPill status={status({ waiting: 3, online: false })} />);
+    const desktop = screen.getByRole('link', { name: '3 waiting to send · Offline' });
+    expect(desktop).toHaveAttribute('href', '/sync');
+    expect(desktop).toContainElement(screen.getByRole('status'));
+    rerender(<SyncPill status={status({ waiting: 3, online: false })} compact />);
+    const phone = screen.getByRole('link', { name: 'Offline · 3' });
+    expect(phone).toHaveAttribute('href', '/sync');
+    expect(phone).toContainElement(screen.getByRole('status'));
+  });
+
   it('desktop: the connection chip reads Online, Syncing… or Offline beside the waiting chip', () => {
-    const { rerender } = render(<SyncPill status={status({ waiting: 3 })} />);
+    const { rerender } = show(<SyncPill status={status({ waiting: 3 })} />);
     expect(screen.getByRole('status')).toHaveTextContent('3 waiting to sendOnline');
     rerender(<SyncPill status={status({ waiting: 3, syncing: true })} />);
     expect(screen.getByRole('status')).toHaveTextContent('3 waiting to sendSyncing…');
@@ -72,7 +88,7 @@ describe('SyncPill', () => {
   });
 
   it('phone: one pill, the syncing dot pulses only under motion-safe', () => {
-    const { container, rerender } = render(<SyncPill status={status({ syncing: true })} compact />);
+    const { container, rerender } = show(<SyncPill status={status({ syncing: true })} compact />);
     expect(screen.getByRole('status')).toHaveTextContent('Syncing…');
     const dot = container.querySelector('[aria-hidden="true"]');
     expect(dot?.className).toContain('motion-safe:animate-pulse');
@@ -97,7 +113,7 @@ describe('failureLine (UF.13)', () => {
   });
 
   it('desktop: beside the chips, and as the waiting chip’s tooltip', () => {
-    const { rerender } = render(<SyncPill status={status({ waiting: 3, lastFailure })} />);
+    const { rerender } = show(<SyncPill status={status({ waiting: 3, lastFailure })} />);
     expect(screen.getByRole('status')).toHaveTextContent(`${line}3 waiting to sendOnline`);
     expect(screen.getByText('3 waiting to send')).toHaveAttribute('title', line);
     rerender(<SyncPill status={status({ waiting: 0, lastFailure })} />);

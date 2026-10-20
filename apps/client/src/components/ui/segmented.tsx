@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent } from 'react';
+import { useRef, type AriaAttributes, type KeyboardEvent, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -7,19 +7,24 @@ import { cn } from '@/lib/utils';
  * ring). The WAI-ARIA radiogroup pattern: only the chosen segment is in the Tab order (the
  * first, when none is chosen); the arrows, Home and End move focus AND choose, so selection
  * follows focus; Left / Right flip in a right-to-left page. Presentation only: the page
- * keeps the value.
+ * keeps the value, which may be null (nothing chosen yet). The form builder (task 1.30) passes
+ * `aria-required` / `aria-invalid` / `aria-describedby`; a disabled fieldset holds the segments.
+ * Equal segments while every label fits on one line; at a large text size (task 1.38) the track
+ * wraps onto a second row rather than let "Broke down" and "Disabled" run into each other.
  */
 export function Segmented<K extends string>({
   label,
   options,
   value,
   onChange,
+  ...aria
 }: {
   label: string;
-  options: readonly { key: K; label: string }[];
-  value: K;
+  /** `content` draws a segment in place of its label (Settings' "Aa" steps); `label` names it. */
+  options: readonly { key: K; label: string; content?: ReactNode }[];
+  value: K | null;
   onChange: (key: K) => void;
-}) {
+} & Pick<AriaAttributes, 'aria-required' | 'aria-invalid' | 'aria-describedby'>) {
   const group = useRef<HTMLDivElement>(null);
   const chosenIndex = options.findIndex((o) => o.key === value);
   const tabbable = chosenIndex >= 0 ? chosenIndex : 0;
@@ -53,8 +58,9 @@ export function Segmented<K extends string>({
       ref={group}
       role="radiogroup"
       aria-label={label}
+      {...aria}
       onKeyDown={onKeyDown}
-      className="grid auto-cols-fr grid-flow-col gap-0 rounded-control bg-line-2 p-[3px]"
+      className="flex flex-wrap gap-y-[3px] rounded-control bg-line-2 p-[3px]"
     >
       {options.map((option, index) => {
         const chosen = option.key === value;
@@ -66,15 +72,16 @@ export function Segmented<K extends string>({
             aria-checked={chosen}
             tabIndex={index === tabbable ? 0 : -1}
             onClick={() => onChange(option.key)}
+            aria-label={option.content === undefined ? undefined : option.label}
             dir="auto"
             className={cn(
-              'hover-veil motion-safe:transition min-h-[2.875rem] min-w-12 whitespace-nowrap rounded-tag px-1 text-[0.78125rem] font-semibold lg:px-2 lg:text-[0.8125rem]',
+              'hover-veil motion-safe:transition min-h-[2.875rem] min-w-max flex-[1_1_0%] whitespace-nowrap rounded-tag px-1 text-[0.78125rem] font-semibold lg:px-2 lg:text-[0.8125rem]',
               chosen
                 ? 'bg-accent-tint text-accent-ink shadow-[inset_0_0_0_2px_var(--accent)]'
                 : 'text-ink-2',
             )}
           >
-            {option.label}
+            {option.content ?? option.label}
           </button>
         );
       })}

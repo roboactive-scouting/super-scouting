@@ -71,10 +71,11 @@ export function Note({
   className,
 }: {
   children: ReactNode;
-  icon?: 'info' | 'offline';
+  /** A named icon, or any icon component (the builder's lock, THEME "Version banner (locked)"). */
+  icon?: 'info' | 'offline' | LucideIcon;
   className?: string;
 }) {
-  const Icon = icon === 'offline' ? WifiOff : icon === 'info' ? Info : null;
+  const Icon = icon === 'offline' ? WifiOff : icon === 'info' ? Info : (icon ?? null);
   return (
     <div
       className={cn(
@@ -97,6 +98,7 @@ export function ErrorLine({
   className,
   ref,
   focusable = false,
+  announce = true,
 }: {
   children: ReactNode;
   id?: string;
@@ -104,13 +106,18 @@ export function ErrorLine({
   ref?: Ref<HTMLDivElement>;
   /** The line takes focus by script (tabIndex -1), e.g. a failed submit's reason. */
   focusable?: boolean;
+  /**
+   * `role="alert"` (default): a failure that just happened. False for a line that describes a
+   * record in a list (Sync's refused records), which must not interrupt on every render.
+   */
+  announce?: boolean;
 }) {
   return (
     <div
       ref={ref}
       id={id}
       tabIndex={focusable ? -1 : undefined}
-      role="alert"
+      role={announce ? 'alert' : undefined}
       className={cn(
         'flex items-start gap-2 rounded-control border border-s-[3px] border-line border-s-warn bg-surface px-3.5 py-2.5 text-sm font-semibold text-ink',
         className,

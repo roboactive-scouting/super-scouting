@@ -1,80 +1,179 @@
-import { useId } from 'react';
+import { useId, useMemo } from 'react';
 import type { FormFieldDefinition } from '@frc/shared';
 import { selectOptions } from '@frc/shared';
 import { Counter } from '@/components/ui/counter';
 import { OptionButtons } from '@/components/ui/option-buttons';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { haptics } from '@/lib/haptics';
+import { ComputedValue } from './inputs/ComputedValue';
+import { CyclePathInput, EventLogInput, PositionInput, TimerInput } from './lazyParts';
+import {
+  FieldLabel,
+  FieldMarkContext,
+  FieldRow,
+  ProblemLine,
+  ROW,
+  type FieldMark,
+} from './inputs/FieldRow';
+import { MultiSelectInput } from './inputs/MultiSelectInput';
+import { NumberInput } from './inputs/NumberInput';
+import { RatingInput } from './inputs/RatingInput';
+import { SectionHeading } from './inputs/SectionHeading';
+import { ShortTextInput } from './inputs/ShortTextInput';
 
 type Props = {
   field: FormFieldDefinition;
   value: unknown;
   onChange: (value: unknown) => void;
+  /**
+   * The entry's current values, by field key: what a computed field is worked out from
+   * (SPEC-FINAL 5.7), so it follows the scout's taps. Other types ignore it.
+   */
+  siblingValues?: Record<string, unknown>;
+  /**
+   * What the entry form says under this field (task 1.36): a value out of range as it is typed
+   * ("Most is 60 seconds — check this number"), or, once Review entry has been pressed, a missed
+   * required field ("Required — pick one") or a stopwatch left running. Amber, never red.
+   */
+  problem?: string | null;
 };
 
-/** One field row of a phase pane: 12 px above and below, a `--line-2` rule between rows. */
-const ROW = 'border-t border-line-2 py-3 first:border-t-0';
+const NO_VALUES: Record<string, unknown> = {};
 
-/** Big touch targets, never a keyboard where a counter will do (SPEC-FINAL 8.6, 17.7). */
-export function FieldInput({ field, value, onChange }: Props) {
+/**
+ * The types answered by a tap (SPEC-FINAL 8.6; task 1.38): each change buzzes once, when Vibrate
+ * on taps is on. Typed answers (number, text) do not: a buzz on every key would be noise.
+ */
+const TAPPED: ReadonlySet<FormFieldDefinition['type']> = new Set([
+  'counter',
+  'toggle',
+  'single_select',
+  'multi_select',
+  'rating',
+  'timer',
+  'event_log',
+  'position',
+  'cycle_path',
+]);
+
+/**
+ * One field of the entry form, by type (SPEC-FINAL 5.2; entry parts, task 1.33). Big touch
+ * targets, never a keyboard where a counter will do (8.6, 17.7). On a phone (and in the
+ * builder's 410 px canvas and Try it) a field's name sits above its control; once the row's own
+ * box is wide (the desktop Entry card) it is one row, name left and control in a 440 px column
+ * right — a container query, never the window's width (UF.18). The timer and the event log came
+ * with task 1.34, the position picker and the cycle path with 1.35: a map field is one map
+ * button here, and its map (like the event log's "where?") is a pop-up, never drawn inline.
+ */
+export function FieldInput(props: Props) {
+  const markId = useId();
+  const { key } = props.field;
+  const problem = props.problem ?? null;
+  const mark = useMemo<FieldMark>(() => ({ key, problem, id: markId }), [key, problem, markId]);
+  // Each input's FieldRow reads the mark: the row's data-field (Go to finds it) and the line.
+  return (
+    <FieldMarkContext value={mark}>
+      <FieldControl {...props} mark={mark} />
+    </FieldMarkContext>
+  );
+}
+
+function FieldControl({
+  field,
+  value,
+  onChange: change,
+  siblingValues = NO_VALUES,
+  mark,
+}: Props & { mark: FieldMark }) {
   const id = useId();
+  // The one seam for haptics: every tapped input reports its change through here.
+  const onChange = TAPPED.has(field.type)
+    ? (next: unknown) => {
+        haptics.tap();
+        change(next);
+      }
+    : change;
   switch (field.type) {
     case 'counter': {
       const current = typeof value === 'number' ? value : 0;
       const step = typeof field.config.step === 'number' ? field.config.step : 1;
-      // Entry README: label and hint on the left, a compact − / value / + on the right.
+      // Entry README: label and hint on the left, a compact − / value / + on the right, at the
+      // right edge on a computer too (entry parts, "Counters stay at the right edge").
       return (
-        <div className={`${ROW} flex items-center justify-between gap-3`}>
-          <div className="min-w-0">
-            <span className="block text-[0.90625rem] font-semibold text-ink" dir="auto">
-              {field.label}
-            </span>
-            {field.help_text && (
-              <span className="mt-0.5 block text-[0.78125rem] text-muted" dir="auto">
-                {field.help_text}
-              </span>
-            )}
+        <div className={ROW} data-field={mark.key}>
+          {/* The name wraps word by word beside the counter; only when its longest word and
+              the counter cannot share the line (large text, task 1.38) does the counter drop
+              below it, still at the right edge. */}
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+            <div className="min-w-min flex-[1_1_0%]">
+              <FieldLabel field={field} />
+            </div>
+            <div className="ms-auto">
+              <Counter label={field.label} value={current} step={step} onChange={onChange} />
+            </div>
           </div>
-          <Counter label={field.label} value={current} step={step} onChange={onChange} />
+          {mark.problem && <ProblemLine id={mark.id}>{mark.problem}</ProblemLine>}
         </div>
       );
     }
     case 'toggle':
       return (
-        <div className={ROW}>
+        <div className={ROW} data-field={mark.key}>
           <Switch label={field.label} checked={value === true} onChange={onChange} />
         </div>
       );
     case 'single_select': {
       const options = selectOptions(field);
       return (
-        <div className={ROW}>
+        <FieldRow label={<FieldLabel field={field} />}>
           <OptionButtons
             legend={field.label}
+            showLegend={false}
             name={field.key}
             value={typeof value === 'string' ? value : null}
             options={options.map((o) => ({ value: o.value, label: o.label }))}
             columns={options.length > 2 ? 4 : 2}
             onChange={onChange}
           />
-        </div>
+        </FieldRow>
       );
     }
+    case 'multi_select':
+      return <MultiSelectInput field={field} value={value} onChange={onChange} />;
+    case 'number':
+      return <NumberInput field={field} value={value} onChange={onChange} />;
+    case 'rating':
+      return <RatingInput field={field} value={value} onChange={onChange} />;
+    case 'short_text':
+      return <ShortTextInput field={field} value={value} onChange={onChange} />;
     case 'long_text':
       return (
-        <div className={ROW}>
-          <label htmlFor={id} className="block text-[0.90625rem] font-semibold text-ink" dir="auto">
-            {field.label}
-          </label>
+        <FieldRow label={<FieldLabel field={field} htmlFor={id} helpId={`${id}-help`} />}>
           <Textarea
             id={id}
             dir="auto"
             rows={3}
-            className="mt-2 min-h-[5.25rem] rounded-control border-control-border bg-surface text-ink focus-visible:border-accent"
+            aria-describedby={field.help_text ? `${id}-help` : undefined}
+            className="min-h-[5.25rem] rounded-control border-control-border bg-surface text-ink focus-visible:border-accent"
             value={typeof value === 'string' ? value : ''}
             onChange={(e) => onChange(e.target.value)}
           />
-        </div>
+        </FieldRow>
       );
+    case 'computed':
+      return <ComputedValue field={field} siblingValues={siblingValues} />;
+    case 'section':
+      return <SectionHeading field={field} />;
+    case 'timer':
+      return <TimerInput field={field} value={value} onChange={onChange} />;
+    case 'event_log':
+      return <EventLogInput field={field} value={value} onChange={onChange} />;
+    case 'position':
+      return <PositionInput field={field} value={value} onChange={onChange} />;
+    case 'cycle_path':
+      return <CyclePathInput field={field} value={value} onChange={onChange} />;
+    default:
+      return null;
   }
 }

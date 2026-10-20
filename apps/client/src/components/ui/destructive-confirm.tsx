@@ -28,6 +28,11 @@ export type DestructiveConfirmProps = {
   typeToConfirm?: string;
   /** The action is in flight: both buttons hold, Escape does nothing. */
   busy?: boolean;
+  /**
+   * Why the confirm waits although nothing is in flight (offline; what goes with it not read
+   * yet): only the confirm holds, Cancel and Escape still work, and this line says why.
+   */
+  held?: string | null;
   /** A sentence to show inside the dialog when the action failed. */
   error?: string | null;
   onConfirm: () => void;
@@ -59,6 +64,7 @@ function OpenConfirm({
   icon: Icon = Ban,
   typeToConfirm,
   busy = false,
+  held = null,
   error,
   onConfirm,
   onCancel,
@@ -66,7 +72,7 @@ function OpenConfirm({
   const id = useId();
   const cancel = useRef<HTMLButtonElement>(null);
   const [typed, setTyped] = useState('');
-  const armed = typeToConfirm === undefined || typed === typeToConfirm;
+  const armed = (typeToConfirm === undefined || typed === typeToConfirm) && !held;
 
   return (
     <ResponsiveDialog
@@ -111,7 +117,15 @@ function OpenConfirm({
       {typeToConfirm !== undefined && (
         <div>
           <label htmlFor={`${id}-type`} className="text-sm font-semibold">
-            Type <span dir="auto">{typeToConfirm}</span> to confirm
+            {/* THEME "Type to confirm": the phrase in mono on `--line-2`, exactly as typed. */}
+            Type{' '}
+            <code
+              dir="auto"
+              className="rounded-[4px] bg-line-2 px-[5px] py-px font-num font-semibold whitespace-pre-wrap text-ink"
+            >
+              {typeToConfirm}
+            </code>{' '}
+            to confirm
           </label>
           <input
             id={`${id}-type`}
@@ -125,6 +139,7 @@ function OpenConfirm({
           />
         </div>
       )}
+      {held && <p className="text-sm text-muted">{held}</p>}
       {error && <ErrorLine>{error}</ErrorLine>}
     </ResponsiveDialog>
   );

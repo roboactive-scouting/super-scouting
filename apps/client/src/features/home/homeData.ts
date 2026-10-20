@@ -1,5 +1,5 @@
 import { formatDate, formatTime } from '@frc/shared';
-import { cachedRows } from '@/data/cache';
+import { cachedLiveSlots, cachedRows } from '@/data/cache';
 import { db } from '@/data/db';
 import { coverage, type CoverageState } from '@/lib/derive/coverage';
 import { newestFirst, type LineupSlot } from '@/lib/derive/entries';
@@ -34,7 +34,13 @@ export type LastEntry = {
   at: string;
 };
 
-export type CoverageCell = { matchId: string; label: string; state: CoverageState };
+/** One coverage square: `scouted` is how many of the match's robots have an entry. */
+export type CoverageCell = {
+  matchId: string;
+  label: string;
+  state: CoverageState;
+  scouted: number;
+};
 
 export type HomeData = {
   lastEntry: LastEntry | null;
@@ -88,7 +94,17 @@ export function coverageCells(
     here.map((m) => ({ id: m.id, type: m.match_type, number: m.number })),
     slots.filter((s) => ids.has(s.match_id)),
     entries.filter((e) => e.event_id === eventId),
-  ).map((c) => ({ matchId: c.matchId, label: matchLabel(byId.get(c.matchId)!), state: c.state }));
+  ).map((c) => ({
+    matchId: c.matchId,
+    label: matchLabel(byId.get(c.matchId)!),
+    state: c.state,
+    scouted: c.scouted,
+  }));
+}
+
+/** A coverage square's name, shown on tap, hover and focus (UF.21): "Q12 · 4 scouted". */
+export function cellText(cell: CoverageCell): string {
+  return `${cell.label} · ${cell.scouted} scouted`;
 }
 
 /** "2 min ago" within the hour, "3 h ago" within the day, else the date. */
@@ -146,7 +162,7 @@ export async function loadHome(eventId: string, userId: string): Promise<HomeDat
   const [entries, matches, slots, teams] = await Promise.all([
     cachedRows<EntryRow>('scouting_entries'),
     cachedRows<MatchRow>('matches'),
-    cachedRows<LineupSlot>('match_teams'),
+    cachedLiveSlots<LineupSlot>(),
     cachedRows<TeamRow>('teams'),
   ]);
   return {

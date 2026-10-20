@@ -310,7 +310,9 @@ describe('ManagePage while offline', () => {
       window.dispatchEvent(new Event('offline'));
     });
     expect(
-      await screen.findByText('No connection — changes cannot be saved until it returns.'),
+      await screen.findByText(
+        'No connection — changes cannot be saved until it returns. Your data is safe on this device.',
+      ),
     ).toBeInTheDocument();
     expect(screen.getByLabelText('Game name')).toHaveValue('CRESC');
     expect(screen.getByRole('tablist')).toBeInTheDocument();
@@ -458,5 +460,57 @@ describe('ManagePage with a line-up that could not be saved', () => {
     });
     await user.click(screen.getByRole('button', { name: 'Leave anyway' }));
     expect(await screen.findByText('Scout page')).toBeInTheDocument();
+  });
+});
+
+describe('ManagePage offline once loaded (SPEC-FINAL 9.6: management is not available offline)', () => {
+  it('holds every server command on every tab, under the one line that the data is safe', async () => {
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+    const call = fullCall();
+    const user = userEvent.setup();
+    renderWithCall('admin', call);
+    await screen.findByRole('tab', { name: 'Matches 3' });
+    onLine.mockReturnValue(false);
+    act(() => {
+      window.dispatchEvent(new Event('offline'));
+    });
+    const asked = call.mock.calls.length;
+
+    // One message on the screen, and it says the data is safe on this device.
+    expect(screen.getAllByText(/safe on this device/)).toHaveLength(1);
+    expect(screen.queryByText(/Changing the active season or event/)).toBeNull();
+    expect(screen.getByText(/^No connection — changes cannot be saved/)).toHaveTextContent(
+      /your data is safe on this device/i,
+    );
+
+    // Competitions: create, switch the default, reorder; dialogs open but their Save waits.
+    expect(screen.getByRole('button', { name: 'New season' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '+ New event' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Make default' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Move District #1 · Haifa' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    await user.click(screen.getByRole('button', { name: 'Rename District #1 · Haifa' }));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByRole('button', { name: 'Save name' })).toBeDisabled();
+    expect(
+      within(dialog).getByRole('button', { name: 'Delete District #1 · Haifa' }),
+    ).toBeDisabled();
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    // Teams & roster: taking a team off waits.
+    await user.click(screen.getByRole('tab', { name: /Teams & roster/ }));
+    expect(
+      screen.getByRole('button', { name: 'Remove 1574 MisCar from the roster' }),
+    ).toBeDisabled();
+
+    // Matches: create and delete wait.
+    await user.click(screen.getByRole('tab', { name: /Matches/ }));
+    expect(screen.getByRole('button', { name: 'Create matches' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Create match' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Delete match 1 (qualification)' })).toBeDisabled();
+
+    expect(call.mock.calls.length).toBe(asked);
   });
 });

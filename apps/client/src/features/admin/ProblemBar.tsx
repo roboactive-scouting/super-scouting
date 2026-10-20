@@ -1,5 +1,6 @@
 import type { MatchRow } from '@frc/shared';
 import { TriangleAlert } from 'lucide-react';
+import { useCapability } from '@/components/OfflineGate';
 import { matchLabel } from '@/lib/matchLabel';
 import { missingLine, notOnRosterLine, offRosterTeamIds } from './matchOps';
 import type { TeamLookup } from './useOffRosterTeams';
@@ -24,6 +25,8 @@ export function ProblemBar({
   teams?: TeamLookup;
   onAddToRoster: (teamId: string) => void;
 }) {
+  /** SPEC-FINAL 9.6: season, event, match and roster management is held while offline. */
+  const can = useCapability('manage_events');
   const missing = missingLine(matches);
   const strangers = offRosterTeamIds(matches, rosterIds).map((id) => {
     const team = teams.get(id);
@@ -41,8 +44,9 @@ export function ProblemBar({
           {t.number !== null && (
             <button
               type="button"
+              disabled={!can}
               onClick={() => onAddToRoster(t.id)}
-              className="tap-target hover-veil rounded-control px-1 font-[650] text-accent-ink"
+              className="tap-target hover-veil rounded-control px-1 font-[650] text-accent-ink disabled:pointer-events-none disabled:opacity-45"
             >
               {`Add ${t.number} to the roster`}
             </button>

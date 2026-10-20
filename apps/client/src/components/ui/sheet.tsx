@@ -33,6 +33,8 @@ export type SheetProps = {
    * holds while not dismissible.
    */
   dragToClose?: boolean;
+  /** A bottom sheet's round icon, centred above a centred title (as Dialog's `icon`). */
+  icon?: ReactNode;
 };
 
 /**
@@ -59,6 +61,7 @@ function OpenSheet({
   title,
   showClose = false,
   dragToClose = true,
+  icon,
 }: SheetProps) {
   const heading = useId();
   const close = () => {
@@ -107,11 +110,17 @@ function OpenSheet({
           // The handle and the title: a drag here pulls the sheet down even when scrolled.
           <div data-drag-handle="" className="touch-none">
             <div aria-hidden="true" className="mx-auto mb-3 h-[5px] w-10 rounded-sm bg-line" />
-            <div className="mb-3 flex items-center gap-3">
+            <div
+              className={cn(
+                'mb-3 flex gap-3',
+                icon ? 'flex-col items-center gap-2 text-center' : 'items-center',
+              )}
+            >
+              {icon}
               <h2 id={heading} className="min-w-0 flex-1 text-xl font-[750]" dir="auto">
                 {title}
               </h2>
-              {showClose && (
+              {showClose && !icon && (
                 <button
                   type="button"
                   aria-label="Close"

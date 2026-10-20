@@ -1,13 +1,24 @@
 // The initial-JS budget (RB.18): the entry chunk and its static imports, gzipped, must stay
-// at or under BUDGET_KB. 205 KB = measured 199.4 KB + headroom (user decision 2026-10-07):
-// react-dom, dexie and react-router (~128 KB) are needed at first paint on the offline
+// at or under BUDGET_KB. 228 KB = measured 226.2 KB after merging UI fix round 3 (UF.22–UF.26, 221.3 KB on develop)
+// into Phase 1 F (224.7 KB) + headroom, raised by the orchestrator as the user allows (2026-10-20); was 226 KB = measured 224.1 KB after task 1.43 (the Sync nav row with its count,
+// the indicator as a link to /sync, the push progress, Q7.8's re-save rule; the Sync page itself is lazy)
+// + headroom, raised by the build chat as the user allows (2026-10-13); was 224 KB = measured 223.0 KB after task 1.42 (parent-deleted discards and the
+// discarded log, eviction of a left event and of deleted form rows; HEAD bcb8d51 already measured 220.8 KB,
+// over the old 220, from the Phase 1 F server half's client changes) + headroom, raised by the build chat as the user
+// allows (2026-10-13); was 220 KB = measured 218.2 KB after task 1.37 (draft persistence of the match clock
+// and stopwatches, the practice strip and card; the draft offer and the practice-finished sheet are lazy)
+// + headroom, raised by the build chat as the user allows (2026-10-11); was 218 KB = measured 216.6 KB after task 1.36 (the entry rules, the problems
+// list and the Super scouting card) + headroom, raised by the build chat as the user allows (2026-10-11);
+// was 215 KB = measured 212.5 KB after task 1.33 + headroom (user decision 2026-10-11, proposed by the build orchestrator;
+// was 212 KB = measured 208.1 KB + headroom, user decision 2026-10-09; before that 205 KB,
+// measured 199.4 KB + headroom, 2026-10-07; the form schemas in the shared API map outgrew it): react-dom, dexie and react-router (~128 KB) are needed at first paint on the offline
 // competition path, and the service worker fetches the app once, before the venue. Every lazy chunk is printed and must be in the service worker's
 // precache, so a lazy route still opens offline. Run after `pnpm build`.
 import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
-const BUDGET_KB = 205;
+const BUDGET_KB = 228;
 
 const dist = 'apps/client/dist';
 const manifestPath = join(dist, '.vite/manifest.json');

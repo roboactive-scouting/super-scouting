@@ -1,6 +1,7 @@
 import {
   AppError,
   can,
+  classifyPush,
   ensureMatchInput,
   isUser,
   operationSchema,
@@ -10,6 +11,7 @@ import {
   validateEntryShape,
   type Caller,
   type ErrorCode,
+  type ExistingRow,
   type Operation,
   type PushRequest,
   type PushResponse,
@@ -17,6 +19,7 @@ import {
   type RejectionReason,
   type RobotStatus,
 } from '@frc/shared';
+import { createHash } from 'node:crypto';
 import type { ZodIssue } from 'zod';
 import type { StoredUser, UseCaseContext } from '../context.js';
 import { pgCode } from '../seasonRows.js';
@@ -53,6 +56,28 @@ function foreignKeyDetail(message: string): string {
   return column
     ? PARENT_DELETED_DETAIL[column as keyof typeof PARENT_DELETED_DETAIL]
     : PARENT_DELETED_DETAIL.other;
+}
+
+/** Fixed for good: changing it would give a retried operation a second conflict row. */
+const CONFLICT_ID_NAMESPACE = 'frc-scouting/sync_conflicts/v1';
+
+/**
+ * Task 1.40: the conflict row's id, derived from the op_id, so a retry of the same operation
+ * names the SAME conflict. The conflict row is written before the live row; when the live
+ * write fails and the device retries, the second insert is ignored (insertConflict keeps the
+ * first) and the answer carries the same conflict_id. UUID-shaped (version 4 and variant
+ * bits set) so the uuid column takes it. Node-only, so it stays out of packages/shared.
+ */
+export function conflictIdFor(opId: string): string {
+  const hex = createHash('sha256').update(`${CONFLICT_ID_NAMESPACE}:${opId}`).digest('hex');
+  const variant = ((parseInt(hex.charAt(16), 16) & 0x3) | 0x8).toString(16);
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    `4${hex.slice(13, 16)}`,
+    `${variant}${hex.slice(17, 20)}`,
+    hex.slice(20, 32),
+  ].join('-');
 }
 
 const withoutServerOwnedKeys = (payload: Record<string, unknown>): Record<string, unknown> =>
@@ -116,14 +141,28 @@ export function screenOperations(raw: unknown[]): {
 }
 
 /**
+ * Spec 7.5 item 2 (task 1.40): an entry pushed in the same batch as its bare match still
+ * names the DEVICE's match id. When that match resolved to the server's own id, the entry
+ * is rewritten to the canonical one before it is applied, so it lands instead of failing
+ * the foreign key. Every other operation passes through untouched.
+ */
+function withCanonicalMatch(op: Operation, canonical: Map<string, string>): Operation {
+  if (op.entity !== 'scouting_entry') return op;
+  const matchId = (op.payload as Record<string, unknown>).match_id;
+  const remapped = typeof matchId === 'string' ? canonical.get(matchId) : undefined;
+  return remapped === undefined ? op : { ...op, payload: { ...op.payload, match_id: remapped } };
+}
+
+/**
  * SPEC-FINAL 9.3.1. Operations are applied in seq order, each independently; a
  * rejection does not stop the batch. op_id is the idempotency key. Authorization is
  * per operation, against the operation's author_user_id and not against the bearer
  * (7.5) — which is what makes a shared collector tablet work at all.
  *
- * Divergence and duplicate arrive in task 1.40. Until then a stale base version is
- * rejected as `invalid` rather than silently overwriting. A missing parent is
- * `parent-deleted` with a PARENT_DELETED_DETAIL naming it (UF.1).
+ * Task 1.40: an entry is fast-forwarded, or classified as a divergence or a duplicate
+ * (SPEC-FINAL 9.5, through the shared classifyPush), and a missing parent — event, match,
+ * team or form version — is `parent-deleted` with a PARENT_DELETED_DETAIL naming it (UF.1).
+ * A bare match that resolved to the server's id remaps the entries after it in the batch.
  */
 export async function syncPush(
   caller: Caller,
@@ -132,10 +171,21 @@ export async function syncPush(
 ): Promise<PushResponse> {
   const ordered = [...input.operations].sort((a, b) => a.seq - b.seq);
   const results: PushResult[] = [];
+  // Device match id → the id the server holds, for this batch only.
+  const canonicalMatch = new Map<string, string>();
 
-  for (const op of ordered) {
+  for (const raw of ordered) {
+    const op = withCanonicalMatch(raw, canonicalMatch);
     try {
-      results.push(await applyOne(caller, op, ctx));
+      const result = await applyOne(caller, op, ctx);
+      results.push(result);
+      if (
+        op.entity === 'match' &&
+        (result.status === 'applied' || result.status === 'noop') &&
+        result.row_id !== op.row_id
+      ) {
+        canonicalMatch.set(op.row_id, result.row_id);
+      }
     } catch (e) {
       // 9.3.1: one operation's failure never takes the batch down. The underlying
       // message is logged here, keyed by op_id and never with the payload, and NOT sent
@@ -284,27 +334,50 @@ async function applyEntry(
     };
   }
 
+  // The entry's credited scouter: an existing row keeps its own, always (SPEC-FINAL 7.5).
+  let scouterId: string;
   if (existing) {
     // An edit of a row the server already holds. A lead or admin may manage any entry at
-    // any age; anyone else only their own, inside the self-edit window (SPEC-FINAL 7.6).
+    // any age; anyone else only their own (SPEC-FINAL 7.6), and a MATCH entry only inside
+    // the self-edit window.
     if (!can(authorCaller, 'manage_entries')) {
       if (existing.scouter_id !== author.id) {
         return rejected(op.op_id, 'forbidden', 'a scouter may edit only their own entry');
       }
+      // v1.26: a super entry is exempt — one running judgement of a team, built up all
+      // event. Exempt only when the ROW and the edit are both super, so the exemption can
+      // never carry a match entry's data past its window.
+      const exempt = existing.form_kind === 'super' && payload.form_kind === 'super';
       // The two CLIENT timestamps, compared to each other and never to server time. The
       // created stamp is the ROW's, not the operation's, so a client cannot widen its own
       // window by resending a fresher client_created_at.
-      if (!withinSelfEditWindow(String(existing.client_created_at), op.client_updated_at)) {
+      if (
+        !exempt &&
+        !withinSelfEditWindow(String(existing.client_created_at), op.client_updated_at)
+      ) {
         return rejected(op.op_id, 'edit-window-expired', 'this entry is locked — ask a lead');
       }
     }
-  } else if (!can(authorCaller, 'submit_entry')) {
-    return rejected(op.op_id, 'forbidden', 'the author may not submit an entry');
-  }
-
-  if (existing && op.base_version !== existing.version) {
-    // Task 1.40 turns this into the divergence path of SPEC-FINAL 9.5.
-    return rejected(op.op_id, 'invalid', `stale base version ${op.base_version}`);
+    scouterId = String(existing.scouter_id);
+  } else {
+    if (!can(authorCaller, 'submit_entry')) {
+      return rejected(op.op_id, 'forbidden', 'the author may not submit an entry');
+    }
+    // Q7.8 (SPEC-FINAL 9.3.1, v1.27): a lead's or admin's re-save of a refused create keeps
+    // crediting the scouter the payload names; only the operation's author changes. A
+    // scouter submits only as themselves.
+    const named = payload.scouter_id;
+    if (named === undefined || named === null || named === author.id) {
+      scouterId = author.id;
+    } else if (typeof named !== 'string') {
+      return rejected(op.op_id, 'invalid', 'scouter_id must be a user id');
+    } else if (!can(authorCaller, 'manage_entries')) {
+      return rejected(op.op_id, 'forbidden', 'a scouter may submit an entry only as themselves');
+    } else if (!(await ctx.store.getUser(named))) {
+      return rejected(op.op_id, 'invalid', 'unknown scouter');
+    } else {
+      scouterId = named;
+    }
   }
 
   const formVersionId = payload.form_version_id;
@@ -312,8 +385,9 @@ async function applyEntry(
     return rejected(op.op_id, 'invalid', 'form_version_id is required');
   }
   // SPEC-FINAL 3.5: the cross-column rules first, then the JSONB payload.
+  const formKind = payload.form_kind as 'match' | 'super';
   const shapeIssues = validateEntryShape({
-    form_kind: payload.form_kind as 'match' | 'super',
+    form_kind: formKind,
     match_id: (payload.match_id as string | null) ?? null,
     alliance: (payload.alliance as 'red' | 'blue' | null) ?? null,
     robot_status: (payload.robot_status as RobotStatus | null) ?? null,
@@ -323,7 +397,9 @@ async function applyEntry(
 
   // SPEC-FINAL 9.3.1 (v1.18): a missing parent is parent-deleted, named, before any write.
   // Without this the insert hit the foreign key and the client was told "unexpected server
-  // error", which it retries silently for ever (UI-FIX-NOTES, Entry 4).
+  // error", which it retries silently for ever (UI-FIX-NOTES, Entry 4). Task 1.40: the form
+  // version too, and BEFORE the data is validated — a deleted version has no fields, and
+  // the entry would otherwise read as `invalid`.
   const { event_id: eventId, match_id: matchId, team_id: teamId } = payload;
   if (typeof eventId !== 'string') return rejected(op.op_id, 'invalid', 'event_id is required');
   if (typeof teamId !== 'string') return rejected(op.op_id, 'invalid', 'team_id is required');
@@ -334,29 +410,95 @@ async function applyEntry(
     event_id: eventId,
     match_id: matchId ?? null,
     team_id: teamId,
+    form_version_id: formVersionId,
   });
   if (gone !== null) return rejected(op.op_id, 'parent-deleted', PARENT_DELETED_DETAIL[gone]);
 
   const fields = await ctx.store.getFormFields(formVersionId);
   const status = (payload.robot_status as RobotStatus | null) ?? 'played';
   const data = (payload.data ?? {}) as Record<string, unknown>;
-  const validation = validateEntryData(fields, status, data);
+  // 'stored', not 'submit': the version's config, ranges, required flags and event types may
+  // have been edited in place since the device collected this entry, and an in-place edit
+  // never invalidates collected data (SPEC-FINAL 5.1, 15.1). The device ran 'submit' itself.
+  const validation = validateEntryData(fields, status, data, { mode: 'stored' });
   if (!validation.ok) {
     return rejected(op.op_id, 'invalid', validation.issues.map((i) => i.message).join('; '));
   }
 
-  const version = existing ? existing.version + 1 : 1;
-  await ctx.store.putRow('scouting_entry', op.row_id, {
-    ...withoutServerOwnedKeys(payload),
-    id: op.row_id,
-    // An update never reassigns authorship, and never restarts the self-edit window: both
-    // stay the row's own (SPEC-FINAL 7.5, 7.6). A create takes them from the operation.
-    scouter_id: existing ? existing.scouter_id : op.author_user_id,
-    version,
-    client_created_at: existing ? existing.client_created_at : op.client_created_at,
-    client_updated_at: op.client_updated_at,
-    deleted_at: null,
+  // SPEC-FINAL 9.5: a NEW row may duplicate another device's row for the same logical key.
+  const duplicate = existing
+    ? null
+    : await ctx.store.findByLogicalKey(
+        { event_id: eventId, form_kind: formKind, team_id: teamId, match_id: matchId ?? null },
+        op.row_id,
+      );
+  // StoredRow promises only { id, version }; an entry row always carries client_updated_at
+  // and deleted_at as well, which is all ExistingRow adds.
+  const decision = classifyPush({
+    operation: op,
+    existingRow: existing as ExistingRow | null,
+    duplicateRow: duplicate as ExistingRow | null,
   });
+
+  const existingWins = decision.kind === 'divergence' && decision.winner === 'existing';
+  const live: Record<string, unknown> = existingWins
+    ? // The row's own copy, untouched — data, author, window, deleted_at — with only the
+      // version moved on, so every device pulls the outcome.
+      { ...decision.live, id: op.row_id, version: decision.nextVersion }
+    : {
+        ...withoutServerOwnedKeys(payload),
+        id: op.row_id,
+        // An update never reassigns authorship, and never restarts the self-edit window:
+        // both stay the row's own (SPEC-FINAL 7.5, 7.6). A create takes the window from the
+        // operation, and its scouter from Q7.8's rule above.
+        scouter_id: scouterId,
+        version: decision.nextVersion,
+        client_created_at: existing ? existing.client_created_at : op.client_created_at,
+        client_updated_at: op.client_updated_at,
+        deleted_at: null,
+      };
+
+  // The conflict row is written BEFORE the live row: if the second write fails, the
+  // superseded copy is already safe, and a retry of the operation names the same conflict
+  // (its id comes from the op_id, and insertConflict keeps an existing row). The other way
+  // round, a failure between the two would lose the copy the live write had overwritten.
+  const conflictId = decision.kind === 'fast-forward' ? null : conflictIdFor(op.op_id);
+  if (decision.kind === 'divergence') {
+    await ctx.store.insertConflict({
+      id: conflictId as string,
+      event_id: String(live.event_id ?? eventId),
+      entity: 'scouting_entry',
+      row_id: op.row_id,
+      kind: 'divergence',
+      superseded_payload: decision.superseded.payload,
+      superseded_author_id: decision.superseded.author_id || null,
+      superseded_client_updated_at: decision.superseded.client_updated_at,
+      base_version: decision.superseded.base_version,
+    });
+  } else if (decision.kind === 'duplicate') {
+    await ctx.store.insertConflict({
+      id: conflictId as string,
+      event_id: eventId,
+      entity: 'scouting_entry',
+      row_id: op.row_id,
+      kind: 'duplicate',
+      duplicate_row_id: decision.duplicateRowId,
+    });
+  }
+  await ctx.store.putRow('scouting_entry', op.row_id, live);
   await ctx.store.markApplied(op.op_id);
-  return { op_id: op.op_id, status: 'applied', row_id: op.row_id, new_version: version };
+
+  const answer = { op_id: op.op_id, row_id: op.row_id, new_version: decision.nextVersion };
+  if (decision.kind === 'divergence') {
+    return { ...answer, status: 'divergence', conflict_id: conflictId as string };
+  }
+  if (decision.kind === 'duplicate') {
+    return {
+      ...answer,
+      status: 'duplicate',
+      conflict_id: conflictId as string,
+      duplicate_row_id: decision.duplicateRowId,
+    };
+  }
+  return { ...answer, status: 'applied' };
 }

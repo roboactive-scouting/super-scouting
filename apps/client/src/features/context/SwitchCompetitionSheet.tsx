@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { LIST_EVENTS_MAX_LIMIT, LIST_SEASONS_MAX_LIMIT } from '@frc/shared';
+import { useCapability } from '@/lib/useCapability';
+import { SAFE_ON_DEVICE } from '@/components/StateMessage';
 import { Button } from '@/components/ui/button';
 import { ResponsiveDialog } from '@/components/ui/responsive-dialog';
 import { typedCall as defaultCall, type Rpc } from '@/data/rpc';
@@ -40,6 +42,8 @@ export function SwitchCompetitionSheet({
   rpc?: Rpc;
 }) {
   const online = useOnline();
+  /** SPEC-FINAL 9.6: any cross-event view is held offline; only the default is cached. */
+  const canView = useCapability('cross_event_view');
   const override = useSessionOverride();
   const [settings, setSettings] = useState<{ season: string | null; event: string | null }>({
     season: null,
@@ -135,8 +139,10 @@ export function SwitchCompetitionSheet({
       <p dir="auto" className="-mt-2 text-[0.8125rem] text-muted">
         Only for this session. Reopening the app returns to {defaultName}.
       </p>
-      {!online ? (
-        <p className="text-[0.8125rem] text-muted">{OFFLINE_CONTEXT_LINE}</p>
+      {!canView ? (
+        <p className="text-[0.8125rem] text-muted">
+          {OFFLINE_CONTEXT_LINE} {SAFE_ON_DEVICE}
+        </p>
       ) : (
         silent && <p className="text-[0.8125rem] text-muted">{SERVER_SILENT_LINE}</p>
       )}
@@ -148,7 +154,7 @@ export function SwitchCompetitionSheet({
               key={s.id}
               type="button"
               aria-pressed={on}
-              disabled={!online && s.id !== settings.season}
+              disabled={!canView && s.id !== settings.season}
               onClick={() => setChosen(s.id)}
               className={cn(
                 CHIP,
@@ -189,7 +195,7 @@ export function SwitchCompetitionSheet({
               <button
                 type="button"
                 aria-pressed={current}
-                disabled={!online && !isDefault}
+                disabled={!canView && !isDefault}
                 onClick={() => void choose(e)}
                 className={cn(
                   CARD,

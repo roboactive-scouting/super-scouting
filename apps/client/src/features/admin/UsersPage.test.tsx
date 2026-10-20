@@ -7,6 +7,7 @@ import { session } from '@/auth/session';
 import { db, setMeta } from '@/data/db';
 import type * as SyncModule from '@/data/sync';
 import { routeTree } from '@/routes';
+import { OFFLINE_GATE_LINE } from '@/components/OfflineGate';
 import { UsersPage } from './UsersPage';
 import { MAX_LISTED_USERS } from './useUsers';
 
@@ -808,5 +809,44 @@ describe('the Users page with an injected rpc (RB.14)', () => {
     await userEvent.hover(row);
     await userEvent.click(within(row).getByRole('button', { name: 'Disable' }));
     expect(screen.getByRole('dialog', { name: 'Disable this account?' })).toBeInTheDocument();
+  });
+});
+
+describe('the Users page offline (SPEC-FINAL 9.6: user management is not available offline)', () => {
+  function goOffline() {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    act(() => {
+      window.dispatchEvent(new Event('offline'));
+    });
+  }
+
+  it('keeps the list readable and holds every action, saying the data is safe on the device', async () => {
+    const rpc = renderUsers({ users: USERS_12, counts: [] });
+    const row = await screen.findByRole('row', { name: /Yael Shapira/ });
+    goOffline();
+    expect(screen.getByRole('button', { name: 'Add a user' })).toBeDisabled();
+    expect(within(row).getByRole('button', { name: 'Reset password' })).toBeDisabled();
+    expect(within(row).getByRole('button', { name: 'Disable' })).toBeDisabled();
+    // The compact line, not the full card: no heading, no button on it.
+    expect(screen.queryByRole('heading', { name: 'This needs the server' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Open Sync' })).toBeNull();
+    expect(screen.getByText(OFFLINE_GATE_LINE)).toHaveTextContent(/safe on this device/);
+    expect(screen.getAllByRole('row')).toHaveLength(1 + 11);
+    const asked = rpc.mock.calls.length;
+    await userEvent.click(screen.getByRole('button', { name: 'Add a user' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(rpc.mock.calls.length).toBe(asked);
+    vi.restoreAllMocks();
+  });
+
+  it('an Add a user dialog left open holds its Add user once the connection drops', async () => {
+    renderUsers({ users: USERS_12, counts: [] });
+    await userEvent.click(await screen.findByRole('button', { name: 'Add a user' }));
+    const dlg = screen.getByRole('dialog', { name: 'Add a user' });
+    expect(within(dlg).getByRole('button', { name: 'Add user' })).toBeEnabled();
+    goOffline();
+    expect(within(dlg).getByRole('button', { name: 'Add user' })).toBeDisabled();
+    expect(within(dlg).getByRole('button', { name: 'Cancel' })).toBeEnabled();
+    vi.restoreAllMocks();
   });
 });

@@ -1,6 +1,32 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.18 · **Date:** 2026-10-08 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.31 · **Date:** 2026-10-20 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.31: a cycle path shows small start and end marks (§8.2), built as a side task of task 1.47. See the living spec's §21, 2026-10-20 (v0.83).*
+
+*v1.30 (UI fix round 3): a cycle path can be drawn by dragging (§8.2), the confirmation shows each map field as a compact row with Tap to view, opening the map view only (§8.2), and practice reviews before it finishes (§8.5). Numbered after Phase 1 F's v1.26–v1.29, which reach `develop` with that phase. See the living spec's §21, 2026-10-20 (v0.82).*
+
+*v1.29 adds the discarded-records log's design (§9.7, §17.9). See the living spec's §21, 2026-10-12 (v0.81).*
+
+*v1.28 adds the Conflicts page's design (§9.5, §17.9) and a `resolution` column on `sync_conflicts` (§3.6). See the living spec's §21, 2026-10-12 (v0.80).*
+
+*v1.27 adds the Sync page's design (§9.10, §17.9), places the device wipe in Settings only (§9.9), and says how a refused record is cleared (§9.3.1, a lead's re-save). See the living spec's §21, 2026-10-12 (v0.79).*
+
+*v1.26 exempts super entries from the self-edit window (§7.6). See the living spec's §21, 2026-10-12 (v0.78).*
+
+*v1.25 adds the Settings page (§8.6, §17.9). See the living spec's §21, 2026-10-09 (v0.76).*
+
+*v1.24 adds the super-scouting page's design to §8.1. See the living spec's §21, 2026-10-09 (v0.75).*
+
+*v1.23 amends §8.2 (phases are tabs, not collapsible sections; the desktop field row; how blocking problems are shown), §8.3 (Discard), §8.4 (the timer's look and reset with undo), §8.5 (the way into practice) and §15.1 (the range block is marked as you type and listed on Review). See the living spec's §21, 2026-10-09 (v0.74).*
+
+*v1.22 amends §5.1 (exports are kept in the app for 24 hours, import picks from them; a form delete is confirmed by typing) and §3 (`form_exports`), and records the builder's remaining screens in §5.9. See the living spec's §21, 2026-10-08 (v0.70). Appendix C gains the form use cases built by tasks 1.27–1.28 (`listForms`, `saveDraftFields`, `exportForm`, `importForm`, `saveFormExport`, `listFormExports`, `getFormExport`), with no version bump.*
+
+*v1.21 adds the forms list (`/admin/forms`): §5.9, §17.9's new Forms row, and `form_versions.updated_by` in §3. See the living spec's §21, 2026-10-08 (v0.69).*
+
+*v1.20 adds the form builder's closed design: §5.1 (a new field's key follows its label until the first save; select-option changes are structural), §5.2 / §5.3 / §5.6 (an event-log field may ask where each tap happened), §5.9 (the builder's layout), §8.2 (map fields open a full-screen map) and §17.9's Form builder row. See the living spec's §21, 2026-10-08 (v0.68).*
+
+*v1.19 moves the v1 date to 2026-12-01 (scope line, §20.1) and removes §20.6's phase 2 cut: every phase 1 and phase 2 task is built. See the living spec's §21, 2026-10-08 (v0.67).*
 
 *v1.18 amends §9.3 (a delta pull also carries deleted matches), §9.3.1 (a missing parent is `parent-deleted`, never a transient error) and §9.7 (a deleted match is rebuilt, not discarded). See the living spec's §21, 2026-10-08 (v0.66).*
 
@@ -40,7 +66,7 @@
 
 **What this document is not.** It carries no rationale, no rejected options, no parked or deferred items, no decision log and no change history. Those live in `frc-scouting-app-spec.md`, which remains the archive of *why*.
 
-**Scope boundary.** Everything in this document is **v1 = phases 0–2, due 2026-11-20**. Appendix A lists what is deliberately excluded, so the plan never re-adds a deferred item.
+**Scope boundary.** Everything in this document is **v1 = phases 0–2, due 2026-12-01** (amended 2026-10-08, v1.19). Appendix A lists what is deliberately excluded, so the plan never re-adds a deferred item.
 
 ---
 
@@ -262,9 +288,19 @@ form_versions (
   version_no    integer not null,
   published_at  timestamptz,           -- null = draft
   is_locked     boolean not null default false,
+  updated_by    uuid references users(id),   -- who last saved it; shown on the forms list (v1.21)
   created_at, updated_at,
   unique (form_id, version_no)
 )
+
+form_exports (                         -- v1.22: saved exports, kept 24 hours
+  id           uuid primary key,
+  form_id      uuid references forms(id) on delete set null,
+  label        text not null,          -- e.g. 'Match form 2026 · draft v4'
+  definition   jsonb not null,         -- exactly what exportForm returns
+  created_by   uuid not null references users(id),
+  created_at   timestamptz not null default now()
+)                                      -- rows older than 24 hours are deleted whenever exports are listed or saved
 create index on form_versions (form_id, updated_at);
 
 form_fields (
@@ -393,7 +429,9 @@ sync_conflicts (
   duplicate_row_id              uuid,
   created_at, updated_at,
   resolved_at                   timestamptz,
-  resolved_by                   uuid references users(id)
+  resolved_by                   uuid references users(id),
+  resolution                    jsonb   -- v1.28: the resolve command's choice ({keep:'live'|'superseded'} or {keep_row_id}),
+                                        -- so "Settled today" can say what was kept; null while open
 )
 create index on sync_conflicts (event_id, updated_at);
 create index on sync_conflicts (entity, row_id);
@@ -599,16 +637,16 @@ Points are captured at field-creation time for the same reason as semantic metad
 ### 5.1 Versioning
 
 - A form belongs to a **season**. A season may hold several forms (one `match`, one `super`). Every event in that season uses them.
-- **A new form version is created only by a structural change**: adding a field, removing/deprecating a field, or changing a field's type.
+- **A new form version is created only by a structural change**: adding a field, removing/deprecating a field, or changing a field's type. **Adding, removing or reordering a select option is structural too**; renaming an option's label is in place. *(amended 2026-10-08, v1.20)*
 - **These edits happen in place and create no version:** a field's `label`, its help text, its `min`/`max`/`step` range, its `expected_range`, its display order, its section, its semantic metadata, its scoring, and the form's `timer_config`. A range change applies to new entries only and never retroactively invalidates data already collected.
-- **Field `key`s are permanent.** Labels change freely; keys never.
+- **Field `key`s are permanent.** Labels change freely; keys never. A new field's key is generated from its label and **follows the label until the field is first saved**; from that save on it never changes. *(amended 2026-10-08, v1.20)*
 - Deleting a field marks it `deprecated` in the new version. Historical data is retained.
 - A form has one **active version** (`forms.active_version_id`) plus restorable secondary version snapshots. Statistics always compute against the **active** version's field set.
 - Entries collected under other versions still aggregate through shared field `key`s.
 - **Offline form editing is not allowed.** Form changes require connectivity.
 - **Form templates are admin-only.** Creating, importing, editing and deleting a form definition is admin-only; submitting entries against one is open to all roles.
-- **Deleting a form is a cascade delete behind an explicit warning, admin-only.**
-- **Export/import of a form definition as JSON** is supported. There is no "duplicate last year's form" feature.
+- **Deleting a form is a cascade delete behind an explicit warning, admin-only.** The warning names the versions and the entries it removes, offers Export first, and is confirmed by **typing `delete match form`** (or `delete super form`). *(amended 2026-10-08, v1.22)*
+- **Export/import of a form definition as JSON** is supported. There is no "duplicate last year's form" feature. *(Amended 2026-10-08, v1.22:)* **Export saves one chosen version** (the draft or the active one) **into Exports, kept 24 hours and then deleted**, with an optional download of the `.json` file for a long-term backup. **Import picks from the saved exports** (or a downloaded file), shows what it would add, change or remove, and becomes a draft: it replaces an existing form's draft, or creates an empty form as draft v1. Exporting one season's form and importing it into the next is how a new season starts from the old form.
 
 ### 5.2 Field type catalogue
 
@@ -625,7 +663,7 @@ All of the following ship in v1.
 | **Short text** | Free text. |
 | **Long text** | Notes / comments. |
 | **Timer** | Accumulating stopwatch. **Editable after stop** (to correct a late stop) and **nullable via an "unsure — no time" toggle** (submits no value rather than a wrong number). |
-| **Event log** | Scouter-defined event buttons. Each tap is stored as `{type, t}` where `t` is seconds from match start (§5.5). Taps are deletable before submit. |
+| **Event log** | Scouter-defined event buttons. Each tap is stored as `{type, t}` where `t` is seconds from match start (§5.5). Taps are deletable before submit. **Optionally, per field, each tap also asks where** (`ask_position`): the map opens after the tap, and the tap stores `{type, t, x, y}`, or `{type, t}` when the scouter skips. *(amended 2026-10-08, v1.20)* |
 | **Field-position picker** | Tap the season game image; stores normalized `{x, y}` in 0–1. One point or a list per entry. Alliance-normalized (§5.6). |
 | **Cycle path** | Tap an **ordered sequence of points** per cycle; an entry holds a **list of cycles**. **Low fidelity by design** — a configurable cap on points per cycle, defaulting to 6, keeps the payload light. It is a rough sketch, not a trajectory. Same alliance normalization (§5.6). |
 | **Computed** | Read-only, derived from other fields by a small typed expression (§5.7). |
@@ -643,7 +681,7 @@ Every field carries: `key`, `label`, help text, `type`, `required`, `default_val
 | Rating | `max` (default 5), `style` (`stars` \| `slider`) |
 | Single / Multi select | `options: [{value, label}]`, `is_ordinal` |
 | Timer | `allow_unsure` (always true in v1) |
-| Event log | `event_types: [{value, label}]` |
+| Event log | `event_types: [{value, label}]`, `ask_position` (bool, default false), `mirror_axis` (used when `ask_position` is on) |
 | Field-position picker | `multi_point` (bool), `mirror_axis` ∈ `none` \| `horizontal` \| `vertical` \| `both` |
 | Cycle path | `max_points_per_cycle` (default 6), `mirror_axis` |
 | Computed | `expression` (§5.7), `result_type` ∈ `float` \| `string` |
@@ -695,7 +733,7 @@ Derived series available to the metric engine per event type: **cycle count**, *
 
 ### 5.6 Alliance normalization for spatial fields
 
-Field-position picker and Cycle-path fields store normalized `{x, y}` in 0–1 against the **season game image**.
+Field-position picker and Cycle-path fields, and Event-log taps with a place, store normalized `{x, y}` in 0–1 against the **season game image**.
 
 - The **red** alliance keeps raw coordinates.
 - The **blue** alliance is mirrored on the field's configured `mirror_axis` (`horizontal`, `vertical`, `both`, or `none`), so both alliances map to a single canonical frame.
@@ -735,6 +773,8 @@ Desktop only, **≥ 1024 px** (§17.2). Three panes:
 1. **Field palette** — the type catalogue, dragged onto the canvas.
 2. **Canvas** — the ordered field list, drag-reorderable, grouped by section.
 3. **Settings pane** — the selected field's configuration, semantic metadata and scoring, all in one place so metadata is filled *while* the field is created.
+
+*Closed design (2026-10-08, v1.20; `docs/design/pages/12-form-builder/final/`):* the canvas draws each field with the scouter's real controls and is **paged by phase like the entry form** (the phase tabs, "Phase n of 4", swipe or ← →); its **Try it** mode is the phone-width preview and shows **what the entry would save** and what the analysis gets. The top bar holds **Match timer** and **More** (Edit as JSON · Export · Import · Delete form), then Save draft / Publish; a held Publish says why, with "Next incomplete". A locked version shows a banner naming **how many entries use it**. An incomplete field is marked in the warning colour, never red. Reached from **`/admin/forms`** (v1.21; `docs/design/pages/13-forms/final/`): per season, a card per form (match, super) with its status, fields, entries, last edited (date · who) and a **version timeline** — entries per version, and a button per version that opens the builder on it: **Continue** (the draft), **Open** (the active version, in-place edits), **View** (an older version, read-only) with **Restore**. **Open builder** opens the draft if there is one, else the active version. A missing form offers Create or Import; a season with no published match form shows a warning. The builder route takes the version: `/admin/forms/:formId?version=n`. *(v1.22)* The remaining screens are designed too: the **Match timer** editor (phase rows, a proportional bar, "match ends at", a one-click standard 0:15 · 2:15 · 0:30 when empty), **Edit as JSON** (a line-numbered editor; errors name line and column; Apply held until valid), **Export / Import** (above), **Delete form** (typed confirmation) and **offline** (editing paused, nothing lost).
 
 Plus:
 
@@ -861,6 +901,8 @@ Custom username/password authentication in the server use-case layer. **Supabase
 
 A scouter may edit their **own** entry for **5 minutes** after creating it. After that the row locks for them, and only a lead or admin can change it.
 
+**Super entries are exempt** *(v1.26, user, 2026-10-12)*: a scouter may edit their own super entry (§8.1) at any time during the event. A super entry is one running judgement of a team, built up over every match the scouter watches, not a record of one match, so locking it after five minutes defeats its purpose. The window below applies to `form_kind = 'match'` entries only, on the client and on the server; another scouter's super entry stays read-only to a scouter, as before.
+
 - The window is measured from the entry's **`client_created_at`**, so it behaves identically offline and online.
 - The **client enforces it** by locking the UI at the 5-minute mark.
 - **The server also enforces it**, using the two client timestamps carried on the mutation: an operation whose `author_user_id` has the `scouter` role and targets its own entry is accepted only when `client_updated_at − client_created_at ≤ 5 minutes`. An edit outside the window is rejected with `edit-window-expired`, and the client surfaces it as "this entry is locked — ask a lead".
@@ -895,32 +937,36 @@ This is where 95% of usage happens: a student in a loud arena, phone in one hand
 
 If a super entry for that (team, event) already exists on the device, the app opens it for editing rather than starting a second one. The duplicate path of §9.5 exists for the case two devices create one independently.
 
+*Design (v1.24, `docs/design/pages/15-super/final/`):* reached from a **Super scouting** card on Scout. The picker shows a progress line ("6 of 20 super-scouted on this device"), search and **To do · Done · All** chips over the roster, to-do teams ordered by how many matches this device saw them in. The form's header names the team, the event, and the matches this device scouted the team in ("Seen here in Q12 · Q19…"); a reopened entry says so. The confirmation names the team and the event and says no match is recorded.
+
 ### 8.2 The entry form
 
-- **Collapsible phase sections** — Autonomous → Teleop → Endgame → Post-match, ordered by the fields' `phase` metadata. The scouter can **open, close and reopen** any section at will. This is not one-way paging.
+- **Phase tabs** — Autonomous → Teleop → Endgame → Post-match, ordered by the fields' `phase` metadata: one phase at a time under tabs, with a sideways swipe on a phone. The scouter can **go to any phase at will**; it is not one-way paging. *(amended 2026-10-09, v1.23; was "collapsible phase sections", superseded by the Entry design of 2026-10-06, `docs/design/pages/01-entry/final/`)*
+- **Layout** *(v1.23)*: a phone stacks fields; on a computer each field is a row, name on the left and control on the right (`docs/design/pages/14-entry-parts/final/`).
 - **Mandatory robot status**, chosen **before** the scoring fields: `played` · `no_show` · `disabled` · `broke_down`.
   - For **`no_show`** and **`disabled`** every field is **hidden**. No zeros are ever entered. The entry is submitted with **`data = {}`**, required-field validation is bypassed, and the range block of §15.1 does not run. The entry records only the status.
   - **`broke_down`** additionally captures the breakdown time in seconds from match start, stored in `breakdown_seconds`. All fields remain visible and are filled normally.
 - **Conditional fields** appear and disappear per §5.8.
-- **Hard range block** on submit: a numeric value outside its field's `expected_range` blocks submission (§15.1).
+- **Hard range block** on submit: a numeric value outside its field's `expected_range` blocks submission (§15.1). Unanswered **required** fields block it too. Review entry then lists every blocking problem with its phase and a **Go to** link instead of the confirmation *(v1.23)*.
 - **Undo** is available on every repeatable input: counters, event-log taps, position-picker points (undo last point / clear all), multi-select, and timer reset.
-- **Explicit submit.** Submitting shows a **confirmation summary of the whole entry** before it commits. Nothing reaches the shared data on a stray tap.
+- **Map fields** (position picker, cycle path, and an event log that asks where) are one button in the form showing what is marked. It opens the map **full screen on a phone** and **as a dialog on a computer**, drawn with **the scout's own alliance end at the bottom** (phone) or on the left (computer); only the drawing turns, never the stored coordinates. Tap to add; tap a mark to select it and **✕ Remove** it; Undo. **On a cycle path, a drag draws the route freehand** *(v1.30)*: the stroke is simplified to at most the field's `max_points_per_cycle` points, keeping its shape, and stored exactly as tapped points are; a tap still adds one point. Each path shows a **small start mark and end mark** *(v1.31, user 2026-10-20)*: a hollow ring on its first point and a small arrowhead on its last point, pointing along the last leg, in the path's own colour and no larger than a point; no labels, so they take no extra room. The same marks on the editing map, the view-only map and the form's map button. A cycle path shows only the routes: while drawing, **Clear path** restarts the path being drawn. An event log's "where?" can be skipped, keeping the tap's time. *(added 2026-10-08, v1.20)*
+- **Explicit submit.** Submitting shows a **confirmation summary of the whole entry** before it commits. Nothing reaches the shared data on a stray tap. *(v1.30)* In the summary, a **map field** (position, cycle path, an event log) is one compact row: its name, what it holds in the form's own words ("1 spot", "2 paths · 9 spots", "5 events · 4 on the map") and **Tap to view**, which opens the map **view only** (no tools; an event log's spots numbered and listed with their times). No picture of the field in the summary, so a long form stays short.
 
 ### 8.3 Never lose data
 
-Every interaction writes a **local draft immediately** to IndexedDB. The draft survives a browser crash, a dead battery and an accidental back-swipe, and is offered for recovery on next open. An explicit submit promotes the draft into the sync outbox and clears it.
+Every interaction writes a **local draft immediately** to IndexedDB. The draft survives a browser crash, a dead battery and an accidental back-swipe, and is offered for recovery on next open. An explicit submit promotes the draft into the sync outbox and clears it. *(v1.23)* The recovery offer (at the top of Scout) has **Resume** and **Discard**; Discard deletes the draft, with an undo.
 
 ### 8.4 The sticky match timer
 
 - **Pinned to the top of the screen, visible while scrolling.**
 - Its **phases and their countdown durations are part of the form definition** — `forms.timer_config`, shaped `{"phases": [{"phase": "auto", "seconds": 15}, {"phase": "teleop", "seconds": 135}, {"phase": "endgame", "seconds": 30}]}`, using the same phase vocabulary as field metadata. Phases run consecutively in list order. **Match end (`t_end`) is the sum of the phase durations.** Editing durations is an in-place edit and creates **no** form version. An empty `phases` list means the form has no timer and the sticky timer is not rendered.
-- A **manual "Start match" button** starts it. There is no field hookup.
+- A **manual "Start match" button** starts it. There is no field hookup. *(v1.23)* While running it shows the phase, the time left in it, the total and a bar of the phases; the last 10 s of a phase are marked; a **reset** can be undone; at match end it says the match is over and entry continues. Look: `docs/design/pages/14-entry-parts/final/`.
 - It is **display-only guidance**: it does not open or close phase sections, does not lock or gate any field, and does not auto-submit.
 - It supplies `t = 0` for Event-log taps and the match-end boundary for the final derived cycle (§5.5).
 
 ### 8.5 Practice / training mode
 
-A mode that renders a **real form** without polluting the database.
+A mode that renders a **real form** without polluting the database. *(v1.23)* It is entered from **Practice a match** on Scout; while it is on, a strip on every screen says nothing is saved, with **Exit practice**, and Review entry becomes **Finish practice**. *(v1.30)* Finish practice runs the **same review** as a real entry (the problems list, then the confirmation summary); its confirm button reads **Finish practice** and nothing is saved.
 
 - Practice entries are marked as practice, are **never written to `scouting_entries`**, and **never enter the outbox**.
 - Their drafts are written to a **separate IndexedDB store (`practice_drafts`)**, so a crash mid-practice does not lose the screen.
@@ -933,6 +979,7 @@ All of the following ship:
 - Large touch targets — **minimum 48 × 48 px with ≥ 8 px between adjacent targets**.
 - **Outdoor-readable high-contrast theme** (§17.4).
 - **Large-text option** — an in-app multiplier on top of the OS text size.
+- *(v1.25)* These live on a **Settings** page (`/settings`, a "This device" nav group, every role; `docs/design/pages/16-settings/final/`): rows for Theme (Light · Outdoor) and Text size (100 · 115 · 130 · 150%), each choice opening with a **live example** of real entry controls in the picked theme or size; Keep the screen on; Vibrate on taps (disabled where the phone cannot vibrate); the device's sign-in, competition and version; and Wipe this device (§9.9), shown held while anything waits to send.
 - **Haptic feedback** on taps.
 - **Screen wake lock** — no dimming mid-match.
 - **Thumb-reachable primary actions.**
@@ -1048,6 +1095,7 @@ It holds exactly the entities the delta pull returns, plus device-local state:
 - **`applied`, `noop`, `divergence` and `duplicate` all count as a cloud ack** for that `row_id`: the data is on the server. The client marks the record `acked` and prunes the operation.
 - **A missing parent is always `parent-deleted`** (amended 2026-10-08, v1.18). That includes a foreign-key failure on the entry's match, team or event. It is never the generic "unexpected server error", which the client retries silently for ever. Only a genuinely transient failure may use that.
 - **`rejected` is never an ack.** `parent-deleted` triggers §9.7. Every other rejection reason leaves the record local and surfaces it on the sync page for a human to look at; the operation is not retried automatically.
+- **A refused record is cleared by a lead's re-save** *(v1.27, Q7.8, user 2026-10-12)*. A lead or admin signs in on that device (Switch scouter, §7.5), opens the record from the sync page (**Open entry**) and saves it — fixing it first when the reason was `invalid`. The save replaces the refused operation with one **authored by the lead**: same `row_id`, same action (a create stays a create), same `base_version`. It is therefore authorised under the lead's rights (§7.6) and sent like any other operation. **The entry keeps its `scouter_id`**: the scouter is still credited, only the operation's author changes, so `syncPush` accepts a lead's or admin's create whose `scouter_id` is another user. Until a lead does this, the record waits, counted, and holds the wipe (§9.9) and Discard received QR data (§9.8) — by design, since nothing a scouter typed is ever dropped here.
 - **`op_id` is the idempotency key.** Replaying a batch is safe; a previously applied `op_id` returns `noop`.
 - **Authorization is per operation, against the operation's `author_user_id`** (§7.5), not against the bearer.
 
@@ -1109,6 +1157,15 @@ Every synced row carries a server-assigned `version`. Each mutation records the 
 
 The queue shows, for each item, the team, the match, **both authors' names**, both client timestamps and a field-by-field diff.
 
+**The review screen's design** *(v1.28, 2026-10-12; `docs/design/pages/18-conflicts/final/`)*:
+
+- **One scroll of cards**, one per open conflict, at any width. Each card names the kind in words — **Edited on two phones** (divergence) or **Scouted twice** (duplicate) — and how many fields differ, and marks the copy the statistics use now as **Counted now**.
+- **The diff shows only the differing fields by default**; "Show the n that match" opens the rest.
+- A divergence offers **Keep [live author]'s** and **Restore [other author]'s**; a duplicate offers **Keep [author]'s** for each row.
+- **Undo is a delayed send.** Choosing folds the card to a "Kept …" line with Undo and a 5-second countdown; the resolve command is sent only when it ends, so Undo just cancels it and the server has no undo. Leaving the page sends a pending choice at once; a failed send reopens the card with the error.
+- **Settled today** lists each conflict resolved today for the event — what was kept, when and by whom — from `sync_conflicts.resolution`, `resolved_at` and `resolved_by`.
+- The nav row is shown to leads and admins; a scouter who opens the page reads it with every action disabled and a note that a lead or an admin resolves these.
+
 **The client prevents duplicates locally.** Before creating an entry the client checks its own cache for a live entry with the same logical key and refuses, pointing the scouter at the existing one. The duplicate path exists for the case the client cannot see: two devices, both offline.
 
 ### 9.6 What is and is not editable offline
@@ -1149,6 +1206,7 @@ When the server rejects an operation with `parent-deleted` — the season, event
 - The client **hard-deletes the local record and its outbox operation**.
 - Before doing so it raises a **dismissible notice listing exactly what was discarded** (team, match, form kind, scouter, timestamp) so the loss is visible rather than silent.
 - The notice is written to a local, read-only "discarded records" log kept for the life of the install, so a scouter can see later what happened to an entry they remember making.
+- *(v1.29, 2026-10-12; `docs/design/pages/19-discarded/final/`)* The log is the page `/sync/discarded`, opened from the sync page (the notice's "See the log", and More). It groups records **by when they were removed**, newest first, each group naming the competition they belonged to; each record shows match, station, team, robot status (or SUPER), form kind, scouter and when it was saved. It states the cause in general terms ("an admin deleted the competition, season or form it belonged to"), since `parent-deleted` does not name the parent. **It does not show the entered values** (user). Read only; no actions.
 
 This is the only path in the product that destroys data a scouter typed, and it runs only after an admin has hard-deleted the parent object.
 
@@ -1197,6 +1255,7 @@ A "clear this device's offline data" action, gated behind a **constant code held
 
 - It is a guard against accidents, **not a secret** — a client-side build variable is visible in the bundle, and this is accepted.
 - **The wipe is refused for any record without a cloud ack**, so it can never destroy unsynced data. If unacked records exist the action reports how many and refuses.
+- *(v1.27)* It is reached from **Settings** ("Wipe this device", §17.9) only, not from the sync page.
 
 ### 9.10 Sync status surface
 
@@ -1206,6 +1265,15 @@ A "clear this device's offline data" action, gated behind a **constant code held
 - A **sync page** listing what synced, what is pending, when the last successful sync was, and a manual **"sync now"** button.
 - **The pending list names each unsynced record the way a person recognises it**, with the same number of items as the indicator's count. For a scouting entry: match and team (e.g. "Q21 · 118 Robonauts"), alliance, robot status, when it was saved, and whether it was made on this device or received by QR. A record the server **rejected** (§9.3.1) stays in the list, marked as rejected, with the reason in words. A bare match is not a line of its own; an entry whose match was created on this device says so ("new match — sends with this entry").
 - **Conflicts are an explicit worklist you can finish**, not a passive warning.
+
+**The sync page's design** *(v1.27, 2026-10-12; `docs/design/pages/17-sync/final/`)*:
+
+- A **status strip**: the state in words (Offline · Online · Sending…), the last successful sync time, and **Sync now** as the page's one primary action. While a sync runs it shows its progress ("Sent · 2 of 5") and the rows tick off as each is acknowledged.
+- **Tabs with counts: Waiting · Sent · Problems.** Waiting is the pending list above, **grouped by competition** (this event first, then each earlier event under its own heading). Sent lists what reached the cloud with the time of its ack. Problems holds the refused records and the discarded-records notice of §9.7, with a link to its log.
+- **A refused record offers one action, Open entry** (the entry preview, §13.4), from which a lead clears it by re-saving it (§9.3.1). The sync page never discards it; §9.7 stays the only path that destroys data a scouter typed.
+- **Leads and admins see a conflicts link** ("2 conflicts to review › Review") while any `sync_conflicts` row is open; it opens the review screen.
+- **QR marks (§9.8):** a record the device has shown in a QR batch says **"shown by QR hh:mm"** (the last time its batch was on screen; a display, not a receipt, so it stays pending). A device holding received copies shows a **"Received by QR"** block counting them by author, with each author's last scan time.
+- **More (⋯)** holds Send by QR, Receive by QR, the discarded-records log, and §9.8's **Discard received QR data** (shown held while any received copy is unacked).
 
 ---
 
@@ -1679,7 +1747,7 @@ One **"Alliance selection"** area with three tab-switched pages. All three work 
 
 ### 15.1 Entry-time validation
 
-**Hard range block only.** Submission is **blocked** when a numeric value falls **outside its field's declared `expected_range`**. Fields without an `expected_range` have no block.
+**Hard range block only.** Submission is **blocked** when a numeric value falls **outside its field's declared `expected_range`**. Fields without an `expected_range` have no block. *(v1.23)* The field is marked **as it is typed** (the warning colour, never red, and the limit in words) and the value is kept; Review entry lists it with a Go to link (§8.2).
 
 There are **no cross-field rules and no outlier blocking** in v1. Nothing is ever auto-excluded or silently averaged out.
 
@@ -1938,8 +2006,13 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 | Users (`/admin/users`) | Added 2026-10-07, v1.12. Desktop only. Search; filter chips **All · Scouters · Leads · Admins · Disabled** with counts; a table of name, username, role, status, **entries this season** and row quick actions (**Reset password**, **Disable** — Disable still confirms). A row opens the account. **Add a user** is a dialog: full name, a username suggested from it, the role as three described choices, an initial password with **Generate**, "ask them to change it"; after creating, the dialog shows the password once to hand over. Not offered on a phone at all. |
 | User detail (`/admin/users/:id`) | Added 2026-10-07, v1.13. Desktop only. One column: who it is (with "This is you" on your own account); **Role** as three described choices that **save on pick, with no Save button** ("Saving…", then a "Saved" line; a refusal shows the server's sentence and restores the role); Rename; Reset password with **Generate** and the one-time handover; **Disable** behind the destructive confirmation. A disabled account shows only **Enable account**. |
 | Change password (`/change-password`) | Added 2026-10-07, v1.14. The sign-in frame. Forced after sign-in ("Choose a new password", no way back) or by choice ("Change your password", Back to scouting). Current, new and confirm, each with **show / hide**; **live checks** for "at least 8 characters" and "both new passwords match"; offline is said first and the button is held. Reached by choice from the **account menu** (the sidebar's account corner: Switch scouter · Change password · Sign out; on a phone, the drawer's account section). |
+| Sync (`/sync`) | Added 2026-10-12, v1.27. Every role, any width; in the "This device" nav group with Conflicts (leads, admins) and Settings; the top-bar sync status opens it from every screen. A status strip with **Sync now**; **Waiting · Sent · Problems** tabs with counts; Waiting grouped by competition; a refused record offers **Open entry**; a conflicts link for leads; **More** holds the QR actions, the discarded log and Discard received QR data. Details in §9.10. |
+| Discarded records (`/sync/discarded`) | Added 2026-10-12, v1.29. Any width; not in the nav (opened from Sync). Read only: records grouped by removal time with their competition; match, station, team, status, kind, scouter, saved. An empty state. Details in §9.7. |
+| Conflicts (`/conflicts`) | Added 2026-10-12, v1.28. Any width; leads and admins in the "This device" nav group, opened from Sync's conflicts link. One scroll of cards showing only the differing fields, "Counted now" on the copy in use, keep / restore (or keep one of two), Undo as a 5-second delayed send, and a "Settled today" log. Read-only offline and for scouters. Details in §9.5. |
+| Settings (`/settings`) | Added 2026-10-09, v1.25. Every role, any width; in a "This device" nav group. Rows with their values (Theme, Text size; Keep the screen on, Vibrate on taps; this device's facts and Wipe). Theme and Text size open a sheet (phone) or dialog (computer) with a live example. Saved per device. |
 | Phone data entry | One job on screen. Primary actions stay thumb-reachable. Counters are a − / value / + triplet, never a text input. The sticky timer never fights the page scroll. |
-| Form builder | Three panes: palette → canvas → settings. Semantic metadata lives in the settings pane so it is filled *while* the field is created. A preview toggle renders the form at phone width. |
+| Forms list (`/admin/forms`) | Added 2026-10-08, v1.21. Desktop only; admins; not in the phone menu. Season chips (a plain label, a dot on the active season); per form a card with status, counts, last edited · who, and the version timeline with Continue / Open / View and Restore; Open builder; Create or Import for a missing form; a warning while no match form is published. |
+| Form builder | Three panes: palette → canvas → settings. Semantic metadata lives in the settings pane so it is filled *while* the field is created. *(Amended 2026-10-08, v1.20.)* Desktop only. The canvas draws the real entry controls, paged by phase like the entry form; **Try it** replaces a separate preview and shows the data the entry would save. Top bar: version chip, Match timer, More (Edit as JSON · Export · Import · Delete form), Save draft / Publish. Map fields are buttons that open the map dialog. |
 | Team page | Sticky team header, horizontal tab strip, stat rows as label → value → inline bar. Readable in one thumb scroll. |
 | Dashboards & builder | A panel grid with a pinned scope/filter bar; a builder order a non-programmer can follow; KPI stat tiles above the charts. |
 | Ranking table | Column sort, column visibility, sticky header, no pagination for 50 teams. Rank column, medals on the top 3. |
@@ -2125,7 +2198,7 @@ The Vercel, Supabase and GitHub accounts are currently **personal**, with the in
 
 ### 20.1 What v1 is
 
-**v1 = phase 0 + phase 1 + phase 2. Target date 2026-11-20.**
+**v1 = phase 0 + phase 1 + phase 2. Target date 2026-12-01** (amended 2026-10-08, v1.19).
 
 ### 20.2 The phases
 
@@ -2177,9 +2250,9 @@ A phase is finished when its gate passes, not when the code is written.
 
 ### 20.6 Schedule checkpoint
 
-**The phase 1 gate should pass by ~2026-10-20**, leaving a month for phase 2.
+**The phase 1 gate should pass by ~2026-11-01**, leaving a month for phase 2 (amended 2026-10-08, v1.19).
 
-**If it has not passed by 2026-11-01, phase 2 is cut to the metric builder and the configurable ranking dashboard** — the chart/dashboard builder, compare, match preview, operational statistics and alliance selection all wait. Phase 1's fixed ranking table already works, so a cut ships a usable ranking either way. v1 ships on 2026-11-20 with less analysis rather than late with more.
+**There is no scope cut.** Every phase 1 task and every phase 2 item is built, in plan order, with nothing skipped (amended 2026-10-08, v1.19); this replaces the earlier rule that cut phase 2 to the metric builder and the ranking dashboard if the gate slipped. The checkpoint is an early warning only: if the gate has not passed by ~2026-11-01, the pace is raised (more parallel design rounds, overnight build runs), not the scope. Until a part lands, the team works with what the app already has (for example, reading entries without dashboards).
 
 ### 20.7 Fallback if v1 is not ready
 
@@ -2339,6 +2412,8 @@ The starting registry for phase 1. Every entry carries a Zod input schema, a Zod
 | `queryEntries` | Entry search for one event, filtered and paginated. |
 | `getEntry` | One entry, fully rendered with derived score and scouter name. |
 | `getForm` / `getFormVersion` / `getFormDictionary` | Form definition and the machine-readable field dictionary. |
+| `listForms` | The forms list (§5.9): a season's match and super forms, each with its versions newest first — status, lock, field count, entries per version, last edited and by whom — and the active version. |
+| `exportForm` / `listFormExports` / `getFormExport` | **Admin only — a `service` caller is refused.** One version's portable definition; the saved exports newest first (rows older than 24 hours are deleted first) with label, field count, author, and expires-in; one saved export with its definition. |
 | `getTeamStats` | All metrics for one team over a scope, plus the match-by-match series and its notes. |
 | `rankTeams` | The ranking table, with optional weighted composite and contribution breakdown. |
 | `compareTeams` | 2–6 teams over the compare metric set. |
@@ -2365,6 +2440,8 @@ The starting registry for phase 1. Every entry carries a Zod input schema, a Zod
 | `createMatch` / `updateMatch` / `setMatchTeams` / `deleteMatch` | admin |
 | **`ensureMatch`** | **any authenticated user** — the bare auto-creation of §6.4. Creates event + type + number only; a no-op if the match exists. |
 | `createForm` / `updateForm` / `publishFormVersion` / `restoreFormVersion` / `deleteForm` / `deleteFormVersion` | admin |
+| `saveDraftFields` / `importForm` | admin — a saved field's key change is refused; a structural change to a published version forks a draft (§5.1) |
+| `saveFormExport` | admin — saves one version (draft or active) into Exports for 24 hours; older rows are deleted first |
 | `setScoringRules` | admin |
 | `upsertEntry` | scouter (own, ≤ 5 min) / lead / admin |
 | `deleteEntry` | lead / admin |

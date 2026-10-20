@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.17"
   }
   public: {
     Tables: {
@@ -422,6 +422,69 @@ export type Database = {
           },
         ]
       }
+      form_deletions: {
+        Row: {
+          deleted_at: string
+          entity: string
+          row_id: string
+          season_id: string | null
+        }
+        Insert: {
+          deleted_at?: string
+          entity: string
+          row_id: string
+          season_id?: string | null
+        }
+        Update: {
+          deleted_at?: string
+          entity?: string
+          row_id?: string
+          season_id?: string | null
+        }
+        Relationships: []
+      }
+      form_exports: {
+        Row: {
+          created_at: string
+          created_by: string
+          definition: Json
+          form_id: string | null
+          id: string
+          label: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          definition: Json
+          form_id?: string | null
+          id: string
+          label: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          definition?: Json
+          form_id?: string | null
+          id?: string
+          label?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "form_exports_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "form_exports_form_id_fkey"
+            columns: ["form_id"]
+            isOneToOne: false
+            referencedRelation: "forms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       form_fields: {
         Row: {
           category: string | null
@@ -516,6 +579,7 @@ export type Database = {
           is_locked: boolean
           published_at: string | null
           updated_at: string
+          updated_by: string | null
           version_no: number
         }
         Insert: {
@@ -525,6 +589,7 @@ export type Database = {
           is_locked?: boolean
           published_at?: string | null
           updated_at?: string
+          updated_by?: string | null
           version_no: number
         }
         Update: {
@@ -534,6 +599,7 @@ export type Database = {
           is_locked?: boolean
           published_at?: string | null
           updated_at?: string
+          updated_by?: string | null
           version_no?: number
         }
         Relationships: [
@@ -542,6 +608,13 @@ export type Database = {
             columns: ["form_id"]
             isOneToOne: false
             referencedRelation: "forms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "form_versions_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
@@ -616,6 +689,7 @@ export type Database = {
         Row: {
           alliance: string
           created_at: string
+          deleted_at: string | null
           id: string
           match_id: string
           station: number
@@ -625,6 +699,7 @@ export type Database = {
         Insert: {
           alliance: string
           created_at?: string
+          deleted_at?: string | null
           id: string
           match_id: string
           station: number
@@ -634,6 +709,7 @@ export type Database = {
         Update: {
           alliance?: string
           created_at?: string
+          deleted_at?: string | null
           id?: string
           match_id?: string
           station?: number
@@ -1039,6 +1115,7 @@ export type Database = {
           event_id: string
           id: string
           kind: string
+          resolution: Json | null
           resolved_at: string | null
           resolved_by: string | null
           row_id: string
@@ -1055,6 +1132,7 @@ export type Database = {
           event_id: string
           id: string
           kind: string
+          resolution?: Json | null
           resolved_at?: string | null
           resolved_by?: string | null
           row_id: string
@@ -1071,6 +1149,7 @@ export type Database = {
           event_id?: string
           id?: string
           kind?: string
+          resolution?: Json | null
           resolved_at?: string | null
           resolved_by?: string | null
           row_id?: string

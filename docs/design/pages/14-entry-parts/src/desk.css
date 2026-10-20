@@ -1,0 +1,54 @@
+/* Phase 1 E small parts on the desktop Entry page (01-entry desktop final). Classes dx-*. */
+body { background: var(--bg); }
+.desk.final { zoom: 1; border-radius: 0; box-shadow: none; position: relative; }
+.dwrap { display: grid; grid-template-columns: 1fr 340px; gap: 24px; padding: 20px 32px; height: 100%; max-width: 1180px; }
+.dhead { display: flex; justify-content: space-between; align-items: flex-end; }
+.dhead h1 { font-size: 28px; font-weight: 750; letter-spacing: -0.02em; }
+.dhead .meta { color: var(--muted); font-size: 13px; margin-top: 5px; display: flex; gap: 8px; align-items: center; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); overflow: hidden; }
+.pane { padding: 0 20px 12px; }
+
+/* label left, control right at a fixed width */
+.dx-f { display: grid; grid-template-columns: 1fr 440px; gap: 24px; align-items: center; padding: 14px 0; border-top: 1px solid var(--line-2); }
+.pane .dx-f:first-of-type { border-top: 0; }
+.dx-f .flbl { margin: 0 !important; }
+.dx-f > .fld { padding: 0; border: 0; }
+.dx-f > .fld > .flbl { display: none; }
+
+/* the match timer: one slim bar across the top of the form card */
+.dx-tm { display: flex; align-items: center; gap: 14px; padding: 10px 20px; background: var(--rail-raised); color: #fff; position: sticky; top: 0; z-index: 2; }
+.dx-tm .ph { font-size: 11.5px; font-weight: 800; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 6px; background: var(--accent); white-space: nowrap; }
+.dx-tm .cd { font-family: var(--font-num); font-size: 22px; font-weight: 600; white-space: nowrap; }
+.dx-tm .cd small { font-family: var(--font-ui); font-size: 12px; color: var(--rail-ink); font-weight: 500; margin-left: 6px; }
+.dx-tm .bar { flex: 1; display: flex; gap: 3px; height: 6px; }
+.dx-tm .bar span { border-radius: 3px; background: #3a414c; position: relative; overflow: hidden; }
+.dx-tm .bar span i { position: absolute; inset: 0 auto 0 0; background: var(--accent); }
+.dx-tm .bar span.done i { width: 100%; background: #6f7a88; }
+.dx-tm .tot { font-family: var(--font-num); font-size: 12.5px; color: var(--rail-ink); white-space: nowrap; }
+.dx-tm .rs { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: var(--rail-ink); border: 1px solid #3a414c; }
+.dx-tm .rs svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; }
+
+/* side panel: problems listed under the phases */
+.dx-prob { margin-top: 12px; border-top: 1px solid var(--line-2); padding-top: 12px; }
+.dx-prob h4 { font-size: 13px; font-weight: 750; color: var(--warn); display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.dx-prob h4 svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; }
+.dx-prob a { display: flex; justify-content: space-between; padding: 7px 0; font-size: 13.5px; color: var(--ink); border-bottom: 1px solid var(--line-2); }
+.dx-prob a span { color: var(--accent-ink); font-weight: 650; }
+.lrow.warn .ic { border-color: var(--warn) !important; background: var(--warn-tint); }
+.lrow.warn small { color: var(--warn); font-weight: 650; }
+
+/* dialog (the desktop twin of the problems sheet) */
+.dx-scrim { position: absolute; inset: 0; background: rgba(20, 24, 32, 0.45); z-index: 10; display: flex; align-items: center; justify-content: center; }
+.dx-dlg { width: 520px; background: var(--surface); border-radius: 16px; box-shadow: 0 24px 60px -20px rgba(20, 24, 32, 0.45); padding: 20px 22px; display: flex; flex-direction: column; gap: 12px; }
+.dx-dlg h3 { font-size: 20px; font-weight: 750; }
+.dx-dlg p { color: var(--muted); font-size: 13.5px; }
+.dx-dlg .acts { display: flex; justify-content: flex-end; gap: 8px; }
+
+.dx-cap { position: absolute; left: 0; right: 0; bottom: 0; }
+.dx-f .ctr-row { justify-content: flex-end; }
+/* smaller timer, as on the phone (2026-10-09) */
+.dx-tm { padding: 6px 20px; gap: 12px; }
+.dx-tm .cd { font-size: 18px; }
+.dx-tm .ph { font-size: 10.5px; padding: 2px 7px; }
+.dx-tm .bar { height: 4px; }
+.dx-tm .rs { width: 28px; height: 28px; }

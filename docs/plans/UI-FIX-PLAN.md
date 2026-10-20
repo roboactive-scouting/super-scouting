@@ -264,3 +264,151 @@ format (`+00:00`), which the op schema refused, and that one op made the whole b
 9. **Finals not re-rendered.** The Scout and Home final READMEs were updated, but their
    PNGs still show the old link text, the unpinned desktop button and the always-raised
    Scout. The shell final, which was re-rendered, is what counts for the bar.
+
+---
+
+# UI fix round 2 — form builder (UF.14–UF.21)
+
+**Input:** the user's notes from testing the merged Phase 1 D builder on dev (2026-10-09).
+**Binding:** `docs/ops/BUILD-CONTEXT.md`. Branch `feat/builder-ui-round-2`, cut from `develop`
+(`73775de`). Looks: `docs/design/pages/12-form-builder/final/` and THEME.md "Locked components".
+One fix agent for all six, reviewed, then a PR into `develop`. Departures go in `DEVIATIONS.md`.
+
+## UF.14 — Going back in the builder (user: "go backwards in the form builder … easily")
+- **Undo / redo** of builder edits: adding, removing, reordering, retyping a field; every
+  settings-pane change; option and button edits; scoring; JSON Apply. Ctrl+Z / Ctrl+Shift+Z
+  (and Ctrl+Y), plus Undo and Redo buttons in the top bar, held when there is nothing to undo.
+  Typing in one input is one step per pause, not one per keystroke.
+- **History covers the changes since the last load or save** (orchestrator's call, the user was
+  asked and did not choose): a save, a reload, a fork or a version switch starts a new history.
+  Rejected: undo across a save — it would recreate fields the server has already given ids.
+- A clear **"← Forms"** back link in the builder's top bar (the leave guard still asks when
+  something is unsaved). Dialogs already close with Esc and Cancel; check each does.
+
+## UF.15 — Try it explains itself (user asked what Start over and the pane are)
+- One plain line at the top of the pane: what Try it is for (fill the form as a scouter would,
+  check what each field records; nothing is saved or sent).
+- "Start over" becomes **"Clear test values"**.
+- "What the analysis gets" gets a one-line explanation (the values as analysis reads them,
+  one row per field and phase). Kept, not dropped.
+
+## UF.16 — The pane head's icon is not a button
+- The head icon (the eye in Try it, the type icon in Edit) no longer sits in a button-like
+  square: a plain icon beside the title, so nothing looks clickable that is not.
+
+## UF.17 — No hover on rows that cannot be clicked
+- Read-only table rows do not change on hover: the Try it analysis rows, the scoring matrix,
+  the import diff list, and any other read-only table in the builder and forms pages. Do it
+  once in `components/ui/table` (an opt-out the Entries table's `STATIC_ROW` can move onto),
+  without changing clickable tables.
+
+## UF.18 — The canvas draws the form as the phone does
+- `OptionButtons` switches 2 → 4 columns on the **window** width (`sm:grid-cols-4`), so in the
+  builder's 410 px column it squeezes four columns and wraps every label ("No / climb").
+  Entry controls lay out by **their own width** (CSS container queries), so the canvas and Try
+  it match the phone. Check every `FieldInput` control and `components/entry` piece for
+  window-width classes.
+- A mouse click on an option shows only the chosen border, never a second (focus) ring;
+  keyboard focus keeps its ring.
+- The ✓ never touches the tile's edge.
+- Verify the real Scout entry screen at 375 px, a tablet width and 1440 px is unchanged or
+  better (e2e shots).
+
+## UF.19 — Settings pane: paired fields line up
+- A label always fits on one line; "Needed to publish" moves under the control as a small
+  `--warn` line, not inside the label.
+- Fields side by side align by their controls, whatever their labels say; the 2 px warning
+  edge does not change the control's size.
+- Every two-across row: Unit / Category, Min / Max / Step / Default, expected range, and the rest.
+
+## UF.20 — Reordering fields in the canvas shows the move live (user, 2026-10-09)
+- Dragging a field by its grip should look like reordering events on Manage → Competitions:
+  the dragged field follows the pointer, lifted, and the others slide out of the way while
+  dragging, so the landing place is visible before the drop — not a swap at the end.
+- Keyboard reorder, palette drops, reduced motion (a clear drop indicator, no sliding) and the
+  selected ring stay.
+
+## UF.21 — Home: tapping a coverage square names the match (user, 2026-10-09)
+- On the phone's Home → Schedule coverage, tapping a square shows a small label with the match
+  number and how many of its robots are scouted, kept short: "Q12 · 4 scouted" (no "of 6" —
+  the user: every match has six). Tapping another
+  square moves it; tapping elsewhere closes it. A computer shows the same text on hover/focus
+  (today the `title` is only the match name).
+- The count already exists inside `lib/derive/coverage.ts` (the scouted set per match); pass it
+  through `CoverageCell` instead of recomputing.
+- The squares are ~18 px, under the 48 px tap rule (SPEC-FINAL §17.7): make them easy to hit
+  without overlap (e.g. tap resolves to the nearest square, or a row-level hit area) and log
+  the choice. Keyboard: the squares are focusable and the label is announced.
+
+---
+
+# UI fix round 3 — Phase 1 E on a phone (UF.22–UF.26)
+
+**Input:** the user's notes from testing Phase 1 E on dev (2026-10-20), and their answers the same
+day (review = a compact row + Tap to view opening a view-only map, no field picture; paths = drag to draw + tap; dark theme → spec §24; path limit
+10, not 20). **Spec:** living spec v0.82, SPEC-FINAL v1.30 §8.2, §8.5.
+**Binding:** `docs/ops/BUILD-CONTEXT.md`. Branch `fix/round-3`, cut from `develop` (`3dcb6f1`).
+Looks: `docs/design/pages/14-entry-parts/final/` plus the round-3 review mockup (UF.24; its view-only map is approved, its mini-map pictures are not — see UF.24).
+One fix agent per item, in order, reviewed by the orchestrator; one commit per item; then a PR into
+`develop`. Phase 1 F (PR #34) merges after this, and its branch takes `develop`'s changes then
+(conflicts resolved there). Departures go in `DEVIATIONS.md`.
+
+**Progress** — ticked as each step lands, so the user can see how far the run is:
+
+| Item | Investigate | Fix + tests | Screens | Verified | Committed |
+|---|---|---|---|---|---|
+| UF.22 Q50 twice on Home | ☑ | ☑ | ☑ | ☑ | ☑ |
+| UF.23 Draft notice that will not go | ☑ | ☑ | ☑ | ☑ | ☑ |
+| UF.24 Review: map fields open view only | ☑ | ☑ | ☑ | ☑ | ☑ |
+| UF.25 Drag to draw a path | ☑ | ☑ | ☑ | ☑ | ☑ |
+| UF.26 Practice reviews before it finishes | ☑ | ☑ | ☑ | ☑ | ☑ |
+| Ship: full suite, PR into `develop` | — | — | — | ☑ | ☑ |
+
+Already done (no code): dev match form v4's `auto_path` limit 6 → 10, in place (2026-10-20).
+
+## UF.22 — Home's coverage shows Q50 twice (user's phone only)
+- The server has no match 50, so the phone holds **two locally created Q50 match rows** that have
+  not synced; coverage draws one square per row. Find how the second row was made (Scout's
+  `existing` lookup in `useScoutSelection`, `ensureMatchLocally`, a stale cached list, a
+  double start, practice, a rejected push left behind) — reproduce it in a test before fixing.
+- Fix the cause so typing an existing match never creates a second row. Coverage also keys
+  squares by (type, number), so a duplicate already on a device draws once.
+- Do not delete the user's local rows silently: if two unsynced rows share (event, type, number),
+  the entries keep pointing where they point; log what the phone will show after the fix.
+
+## UF.23 — The draft notice keeps coming back after Discard
+- `DraftRecovery` offers only the newest draft; Discard deletes that one and the next older draft
+  takes its place with nearly the same words, so it looks as if Discard did nothing.
+- Clear drafts that cannot be resumed: a draft whose entry was submitted after the draft's last
+  change; a draft for a form version that is no longer active or a match / team the device no
+  longer holds is still offered, saying so, and Discard removes it.
+- When more than one draft remains, the notice says so ("and 2 more") and Discard removes only the
+  one shown; Undo still restores it.
+- Check the clock/stopwatch listener cannot write a draft back after a submit or a Discard.
+
+## UF.24 — Review entry: map fields open a view-only map
+- **Approved 2026-10-20 with one change (user):** no picture of the field in the confirmation —
+  "too big on a large form; keep it easy on the scouters". Each map field (position, cycle path,
+  event log) is one compact row like any other: the name, what it holds in the **map button's own
+  words** ("1 spot", "2 paths · 9 spots", "5 events · 4 on the map") and **Tap to view** /
+  **Click to view** (the whole row is the target). An empty one stays a plain row with "—".
+- Tapping opens the map **view only**, as drawn in
+  `docs/design/pages/14-entry-parts/round-3/review-maps-phone.png` frame 3: no Undo, Clear,
+  Remove or adding; a "View only" tag; an event log's spots numbered in event order and listed as
+  chips with their times ("no place" when skipped); a secondary **Close**. Same on a computer as
+  the map dialog. Also in the super confirmation.
+- Keep the map chunk lazy (initial-JS budget is 219.8 of 220 KB; raise it only if needed, logged).
+
+## UF.25 — A cycle path can be drawn by dragging
+- In the map, a **drag draws the route freehand**; on release the stroke is simplified
+  (Ramer–Douglas–Peucker or similar) to at most `max_points_per_cycle` points that keep its shape,
+  and stored exactly as tapped points are. A tap still adds one point; Undo removes the last stroke
+  or point; selection and ✕ Remove keep working.
+- The stroke shows live while drawing; reduced motion changes nothing here (it is the scout's
+  finger, not an animation). Mirroring for the blue alliance is unchanged.
+
+## UF.26 — Practice reviews before it finishes
+- **Finish practice** runs the same review as a real entry: the problems list when something
+  blocks, else the confirmation summary, whose button reads **Finish practice**; confirming ends in
+  the "Practice finished" sheet. Nothing is written to `scouting_entries` or the outbox (keep the
+  1.37 tests green and add one through the review).

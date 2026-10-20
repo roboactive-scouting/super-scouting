@@ -94,3 +94,26 @@ describe('Tabs (RB.3: done and count)', () => {
     expect(tab).toHaveClass('h-12');
   });
 });
+
+describe('Tabs: a flagged tab (task 1.29, the builder phase holding an incomplete field)', () => {
+  it('shows a warn mark after the count and names it for a screen reader', () => {
+    render(
+      <Tabs
+        label="Phases"
+        tabs={[
+          { key: 'auto', label: 'Auto', count: 4 },
+          { key: 'teleop', label: 'Teleop', count: 5 },
+        ]}
+        value="auto"
+        onChange={() => undefined}
+        flagged={new Set(['teleop'])}
+        flagLabel="incomplete"
+      />,
+    );
+    const teleop = screen.getByRole('tab', { name: 'Teleop 5 incomplete' });
+    expect(teleop.querySelector('[data-flag-mark]')).toHaveClass('text-warn');
+    expect(
+      screen.getByRole('tab', { name: 'Auto 4' }).querySelector('[data-flag-mark]'),
+    ).toBeNull();
+  });
+});

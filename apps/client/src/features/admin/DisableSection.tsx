@@ -4,6 +4,7 @@ import type { PublicUser } from '@frc/shared';
 import type { Rpc } from '@/data/rpc';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardTitle } from '@/components/ui/card';
+import { OFFLINE_GATE_LINE, useCapability } from '@/components/OfflineGate';
 import { DestructiveConfirm } from '@/components/ui/destructive-confirm';
 import { adminErrorLine } from './adminMessages';
 
@@ -28,6 +29,8 @@ export function DisableSection({
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** SPEC-FINAL 9.6: user management is held while offline. */
+  const can = useCapability('manage_users');
   const [error, setError] = useState<string | null>(null);
 
   async function confirm() {
@@ -54,6 +57,7 @@ export function DisableSection({
       <Button
         variant="destructive"
         className="mt-3.5"
+        disabled={!can}
         onClick={() => {
           setError(null);
           setOpen(true);
@@ -74,6 +78,7 @@ export function DisableSection({
         }
         confirmLabel={`Disable ${user.full_name}`}
         busy={busy}
+        held={can ? null : OFFLINE_GATE_LINE}
         error={error}
         onConfirm={() => void confirm()}
         onCancel={() => setOpen(false)}

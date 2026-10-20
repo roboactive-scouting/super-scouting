@@ -28,7 +28,8 @@ export function EntryTag({
 }
 
 /**
- * The title ("Q38 · 5951 Tiny Titans"), the tag and the saved-draft line. Desktop: one row.
+ * The title ("Q38 · 5951 Tiny Titans"), the tag and the saved-draft line — in practice
+ * "Practice · not saved" in its place (SPEC-FINAL 8.5, task 1.37). Desktop: one row.
  * Phone: a white bar with the 48 px "‹ Scout" link and the tag above the title.
  */
 export function EntryHeader({
@@ -36,6 +37,7 @@ export function EntryHeader({
   matchLabel,
   teamLabel,
   savedAt,
+  practice = false,
   tag,
 }: {
   desktop: boolean;
@@ -43,6 +45,8 @@ export function EntryHeader({
   teamLabel: string;
   /** The draft's last write (ISO), or null before the first one. */
   savedAt: string | null;
+  /** Practice mode: nothing is saved, so the line says so from the start. */
+  practice?: boolean;
   tag: ReactNode;
 }) {
   const title = (
@@ -56,7 +60,7 @@ export function EntryHeader({
         <span className="num font-semibold">{matchLabel}</span> ·{' '}
         <span dir="auto">{teamLabel}</span>
       </h1>
-      {savedAt && (
+      {(practice || savedAt) && (
         <p
           className={cn(
             'mt-1.5 flex items-center gap-2 text-muted',
@@ -64,7 +68,9 @@ export function EntryHeader({
           )}
         >
           <span aria-hidden="true" className="size-[7px] shrink-0 rounded-full bg-accent" />
-          Draft saved on this device · {formatTime(savedAt)}
+          {practice || !savedAt
+            ? 'Practice · not saved'
+            : `Draft saved on this device · ${formatTime(savedAt)}`}
         </p>
       )}
     </>

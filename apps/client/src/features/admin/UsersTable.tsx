@@ -2,6 +2,7 @@ import { Ban, KeyRound } from 'lucide-react';
 import type { MouseEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { PublicUser } from '@frc/shared';
+import { useCapability } from '@/components/OfflineGate';
 import { Button } from '@/components/ui/button';
 import { Initials } from '@/components/ui/initials';
 import {
@@ -37,6 +38,8 @@ export function UsersTable({
   onDisable: (user: PublicUser) => void;
 }) {
   const navigate = useNavigate();
+  // SPEC-FINAL 9.6: both quick actions are server commands, held while offline.
+  const can = useCapability('manage_users');
   const pathOf = (user: PublicUser) => `${PATHS.users}/${encodeURIComponent(user.id)}`;
   const open = (user: PublicUser) => (e: MouseEvent<HTMLTableRowElement>) => {
     // The name's link and the row's buttons do their own thing.
@@ -47,7 +50,7 @@ export function UsersTable({
   return (
     <Table containerClassName="rounded-card border border-line bg-surface">
       <TableHeader>
-        <TableRow className="hover:bg-transparent">
+        <TableRow>
           <TableHead className="ps-4">Full name</TableHead>
           <TableHead>Username</TableHead>
           <TableHead>Role</TableHead>
@@ -96,11 +99,21 @@ export function UsersTable({
               <TableCell className="py-0 pe-4">
                 {!off && (
                   <div className="flex justify-end gap-1.5 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
-                    <Button size="sm" className={ACTION} onClick={() => onReset(user)}>
+                    <Button
+                      size="sm"
+                      className={ACTION}
+                      disabled={!can}
+                      onClick={() => onReset(user)}
+                    >
                       <KeyRound aria-hidden="true" />
                       Reset password
                     </Button>
-                    <Button size="sm" className={ACTION} onClick={() => onDisable(user)}>
+                    <Button
+                      size="sm"
+                      className={ACTION}
+                      disabled={!can}
+                      onClick={() => onDisable(user)}
+                    >
                       <Ban aria-hidden="true" />
                       Disable
                     </Button>

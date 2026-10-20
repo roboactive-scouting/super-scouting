@@ -2,11 +2,21 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from '@/App';
 import { syncSessionAcrossTabs } from '@/auth/session';
+import { practiceMode } from '@/features/entry/practice';
+import { applyDeviceLook } from '@/features/settings/theme';
 import { browserAdapter, registerServiceWorker, updateReady } from '@/pwa';
 import '@/styles/index.css';
 
+// SPEC-FINAL 8.6, 17.4 (task 1.38): this device's theme and text size, before the first paint, so
+// the app never flashes in the wrong look.
+applyDeviceLook();
+
 // UF.2: a sign-out, sign-in or expiry in one tab shows in every other tab at once.
 syncSessionAcrossTabs();
+
+// SPEC-FINAL 8.5: the app always starts out of practice, with no practice draft left over from a
+// crash or a closed tab (task 1.37).
+void practiceMode.clearOnStart();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('#root is missing from index.html');

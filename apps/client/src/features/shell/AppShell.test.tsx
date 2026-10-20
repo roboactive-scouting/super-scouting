@@ -12,6 +12,7 @@ import { db, setMeta } from '@/data/db';
 import type * as SyncModule from '@/data/sync';
 import type { SyncDeps, SyncOutcome } from '@/data/sync';
 import { sessionOverride } from '@/features/context/sessionOverride';
+import { practiceMode } from '@/features/entry/practice';
 import { useDraft } from '@/features/entry/useDraft';
 import { updateReady } from '@/pwa';
 import { AppShell, UPDATE_READY_LINE } from './AppShell';
@@ -1101,5 +1102,52 @@ describe('AppShell restarted with a default move pending (branch review, finding
     expect(syncNow.mock.calls.map(([d]) => d.eventId)).toEqual([OTHER_EVENT]);
     oldPicker.stop();
     expect(oldPicker.seen.ever).toBe(false);
+  });
+});
+
+describe('AppShell in practice mode (SPEC-FINAL 8.5, task 1.37)', () => {
+  beforeEach(async () => {
+    await hydratedFor(EVENT);
+  });
+  afterEach(async () => {
+    await practiceMode.exit();
+  });
+
+  it('shows the practice strip on every screen, and none outside practice', async () => {
+    renderShell('/entries');
+    await screen.findByText('the entries list');
+    expect(screen.queryByRole('status', { name: 'Practice mode' })).not.toBeInTheDocument();
+
+    act(() => practiceMode.enter());
+    const strip = await screen.findByRole('status', { name: 'Practice mode' });
+    expect(strip).toHaveTextContent('PRACTICE');
+    expect(strip).toHaveTextContent('Nothing is saved');
+    expect(within(strip).getByRole('button', { name: 'Exit practice' })).toBeInTheDocument();
+  });
+
+  it('routes the entry draft to the practice store, and Exit practice empties it and leaves the entry', async () => {
+    practiceMode.enter();
+    const router = renderShell(`/entry/m-1/t-1`);
+    await screen.findByText(ENTRY_CHILD);
+    fireEvent.change(screen.getByLabelText('Notes'), { target: { value: 'practice run' } });
+    await waitFor(async () => expect(await db.practiceDrafts.count()).toBe(1));
+    expect(await db.drafts.count()).toBe(0);
+
+    const strip = screen.getByRole('status', { name: 'Practice mode' });
+    await userEvent.setup().click(within(strip).getByRole('button', { name: 'Exit practice' }));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/scout'));
+    await waitFor(async () => expect(await db.practiceDrafts.count()).toBe(0));
+    expect(practiceMode.active()).toBe(false);
+    expect(screen.queryByRole('status', { name: 'Practice mode' })).not.toBeInTheDocument();
+  });
+
+  it('stays on a screen that is not an entry when practice is left there', async () => {
+    practiceMode.enter();
+    const router = renderShell('/entries');
+    const strip = await screen.findByRole('status', { name: 'Practice mode' });
+    await userEvent.setup().click(within(strip).getByRole('button', { name: 'Exit practice' }));
+    await waitFor(() => expect(practiceMode.active()).toBe(false));
+    expect(router.state.location.pathname).toBe('/entries');
   });
 });

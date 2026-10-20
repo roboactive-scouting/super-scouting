@@ -17,6 +17,8 @@ export type LocalEntry = {
   breakdown_seconds: number | null;
   data: Record<string, unknown>;
   client_created_at: string;
+  /** The last change on the device that wrote it (absent on a row written before it was kept). */
+  client_updated_at?: string;
   deleted_at: string | null;
 };
 
@@ -61,9 +63,12 @@ export function editableUntil(entry: LocalEntry): Date {
  * SPEC-FINAL 7.6, through the one shared rule the server also applies (`canEditEntry` in
  * packages/shared): a lead or admin (`manage_entries`) edits any entry at any time; a
  * scouter only their own, inside the five-minute window measured from
- * `client_created_at` — here, to `now` on this device's clock.
+ * `client_created_at` — here, to `now` on this device's clock. A scouter's own SUPER entry
+ * is exempt from the window (v1.26, task 1.40): it is one running judgement of a team,
+ * built up all event; the server exempts it the same way.
  */
 export function canSelfEdit(entry: LocalEntry, editor: Editor, now: Date): boolean {
+  if (entry.form_kind === 'super' && entry.scouter_id === editor.id) return true;
   return canEditEntry(
     { kind: 'user', userId: editor.id, role: editor.role },
     {

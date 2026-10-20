@@ -473,12 +473,15 @@ function scriptedDb(results: Result[]): { db: Db; chains: Call[][] } {
         'upsert',
         'delete',
         'eq',
+        'neq',
         'is',
         'gt',
+        'gte',
         'lt',
         'or',
         'in',
         'ilike',
+        'not',
         'order',
         'limit',
         'range',
@@ -700,15 +703,19 @@ describe('supabaseStore matches and match slots (task 1.19)', () => {
     await store.listMatchSlots([MATCH]);
     expect(chains[0]).toContainEqual(['select', 'match_id, alliance, station, team_id']);
     expect(chains[0]).toContainEqual(['in', 'match_id', [MATCH]]);
+    // Task 1.40: a cleared slot's tombstone is never a live slot.
+    expect(chains[0]).toContainEqual(['is', 'deleted_at', null]);
   });
 
-  it('setMatchTeams deletes cleared slots, updates a changed team in place, inserts new ones', async () => {
+  const AT = '2026-11-14T10:00:00.000Z';
+
+  it('setMatchTeams tombstones cleared slots, updates a changed team in place, inserts new ones (task 1.40)', async () => {
     const { db, chains } = scriptedDb([
       {
         data: [
-          { id: 's-r1', alliance: 'red', station: 1, team_id: A },
-          { id: 's-r2', alliance: 'red', station: 2, team_id: A },
-          { id: 's-b1', alliance: 'blue', station: 1, team_id: B },
+          { id: 's-r1', alliance: 'red', station: 1, team_id: A, deleted_at: null },
+          { id: 's-r2', alliance: 'red', station: 2, team_id: A, deleted_at: null },
+          { id: 's-b1', alliance: 'blue', station: 1, team_id: B, deleted_at: null },
         ],
         error: null,
       },
@@ -716,20 +723,58 @@ describe('supabaseStore matches and match slots (task 1.19)', () => {
       { error: null },
       { error: null },
     ]);
-    await supabaseStore(db).setMatchTeams(MATCH, [
-      { alliance: 'red', station: 1, team_id: A },
-      { alliance: 'red', station: 2, team_id: B },
-      { alliance: 'blue', station: 3, team_id: A },
-    ]);
+    await supabaseStore(db).setMatchTeams(
+      MATCH,
+      [
+        { alliance: 'red', station: 1, team_id: A },
+        { alliance: 'red', station: 2, team_id: B },
+        { alliance: 'blue', station: 3, team_id: A },
+      ],
+      AT,
+    );
     expect(chains).toHaveLength(4);
-    expect(chains[1]).toContainEqual(['delete']);
+    // Every row of the match is read, tombstones included.
+    expect(chains[0]).toContainEqual(['select', 'id, alliance, station, team_id, deleted_at']);
+    expect(chains[0]!.find(([m]) => m === 'is')).toBeUndefined();
+    expect(chains[1]).toContainEqual(['update', { deleted_at: AT }]);
     expect(chains[1]).toContainEqual(['in', 'id', ['s-b1']]);
+    expect(chains.flat().find(([m]) => m === 'delete')).toBeUndefined();
     expect(chains[2]).toContainEqual(['update', { team_id: B }]);
     expect(chains[2]).toContainEqual(['eq', 'id', 's-r2']);
     const insert = chains[3]!.find(([m]) => m === 'insert')!;
     expect(insert[1]).toEqual([
       { id: expect.any(String), match_id: MATCH, alliance: 'blue', station: 3, team_id: A },
     ]);
+  });
+
+  it('setMatchTeams revives a refilled tombstone in place, and leaves a tombstone alone', async () => {
+    const { db, chains } = scriptedDb([
+      {
+        data: [
+          { id: 's-r1', alliance: 'red', station: 1, team_id: A, deleted_at: AT },
+          { id: 's-r2', alliance: 'red', station: 2, team_id: A, deleted_at: AT },
+        ],
+        error: null,
+      },
+      { error: null },
+    ]);
+    await supabaseStore(db).setMatchTeams(MATCH, [{ alliance: 'red', station: 1, team_id: B }], AT);
+    // One write: s-r1 revived with its new team; s-r2 is already a tombstone, so not rewritten.
+    expect(chains).toHaveLength(2);
+    expect(chains[1]).toContainEqual(['update', { team_id: B, deleted_at: null }]);
+    expect(chains[1]).toContainEqual(['eq', 'id', 's-r1']);
+  });
+
+  it('setMatchTeams revives a tombstone refilled with its old team', async () => {
+    const { db, chains } = scriptedDb([
+      {
+        data: [{ id: 's-r1', alliance: 'red', station: 1, team_id: A, deleted_at: AT }],
+        error: null,
+      },
+      { error: null },
+    ]);
+    await supabaseStore(db).setMatchTeams(MATCH, [{ alliance: 'red', station: 1, team_id: A }], AT);
+    expect(chains[1]).toContainEqual(['update', { team_id: A, deleted_at: null }]);
   });
 
   it('countEntriesByMatch counts every entry of the match, soft-deleted ones included', async () => {
@@ -879,6 +924,24 @@ describe('supabaseStore missing parents and match deletions (UF.1, SPEC-FINAL 9.
     expect(quiet.chains).toEqual([]);
   });
 
+  it('missingParent checks the form version last when it is given, and names it (task 1.40)', async () => {
+    const VERSION = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const withVersion = { ...parents, form_version_id: VERSION };
+    const { db, chains } = scriptedDb([found(EVENT), found(MATCH), found(TEAM), found(VERSION)]);
+    expect(await supabaseStore(db).missingParent(withVersion)).toBeNull();
+    expect(chains[3]![0]).toEqual(['from', 'form_versions']);
+    expect(chains[3]).toContainEqual(['eq', 'id', VERSION]);
+    const answer = (results: Result[]) =>
+      supabaseStore(scriptedDb(results).db).missingParent(withVersion);
+    expect(await answer([found(EVENT), found(MATCH), found(TEAM), none])).toBe('form_version');
+    expect(await answer([none, found(MATCH), found(TEAM), none])).toBe('event');
+    const quiet = scriptedDb([]);
+    expect(
+      await supabaseStore(quiet.db).missingParent({ ...parents, form_version_id: 'fv-1' }),
+    ).toBe('form_version');
+    expect(quiet.chains).toEqual([]);
+  });
+
   it('missingParent throws on a database error instead of reading it as a deleted parent', async () => {
     const { db } = scriptedDb([
       found(EVENT),
@@ -924,5 +987,439 @@ describe('supabaseStore missing parents and match deletions (UF.1, SPEC-FINAL 9.
     await expect(supabaseStore(db).listMatchDeletions(EVENT, 'x')).rejects.toThrow(
       'connection refused',
     );
+  });
+});
+
+describe('supabaseStore push semantics and form deletions (task 1.40, SPEC-FINAL 9.5)', () => {
+  const EVENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const MATCH = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const TEAM = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const ENTRY = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+  const SEASON = '11111111-1111-4111-8111-111111111111';
+  const key = { event_id: EVENT, form_kind: 'match' as const, team_id: TEAM, match_id: MATCH };
+
+  it('findByLogicalKey reads a LIVE entry with the key and another id, newest client_updated_at first', async () => {
+    const row = { id: 'other', version: 1 };
+    const { db, chains } = scriptedDb([{ data: [row], error: null }]);
+    expect(await supabaseStore(db).findByLogicalKey(key, ENTRY)).toEqual(row);
+    const calls = chains[0]!;
+    expect(calls[0]).toEqual(['from', 'scouting_entries']);
+    expect(calls).toContainEqual(['eq', 'event_id', EVENT]);
+    expect(calls).toContainEqual(['eq', 'form_kind', 'match']);
+    expect(calls).toContainEqual(['eq', 'team_id', TEAM]);
+    expect(calls).toContainEqual(['eq', 'match_id', MATCH]);
+    expect(calls).toContainEqual(['is', 'deleted_at', null]);
+    expect(calls).toContainEqual(['neq', 'id', ENTRY]);
+    expect(calls).toContainEqual(['order', 'client_updated_at', { ascending: false }]);
+    expect(calls).toContainEqual(['limit', 1]);
+  });
+
+  it('findByLogicalKey matches a super entry on a null match_id (null-safe), and answers null for none', async () => {
+    const { db, chains } = scriptedDb([{ data: [], error: null }]);
+    expect(
+      await supabaseStore(db).findByLogicalKey(
+        { ...key, form_kind: 'super', match_id: null },
+        ENTRY,
+      ),
+    ).toBeNull();
+    expect(chains[0]).toContainEqual(['is', 'match_id', null]);
+    expect(chains[0]!.find(([m, col]) => m === 'eq' && col === 'match_id')).toBeUndefined();
+  });
+
+  it('findByLogicalKey reads a non-uuid id as no match, without a query, and throws on an error', async () => {
+    const quiet = scriptedDb([]);
+    expect(await supabaseStore(quiet.db).findByLogicalKey(key, 'e-1')).toBeNull();
+    expect(quiet.chains).toEqual([]);
+    const { db } = scriptedDb([{ data: null, error: { message: 'connection refused' } }]);
+    await expect(supabaseStore(db).findByLogicalKey(key, ENTRY)).rejects.toThrow(
+      'connection refused',
+    );
+  });
+
+  it('insertConflict upserts the row into sync_conflicts, ignoring an existing id, and keeps the Postgres code', async () => {
+    const conflict = {
+      id: ENTRY,
+      event_id: EVENT,
+      entity: 'scouting_entry' as const,
+      row_id: ENTRY,
+      kind: 'duplicate' as const,
+      duplicate_row_id: ENTRY,
+    };
+    const { db, chains } = scriptedDb([{ error: null }]);
+    await supabaseStore(db).insertConflict(conflict);
+    expect(chains[0]).toEqual([
+      ['from', 'sync_conflicts'],
+      ['upsert', conflict, { onConflict: 'id', ignoreDuplicates: true }],
+    ]);
+    const failing = scriptedDb([{ error: { message: 'fk', code: '23503' } }]);
+    await expect(supabaseStore(failing.db).insertConflict(conflict)).rejects.toMatchObject({
+      code: '23503',
+    });
+  });
+
+  it('listFormDeletions reads the season’s tombstones after `since`, oldest first, paging past 1000', async () => {
+    const since = '2026-11-14T09:00:00.000Z';
+    const page = Array.from({ length: 1000 }, (_, i) => ({
+      entity: 'form_fields',
+      row_id: `f-${i}`,
+      deleted_at: '2026-11-14T09:30:00.000Z',
+    }));
+    const last = { entity: 'scoring_rules', row_id: 'r-1', deleted_at: '2026-11-14T09:31:00.000Z' };
+    const { db, chains } = scriptedDb([
+      { data: page, error: null },
+      { data: [last], error: null },
+    ]);
+    const rows = await supabaseStore(db).listFormDeletions(SEASON, since);
+    expect(rows).toHaveLength(1001);
+    expect(rows[1000]).toEqual(last);
+    expect(chains[0]).toContainEqual(['from', 'form_deletions']);
+    expect(chains[0]).toContainEqual(['select', 'entity, row_id, deleted_at']);
+    expect(chains[0]).toContainEqual(['eq', 'season_id', SEASON]);
+    expect(chains[0]).toContainEqual(['gt', 'deleted_at', since]);
+    expect(chains[0]).toContainEqual(['order', 'deleted_at', { ascending: true }]);
+    expect(chains[1]).toContainEqual(['range', 1000, 1999]);
+  });
+
+  it('listFormDeletions throws on a database error', async () => {
+    const { db } = scriptedDb([{ data: null, error: { message: 'connection refused' } }]);
+    await expect(supabaseStore(db).listFormDeletions(SEASON, 'x')).rejects.toThrow(
+      'connection refused',
+    );
+  });
+});
+
+describe('supabaseStore forms (task 1.27)', () => {
+  const FORM = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+  const VERSION = 'ffffffff-ffff-4fff-8fff-000000000001';
+
+  it('getFormFields reads the version in display order, then key', async () => {
+    const { db, chains } = scriptedDb([{ data: [], error: null }]);
+    await supabaseStore(db).getFormFields(VERSION);
+    expect(chains[0]).toContainEqual(['eq', 'form_version_id', VERSION]);
+    expect(chains[0]).toContainEqual(['order', 'display_order', { ascending: true }]);
+    expect(chains[0]).toContainEqual(['order', 'key', { ascending: true }]);
+  });
+
+  it('writeFormFields deletes the named keys, then upserts on (form_version_id, key) so ids survive', async () => {
+    const { db, chains } = scriptedDb([{ error: null }, { error: null }]);
+    await supabaseStore(db).writeFormFields(
+      VERSION,
+      [{ id: 'field-1', key: 'a', label: 'A' }],
+      ['gone'],
+    );
+    expect(chains).toHaveLength(2);
+    expect(chains[0]).toEqual([
+      ['from', 'form_fields'],
+      ['delete'],
+      ['eq', 'form_version_id', VERSION],
+      ['in', 'key', ['gone']],
+    ]);
+    expect(chains[1]).toContainEqual([
+      'upsert',
+      [{ id: 'field-1', key: 'a', label: 'A', form_version_id: VERSION }],
+      { onConflict: 'form_version_id,key' },
+    ]);
+  });
+
+  it('writeFormFields with nothing to delete or write makes no request', async () => {
+    const { db, chains } = scriptedDb([]);
+    await supabaseStore(db).writeFormFields(VERSION, [], []);
+    expect(chains).toHaveLength(0);
+  });
+
+  it('writeFormFields keeps the Postgres code of a failed write', async () => {
+    const { db } = scriptedDb([{ error: { message: 'fk', code: '23503' } }]);
+    await expect(
+      supabaseStore(db).writeFormFields(VERSION, [{ id: 'x', key: 'a' }], []),
+    ).rejects.toMatchObject({ code: '23503' });
+  });
+
+  it('countEntriesByFormVersion counts every bound entry, soft-deleted ones included', async () => {
+    const { db, calls } = recordingDb({ data: null, error: null, count: 5 });
+    expect(await supabaseStore(db).countEntriesByFormVersion(VERSION)).toBe(5);
+    expect(calls).toContainEqual(['from', 'scouting_entries']);
+    expect(calls).toContainEqual(['eq', 'form_version_id', VERSION]);
+    expect(calls.find(([m, col]) => m === 'is' && col === 'deleted_at')).toBeUndefined();
+  });
+
+  it('deleteFormCascade is one delete of the form row', async () => {
+    const { db, chains } = scriptedDb([{ error: null }]);
+    await supabaseStore(db).deleteFormCascade(FORM);
+    expect(chains).toEqual([[['from', 'forms'], ['delete'], ['eq', 'id', FORM]]]);
+  });
+
+  it('purgeFormExports deletes exports created before the cutoff and answers the count', async () => {
+    const { db, chains } = scriptedDb([{ error: null, count: 2 }]);
+    const cutoff = new Date('2026-11-13T10:00:00.000Z');
+    expect(await supabaseStore(db).purgeFormExports(cutoff)).toBe(2);
+    expect(chains[0]).toEqual([
+      ['from', 'form_exports'],
+      ['delete', { count: 'exact' }],
+      ['lt', 'created_at', '2026-11-13T10:00:00.000Z'],
+    ]);
+  });
+
+  it('replaceScoringRules deletes the other keys, then upserts on (form_id, field_key)', async () => {
+    const { db, chains } = scriptedDb([{ error: null }, { error: null }]);
+    await supabaseStore(db).replaceScoringRules(FORM, [{ id: 'r-1', field_key: 'a', points: 2 }]);
+    expect(chains[0]).toContainEqual(['eq', 'form_id', FORM]);
+    expect(chains[0]).toContainEqual(['not', 'field_key', 'in', '("a")']);
+    expect(chains[1]).toContainEqual([
+      'upsert',
+      [{ id: 'r-1', field_key: 'a', points: 2, form_id: FORM }],
+      { onConflict: 'form_id,field_key' },
+    ]);
+  });
+
+  it('countLiveEntriesByFormVersions head-counts each version’s LIVE entries', async () => {
+    const OTHER = 'ffffffff-ffff-4fff-8fff-000000000002';
+    const { db, chains } = scriptedDb([
+      { error: null, count: 3 },
+      { error: null, count: null },
+    ]);
+    const counts = await supabaseStore(db).countLiveEntriesByFormVersions([VERSION, OTHER]);
+    expect([...counts]).toEqual([
+      [VERSION, 3],
+      [OTHER, 0],
+    ]);
+    expect(chains[0]).toEqual([
+      ['from', 'scouting_entries'],
+      ['select', 'id', { count: 'exact', head: true }],
+      ['eq', 'form_version_id', VERSION],
+      ['is', 'deleted_at', null],
+    ]);
+    expect(chains[1]).toContainEqual(['eq', 'form_version_id', OTHER]);
+  });
+
+  it('countLiveEntriesByFormVersions makes no request for no versions, and throws on an error', async () => {
+    const none = scriptedDb([]);
+    expect((await supabaseStore(none.db).countLiveEntriesByFormVersions([])).size).toBe(0);
+    expect(none.chains).toHaveLength(0);
+    const { db } = scriptedDb([{ error: { message: 'connection refused' } }]);
+    await expect(supabaseStore(db).countLiveEntriesByFormVersions([VERSION])).rejects.toThrow(
+      'connection refused',
+    );
+  });
+
+  it('listUserNames reads id and full_name only, in chunks, and nothing for no ids', async () => {
+    const ids = Array.from({ length: 101 }, (_, i) => `u-${i}`);
+    const { db, chains } = scriptedDb([
+      { data: [{ id: 'u-0', full_name: 'Zero' }], error: null },
+      { data: [{ id: 'u-100', full_name: 'Hundred' }], error: null },
+    ]);
+    expect(await supabaseStore(db).listUserNames(ids)).toEqual([
+      { id: 'u-0', full_name: 'Zero' },
+      { id: 'u-100', full_name: 'Hundred' },
+    ]);
+    expect(chains[0]).toEqual([
+      ['from', 'users'],
+      ['select', 'id, full_name'],
+      ['in', 'id', ids.slice(0, 100)],
+    ]);
+    expect(chains[1]).toContainEqual(['in', 'id', ['u-100']]);
+    const none = scriptedDb([]);
+    expect(await supabaseStore(none.db).listUserNames([])).toEqual([]);
+    expect(none.chains).toHaveLength(0);
+  });
+
+  it('listFormExports reads newest first and bounded; getFormExport reads one by id', async () => {
+    const { db, chains } = scriptedDb([
+      { data: [], error: null },
+      { data: null, error: null },
+    ]);
+    await supabaseStore(db).listFormExports();
+    expect(await supabaseStore(db).getFormExport(FORM)).toBeNull();
+    expect(chains[0]).toEqual([
+      ['from', 'form_exports'],
+      ['select', 'id, form_id, label, definition, created_by, created_at'],
+      ['order', 'created_at', { ascending: false }],
+      ['order', 'id', { ascending: true }],
+      ['limit', 200],
+    ]);
+    expect(chains[1]).toEqual([
+      ['from', 'form_exports'],
+      ['select', 'id, form_id, label, definition, created_by, created_at'],
+      ['eq', 'id', FORM],
+      ['maybeSingle'],
+    ]);
+  });
+
+  it('form and version reads select explicit column lists', async () => {
+    const { db, chains } = scriptedDb([
+      { data: null, error: null },
+      { data: null, error: null },
+    ]);
+    await supabaseStore(db).getForm(FORM);
+    await supabaseStore(db).getFormVersion(VERSION);
+    expect(chains[0]).toContainEqual([
+      'select',
+      'id, season_id, kind, name, active_version_id, timer_config, created_at, updated_at',
+    ]);
+    expect(chains[1]).toContainEqual([
+      'select',
+      'id, form_id, version_no, published_at, is_locked, updated_by, created_at, updated_at',
+    ]);
+  });
+});
+
+describe('supabaseStore conflict queue and resolution (task 1.41, SPEC-FINAL 9.5)', () => {
+  const EVENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const CONFLICT = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  const ENTRY = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+  const COLUMNS =
+    'id, event_id, entity, row_id, kind, superseded_payload, superseded_author_id, ' +
+    'superseded_client_updated_at, base_version, duplicate_row_id, created_at, updated_at, ' +
+    'resolved_at, resolved_by, resolution';
+  const AT = '2026-11-14T10:00:00.000Z';
+
+  it('listOpenConflicts reads the event’s open rows of one entity, oldest first, bounded', async () => {
+    const { db, chains } = scriptedDb([{ data: [], error: null }]);
+    await supabaseStore(db).listOpenConflicts(EVENT, 'scouting_entry', 21);
+    expect(chains[0]).toEqual([
+      ['from', 'sync_conflicts'],
+      ['select', COLUMNS],
+      ['eq', 'event_id', EVENT],
+      ['eq', 'entity', 'scouting_entry'],
+      ['is', 'resolved_at', null],
+      ['order', 'created_at', { ascending: true }],
+      ['order', 'id', { ascending: true }],
+      ['limit', 21],
+    ]);
+  });
+
+  it('listOpenConflicts pages by an exact, quoted (created_at, id) keyset', async () => {
+    const { db, chains } = scriptedDb([{ data: [], error: null }]);
+    const created = '2026-11-14T09:01:30.123456+00:00';
+    await supabaseStore(db).listOpenConflicts(EVENT, 'scouting_entry', 21, {
+      created_at: created,
+      id: CONFLICT,
+    });
+    expect(chains[0]).toContainEqual([
+      'or',
+      `created_at.gt."${created}",and(created_at.eq."${created}",id.gt.${CONFLICT})`,
+    ]);
+  });
+
+  it('listOpenConflicts refuses a keyset that is not a timestamp and a uuid, without a query', async () => {
+    const { db, chains } = scriptedDb([]);
+    const store = supabaseStore(db);
+    await expect(
+      store.listOpenConflicts(EVENT, 'scouting_entry', 2, { created_at: 'x),or(', id: CONFLICT }),
+    ).rejects.toThrow('listOpenConflicts: a keyset must be a timestamp and a uuid');
+    await expect(
+      store.listOpenConflicts(EVENT, 'scouting_entry', 2, { created_at: AT, id: 'c-1' }),
+    ).rejects.toThrow('listOpenConflicts');
+    expect(await store.listOpenConflicts('ev-1', 'scouting_entry', 2)).toEqual([]);
+    expect(chains).toHaveLength(0);
+  });
+
+  it('listSettledConflicts reads rows resolved since the instant, newest first, bounded', async () => {
+    const { db, chains } = scriptedDb([{ data: [], error: null }]);
+    await supabaseStore(db).listSettledConflicts(EVENT, 'scouting_entry', AT, 100);
+    expect(chains[0]).toEqual([
+      ['from', 'sync_conflicts'],
+      ['select', COLUMNS],
+      ['eq', 'event_id', EVENT],
+      ['eq', 'entity', 'scouting_entry'],
+      ['gte', 'resolved_at', AT],
+      ['order', 'resolved_at', { ascending: false }],
+      ['order', 'id', { ascending: true }],
+      ['limit', 100],
+    ]);
+  });
+
+  it('the conflict reads throw on a database error, keeping its code', async () => {
+    const failing = () =>
+      scriptedDb([{ data: null, error: { message: 'down', code: '08006' } }]).db;
+    await expect(
+      supabaseStore(failing()).listOpenConflicts(EVENT, 'scouting_entry', 2),
+    ).rejects.toMatchObject({ code: '08006' });
+    await expect(
+      supabaseStore(failing()).listSettledConflicts(EVENT, 'scouting_entry', AT, 2),
+    ).rejects.toMatchObject({ code: '08006' });
+    await expect(supabaseStore(failing()).getConflict(CONFLICT)).rejects.toMatchObject({
+      code: '08006',
+    });
+  });
+
+  it('getConflict reads one row by id, and a non-uuid id as none without a query', async () => {
+    const { db, chains } = scriptedDb([{ data: { id: CONFLICT }, error: null }]);
+    const store = supabaseStore(db);
+    expect(await store.getConflict(CONFLICT)).toEqual({ id: CONFLICT });
+    expect(chains[0]).toEqual([
+      ['from', 'sync_conflicts'],
+      ['select', COLUMNS],
+      ['eq', 'id', CONFLICT],
+      ['maybeSingle'],
+    ]);
+    expect(await store.getConflict('c-1')).toBeNull();
+    expect(chains).toHaveLength(1);
+  });
+
+  it('resolveConflictRow is ONE conditional update, and answers whether it took', async () => {
+    const resolved = { resolved_at: AT, resolved_by: 'u-l', resolution: { keep: 'live' } };
+    const took = scriptedDb([{ data: [{ id: CONFLICT }], error: null }]);
+    expect(await supabaseStore(took.db).resolveConflictRow(CONFLICT, resolved)).toBe(true);
+    expect(took.chains[0]).toEqual([
+      ['from', 'sync_conflicts'],
+      ['update', resolved],
+      ['eq', 'id', CONFLICT],
+      ['is', 'resolved_at', null],
+      ['select', 'id'],
+    ]);
+    const missed = scriptedDb([{ data: [], error: null }]);
+    expect(await supabaseStore(missed.db).resolveConflictRow(CONFLICT, resolved)).toBe(false);
+    const quiet = scriptedDb([]);
+    expect(await supabaseStore(quiet.db).resolveConflictRow('c-1', resolved)).toBe(false);
+    expect(quiet.chains).toHaveLength(0);
+    const failing = scriptedDb([{ data: null, error: { message: 'fk', code: '23503' } }]);
+    await expect(
+      supabaseStore(failing.db).resolveConflictRow(CONFLICT, resolved),
+    ).rejects.toMatchObject({ code: '23503' });
+  });
+
+  it('reopenConflictRow clears only the resolution this call made', async () => {
+    const { db, chains } = scriptedDb([{ error: null }]);
+    await supabaseStore(db).reopenConflictRow(CONFLICT, AT);
+    expect(chains[0]).toEqual([
+      ['from', 'sync_conflicts'],
+      ['update', { resolved_at: null, resolved_by: null, resolution: null }],
+      ['eq', 'id', CONFLICT],
+      ['eq', 'resolved_at', AT],
+    ]);
+  });
+
+  it('the batched reads go by id in chunks, skip non-uuid ids, and make no request for none', async () => {
+    const ids = Array.from(
+      { length: 150 },
+      (_, i) => `eeeeeeee-eeee-4eee-8eee-${String(i).padStart(12, '0')}`,
+    );
+    const { db, chains } = scriptedDb([
+      { data: [{ id: ENTRY }], error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+    ]);
+    const store = supabaseStore(db);
+    expect(await store.getEntriesByIds([...ids, 'e-1'])).toEqual([{ id: ENTRY }]);
+    expect(chains).toHaveLength(2);
+    expect(chains[0]).toContainEqual(['select', '*']);
+    expect((chains[0]!.find(([m]) => m === 'in')![2] as string[]).length).toBe(100);
+    expect((chains[1]!.find(([m]) => m === 'in')![2] as string[]).length).toBe(50);
+    await store.getTeamsByIds([ENTRY]);
+    expect(chains[2]).toEqual([
+      ['from', 'teams'],
+      ['select', 'id, number, name, created_at, updated_at'],
+      ['in', 'id', [ENTRY]],
+    ]);
+    await store.getMatchesByIds([ENTRY]);
+    expect(chains[3]).toEqual([
+      ['from', 'matches'],
+      ['select', 'id, event_id, match_type, number, created_at, updated_at'],
+      ['in', 'id', [ENTRY]],
+    ]);
+    expect(await store.getEntriesByIds([])).toEqual([]);
+    expect(await store.getTeamsByIds(['t-1'])).toEqual([]);
+    expect(chains).toHaveLength(4);
   });
 });
