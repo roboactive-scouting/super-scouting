@@ -70,3 +70,23 @@ export function storedPoint(
 ): Point {
   return storeImagePoint(viewToImage(view, r), alliance, axis);
 }
+
+/**
+ * Where a cycle path's end arrow points, in degrees on the SCREEN (0 right, 90 down): the last leg
+ * with any length, worked out from the points as drawn (`imageToView`, so after the mirroring and
+ * the quarter turn) and with the drawing's width : height (`aspect`) put back, because the view's
+ * 0–1 is not square. Null for a path whose points all sit in one place (no leg to point along).
+ */
+export function endAngle(
+  points: readonly Point[],
+  rotation: Rotation,
+  aspect: number,
+): number | null {
+  const view = points.map((p) => imageToView(p, rotation));
+  for (let i = view.length - 1; i > 0; i--) {
+    const dx = (view[i]!.x - view[i - 1]!.x) * aspect;
+    const dy = view[i]!.y - view[i - 1]!.y;
+    if (Math.hypot(dx, dy) > 1e-6) return (Math.atan2(dy, dx) * 180) / Math.PI;
+  }
+  return null;
+}
