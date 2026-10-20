@@ -6,6 +6,7 @@ import {
   QR_BATCH_MAX_OPERATIONS,
   QR_FRAME_BYTES,
   QR_HEADER_BYTES,
+  QR_MAX_INFLATED_BYTES,
 } from './codec';
 
 const op = (i: number): Operation => ({
@@ -103,6 +104,16 @@ describe('QR codec (SPEC-FINAL 9.8)', () => {
     const collector = newCollector();
     collector.add(corrupted);
     expect(() => collector.result()).toThrow(/checksum/i);
+  });
+
+  it('refuses a payload that inflates past the cap, and takes one just under it', () => {
+    const sized = (bytes: number) => [{ ...op(1), payload: { notes: 'a'.repeat(bytes) } }];
+    const bomb = newCollector();
+    for (const frame of encodeBatch(sized(QR_MAX_INFLATED_BYTES))) bomb.add(frame);
+    expect(() => bomb.result()).toThrow(/larger than a QR batch/);
+    const big = newCollector();
+    for (const frame of encodeBatch(sized(QR_MAX_INFLATED_BYTES - 1024))) big.add(frame);
+    expect(big.result()).toHaveLength(1);
   });
 
   it('survives Hebrew text, because the payload is bytes and not base64', () => {

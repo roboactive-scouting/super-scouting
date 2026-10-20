@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.35 · **Date:** 2026-10-20 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.36 · **Date:** 2026-10-20 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.36 (Phase 1 G build): a received QR copy never replaces the receiving device's own unsent change, and discarding received QR data makes the next sync a full pull (§9.8). See the living spec's §21, 2026-10-20 (v0.88).*
 
 *v1.35: another scouter's super entry opens as a quiet read-only page (the warning lock line is replaced, §7.6), and the super picker names who did each Done team (§8.1). See the living spec's §21, 2026-10-20 (v0.87).*
 
@@ -1260,7 +1262,9 @@ The receiver collects frames by index and completes when it holds all N. Order d
 - **On ack**, the copy is removed from the receiver's outbox and its `origin: 'qr'` marker is cleared. The row itself remains in the local dataset as an ordinary cached row of the active competition — which is exactly what the next delta pull would hand the device anyway — so the collector tablet's own statistics stay correct and complete.
 - Records the device created itself (`origin: 'local'`) behave identically: pruned from the outbox on ack, retained in the dataset.
 
-**Manual escape hatch.** The sync page carries a **"discard received QR data"** action for when something has gone wrong — a corrupt batch, a device handed over mid-event, a scan from the wrong event. It removes every `origin: 'qr'` record on the device and is **refused for any record without a cloud ack**, the same guard as the device wipe (§9.9). It reports how many records it would refuse and stops rather than partially clearing.
+**Manual escape hatch.** The sync page carries a **"discard received QR data"** action for when something has gone wrong — a corrupt batch, a device handed over mid-event, a scan from the wrong event. It removes every `origin: 'qr'` record on the device and is **refused for any record without a cloud ack**, the same guard as the device wipe (§9.9). It reports how many records it would refuse and stops rather than partially clearing. *(v1.36)* Removing those rows leaves the device's delta-sync watermark ahead of them, so the hatch also clears the watermark: **the next sync is a full pull** and the cloud's copies of the removed rows come back as ordinary cached rows.
+
+*(v1.36)* **A received copy never replaces the receiving device's own unsent change.** When the device already queues its own operation for the same row (a lead correcting a received entry on the collector tablet), the incoming copy is skipped and counted as unchanged; the sender still holds it, so nothing is lost. A newer copy replaces only an older unacked *received* copy.
 
 ### 9.9 Lead-approved local wipe
 

@@ -7,7 +7,12 @@ import { formatCount } from '@frc/shared';
 import { newCollector, type Collector } from '@frc/shared/qr';
 import { Button } from '@/components/ui/button';
 import { useModalFocus } from '@/components/ui/useModalFocus';
-import { describeBatch, receiveOperations, type BatchSummary } from '@/data/qrReceive';
+import {
+  describeBatch,
+  receiveOperations,
+  summarizeBatch,
+  type BatchSummary,
+} from '@/data/qrReceive';
 import { useWakeLock } from '@/features/entry/useWakeLock';
 import { qrSound, useBoolPref } from '@/lib/devicePrefs';
 import { plural } from '@/lib/plural';
@@ -61,13 +66,16 @@ export function QrReceivePage({ onDone }: { onDone?: () => void }) {
   soundOn.current = sound;
   const audio = useRef<AudioContext | null>(null);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // Set here, not only by the ref's initial value: StrictMode mounts, cleans up and mounts
+    // again, and a page left `false` would never leave "Saving…".
+    mounted.current = true;
+    return () => {
       mounted.current = false;
       void audio.current?.close().catch(noop);
-    },
-    [],
-  );
+      audio.current = null;
+    };
+  }, []);
 
   /** Starts again with an empty collector; the cells stay for `total` frames, all missing. */
   const restart = (total: number | null) => {
@@ -115,19 +123,22 @@ export function QrReceivePage({ onDone }: { onDone?: () => void }) {
     setPhase({ kind: 'saving' });
     try {
       await receiveOperations(operations);
-      const summary = await describeBatch(operations);
-      if (!mounted.current) return;
-      setTrouble(null);
-      setPhase({ kind: 'done', summary });
-      if (soundOn.current) beep(audioContext(audio));
-      navigator.vibrate?.(200);
     } catch {
       if (!mounted.current) return;
       paused.current = false;
       restart(header.count);
       setTrouble('unsaved');
       setPhase({ kind: 'scanning' });
+      return;
     }
+    // Written. Nothing past this point may say "Nothing was saved": without the cached names
+    // the done screen still counts the records, its authors "a scouter".
+    const summary = await describeBatch(operations).catch(() => summarizeBatch(operations));
+    if (!mounted.current) return;
+    setTrouble(null);
+    setPhase({ kind: 'done', summary });
+    if (soundOn.current) beep(audioContext(audio));
+    navigator.vibrate?.(200);
   };
   const handle = useRef(onFrame);
   handle.current = onFrame;

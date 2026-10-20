@@ -9,7 +9,12 @@ import {
 import QRCode from 'qrcode';
 import { describe, expect, it } from 'vitest';
 import type { Operation } from '@frc/shared';
-import { encodeBatch, newCollector, QR_HEADER_BYTES } from '@frc/shared/qr';
+import {
+  encodeBatch,
+  newCollector,
+  QR_BATCH_MAX_OPERATIONS,
+  QR_HEADER_BYTES,
+} from '@frc/shared/qr';
 import { batchOperations, FRAME_CHARSET, frameBytes, frameHeader } from './qrFrame';
 
 const op = (i: number): Operation => ({
@@ -106,5 +111,11 @@ describe('the QR receiver reads frames as bytes (SPEC-FINAL 9.8; task 1.48)', ()
   it('drops a batch that is not a list of operations', () => {
     expect(() => batchOperations([{ op_id: 'x' }])).toThrow();
     expect(() => batchOperations({})).toThrow();
+  });
+
+  it('drops a batch of more operations than a sender ever puts in one', () => {
+    const ops = (n: number) => Array.from({ length: n }, (_, i) => op(i));
+    expect(batchOperations(ops(QR_BATCH_MAX_OPERATIONS))).toHaveLength(QR_BATCH_MAX_OPERATIONS);
+    expect(() => batchOperations(ops(QR_BATCH_MAX_OPERATIONS + 1))).toThrow();
   });
 });

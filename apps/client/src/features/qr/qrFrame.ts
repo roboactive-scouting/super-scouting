@@ -1,6 +1,6 @@
 import { ResultMetadataType, ZXingStringEncoding, type Result } from '@zxing/library';
 import { operationSchema, type Operation } from '@frc/shared';
-import { QR_HEADER_BYTES } from '@frc/shared/qr';
+import { QR_BATCH_MAX_OPERATIONS, QR_HEADER_BYTES } from '@frc/shared/qr';
 
 /**
  * The QR receiver's frame handling (SPEC-FINAL 9.8; task 1.48). Only the lazy receive page
@@ -68,8 +68,9 @@ export function frameHeader(bytes: Uint8Array): FrameHeader | null {
 /**
  * A completed batch's operations, checked against the push protocol's own schema: anything that
  * is not a list of operations throws, so a batch that passed its checksum but holds something
- * else is dropped whole like a damaged one, and nothing is written.
+ * else is dropped whole like a damaged one, and nothing is written. So is a batch of more
+ * operations than a sender ever puts in one (`QR_BATCH_MAX_OPERATIONS`): not one of ours.
  */
 export function batchOperations(raw: unknown): Operation[] {
-  return operationSchema.array().parse(raw);
+  return operationSchema.array().max(QR_BATCH_MAX_OPERATIONS).parse(raw);
 }

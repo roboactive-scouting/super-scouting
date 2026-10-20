@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 
-type Sentinel = { released?: boolean; release: () => Promise<void> };
+type Sentinel = {
+  released?: boolean;
+  release: () => Promise<void>;
+  addEventListener?: (type: 'release', listener: () => void) => void;
+};
 type MaybeWakeLock = { wakeLock?: { request: (type: 'screen') => Promise<Sentinel> } };
 
 /**
@@ -9,7 +13,8 @@ type MaybeWakeLock = { wakeLock?: { request: (type: 'screen') => Promise<Sentine
  * the page comes back. Released on unmount. Every call is guarded: Safari may lack the API or
  * refuse it (low battery, not allowed), and then the screen simply dims as it always did.
  * Returns whether a lock is held, so a page can say "Screen stays on" only when it is true
- * (the QR sender, task 1.47).
+ * (the QR sender, task 1.47). The system may drop the lock on its own (the page hidden, low
+ * battery): the sentinel's `release` event turns that back to false.
  */
 export function useWakeLock(enabled: boolean): boolean {
   const [held, setHeld] = useState(false);
@@ -38,6 +43,10 @@ export function useWakeLock(enabled: boolean): boolean {
         }
         const previous = lock;
         lock = next;
+        // Only this lock's own loss counts: the one it replaces fires `release` too.
+        next.addEventListener?.('release', () => {
+          if (live && lock === next) setHeld(false);
+        });
         release(previous);
         setHeld(true);
       } catch {

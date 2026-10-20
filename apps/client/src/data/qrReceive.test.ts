@@ -175,6 +175,51 @@ describe('QR receive: the guards behind 9.8 (task 1.48)', () => {
     expect((await syncStateOf('e-1'))!).toMatchObject({ origin: 'local', received_by_qr: true });
   });
 
+  it('never replaces or deletes an operation this device queued itself, however new the copy (9.4)', async () => {
+    // Yael's phone shows entry E; its op carries 10:07 (her clock runs ahead).
+    const yael = later('e-1', '2026-11-14T10:07:00.000Z', 'o-yael');
+    await receiveOperations([yael]);
+    // Lead Dana corrects E on the tablet at 10:05 tablet time: her own op, and her row.
+    await enqueue({
+      ...later('e-1', '2026-11-14T10:05:00.000Z', 'o-dana'),
+      author_user_id: 'u-lead',
+      payload: { ...foreign('e-1').payload, data: { auto_notes: 9 } },
+    });
+    await db.rows.put({
+      ...(await db.rows.get(['scouting_entries', 'e-1']))!,
+      data: { auto_notes: 9 },
+      client_updated_at: '2026-11-14T10:05:00.000Z',
+    });
+    // Yael's phone is shown again before anyone syncs.
+    expect(await receiveOperations([yael])).toEqual({ written: 0, unchanged: 1 });
+    expect((await pending(10)).map((op) => op.op_id)).toEqual(['o-dana']);
+    expect((await db.rows.get(['scouting_entries', 'e-1']))!.data).toEqual({ auto_notes: 9 });
+    expect((await syncStateOf('e-1'))!.origin).toBe('local');
+  });
+
+  it('a newer copy of a row this device has an unsent edit of leaves that edit alone', async () => {
+    await enqueue({ ...foreign('e-1'), op_id: 'o-mine', author_user_id: 'u-me' });
+    expect(await receiveOperations([later('e-1', '2026-11-14T09:30:00.000Z', 'o-theirs')])).toEqual(
+      { written: 0, unchanged: 1 },
+    );
+    expect((await pending(10)).map((op) => op.op_id)).toEqual(['o-mine']);
+    expect(await db.rows.get(['scouting_entries', 'e-1'])).toBeUndefined();
+  });
+
+  it('counts and discards only the received copies whose rows are still here (eviction)', async () => {
+    await receiveOperations([foreign('e-1'), foreign('e-2')]);
+    await ackResults([
+      { op_id: 'o-e-1', status: 'applied', row_id: 'e-1', new_version: 1 },
+      { op_id: 'o-e-2', status: 'applied', row_id: 'e-2', new_version: 1 },
+    ]);
+    // A left event's eviction drops e-2's row; its sync state, with the marker, stays.
+    await db.rows.where('[entity+id]').equals(['scouting_entries', 'e-2']).delete();
+    expect(await receivedQrState()).toEqual({ held: 0, discardable: 1 });
+    expect(await discardReceivedQrData()).toEqual({ discarded: 1, refused: 0 });
+    expect(await receivedQrState()).toEqual({ held: 0, discardable: 0 });
+    expect(await discardReceivedQrData()).toEqual({ discarded: 0, refused: 0 });
+  });
+
   it('counts the waiting copies by author for Sync, bare matches left out', async () => {
     const match: Operation = {
       ...foreign('m-9'),

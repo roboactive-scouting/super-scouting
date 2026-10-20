@@ -9,6 +9,18 @@ import { recordDiscarded } from '@/data/discarded';
 import { ackResults, enqueue, unsyncedCount } from '@/data/outbox';
 import { receiveOperations } from '@/data/qrReceive';
 import { SyncPage } from './SyncPage';
+import type * as QrReceiveModule from '@/data/qrReceive';
+
+/** When set, Discard received QR data fails (review m8): its transaction removed nothing. */
+const discardFails = vi.hoisted(() => ({ on: false }));
+vi.mock('@/data/qrReceive', async (original) => {
+  const real = await original<typeof QrReceiveModule>();
+  return {
+    ...real,
+    discardReceivedQrData: () =>
+      discardFails.on ? Promise.reject(new Error('quota')) : real.discardReceivedQrData(),
+  };
+});
 
 const NOW = new Date().toISOString();
 
@@ -39,6 +51,7 @@ const reject = (rowId: string, code: PushRejection['code'], message: string) =>
   db.syncState.update(rowId, { rejection: { code, message, at: NOW } });
 
 beforeEach(async () => {
+  discardFails.on = false;
   await db.delete();
   await db.open();
   await db.rows.bulkPut([
@@ -470,5 +483,24 @@ describe('SyncPage: received QR copies (SPEC-FINAL 9.8, 9.10; task 1.48)', () =>
     ).toBeInTheDocument();
     expect(await db.rows.get(['scouting_entries', 'q-1'])).toBeUndefined();
     expect(await db.rows.get(['scouting_entries', 'mine'])).toBeDefined();
+  });
+
+  it('says so when Discard fails, rather than closing in silence', async () => {
+    await receiveOperations([copy('q-1', 'u-yael')]);
+    await ackResults([{ op_id: 'o-q-1', status: 'applied', row_id: 'q-1', new_version: 1 }]);
+    discardFails.on = true;
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole('button', { name: 'More' }));
+    const discard = screen.getAllByRole('menuitem')[3]!;
+    await waitFor(() => expect(discard).not.toHaveAttribute('aria-disabled'));
+    await user.click(discard);
+    const dialog = await screen.findByRole('dialog', { name: 'Discard received QR data?' });
+    await user.click(within(dialog).getByRole('button', { name: 'Discard 1 received copy' }));
+    expect(
+      await screen.findByText('Discard did not finish. Nothing was removed.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Discard received QR data?' })).toBeNull();
+    expect(await db.rows.get(['scouting_entries', 'q-1'])).toBeDefined();
   });
 });

@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ResultMetadataType } from '@zxing/library';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Operation } from '@frc/shared';
 import { encodeBatch, QR_HEADER_BYTES } from '@frc/shared/qr';
@@ -8,6 +9,7 @@ import { db } from '@/data/db';
 import { pending } from '@/data/outbox';
 import { clearDevicePrefs, qrSound } from '@/lib/devicePrefs';
 import { QrReceivePage } from './QrReceivePage';
+import type * as QrReceiveModule from '@/data/qrReceive';
 
 /*
  * No camera in CI: BrowserQRCodeReader is replaced by a scanner the test drives. Each `show()`
@@ -20,6 +22,16 @@ const scanner = vi.hoisted(() => ({
   stop: (() => undefined) as () => void,
   stops: 0,
 }));
+/** When set, the done screen's name lookup fails after the batch was written (review m2). */
+const names = vi.hoisted(() => ({ fail: false }));
+vi.mock('@/data/qrReceive', async (original) => {
+  const real = await original<typeof QrReceiveModule>();
+  return {
+    ...real,
+    describeBatch: (operations: Parameters<typeof real.describeBatch>[0]) =>
+      names.fail ? Promise.reject(new Error('users unreadable')) : real.describeBatch(operations),
+  };
+});
 vi.mock('@zxing/browser', () => ({
   BrowserQRCodeReader: class {
     decodeFromVideoDevice(deviceId: unknown, video: unknown, callback: (r: unknown) => void) {
@@ -118,6 +130,7 @@ beforeEach(async () => {
   ]);
   scanner.callback = null;
   scanner.fail = null;
+  names.fail = false;
   scanner.starts = [];
   scanner.stops = 0;
   tones.length = 0;
@@ -187,6 +200,26 @@ describe('QrReceivePage (SPEC-FINAL 9.8; 21-qr-receive final)', () => {
       await screen.findByRole('heading', { name: 'Got it: Yael, Omer, a scouter' }),
     ).toBeInTheDocument();
     expect(screen.getByText('records · 3 entries')).toBeInTheDocument();
+  });
+
+  it('reaches the done screen under StrictMode (mount, clean up, mount again)', async () => {
+    render(
+      <StrictMode>
+        <QrReceivePage />
+      </StrictMode>,
+    );
+    await show(encodeBatch([op(1)], 21)[0]!);
+    expect(await screen.findByRole('heading', { name: 'Got it, Yael!' })).toBeInTheDocument();
+  });
+
+  it('a batch that was written never reads "Nothing was saved", even when its names cannot be read', async () => {
+    names.fail = true;
+    render(<QrReceivePage />);
+    await show(encodeBatch([op(1), op(2)], 22)[0]!);
+    expect(await screen.findByRole('heading', { name: 'Got it, a scouter!' })).toBeInTheDocument();
+    expect(screen.getByText('records · 2 entries')).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing was saved/)).toBeNull();
+    expect(await pending(100)).toHaveLength(2);
   });
 
   it('drops a batch whose checksum fails: nothing written, the cells reset, scanning again', async () => {

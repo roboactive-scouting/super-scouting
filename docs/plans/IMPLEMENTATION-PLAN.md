@@ -15305,7 +15305,7 @@ The venue workflow this exists for: **a central tablet collects scouters' data b
 | 1.47 side task 2: read-only super entry, names on the picker | done | c333a37 |
 | 1.47 QR sender | done | 31edc79 |
 | 1.48 QR receiver, disposal on ack | done | 7a17344 |
-| 1.49 device wipe | done | (this commit) |
+| 1.49 device wipe | done | 61c11f9 |
 
 ---
 

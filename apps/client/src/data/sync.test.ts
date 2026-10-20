@@ -7,6 +7,7 @@ import { onChanged } from './changes';
 import { db, getMeta } from './db';
 import { cachedFormFields, type cachedRows } from './cache';
 import { enqueue, pending } from './outbox';
+import { discardReceivedQrData, receiveOperations } from './qrReceive';
 import {
   activeEvent,
   cachedActiveEventId,
@@ -286,6 +287,70 @@ describe('syncNow and the watermark across events (task 1.22)', () => {
     await syncNow({ api, eventId: 'ev-B', deviceId: 'd-1', maxPages: 1 });
     await syncNow({ api, eventId: 'ev-B', deviceId: 'd-1', maxPages: 1 });
     expect(pull.mock.calls[2]![0]).toEqual({ event_id: 'ev-B' });
+  });
+});
+
+describe('Discard received QR data and the watermark (SPEC-FINAL 9.8, final review I2)', () => {
+  const entry = { id: 'e-1', event_id: 'ev-1', updated_at: '2026-11-14T09:01:00.000Z' };
+  /** The tablet: a received copy, pushed and acked by a sync that hydrated ev-1 at `w-1`. */
+  async function collected(pull: ReturnType<typeof vi.fn>) {
+    await receiveOperations([{ ...op('e-1'), author_user_id: 'u-other' }]);
+    const push = async (req: PushRequest): Promise<PushResponse> => ({
+      results: req.operations.map((o) => ({
+        op_id: o.op_id,
+        status: 'applied' as const,
+        row_id: o.row_id,
+        new_version: 1,
+      })),
+    });
+    const api = { push, pull } as unknown as Parameters<typeof syncNow>[0]['api'];
+    await syncNow({ api, eventId: 'ev-1', deviceId: 'd-1' });
+    expect(await getMeta('sync.watermark', null)).toBe('w-1');
+    return api;
+  }
+  const pulled = (watermark: string, rows: Record<string, unknown>[] = []): PullResponse => ({
+    watermark,
+    next_cursor: null,
+    complete: true,
+    entities: { ...emptyEntities, scouting_entries: rows },
+  });
+
+  it('clears the watermark, keeps the hydration mark, and the next sync pulls the rows back', async () => {
+    const pull = vi.fn(async (_req: { event_id: string; since?: string }): Promise<PullResponse> =>
+      pull.mock.calls.length === 1 ? pulled('w-1') : pulled('w-2', [entry]),
+    );
+    const api = await collected(pull);
+
+    expect(await discardReceivedQrData()).toEqual({ discarded: 1, refused: 0 });
+    expect(await db.rows.get(['scouting_entries', 'e-1'])).toBeUndefined();
+    expect(await getMeta('sync.watermark', 'kept')).toBeNull();
+    expect(await getMeta('sync.hydrated_event_id', null)).toBe('ev-1');
+
+    await syncNow({ api, eventId: 'ev-1', deviceId: 'd-1' });
+    // A full pull: no `since`, so the discarded cloud row is sent again.
+    expect(pull.mock.calls[1]![0]).toEqual({ event_id: 'ev-1' });
+    expect(await db.rows.get(['scouting_entries', 'e-1'])).toBeDefined();
+    expect(await getMeta('sync.watermark', null)).toBe('w-2');
+  });
+
+  it('a delta pull running while Discard clears the watermark does not write it back', async () => {
+    const pull = vi.fn(
+      async (_req: { event_id: string; since?: string }): Promise<PullResponse> => {
+        const call = pull.mock.calls.length;
+        // The second sync's delta pull: the user taps Discard while it runs.
+        if (call === 2) expect(await discardReceivedQrData()).toMatchObject({ discarded: 1 });
+        return call === 3 ? pulled('w-3', [entry]) : pulled(`w-${call}`);
+      },
+    );
+    const api = await collected(pull);
+
+    await syncNow({ api, eventId: 'ev-1', deviceId: 'd-1' });
+    expect(pull.mock.calls[1]![0]).toMatchObject({ since: 'w-1' });
+    expect(await getMeta('sync.watermark', 'kept')).toBeNull();
+
+    await syncNow({ api, eventId: 'ev-1', deviceId: 'd-1' });
+    expect(pull.mock.calls[2]![0]).toEqual({ event_id: 'ev-1' });
+    expect(await db.rows.get(['scouting_entries', 'e-1'])).toBeDefined();
   });
 });
 

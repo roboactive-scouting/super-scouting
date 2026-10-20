@@ -119,6 +119,13 @@ export const db = new ScoutingDb();
  */
 export const WIPED_AT_KEY = 'device.wiped_at';
 
+/**
+ * The delta watermark of the last completed pull (`data/sync.ts`). Cleared, the next sync pulls
+ * its event in full. "Discard received QR data" clears it (`data/qrReceive.ts`): the rows it
+ * removes are cloud rows that a delta pull would never send again.
+ */
+export const WATERMARK_KEY = 'sync.watermark';
+
 export async function getMeta<T>(key: string, fallback: T): Promise<T> {
   const record = await db.meta.get(key);
   return record === undefined ? fallback : (record.value as T);

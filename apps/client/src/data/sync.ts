@@ -9,7 +9,7 @@ import {
 import { session } from '@/auth/session';
 import { cachedRows } from './cache';
 import { notifyChanged } from './changes';
-import { db, getMeta, setMeta, WIPED_AT_KEY } from './db';
+import { db, getMeta, setMeta, WATERMARK_KEY, WIPED_AT_KEY } from './db';
 import type { SyncProgress } from './connection';
 import { ackResults, matchIdsNeededByOutbox, pending } from './outbox';
 import { call } from './rpc';
@@ -37,7 +37,7 @@ export type SyncOutcome =
   | { status: 'unauthenticated' }
   | { status: 'event-gone' };
 
-const WATERMARK = 'sync.watermark';
+const WATERMARK = WATERMARK_KEY;
 const HYDRATED = 'sync.hydrated_event_id';
 
 function isEventGone(e: unknown): boolean {
@@ -104,8 +104,8 @@ export async function syncNow(deps: SyncDeps): Promise<SyncOutcome> {
     // any other event starts from scratch.
     const wipedAt = await getMeta<string | null>(WIPED_AT_KEY, null);
     const hydratedFor = await getMeta<string | null>(HYDRATED, null);
-    const since =
-      hydratedFor === deps.eventId ? await getMeta<string | null>(WATERMARK, null) : null;
+    const stored = await getMeta<string | null>(WATERMARK, null);
+    const since = hydratedFor === deps.eventId ? stored : null;
     let cursor: string | undefined;
     let bestWatermark = since;
     let complete = false;
@@ -149,6 +149,12 @@ export async function syncNow(deps: SyncDeps): Promise<SyncOutcome> {
       bestWatermark !== null &&
       (await db.transaction('rw', db.meta, async () => {
         if ((await getMeta<string | null>(WIPED_AT_KEY, null)) !== wipedAt) return false;
+        // "Discard received QR data" cleared the watermark while this pull ran: rows it removed
+        // may sit behind this pull's pages. Not marking leaves it cleared, so the next sync
+        // pulls in full and they come back.
+        if (stored !== null && (await getMeta<string | null>(WATERMARK, null)) === null) {
+          return false;
+        }
         await setMeta(WATERMARK, bestWatermark);
         await setMeta(HYDRATED, deps.eventId);
         await setMeta('sync.last_success_at', new Date().toISOString());

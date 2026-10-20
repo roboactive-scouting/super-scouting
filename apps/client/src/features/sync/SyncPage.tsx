@@ -118,6 +118,7 @@ export function SyncPage({ eventId, viewer, syncNow }: SyncPageProps) {
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const [discardResult, setDiscardResult] = useState<DiscardResult | null>(null);
+  const [discardFailed, setDiscardFailed] = useState(false);
 
   // A phone holding received copies, waiting or acked, is the collector tablet (17-sync final,
   // image 6).
@@ -141,7 +142,11 @@ export function SyncPage({ eventId, viewer, syncNow }: SyncPageProps) {
     setDiscarding(true);
     void discardReceivedQrData()
       .then((result) => setDiscardResult(result))
-      .catch(() => setDiscardResult(null))
+      // One transaction: a Discard that failed removed nothing, and says so.
+      .catch(() => {
+        setDiscardResult(null);
+        setDiscardFailed(true);
+      })
       .finally(() => {
         setDiscarding(false);
         setConfirmDiscard(false);
@@ -192,6 +197,7 @@ export function SyncPage({ eventId, viewer, syncNow }: SyncPageProps) {
       onSelect: () => {
         setMoreOpen(false);
         setDiscardResult(null);
+        setDiscardFailed(false);
         setConfirmDiscard(true);
       },
     },
@@ -287,6 +293,9 @@ export function SyncPage({ eventId, viewer, syncNow }: SyncPageProps) {
       </div>
 
       {discardResult && <DiscardResultLine result={discardResult} noun={noun} />}
+      {discardFailed && (
+        <ErrorLine className="lg:w-[45rem]">Discard did not finish. Nothing was removed.</ErrorLine>
+      )}
 
       <section role="tabpanel" aria-label={TAB_NAME[tab]} className="flex flex-col gap-3.5">
         {tab === 'waiting' && disposal && (

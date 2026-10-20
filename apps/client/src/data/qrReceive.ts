@@ -1,7 +1,7 @@
 import type { Operation, PullEntityKey } from '@frc/shared';
 import { cachedRows } from './cache';
 import { notifyChanged } from './changes';
-import { db, getMeta, setMeta, type CachedRow, type SyncStateRecord } from './db';
+import { db, getMeta, setMeta, WATERMARK_KEY, type CachedRow, type SyncStateRecord } from './db';
 import { nextSeq, QR_DISPOSED_KEY, type QrDisposal } from './outbox';
 
 /**
@@ -64,7 +64,8 @@ export type ReceiveResult = {
  * of its entry. **Additive and idempotent**: the same copy again (a re-scan, or a bare match
  * repeated in several batches) changes nothing but its last-scan time, and a copy older than
  * what the device holds for that row (its queued operation, else its cached row) is skipped, so
- * a re-scanned old batch never overwrites a newer change. One transaction: a failure writes
+ * a re-scanned old batch never overwrites a newer change. A copy never replaces an operation this
+ * device queued itself (9.4), only an earlier received copy. One transaction: a failure writes
  * nothing.
  */
 export async function receiveOperations(
@@ -79,6 +80,15 @@ export async function receiveOperations(
       const state = await db.syncState.get(op.row_id);
       if (queued?.op_id === op.op_id) {
         if (state?.received_by_qr) await db.syncState.put({ ...state, received_at: at });
+        result.unchanged += 1;
+        continue;
+      }
+      // SPEC-FINAL 9.4: an operation leaves the outbox ONLY on a cloud ack. A queued operation of
+      // this device's own (a lead's correction of a received entry, its own unsent edit) is
+      // never replaced by a copy, however new — nor is its cached row. The sender keeps its own
+      // copy pending (9.8), and the server's base-version rule (9.5) settles the two edits. Only
+      // a queued copy received earlier (still `origin: 'qr'`) gives way to a newer copy.
+      if (queued && state?.origin !== 'qr') {
         result.unchanged += 1;
         continue;
       }
@@ -131,10 +141,15 @@ async function recordCount(states: readonly SyncStateRecord[]): Promise<number> 
   return records === 0 ? states.length : records;
 }
 
-/** Received copies that have not reached the cloud: still pending, or still in the outbox. */
-async function unackedReceived(): Promise<{
-  received: SyncStateRecord[];
+/**
+ * The received copies: `unacked`, those that have not reached the cloud (still pending, or still
+ * in the outbox), and `present`, the acked ones whose row is still in the dataset — what Discard
+ * would remove. An acked copy whose row has left (its event evicted, its form version pruned) is
+ * in neither: there is nothing of it to discard, so it is never counted or promised.
+ */
+async function receivedCopies(): Promise<{
   unacked: SyncStateRecord[];
+  present: SyncStateRecord[];
 }> {
   // `origin: 'qr'` alone also counts: a copy still marked so has not been acked.
   const received = await db.syncState
@@ -142,8 +157,13 @@ async function unackedReceived(): Promise<{
     .toArray();
   const queued = new Set<string>();
   await db.outbox.each((op) => queued.add(op.row_id));
-  const unacked = received.filter((s) => s.sync_state !== 'acked' || queued.has(s.row_id));
-  return { received, unacked };
+  const unacked: SyncStateRecord[] = [];
+  const present: SyncStateRecord[] = [];
+  for (const state of received) {
+    if (state.sync_state !== 'acked' || queued.has(state.row_id)) unacked.push(state);
+    else if ((await db.rows.where('id').equals(state.row_id).count()) > 0) present.push(state);
+  }
+  return { unacked, present };
 }
 
 export type DiscardResult = { discarded: number; refused: number };
@@ -152,25 +172,35 @@ export type DiscardResult = { discarded: number; refused: number };
  * SPEC-FINAL 9.8's escape hatch, "Discard received QR data": removes every received copy — its
  * row from the dataset and its sync state. **Refused whole** while any received copy has no cloud
  * ack (the wipe guard of 9.9): it removes nothing and reports how many it would refuse. The
- * device's own records are never touched. Counts are records (bare matches go unlisted).
+ * device's own records are never touched. Counts are records (bare matches go unlisted), the
+ * same count More and the confirm show (`receivedQrState`).
+ *
+ * Every row it removes is a cloud row that a delta pull would never send again, so the same
+ * transaction clears the sync watermark: the next sync pulls the event in full and the rows of
+ * the current event come back (a wrong event's stay gone). The hydration mark stays, so the
+ * offline gate is unchanged.
  */
 export async function discardReceivedQrData(): Promise<DiscardResult> {
-  const outcome = await db.transaction('rw', [db.rows, db.outbox, db.syncState], async () => {
-    const { received, unacked } = await unackedReceived();
-    if (unacked.length > 0) return { discarded: 0, refused: await recordCount(unacked) };
-    if (received.length === 0) return { discarded: 0, refused: 0 };
-    let records = 0;
-    for (const state of received) {
-      const rows = await db.rows.where('id').equals(state.row_id).toArray();
-      if (rows.some((row) => row.entity !== 'matches')) records += 1;
-      await db.rows.where('id').equals(state.row_id).delete();
-      await db.syncState.delete(state.row_id);
-    }
-    return { discarded: records, refused: 0 };
-  });
+  const outcome = await db.transaction(
+    'rw',
+    [db.rows, db.outbox, db.syncState, db.meta],
+    async () => {
+      const { unacked, present } = await receivedCopies();
+      if (unacked.length > 0) return { discarded: 0, refused: await recordCount(unacked) };
+      if (present.length === 0) return { discarded: 0, refused: 0 };
+      const records = await recordCount(present);
+      for (const state of present) {
+        await db.rows.where('id').equals(state.row_id).delete();
+        await db.syncState.delete(state.row_id);
+      }
+      await setMeta(WATERMARK_KEY, null);
+      return { discarded: records, refused: 0 };
+    },
+  );
   if (outcome.discarded > 0) {
     notifyChanged('rows');
     notifyChanged('outbox');
+    notifyChanged('meta');
   }
   return outcome;
 }
@@ -184,9 +214,9 @@ export type ReceivedQrState = {
 };
 
 export async function receivedQrState(): Promise<ReceivedQrState> {
-  const { received, unacked } = await unackedReceived();
+  const { unacked, present } = await receivedCopies();
   if (unacked.length > 0) return { held: await recordCount(unacked), discardable: 0 };
-  return { held: 0, discardable: received.length === 0 ? 0 : await recordCount(received) };
+  return { held: 0, discardable: present.length === 0 ? 0 : await recordCount(present) };
 }
 
 /** One scouter on Sync's "Received by QR" block (17-sync final, phone image 6). */
@@ -255,9 +285,19 @@ export type BatchSummary = {
 };
 
 export async function describeBatch(operations: readonly Operation[]): Promise<BatchSummary> {
-  const records = operations.filter((op) => op.entity !== 'match');
   const users = await cachedRows<{ id: string; full_name?: unknown }>('users');
-  const nameOf = new Map(users.map((u) => [u.id, u.full_name]));
+  return summarizeBatch(operations, new Map(users.map((u) => [u.id, u.full_name])));
+}
+
+/**
+ * The done screen's summary from the operations alone; an author missing from `nameOf` (or
+ * every author, when the cached users could not be read) is null — "a scouter".
+ */
+export function summarizeBatch(
+  operations: readonly Operation[],
+  nameOf: ReadonlyMap<string, unknown> = new Map(),
+): BatchSummary {
+  const records = operations.filter((op) => op.entity !== 'match');
   const authorIds = [
     ...new Set((records.length > 0 ? records : operations).map((op) => op.author_user_id)),
   ];
