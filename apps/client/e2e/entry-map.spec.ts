@@ -314,3 +314,103 @@ test('cycle path for a blue scout: tap a path to select it and ✕ Remove path',
   await map.getByRole('button', { name: 'Remove path 1' }).click();
   await expect(map.getByTestId('map-status')).toHaveText('1 path');
 });
+
+/** A point of the map drawing, as fractions of its box. */
+type Frac = readonly [number, number];
+
+/** `n` points along `f` from t = 0 to 1. */
+const route = (n: number, f: (t: number) => Frac): Frac[] =>
+  Array.from({ length: n }, (_, i) => f(i / (n - 1)));
+
+async function onMap(page: Page) {
+  const box = (await page.getByTestId('map-drawing').boundingBox())!;
+  return ([fx, fy]: Frac) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
+}
+
+/**
+ * A finger drawing `points` on the map (CDP touch events, so the browser makes touch pointers),
+ * with the shot `mid` taken while it is still down after `mid.after` points: `shoot()` moves the
+ * mouse, which is another pointer and must not reach the stroke.
+ */
+async function fingerStroke(
+  page: Page,
+  points: Frac[],
+  mid?: { after: number; name: string; only: 'phone' | 'desktop' },
+) {
+  const at = await onMap(page);
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type: string, p?: Frac) =>
+    cdp.send('Input.dispatchTouchEvent', { type, touchPoints: p ? [at(p)] : [] });
+  await touch('touchStart', points[0]);
+  for (let i = 1; i < points.length; i++) {
+    await touch('touchMove', points[i]);
+    if (mid && i === mid.after) {
+      await expect(page.getByTestId('map-stroke')).toBeVisible();
+      await bothThemes(page, mid.name, mid.only);
+    }
+  }
+  await touch('touchEnd');
+  await cdp.detach();
+}
+
+/** The mouse drawing `points` on the map: down, moved in steps, up. */
+async function mouseStroke(page: Page, points: Frac[]) {
+  const at = await onMap(page);
+  const first = at(points[0]!);
+  await page.mouse.move(first.x, first.y);
+  await page.mouse.down();
+  for (const p of points.slice(1)) {
+    const { x, y } = at(p);
+    await page.mouse.move(x, y, { steps: 2 });
+  }
+  await page.mouse.up();
+}
+
+test('cycle path: a drag draws the route freehand, on a phone (UF.25)', async ({ page }) => {
+  test.slow();
+  await openEntry(page, 2630, 'red');
+  await page.getByRole('tab', { name: 'Teleop' }).click();
+  const routes = page.getByRole('button', { name: /^Cycle routes: / });
+  await routes.click();
+  const map = page.getByRole('dialog', { name: 'Cycle routes' });
+  await expect(map.getByTestId('map-drawing')).toHaveCSS('touch-action', 'none');
+  // Upright, red at the bottom: from the red end, round the hub, up to the far source.
+  const s = route(36, (t) => [0.3 + 0.16 * Math.sin(t * Math.PI * 1.6), 0.88 - 0.76 * t]);
+  await fingerStroke(page, s, { after: 24, name: 'cycle-map-stroke-red', only: 'phone' });
+  await expect(map.getByTestId('map-stroke')).toHaveCount(0);
+  await expect(map.getByText('Drawing path 1')).toBeVisible();
+  await expect(map.getByText(/^[3-6] of 6 points$/)).toBeVisible();
+  await bothThemes(page, 'cycle-map-stroke-done-red', 'phone');
+  // A second route, finished first: Undo takes the whole stroke back.
+  await map.getByRole('button', { name: 'Finish' }).click();
+  await fingerStroke(
+    page,
+    route(20, (t) => [0.75 - 0.5 * t, 0.85 - 0.7 * t * t]),
+  );
+  await expect(map.getByText('Drawing path 2')).toBeVisible();
+  await map.getByRole('button', { name: 'Undo' }).click();
+  await expect(map.getByTestId('map-status')).toHaveText('1 path');
+  await map.getByRole('button', { name: 'Done' }).click();
+  await expect(routes).toHaveAccessibleName(/^Cycle routes: 1 path · [3-6] spots$/);
+});
+
+test('cycle path: a drag draws the route freehand, on a computer (UF.25)', async ({ page }) => {
+  test.slow();
+  await openEntry(page, 2630, 'red', 1440);
+  await page.getByRole('tab', { name: 'Teleop' }).click();
+  await page.getByRole('button', { name: /^Cycle routes: / }).click();
+  const map = page.getByRole('dialog', { name: 'Cycle routes' });
+  // Flat, red on the left: out to the far source and back toward the hub.
+  const s = route(40, (t) => [0.1 + 0.8 * t, 0.55 - 0.25 * Math.sin(t * Math.PI * 1.5)]);
+  await fingerStroke(page, s, { after: 26, name: 'cycle-map-stroke-red', only: 'desktop' });
+  await expect(map.getByText(/^[3-6] of 6 points$/)).toBeVisible();
+  await bothThemes(page, 'cycle-map-stroke-done-red', 'desktop');
+  // The mouse draws the same way; its click on release adds no point.
+  await map.getByRole('button', { name: 'Finish' }).click();
+  await mouseStroke(
+    page,
+    route(16, (t) => [0.15 + 0.6 * t, 0.8]),
+  );
+  await expect(map.getByText('Drawing path 2')).toBeVisible();
+  await expect(map.getByText('2 of 6 points')).toBeVisible();
+});

@@ -7,6 +7,7 @@ import {
   useState,
   type CSSProperties,
   type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -27,6 +28,7 @@ import {
   type MapLayout,
   type Rotation,
 } from './mapGeometry';
+import { DRAW_SLOP_PX } from './simplify';
 
 /** One mark on the map, in IMAGE coordinates (0–1, the season image as stored, unturned). */
 export type MapMark = {
@@ -109,6 +111,15 @@ export type MapSheetProps = {
    * place of Done. `lead` (an event log's chips) and `status` (the count) still show.
    */
   viewOnly?: boolean;
+  /**
+   * A drag on the field (UF.25, the cycle path): the stroke is drawn live under the finger and,
+   * on release, handed over in IMAGE coordinates with the image's width : height. A press that
+   * moves less than `DRAW_SLOP_PX` stays a tap (`onTap`). Only the first finger draws; a second is
+   * ignored. Never called `viewOnly`.
+   */
+  onStroke?: (image: Point[], aspect: number) => void;
+  /** As a drag begins (past the slop): false refuses it and nothing is drawn (a full path). */
+  onStrokeStart?: () => boolean;
 };
 
 /** The season image's shape until it has loaded: `public/seasons/2026/field.webp` is 2000 × 812. */
@@ -332,6 +343,8 @@ function FieldDrawing({
   onRemove,
   removeLabel = 'Remove',
   onTap,
+  onStroke,
+  onStrokeStart,
   viewOnly = false,
   alliance,
   rotation,
@@ -361,6 +374,13 @@ function FieldDrawing({
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [removable, onRemove, selected]);
+
+  // The press being followed (UF.25): a tap until it moves DRAW_SLOP_PX, then a drag.
+  const gesture = useRef<Gesture | null>(null);
+  // A drag's own click (a mouse sends one on release) is not a tap; the next press clears it.
+  const swallowClick = useRef(false);
+  const [stroking, setStroking] = useState(false);
+  const live = useRef<SVGSVGElement | null>(null);
 
   const image = (
     <FieldImage
@@ -410,6 +430,87 @@ function FieldDrawing({
     onTap(viewToImage({ x, y }, rotation));
   }
 
+  const strokable = !viewOnly && onStroke !== undefined;
+
+  function down(e: ReactPointerEvent<HTMLDivElement>) {
+    // A second finger while one is down is ignored, and so are a mouse's other buttons.
+    if (gesture.current || !e.isPrimary || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    swallowClick.current = false;
+    // The Remove pill and a spot are buttons of their own: a press on them is never a stroke.
+    if ((e.target as Element).closest('button')) return;
+    const box = e.currentTarget.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) return;
+    gesture.current = {
+      id: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      box,
+      view: [inBox(e, box)],
+      state: 'press',
+      anchor: null,
+    };
+  }
+
+  function move(e: ReactPointerEvent<HTMLDivElement>) {
+    const g = gesture.current;
+    if (!g || e.pointerId !== g.id) return;
+    // Every sample since the last frame, not only the last, so a fast stroke keeps its bends.
+    const samples = e.nativeEvent.getCoalescedEvents?.() ?? [];
+    for (const s of samples.length > 0 ? samples : [e]) g.view.push(inBox(s, g.box));
+    if (g.state === 'press') {
+      if (Math.hypot(e.clientX - g.x, e.clientY - g.y) < DRAW_SLOP_PX) return;
+      if (selected !== null && onSelect) {
+        // Something selected: a drag, like a tap, only lets go of it.
+        onSelect(null);
+        g.state = 'refused';
+      } else if (onStrokeStart && !onStrokeStart()) {
+        g.state = 'refused';
+      } else {
+        g.state = 'drawing';
+        // The path being drawn: the stroke goes on from its last point.
+        const last = paths.find((p) => p.drawing)?.points.at(-1);
+        g.anchor = last ? imageToView(last, rotation) : null;
+        try {
+          e.currentTarget.setPointerCapture?.(e.pointerId);
+        } catch {
+          // A pointer the browser no longer tracks: the stroke still follows the events it gets.
+        }
+        setStroking(true);
+      }
+    }
+    if (g.state === 'drawing') paint(live.current, g);
+  }
+
+  function up(e: ReactPointerEvent<HTMLDivElement>) {
+    const g = gesture.current;
+    if (!g || e.pointerId !== g.id) return;
+    gesture.current = null;
+    if (g.state === 'press') return; // a tap: the click that follows adds the point
+    swallowClick.current = true;
+    if (g.state !== 'drawing') return;
+    g.view.push(inBox(e, g.box));
+    setStroking(false);
+    onStroke?.(
+      g.view.map((p) => viewToImage(p, rotation)),
+      ratio,
+    );
+  }
+
+  /** The browser took the pointer away (a system gesture): the stroke is dropped, nothing stored. */
+  function cancel(e: ReactPointerEvent<HTMLDivElement>) {
+    const g = gesture.current;
+    if (!g || e.pointerId !== g.id) return;
+    gesture.current = null;
+    if (g.state !== 'press') swallowClick.current = true;
+    if (g.state === 'drawing') setStroking(false);
+  }
+
+  function swallow(e: MouseEvent<HTMLDivElement>) {
+    if (!swallowClick.current) return;
+    swallowClick.current = false;
+    e.stopPropagation();
+  }
+
   /** A tap on a mark or a path: select it, or let go of it when it is the selected one. */
   function pick(e: MouseEvent, id: string) {
     e.stopPropagation();
@@ -449,11 +550,18 @@ function FieldDrawing({
       data-rotation={rotation}
       role="group"
       aria-label={viewOnly ? 'The field, view only' : 'The field: tap where it happened'}
-      // View only (UF.24): a tap on the field changes nothing.
+      // View only (UF.24): a tap on the field changes nothing, and a drag draws nothing.
       onClick={viewOnly ? undefined : tap}
+      onClickCapture={strokable ? swallow : undefined}
+      onPointerDown={strokable ? down : undefined}
+      onPointerMove={strokable ? move : undefined}
+      onPointerUp={strokable ? up : undefined}
+      onPointerCancel={strokable ? cancel : undefined}
       style={size}
       className={cn(
-        'relative shrink-0 touch-manipulation overflow-hidden rounded-control border border-control-border bg-line-2 [container-type:size]',
+        'relative shrink-0 overflow-hidden rounded-control border border-control-border bg-line-2 [container-type:size]',
+        // A drawing surface keeps the finger (UF.25): no scroll or zoom starts on it.
+        strokable ? 'touch-none' : 'touch-manipulation',
         !viewOnly && 'cursor-crosshair',
       )}
     >
@@ -552,6 +660,29 @@ function FieldDrawing({
           );
         });
       })}
+      {stroking && (
+        // The stroke under the finger (UF.25), painted straight from the pointer events: a 2.6 px
+        // line in the alliance colour on a white casing, so it reads over the image's own colours.
+        <svg
+          ref={(svg) => {
+            live.current = svg;
+            if (svg && gesture.current) paint(svg, gesture.current);
+          }}
+          data-testid="map-stroke"
+          aria-hidden="true"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          className="pointer-events-none absolute inset-0 size-full overflow-visible"
+        >
+          <polyline className="fill-none stroke-surface opacity-85 [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:5.5px] [vector-effect:non-scaling-stroke]" />
+          <polyline
+            className={cn(
+              'fill-none [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:2.6px] [vector-effect:non-scaling-stroke]',
+              line,
+            )}
+          />
+        </svg>
+      )}
       {marks.map((mark) => {
         const at = imageToView(mark.point, rotation);
         const dot = cn(
@@ -604,6 +735,40 @@ function FieldDrawing({
       )}
     </div>
   );
+}
+
+/** A press on the drawing being followed (UF.25). Points are in VIEW coordinates (0–1 of the box). */
+type Gesture = {
+  id: number;
+  /** Where it went down, in CSS px: past DRAW_SLOP_PX from here it is a drag. */
+  x: number;
+  y: number;
+  box: DOMRect;
+  view: Point[];
+  /** `press` (still a tap), `drawing`, or `refused` (a drag that draws nothing). */
+  state: 'press' | 'drawing' | 'refused';
+  /** The last point of the path being drawn, which the live stroke starts from. */
+  anchor: Point | null;
+};
+
+/** A pointer position as a point of the box, held inside it. */
+function inBox(e: { clientX: number; clientY: number }, box: DOMRect): Point {
+  return {
+    x: Math.min(1, Math.max(0, (e.clientX - box.left) / box.width)),
+    y: Math.min(1, Math.max(0, (e.clientY - box.top) / box.height)),
+  };
+}
+
+/** 0–1 as a percentage to a hundredth (a tenth of a pixel on the largest map). */
+const pct = (v: number) => Math.round(v * 10_000) / 100;
+
+/** Draws the stroke so far into the live layer's lines, without a React render per move. */
+function paint(svg: SVGSVGElement | null, g: Gesture) {
+  if (!svg) return;
+  const points = (g.anchor ? [g.anchor, ...g.view] : g.view)
+    .map((p) => `${pct(p.x)},${pct(p.y)}`)
+    .join(' ');
+  for (const line of svg.querySelectorAll('polyline')) line.setAttribute('points', points);
 }
 
 /**

@@ -98,6 +98,48 @@ function phoneViewport() {
   );
 }
 
+/** jsdom has no PointerEvent: a MouseEvent carrying the pointer fields React reads. */
+class TestPointerEvent extends MouseEvent {
+  pointerId: number;
+  pointerType: string;
+  isPrimary: boolean;
+  constructor(type: string, init: PointerEventInit = {}) {
+    super(type, { bubbles: true, cancelable: true, ...init });
+    this.pointerId = init.pointerId ?? 1;
+    this.pointerType = init.pointerType ?? 'mouse';
+    this.isPrimary = init.isPrimary ?? true;
+  }
+}
+
+function pointer(el: Element, type: string, x: number, y: number, init: PointerEventInit = {}) {
+  fireEvent(el, new TestPointerEvent(type, { clientX: x, clientY: y, ...init }));
+}
+
+/**
+ * A drag with the mouse through `points` (px on a `w` × `h` drawing), released at the last one;
+ * a mouse sends a click there too, which the map must not take as a tap.
+ */
+function drag(points: readonly (readonly [number, number])[], w = 400, h = 200) {
+  const drawing = sizeMap(w, h);
+  points.forEach(([x, y], i) => pointer(drawing, i === 0 ? 'pointerdown' : 'pointermove', x, y));
+  const [x, y] = points[points.length - 1]!;
+  pointer(drawing, 'pointerup', x, y);
+  fireEvent.click(drawing, { clientX: x, clientY: y });
+}
+
+/** `n` px points along the straight line from `a` to `b`. */
+const along = (a: readonly [number, number], b: readonly [number, number], n = 12) =>
+  Array.from(
+    { length: n },
+    (_, i) => [a[0] + ((b[0] - a[0]) * i) / (n - 1), a[1] + ((b[1] - a[1]) * i) / (n - 1)] as const,
+  );
+
+/** A zig-zag across the 400 × 200 drawing: far more bends than any cap. */
+const wiggle = Array.from(
+  { length: 200 },
+  (_, i) => [40 + (320 * i) / 199, 100 + 70 * Math.sin(i / 6)] as const,
+);
+
 const mapButton = () => screen.getByRole('button', { name: /^Cycle routes: / });
 
 async function openMap() {
@@ -284,6 +326,193 @@ describe('CyclePathInput (SPEC-FINAL 5.2, 5.6, 8.2)', () => {
     }
     expect(stored[0]).toEqual([[{ x: 0.75, y: 0.75 }]]);
     expect(stored[1]).toEqual(stored[0]);
+  });
+
+  describe('a drag draws the route freehand (UF.25)', () => {
+    it('a straight stroke is stored as its two ends, in one change, its click no tap', async () => {
+      const spy = vi.fn();
+      render(<Held field={routes()} spy={spy} />);
+      const dialog = await openMap();
+      drag(along([40, 100], [240, 100]));
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(last(spy)).toEqual([
+        [
+          { x: 0.1, y: 0.5 },
+          { x: 0.6, y: 0.5 },
+        ],
+      ]);
+      expect(within(dialog).getByText('Drawing path 1')).toBeVisible();
+      expect(within(dialog).getByText('2 of 6 points')).toBeVisible();
+    });
+
+    it('an L-shaped stroke keeps its corner', async () => {
+      const spy = vi.fn();
+      render(<Held field={routes()} spy={spy} />);
+      await openMap();
+      drag([...along([40, 40], [240, 40]), ...along([240, 40], [240, 180]).slice(1)]);
+      expect(last(spy)).toEqual([
+        [
+          { x: 0.1, y: 0.2 },
+          { x: 0.6, y: 0.2 },
+          { x: 0.6, y: 0.9 },
+        ],
+      ]);
+    });
+
+    it('shows the stroke live while the finger is down, and only then', async () => {
+      render(<Held field={routes()} spy={vi.fn()} />);
+      await openMap();
+      const drawing = sizeMap(400, 200);
+      expect(drawing).toHaveClass('touch-none');
+      pointer(drawing, 'pointerdown', 40, 100, { pointerType: 'touch' });
+      pointer(drawing, 'pointermove', 44, 100, { pointerType: 'touch' });
+      expect(screen.queryByTestId('map-stroke')).toBeNull(); // still a tap
+      pointer(drawing, 'pointermove', 120, 140, { pointerType: 'touch' });
+      const lines = screen.getByTestId('map-stroke').querySelectorAll('polyline');
+      expect(lines[1]).toHaveAttribute('points', '10,50 11,50 30,70');
+      pointer(drawing, 'pointerup', 120, 140, { pointerType: 'touch' });
+      expect(screen.queryByTestId('map-stroke')).toBeNull();
+    });
+
+    it('a press that moves under 8 px is a tap; 8 px is a drag', async () => {
+      const spy = vi.fn();
+      render(<Held field={routes()} spy={spy} />);
+      const dialog = await openMap();
+      // 7 px of wobble: a tap, its point where the click lands.
+      drag([
+        [100, 100],
+        [104, 103],
+        [107, 100],
+      ]);
+      expect(last(spy)).toEqual([[{ x: 0.2675, y: 0.5 }]]);
+      fireEvent.click(button(dialog, 'Finish'));
+      // 8 px: a stroke, both its ends kept.
+      drag([
+        [200, 100],
+        [208, 100],
+      ]);
+      expect(last(spy)).toEqual([
+        [{ x: 0.2675, y: 0.5 }],
+        [
+          { x: 0.5, y: 0.5 },
+          { x: 0.52, y: 0.5 },
+        ],
+      ]);
+    });
+
+    it('Undo takes back a whole stroke, then the tapped point before it', async () => {
+      const spy = vi.fn();
+      render(<Held field={routes()} spy={spy} />);
+      const dialog = await openMap();
+      tap(0.1, 0.1);
+      drag([...along([40, 100], [240, 100]), ...along([240, 100], [240, 180]).slice(1)]);
+      expect(last(spy)[0]).toHaveLength(4);
+      fireEvent.click(button(dialog, 'Undo'));
+      expect(last(spy)).toEqual([[{ x: 0.1, y: 0.1 }]]);
+      expect(within(dialog).getByText('1 of 6 points')).toBeVisible();
+      fireEvent.click(button(dialog, 'Undo'));
+      expect(last(spy)).toEqual([]);
+    });
+
+    it('a stroke goes on from a tapped path up to the limit; at the limit a drag is refused', async () => {
+      const spy = vi.fn();
+      render(<Held field={routes({ max_points_per_cycle: 4 })} spy={spy} />);
+      const dialog = await openMap();
+      tap(0.05, 0.05);
+      tap(0.08, 0.1);
+      drag(wiggle);
+      const path = last(spy)[0]!;
+      expect(path).toHaveLength(4);
+      expect(path.slice(0, 2)).toEqual([
+        { x: 0.05, y: 0.05 },
+        { x: 0.08, y: 0.1 },
+      ]);
+      expect(path.at(-1)).toEqual({
+        x: 0.9,
+        y: Math.round((wiggle.at(-1)![1] / 200) * 10_000) / 10_000,
+      });
+      const calls = spy.mock.calls.length;
+      drag(along([40, 20], [360, 20]));
+      expect(spy).toHaveBeenCalledTimes(calls);
+      expect(screen.queryByTestId('map-stroke')).toBeNull();
+      expect(within(dialog).getByRole('status')).toHaveTextContent(
+        'A path holds at most 4 points. Finish it to start the next.',
+      );
+      // Finished, the next drag starts the next path.
+      fireEvent.click(button(dialog, 'Finish'));
+      drag(along([40, 20], [360, 20]));
+      expect(last(spy)).toHaveLength(2);
+      expect(last(spy)[1]).toEqual([
+        { x: 0.1, y: 0.1 },
+        { x: 0.9, y: 0.1 },
+      ]);
+    });
+
+    it('a blue scout’s stroke is stored mirrored, as a tap there is, at every rotation', async () => {
+      const from = { x: 0.2, y: 0.3 };
+      const to = { x: 0.6, y: 0.3 };
+      const stored: unknown[] = [];
+      for (const layout of ['desktop', 'phone'] as const) {
+        if (layout === 'phone') phoneViewport();
+        const spy = vi.fn();
+        const { unmount } = render(
+          <Held field={routes()} spy={spy} context={{ alliance: 'blue', station: 'B2' }} />,
+        );
+        await openMap();
+        const [w, h] = layout === 'phone' ? [325, 800] : [800, 325];
+        const rotation = Number(screen.getByTestId('map-drawing').dataset.rotation) as Rotation;
+        const px = (p: Point) => {
+          const v = imageToView(p, rotation);
+          return [v.x * w, v.y * h] as const;
+        };
+        drag(along(px(from), px(to)), w, h);
+        stored.push(last(spy));
+        unmount();
+      }
+      expect(stored[0]).toEqual([
+        [
+          { x: 0.8, y: 0.3 },
+          { x: 0.4, y: 0.3 },
+        ],
+      ]);
+      expect(stored[1]).toEqual(stored[0]);
+    });
+
+    it('a second finger is ignored; the first one draws', async () => {
+      const spy = vi.fn();
+      render(<Held field={routes()} spy={spy} />);
+      await openMap();
+      const drawing = sizeMap(400, 200);
+      const touch = { pointerType: 'touch' };
+      pointer(drawing, 'pointerdown', 40, 100, { ...touch, pointerId: 7 });
+      pointer(drawing, 'pointerdown', 300, 20, { ...touch, pointerId: 8, isPrimary: false });
+      pointer(drawing, 'pointermove', 140, 100, { ...touch, pointerId: 7 });
+      pointer(drawing, 'pointermove', 340, 180, { ...touch, pointerId: 8, isPrimary: false });
+      pointer(drawing, 'pointerup', 340, 180, { ...touch, pointerId: 8, isPrimary: false });
+      pointer(drawing, 'pointermove', 240, 100, { ...touch, pointerId: 7 });
+      pointer(drawing, 'pointerup', 240, 100, { ...touch, pointerId: 7 });
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(last(spy)).toEqual([
+        [
+          { x: 0.1, y: 0.5 },
+          { x: 0.6, y: 0.5 },
+        ],
+      ]);
+    });
+
+    it('a drag with a path selected only lets go of it, like a tap', async () => {
+      const a = [
+        { x: 0.1, y: 0.1 },
+        { x: 0.2, y: 0.2 },
+      ];
+      const spy = vi.fn();
+      render(<Held field={routes()} spy={spy} start={[a]} />);
+      const dialog = await openMap();
+      fireEvent.click(button(dialog, 'Path 1'));
+      drag(along([40, 100], [240, 100]));
+      expect(spy).not.toHaveBeenCalled();
+      expect(button(dialog, 'Path 1')).toHaveAttribute('aria-pressed', 'false');
+    });
   });
 
   it('shows the count of paths and their points on its map button (UF.24 words)', () => {

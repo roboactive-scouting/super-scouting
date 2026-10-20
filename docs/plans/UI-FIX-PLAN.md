@@ -360,7 +360,7 @@ One fix agent per item, in order, reviewed by the orchestrator; one commit per i
 | UF.22 Q50 twice on Home | ☑ | ☑ | ☑ | ☑ | ☑ |
 | UF.23 Draft notice that will not go | ☑ | ☑ | ☑ | ☑ | ☑ |
 | UF.24 Review: map fields open view only | ☑ | ☑ | ☑ | ☑ | ☑ |
-| UF.25 Drag to draw a path | ☐ | ☐ | ☐ | ☐ | ☐ |
+| UF.25 Drag to draw a path | ☑ | ☑ | ☑ | ☑ | ☑ |
 | UF.26 Practice reviews before it finishes | ☐ | ☐ | ☐ | ☐ | ☐ |
 | Ship: full suite, PR into `develop` | — | — | — | ☐ | ☐ |
 
