@@ -75,7 +75,7 @@ export function EntryPage(props: EntryPageProps) {
   const draftKey = matchDraftKey(props.formVersionId, props.matchId, props.teamId);
   const practice = usePracticeMode();
   // In practice the draft goes to its own store (SPEC-FINAL 8.5), through the same hook.
-  const { draft, loaded, savedAt, save } = useDraft(draftKey);
+  const { draft, loaded, savedAt, save, close } = useDraft(draftKey);
   /** Finish practice let through: the "Practice finished" sheet is open (8.5). */
   const [finished, setFinished] = useState(false);
   const desktop = useIsDesktop();
@@ -183,12 +183,18 @@ export function EntryPage(props: EntryPageProps) {
 
   /**
    * Review entry: the confirmation, or — when anything holds it — the problems to fix first. In
-   * practice it is Finish practice: the same rules, then the "Practice finished" sheet (8.5).
+   * practice it is Finish practice: the same review, its confirm button Finish practice, then the
+   * "Practice finished" sheet (8.5; UF.26).
    */
   function review() {
-    if (!form.review()) return;
-    if (practice) setFinished(true);
-    else setReviewing(true);
+    if (form.review()) setReviewing(true);
+  }
+
+  /** The confirmation's primary button: a real submit, or — in practice — the end sheet. */
+  function confirmed() {
+    if (!practice) return void commit();
+    setReviewing(false);
+    setFinished(true);
   }
 
   /**
@@ -241,6 +247,8 @@ export function EntryPage(props: EntryPageProps) {
     }
     inFlight.current = true;
     setSubmitting(true);
+    // From here the draft is the submit's to clear: nothing writes it back (UF.23).
+    close(true);
     try {
       const { row_id } = await submitEntry({
         fields,
@@ -262,6 +270,7 @@ export function EntryPage(props: EntryPageProps) {
       setReviewing(false);
       props.onSubmitted?.(row_id);
     } catch (e) {
+      close(false);
       setError(e instanceof Error ? e.message : 'could not submit');
     } finally {
       inFlight.current = false;
@@ -327,11 +336,12 @@ export function EntryPage(props: EntryPageProps) {
       phases={dead ? [] : phases}
       data={form.saved}
       windowApplies={!editsAnyTime(props.author) && !props.existing}
+      practice={practice}
       error={error}
       errorRef={errorRef}
       submitting={submitting}
       onBack={() => setReviewing(false)}
-      onSubmit={() => void commit()}
+      onSubmit={confirmed}
     />
   );
 

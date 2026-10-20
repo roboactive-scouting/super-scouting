@@ -1,4 +1,5 @@
 import { cachedRows } from '@/data/cache';
+import { db } from '@/data/db';
 import { matchLabel } from '@/lib/matchLabel';
 import { localEntries, type LocalEntry } from './localEntries';
 
@@ -18,6 +19,11 @@ export type SuperTeam = {
   seen: string[];
   /** This device's super entry for the team at this event, if it holds one (SPEC-FINAL 8.1). */
   entry: LocalEntry | undefined;
+  /**
+   * The form version of the team's newest unfinished super draft, when the device holds that
+   * version's fields: the form opens on it, so Resume brings the draft back (UF.23).
+   */
+  draftVersionId?: string;
 };
 
 export type SuperData = {
@@ -38,15 +44,18 @@ const TYPE_ORDER: Record<string, number> = { practice: 0, qualification: 1, play
  * a pulled match entry by someone else on another device was not seen here.
  */
 export async function loadSuper(eventId: string, scoutId: string): Promise<SuperData> {
-  const [events, forms, settings, teams, roster, matches, entries] = await Promise.all([
-    cachedRows<EventRow>('events'),
-    cachedRows<FormRow>('forms'),
-    cachedRows<AppSettingsRow>('app_settings'),
-    cachedRows<TeamRow>('teams'),
-    cachedRows<RosterRow>('event_teams'),
-    cachedRows<MatchRow>('matches'),
-    localEntries(eventId),
-  ]);
+  const [events, forms, settings, teams, roster, matches, entries, drafts, fields] =
+    await Promise.all([
+      cachedRows<EventRow>('events'),
+      cachedRows<FormRow>('forms'),
+      cachedRows<AppSettingsRow>('app_settings'),
+      cachedRows<TeamRow>('teams'),
+      cachedRows<RosterRow>('event_teams'),
+      cachedRows<MatchRow>('matches'),
+      localEntries(eventId),
+      db.drafts.filter((d) => d.key.includes(':super:')).toArray(),
+      cachedRows<{ form_version_id: string }>('form_fields'),
+    ]);
   const event = events.find((e) => e.id === eventId);
   // As EntryRoute: the event's own season, else the default's when the event row is missing.
   const seasonId = event?.season_id ?? settings[0]?.active_season_id ?? null;
@@ -65,6 +74,17 @@ export async function loadSuper(eventId: string, scoutId: string): Promise<Super
       seenBy.set(entry.team_id, set);
     }
   }
+  // As `draftedVersion`: the newest super draft per team on a version this device holds.
+  const held = new Set(fields.map((f) => f.form_version_id));
+  const drafted = new Map<string, { version: string; at: string }>();
+  for (const d of drafts) {
+    const [version = '', , teamId = ''] = d.key.split(':');
+    const seen = drafted.get(teamId);
+    if (held.has(version) && (!seen || d.updated_at > seen.at)) {
+      drafted.set(teamId, { version, at: d.updated_at });
+    }
+  }
+
   const labels = (teamId: string) =>
     [...(seenBy.get(teamId) ?? [])]
       .map((id) => matchById.get(id))
@@ -88,6 +108,7 @@ export async function loadSuper(eventId: string, scoutId: string): Promise<Super
         name: t.name,
         seen: labels(t.id),
         entry: superBy.get(t.id),
+        draftVersionId: drafted.get(t.id)?.version,
       })),
   };
 }

@@ -1,5 +1,6 @@
 // The initial-JS budget (RB.18): the entry chunk and its static imports, gzipped, must stay
-// at or under BUDGET_KB. 226 KB = measured 224.1 KB after task 1.43 (the Sync nav row with its count,
+// at or under BUDGET_KB. 228 KB = measured 226.2 KB after merging UI fix round 3 (UF.22–UF.26, 221.3 KB on develop)
+// into Phase 1 F (224.7 KB) + headroom, raised by the orchestrator as the user allows (2026-10-20); was 226 KB = measured 224.1 KB after task 1.43 (the Sync nav row with its count,
 // the indicator as a link to /sync, the push progress, Q7.8's re-save rule; the Sync page itself is lazy)
 // + headroom, raised by the build chat as the user allows (2026-10-13); was 224 KB = measured 223.0 KB after task 1.42 (parent-deleted discards and the
 // discarded log, eviction of a left event and of deleted form rows; HEAD bcb8d51 already measured 220.8 KB,
@@ -17,7 +18,7 @@ import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
-const BUDGET_KB = 226;
+const BUDGET_KB = 228;
 
 const dist = 'apps/client/dist';
 const manifestPath = join(dist, '.vite/manifest.json');

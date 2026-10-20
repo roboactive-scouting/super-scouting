@@ -10,6 +10,7 @@ import { PATHS } from '@/lib/paths';
 import { useIsDesktop } from '@/lib/useMediaQuery';
 import { cn } from '@/lib/utils';
 import type { Editor } from './localEntries';
+import { usePracticeMode } from './practice';
 import { loadSuper } from './superData';
 import { SuperForm } from './SuperForm';
 import { SuperPicker } from './SuperPicker';
@@ -26,6 +27,7 @@ type SuperSaved = { teamLabel: string; edited: boolean };
 export function SuperEntryPage({ eventId, author }: { eventId: string; author: Editor }) {
   const { teamId } = useParams<{ teamId?: string }>();
   const desktop = useIsDesktop();
+  const practice = usePracticeMode();
   const navigate = useNavigate();
   const saved = (useLocation().state as { superSaved?: SuperSaved } | null)?.superSaved;
   const data = useDeviceQuery(() => loadSuper(eventId, author.id), [eventId, author.id], ['rows']);
@@ -91,7 +93,12 @@ export function SuperEntryPage({ eventId, author }: { eventId: string; author: E
       eventName={data.eventName}
       author={author}
       team={team}
-      formVersionId={team.entry?.form_version_id ?? data.formVersionId}
+      // The entry's own version; else an unfinished draft's (UF.23); else the published one.
+      formVersionId={
+        team.entry?.form_version_id ??
+        (practice ? undefined : team.draftVersionId) ??
+        data.formVersionId
+      }
       desktop={desktop}
       onSubmitted={() => {
         const state: { superSaved: SuperSaved } = {

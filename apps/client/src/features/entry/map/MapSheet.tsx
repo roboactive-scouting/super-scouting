@@ -1,4 +1,4 @@
-import { X } from 'lucide-react';
+import { Eye, X } from 'lucide-react';
 import {
   useEffect,
   useId,
@@ -7,13 +7,14 @@ import {
   useState,
   type CSSProperties,
   type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
 import type { Point } from '@frc/shared';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
-import { AllianceTag, StationTag } from '@/components/ui/tag';
+import { AllianceTag, StationTag, TAG } from '@/components/ui/tag';
 import { useModalFocus } from '@/components/ui/useModalFocus';
 import type { Station } from '@/data/station';
 import { useIsDesktop } from '@/lib/useMediaQuery';
@@ -27,6 +28,7 @@ import {
   type MapLayout,
   type Rotation,
 } from './mapGeometry';
+import { DRAW_SLOP_PX } from './simplify';
 
 /** One mark on the map, in IMAGE coordinates (0–1, the season image as stored, unturned). */
 export type MapMark = {
@@ -68,18 +70,18 @@ export type MapSheetProps = {
   /** The season's `field_image_path`; null when the device does not know it. */
   imagePath: string | null;
   marks: readonly MapMark[];
-  /** A tap on the drawing, already turned back into image coordinates. */
-  onTap: (image: Point) => void;
+  /** A tap on the drawing, already turned back into image coordinates. Never called `viewOnly`. */
+  onTap?: (image: Point) => void;
   /** ✕ or Escape. */
   onClose: () => void;
   /** The one-line hint under the map. */
-  hint: ReactNode;
+  hint?: ReactNode;
   /** The tools at the start of the bar (Undo, Skip · no place, …). */
   tools?: ReactNode;
   /** The words at the bar's end, before Done on a computer ("3 spots"). */
   status?: ReactNode;
   /** The primary action: full width on a phone, at the right on a computer. Hidden while the image is missing. */
-  done: { label: string; onClick: () => void; disabled?: boolean };
+  done?: { label: string; onClick: () => void; disabled?: boolean };
   /** Phone (full screen, upright) or computer (dialog, flat); by default the viewport decides. */
   layout?: MapLayout;
   /** Routes drawn over the image (the cycle path). */
@@ -103,6 +105,21 @@ export type MapSheetProps = {
    * it is missing (a position or cycle path records nothing then); the event log's Skip stays.
    */
   toolsNeedImage?: boolean;
+  /**
+   * The map to look at, not to change (UF.24: a map field opened from the confirmation): a
+   * "View only" tag, no tools, a tap on the drawing does nothing, and a secondary **Close** in
+   * place of Done. `lead` (an event log's chips) and `status` (the count) still show.
+   */
+  viewOnly?: boolean;
+  /**
+   * A drag on the field (UF.25, the cycle path): the stroke is drawn live under the finger and,
+   * on release, handed over in IMAGE coordinates with the image's width : height. A press that
+   * moves less than `DRAW_SLOP_PX` stays a tap (`onTap`). Only the first finger draws; a second is
+   * ignored. Never called `viewOnly`.
+   */
+  onStroke?: (image: Point[], aspect: number) => void;
+  /** As a drag begins (past the slop): false refuses it and nothing is drawn (a full path). */
+  onStrokeStart?: () => boolean;
 };
 
 /** The season image's shape until it has loaded: `public/seasons/2026/field.webp` is 2000 × 812. */
@@ -171,12 +188,13 @@ function PhoneMap(props: MapSheetProps) {
             {props.subtitle}
           </p>
         </div>
+        {props.viewOnly && <ViewOnlyTag />}
         <Tag alliance={props.alliance} station={props.station} />
       </header>
       <div className="flex min-h-0 flex-1 items-center justify-center px-4 pt-2.5 pb-1.5 [container-type:size]">
         <FieldDrawing {...props} {...image} rotation={viewRotation(props.alliance, 'phone')} fit />
       </div>
-      {tools && (
+      {tools && props.hint && (
         <p
           role="status"
           className="flex-none px-4 pb-2 text-center text-[0.78125rem] text-muted [&_b]:text-ink-2"
@@ -190,28 +208,41 @@ function PhoneMap(props: MapSheetProps) {
             {props.lead}
           </div>
         )}
-        {tools && (
-          <div className="flex min-h-12 items-center gap-2">
-            {props.tools}
-            {props.status && (
-              <span
-                data-testid="map-status"
-                className="ms-auto whitespace-nowrap text-[0.8125rem] text-muted"
-              >
+        {props.viewOnly
+          ? props.status && (
+              <p data-testid="map-status" className="text-[0.8125rem] text-muted">
                 {props.status}
-              </span>
+              </p>
+            )
+          : tools && (
+              <div className="flex min-h-12 items-center gap-2">
+                {props.tools}
+                {props.status && (
+                  <span
+                    data-testid="map-status"
+                    className="ms-auto whitespace-nowrap text-[0.8125rem] text-muted"
+                  >
+                    {props.status}
+                  </span>
+                )}
+              </div>
             )}
-          </div>
-        )}
-        {image.usable && (
-          <Button
-            variant="primary"
-            size="block"
-            onClick={props.done.onClick}
-            disabled={props.done.disabled}
-          >
-            {props.done.label}
+        {props.viewOnly ? (
+          <Button variant="secondary" size="block" onClick={props.onClose}>
+            Close
           </Button>
+        ) : (
+          image.usable &&
+          props.done && (
+            <Button
+              variant="primary"
+              size="block"
+              onClick={props.done.onClick}
+              disabled={props.done.disabled}
+            >
+              {props.done.label}
+            </Button>
+          )
         )}
       </div>
     </div>,
@@ -229,16 +260,18 @@ function DesktopMap(props: MapSheetProps) {
         <p id={sub} className="min-w-0 flex-1 text-[0.8125rem] text-muted" dir="auto">
           {props.subtitle}
         </p>
+        {props.viewOnly && <ViewOnlyTag />}
         <Tag alliance={props.alliance} station={props.station} />
       </div>
       <FieldDrawing {...props} {...image} rotation={viewRotation(props.alliance, 'desktop')} />
-      {tools && (
+      {tools && props.hint && (
         <p role="status" className="text-[0.8125rem] text-muted [&_b]:text-ink-2">
           {props.hint}
         </p>
       )}
+      {props.viewOnly && props.lead && <div>{props.lead}</div>}
       <div className="flex min-h-12 items-center gap-2 pt-1">
-        {tools && props.lead && (
+        {tools && !props.viewOnly && props.lead && (
           <div className="me-1.5 flex items-center gap-2 text-[0.8125rem] font-semibold text-ink-2">
             {props.lead}
           </div>
@@ -246,17 +279,38 @@ function DesktopMap(props: MapSheetProps) {
         {tools && props.tools}
         <span
           data-testid="map-status"
-          className="ms-auto me-1.5 whitespace-nowrap text-[0.8125rem] text-muted"
+          className={cn(
+            'whitespace-nowrap text-[0.8125rem] text-muted',
+            // View only: the count at the start, Close at the end.
+            props.viewOnly ? 'me-auto' : 'ms-auto me-1.5',
+          )}
         >
           {tools && props.status}
         </span>
-        {image.usable && (
-          <Button variant="primary" onClick={props.done.onClick} disabled={props.done.disabled}>
-            {props.done.label}
+        {props.viewOnly ? (
+          <Button variant="secondary" onClick={props.onClose}>
+            Close
           </Button>
+        ) : (
+          image.usable &&
+          props.done && (
+            <Button variant="primary" onClick={props.done.onClick} disabled={props.done.disabled}>
+              {props.done.label}
+            </Button>
+          )
         )}
       </div>
     </Dialog>
+  );
+}
+
+/** A THEME tag on `--line-2` with an eye: the map opened from the confirmation (UF.24). */
+function ViewOnlyTag() {
+  return (
+    <span className={cn(TAG, 'bg-line-2 text-ink-2')}>
+      <Eye aria-hidden="true" className="size-3.5" />
+      View only
+    </span>
   );
 }
 
@@ -289,6 +343,9 @@ function FieldDrawing({
   onRemove,
   removeLabel = 'Remove',
   onTap,
+  onStroke,
+  onStrokeStart,
+  viewOnly = false,
   alliance,
   rotation,
   fit = false,
@@ -317,6 +374,13 @@ function FieldDrawing({
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [removable, onRemove, selected]);
+
+  // The press being followed (UF.25): a tap until it moves DRAW_SLOP_PX, then a drag.
+  const gesture = useRef<Gesture | null>(null);
+  // A drag's own click (a mouse sends one on release) is not a tap; the next press clears it.
+  const swallowClick = useRef(false);
+  const [stroking, setStroking] = useState(false);
+  const live = useRef<SVGSVGElement | null>(null);
 
   const image = (
     <FieldImage
@@ -353,6 +417,7 @@ function FieldDrawing({
   }
 
   function tap(e: MouseEvent<HTMLDivElement>) {
+    if (!onTap) return;
     // Something selected: a tap on the map keeps it and adds nothing; it only lets go.
     if (selected !== null && onSelect) {
       onSelect(null);
@@ -363,6 +428,87 @@ function FieldDrawing({
     const x = Math.min(1, Math.max(0, (e.clientX - box.left) / box.width));
     const y = Math.min(1, Math.max(0, (e.clientY - box.top) / box.height));
     onTap(viewToImage({ x, y }, rotation));
+  }
+
+  const strokable = !viewOnly && onStroke !== undefined;
+
+  function down(e: ReactPointerEvent<HTMLDivElement>) {
+    // A second finger while one is down is ignored, and so are a mouse's other buttons.
+    if (gesture.current || !e.isPrimary || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    swallowClick.current = false;
+    // The Remove pill and a spot are buttons of their own: a press on them is never a stroke.
+    if ((e.target as Element).closest('button')) return;
+    const box = e.currentTarget.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) return;
+    gesture.current = {
+      id: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      box,
+      view: [inBox(e, box)],
+      state: 'press',
+      anchor: null,
+    };
+  }
+
+  function move(e: ReactPointerEvent<HTMLDivElement>) {
+    const g = gesture.current;
+    if (!g || e.pointerId !== g.id) return;
+    // Every sample since the last frame, not only the last, so a fast stroke keeps its bends.
+    const samples = e.nativeEvent.getCoalescedEvents?.() ?? [];
+    for (const s of samples.length > 0 ? samples : [e]) g.view.push(inBox(s, g.box));
+    if (g.state === 'press') {
+      if (Math.hypot(e.clientX - g.x, e.clientY - g.y) < DRAW_SLOP_PX) return;
+      if (selected !== null && onSelect) {
+        // Something selected: a drag, like a tap, only lets go of it.
+        onSelect(null);
+        g.state = 'refused';
+      } else if (onStrokeStart && !onStrokeStart()) {
+        g.state = 'refused';
+      } else {
+        g.state = 'drawing';
+        // The path being drawn: the stroke goes on from its last point.
+        const last = paths.find((p) => p.drawing)?.points.at(-1);
+        g.anchor = last ? imageToView(last, rotation) : null;
+        try {
+          e.currentTarget.setPointerCapture?.(e.pointerId);
+        } catch {
+          // A pointer the browser no longer tracks: the stroke still follows the events it gets.
+        }
+        setStroking(true);
+      }
+    }
+    if (g.state === 'drawing') paint(live.current, g);
+  }
+
+  function up(e: ReactPointerEvent<HTMLDivElement>) {
+    const g = gesture.current;
+    if (!g || e.pointerId !== g.id) return;
+    gesture.current = null;
+    if (g.state === 'press') return; // a tap: the click that follows adds the point
+    swallowClick.current = true;
+    if (g.state !== 'drawing') return;
+    g.view.push(inBox(e, g.box));
+    setStroking(false);
+    onStroke?.(
+      g.view.map((p) => viewToImage(p, rotation)),
+      ratio,
+    );
+  }
+
+  /** The browser took the pointer away (a system gesture): the stroke is dropped, nothing stored. */
+  function cancel(e: ReactPointerEvent<HTMLDivElement>) {
+    const g = gesture.current;
+    if (!g || e.pointerId !== g.id) return;
+    gesture.current = null;
+    if (g.state !== 'press') swallowClick.current = true;
+    if (g.state === 'drawing') setStroking(false);
+  }
+
+  function swallow(e: MouseEvent<HTMLDivElement>) {
+    if (!swallowClick.current) return;
+    swallowClick.current = false;
+    e.stopPropagation();
   }
 
   /** A tap on a mark or a path: select it, or let go of it when it is the selected one. */
@@ -403,10 +549,21 @@ function FieldDrawing({
       data-testid="map-drawing"
       data-rotation={rotation}
       role="group"
-      aria-label="The field: tap where it happened"
-      onClick={tap}
+      aria-label={viewOnly ? 'The field, view only' : 'The field: tap where it happened'}
+      // View only (UF.24): a tap on the field changes nothing, and a drag draws nothing.
+      onClick={viewOnly ? undefined : tap}
+      onClickCapture={strokable ? swallow : undefined}
+      onPointerDown={strokable ? down : undefined}
+      onPointerMove={strokable ? move : undefined}
+      onPointerUp={strokable ? up : undefined}
+      onPointerCancel={strokable ? cancel : undefined}
       style={size}
-      className="relative shrink-0 cursor-crosshair touch-manipulation overflow-hidden rounded-control border border-control-border bg-line-2 [container-type:size]"
+      className={cn(
+        'relative shrink-0 overflow-hidden rounded-control border border-control-border bg-line-2 [container-type:size]',
+        // A drawing surface keeps the finger (UF.25): no scroll or zoom starts on it.
+        strokable ? 'touch-none' : 'touch-manipulation',
+        !viewOnly && 'cursor-crosshair',
+      )}
     >
       {image}
       <span
@@ -438,6 +595,13 @@ function FieldDrawing({
                   <polyline
                     points={points}
                     className="fill-none stroke-surface [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:7px] [vector-effect:non-scaling-stroke]"
+                  />
+                )}
+                {viewOnly && (
+                  // A white casing, so a route reads over the image's own red and blue (round 3).
+                  <polyline
+                    points={points}
+                    className="fill-none stroke-surface opacity-85 [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:4.5px] [vector-effect:non-scaling-stroke]"
                   />
                 )}
                 <polyline
@@ -496,6 +660,29 @@ function FieldDrawing({
           );
         });
       })}
+      {stroking && (
+        // The stroke under the finger (UF.25), painted straight from the pointer events: a 2.6 px
+        // line in the alliance colour on a white casing, so it reads over the image's own colours.
+        <svg
+          ref={(svg) => {
+            live.current = svg;
+            if (svg && gesture.current) paint(svg, gesture.current);
+          }}
+          data-testid="map-stroke"
+          aria-hidden="true"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          className="pointer-events-none absolute inset-0 size-full overflow-visible"
+        >
+          <polyline className="fill-none stroke-surface opacity-85 [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:5.5px] [vector-effect:non-scaling-stroke]" />
+          <polyline
+            className={cn(
+              'fill-none [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:2.6px] [vector-effect:non-scaling-stroke]',
+              line,
+            )}
+          />
+        </svg>
+      )}
       {marks.map((mark) => {
         const at = imageToView(mark.point, rotation);
         const dot = cn(
@@ -548,6 +735,40 @@ function FieldDrawing({
       )}
     </div>
   );
+}
+
+/** A press on the drawing being followed (UF.25). Points are in VIEW coordinates (0–1 of the box). */
+type Gesture = {
+  id: number;
+  /** Where it went down, in CSS px: past DRAW_SLOP_PX from here it is a drag. */
+  x: number;
+  y: number;
+  box: DOMRect;
+  view: Point[];
+  /** `press` (still a tap), `drawing`, or `refused` (a drag that draws nothing). */
+  state: 'press' | 'drawing' | 'refused';
+  /** The last point of the path being drawn, which the live stroke starts from. */
+  anchor: Point | null;
+};
+
+/** A pointer position as a point of the box, held inside it. */
+function inBox(e: { clientX: number; clientY: number }, box: DOMRect): Point {
+  return {
+    x: Math.min(1, Math.max(0, (e.clientX - box.left) / box.width)),
+    y: Math.min(1, Math.max(0, (e.clientY - box.top) / box.height)),
+  };
+}
+
+/** 0–1 as a percentage to a hundredth (a tenth of a pixel on the largest map). */
+const pct = (v: number) => Math.round(v * 10_000) / 100;
+
+/** Draws the stroke so far into the live layer's lines, without a React render per move. */
+function paint(svg: SVGSVGElement | null, g: Gesture) {
+  if (!svg) return;
+  const points = (g.anchor ? [g.anchor, ...g.view] : g.view)
+    .map((p) => `${pct(p.x)},${pct(p.y)}`)
+    .join(' ');
+  for (const line of svg.querySelectorAll('polyline')) line.setAttribute('points', points);
 }
 
 /**

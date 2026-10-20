@@ -11,8 +11,9 @@ import { useIsDesktop } from '@/lib/useMediaQuery';
 import { cn } from '@/lib/utils';
 import { useEntryContext } from '../entryContext';
 import { MapButton } from '../map/MapButton';
-import { axisOf, capOf, cyclesOf, mapSubtitle, plural } from '../map/mapField';
+import { axisOf, capOf, cyclesOf, mapCount, mapSubtitle } from '../map/mapField';
 import { storeImagePoint } from '../map/mapGeometry';
+import { simplifyStroke, STROKE_EPSILON } from '../map/simplify';
 import { useUndoable } from '../useUndoable';
 import { FieldLabel, FieldRow } from './FieldRow';
 import { MAP_TOOL } from './PositionInput';
@@ -37,7 +38,10 @@ type Note = { before: Drawing };
  * `max_points_per_cycle` (default 6) to a cycle: a rough sketch, not a trajectory. Only the routes
  * are drawn: no numbers, no scoring.
  *
- * A tap starts a path (or + New path does); taps add its points in order. While drawing:
+ * A tap starts a path (or + New path does); taps add its points in order. A drag draws freehand
+ * (UF.25): on release the stroke is simplified (`simplifyStroke`) to the points that keep its
+ * shape, and they are added as taps would be, in one change, so Undo takes the stroke back whole.
+ * A stroke on a path being drawn goes on from its last point, up to the cap. While drawing:
  * "● Drawing path n · k of 6 points", **Undo** (the last change: the last point), **Clear path**
  * (empties only the path being drawn, which is still being drawn so it can be started again) and
  * **Finish**. A point past the cap is refused, and the hint says so. Otherwise: + New path and
@@ -76,23 +80,50 @@ export function CyclePathInput({
     history.set(next, { before: drawing });
   }
 
-  function add(image: Point) {
-    const point = storeImagePoint(image, alliance, axis);
+  /** Adds stored points to the path being drawn, or starts the next path with them. */
+  function append(points: Point[]) {
+    if (points.length === 0) return;
     if (base === null) {
-      // Nothing being drawn: the tap starts the next path.
-      change([...paths, [point]]);
+      // Nothing being drawn: the tap or the stroke starts the next path.
+      change([...paths, points]);
       setDrawing({ base: paths.length });
-      return;
-    }
-    if (current.length >= cap) {
-      setRefused(true);
       return;
     }
     change(
       base < paths.length
-        ? paths.map((path, i) => (i === base ? [...path, point] : path))
-        : [...paths, [point]],
+        ? paths.map((path, i) => (i === base ? [...path, ...points] : path))
+        : [...paths, points],
     );
+  }
+
+  /** Whether the path being drawn is full; if so the hint says so and nothing is added. */
+  function full() {
+    if (base === null || current.length < cap) return false;
+    setRefused(true);
+    return true;
+  }
+
+  function add(image: Point) {
+    if (full()) return;
+    append([storeImagePoint(image, alliance, axis)]);
+  }
+
+  /**
+   * A drag's stroke (UF.25), in image coordinates: stored as taps are, then simplified to the
+   * room left on the path being drawn. A stroke that goes on from a point already there is
+   * simplified with that point in front, so the line between them counts as part of the shape
+   * and the stroke's first sample is not kept when it only repeats that point.
+   */
+  function addStroke(image: Point[], aspect: number) {
+    if (full()) return;
+    const stroke = image.map((p) => storeImagePoint(p, alliance, axis));
+    const from = base !== null ? current.at(-1) : undefined;
+    if (!from) {
+      append(simplifyStroke(stroke, cap, STROKE_EPSILON, aspect));
+      return;
+    }
+    const room = cap - current.length;
+    append(simplifyStroke([from, ...stroke], room + 1, STROKE_EPSILON, aspect).slice(1));
   }
 
   function clearPath() {
@@ -125,7 +156,8 @@ export function CyclePathInput({
   }
 
   const own = alliance === 'red' ? 'bg-alliance-red' : 'bg-alliance-blue';
-  const count = paths.length > 0 ? plural(paths.length, 'path', 'paths') : null;
+  // "2 paths · 9 spots": the confirmation words it the same way (mapCount, UF.24).
+  const count = mapCount(field, paths);
 
   let hint;
   if (base !== null && refused) {
@@ -137,7 +169,7 @@ export function CyclePathInput({
   } else if (base !== null) {
     hint = (
       <>
-        <b>{verb} the map</b> to add the next point · <b>Finish</b> when the route is done
+        <b>{verb} or drag</b> to add to the path · <b>Finish</b> when the route is done
       </>
     );
   } else if (selected !== null) {
@@ -150,14 +182,15 @@ export function CyclePathInput({
   } else if (paths.length > 0) {
     hint = (
       <>
-        <b>{verb} the map</b> to start a path · <b>{verb.toLowerCase()} a path</b> to remove it
+        <b>Drag or {verb.toLowerCase()}</b> to start a path · <b>{verb.toLowerCase()} a path</b> to
+        remove it
         {desktop && ' · Delete removes the selected one'}
       </>
     );
   } else {
     hint = (
       <>
-        <b>{verb} the map</b> to start a path, one point at a time
+        <b>Drag</b> to draw a path, or <b>{verb.toLowerCase()}</b> its points one at a time
       </>
     );
   }
@@ -204,6 +237,8 @@ export function CyclePathInput({
             onRemove={(id) => remove(Number(id))}
             removeLabel="Remove path"
             onTap={add}
+            onStroke={addStroke}
+            onStrokeStart={() => !full()}
             onClose={close}
             hint={hint}
             lead={

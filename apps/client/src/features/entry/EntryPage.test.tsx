@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,6 +6,9 @@ import type { CachedRow } from '@/data/db';
 import { db } from '@/data/db';
 import { pending } from '@/data/outbox';
 import { EntryPage } from './EntryPage';
+import { loadTimedParts } from './lazyParts';
+import { matchClock } from './matchClock';
+import { stopwatches } from './stopwatches';
 
 const field = (over: Record<string, unknown>) =>
   ({
@@ -1018,6 +1021,55 @@ describe('the entry form rules (1.36)', () => {
     await user.click(await screen.findByRole('button', { name: /submit entry/i }));
     await waitFor(() => expect(onSubmitted).toHaveBeenCalledOnce());
   });
+
+  it('keeps writing the draft after a submit that failed (UF.23)', async () => {
+    // submitEntry's backstop refuses: the device already holds an entry for this robot.
+    await db.rows.put({
+      entity: 'scouting_entries',
+      id: 'e-other',
+      event_id: 'ev-1',
+      form_kind: 'match',
+      match_id: 'm-1',
+      team_id: 't-1',
+      deleted_at: null,
+    } as unknown as CachedRow);
+    const user = await played();
+    const key = `${props.formVersionId}:${props.matchId}:${props.teamId}`;
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    await user.click(await screen.findByRole('button', { name: /submit entry/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/already an entry/);
+    await user.click(screen.getByRole('button', { name: /keep editing/i }));
+    await user.click(screen.getByRole('button', { name: 'Auto notes plus one' }));
+    await waitFor(async () =>
+      expect((await db.drafts.get(key))?.payload.data).toEqual({ auto_notes: 1 }),
+    );
+  });
+
+  it('writes no draft back after a submit, from a timer or a phase tab (UF.23)', async () => {
+    const onSubmitted = vi.fn();
+    const user = await played({ onSubmitted });
+    const key = `${props.formVersionId}:${props.matchId}:${props.teamId}`;
+    act(() => matchClock.start());
+    await waitFor(async () => expect(await db.drafts.get(key)).toBeDefined());
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    await user.click(await screen.findByRole('button', { name: /submit entry/i }));
+    await waitFor(() => expect(onSubmitted).toHaveBeenCalledOnce());
+    expect(await db.drafts.get(key)).toBeUndefined();
+
+    // The page is still on screen for a moment: the route leaves in a transition.
+    try {
+      act(() => {
+        matchClock.reset();
+        stopwatches.start('climb_time', 1);
+      });
+      await user.click(screen.getByRole('tab', { name: 'Teleop' }));
+      await new Promise((done) => setTimeout(done, 50));
+      expect(await db.drafts.get(key)).toBeUndefined();
+    } finally {
+      matchClock.reset();
+      stopwatches.resetAll();
+    }
+  });
 });
 
 describe('Timer fields at Review entry (1.36)', () => {
@@ -1068,5 +1120,81 @@ describe('Timer fields at Review entry (1.36)', () => {
     await user.click(screen.getByRole('button', { name: /review entry/i }));
     expect(await screen.findByRole('dialog', { name: 'Confirm this entry' })).toBeInTheDocument();
     expect(await pending(10)).toHaveLength(0);
+  });
+});
+
+describe('map fields at Review entry (UF.24)', () => {
+  const START = { x: 0.27, y: 0.3 };
+  const SHOTS = [
+    { type: 'high', t: 12, x: 0.26, y: 0.4 },
+    { type: 'def', t: 65 },
+  ];
+
+  beforeEach(async () => {
+    await loadTimedParts();
+    await db.rows.bulkPut([
+      field({
+        id: 'm1',
+        key: 'start',
+        label: 'Start position',
+        type: 'position',
+        display_order: 3,
+        phase: 'auto',
+        unit: 'coordinate',
+        direction: 'neutral',
+        config: { mirror_axis: 'horizontal' },
+      }),
+      field({
+        id: 'm2',
+        key: 'shots',
+        label: 'Shots',
+        type: 'event_log',
+        display_order: 4,
+        phase: 'teleop',
+        unit: 'count',
+        direction: 'neutral',
+        config: {
+          ask_position: true,
+          mirror_axis: 'horizontal',
+          event_types: [
+            { value: 'high', label: 'High goal' },
+            { value: 'def', label: 'Defended' },
+          ],
+        },
+      }),
+    ]);
+    await db.drafts.put({
+      key: `${props.formVersionId}:${props.matchId}:${props.teamId}`,
+      row_id: '',
+      payload: { robot_status: 'played', data: { start: START, shots: SHOTS } },
+      updated_at: new Date().toISOString(),
+    });
+  });
+
+  it('opens a map field view only from the confirmation; Close keeps the sheet and Submit saves the values', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <EntryPage {...props} fieldImagePath="seasons/2026/field.webp" />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('button', { name: 'Start position: 1 spot' });
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm this entry' });
+    const row = within(dialog).getByRole('button', { name: 'Shots: 2 events · 1 on the map' });
+    await user.click(row);
+    const map = await screen.findByRole('dialog', { name: 'Shots' });
+    expect(map).toHaveTextContent('Q12 · 2096 · Teleop');
+    expect(within(map).getByText('View only')).toBeInTheDocument();
+    expect(within(map).queryByRole('button', { name: /Undo|Skip|Save tap|Done/ })).toBeNull();
+    await user.click(within(map).getByTestId('map-drawing'));
+    await user.click(within(map).getAllByRole('button', { name: 'Close' }).at(-1)!);
+    expect(screen.queryByRole('dialog', { name: 'Shots' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Confirm this entry' })).toBe(dialog);
+    expect(row).toHaveFocus();
+    expect(within(dialog).getByRole('button', { name: 'Start position: 1 spot' })).toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: /submit entry/i }));
+    await waitFor(async () => expect(await pending(10)).toHaveLength(1));
+    expect((await pending(10))[0]!.payload.data).toMatchObject({ start: START, shots: SHOTS });
   });
 });

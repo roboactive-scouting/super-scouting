@@ -71,7 +71,7 @@ export function SuperForm({
   // The entry as the page opened: a later sync re-reading the rows must not reset the form.
   const existing = useRef(practice ? undefined : team.entry).current;
   const draftKey = superDraftKey(formVersionId, team.id);
-  const { draft, loaded, savedAt, save } = useDraft(draftKey);
+  const { draft, loaded, savedAt, save, close } = useDraft(draftKey);
   const [fields, setFields] = useState<FormFieldDefinition[]>([]);
   const [data, setData] = useState<Record<string, unknown>>({});
   const [reviewing, setReviewing] = useState(false);
@@ -119,10 +119,16 @@ export function SuperForm({
     save({ form_kind: 'super', team_id: team.id, data: next });
   }
 
+  /** The same review in practice (UF.26): the problems, else the confirmation. */
   function review() {
-    if (!form.review()) return;
-    if (practice) setFinished(true);
-    else setReviewing(true);
+    if (form.review()) setReviewing(true);
+  }
+
+  /** The confirmation's primary button: a real submit, or — in practice — the end sheet. */
+  function confirmed() {
+    if (!practice) return void commit();
+    setReviewing(false);
+    setFinished(true);
   }
   const reviewLabel = practice ? 'Finish practice' : 'Review entry';
 
@@ -135,6 +141,8 @@ export function SuperForm({
     }
     inFlight.current = true;
     setSubmitting(true);
+    // From here the draft is the submit's to clear: nothing writes it back (UF.23).
+    close(true);
     try {
       const { row_id } = await submitEntry({
         fields,
@@ -155,6 +163,7 @@ export function SuperForm({
       setReviewing(false);
       onSubmitted(row_id);
     } catch (e) {
+      close(false);
       setError(e instanceof Error ? e.message : 'could not submit');
     } finally {
       inFlight.current = false;
@@ -288,7 +297,7 @@ export function SuperForm({
       />
       <ConfirmEntry
         open={reviewing}
-        title="Submit the super entry?"
+        title={practice ? undefined : 'Submit the super entry?'}
         summary={
           <p className="text-ink-2">
             <b className="font-bold text-ink" dir="auto">
@@ -303,11 +312,12 @@ export function SuperForm({
         data={form.saved}
         // SPEC-FINAL 7.6 (v1.26): no five-minute window on a super entry, for anyone.
         windowApplies={false}
+        practice={practice}
         error={error}
         errorRef={errorRef}
         submitting={submitting}
         onBack={() => setReviewing(false)}
-        onSubmit={() => void commit()}
+        onSubmit={confirmed}
       />
       {practice && (
         <PracticeFinished open={finished} onClose={() => setFinished(false)} after={null} />

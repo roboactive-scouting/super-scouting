@@ -67,6 +67,19 @@ describe('coverageCells', () => {
       'Q12 · 4 scouted',
     );
   });
+  it('labels a match the device holds twice once (UF.22)', () => {
+    const twice = [
+      ...matches,
+      { id: 'm2-copy', event_id: 'e', match_type: 'qualification', number: 2 },
+    ];
+    const entries = [
+      entry('a', 'me', 1),
+      entry('b', 'me', 1, { match_id: 'm2-copy', team_id: 't2' }),
+    ];
+    const cells = coverageCells(twice, [], entries, 'e');
+    expect(cells.map((c) => c.label)).toEqual(['Q1', 'Q2']);
+    expect(cellText(cells[1]!)).toBe('Q2 · 2 scouted');
+  });
 });
 
 describe('copy', () => {

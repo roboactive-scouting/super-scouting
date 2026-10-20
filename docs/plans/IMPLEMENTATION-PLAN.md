@@ -1,6 +1,7 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.14 · **Date:** 2026-10-12 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.15 · **Date:** 2026-10-20 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.15 (2026-10-20): task 1.47 carries a side task: small start and end marks on a cycle path (spec v0.83 / SPEC-FINAL v1.31 §8.2, user). Phase 1 F and UI fix round 3 are on `develop`.*
 *v1.14 (2026-10-12): the discarded-records log is designed (`docs/design/pages/19-discarded/final/`, spec v0.81 / SPEC-FINAL v1.29 §9.7); task 1.42 points at it. Phase 1 F's pages are all designed.*
 *v1.13 (2026-10-12): the Conflicts page is designed (`docs/design/pages/18-conflicts/final/`, spec v0.80 / SPEC-FINAL v1.28 §9.5); task 1.44 points at it, and task 1.41 adds `sync_conflicts.resolution`.*
 *v1.12 (2026-10-12): the Sync page is designed (`docs/design/pages/17-sync/final/`, spec v0.79 / SPEC-FINAL v1.27 §9.10); tasks 1.42, 1.43, 1.47 and 1.48 point at it, and task 1.49's wipe is reached from Settings only. Q7.8 is closed (A, user): a lead clears a refused record by re-saving it on that device (SPEC-FINAL v1.27 §9.3.1) — server side in 1.40, client side in 1.43.*
@@ -15520,6 +15521,8 @@ git add -A && git commit -m "feat(shared): add the deflate + framed QR codec wit
 ---
 
 ## Task 1.47: Client — the QR sender
+
+> **Side task (v1.15, user 2026-10-20): start and end marks on a cycle path** (SPEC-FINAL v1.31 §8.2). Small, and taking no extra screen room: each path's **first point is a hollow ring** and its **last point a small arrowhead pointing along the last leg**, in the path's own colour, no larger than a point's dot, with no labels. Draw them in `MapSheet`'s editing map, its view-only mode (UF.24) and the form's map button thumbnail; a one-point path shows only the ring; selection, ✕ Remove and the blue mirroring are unchanged (the arrow turns with the drawing). Add unit tests (ring on the first point, arrow on the last, the arrow's angle after mirroring) and refresh the map e2e shots in both themes. Logged under Task 1.47 in `DEVIATIONS.md`. Not a separate deployment: it ships with Phase 1 G.
 
 **Design (redesign system).** The sender is a full-screen `Sheet side="bottom"` or page with a frame counter. The QR canvas draws black on white, which the QR format needs for scanning.
 *(v1.12)* Each record whose batch was shown records the time (`qr_shown_at`, local only); the Sync page's Waiting list shows **"shown by QR hh:mm"** on it (SPEC-FINAL v1.27 §9.10). It is a display, not a receipt: the record stays pending.

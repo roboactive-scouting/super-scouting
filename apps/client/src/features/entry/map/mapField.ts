@@ -1,9 +1,10 @@
-import type { CyclePath, FormFieldDefinition, MirrorAxis, Point } from '@frc/shared';
+import type { CyclePath, EventLogTap, FormFieldDefinition, MirrorAxis, Point } from '@frc/shared';
 import { PHASE_TAB } from '../phases';
 
 /*
- * What the two map fields (position, cycle path; task 1.35) read from a definition and a value.
- * Pure: the inputs draw, this only reads.
+ * What the map fields (position, cycle path; task 1.35; and an event log's places, 1.34) read from
+ * a definition and a value. Pure: the inputs draw, this only reads. In the initial bundle: the
+ * confirmation summary (UF.24) words a map field with `mapCount`.
  */
 
 const AXES: readonly MirrorAxis[] = ['none', 'horizontal', 'vertical', 'both'];
@@ -55,3 +56,59 @@ export function mapSubtitle(
 
 /** "1 spot", "3 spots". */
 export const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** An event log's taps as a list, whatever was handed in (anything without a type and a time is dropped). */
+export function tapsOf(value: unknown): EventLogTap[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (tap): tap is EventLogTap =>
+      typeof tap === 'object' &&
+      tap !== null &&
+      typeof (tap as EventLogTap).type === 'string' &&
+      typeof (tap as EventLogTap).t === 'number',
+  );
+}
+
+/** A tap that was given a place on the map ("where?"), not skipped. */
+export const isPlaced = (tap: EventLogTap): tap is EventLogTap & Point =>
+  typeof tap.x === 'number' && typeof tap.y === 'number';
+
+/**
+ * A field drawn on the map: a position, a cycle path, or an event log that asks where (SPEC-FINAL
+ * 8.2). The confirmation (UF.24) opens these view only.
+ */
+export function opensMap(field: FormFieldDefinition): boolean {
+  return (
+    field.type === 'position' ||
+    field.type === 'cycle_path' ||
+    (field.type === 'event_log' && field.config.ask_position === true)
+  );
+}
+
+/**
+ * What a map field holds, in the map button's words: "1 spot", "3 spots"; "2 paths · 9 spots";
+ * "5 events · 4 on the map" ("5 events" for a log that never asks where). Null when it holds
+ * nothing (the form shows "Mark on the map", the confirmation "—") and for any other type. One
+ * wording for the form's map button and the confirmation (UF.24).
+ */
+export function mapCount(field: FormFieldDefinition, value: unknown): string | null {
+  if (field.type === 'position') {
+    const n = pointsOf(value).length;
+    return n > 0 ? plural(n, 'spot', 'spots') : null;
+  }
+  if (field.type === 'cycle_path') {
+    const paths = cyclesOf(value).filter((path) => path.length > 0);
+    if (paths.length === 0) return null;
+    const spots = paths.reduce((sum, path) => sum + path.length, 0);
+    return `${plural(paths.length, 'path', 'paths')} · ${plural(spots, 'spot', 'spots')}`;
+  }
+  if (field.type === 'event_log') {
+    const taps = tapsOf(value);
+    if (taps.length === 0) return null;
+    const events = plural(taps.length, 'event', 'events');
+    return field.config.ask_position === true
+      ? `${events} · ${taps.filter(isPlaced).length} on the map`
+      : events;
+  }
+  return null;
+}

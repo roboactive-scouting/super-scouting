@@ -1,10 +1,12 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CachedRow } from '@/data/db';
 import { db } from '@/data/db';
 import { pending } from '@/data/outbox';
+import { loadTimedParts } from './lazyParts';
+import { practiceMode } from './practice';
 import { SelectRobotPage } from './SelectRobotPage';
 import { SuperEntryPage } from './SuperEntryPage';
 
@@ -117,6 +119,10 @@ beforeEach(async () => {
       unit: 'text',
     }),
   ]);
+});
+
+afterEach(async () => {
+  await practiceMode.exit();
 });
 
 const scouter = { id: 'u-1', role: 'scouter' as const };
@@ -285,6 +291,38 @@ describe('SuperEntryPage (SPEC-FINAL 8.1, task 1.36)', () => {
     expect(supers).toHaveLength(1);
   });
 
+  it('opens a draft begun on an older super form version on that version, and its submit clears it (UF.23)', async () => {
+    // The super form moved on to sv-2 (one field, Driver skill) after the draft was begun on sv-1.
+    await db.rows.bulkPut([
+      { entity: 'forms', id: 'f-2', kind: 'super', season_id: 'se-1', active_version_id: 'sv-2' },
+      field({
+        id: 'sf-v2',
+        form_version_id: 'sv-2',
+        key: 'driver',
+        label: 'Driver skill',
+        type: 'short_text',
+        display_order: 1,
+        phase: 'post_match',
+        unit: 'text',
+      }),
+    ]);
+    await db.drafts.put({
+      key: 'sv-1:super:t-1690',
+      row_id: '',
+      payload: { form_kind: 'super', team_id: 't-1690', data: { defence: 'lots' } },
+      updated_at: new Date(Date.now() - 60_000).toISOString(),
+    });
+    const user = userEvent.setup();
+    renderAt('/super/t-1690');
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'Lots' })).toBeChecked());
+    expect(screen.queryByText('Driver skill')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    await user.click(await screen.findByRole('button', { name: /submit entry/i }));
+    await waitFor(async () => expect(await pending(10)).toHaveLength(1));
+    expect((await pending(10))[0]!.payload).toMatchObject({ form_version_id: 'sv-1' });
+    expect(await db.drafts.count()).toBe(0);
+  });
+
   it('lets a scouter edit their own super entry an hour later (SPEC-FINAL 7.6, v1.26)', async () => {
     await db.rows.put(superEntry(60 * 60_000));
     renderAt('/super/t-1690');
@@ -346,6 +384,60 @@ describe('SuperEntryPage (SPEC-FINAL 8.1, task 1.36)', () => {
     expect(await pending(10)).toHaveLength(0);
   });
 
+  describe('in practice (UF.26)', () => {
+    it('reviews like a real super entry: the confirmation says practice, and Finish practice ends in the sheet with nothing saved', async () => {
+      practiceMode.enter();
+      const user = userEvent.setup();
+      renderAt('/super/t-1657');
+      await user.click(await screen.findByRole('radio', { name: 'Lots' }));
+      await user.click(screen.getByRole('button', { name: 'Finish practice' }));
+
+      const confirm = await screen.findByRole('dialog', { name: 'Confirm this entry' });
+      expect(confirm).toHaveTextContent('1657 Hamosad · Israel District #1 · the whole event.');
+      expect(confirm).toHaveTextContent('Practice · nothing is saved or sent.');
+      expect(within(confirm).queryByRole('button', { name: 'Submit entry' })).toBeNull();
+      expect(screen.queryByRole('dialog', { name: 'Practice finished' })).toBeNull();
+      await user.click(within(confirm).getByRole('button', { name: 'Finish practice' }));
+
+      expect(await screen.findByRole('dialog', { name: 'Practice finished' })).toHaveTextContent(
+        'Nothing was saved or sent.',
+      );
+      expect(screen.queryByRole('dialog', { name: 'Confirm this entry' })).toBeNull();
+      expect(await pending(10)).toHaveLength(0);
+      // The four match entries the beforeEach seeds, and no super one.
+      const entries = await db.rows.where('entity').equals('scouting_entries').toArray();
+      expect(entries).toHaveLength(4);
+      expect(entries.some((row) => row.form_kind === 'super')).toBe(false);
+      expect(await db.drafts.count()).toBe(0);
+    });
+
+    it('opens the problems list when a required field is missed, not the confirmation', async () => {
+      await db.rows.put(
+        field({
+          id: 'sf-3',
+          key: 'reliability',
+          label: 'Auto reliability',
+          type: 'rating',
+          display_order: 0,
+          phase: 'auto',
+          unit: 'count',
+          required: true,
+          config: { max: 5, style: 'stars' },
+        }),
+      );
+      practiceMode.enter();
+      const user = userEvent.setup();
+      renderAt('/super/t-2096');
+      await screen.findByRole('tab', { name: 'Auto' });
+      await user.click(screen.getByRole('button', { name: 'Finish practice' }));
+      const dialog = await screen.findByRole('dialog', { name: '1 thing to fix first' });
+      expect(dialog).toHaveTextContent(/Auto reliabilitys*Autonomous · required, not answered/);
+      expect(screen.queryByRole('dialog', { name: 'Confirm this entry' })).toBeNull();
+      expect(screen.queryByRole('dialog', { name: 'Practice finished' })).toBeNull();
+      expect(await pending(10)).toHaveLength(0);
+    });
+  });
+
   it('says when the season has no super form published', async () => {
     // The only super form on the device is another season's.
     await db.rows.put({
@@ -361,5 +453,67 @@ describe('SuperEntryPage (SPEC-FINAL 8.1, task 1.36)', () => {
         name: 'No super scouting form is published for this season yet',
       }),
     ).toBeInTheDocument();
+  });
+});
+
+describe('map fields on the super confirmation (UF.24)', () => {
+  it('shows a cycle path as a compact row that opens the map view only; Close keeps the sheet', async () => {
+    await loadTimedParts();
+    const routes = [
+      [
+        { x: 0.2, y: 0.3 },
+        { x: 0.4, y: 0.35 },
+      ],
+      [
+        { x: 0.3, y: 0.6 },
+        { x: 0.5, y: 0.55 },
+        { x: 0.7, y: 0.5 },
+      ],
+    ];
+    await db.rows.bulkPut([
+      field({
+        id: 'sf-3',
+        key: 'routes',
+        label: 'Usual routes',
+        type: 'cycle_path',
+        display_order: 3,
+        phase: 'teleop',
+        unit: 'coordinate',
+      }),
+      field({
+        id: 'sf-4',
+        key: 'stands',
+        label: 'Where it stands',
+        type: 'position',
+        display_order: 4,
+        phase: 'teleop',
+        unit: 'coordinate',
+      }),
+      { ...superEntry(60_000), data: { defence: 'some', routes } } as unknown as CachedRow,
+    ]);
+    const user = userEvent.setup();
+    renderAt('/super/t-1690');
+    await screen.findByText(/Editing your entry from/);
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'Some' })).toBeChecked());
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    const dialog = await screen.findByRole('dialog', { name: 'Submit the super entry?' });
+    const row = within(dialog).getByRole('button', { name: 'Usual routes: 2 paths · 5 spots' });
+    expect(row).toHaveAccessibleDescription('Click to view');
+    // Nothing marked: a plain row with "—".
+    expect(
+      within(dialog).getByText('Where it stands', { selector: 'dt' }).nextElementSibling,
+    ).toHaveTextContent(/^—$/);
+    await user.click(row);
+    const map = await screen.findByRole('dialog', { name: 'Usual routes' });
+    expect(within(map).getByText('View only')).toBeInTheDocument();
+    expect(within(map).queryByRole('button', { name: /Undo|New path|Finish|Done/ })).toBeNull();
+    await user.click(within(map).getAllByRole('button', { name: 'Close' }).at(-1)!);
+    expect(screen.queryByRole('dialog', { name: 'Usual routes' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Submit the super entry?' })).toBe(dialog);
+    expect(row).toHaveFocus();
+    expect(
+      within(dialog).getByText('Defence', { selector: 'dt' }).nextElementSibling,
+    ).toHaveTextContent('Some');
+    expect(await pending(10)).toHaveLength(0);
   });
 });

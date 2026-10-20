@@ -18,8 +18,18 @@ import { usePracticeMode } from './practice';
 
 type MatchRow = { id: string; match_type: string; number: number };
 type TeamRow = { id: string; number: number; name: string };
+type FormRow = { id: string; active_version_id: string | null };
+type FieldRow = { form_version_id: string };
+type EntryRow = {
+  form_kind: string;
+  match_id: string | null;
+  team_id: string;
+  deleted_at: string | null;
+  client_updated_at?: string | null;
+  updated_at?: string | null;
+};
 
-/** The draft on offer, described from what the device holds. */
+/** A draft on offer, described from what the device holds. */
 export type DraftOffer = {
   record: DraftRecord;
   kind: 'match' | 'super';
@@ -31,53 +41,123 @@ export type DraftOffer = {
   alliance: 'red' | 'blue';
   /** Where Resume goes: the entry for that match and robot, or the team's super entry. */
   path: string;
+  /** Begun on a form version that is no longer the active one (it still opens on it). */
+  olderVersion: boolean;
+  /** The device no longer holds the fields of the version it was begun on. */
+  formGone: boolean;
+  /** Resume can open it: the device holds its match, its team and its version's fields. */
+  resumable: boolean;
 };
 
 /**
- * The most recent unfinished draft on this device (SPEC-FINAL 8.3), or null. Only `drafts` is
- * read — never `practiceDrafts` (8.5) — and a submitted entry's draft is already gone (submit
- * clears it). The key says which kind: `<version>:super:<team>` or `<version>:<match>:<team>`.
+ * When an entry last changed: the writing device's own time of the change, else (a row from
+ * before that was kept) the server's. NaN when the row says neither.
  */
-export async function latestDraft(): Promise<DraftOffer | null> {
-  const record = await db.drafts.orderBy('updated_at').last();
-  if (!record) return null;
-  const [, middle = '', last = ''] = record.key.split(':');
-  const [matches, teams, slots] = await Promise.all([
+function changedAt(entry: EntryRow): number {
+  return Date.parse(String(entry.client_updated_at ?? entry.updated_at ?? ''));
+}
+
+/**
+ * Every unfinished draft on this device (SPEC-FINAL 8.3), newest first. Only `drafts` is read —
+ * never `practiceDrafts` (8.5). The key says which kind: `<version>:super:<team>` or
+ * `<version>:<match>:<team>`.
+ *
+ * A draft that cannot be resumed because its entry was saved after the draft's last change (the
+ * same match, team and form kind on this device, on any form version) is deleted here, unasked
+ * (UF.23): it would otherwise be offered forever. A draft for a version that is no longer active,
+ * or a match or team the device no longer holds, is still offered, and says so.
+ */
+export async function unfinishedDrafts(): Promise<DraftOffer[]> {
+  const drafts = await db.drafts.orderBy('updated_at').reverse().toArray();
+  if (drafts.length === 0) return [];
+  const [matches, teams, slots, entries, forms, fields] = await Promise.all([
     cachedRows<MatchRow>('matches'),
     cachedRows<TeamRow>('teams'),
     cachedLiveSlots<LineupSlot>(),
+    cachedRows<EntryRow>('scouting_entries'),
+    cachedRows<FormRow>('forms'),
+    cachedRows<FieldRow>('form_fields'),
   ]);
+  const held = new Set(fields.map((f) => f.form_version_id));
+  const active = new Set(forms.map((f) => f.active_version_id));
   const describe = (teamId: string) => {
     const team = teams.find((t) => t.id === teamId);
     return team ? `${team.number} ${team.name}` : null;
   };
-  if (middle === 'super') {
-    const teamId = typeof record.payload.team_id === 'string' ? record.payload.team_id : last;
-    return {
+
+  const stale: DraftRecord[] = [];
+  const offers: DraftOffer[] = [];
+  for (const record of drafts) {
+    const [version = '', middle = '', last = ''] = record.key.split(':');
+    const kind = middle === 'super' ? 'super' : 'match';
+    const teamId =
+      kind === 'super' && typeof record.payload.team_id === 'string'
+        ? record.payload.team_id
+        : last;
+    const draftAt = Date.parse(record.updated_at);
+    const saved = entries.some(
+      (e) =>
+        e.deleted_at == null &&
+        e.form_kind === kind &&
+        e.team_id === teamId &&
+        (kind === 'super' || e.match_id === middle) &&
+        changedAt(e) > draftAt,
+    );
+    if (saved) {
+      stale.push(record);
+      continue;
+    }
+    const formGone = !held.has(version);
+    const olderVersion = !formGone && !active.has(version);
+    const team = describe(teamId);
+    if (kind === 'super') {
+      offers.push({
+        record,
+        kind,
+        match: null,
+        team,
+        station: null,
+        alliance: 'red',
+        path: superTeamPath(teamId),
+        olderVersion,
+        formGone,
+        resumable: team !== null && !formGone,
+      });
+      continue;
+    }
+    const match = matches.find((m) => m.id === middle);
+    const station = stationOf(slots, middle, teamId);
+    // A draft keeps the alliance it was opened with (task 1.37); an older one takes the line-up's.
+    const savedSide = record.payload.alliance;
+    const alliance =
+      savedSide === 'red' || savedSide === 'blue'
+        ? savedSide
+        : station?.[0] === 'B'
+          ? 'blue'
+          : 'red';
+    offers.push({
       record,
-      kind: 'super',
-      match: null,
-      team: describe(teamId),
-      station: null,
-      alliance: 'red',
-      path: superTeamPath(teamId),
-    };
+      kind,
+      match: match ? matchLabel(match) : null,
+      team,
+      station,
+      alliance,
+      path: entryPath(middle, teamId, alliance),
+      olderVersion,
+      formGone,
+      resumable: match !== undefined && team !== null && !formGone,
+    });
   }
-  const match = matches.find((m) => m.id === middle);
-  const station = stationOf(slots, middle, last);
-  // A draft keeps the alliance it was opened with (task 1.37); an older one takes the line-up's.
-  const saved = record.payload.alliance;
-  const alliance =
-    saved === 'red' || saved === 'blue' ? saved : station?.[0] === 'B' ? 'blue' : 'red';
-  return {
-    record,
-    kind: 'match',
-    match: match ? matchLabel(match) : null,
-    team: describe(last),
-    station,
-    alliance,
-    path: entryPath(middle, last, alliance),
-  };
+  if (stale.length > 0) {
+    // Only the very record read: a draft changed since (another tab still editing) is kept.
+    await db.transaction('rw', db.drafts, async () => {
+      for (const record of stale) {
+        const now = await db.drafts.get(record.key);
+        if (now?.updated_at === record.updated_at) await db.drafts.delete(record.key);
+      }
+    });
+  }
+  return offers;
 }
 
 /** "11:42" today; "09/03/2026 11:42" on another day. */
@@ -86,17 +166,30 @@ function lastChange(iso: string, now = new Date()): string {
   return sameDay ? formatTime(iso) : `${formatDate(iso)} ${formatTime(iso)}`;
 }
 
-/** The sentence after "You have an unfinished entry:". */
+/** The sentences after "You have an unfinished entry:". */
 function offerText(offer: DraftOffer): string {
   const when = `last change ${lastChange(offer.record.updated_at)}, on this device.`;
   const team = offer.team ?? 'a team no longer on this device';
-  if (offer.kind === 'super') return `${team} — ${when}`;
-  const side = offer.station
-    ? stationLabel(offer.station)
-    : offer.alliance === 'red'
-      ? 'Red alliance'
-      : 'Blue alliance';
-  return `${offer.match ?? 'a match no longer on this device'} · ${team}, ${side} — ${when}`;
+  let text: string;
+  if (offer.kind === 'super') {
+    text = `${team} — ${when}`;
+  } else {
+    const side = offer.station
+      ? stationLabel(offer.station)
+      : offer.alliance === 'red'
+        ? 'Red alliance'
+        : 'Blue alliance';
+    text = `${offer.match ?? 'a match no longer on this device'} · ${team}, ${side} — ${when}`;
+  }
+  if (offer.formGone) text += ' Its form is no longer on this device.';
+  else if (offer.olderVersion) text += ' It was started on an older version of the form.';
+  if (!offer.resumable) text += ' It can no longer be opened here.';
+  return text;
+}
+
+/** "… and 2 more unfinished entries" under the one on offer (UF.23). */
+function moreText(more: number): string {
+  return `… and ${more} more unfinished ${more === 1 ? 'entry' : 'entries'}`;
 }
 
 /**
@@ -104,8 +197,10 @@ function offerText(offer: DraftOffer): string {
  * recovery"): the Note (3 px `--ink` edge) naming the entry, its station and its last change, with
  * **Resume** (opens it where it was: values, phase, match clock and stopwatches come back from
  * the draft) and **Discard** (deletes that draft only, then "Draft discarded · Undo" puts the very
- * record back). One offer at a time, the most recent; after a discard the next one, if any, is
- * offered. Nothing is offered in practice, and a practice draft never is.
+ * record back). One offer at a time, the most recent; when more are waiting the Note says how
+ * many (UF.23), and after a discard the next one is offered. A draft that can no longer be
+ * opened here says so and offers Discard only. Nothing is offered in practice, and a practice
+ * draft never is.
  */
 export function DraftRecovery() {
   const navigate = useNavigate();
@@ -114,7 +209,9 @@ export function DraftRecovery() {
   const [version, setVersion] = useState(0);
   const [undo, setUndo] = useState<DraftRecord | null>(null);
   const dismiss = useCallback(() => setUndo(null), []);
-  const offer = useDeviceQuery(latestDraft, [version], ['rows']);
+  const offers = useDeviceQuery(unfinishedDrafts, [version], ['rows']);
+  const offer = offers?.[0];
+  const more = (offers?.length ?? 1) - 1;
 
   async function discard(record: DraftRecord) {
     await db.drafts.delete(record.key);
@@ -129,6 +226,8 @@ export function DraftRecovery() {
 
   const toast = (
     <Toast
+      // A second Discard is a new toast with its own time to Undo.
+      key={undo?.key}
       open={undo !== null}
       message="Draft discarded"
       action={{ label: 'Undo', onClick: () => undo && void restore(undo) }}
@@ -162,6 +261,7 @@ export function DraftRecovery() {
                 : 'You have an unfinished entry:'}
             </b>{' '}
             {offerText(offer)}
+            {more > 0 && <span className="mt-1 block font-medium text-ink">{moreText(more)}</span>}
           </span>
         </p>
         <div className="flex gap-2">
@@ -171,13 +271,15 @@ export function DraftRecovery() {
           >
             Discard
           </Button>
-          <Button
-            variant="primary"
-            className={cn('min-h-11 flex-1', desktop && 'flex-none')}
-            onClick={() => navigate(offer.path)}
-          >
-            Resume
-          </Button>
+          {offer.resumable && (
+            <Button
+              variant="primary"
+              className={cn('min-h-11 flex-1', desktop && 'flex-none')}
+              onClick={() => navigate(offer.path)}
+            >
+              Resume
+            </Button>
+          )}
         </div>
       </section>
       {toast}

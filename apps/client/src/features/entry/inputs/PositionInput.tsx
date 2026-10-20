@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useIsDesktop } from '@/lib/useMediaQuery';
 import { useEntryContext } from '../entryContext';
 import { MapButton } from '../map/MapButton';
-import { axisOf, mapSubtitle, plural, pointsOf } from '../map/mapField';
+import { axisOf, mapCount, mapSubtitle, pointsOf } from '../map/mapField';
 import { storeImagePoint } from '../map/mapGeometry';
 import { useUndoable } from '../useUndoable';
 import { FieldLabel, FieldRow } from './FieldRow';
@@ -77,7 +77,7 @@ export function PositionInput({
     setOpen(false);
   }
 
-  const count = points.length > 0 ? plural(points.length, 'spot', 'spots') : null;
+  const count = mapCount(field, points);
 
   return (
     <FieldRow label={<FieldLabel field={field} />}>

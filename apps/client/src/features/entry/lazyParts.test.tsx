@@ -5,6 +5,7 @@ import {
   CyclePathInput,
   EventLogInput,
   loadTimedParts,
+  MapFieldView,
   MatchTimer,
   PositionInput,
   setTimedPartsImportForTests,
@@ -105,6 +106,28 @@ describe('the timed parts chunk fails loudly and can be tried again (task 1.34, 
     expect(await screen.findByText('Paused')).toBeInTheDocument();
     expect(screen.getByTestId('timer-face')).toHaveTextContent('8.2');
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('the view-only map (UF.24) says so in its place, with Close; Try again opens the map', async () => {
+    setTimedPartsImportForTests(failingOnce());
+    const onClose = vi.fn();
+    render(
+      <MapFieldView
+        field={field({ key: 'auto_start', label: 'Start position', type: 'position' })}
+        value={{ x: 0.2, y: 0.3 }}
+        onClose={onClose}
+      />,
+    );
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent("The map didn't load.");
+    expect(alert.className).toContain('border-s-warn');
+    expect(screen.getByRole('dialog', { name: 'Start position' })).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Close' }).at(-1)!);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('View only')).toBeInTheDocument();
+    expect(screen.queryByText("The map didn't load.")).toBeNull();
+    expect(unhandled).not.toHaveBeenCalled();
   });
 
   it('the map fields say so too, and come back on Try again with their marks untouched (task 1.35)', async () => {

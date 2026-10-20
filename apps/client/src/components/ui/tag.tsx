@@ -9,7 +9,8 @@ import { cn } from '@/lib/utils';
  * only signal: every status carries a word and a shape. None is red; red is the red alliance.
  */
 
-const TAG =
+/** The tag's box and type, for a tag drawn elsewhere (the map's "View only", UF.24). */
+export const TAG =
   'inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-tag px-[9px] text-[0.78125rem] font-[650]';
 
 const ALLIANCE = {
