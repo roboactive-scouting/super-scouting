@@ -25,6 +25,8 @@ const ids = {
   event: uid(),
   team: uid(),
   match: uid(),
+  /** Its own match: since task 1.40 a second entry for (match, team) is a duplicate, not applied. */
+  replayMatch: uid(),
   form: uid(),
   version: uid(),
   user: uid(),
@@ -49,9 +51,10 @@ beforeAll(async () => {
     .from('teams')
     .insert({ id: ids.team, number: 900000 + Math.floor(Math.random() * 90000), name: 'CI Team' });
   await db.from('event_teams').insert({ id: uid(), event_id: ids.event, team_id: ids.team });
-  await db
-    .from('matches')
-    .insert({ id: ids.match, event_id: ids.event, match_type: 'qualification', number: 1 });
+  await db.from('matches').insert([
+    { id: ids.match, event_id: ids.event, match_type: 'qualification', number: 1 },
+    { id: ids.replayMatch, event_id: ids.event, match_type: 'qualification', number: 2 },
+  ]);
   const { error: userError } = await db.from('users').insert({
     id: ids.user,
     username: `ci_${ids.user.slice(0, 8)}`,
@@ -281,7 +284,7 @@ describe('smoke: the walking skeleton path', () => {
             form_version_id: ids.version,
             form_kind: 'match',
             event_id: ids.event,
-            match_id: ids.match,
+            match_id: ids.replayMatch,
             team_id: ids.team,
             alliance: 'blue',
             scouter_id: ids.user,

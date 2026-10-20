@@ -8287,3 +8287,13 @@ Rejected: a drag at the limit finishing the path and starting the next (a drag a
 **What I did instead:** kept both sides everywhere, except the super self-edit test: develop's "shows a scouter their own super entry locked once its five-minute window has closed" is dropped, because SPEC-FINAL v1.26 §7.6 (in 1F) exempts super entries; 1F's "edit it an hour later" replaces it, and UF.23's test is kept. DraftRecovery reads live slots (1F) plus UF.23's entries, forms and fields. Spec headers take develop's newer version (v0.82 / v1.30) with 1F's notes under it; history rows newest first; DEVIATIONS keeps 1F's entries, then round 3's. `BUDGET_KB` 226 → 228 at a measured 226.2 KB. Also added: the cycle path's start and end marks as a side task of task 1.47 (spec v0.83 / SPEC-FINAL v1.31, plan v1.15), no code.
 
 **Risk:** 1.8 KB of headroom; Phase 1 G's client tasks will likely raise it again.
+
+## Phase 1 F — the smoke suite's replay test gets its own match (orchestrator, 2026-10-20)
+
+**Plan said:** the smoke suite (`apps/server/smoke/slice.smoke.ts`) passes against the develop deployment.
+
+**What was wrong:** CI on `develop` `23caad1` (run 39409567374) failed `smoke: the walking skeleton path > replaying the same operation is a noop, never a duplicate row` with `AssertionError: expected 'duplicate' to be 'applied'`. The test's first push was the second entry for the suite's (match, team): "submits an entry and reads it back" had already made one, and task 1.40's duplicate rule correctly answers `duplicate` for that. PR #34's checks never ran the smoke suite (it runs on `develop` only), so it showed first here.
+
+**What I did instead:** the replay test uses its own match (`ids.replayMatch`, qualification 2, created and torn down with the suite), so it tests only what it says: a replayed op is `noop`. Run against the dev preview server: 8 of 8 passed. Rejected: expecting `duplicate` (that tests 1.40's rule, which the server suite already covers, not idempotency).
+
+**Risk:** none for the app; `apps/server` is a server input, so the server redeploys with unchanged code.
