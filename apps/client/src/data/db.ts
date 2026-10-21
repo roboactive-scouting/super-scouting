@@ -14,6 +14,22 @@ export type SyncStateRecord = {
    * why it has not synced. Cleared on ack. Not indexed, so no schema version bump.
    */
   rejection?: PushRejection | null;
+  /**
+   * The last time this row's QR batch was on the sender's screen (SPEC-FINAL 9.8, 9.10; task
+   * 1.47): Sync says "shown by QR hh:mm". A display, never a receipt: the row stays pending.
+   * Local only, not indexed (no schema version bump); a new local save drops it (enqueue
+   * writes a fresh state), since the new content has not been shown.
+   */
+  qr_shown_at?: string | null;
+  /**
+   * A copy this device received from another by QR (SPEC-FINAL 9.8; task 1.48). Permanent:
+   * unlike `origin`, which the outbox consults and an ack clears to 'local', this stays, so
+   * "Discard received QR data" can still find a copy after its ack. Not indexed (no schema
+   * version bump).
+   */
+  received_by_qr?: boolean;
+  /** When this device last scanned the copy (Sync's "last scan 11:44"); with `received_by_qr`. */
+  received_at?: string | null;
 };
 
 export type PushRejection = { code: RejectionReason; message: string; at: string };
@@ -95,6 +111,20 @@ class ScoutingDb extends Dexie {
 }
 
 export const db = new ScoutingDb();
+
+/**
+ * When this device was last wiped (SPEC-FINAL 9.9; task 1.49, `data/wipe.ts`). A sync reads it
+ * as its pull begins and again as it marks the device hydrated: a wipe in between means the pull
+ * was partly written to a device that has since been emptied, so it does not claim hydration.
+ */
+export const WIPED_AT_KEY = 'device.wiped_at';
+
+/**
+ * The delta watermark of the last completed pull (`data/sync.ts`). Cleared, the next sync pulls
+ * its event in full. "Discard received QR data" clears it (`data/qrReceive.ts`): the rows it
+ * removes are cloud rows that a delta pull would never send again.
+ */
+export const WATERMARK_KEY = 'sync.watermark';
 
 export async function getMeta<T>(key: string, fallback: T): Promise<T> {
   const record = await db.meta.get(key);

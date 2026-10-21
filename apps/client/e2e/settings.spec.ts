@@ -130,6 +130,134 @@ test('settings: rows, theme and text size choices, outdoor, wipe held', async ({
   await expect(wipe).toBeHidden();
 });
 
+/** One record in the discarded-records log (SPEC-FINAL 9.7), which a wipe keeps. */
+async function seedDiscarded(page: Page) {
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((done, fail) => {
+      const open = indexedDB.open('robactive-scouting');
+      open.onsuccess = () => done(open.result);
+      open.onerror = () => fail(open.error);
+    });
+    const tx = db.transaction('discarded', 'readwrite');
+    tx.objectStore('discarded').put({
+      id: 'e2e-discarded-1',
+      discarded_at: '2026-10-07T11:40:00.000Z',
+      reason: 'an admin deleted the competition, season or form it belonged to',
+      row_id: 'e2e-row-d',
+      event_id: 'e2e-event-old',
+      event_name: 'District #1 · Haifa',
+      summary: {
+        form_kind: 'match',
+        match: 'Q12',
+        match_type: 'qualification',
+        match_number: 12,
+        alliance: 'red',
+        station: 'R2',
+        team: '2096 ROBACTIVE',
+        team_number: 2096,
+        team_name: 'ROBACTIVE',
+        robot_status: 'played',
+        scouter: 'Noa Levi',
+        scouter_id: null,
+        client_updated_at: '2026-10-07T09:00:00.000Z',
+      },
+    });
+    await new Promise((done) => (tx.oncomplete = done));
+    db.close();
+  });
+}
+
+/** How many records each store holds, read straight from IndexedDB. */
+async function storeCounts(page: Page) {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((done, fail) => {
+      const open = indexedDB.open('robactive-scouting');
+      open.onsuccess = () => done(open.result);
+      open.onerror = () => fail(open.error);
+    });
+    const names = ['rows', 'outbox', 'syncState', 'drafts', 'discarded'] as const;
+    const tx = db.transaction([...names], 'readonly');
+    const counts = await Promise.all(
+      names.map(
+        (name) =>
+          new Promise<number>((done) => {
+            const req = tx.objectStore(name).count();
+            req.onsuccess = () => done(req.result);
+          }),
+      ),
+    );
+    db.close();
+    return Object.fromEntries(names.map((name, i) => [name, counts[i]]));
+  });
+}
+
+/**
+ * The wipe with nothing waiting (task 1.49; 16-settings final, "not drawn"): the lead's code and
+ * the typed phrase before the filled-ink button enables; a wrong code says so and wipes nothing;
+ * the right one empties the device, keeps the discarded log and signs out.
+ */
+test('settings: the wipe asks for the lead’s code, refuses a wrong one, then wipes and signs out', async ({
+  page,
+}) => {
+  test.slow();
+  await signIn(page, 'lead');
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto('/settings');
+  await seedDiscarded(page);
+  await expect(
+    page.getByRole('button', { name: /Wipe this device\s*removes everything this app keeps here/ }),
+  ).toBeVisible();
+  // The first pull may still be landing: wait for the device's rows before counting them.
+  await expect.poll(async () => (await storeCounts(page)).rows).toBeGreaterThan(0);
+  const before = await storeCounts(page);
+
+  await page.getByRole('button', { name: /^Wipe this device/ }).click();
+  const wipe = page.getByRole('dialog', { name: 'Wipe this device?' });
+  const code = wipe.getByLabel('Lead’s code');
+  const phrase = wipe.getByRole('textbox', { name: 'Type wipe this device to confirm' });
+  const confirm = wipe.getByRole('button', { name: 'Wipe this device' });
+  await expect(code).toBeVisible();
+  await expect(confirm).toHaveAttribute('aria-disabled', 'true');
+  const fill = async (value: string) => {
+    await code.fill(value);
+    await phrase.fill('wipe this device');
+  };
+
+  // Allowed: the code and the phrase in, the filled-ink button on.
+  await fill('WIPE2096');
+  await expect(confirm).not.toHaveAttribute('aria-disabled');
+  await shoot(page, 'settings-wipe-allowed', undefined, { before: () => fill('WIPE2096') });
+
+  // A wrong code: said under the field, nothing wiped.
+  await fill('WIPE2069');
+  await confirm.click();
+  await expect(wipe.getByRole('alert')).toHaveText(
+    'That is not the lead’s code. Nothing was wiped.',
+  );
+  expect(await storeCounts(page)).toEqual(before);
+  await shoot(page, 'settings-wipe-wrong-code', undefined, {
+    before: async () => {
+      if (await wipe.getByRole('alert').isVisible()) return;
+      await fill('WIPE2069');
+      await confirm.click();
+      await expect(wipe.getByRole('alert')).toBeVisible();
+    },
+  });
+
+  // The right code: everything goes but the discarded log, and the device signs out.
+  await fill('WIPE2096');
+  await confirm.click();
+  await page.waitForURL('/login');
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+  expect(await storeCounts(page)).toEqual({
+    rows: 0,
+    outbox: 0,
+    syncState: 0,
+    drafts: 0,
+    discarded: 1,
+  });
+});
+
 test('settings: on a computer it is in the sidebar under This device', async ({ page }) => {
   await signIn(page, 'scouter');
   await page.setViewportSize({ width: 1440, height: 900 });

@@ -90,6 +90,12 @@ export const keepScreenOn = boolPref('keepScreenOn', true);
 /** Vibrate on taps (SPEC-FINAL 8.6). On by default; only felt where the phone can vibrate. */
 export const vibrateOnTap = boolPref('vibrateOnTap', true);
 
+/**
+ * The QR receiver's beep when a batch is complete (21-qr-receive final, SPEC-FINAL 9.8; task
+ * 1.48): its head's "Sound on". On by default.
+ */
+export const qrSound = boolPref('qrSound', true);
+
 /** A device setting, kept current. */
 export function useBoolPref(pref: BoolPref): boolean {
   return useSyncExternalStore(subscribePrefs, pref.get, pref.get);

@@ -37,7 +37,7 @@ function Count({ words }: { words: string }) {
  * marks, the count, a "View only" tag and Close.
  *
  * - **Position**: its spots (numbered when the field holds a list, as while editing).
- * - **Cycle path**: its routes, each with a dot at every point.
+ * - **Cycle path**: its routes, each with a dot at every point, a ring on the first and an arrowhead on the last.
  * - **Event log**: each placed event's spot, numbered in event order, and every event listed as a
  *   chip with its number, name and time; one without a place gets a dashed "–" and "no place".
  *

@@ -30,9 +30,17 @@ export type DestructiveConfirmProps = {
   busy?: boolean;
   /**
    * Why the confirm waits although nothing is in flight (offline; what goes with it not read
-   * yet): only the confirm holds, Cancel and Escape still work, and this line says why.
+   * yet): only the confirm holds, Cancel and Escape still work, and this line says why. A string
+   * is a quiet line; a node (the wipe's warning notice) is drawn as given.
    */
-  held?: string | null;
+  held?: ReactNode;
+  /**
+   * More the confirm waits for, filled in by the caller's own fields (`children`): the device
+   * wipe's lead's code. True unless given.
+   */
+  ready?: boolean;
+  /** The caller's own fields, between the body and type-to-confirm (the wipe's lead's code). */
+  children?: ReactNode;
   /** A sentence to show inside the dialog when the action failed. */
   error?: string | null;
   onConfirm: () => void;
@@ -65,6 +73,8 @@ function OpenConfirm({
   typeToConfirm,
   busy = false,
   held = null,
+  ready = true,
+  children,
   error,
   onConfirm,
   onCancel,
@@ -72,7 +82,7 @@ function OpenConfirm({
   const id = useId();
   const cancel = useRef<HTMLButtonElement>(null);
   const [typed, setTyped] = useState('');
-  const armed = (typeToConfirm === undefined || typed === typeToConfirm) && !held;
+  const armed = (typeToConfirm === undefined || typed === typeToConfirm) && ready && !held;
 
   return (
     <ResponsiveDialog
@@ -114,6 +124,7 @@ function OpenConfirm({
         {body}
       </div>
       {loss && <p className="text-sm font-semibold">{loss}</p>}
+      {children}
       {typeToConfirm !== undefined && (
         <div>
           <label htmlFor={`${id}-type`} className="text-sm font-semibold">
@@ -132,6 +143,8 @@ function OpenConfirm({
             type="text"
             value={typed}
             autoComplete="off"
+            autoCapitalize="none"
+            autoCorrect="off"
             spellCheck={false}
             dir="auto"
             onChange={(e) => setTyped(e.target.value)}
@@ -139,7 +152,7 @@ function OpenConfirm({
           />
         </div>
       )}
-      {held && <p className="text-sm text-muted">{held}</p>}
+      {typeof held === 'string' ? held && <p className="text-sm text-muted">{held}</p> : held}
       {error && <ErrorLine>{error}</ErrorLine>}
     </ResponsiveDialog>
   );

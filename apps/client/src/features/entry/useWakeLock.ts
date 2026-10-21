@@ -1,6 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
-type Sentinel = { released?: boolean; release: () => Promise<void> };
+type Sentinel = {
+  released?: boolean;
+  release: () => Promise<void>;
+  addEventListener?: (type: 'release', listener: () => void) => void;
+};
 type MaybeWakeLock = { wakeLock?: { request: (type: 'screen') => Promise<Sentinel> } };
 
 /**
@@ -8,12 +12,16 @@ type MaybeWakeLock = { wakeLock?: { request: (type: 'screen') => Promise<Sentine
  * The browser drops the lock whenever the page is hidden, so it is asked for again each time
  * the page comes back. Released on unmount. Every call is guarded: Safari may lack the API or
  * refuse it (low battery, not allowed), and then the screen simply dims as it always did.
+ * Returns whether a lock is held, so a page can say "Screen stays on" only when it is true
+ * (the QR sender, task 1.47). The system may drop the lock on its own (the page hidden, low
+ * battery): the sentinel's `release` event turns that back to false.
  */
-export function useWakeLock(enabled: boolean): void {
+export function useWakeLock(enabled: boolean): boolean {
+  const [held, setHeld] = useState(false);
   useEffect(() => {
     if (!enabled) return;
     let live = true;
-    let held: Sentinel | null = null;
+    let lock: Sentinel | null = null;
 
     const release = (sentinel: Sentinel | null) => {
       if (!sentinel || sentinel.released === true) return;
@@ -33,9 +41,14 @@ export function useWakeLock(enabled: boolean): void {
           release(next);
           return;
         }
-        const previous = held;
-        held = next;
+        const previous = lock;
+        lock = next;
+        // Only this lock's own loss counts: the one it replaces fires `release` too.
+        next.addEventListener?.('release', () => {
+          if (live && lock === next) setHeld(false);
+        });
         release(previous);
+        setHeld(true);
       } catch {
         // Refused or unsupported: the screen dims as usual.
       }
@@ -50,8 +63,10 @@ export function useWakeLock(enabled: boolean): void {
     return () => {
       live = false;
       document.removeEventListener('visibilitychange', onVisibility);
-      release(held);
-      held = null;
+      release(lock);
+      lock = null;
+      setHeld(false);
     };
   }, [enabled]);
+  return enabled && held;
 }

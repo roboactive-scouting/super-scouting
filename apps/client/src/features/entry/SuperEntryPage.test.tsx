@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { formatTime } from '@frc/shared';
 import type { CachedRow } from '@/data/db';
 import { db } from '@/data/db';
 import { pending } from '@/data/outbox';
@@ -66,10 +67,50 @@ const superEntry = (createdMsAgo: number) => {
   } as unknown as CachedRow;
 };
 
+/**
+ * A super entry by `scouter` for `team`, first saved at `created` and last changed at `updated`
+ * (22-super-readonly: another scouter’s entry on this device).
+ */
+/** 10:40 and 11:12 in Tel Aviv: when Dana first saved her entry and when she last changed it. */
+const STARTED = '2026-10-20T07:40:00.000Z';
+const CHANGED = '2026-10-20T08:12:00.000Z';
+
+const superBy = (
+  scouter: string,
+  team: string,
+  created: string,
+  updated: string,
+  data: Record<string, unknown> = {
+    defence: 'some',
+    strengths: 'Fast cycles on the near side; quick to recover after contact',
+  },
+) =>
+  ({
+    entity: 'scouting_entries',
+    id: `s-${scouter}-${team}`,
+    event_id: 'ev-1',
+    form_kind: 'super',
+    form_version_id: 'sv-1',
+    match_id: null,
+    team_id: team,
+    alliance: null,
+    scouter_id: scouter,
+    robot_status: null,
+    breakdown_seconds: null,
+    data,
+    version: 3,
+    client_created_at: created,
+    client_updated_at: updated,
+    deleted_at: null,
+  }) as unknown as CachedRow;
+
 beforeEach(async () => {
   await db.delete();
   await db.open();
   await db.rows.bulkPut([
+    { entity: 'users', id: 'u-1', full_name: 'Noa Levi', role: 'scouter' },
+    { entity: 'users', id: 'u-dana', full_name: 'Dana Mor', role: 'scouter' },
+    { entity: 'users', id: 'u-other', full_name: 'Omer Katz', role: 'scouter' },
     { entity: 'app_settings', id: 'singleton', active_season_id: 'se-1' },
     { entity: 'events', id: 'ev-1', season_id: 'se-1', name: 'Israel District #1' },
     { entity: 'forms', id: 'f-1', kind: 'match', season_id: 'se-1', active_version_id: 'fv-1' },
@@ -268,7 +309,7 @@ describe('SuperEntryPage (SPEC-FINAL 8.1, task 1.36)', () => {
     const user = userEvent.setup();
     renderAt('/super');
     await user.click(await screen.findByRole('button', { name: /Done\s*1/ }));
-    expect(rows()).toEqual([expect.stringMatching(/^1690Orbit.*✓ Done \d\d:\d\d$/)]);
+    expect(rows()).toEqual([expect.stringMatching(/^1690Orbit.*✓ You \d\d:\d\d$/)]);
     await user.click(screen.getByRole('link', { name: /1690/ }));
     expect(
       await screen.findByText(/Editing your entry from \d\d:\d\d — your changes update it/),
@@ -328,7 +369,11 @@ describe('SuperEntryPage (SPEC-FINAL 8.1, task 1.36)', () => {
     renderAt('/super/t-1690');
     expect(await screen.findByText(/Editing your entry from/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /review entry/i })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'Some' })).toBeChecked());
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    // Their own entry is never read only (22 final).
+    expect(screen.queryByText('Read only')).not.toBeInTheDocument();
+    expect(screen.queryByText(/’s entry/)).not.toBeInTheDocument();
   });
 
   it('never promises a scouter a five-minute window on a new super entry', async () => {
@@ -341,13 +386,151 @@ describe('SuperEntryPage (SPEC-FINAL 8.1, task 1.36)', () => {
     expect(dialog).not.toHaveTextContent(/minutes after submitting/);
   });
 
-  it("still shows another scouter's super entry locked to a scouter", async () => {
-    await db.rows.put(superEntry(60_000));
-    renderAt('/super/t-1690', { id: 'u-9', role: 'scouter' });
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'The super entry for 1690 Orbit is locked — ask a lead to change it.',
+  describe("another scouter's super entry (SPEC-FINAL 7.6 v1.35; 22-super-readonly)", () => {
+    beforeEach(async () => {
+      await db.rows.bulkPut([
+        // Dana first saved it at 10:40 and changed it at 11:12 (Tel Aviv).
+        superBy('u-dana', 't-1690', STARTED, CHANGED),
+        // Dana scouted 1690 in two matches and 2096 in one: the card counts 1690's.
+        matchEntry('me-d1', 'm-12', 't-1690', 'u-dana'),
+        matchEntry('me-d2', 'm-19', 't-1690', 'u-dana'),
+        matchEntry('me-d3', 'm-27', 't-2096', 'u-dana'),
+      ]);
+    });
+
+    /** The super form's own part of the page (the picker beside it has a search and chips). */
+    const formOf = (heading: HTMLElement) => heading.closest('header')!.parentElement!;
+
+    it('shows a scouter its values, the author’s card and no control that edits, and no warning', async () => {
+      renderAt('/super/t-1690');
+      const heading = await screen.findByRole('heading', { name: '1690 Orbit' });
+      const form = formOf(heading);
+      // The answers, as the confirmation draws them.
+      await waitFor(() =>
+        expect(
+          within(form).getByText('Defence', { selector: 'dt' }).nextElementSibling,
+        ).toHaveTextContent(/^Some$/),
+      );
+      expect(
+        within(form).getByText('Strengths', { selector: 'dt' }).nextElementSibling,
+      ).toHaveTextContent('Fast cycles on the near side; quick to recover after contact');
+      for (const phase of ['Teleop', 'Notes'])
+        expect(within(form).getByRole('heading', { name: phase })).toBeInTheDocument();
+      // Whose entry it is, and who can change it.
+      expect(within(form).getByText('Read only')).toBeInTheDocument();
+      expect(within(form).getByText('SUPER')).toBeInTheDocument();
+      const card = within(form).getByText('Dana Mor’s entry').parentElement!;
+      expect(card).toHaveTextContent(
+        `Started ${formatTime(STARTED)} · last changed ${formatTime(CHANGED)} · seen in 2 matches`,
+      );
+      expect(form).toHaveTextContent('Only Dana, a lead or an admin can change it.');
+      // No warning: reading is not an error.
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(form).not.toHaveTextContent(/locked/i);
+      // Nothing edits: no field control, no phase tabs, no Review entry, no button at all.
+      for (const role of [
+        'radio',
+        'checkbox',
+        'textbox',
+        'spinbutton',
+        'slider',
+        'combobox',
+        'tab',
+        'button',
+      ] as const)
+        expect(within(form).queryAllByRole(role)).toHaveLength(0);
+      expect(screen.queryByRole('button', { name: /review entry/i })).not.toBeInTheDocument();
+    });
+
+    it('opens a map field view only from its row', async () => {
+      await loadTimedParts();
+      await db.rows.bulkPut([
+        field({
+          id: 'sf-3',
+          key: 'routes',
+          label: 'Usual routes',
+          type: 'cycle_path',
+          display_order: 3,
+          phase: 'teleop',
+          unit: 'coordinate',
+        }),
+        superBy('u-dana', 't-1690', STARTED, CHANGED, {
+          defence: 'some',
+          routes: [
+            [
+              { x: 0.2, y: 0.3 },
+              { x: 0.4, y: 0.35 },
+            ],
+          ],
+        }),
+      ]);
+      const user = userEvent.setup();
+      renderAt('/super/t-1690');
+      const form = formOf(await screen.findByRole('heading', { name: '1690 Orbit' }));
+      const row = await within(form).findByRole('button', {
+        name: 'Usual routes: 1 path · 2 spots',
+      });
+      expect(row).toHaveAccessibleDescription('Click to view');
+      // The only button on the read-only entry.
+      expect(within(form).getAllByRole('button')).toEqual([row]);
+      await user.click(row);
+      const map = await screen.findByRole('dialog', { name: 'Usual routes' });
+      expect(within(map).getByText('View only')).toBeInTheDocument();
+      expect(within(map).queryByRole('button', { name: /Undo|New path|Finish|Done/ })).toBeNull();
+      await user.click(within(map).getAllByRole('button', { name: 'Close' }).at(-1)!);
+      expect(screen.queryByRole('dialog', { name: 'Usual routes' })).not.toBeInTheDocument();
+      expect(row).toHaveFocus();
+      expect(await pending(10)).toHaveLength(0);
+      const saved = await db.rows.get(['scouting_entries', 's-u-dana-t-1690']);
+      expect(saved?.data).toEqual({
+        defence: 'some',
+        routes: [
+          [
+            { x: 0.2, y: 0.3 },
+            { x: 0.4, y: 0.35 },
+          ],
+        ],
+      });
+    });
+
+    it('lets a lead still edit it', async () => {
+      renderAt('/super/t-1690', { id: 'u-2', role: 'lead' });
+      expect(await screen.findByRole('button', { name: /review entry/i })).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByRole('radio', { name: 'Some' })).toBeChecked());
+      expect(screen.queryByText('Read only')).not.toBeInTheDocument();
+      expect(screen.queryByText('Dana Mor’s entry')).not.toBeInTheDocument();
+    });
+
+    it('lets Dana, its author, still edit it long after she first saved it (no window on a super entry)', async () => {
+      renderAt('/super/t-1690', { id: 'u-dana', role: 'scouter' });
+      expect(await screen.findByRole('button', { name: /review entry/i })).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByRole('radio', { name: 'Some' })).toBeChecked());
+      expect(screen.queryByText('Read only')).not.toBeInTheDocument();
+    });
+  });
+
+  it('names who did each Done team on the picker: You, else the first name, at the first save', async () => {
+    await db.rows.bulkPut([
+      superBy('u-1', 't-1657', '2026-10-20T07:02:00.000Z', '2026-10-20T08:30:00.000Z'),
+      superBy('u-dana', 't-1690', STARTED, CHANGED),
+      // A user this device does not hold: the tag says Done, as before.
+      superBy('u-gone', 't-2096', '2026-10-20T06:15:00.000Z', '2026-10-20T06:15:00.000Z'),
+    ]);
+    const user = userEvent.setup();
+    renderAt('/super');
+    await user.click(await screen.findByRole('button', { name: /Done\s*3/ }));
+    const at = formatTime;
+    expect(rows()).toEqual([
+      expect.stringMatching(new RegExp(`^1657Hamosad.*✓ You ${at('2026-10-20T07:02:00.000Z')}$`)),
+      expect.stringMatching(new RegExp(`^1690Orbit.*✓ Dana ${at(STARTED)}$`)),
+      expect.stringMatching(
+        new RegExp(`^2096RoboActive.*✓ Done ${at('2026-10-20T06:15:00.000Z')}$`),
+      ),
+    ]);
+    // Every super entry the device holds counts, whoever wrote it.
+    expect(screen.getByText('Super-scouted on this device').nextSibling).toHaveTextContent(
+      '3 of 3',
     );
-    expect(screen.queryByRole('button', { name: /review entry/i })).not.toBeInTheDocument();
   });
 
   it('lets a lead reopen and change it at any time (SPEC-FINAL 7.6)', async () => {

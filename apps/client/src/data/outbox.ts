@@ -52,6 +52,23 @@ export function asUtcIso(value: string): string {
 
 const SEQ_KEY = 'outbox.seq';
 
+/**
+ * Received QR copies the cloud has acked since Sync's success notice was last dismissed
+ * (SPEC-FINAL 9.8, task 1.48): `{ count, at }`. Written by ackResults, read by the lazy
+ * `data/qrReceive` module.
+ */
+export const QR_DISPOSED_KEY = 'qr.disposed';
+export type QrDisposal = { count: number; at: string };
+
+/** A received copy's permanent marker (SPEC-FINAL 9.8), carried over a rewrite of its state. */
+function receivedOf(
+  state: SyncStateRecord | undefined,
+): Pick<SyncStateRecord, 'received_by_qr' | 'received_at'> {
+  return state?.received_by_qr
+    ? { received_by_qr: true, received_at: state.received_at ?? null }
+    : {};
+}
+
 export async function nextSeq(): Promise<number> {
   const current = await getMeta<number>(SEQ_KEY, 0);
   const next = current + 1;
@@ -117,12 +134,14 @@ export async function enqueue(op: Operation, origin: 'local' | 'qr' = 'local'): 
     }
 
     // No `rejection`: new content is a new attempt, so this also UN-PARKS a row whose
-    // previous operation was refused (SPEC-FINAL 9.3.1).
+    // previous operation was refused (SPEC-FINAL 9.3.1). A received copy edited here (a lead
+    // re-saving it on the collector tablet) keeps its permanent QR marker (task 1.48).
     await db.syncState.put({
       row_id: op.row_id,
       sync_state: 'pending',
       acked_at: null,
       origin,
+      ...receivedOf(await db.syncState.get(op.row_id)),
     });
   });
   notifyChanged('outbox');
@@ -328,6 +347,7 @@ async function rebuildMatchFor(
     sync_state: 'pending',
     acked_at: null,
     origin: 'local',
+    ...receivedOf(await db.syncState.get(matchId)),
   });
   await db.outbox.put({ ...op, seq: await nextSeq() });
   return 'requeued';
@@ -382,6 +402,7 @@ async function applyParentDeleted(
 export async function ackResults(results: PushResult[]): Promise<void> {
   const now = new Date().toISOString();
   let discarded = false;
+  let disposed = 0;
   await db.transaction(
     'rw',
     [db.outbox, db.syncState, db.rows, db.meta, db.discarded],
@@ -419,6 +440,7 @@ export async function ackResults(results: PushResult[]): Promise<void> {
             acked_at: state?.acked_at ?? null,
             origin: state?.origin ?? 'local',
             rejection: { code: result.reason, message: result.detail ?? '', at: now },
+            ...receivedOf(state),
           });
           continue;
         }
@@ -426,13 +448,23 @@ export async function ackResults(results: PushResult[]): Promise<void> {
         if (op.entity === 'match' && result.row_id !== op.row_id) {
           for (const opId of await remapMatch(op.row_id, result.row_id)) remapped.add(opId);
         }
+        // SPEC-FINAL 9.8: a received QR copy is disposed of on its ack and never before — it
+        // leaves the outbox like any acked operation and its `origin: 'qr'` marker is cleared.
+        // The row stays in the dataset; `received_by_qr` stays so the escape hatch finds it.
+        const state = await db.syncState.get(op.row_id);
+        if (state?.origin === 'qr' && op.entity !== 'match') disposed += 1;
         await db.outbox.delete(result.op_id);
         await db.syncState.put({
           row_id: op.row_id,
           sync_state: 'acked',
           acked_at: now,
-          origin: (await db.syncState.get(op.row_id))?.origin ?? 'local',
+          origin: 'local',
+          ...receivedOf(state),
         });
+      }
+      if (disposed > 0) {
+        const prior = await getMeta<QrDisposal | null>(QR_DISPOSED_KEY, null);
+        await setMeta(QR_DISPOSED_KEY, { count: (prior?.count ?? 0) + disposed, at: now });
       }
     },
   );

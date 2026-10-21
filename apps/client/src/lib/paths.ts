@@ -30,6 +30,16 @@ export const PATHS = {
    */
   syncDiscarded: '/sync/discarded',
   /**
+   * The QR sender (SPEC-FINAL 9.8, task 1.47): this device's outbox as a looping moving QR code
+   * for the collector tablet. Opened from Sync's More only, never a nav row.
+   */
+  syncQrSend: '/sync/qr/send',
+  /**
+   * The QR receiver (SPEC-FINAL 9.8, task 1.48): the collector tablet scans another phone's
+   * looping code. Opened from Sync's More only, never a nav row.
+   */
+  syncQrReceive: '/sync/qr/receive',
+  /**
    * The conflict review worklist (SPEC-FINAL 9.5, 17.9): Sync's conflicts link opens it. Its page
    * and nav row are task 1.44.
    */

@@ -1,6 +1,10 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.15 · **Date:** 2026-10-20 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.19 · **Date:** 2026-10-20 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.19 (2026-10-20): side task 2 of 1.47 is designed (`docs/design/pages/22-super-readonly/final/`, spec v0.87 / SPEC-FINAL v1.35 §7.6, §8.1): a quiet read-only page replaces the lock line, and the super picker names who did each Done team.*
+*v1.18 (2026-10-20): the QR receiver is designed (`docs/design/pages/21-qr-receive/final/`, spec v0.86 / SPEC-FINAL v1.34 §9.8); task 1.48 points at it.*
+*v1.17 (2026-10-20): the QR sender is designed (`docs/design/pages/20-qr-send/final/`, spec v0.85 / SPEC-FINAL v1.33 §9.8): a Next batch button and a Screen Wake Lock (Q7.9, Q7.10); task 1.47 points at it.*
+*v1.16 (2026-10-20): task 1.47 carries a second side task: another scouter's super entry shows read only, with its answers (spec v0.84 / SPEC-FINAL v1.32 §7.6, user).*
 *v1.15 (2026-10-20): task 1.47 carries a side task: small start and end marks on a cycle path (spec v0.83 / SPEC-FINAL v1.31 §8.2, user). Phase 1 F and UI fix round 3 are on `develop`.*
 *v1.14 (2026-10-12): the discarded-records log is designed (`docs/design/pages/19-discarded/final/`, spec v0.81 / SPEC-FINAL v1.29 §9.7); task 1.42 points at it. Phase 1 F's pages are all designed.*
 *v1.13 (2026-10-12): the Conflicts page is designed (`docs/design/pages/18-conflicts/final/`, spec v0.80 / SPEC-FINAL v1.28 §9.5); task 1.44 points at it, and task 1.41 adds `sync_conflicts.resolution`.*
@@ -15292,6 +15296,17 @@ git add -A && git commit -m "feat(client): encode the offline capability matrix 
 
 The venue workflow this exists for: **a central tablet collects scouters' data by QR inside the arena, and a runner carries that tablet outside every few matches to sync it to the cloud.**
 
+**Progress** (build chat on `feat/phase-1g`, 2026-10-20):
+
+| Task | Status | Commit |
+|---|---|---|
+| 1.46 QR frame codec | done | f754b12 |
+| 1.47 side task 1: path start and end marks | done | f9fb8ea |
+| 1.47 side task 2: read-only super entry, names on the picker | done | c333a37 |
+| 1.47 QR sender | done | 31edc79 |
+| 1.48 QR receiver, disposal on ack | done | 7a17344 |
+| 1.49 device wipe | done | 61c11f9 |
+
 ---
 
 ## Task 1.46: Shared — the QR frame codec
@@ -15524,7 +15539,9 @@ git add -A && git commit -m "feat(shared): add the deflate + framed QR codec wit
 
 > **Side task (v1.15, user 2026-10-20): start and end marks on a cycle path** (SPEC-FINAL v1.31 §8.2). Small, and taking no extra screen room: each path's **first point is a hollow ring** and its **last point a small arrowhead pointing along the last leg**, in the path's own colour, no larger than a point's dot, with no labels. Draw them in `MapSheet`'s editing map, its view-only mode (UF.24) and the form's map button thumbnail; a one-point path shows only the ring; selection, ✕ Remove and the blue mirroring are unchanged (the arrow turns with the drawing). Add unit tests (ring on the first point, arrow on the last, the arrow's angle after mirroring) and refresh the map e2e shots in both themes. Logged under Task 1.47 in `DEVIATIONS.md`. Not a separate deployment: it ships with Phase 1 G.
 
-**Design (redesign system).** The sender is a full-screen `Sheet side="bottom"` or page with a frame counter. The QR canvas draws black on white, which the QR format needs for scanning.
+> **Side task 2 (v1.16, user 2026-10-20): another scouter's super entry is read only, and visible** (SPEC-FINAL v1.32 §7.6). Today `SuperForm`'s `locked` branch draws only the header and "The super entry for … is locked — ask a lead to change it." *(v1.19)* Build `docs/design/pages/22-super-readonly/final/` (variant B): **replace** that Warning notice with a grey **Read only** chip in the header and the author's card ("Dana Mor's entry · Started 10:40 · last changed 11:12 · seen in 5 matches", the count from the device's match entries by that `scouter_id`, left out when 0) over "Only Dana, a lead or an admin can change it."; under it, show the entry's answers by phase exactly as the confirmation summary draws them (`ConfirmEntry`'s rows, including UF.24's map rows that open the map view only), with no control that edits and no Review entry. Leads and admins and the author are unchanged (they edit). The same read-only view for a match entry locked to a scouter is **not** in scope (not asked). Also in `SuperPicker`, the Done tag names who: "✓ You 11:02" for the signed-in scouter's own entry, else the first name of its `scouter_id` from the cached users. Tests: a scouter opening another scouter's super entry sees its values, the author's card and no editable control or warning; the picker shows "You" and another scouter's first name; the map row opens view only; a lead still edits; the author still edits an hour later. Refresh the super e2e shots in both themes. Logged under Task 1.47.
+
+**Design (redesign system).** *(v1.17)* Build `docs/design/pages/20-qr-send/final/` (variant A): on a phone a full-screen page on `--rail`, no top or bottom bar; on a computer a dialog over Sync. The QR canvas draws black on white on a white card, which the QR format needs for scanning. Under it a frame strip (one segment per frame) and "Frame k of N"; **Done — back to Sync** is the only way out (Esc on a computer), no Stop. Above 200 operations, "Batch k of n" and **Next batch** (the sender moves on only when tapped, SPEC-FINAL v1.33 §9.8); nothing pending shows "Nothing to send". The batch is read once on open. Hold `navigator.wakeLock.request('screen')` while open, release it on unmount, and hide "Screen stays on" if it is refused. Tests to add: Next batch shows batch 2 frames; Done releases the wake lock; a refused wake lock still renders the code.
 *(v1.12)* Each record whose batch was shown records the time (`qr_shown_at`, local only); the Sync page's Waiting list shows **"shown by QR hh:mm"** on it (SPEC-FINAL v1.27 §9.10). It is a display, not a receipt: the record stays pending.
 
 **Files:**
@@ -15638,7 +15655,7 @@ git add -A && git commit -m "feat(client): add the QR sender with a cyclic five-
 
 ## Task 1.48: Client — the QR receiver and disposal on ack
 
-**Design (redesign system).** The camera view fills a `Card`, and its progress ("12 of 30 frames") is a `Badge`. Disposal on ack is a `Notice tone="success"`.
+**Design (redesign system).** *(v1.18)* Build `docs/design/pages/21-qr-receive/final/` (variant C): a full-screen page on `--rail` on a phone or tablet, camera then a ring ("7 of 11") and **one numbered cell per frame** from `collector.progress()` (which frames are held, not only how many); on a computer the camera at the left and the status at the right. On complete the screen turns `--accent`: the authors' names (from the cached users, else "a scouter"), the record count, entries and super entries, the Next batch hint, **Scan the next phone** and Done. Play a short Web Audio beep unless "Sound on" is off (a per-device setting) and call `navigator.vibrate?.(200)`. A checksum failure shows the damaged-code card and resets the collector. A blocked camera (`NotAllowedError`) shows "The camera is blocked" with Try again. Disposal on ack is a `Notice tone="success"`. Tests to add: the cells mark held frames in any order; complete names the author and counts; a bad checksum writes nothing and resets; Sound off plays nothing; a blocked camera shows Try again.
 *(v1.12)* While the device holds received copies, the Sync page's Waiting tab opens with a **"Received by QR"** block: the count by `author_user_id`, each with its last scan time (store `received_at` with each copy). See `docs/design/pages/17-sync/final/` phone image 6.
 
 **Files:**

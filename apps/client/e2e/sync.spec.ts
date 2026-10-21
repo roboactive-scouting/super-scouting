@@ -330,27 +330,48 @@ test('sync: Sent, newest first', async ({ page }) => {
   await shoot(page, 'sync-sent');
 });
 
-test('sync: More holds the discarded log, as a sheet on a phone and a menu on a computer', async ({
+test('sync: More holds the QR tools, the discarded log and the held escape hatch, as a sheet on a phone and a menu on a computer', async ({
   page,
 }) => {
   await openSync(page);
   await goOffline(page);
   await page.getByRole('button', { name: 'More' }).click();
-  await expect(page.getByRole('menuitem')).toHaveCount(1);
-  await expect(page.getByRole('menuitem')).toHaveText(
+  // Send by QR (task 1.47), Receive by QR and Discard received QR data (task 1.48).
+  await expect(page.getByRole('menuitem')).toHaveCount(4);
+  await expect(page.getByRole('menuitem').first()).toHaveText(
+    'Send by QRTo the collector tablet. No internet needed.',
+  );
+  await expect(page.getByRole('menuitem').nth(1)).toHaveText(
+    'Receive by QROn the collector tablet: scan another phone.',
+  );
+  await expect(page.getByRole('menuitem').nth(2)).toHaveText(
     'Discarded records2 removed because their event was deleted.',
   );
+  // The seeded QR copy (Q38, from Yael) has not reached the cloud: the escape hatch is held.
+  await expect(page.getByRole('menuitem').nth(3)).toHaveText(
+    'Discard received QR dataHeld: 1 received copy hasn’t reached the cloud.',
+  );
+  await expect(page.getByRole('menuitem').nth(3)).toHaveAttribute('aria-disabled', 'true');
   await shoot(page, 'sync-more-menu', 'desktop');
   await page.keyboard.press('Escape');
 
   await page.setViewportSize({ width: 375, height: 812 });
   await page.getByRole('button', { name: 'More' }).click();
   const sheet = page.getByRole('dialog', { name: 'More' });
-  await expect(sheet.getByRole('link')).toHaveCount(1);
+  await expect(sheet.getByRole('link')).toHaveCount(3);
+  await expect(sheet.getByRole('link', { name: /Send by QR/ })).toHaveAttribute(
+    'href',
+    '/sync/qr/send',
+  );
+  await expect(sheet.getByRole('link', { name: /Receive by QR/ })).toHaveAttribute(
+    'href',
+    '/sync/qr/receive',
+  );
   await expect(sheet.getByRole('link', { name: /Discarded records/ })).toHaveAttribute(
     'href',
     '/sync/discarded',
   );
+  await expect(sheet.getByRole('button', { name: /Discard received QR data/ })).toBeDisabled();
   await shoot(page, 'sync-more', 'phone');
 });
 

@@ -37,6 +37,8 @@ export type SyncRecord = {
   rejection: PushRejection | null;
   /** When the cloud acked it; null while it waits. */
   acked_at: string | null;
+  /** The last time the QR sender showed it ("shown by QR 11:44", SPEC-FINAL 9.10); else null. */
+  qr_shown_at: string | null;
 };
 
 export type SyncList = {
@@ -98,6 +100,7 @@ export async function readSyncList(): Promise<SyncList> {
       new_match: matchId !== null && queuedMatches.has(matchId),
       rejection: state?.rejection ?? null,
       acked_at: null,
+      qr_shown_at: state?.qr_shown_at ?? null,
     });
   }
   waiting.sort(newestSaved);
@@ -126,11 +129,13 @@ export async function readSyncList(): Promise<SyncList> {
       summary,
       match_id: text(row.match_id),
       team_id: text(row.team_id),
-      origin: state.origin,
+      // An ack clears a received copy's `origin` (SPEC-FINAL 9.8); it was still received by QR.
+      origin: state.received_by_qr ? 'qr' : state.origin,
       from: firstName(scouter ? (nameOf.get(scouter) ?? null) : null),
       new_match: false,
       rejection: null,
       acked_at: state.acked_at,
+      qr_shown_at: null,
     });
   }
 

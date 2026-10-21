@@ -184,7 +184,7 @@ describe('Settings (SPEC-FINAL 8.6, 17.9)', () => {
     expect(screen.getByText('this phone can’t vibrate')).toBeInTheDocument();
   });
 
-  it('holds Wipe this device while entries wait to send (task 1.49 builds the wipe)', async () => {
+  it('holds Wipe this device while entries wait to send', async () => {
     setWidth(375);
     await queueEntries(3);
     renderSettings();
@@ -192,14 +192,13 @@ describe('Settings (SPEC-FINAL 8.6, 17.9)', () => {
       name: /Wipe this device\s*held: 3 entries waiting to send/,
     });
     await userEvent.click(row);
-    const confirm = screen.getByRole('dialog', { name: 'Wipe this device?' });
+    // The confirmation is its own chunk (task 1.49), loaded as it opens.
+    const confirm = await screen.findByRole('dialog', { name: 'Wipe this device?' });
     const buttons = within(confirm).getAllByRole('button');
     expect(buttons.map((b) => b.textContent)).toEqual(['Keep this device', 'Wipe this device']);
-    expect(
-      within(confirm).getByText(
-        '3 entries are still waiting to send. Wipe is held until they are sent, so nothing is lost.',
-      ),
-    ).toBeInTheDocument();
+    expect(await within(confirm).findByRole('status')).toHaveTextContent(
+      '3 entries are still waiting to send. Wipe is held until they are sent, so nothing is lost.',
+    );
     expect(within(confirm).getByRole('button', { name: 'Wipe this device' })).toHaveAttribute(
       'aria-disabled',
       'true',
@@ -229,7 +228,7 @@ describe('Settings (SPEC-FINAL 8.6, 17.9)', () => {
     ).toBeInTheDocument();
   });
 
-  it('keeps the wipe gated with nothing waiting: it is not built yet', async () => {
+  it('asks for the lead’s code and the typed phrase with nothing waiting (task 1.49)', async () => {
     setWidth(375);
     renderSettings();
     await userEvent.click(
@@ -237,14 +236,15 @@ describe('Settings (SPEC-FINAL 8.6, 17.9)', () => {
         name: /Wipe this device\s*removes everything this app keeps here/,
       }),
     );
-    const confirm = screen.getByRole('dialog', { name: 'Wipe this device?' });
+    const confirm = await screen.findByRole('dialog', { name: 'Wipe this device?' });
+    expect(await within(confirm).findByLabelText('Lead’s code')).toBeInTheDocument();
+    expect(
+      within(confirm).getByRole('textbox', { name: 'Type wipe this device to confirm' }),
+    ).toBeInTheDocument();
     expect(within(confirm).getByRole('button', { name: 'Wipe this device' })).toHaveAttribute(
       'aria-disabled',
       'true',
     );
-    expect(
-      within(confirm).getByText('This version of the app cannot wipe a device yet.'),
-    ).toBeInTheDocument();
   });
 
   it.each([375, 768, 1024, 1440])('works at %i px wide', async (px) => {

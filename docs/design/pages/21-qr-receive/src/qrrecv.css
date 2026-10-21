@@ -1,0 +1,85 @@
+/* Page 21, QR receive (/sync/qr/receive), final: variant C with green frame cells. Colours from theme.css; the camera feed is a stand-in picture.
+   Classes qv-*. Loads after 20-qr-send/src/qrsend.css (qs-qr, qs-count, qa-foot). */
+
+/* camera stand-in */
+.qv-cam { position: relative; border-radius: 14px; overflow: hidden; aspect-ratio: 3 / 4; display: grid; place-items: center;
+  background: radial-gradient(120% 80% at 30% 20%, #4a5260 0%, #2a2f38 45%, #15181d 100%); }
+.qv-cam.wide { aspect-ratio: 4 / 3; width: 100%; }
+.qv-cam.tall { aspect-ratio: 3 / 4; margin: 0 16px; }
+.qv-cam .held { width: 46%; background: #0d0f12; border-radius: 16px; padding: 10px 6px 18px; box-shadow: 0 18px 40px -10px rgba(0, 0, 0, 0.7); }
+.qv-cam .scr { background: var(--rail); border-radius: 8px; padding: 10px 6px; }
+.qv-cam .scr .qs-qr { border-radius: 5px; padding: 3px; }
+.qv-cam .aim { position: absolute; width: 62%; aspect-ratio: 1; border-radius: 12px;
+  background: linear-gradient(#fff, #fff) top left / 28px 3px, linear-gradient(#fff, #fff) top left / 3px 28px,
+    linear-gradient(#fff, #fff) top right / 28px 3px, linear-gradient(#fff, #fff) top right / 3px 28px,
+    linear-gradient(#fff, #fff) bottom left / 28px 3px, linear-gradient(#fff, #fff) bottom left / 3px 28px,
+    linear-gradient(#fff, #fff) bottom right / 28px 3px, linear-gradient(#fff, #fff) bottom right / 3px 28px;
+  background-repeat: no-repeat; }
+
+/* frame cells */
+.qv-cells { display: grid; gap: 4px; }
+.qv-cells i { height: 14px; border-radius: 3px; background: var(--line); font-style: normal; font-family: var(--font-num); font-size: 10px; color: var(--muted); display: grid; place-items: center; }
+.qv-cells i.on { background: var(--accent); color: #fff; }
+.qv-cells.dark i { background: var(--rail-raised); }
+
+/* shared */
+.qv-blocked { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 36px 20px; }
+.qv-blocked .ic { width: 52px; height: 52px; border-radius: 50%; background: var(--warn-tint); color: var(--warn); display: grid; place-items: center; }
+.qv-blocked .ic svg { width: 26px; height: 26px; }
+.qv-blocked b { font-size: 18px; font-weight: 750; }
+.qv-blocked p { margin: 0 0 8px; font-size: 13.5px; color: var(--muted); max-width: 270px; }
+.qv-blocked.on-dark { color: #fff; margin-top: 70px; }
+.qv-blocked.on-dark p { color: var(--rail-ink); }
+.qv-blocked.on-dark .btn { background: transparent; color: #fff; border-color: var(--rail-muted); }
+
+/* ---------- C ---------- */
+.pbody.qv-c { background: var(--rail); color: #fff; display: flex; flex-direction: column; gap: 14px; padding: 6px 0 18px; }
+.pbody.qv-c.won { background: var(--accent); }
+.qv-ctop { display: flex; align-items: center; padding: 0 16px; height: 40px; }
+.qv-ctop .t { font-weight: 700; font-size: 16px; }
+.qv-snd { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--rail-ink); }
+.qv-snd svg { width: 15px; height: 15px; }
+.won .qv-snd { color: #d8efe5; }
+.qv-cbar { display: flex; align-items: center; gap: 14px; padding: 0 16px; }
+.qv-cbar b { font-size: 18px; display: block; }
+.qv-cbar small { font-size: 12.5px; color: var(--rail-ink); }
+.qv-ring { position: relative; width: 64px; height: 64px; flex: none; }
+.qv-ring.big { width: 140px; height: 140px; }
+.qv-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.qv-ring circle { fill: none; stroke: var(--rail-raised); stroke-width: 10; }
+.qv-ring circle.v { stroke: var(--accent); stroke-linecap: round; }
+.qv-ring span { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
+.qv-ring b { font-size: 22px; }
+.qv-ring small { font-size: 10px; color: var(--rail-ink); }
+.qv-ring.big b { font-size: 44px; }
+.qv-ring.big small { font-size: 14px; color: var(--muted); }
+.qv-ring.big circle { stroke: var(--line); }
+.qv-ring.big circle.v { stroke: var(--accent); }
+.qv-win { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; }
+.qv-win .ck { width: 96px; height: 96px; border-radius: 50%; background: #fff; color: var(--accent); display: grid; place-items: center; margin-bottom: 8px; }
+.qv-win .ck svg { width: 54px; height: 54px; stroke-width: 3; }
+.qv-win > b { font-size: 30px; font-weight: 800; }
+.qv-win .big { font-size: 64px; font-weight: 700; line-height: 1; }
+.qv-win small { font-size: 15px; color: #d8efe5; }
+.qv-win p { margin: 18px 0 0; font-size: 15px; font-weight: 650; }
+.won .btn.primary { background: #fff; color: var(--accent-ink); border-color: #fff; }
+.qv-c .btn.sec { background: transparent; color: #fff; border-color: var(--rail-muted); }
+.qv-bad { position: absolute; left: 12px; right: 12px; bottom: 12px; background: var(--warn-tint); color: var(--ink); border-radius: 10px; padding: 10px 12px; display: grid; grid-template-columns: auto 1fr; column-gap: 8px; z-index: 2; }
+.qv-bad svg { width: 18px; height: 18px; color: var(--warn); grid-row: span 2; }
+.qv-bad b { font-size: 14px; }
+.qv-bad small { font-size: 12px; color: var(--ink-2); }
+.qv-cdesk { height: 100%; display: flex; gap: 32px; padding: 32px; background: var(--bg); }
+.qv-cdesk .qv-cam { width: 900px; height: 100%; aspect-ratio: auto; }
+.qv-cside { flex: 1; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+
+.qv-cside .qv-ctop { gap: 12px; width: 100%; height: auto; }
+.qv-cside .qv-snd { color: var(--muted); }
+.qv-cellrow { padding: 0 16px; }
+.qv-cells.dark i { color: var(--rail-ink); height: 22px; font-size: 11px; }
+.qv-cells.dark i.on { background: var(--accent); color: #fff; }
+.qv-cside .qv-cells { width: 100%; }
+.qv-cside .qv-cells i { height: 26px; font-size: 12px; }
+.qv-hint { display: inline-flex; gap: 6px; align-items: center; margin-top: 10px; font-size: 12.5px; color: #d8efe5; max-width: 260px; text-align: left; }
+.qv-hint svg { width: 16px; height: 16px; flex: none; }
+.won .btn.ghost-w { background: transparent; border-color: transparent; color: #fff; height: 44px; font-size: 14px; }
+.qv-c .qa-foot { gap: 6px; }

@@ -99,6 +99,7 @@ export function SuperEntryPage({ eventId, author }: { eventId: string; author: E
         (practice ? undefined : team.draftVersionId) ??
         data.formVersionId
       }
+      fieldImagePath={data.fieldImagePath}
       desktop={desktop}
       onSubmitted={() => {
         const state: { superSaved: SuperSaved } = {
@@ -130,6 +131,7 @@ export function SuperEntryPage({ eventId, author }: { eventId: string; author: E
           <SuperPicker
             eventName={data.eventName}
             teams={data.teams}
+            meId={author.id}
             selectedId={desktop ? team?.id : undefined}
           />
         </div>

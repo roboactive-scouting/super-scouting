@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>QR receive — final, phone</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../20-qr-send/src/qrsend.css"><link rel="stylesheet" href="../src/qrrecv.css">
+<style>.canvas{height:940px}.frames{gap:16px}.frames .phone{zoom:.8}.frames .frame{width:330px}</style>
+</head><body>
+<div id="root"></div>
+<script src="../../20-qr-send/src/qrsend.js"></script><script src="../src/qrrecv.js"></script>
+<script>
+document.getElementById("root").innerHTML = `<div class="canvas"><div class="canvas-head"><b>QR receive — final · phone</b><span>Variant C: big status seen from both sides, plus one green cell per frame; the whole screen turns green with the scouter’s name and a beep.</span></div>
+  <div class="frames">${QV.phones().map(([h, c]) => `<figure class="frame"><div class="phone">${h}</div><figcaption>${c}</figcaption></figure>`).join("")}</div></div>`;
+QS.draw();
+</script>
+</body></html>

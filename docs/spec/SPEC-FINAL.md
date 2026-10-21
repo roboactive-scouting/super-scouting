@@ -1,6 +1,16 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.31 · **Date:** 2026-10-20 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.36 · **Date:** 2026-10-20 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.36 (Phase 1 G build): a received QR copy never replaces the receiving device's own unsent change, and discarding received QR data makes the next sync a full pull (§9.8). See the living spec's §21, 2026-10-20 (v0.88).*
+
+*v1.35: another scouter's super entry opens as a quiet read-only page (the warning lock line is replaced, §7.6), and the super picker names who did each Done team (§8.1). See the living spec's §21, 2026-10-20 (v0.87).*
+
+*v1.34: the QR receiver's page (§9.8): frame cells, a done screen naming the author, sound and vibration, a damaged batch restarts. See the living spec's §21, 2026-10-20 (v0.86).*
+
+*v1.33: the QR sender's page (§9.8): a next-batch button above 200 operations, and the screen kept on while codes show. See the living spec's §21, 2026-10-20 (v0.85).*
+
+*v1.32: a scouter sees another scouter's super entry read only (§7.6), built as a side task of task 1.47. See the living spec's §21, 2026-10-20 (v0.84).*
 
 *v1.31: a cycle path shows small start and end marks (§8.2), built as a side task of task 1.47. See the living spec's §21, 2026-10-20 (v0.83).*
 
@@ -901,7 +911,7 @@ Custom username/password authentication in the server use-case layer. **Supabase
 
 A scouter may edit their **own** entry for **5 minutes** after creating it. After that the row locks for them, and only a lead or admin can change it.
 
-**Super entries are exempt** *(v1.26, user, 2026-10-12)*: a scouter may edit their own super entry (§8.1) at any time during the event. A super entry is one running judgement of a team, built up over every match the scouter watches, not a record of one match, so locking it after five minutes defeats its purpose. The window below applies to `form_kind = 'match'` entries only, on the client and on the server; another scouter's super entry stays read-only to a scouter, as before.
+**Super entries are exempt** *(v1.26, user, 2026-10-12)*: a scouter may edit their own super entry (§8.1) at any time during the event. A super entry is one running judgement of a team, built up over every match the scouter watches, not a record of one match, so locking it after five minutes defeats its purpose. The window below applies to `form_kind = 'match'` entries only, on the client and on the server; another scouter's super entry stays read-only to a scouter, as before. *(v1.32, user 2026-10-20)* **Read only means visible:** a scouter who opens another scouter's super entry sees *(v1.35: in place of the lock line)* a **Read only** chip, **whose entry it is** (the author, when it was started and last changed, and how many matches the author scouted the team in) with "Only *name*, a lead or an admin can change it.", **and the entry's answers by phase**, as the confirmation summary shows them (map fields open their map view only), with no control that edits. Leads and admins still edit any super entry at any time.
 
 - The window is measured from the entry's **`client_created_at`**, so it behaves identically offline and online.
 - The **client enforces it** by locking the UI at the 5-minute mark.
@@ -938,6 +948,8 @@ This is where 95% of usage happens: a student in a loud arena, phone in one hand
 If a super entry for that (team, event) already exists on the device, the app opens it for editing rather than starting a second one. The duplicate path of §9.5 exists for the case two devices create one independently.
 
 *Design (v1.24, `docs/design/pages/15-super/final/`):* reached from a **Super scouting** card on Scout. The picker shows a progress line ("6 of 20 super-scouted on this device"), search and **To do · Done · All** chips over the roster, to-do teams ordered by how many matches this device saw them in. The form's header names the team, the event, and the matches this device scouted the team in ("Seen here in Q12 · Q19…"); a reopened entry says so. The confirmation names the team and the event and says no match is recorded.
+
+*(v1.35)* **The super picker names who did each Done team:** the tag reads "✓ You 11:02" for the signed-in user's own entry and "✓ *first name* 10:40" for another scouter's (the entry's `scouter_id`; the time it was first saved). The progress count includes every super entry the device holds, whoever wrote it.
 
 ### 8.2 The entry form
 
@@ -1240,6 +1252,9 @@ The receiver collects frames by index and completes when it holds all N. Order d
 - When either device later reaches the internet, each uploads independently. Because the server keys on `row_id`, a second upload of the same record is an **idempotent upsert** resolved by the base-version rule: a no-op if identical, a fast-forward if linear, and flagged only on genuine divergence. Never a duplicate row.
 - No device needs to be designated "the syncer", and re-scanning the same batch is harmless.
 - The receiver shows a running count of frames collected and a clear "batch complete" state.
+- *(v1.34)* **The receiver** learns the frame count from the first frame it reads (each header carries it), then shows a ring with the count collected and **one cell per frame**, filled as frames arrive in any order. On completion it shows the records' author (`author_user_id` names; several are listed) and the record count, plays a short sound (unless the user turned it off on this device) and vibrates where supported, and offers **Scan the next phone**. A batch whose checksum fails is dropped whole, nothing is written, and scanning restarts. A batch is written only when complete, so leaving mid-batch saves nothing. A frame carries no batch count, so the done screen tells the user to tap Next batch on the sender if it shows one.
+- *(v1.33)* **The sender** covers the screen and shows the current frame number of N, looping by itself. **A batch is fixed when the sender opens**: records saved meanwhile wait for the next send. When the backlog splits into batches, the sender shows "Batch k of n" and moves to the next batch **only when the user taps Next batch** (the tablet sends nothing back, so the sender cannot know a batch arrived). **Done** closes it at any point and marks nothing sent.
+- *(v1.33)* **The sender holds a Screen Wake Lock** while it is open and releases it on Done or on leaving the page. If the browser refuses the lock, the transfer still works.
 
 **Disposal of transferred copies — on ack, not on a timer.** A record whose sync state is `origin: 'qr'` is **discarded from the receiving device the moment its cloud acknowledgment arrives**. There is no TTL and no waiting period.
 
@@ -1247,7 +1262,9 @@ The receiver collects frames by index and completes when it holds all N. Order d
 - **On ack**, the copy is removed from the receiver's outbox and its `origin: 'qr'` marker is cleared. The row itself remains in the local dataset as an ordinary cached row of the active competition — which is exactly what the next delta pull would hand the device anyway — so the collector tablet's own statistics stay correct and complete.
 - Records the device created itself (`origin: 'local'`) behave identically: pruned from the outbox on ack, retained in the dataset.
 
-**Manual escape hatch.** The sync page carries a **"discard received QR data"** action for when something has gone wrong — a corrupt batch, a device handed over mid-event, a scan from the wrong event. It removes every `origin: 'qr'` record on the device and is **refused for any record without a cloud ack**, the same guard as the device wipe (§9.9). It reports how many records it would refuse and stops rather than partially clearing.
+**Manual escape hatch.** The sync page carries a **"discard received QR data"** action for when something has gone wrong — a corrupt batch, a device handed over mid-event, a scan from the wrong event. It removes every `origin: 'qr'` record on the device and is **refused for any record without a cloud ack**, the same guard as the device wipe (§9.9). It reports how many records it would refuse and stops rather than partially clearing. *(v1.36)* Removing those rows leaves the device's delta-sync watermark ahead of them, so the hatch also clears the watermark: **the next sync is a full pull** and the cloud's copies of the removed rows come back as ordinary cached rows.
+
+*(v1.36)* **A received copy never replaces the receiving device's own unsent change.** When the device already queues its own operation for the same row (a lead correcting a received entry on the collector tablet), the incoming copy is skipped and counted as unchanged; the sender still holds it, so nothing is lost. A newer copy replaces only an older unacked *received* copy.
 
 ### 9.9 Lead-approved local wipe
 

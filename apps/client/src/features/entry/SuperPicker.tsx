@@ -19,6 +19,22 @@ export function superDoneAt(team: SuperTeam): string | null {
   return at ? formatTime(at) : null;
 }
 
+/** "Dana Mor" → "Dana". */
+export function firstName(full: string): string {
+  return full.trim().split(/\s+/)[0] ?? full;
+}
+
+/**
+ * Who did a Done team (22-super-readonly final; SPEC-FINAL 8.1 v1.35): "You" for the signed-in
+ * user's own entry, else the first name of the entry's `scouter_id` from the cached users; null
+ * when the device does not hold that user (the tag then says "Done", as before).
+ */
+export function superDoneBy(team: SuperTeam, meId: string): string | null {
+  if (!team.entry) return null;
+  if (team.entry.scouter_id === meId) return 'You';
+  return team.author ? firstName(team.author) : null;
+}
+
 const TAG =
   'inline-flex h-6 shrink-0 items-center whitespace-nowrap rounded-tag px-[9px] text-[0.78125rem] font-[650]';
 
@@ -27,15 +43,20 @@ const TAG =
  * thin accent bar, search (number or name), To do · Done · All with counts (To do first), and
  * the roster — each row at least 56 px: the number in mono, the name, how many matches this
  * device saw the team in, and a status tag. A done row dims its number and reopens the entry.
+ * Its tag names who and when (22-super-readonly final): "✓ You 11:02", "✓ Dana 10:40" — the
+ * time the entry was first saved.
  */
 export function SuperPicker({
   eventName,
   teams,
+  meId,
   selectedId,
   className,
 }: {
   eventName: string;
   teams: readonly SuperTeam[];
+  /** The signed-in user: their own entries read "You". */
+  meId: string;
   /** The team whose form is open beside the list (desktop). */
   selectedId?: string;
   className?: string;
@@ -101,7 +122,8 @@ export function SuperPicker({
       ) : (
         <ul aria-label="Teams" className="mt-3 flex flex-col gap-2">
           {rows.map((team) => {
-            const at = superDoneAt(team);
+            const at = team.entry ? formatTime(team.entry.client_created_at) : null;
+            const by = superDoneBy(team, meId);
             const selected = team.id === selectedId;
             return (
               <li key={team.id}>
@@ -136,7 +158,7 @@ export function SuperPicker({
                   </span>
                   {team.entry ? (
                     <span className={cn(TAG, 'bg-accent-tint text-accent-ink')}>
-                      ✓ Done{at ? ` ${at}` : ''}
+                      {`✓ ${by ?? 'Done'}${at ? ` ${at}` : ''}`}
                     </span>
                   ) : (
                     <span className={cn(TAG, 'bg-line-2 text-ink-2')}>To do</span>

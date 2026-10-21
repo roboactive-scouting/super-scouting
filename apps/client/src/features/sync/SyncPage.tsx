@@ -8,7 +8,9 @@ import {
   Plus,
   QrCode,
   RefreshCw,
+  ScanLine,
   Smartphone,
+  Trash2,
   TriangleAlert,
   type LucideIcon,
 } from 'lucide-react';
@@ -18,8 +20,10 @@ import { can, formatCount, formatTime, type Role } from '@frc/shared';
 import { Skeleton } from '@/components/Skeleton';
 import { ActionMenu } from '@/components/ui/action-menu';
 import { Button, buttonVariants } from '@/components/ui/button';
+import { DestructiveConfirm } from '@/components/ui/destructive-confirm';
 import { EmptyState } from '@/components/ui/empty-state';
-import { ErrorLine } from '@/components/ui/notice';
+import { Initials } from '@/components/ui/initials';
+import { ErrorLine, Notice } from '@/components/ui/notice';
 import { Sheet } from '@/components/ui/sheet';
 import {
   Table,
@@ -31,6 +35,15 @@ import {
 } from '@/components/ui/table';
 import { Tabs } from '@/components/ui/tabs';
 import { listDiscarded, undismissedDiscarded } from '@/data/discarded';
+import {
+  discardReceivedQrData,
+  dismissQrDisposal,
+  qrDisposal,
+  readReceivedByQr,
+  receivedQrState,
+  type DiscardResult,
+  type ReceivedByQr,
+} from '@/data/qrReceive';
 import { useSyncProgress, useSyncStatus } from '@/data/syncStatus';
 import {
   groupByEvent,
@@ -45,12 +58,25 @@ import {
 } from '@/data/syncList';
 import { useDeviceQuery } from '@/data/useDeviceQuery';
 import { entryPath, PATHS, superTeamPath } from '@/lib/paths';
+import { plural } from '@/lib/plural';
 import { useIsDesktop } from '@/lib/useMediaQuery';
 import { cn } from '@/lib/utils';
 import { DiscardedNotice } from './DiscardedNotice';
 import { DiscardedStation, DiscardedStatus, DiscardedTeam } from './DiscardedParts';
 
 type TabKey = 'waiting' | 'sent' | 'problems';
+
+/** A row of More: a link to one of Sync's tools, or an action (Discard received QR data). */
+type MoreItem = {
+  key: string;
+  icon: LucideIcon;
+  title: string;
+  detail: string;
+  /** Why the action waits: the row is disabled and says this instead of its detail. */
+  held?: string | null;
+  /** A rule above the row. */
+  separated?: boolean;
+} & ({ to: string; state?: { fromSync: true } } | { onSelect: () => void });
 
 /** How a record's row looks: waiting, ticked off by the running sync, in flight, or sent. */
 type Mark = 'waiting' | 'sending' | 'ticked' | 'sent';
@@ -81,11 +107,23 @@ export function SyncPage({ eventId, viewer, syncNow }: SyncPageProps) {
   const conflicts = useDeviceQuery(() => openConflictCount(eventId), [eventId], ['rows']);
   const discarded = useDeviceQuery(listDiscarded, [], ['discarded']);
   const notice = useDeviceQuery(undismissedDiscarded, [], ['discarded']);
+  // SPEC-FINAL 9.8 (task 1.48): received QR copies — the Received by QR block, the escape hatch
+  // in More and the success notice when the cloud has acked some.
+  const received = useDeviceQuery(readReceivedByQr, [], ['outbox', 'rows']);
+  const receivedState = useDeviceQuery(receivedQrState, [], ['outbox', 'rows']);
+  const disposal = useDeviceQuery(qrDisposal, [], ['outbox', 'meta']);
   const [tab, setTab] = useState<TabKey>('waiting');
   const [busy, setBusy] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
+  const [discardResult, setDiscardResult] = useState<DiscardResult | null>(null);
+  const [discardFailed, setDiscardFailed] = useState(false);
 
-  const noun = desktop ? 'this device' : 'this phone';
+  // A phone holding received copies, waiting or acked, is the collector tablet (17-sync final,
+  // image 6).
+  const holdsReceived = (receivedState?.held ?? 0) + (receivedState?.discardable ?? 0) > 0;
+  const noun = desktop ? 'this device' : holdsReceived ? 'this tablet' : 'this phone';
   const sending = busy || (status.syncing && status.online);
   const canReview = can({ kind: 'user', userId: viewer.id, role: viewer.role }, 'resolve_conflict');
 
@@ -98,15 +136,72 @@ export function SyncPage({ eventId, viewer, syncNow }: SyncPageProps) {
   };
 
   const removed = discarded?.length ?? 0;
-  const more = {
-    key: 'discarded',
-    icon: Archive,
-    title: 'Discarded records',
-    detail:
-      removed === 0
-        ? 'Nothing has been removed.'
-        : `${formatCount(removed)} removed because their event was deleted.`,
+  const heldCopies = receivedState?.held ?? 0;
+  const discardable = receivedState?.discardable ?? 0;
+  const discard = () => {
+    setDiscarding(true);
+    void discardReceivedQrData()
+      .then((result) => setDiscardResult(result))
+      // One transaction: a Discard that failed removed nothing, and says so.
+      .catch(() => {
+        setDiscardResult(null);
+        setDiscardFailed(true);
+      })
+      .finally(() => {
+        setDiscarding(false);
+        setConfirmDiscard(false);
+      });
   };
+  // More (17-sync final): Send by QR (task 1.47), Receive by QR (task 1.48), the discarded-records
+  // log (task 1.42), then, after a rule, Discard received QR data (task 1.48): held while any
+  // received copy has not reached the cloud (SPEC-FINAL 9.8).
+  const more: MoreItem[] = [
+    {
+      key: 'qr-send',
+      icon: QrCode,
+      title: 'Send by QR',
+      detail: 'To the collector tablet. No internet needed.',
+      to: PATHS.syncQrSend,
+      state: { fromSync: true },
+    },
+    {
+      key: 'qr-receive',
+      icon: ScanLine,
+      title: 'Receive by QR',
+      detail: 'On the collector tablet: scan another phone.',
+      to: PATHS.syncQrReceive,
+      state: { fromSync: true },
+    },
+    {
+      key: 'discarded',
+      icon: Archive,
+      title: 'Discarded records',
+      detail:
+        removed === 0
+          ? 'Nothing has been removed.'
+          : `${formatCount(removed)} removed because their event was deleted.`,
+      to: PATHS.syncDiscarded,
+    },
+    {
+      key: 'qr-discard',
+      icon: Trash2,
+      title: 'Discard received QR data',
+      detail: `Removes ${plural(discardable, 'received copy', 'received copies')} already in the cloud.`,
+      held:
+        heldCopies > 0
+          ? `Held: ${plural(heldCopies, 'received copy hasn’t', 'received copies haven’t')} reached the cloud.`
+          : discardable === 0
+            ? `Nothing received by QR is on ${noun}.`
+            : null,
+      separated: true,
+      onSelect: () => {
+        setMoreOpen(false);
+        setDiscardResult(null);
+        setDiscardFailed(false);
+        setConfirmDiscard(true);
+      },
+    },
+  ];
 
   const waiting = list?.waiting ?? [];
   const refused = list?.refused ?? [];
@@ -140,7 +235,16 @@ export function SyncPage({ eventId, viewer, syncNow }: SyncPageProps) {
         {desktop && (
           <ActionMenu
             label="More"
-            items={[{ ...more, onSelect: () => navigate(PATHS.syncDiscarded) }]}
+            items={more.map((item) => ({
+              key: item.key,
+              icon: item.icon,
+              title: item.title,
+              detail: item.detail,
+              held: item.held,
+              separated: item.separated,
+              onSelect:
+                'to' in item ? () => void navigate(item.to, { state: item.state }) : item.onSelect,
+            }))}
           >
             <Ellipsis aria-hidden="true" />
             More
@@ -188,7 +292,33 @@ export function SyncPage({ eventId, viewer, syncNow }: SyncPageProps) {
         />
       </div>
 
+      {discardResult && <DiscardResultLine result={discardResult} noun={noun} />}
+      {discardFailed && (
+        <ErrorLine className="lg:w-[45rem]">Discard did not finish. Nothing was removed.</ErrorLine>
+      )}
+
       <section role="tabpanel" aria-label={TAB_NAME[tab]} className="flex flex-col gap-3.5">
+        {tab === 'waiting' && disposal && (
+          <Notice
+            tone="success"
+            role="status"
+            className="lg:w-[45rem]"
+            action={
+              <Button size="sm" onClick={() => void dismissQrDisposal()}>
+                Dismiss
+              </Button>
+            }
+          >
+            <b className="font-bold">
+              {plural(disposal.count, 'received copy', 'received copies')} reached the cloud.
+            </b>{' '}
+            {disposal.count === 1 ? 'It no longer waits' : 'They no longer wait'} here; the records
+            stay on {noun}.
+          </Notice>
+        )}
+        {tab === 'waiting' && received && received.total > 0 && (
+          <ReceivedBlock received={received} />
+        )}
         {list === undefined ? (
           <Skeleton rows={4} label="Loading what waits to send" />
         ) : tab === 'waiting' ? (
@@ -239,22 +369,120 @@ export function SyncPage({ eventId, viewer, syncNow }: SyncPageProps) {
       {!desktop && (
         <Sheet open={moreOpen} onClose={() => setMoreOpen(false)} title="More" side="bottom">
           <ul className="px-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
-            <li>
-              <Link
-                to={PATHS.syncDiscarded}
-                className="hover-veil flex min-h-14 items-start gap-3 rounded-lg px-2.5 py-2.5"
+            {more.map((item) => (
+              <li
+                key={item.key}
+                className={cn(item.separated && 'mt-1 border-t border-line-2 pt-1')}
               >
-                <more.icon aria-hidden="true" className="mt-0.5 size-[18px] shrink-0 text-ink-2" />
-                <span className="min-w-0">
-                  <b className="block text-[0.90625rem] font-[650]">{more.title}</b>
-                  <small className="block text-[0.78125rem] text-muted">{more.detail}</small>
-                </span>
-              </Link>
-            </li>
+                {'to' in item ? (
+                  <Link to={item.to} state={item.state} className={MORE_ROW}>
+                    <MoreRow item={item} />
+                  </Link>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={item.held != null}
+                    onClick={item.onSelect}
+                    className={cn(MORE_ROW, 'w-full text-start disabled:opacity-50')}
+                  >
+                    <MoreRow item={item} />
+                  </button>
+                )}
+              </li>
+            ))}
           </ul>
         </Sheet>
       )}
+
+      <DestructiveConfirm
+        open={confirmDiscard}
+        title="Discard received QR data?"
+        objectName={plural(discardable, 'received copy', 'received copies')}
+        body={`Removes the records other phones sent to ${noun} by QR. Each one has already reached the cloud. Records made on ${noun} stay.`}
+        loss={`This removes ${plural(discardable, 'record')} from ${noun}.`}
+        confirmLabel={`Discard ${plural(discardable, 'received copy', 'received copies')}`}
+        icon={Trash2}
+        busy={discarding}
+        onConfirm={discard}
+        onCancel={() => setConfirmDiscard(false)}
+      />
     </main>
+  );
+}
+
+const MORE_ROW = 'hover-veil flex min-h-14 items-start gap-3 rounded-lg px-2.5 py-2.5';
+
+/** A More row's face: the icon, the bold title, and its line (or why it is held). */
+function MoreRow({ item }: { item: MoreItem }) {
+  return (
+    <>
+      <item.icon aria-hidden="true" className="mt-0.5 size-[18px] shrink-0 text-ink-2" />
+      <span className="min-w-0">
+        <b className="block text-[0.90625rem] font-[650]">{item.title}</b>
+        <small className="block text-[0.78125rem] text-muted">{item.held ?? item.detail}</small>
+      </span>
+    </>
+  );
+}
+
+/** What Discard received QR data did: removed, or (a copy came in meanwhile) refused whole. */
+function DiscardResultLine({ result, noun }: { result: DiscardResult; noun: string }) {
+  if (result.refused > 0) {
+    return (
+      <ErrorLine className="lg:w-[45rem]">
+        Nothing was removed:{' '}
+        {plural(result.refused, 'received copy hasn’t', 'received copies haven’t')} reached the
+        cloud.
+      </ErrorLine>
+    );
+  }
+  return (
+    <Notice tone="success" role="status" className="lg:w-[45rem]">
+      {result.discarded === 0
+        ? `Nothing received by QR was on ${noun}.`
+        : `Removed ${plural(result.discarded, 'received copy', 'received copies')} from ${noun}.`}
+    </Notice>
+  );
+}
+
+/**
+ * "Received by QR" (17-sync final, phone image 6; SPEC-FINAL 9.10): the received copies still
+ * waiting for the cloud, "12 from 3 scouters", one row per author with their last scan.
+ */
+function ReceivedBlock({ received }: { received: ReceivedByQr }) {
+  return (
+    <section
+      aria-label="Received by QR"
+      className="overflow-hidden rounded-card border border-line bg-surface lg:w-[45rem]"
+    >
+      <h2 className="flex gap-2 border-b border-line-2 bg-bg px-3.5 py-2 text-xs font-bold text-muted">
+        Received by QR
+        <span className="ms-auto font-semibold">
+          {formatCount(received.total)} from {plural(received.authors.length, 'scouter')}
+        </span>
+      </h2>
+      <ul>
+        {received.authors.map((author) => (
+          <li
+            key={author.author_user_id}
+            className="flex items-center gap-2.5 border-b border-line-2 px-3.5 py-2.5 last:border-b-0"
+          >
+            <Initials name={author.name ?? '?'} />
+            <span className="min-w-0 flex-1">
+              <b dir="auto" className="block truncate text-[0.875rem] font-[650]">
+                {author.name ?? 'a scouter'}
+              </b>
+              {author.last_scan_at && (
+                <small className="block text-xs text-muted">
+                  last scan <span className="num">{savedLabel(author.last_scan_at)}</span>
+                </small>
+              )}
+            </span>
+            <span className="num text-lg font-semibold">{formatCount(author.count)}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -492,6 +720,20 @@ function NotSent({ record, full }: { record: SyncRecord; full: boolean }) {
   );
 }
 
+/**
+ * "shown by QR 11:44" (17-sync final; SPEC-FINAL 9.10): the last time this record's batch was on
+ * the QR sender's screen. A display, not a receipt: the record still waits for the cloud.
+ */
+function ShownByQr({ record }: { record: SyncRecord }) {
+  if (!record.qr_shown_at) return null;
+  return (
+    <span className="inline-flex items-center gap-1 text-xs font-semibold whitespace-nowrap text-ink-2">
+      <QrCode aria-hidden="true" className="size-3.5" />
+      shown by QR <span className="num">{savedLabel(record.qr_shown_at)}</span>
+    </span>
+  );
+}
+
 function NewMatchLine() {
   return (
     <p className="flex items-center gap-1.5 text-[0.78125rem] text-ink-2">
@@ -530,6 +772,7 @@ function RecordCard({ record, mark, full }: { record: SyncRecord; mark: Mark; fu
           saved <span className="num">{savedLabel(s.client_updated_at)}</span>
         </span>
         <OriginBadge record={record} desktop={false} />
+        {mark === 'waiting' && <ShownByQr record={record} />}
         {/* Sent: the tick on the second line, so the team's name keeps its room on a phone. */}
         {mark === 'sent' && <Tick record={record} mark={mark} />}
       </div>
@@ -574,6 +817,7 @@ function RecordTable({
               <div className="flex items-center gap-2.5 text-[0.84375rem]">
                 {mark === 'sending' && <Spinner />}
                 <Tick record={record} mark={mark} />
+                {mark === 'waiting' && <ShownByQr record={record} />}
                 {record.new_match && <NewMatchLine />}
                 {record.rejection && (
                   <span className="inline-flex items-center gap-1.5 font-[650] text-warn">

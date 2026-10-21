@@ -238,10 +238,17 @@ test('cycle path: drawing a path, Clear path, Finish, and a blue scout removing 
     await tapMap(page, x, y);
   await expect(map.getByText('Drawing path 3')).toBeVisible();
   await expect(map.getByText('3 of 6 points')).toBeVisible();
+  // Each path's first point is a ring and its last an arrow (v1.31); the points between stay dots.
+  await expect(map.locator('[data-path-mark="start"]')).toHaveCount(3);
+  await expect(map.locator('[data-path-mark="end"]')).toHaveCount(3);
+  await expect(map.locator('[data-path-point]:not([data-path-mark])')).toHaveCount(5);
   await bothThemes(page, 'cycle-map-drawing-red', 'phone');
   await map.getByRole('button', { name: 'Finish' }).click();
   await map.getByRole('button', { name: 'Done' }).click();
   await expect(routes).toHaveAccessibleName('Cycle routes: 3 paths · 11 spots');
+  // The thumbnail marks each path's start and end too.
+  await expect(routes.locator('[data-path-mark="start"]')).toHaveCount(3);
+  await expect(routes.locator('[data-path-mark="end"]')).toHaveCount(3);
   await bothThemes(page, 'map-buttons-cycle', 'phone');
 });
 
