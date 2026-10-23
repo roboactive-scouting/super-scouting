@@ -2,11 +2,16 @@ import { describe, expect, it } from 'vitest';
 import type { Operation } from '../sync/operation';
 import {
   encodeBatch,
+  frameToText,
   newCollector,
   QR_BATCH_MAX_OPERATIONS,
   QR_FRAME_BYTES,
+  QR_FRAMES_PER_SECOND,
   QR_HEADER_BYTES,
   QR_MAX_INFLATED_BYTES,
+  QR_MODULES,
+  QR_VERSION,
+  textToFrame,
 } from './codec';
 
 const op = (i: number): Operation => ({
@@ -32,9 +37,12 @@ const op = (i: number): Operation => ({
 
 describe('QR codec (SPEC-FINAL 9.8)', () => {
   it('uses the documented parameters', () => {
-    expect(QR_FRAME_BYTES).toBe(2300);
+    expect(QR_FRAME_BYTES).toBe(500);
     expect(QR_HEADER_BYTES).toBe(12);
     expect(QR_BATCH_MAX_OPERATIONS).toBe(200);
+    expect(QR_FRAMES_PER_SECOND).toBe(5);
+    expect(QR_VERSION).toBe(18);
+    expect(QR_MODULES).toBe(89);
   });
 
   it('round-trips a batch through frames', () => {
@@ -69,7 +77,7 @@ describe('QR codec (SPEC-FINAL 9.8)', () => {
     }
   });
 
-  it('produces roughly nine to thirteen frames for a realistic backlog of a hundred entries', () => {
+  it('produces a few dozen frames for a realistic backlog of a hundred entries', () => {
     // A real entry is dozens of fields that differ from entry to entry; the shared `op` fixture is
     // so repetitive it deflates to a single frame, so this test varies its fields pseudo-randomly.
     let seed = 12345;
@@ -81,8 +89,10 @@ describe('QR codec (SPEC-FINAL 9.8)', () => {
       return { ...base, payload: { ...base.payload, data } };
     };
     const frames = encodeBatch(Array.from({ length: 100 }, (_, i) => realistic(i)));
-    expect(frames.length).toBeGreaterThanOrEqual(4);
-    expect(frames.length).toBeLessThanOrEqual(20);
+    // 500-byte frames: 30 here, about 4.6 times as many as the 2,300-byte frames before them;
+    // a full loop at five a second is six seconds.
+    expect(frames.length).toBeGreaterThanOrEqual(20);
+    expect(frames.length).toBeLessThanOrEqual(45);
   });
 
   it('refuses a batch above the 200-operation cap', () => {
@@ -123,5 +133,64 @@ describe('QR codec (SPEC-FINAL 9.8)', () => {
     expect((collector.result()[0]!.payload.data as { notes: string }).notes).toBe(
       'הרובוט היה איטי',
     );
+  });
+});
+
+describe('Base45 frame text (RFC 9285; QR alphanumeric mode)', () => {
+  const ascii = (text: string) => new TextEncoder().encode(text);
+
+  it('encodes the RFC 9285 examples', () => {
+    expect(frameToText(ascii('AB'))).toBe('BB8');
+    expect(frameToText(ascii('Hello!!'))).toBe('%69 VD92EX0');
+    expect(frameToText(ascii('base-45'))).toBe('UJCLQE7W581');
+    expect(textToFrame('BB8')).toEqual(ascii('AB'));
+    expect(textToFrame('%69 VD92EX0')).toEqual(ascii('Hello!!'));
+    expect(textToFrame('UJCLQE7W581')).toEqual(ascii('base-45'));
+    // RFC 9285 4.2's decoding example.
+    expect(new TextDecoder().decode(textToFrame('QED8WEX0'))).toBe('ietf!');
+  });
+
+  it('round-trips random bytes of every length from 0 to 600, odd lengths too', () => {
+    let seed = 987654321;
+    const next = () => (seed = (seed * 1103515245 + 12345) % 2147483648);
+    for (let length = 0; length <= 600; length += 1) {
+      const bytes = Uint8Array.from({ length }, () => next() % 256);
+      const text = frameToText(bytes);
+      expect(text).toMatch(/^[0-9A-Z $%*+\-./:]*$/);
+      expect(text).toHaveLength(Math.floor(length / 2) * 3 + (length % 2) * 2);
+      expect(textToFrame(text)).toEqual(bytes);
+    }
+    // The extremes of a group.
+    const edges = Uint8Array.of(0, 0, 0xff, 0xff, 0xff);
+    expect(textToFrame(frameToText(edges))).toEqual(edges);
+  });
+
+  it('a full frame is 768 characters', () => {
+    const frame = new Uint8Array(QR_HEADER_BYTES + QR_FRAME_BYTES).fill(0xff);
+    expect(frameToText(frame)).toHaveLength(768);
+  });
+
+  it('refuses text that is not Base45, so a foreign code is never read as a frame', () => {
+    // A character outside the alphabet: lower case, '#', a non-ASCII letter.
+    expect(() => textToFrame('bB8')).toThrow(/outside Base45/);
+    expect(() => textToFrame('BB#')).toThrow(/outside Base45/);
+    expect(() => textToFrame('BBé')).toThrow(/outside Base45/);
+    expect(() => textToFrame('https://example.com')).toThrow();
+    // A length that leaves one character over.
+    expect(() => textToFrame('B')).toThrow(/this long/);
+    expect(() => textToFrame('BB8B')).toThrow(/this long/);
+    // Groups past 2 bytes (':::' = 91,124) or past 1 byte ('::' = 2,024).
+    expect(() => textToFrame(':::')).toThrow(/out of range/);
+    expect(() => textToFrame('::')).toThrow(/out of range/);
+    // The largest valid groups.
+    expect(textToFrame('FGW')).toEqual(Uint8Array.of(0xff, 0xff));
+    expect(textToFrame('U5')).toEqual(Uint8Array.of(0xff));
+  });
+
+  it('carries a real batch: every frame through its text and back completes it', () => {
+    const operations = Array.from({ length: 30 }, (_, i) => op(i));
+    const collector = newCollector();
+    for (const frame of encodeBatch(operations)) collector.add(textToFrame(frameToText(frame)));
+    expect(collector.result()).toEqual(operations);
   });
 });

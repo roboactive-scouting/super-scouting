@@ -1,24 +1,30 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ResultMetadataType } from '@zxing/library';
 import { StrictMode } from 'react';
+import { BarcodeFormat, DecodeHintType } from '@zxing/library';
+import EsmFinderPatternFinder from '@zxing/library/esm/core/qrcode/detector/FinderPatternFinder';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Operation } from '@frc/shared';
-import { encodeBatch, QR_HEADER_BYTES } from '@frc/shared/qr';
+import { encodeBatch, frameToText, QR_HEADER_BYTES } from '@frc/shared/qr';
 import { db } from '@/data/db';
 import { pending } from '@/data/outbox';
 import { clearDevicePrefs, qrSound } from '@/lib/devicePrefs';
 import { QrReceivePage } from './QrReceivePage';
+import { IMPROVED } from './zxingFinder';
 import type * as QrReceiveModule from '@/data/qrReceive';
 
 /*
  * No camera in CI: BrowserQRCodeReader is replaced by a scanner the test drives. Each `show()`
- * hands the page's callback a result shaped like zxing's, its bytes in BYTE_SEGMENTS.
+ * hands the page's callback a result shaped like zxing's: the frame as the sender draws it, Base45
+ * text, from `getText()`. jsdom has no BarcodeDetector, so the page takes the zxing path here; the
+ * native path has its own describe below. `fail` is what each start rejects with, in turn.
  */
 const scanner = vi.hoisted(() => ({
   callback: null as null | ((result: unknown) => void),
-  fail: null as unknown,
+  fail: [] as unknown[],
   starts: [] as unknown[][],
+  hints: [] as unknown[],
+  stream: null as unknown,
   stop: (() => undefined) as () => void,
   stops: 0,
 }));
@@ -34,9 +40,19 @@ vi.mock('@/data/qrReceive', async (original) => {
 });
 vi.mock('@zxing/browser', () => ({
   BrowserQRCodeReader: class {
-    decodeFromVideoDevice(deviceId: unknown, video: unknown, callback: (r: unknown) => void) {
-      scanner.starts.push([deviceId, video]);
-      if (scanner.fail) return Promise.reject(scanner.fail);
+    constructor(hints: unknown) {
+      scanner.hints.push(hints);
+    }
+    decodeFromConstraints(
+      constraints: unknown,
+      video: HTMLVideoElement,
+      callback: (r: unknown) => void,
+    ) {
+      scanner.starts.push([constraints, video]);
+      const fail = scanner.fail.shift();
+      if (fail) return Promise.reject(fail);
+      // As @zxing/browser does: the stream goes on the preview video.
+      if (scanner.stream) (video as { srcObject: unknown }).srcObject = scanner.stream;
       scanner.callback = callback;
       return Promise.resolve({
         stop: () => {
@@ -76,16 +92,13 @@ const op = (i: number, author = YAEL, kind: 'match' | 'super' = 'match'): Operat
 /** 40 match entries and 1 super entry by Yael: several frames. */
 const batch = () => [...Array.from({ length: 40 }, (_, i) => op(i)), op(40, YAEL, 'super')];
 
-const result = (bytes: Uint8Array) => ({
-  getResultMetadata: () => new Map([[ResultMetadataType.BYTE_SEGMENTS, [bytes]]]),
-  getText: () => '',
-});
+const result = (text: string) => ({ getText: () => text });
 
-/** The camera reads one frame. */
-async function show(frame: Uint8Array) {
+/** The camera reads one code: by default one of our frames, as the sender draws it. */
+async function show(frame: Uint8Array | string) {
   await waitFor(() => expect(scanner.callback).not.toBeNull());
   await act(async () => {
-    scanner.callback!(result(frame));
+    scanner.callback!(result(typeof frame === 'string' ? frame : frameToText(frame)));
     await Promise.resolve();
   });
 }
@@ -129,7 +142,9 @@ beforeEach(async () => {
     { entity: 'users', id: OMER, full_name: 'Omer Katz', role: 'scouter' },
   ]);
   scanner.callback = null;
-  scanner.fail = null;
+  scanner.fail = [];
+  scanner.hints = [];
+  scanner.stream = null;
   names.fail = false;
   scanner.starts = [];
   scanner.stops = 0;
@@ -145,12 +160,25 @@ afterEach(() => {
 });
 
 describe('QrReceivePage (SPEC-FINAL 9.8; 21-qr-receive final)', () => {
-  it('scans continuously from the rear camera, with no Start', async () => {
+  it('scans continuously from the rear camera at 1080p, with no Start', async () => {
     render(<QrReceivePage />);
     await waitFor(() => expect(scanner.starts).toHaveLength(1));
-    // No device id: @zxing/browser then asks for `facingMode: 'environment'`.
-    expect(scanner.starts[0]![0]).toBeUndefined();
+    // Not zxing's default (`facingMode: 'environment'` alone opens about 640×480): 1080p, ideal.
+    expect(scanner.starts[0]![0]).toEqual({
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+      },
+      audio: false,
+    });
     expect(scanner.starts[0]![1]).toBeInstanceOf(HTMLVideoElement);
+    // QR codes only, and no TRY_HARDER (too slow on live video).
+    expect(scanner.hints[0]).toEqual(
+      new Map([[DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.QR_CODE]]]),
+    );
+    // …with zxing's QR finder fixed, in the build of it the app's bundle uses (zxingFinder.ts).
+    expect((EsmFinderPatternFinder.prototype as { [IMPROVED]?: true })[IMPROVED]).toBe(true);
     expect(screen.queryByRole('button', { name: /start/i })).toBeNull();
     expect(screen.getByText('Scanning…')).toBeInTheDocument();
     // Before the first frame: the ring reads 0, and there are no cells.
@@ -195,7 +223,8 @@ describe('QrReceivePage (SPEC-FINAL 9.8; 21-qr-receive final)', () => {
 
   it('lists several authors, and "a scouter" for one this device does not hold', async () => {
     render(<QrReceivePage />);
-    await show(encodeBatch([op(1, YAEL), op(2, OMER), op(3, STRANGER)], 13)[0]!);
+    for (const frame of encodeBatch([op(1, YAEL), op(2, OMER), op(3, STRANGER)], 13))
+      await show(frame);
     expect(
       await screen.findByRole('heading', { name: 'Got it: Yael, Omer, a scouter' }),
     ).toBeInTheDocument();
@@ -208,14 +237,14 @@ describe('QrReceivePage (SPEC-FINAL 9.8; 21-qr-receive final)', () => {
         <QrReceivePage />
       </StrictMode>,
     );
-    await show(encodeBatch([op(1)], 21)[0]!);
+    for (const frame of encodeBatch([op(1)], 21)) await show(frame);
     expect(await screen.findByRole('heading', { name: 'Got it, Yael!' })).toBeInTheDocument();
   });
 
   it('a batch that was written never reads "Nothing was saved", even when its names cannot be read', async () => {
     names.fail = true;
     render(<QrReceivePage />);
-    await show(encodeBatch([op(1), op(2)], 22)[0]!);
+    for (const frame of encodeBatch([op(1), op(2)], 22)) await show(frame);
     expect(await screen.findByRole('heading', { name: 'Got it, a scouter!' })).toBeInTheDocument();
     expect(screen.getByText('records · 2 entries')).toBeInTheDocument();
     expect(screen.queryByText(/Nothing was saved/)).toBeNull();
@@ -277,14 +306,14 @@ describe('QrReceivePage (SPEC-FINAL 9.8; 21-qr-receive final)', () => {
       'false',
     );
     expect(qrSound.get()).toBe(false);
-    await show(encodeBatch([op(1)], 18)[0]!);
+    for (const frame of encodeBatch([op(1)], 18)) await show(frame);
     expect(await screen.findByRole('heading', { name: 'Got it, Yael!' })).toBeInTheDocument();
     expect(tones).toEqual([]);
     expect(vibrate).toHaveBeenCalledWith(200);
   });
 
   it('a blocked camera says so, with Try again', async () => {
-    scanner.fail = new DOMException('Permission denied', 'NotAllowedError');
+    scanner.fail = [new DOMException('Permission denied', 'NotAllowedError')];
     const user = userEvent.setup();
     render(<QrReceivePage />);
     expect(
@@ -293,7 +322,8 @@ describe('QrReceivePage (SPEC-FINAL 9.8; 21-qr-receive final)', () => {
     expect(
       screen.getByText('Allow the camera for this site in the browser’s settings, then try again.'),
     ).toBeInTheDocument();
-    scanner.fail = null;
+    // Refused is refused: no second, plainer request behind the user's back.
+    expect(scanner.starts).toHaveLength(1);
     await user.click(screen.getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(scanner.starts).toHaveLength(2));
     await waitFor(() =>
@@ -305,12 +335,12 @@ describe('QrReceivePage (SPEC-FINAL 9.8; 21-qr-receive final)', () => {
     const onDone = vi.fn();
     const user = userEvent.setup();
     render(<QrReceivePage onDone={onDone} />);
-    await show(encodeBatch([op(1)], 19)[0]!);
+    for (const frame of encodeBatch([op(1)], 19)) await show(frame);
     await user.click(await screen.findByRole('button', { name: 'Scan the next phone' }));
     expect(screen.getByText('Scanning…')).toBeInTheDocument();
     expect(cells()).toHaveLength(0);
     // The same batch again: written again with no effect, the same count.
-    await show(encodeBatch([op(1)], 20)[0]!);
+    for (const frame of encodeBatch([op(1)], 20)) await show(frame);
     expect(await screen.findByRole('heading', { name: 'Got it, Yael!' })).toBeInTheDocument();
     expect(await pending(100)).toHaveLength(1);
     fireEvent.keyDown(document, { key: 'Escape' });
@@ -323,5 +353,226 @@ describe('QrReceivePage (SPEC-FINAL 9.8; 21-qr-receive final)', () => {
     render(<QrReceivePage onDone={onDone} />);
     await user.click(screen.getByRole('button', { name: 'Done — back to Sync' }));
     expect(onDone).toHaveBeenCalledTimes(1);
+  });
+});
+
+/** A camera stream with one video track whose focus modes the test sets. */
+function fakeStream(focusMode?: string[], refuse = false) {
+  const track = {
+    kind: 'video',
+    stop: vi.fn(),
+    getCapabilities: () => (focusMode ? { focusMode } : {}),
+    applyConstraints: vi.fn(async (_c: unknown) => {
+      if (refuse) throw new DOMException('no', 'OverconstrainedError');
+    }),
+  };
+  return { track, stream: { getVideoTracks: () => [track], getTracks: () => [track] } };
+}
+
+describe('QrReceivePage: the camera (DEVIATIONS, Phase 1 G fix)', () => {
+  it('ignores a code that is not one of ours and keeps scanning', async () => {
+    const frames = encodeBatch([op(1)], 30);
+    render(<QrReceivePage />);
+    await show('https://example.com/not-a-frame');
+    await show('HELLO WORLD'); // alphanumeric, but too short to be a frame
+    await show(''); // an empty code
+    expect(cells()).toHaveLength(0);
+    expect(screen.getByText('Scanning…')).toBeInTheDocument();
+    for (const frame of frames) await show(frame);
+    expect(await screen.findByRole('heading', { name: 'Got it, Yael!' })).toBeInTheDocument();
+  });
+
+  it('asks once more for any camera when 1080p from the rear cannot be had', async () => {
+    scanner.fail = [new DOMException('no such camera', 'OverconstrainedError')];
+    render(<QrReceivePage />);
+    await waitFor(() => expect(scanner.starts).toHaveLength(2));
+    expect(scanner.starts[1]![0]).toEqual({ video: true, audio: false });
+    for (const frame of encodeBatch([op(1)], 31)) await show(frame);
+    expect(await screen.findByRole('heading', { name: 'Got it, Yael!' })).toBeInTheDocument();
+  });
+
+  it('says the camera did not start when no camera at all can be had', async () => {
+    scanner.fail = [
+      new DOMException('none', 'NotFoundError'),
+      new DOMException('none', 'NotFoundError'),
+    ];
+    render(<QrReceivePage />);
+    expect(
+      await screen.findByRole('heading', { name: 'The camera did not start' }),
+    ).toBeInTheDocument();
+    // One retry, not a loop.
+    expect(scanner.starts).toHaveLength(2);
+  });
+
+  it('turns on continuous focus where the camera offers it, and shrugs off a refusal', async () => {
+    const offered = fakeStream(['manual', 'continuous']);
+    scanner.stream = offered.stream;
+    const { unmount } = render(<QrReceivePage />);
+    await waitFor(() =>
+      expect(offered.track.applyConstraints).toHaveBeenCalledWith({
+        advanced: [{ focusMode: 'continuous' }],
+      }),
+    );
+    unmount();
+
+    const none = fakeStream(['manual']);
+    scanner.stream = none.stream;
+    const second = render(<QrReceivePage />);
+    await waitFor(() => expect(scanner.starts).toHaveLength(2));
+    expect(none.track.applyConstraints).not.toHaveBeenCalled();
+    second.unmount();
+
+    const refused = fakeStream(['continuous'], true);
+    scanner.stream = refused.stream;
+    render(<QrReceivePage />);
+    await waitFor(() => expect(refused.track.applyConstraints).toHaveBeenCalled());
+    for (const frame of encodeBatch([op(1)], 32)) await show(frame);
+    expect(await screen.findByRole('heading', { name: 'Got it, Yael!' })).toBeInTheDocument();
+  });
+});
+
+/** The native loop reads one code per animation frame (about 16 ms in jsdom), slower under load. */
+const SLOW = { timeout: 10_000 };
+
+/*
+ * Android Chrome: the browser's own BarcodeDetector reads the video. The detector is the test's;
+ * each `detect()` answers with the next code put in `detector.queue` (or nothing), and the test
+ * counts how many are in flight at once.
+ */
+const detector = {
+  queue: [] as string[],
+  calls: 0,
+  inFlight: 0,
+  most: 0,
+  formats: ['qr_code', 'ean_13'],
+  made: [] as unknown[],
+};
+class FakeBarcodeDetector {
+  constructor(options: unknown) {
+    detector.made.push(options);
+  }
+  static getSupportedFormats() {
+    return Promise.resolve(detector.formats);
+  }
+  async detect(source: unknown) {
+    if (!(source instanceof HTMLVideoElement)) throw new TypeError('not the video');
+    detector.calls += 1;
+    detector.inFlight += 1;
+    detector.most = Math.max(detector.most, detector.inFlight);
+    await new Promise((done) => setTimeout(done, 1));
+    detector.inFlight -= 1;
+    const text = detector.queue.shift();
+    return text === undefined ? [] : [{ rawValue: text, format: 'qr_code' }];
+  }
+}
+
+describe('QrReceivePage: the native reader where the browser has one (Android Chrome)', () => {
+  let camera: ReturnType<typeof fakeStream>;
+  const getUserMedia = vi.fn();
+  beforeEach(() => {
+    Object.assign(detector, { queue: [], calls: 0, inFlight: 0, most: 0, made: [] });
+    detector.formats = ['qr_code', 'ean_13'];
+    vi.stubGlobal('BarcodeDetector', FakeBarcodeDetector);
+    camera = fakeStream(['continuous']);
+    getUserMedia.mockReset();
+    getUserMedia.mockImplementation(async () => camera.stream);
+    Object.defineProperty(navigator, 'mediaDevices', {
+      value: { getUserMedia },
+      configurable: true,
+    });
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.resolve());
+  });
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, 'mediaDevices');
+    vi.restoreAllMocks();
+  });
+
+  it('reads a whole multi-frame batch with BarcodeDetector, never zxing', async () => {
+    const frames = encodeBatch(batch(), 40);
+    expect(frames.length).toBeGreaterThanOrEqual(3);
+    // Out of order, with a foreign code and a repeat among them, as a camera sees a loop.
+    detector.queue = [
+      frameToText(frames[1]!),
+      'https://example.com',
+      frameToText(frames[1]!),
+      ...[...frames].reverse().map(frameToText),
+    ];
+    render(<QrReceivePage />);
+    expect(await screen.findByRole('heading', { name: 'Got it, Yael!' }, SLOW)).toBeInTheDocument();
+    expect(screen.getByText('records · 40 entries, 1 super')).toBeInTheDocument();
+    expect(await pending(100)).toHaveLength(41);
+    // The browser's reader, asked for QR codes only, on the rear camera at 1080p.
+    expect(detector.made).toEqual([{ formats: ['qr_code'] }]);
+    expect(getUserMedia).toHaveBeenCalledWith({
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+      },
+      audio: false,
+    });
+    expect(camera.track.applyConstraints).toHaveBeenCalledWith({
+      advanced: [{ focusMode: 'continuous' }],
+    });
+    expect(scanner.starts).toHaveLength(0);
+    // Never two detect() calls at once.
+    expect(detector.calls).toBeGreaterThan(frames.length);
+    expect(detector.most).toBe(1);
+  });
+
+  it('a damaged batch read natively writes nothing', async () => {
+    const frames = encodeBatch(batch(), 41);
+    const last = frames[frames.length - 1]!.slice();
+    last[QR_HEADER_BYTES + 3] = last[QR_HEADER_BYTES + 3]! ^ 0xff;
+    detector.queue = [...frames.slice(0, -1), last].map(frameToText);
+    render(<QrReceivePage />);
+    expect(await screen.findByRole('alert', {}, SLOW)).toHaveTextContent('That code was damaged');
+    expect(await pending(100)).toHaveLength(0);
+  });
+
+  it('stops reading and releases the camera on leaving mid-batch, writing nothing', async () => {
+    const frames = encodeBatch(batch(), 42);
+    detector.queue = frames.slice(0, 2).map(frameToText);
+    const { unmount } = render(<QrReceivePage />);
+    await waitFor(() => expect(heldCells()).toEqual([1, 2]), SLOW);
+    unmount();
+    expect(camera.track.stop).toHaveBeenCalled();
+    const calls = detector.calls;
+    detector.queue = frames.slice(2).map(frameToText);
+    await new Promise((done) => setTimeout(done, 100));
+    // At most the one already in flight when the page left.
+    expect(detector.calls).toBeLessThanOrEqual(calls + 1);
+    expect(await pending(100)).toHaveLength(0);
+  });
+
+  it('asks once more for any camera when 1080p from the rear cannot be had', async () => {
+    getUserMedia.mockImplementationOnce(async () => {
+      throw new DOMException('no such camera', 'OverconstrainedError');
+    });
+    detector.queue = encodeBatch([op(1)], 43).map(frameToText);
+    render(<QrReceivePage />);
+    expect(await screen.findByRole('heading', { name: 'Got it, Yael!' }, SLOW)).toBeInTheDocument();
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+    expect(getUserMedia).toHaveBeenLastCalledWith({ video: true, audio: false });
+  });
+
+  it('a blocked camera says so, natively too', async () => {
+    getUserMedia.mockImplementation(async () => {
+      throw new DOMException('Permission denied', 'NotAllowedError');
+    });
+    render(<QrReceivePage />);
+    expect(
+      await screen.findByRole('heading', { name: 'The camera is blocked' }),
+    ).toBeInTheDocument();
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to zxing when the BarcodeDetector cannot read QR codes', async () => {
+    detector.formats = ['ean_13'];
+    render(<QrReceivePage />);
+    await waitFor(() => expect(scanner.starts).toHaveLength(1));
+    expect(getUserMedia).not.toHaveBeenCalled();
+    for (const frame of encodeBatch([op(1)], 44)) await show(frame);
+    expect(await screen.findByRole('heading', { name: 'Got it, Yael!' }, SLOW)).toBeInTheDocument();
   });
 });

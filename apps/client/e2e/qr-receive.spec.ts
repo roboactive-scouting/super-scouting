@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { encodeBatch } from '@frc/shared/qr';
+import { encodeBatch, frameToText } from '@frc/shared/qr';
 import { goOffline, signIn } from './api-mock';
 import { ENTRIES, EVENT_ID, FORM, MATCHES, teamId, userByName } from './fixtures';
 import { shoot } from './shoot';
@@ -66,19 +66,17 @@ function operations(author: { id: string }, base: number, count: number, supers 
   return ops;
 }
 
-const b64 = (frame: Uint8Array) => Buffer.from(frame).toString('base64');
-
 /** Yael's 12 entries and 1 super entry: the design's "13 records · 12 entries, 1 super". */
 const YAEL_BATCH = () => encodeBatch(operations(YAEL, 0, 12, 1), 0x5eed0001);
 
-/** The camera reads one frame. */
+/** The camera reads one frame: its Base45 text, as the sender draws it. */
 async function show(page: Page, frame: Uint8Array) {
   await page.waitForFunction(
     () => (window as { __qrCamera?: { running?: boolean } }).__qrCamera?.running,
   );
   await page.evaluate((data) => {
     (window as unknown as { __qrCamera: { show: (b: string) => void } }).__qrCamera.show(data);
-  }, b64(frame));
+  }, frameToText(frame));
 }
 
 const HOLD_PUSH = { overrides: { 'sync/push': { results: [] } } };
@@ -111,6 +109,24 @@ test('qr receive: scanning — the ring, one cell per frame filling in any order
   const receiver = await openReceiver(page);
   await expect(receiver.getByText('Scanning…')).toBeVisible();
   await expect(receiver.getByRole('switch', { name: 'Sound on' })).toBeVisible();
+  // The rear camera at 1080p, on the zxing path (the stub removes any BarcodeDetector).
+  const asked = await page.evaluate(() => ({
+    constraints: (window as { __qrCamera?: { constraints?: unknown[] } }).__qrCamera?.constraints,
+    native: 'BarcodeDetector' in window,
+  }));
+  expect(asked).toEqual({
+    constraints: [
+      {
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      },
+    ],
+    native: false,
+  });
   const frames = YAEL_BATCH();
   expect(frames.length).toBeGreaterThanOrEqual(8);
   // Seven of them, out of order, as a camera catches a looping code.
