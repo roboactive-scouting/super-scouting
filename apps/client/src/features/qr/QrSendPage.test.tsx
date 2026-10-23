@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { newCollector } from '@frc/shared/qr';
+import { newCollector, QR_VERSION, textToFrame } from '@frc/shared/qr';
 import { db } from '@/data/db';
 import { enqueue } from '@/data/outbox';
 import { pending } from '@/data/outbox';
@@ -54,8 +54,8 @@ async function stepFrames(n: number) {
   for (let i = 0; i < n; i += 1) await tick(200);
 }
 
-/** The frame bytes of a toCanvas call. */
-const frameOf = (call: unknown[]) => (call[1] as { data: Uint8Array }[])[0]!.data;
+/** The frame bytes of a toCanvas call (its one segment is the frame as Base45 text). */
+const frameOf = (call: unknown[]) => textToFrame((call[1] as { data: string }[])[0]!.data);
 const batchIdOf = (frame: Uint8Array) =>
   new DataView(frame.buffer, frame.byteOffset, frame.byteLength).getUint32(0, false);
 
@@ -74,13 +74,22 @@ describe('QrSendPage (SPEC-FINAL 9.8)', () => {
     expect(await screen.findByText(/batch 1 of 2/i)).toBeInTheDocument();
   });
 
-  it('renders a QR code in byte mode at error-correction level M', async () => {
-    await enqueue(op(1));
+  it('renders each frame as Base45 text in alphanumeric mode, level M, at one fixed version', async () => {
+    for (let i = 0; i < 60; i += 1) await enqueue(bulky(i));
     render(<QrSendPage />);
     await waitFor(() => expect(toCanvas).toHaveBeenCalled());
-    const [, segments, options] = toCanvas.mock.calls[0]!;
-    expect((segments as { mode: string }[])[0]!.mode).toBe('byte');
-    expect(options).toMatchObject({ errorCorrectionLevel: 'M', version: 40 });
+    await tick(0);
+    await stepFrames(3);
+    expect(toCanvas.mock.calls.length).toBeGreaterThan(2);
+    for (const [, segments, options] of toCanvas.mock.calls) {
+      const [segment, ...rest] = segments as { data: unknown; mode: string }[];
+      expect(rest).toHaveLength(0);
+      expect(segment!.mode).toBe('alphanumeric');
+      expect(segment!.data).toMatch(/^[0-9A-Z $%*+\-./:]+$/);
+      // The same version on every frame, the last (shorter) one too: the code never resizes.
+      expect(options).toMatchObject({ errorCorrectionLevel: 'M', version: QR_VERSION });
+    }
+    expect(QR_VERSION).toBe(18);
   });
 
   it('advances one frame every 200 ms and wraps from the last frame back to the first', async () => {

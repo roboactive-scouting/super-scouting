@@ -1,21 +1,31 @@
 import {
+  BarcodeFormat,
   BinaryBitmap,
   DecodeHintType,
   HybridBinarizer,
   QRCodeReader,
   RGBLuminanceSource,
-  ResultMetadataType,
 } from '@zxing/library';
+import FinderPatternFinder from '@zxing/library/cjs/core/qrcode/detector/FinderPatternFinder';
 import QRCode from 'qrcode';
 import { describe, expect, it } from 'vitest';
 import type { Operation } from '@frc/shared';
 import {
   encodeBatch,
+  frameToText,
   newCollector,
   QR_BATCH_MAX_OPERATIONS,
+  QR_FRAME_BYTES,
   QR_HEADER_BYTES,
+  QR_MODULES,
+  QR_VERSION,
 } from '@frc/shared/qr';
-import { batchOperations, FRAME_CHARSET, frameBytes, frameHeader } from './qrFrame';
+import { batchOperations, frameFromText, frameHeader } from './qrFrame';
+import { improveFinder } from './zxingFinder';
+
+// The receiver's reader has its finder fixed (qrScanner.ts); so does this file's zxing (vitest
+// loads its cjs/ build, the app the esm/ one).
+improveFinder(FinderPatternFinder);
 
 const op = (i: number): Operation => ({
   op_id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
@@ -36,18 +46,29 @@ const op = (i: number): Operation => ({
   seq: i,
 });
 
+/** An operation whose notes do not compress, so a few of them fill several 500-byte frames. */
+const bulky = (i: number): Operation => {
+  const base = op(i);
+  let seed = 7919 * (i + 1);
+  const notes = Array.from({ length: 300 }, () => {
+    seed = (seed * 16807) % 2147483647;
+    return String.fromCharCode(33 + (seed % 90));
+  }).join('');
+  return { ...base, payload: { ...base.payload, data: { notes } } };
+};
+
+/** The sender's drawing (QrSendPage): one alphanumeric segment of Base45, level M, QR_VERSION. */
+const draw = (text: string, version = QR_VERSION) =>
+  QRCode.create([{ data: text, mode: 'alphanumeric' }], { errorCorrectionLevel: 'M', version });
+
 /**
- * Draws `frame` the way the sender does (QrSendPage: `qrcode`, one byte-mode segment, version 40,
- * level M) and decodes the picture with zxing's own QR reader — the reader BrowserQRCodeReader
- * wraps — so the test runs the real byte path, not a stand-in.
+ * Draws `frame` the way the sender does, `px` pixels a module, and decodes the picture with
+ * zxing's own QR reader — the reader BrowserQRCodeReader wraps, with the page's hints — so the
+ * test runs the real text path, not a stand-in.
  */
-function scan(frame: Uint8Array) {
-  const code = QRCode.create([{ data: frame, mode: 'byte' }], {
-    errorCorrectionLevel: 'M',
-    version: 40,
-  });
+function scan(frame: Uint8Array, px = 3) {
+  const code = draw(frameToText(frame));
   const quiet = 4;
-  const px = 3;
   const side = (code.modules.size + 2 * quiet) * px;
   const luma = new Uint8ClampedArray(side * side).fill(255);
   for (let row = 0; row < code.modules.size; row += 1) {
@@ -60,37 +81,59 @@ function scan(frame: Uint8Array) {
     }
   }
   const bitmap = new BinaryBitmap(new HybridBinarizer(new RGBLuminanceSource(luma, side, side)));
-  const hints = new Map([[DecodeHintType.CHARACTER_SET, FRAME_CHARSET]]);
+  const hints = new Map([[DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.QR_CODE]]]);
   return new QRCodeReader().decode(bitmap, hints);
 }
 
-describe('the QR receiver reads frames as bytes (SPEC-FINAL 9.8; task 1.48)', () => {
-  it('takes a real frame’s bytes from BYTE_SEGMENTS, exactly as the sender encoded them', () => {
-    const [frame] = encodeBatch([op(1), op(2)], 0xc0ffee01);
-    const result = scan(frame!);
-    expect(result.getResultMetadata().get(ResultMetadataType.BYTE_SEGMENTS)).toBeDefined();
-    const bytes = frameBytes(result);
-    expect(bytes).toEqual(frame);
-    expect(frameHeader(bytes!)).toEqual({ batchId: 0xc0ffee01, index: 0, count: 1 });
-    // …and the batch decodes from them.
+describe('the QR receiver reads frames as Base45 text (SPEC-FINAL 9.8; DEVIATIONS Phase 1 G fix)', () => {
+  it('a full frame fits the fixed version, and not the version below it', () => {
+    const full = new Uint8Array(QR_HEADER_BYTES + QR_FRAME_BYTES).fill(0xff);
+    const text = frameToText(full);
+    expect(text).toHaveLength(768);
+    const code = draw(text);
+    expect(code.version).toBe(QR_VERSION);
+    expect(code.modules.size).toBe(QR_MODULES);
+    expect(() => draw(text, QR_VERSION - 1)).toThrow(/cannot contain this amount of data/);
+    // …and the smallest version that holds it is that one: qrcode picks it by itself.
+    expect(
+      QRCode.create([{ data: text, mode: 'alphanumeric' }], { errorCorrectionLevel: 'M' }).version,
+    ).toBe(QR_VERSION);
+  });
+
+  it('decodes every frame of a real multi-frame batch from its picture, 3 px a module', () => {
+    const operations = Array.from({ length: 6 }, (_, i) => bulky(i));
+    const frames = encodeBatch(operations, 0xc0ffee01);
+    expect(frames.length).toBeGreaterThanOrEqual(3);
+    // The first frames are full: 512 bytes, the largest a frame is.
+    expect(frames[0]!.byteLength).toBe(QR_HEADER_BYTES + QR_FRAME_BYTES);
     const collector = newCollector();
-    collector.add(bytes!);
-    expect(batchOperations(collector.result())).toEqual([op(1), op(2)]);
+    for (const frame of frames) {
+      const bytes = frameFromText(scan(frame).getText());
+      expect(bytes).toEqual(frame);
+      collector.add(bytes!);
+    }
+    expect(frameHeader(frames[1]!)).toEqual({
+      batchId: 0xc0ffee01,
+      index: 1,
+      count: frames.length,
+    });
+    expect(batchOperations(collector.result())).toEqual(operations);
   }, 30_000);
 
-  it('the text is not the frame: getText() loses binary bytes', () => {
-    const [frame] = encodeBatch([op(3)], 0x01020304);
-    const result = scan(frame!);
-    const fromText = new TextEncoder().encode(result.getText());
-    expect(fromText).not.toEqual(frame);
+  it('still decodes a full frame at 2 px a module', () => {
+    const [frame] = encodeBatch(
+      Array.from({ length: 6 }, (_, i) => bulky(i)),
+      7,
+    );
+    expect(frameFromText(scan(frame!, 2).getText())).toEqual(frame);
   }, 30_000);
 
-  it('joins several byte segments in order, and has nothing for a code without one', () => {
-    const metadata = new Map([
-      [ResultMetadataType.BYTE_SEGMENTS, [Uint8Array.of(1, 2), Uint8Array.of(3)]],
-    ]);
-    expect(frameBytes({ getResultMetadata: () => metadata })).toEqual(Uint8Array.of(1, 2, 3));
-    expect(frameBytes({ getResultMetadata: () => new Map() })).toBeNull();
+  it('has nothing for a code that is not Base45, so it is ignored', () => {
+    expect(frameFromText('https://example.com')).toBeNull();
+    expect(frameFromText('B')).toBeNull();
+    expect(frameFromText('héllo')).toBeNull();
+    // Base45 but too short to be a frame: frameHeader turns it away.
+    expect(frameHeader(frameFromText('BB8')!)).toBeNull();
   });
 
   it('refuses a header that cannot be one of ours', () => {
