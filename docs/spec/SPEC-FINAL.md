@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.38 · **Date:** 2026-10-23 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.39 · **Date:** 2026-10-23 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.39: a held wipe gains **Wipe anyway**, for a device whose records cannot reach the cloud (§9.9). See the living spec's §21, v0.91.*
 
 *v1.38: QR frames are 500-byte Base45 text in alphanumeric mode at a fixed version 18, the receiver asks for a 1080p camera and uses the browser's own QR reader where it has one (§9.8, D12); version 40 was unreadable by a phone camera (user, 2026-10-23). See the living spec's §21, v0.90.*
 
@@ -1277,6 +1279,7 @@ A "clear this device's offline data" action, gated behind a **constant code held
 - It is a guard against accidents, **not a secret** — a client-side build variable is visible in the bundle, and this is accepted.
 - **The wipe is refused for any record without a cloud ack**, so it can never destroy unsynced data. If unacked records exist the action reports how many and refuses.
 - *(v1.27)* It is reached from **Settings** ("Wipe this device", §17.9) only, not from the sync page.
+- *(v1.39, user 2026-10-23)* **Wipe anyway.** While the wipe is held, a second, harder path clears a device whose records cannot reach the cloud (a stuck record, a device that must be cleared in a hurry). It offers **Send by QR first** (§9.8), so the unsent records can be copied to another device, then asks for the lead's code **and the number of records that will be lost**, typed. The count must equal the device's unacked count at the moment of the wipe. Each lost record is written to the discarded-records log (§9.7, summary only) with the reason "wiped before it reached the cloud" before the wipe runs, so the loss is recorded, never silent. The normal wipe keeps its refusal.
 
 ### 9.10 Sync status surface
 
