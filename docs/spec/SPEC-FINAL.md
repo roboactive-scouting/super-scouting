@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.43 · **Date:** 2026-10-23 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.44 · **Date:** 2026-10-23 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.44: a record refused for the edit window reads "Not sent: changed after the 5-minute edit window. A lead can save it for you." everywhere (§7.6), replacing "this entry is locked — ask a lead". See the living spec's §21, v0.96.*
 
 *v1.43: the entry search is the Entries page (§13.3): 05's design plus a Both · Match · Super switch; no station in the table. See the living spec's §21, v0.95.*
 
@@ -929,7 +931,7 @@ A scouter may edit their **own** entry for **5 minutes** after creating it. Afte
 
 - The window is measured from the entry's **`client_created_at`**, so it behaves identically offline and online.
 - The **client enforces it** by locking the UI at the 5-minute mark.
-- **The server also enforces it**, using the two client timestamps carried on the mutation: an operation whose `author_user_id` has the `scouter` role and targets its own entry is accepted only when `client_updated_at − client_created_at ≤ 5 minutes`. An edit outside the window is rejected with `edit-window-expired`, and the client surfaces it as "this entry is locked — ask a lead".
+- **The server also enforces it**, using the two client timestamps carried on the mutation: an operation whose `author_user_id` has the `scouter` role and targets its own entry is accepted only when `client_updated_at − client_created_at ≤ 5 minutes`. An edit outside the window is rejected with `edit-window-expired`, and the client surfaces it as **"Not sent: changed after the 5-minute edit window. A lead can save it for you."** *(v1.44, user 2026-10-23; was "this entry is locked — ask a lead", which read as if syncing had locked it)*. The same one line is the refused-record line on Entries and on Sync, with no second "why" sentence; the server's `message` for this code is the same text.
 - **The server compares the two client timestamps to each other, never to server time.** An entry created and edited offline and uploaded six hours later still passes, because the elapsed time measured is the scouter's own, exactly as it is on-device.
 - Scouters never hard-delete entries. Removal is a lead/admin soft-delete.
 - Leads and admins may edit or manage any entry at any time.

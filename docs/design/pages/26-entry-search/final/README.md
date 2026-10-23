@@ -27,7 +27,7 @@ Chosen: **variant A**: the closed Entries page (05) with a **Both · Match · Su
   - Status: the dark **SUPER** tag.
   - Points: empty on a computer, "whole event" in `--muted` on a phone.
 - **A row or card opens the entry preview** (`/entries/:id`, page 25), as a full page. On a computer, hover or focus tints the row and turns the › `--accent`.
-- **Needs a look:** a refused record keeps 05's Error line, "Not synced: …".
+- **Needs a look:** a refused record keeps 05's Error line, which for the edit window reads "Not sent: changed after the 5-minute edit window. A lead can save it for you." (SPEC-FINAL v1.44 §7.6).
 
 ## Feature decisions
 
