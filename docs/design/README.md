@@ -15,7 +15,7 @@ The visual identity is being redesigned from scratch, page by page (living spec 
 
 Pages go **one at a time**. At this stage that means only the pages that exist today; planned pages come later. Each round:
 
-1. **Four variants** of the page in the D1 theme, reusing every locked component in `THEME.md`. Each image shows **desktop and phone**. Variants are not limited to today's features: design what looks and works best, and tag every feature the app doesn't have yet with a black **NEW** tag.
+1. **Four variants** of the page in the D1 theme, reusing every locked component in `THEME.md` for details. *(User, 2026-10-23, from round 27 on:)* first name the **three nearest outside references** for this kind of page (how well-known apps do it) and draw the variants from them, so they **differ in structure** — layout, navigation, what leads the page — not only in where one control sits. Say which references at the top of the round. Each image shows **desktop and phone**. Variants are not limited to today's features: design what looks and works best, and tag every feature the app doesn't have yet with a black **NEW** tag.
 2. **The user decides** on the variant and on each NEW feature, one of three ways:
    - **now**: it goes into the page's final design
    - **not now, but wanted**: add it to the living spec where it belongs, or wherever it fits best if the spec has no place for it
@@ -54,6 +54,10 @@ Pages go **one at a time**. At this stage that means only the pages that exist t
 | 20 | QR send (Phase 1 G) | `/sync/qr/send` | **Closed** 2026-10-20, variant A without Stop | 1.47 |
 | 21 | QR receive (Phase 1 G) | `/sync/qr/receive` | **Closed** 2026-10-20, variant C + green frame cells | 1.48 |
 | 22 | Read-only super entry (Phase 1 G) | `/super` (another scouter's entry) | **Closed** 2026-10-20, variant B + names on the picker | 1.47 side task 2 |
+| 23 | Team search (Phase 1 H) | `/teams` | **Closed** 2026-10-23, variant A2 (A, At this event by default, no Other events column, the whole row opens the team) | 1.51 |
+| 24 | Team page (Phase 1 H) | `/teams/:teamId` | **Closed** 2026-10-23, variant D2 (D + B's match list with the scouter + C's strip on Matches only) | 1.53 |
+| 25 | Entry preview (Phase 1 H) | `/entries/:id` | **Closed** 2026-10-23, variant B + D's Team page and Edit buttons | 1.52 |
+| 26 | Entry search (Phase 1 H) | `/entries` (replaces 05's list) | **Closed** 2026-10-23, variant A (05 + Both · Match · Super; no station tag in the list) | 1.52 |
 
 The phone shell (`pages/11-phone-shell/final/`, not a numbered route) is coded in RB.6. All were built in the redesign build (`docs/plans/REDESIGN-BUILD-PLAN.md`, RB.1–RB.20), and RB.19 reviewed each against its final images. `/context` is only a redirect to `/`. Update this table when a page closes.
 

@@ -64,4 +64,4 @@ Above the cards: search, then the same four chips (scrolling sideways when they 
 | Preview beside the list, with lead Edit / Remove (C) | No: the preview is its own page |
 | "Mine" tab with an edit countdown (D) | No |
 
-**[RAISED BY ME]** With search and points, this page now covers most of the planned entry search page (§13.3, task 1.51). Missing: the match / super kind filter. Decide when Search is designed whether the two become one page.
+**[RAISED BY ME]** With search and points, this page now covers most of the planned entry search page (§13.3, task 1.51). Missing: the match / super kind filter. Decide when Search is designed whether the two become one page. **Decided 2026-10-23 (round 26): one page.** `/entries` is the entry search; see `../../26-entry-search/final/`, which also drops the station tag from the table and the phone cards.

@@ -1,6 +1,14 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.39 · **Date:** 2026-10-23 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.43 · **Date:** 2026-10-23 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.43: the entry search is the Entries page (§13.3): 05's design plus a Both · Match · Super switch; no station in the table. See the living spec's §21, v0.95.*
+
+*v1.42: the team search page is designed (§13.2): At this event by default, the whole row opens the team page, a Show all line for other events. See the living spec's §21, v0.94.*
+
+*v1.41: the entry preview is designed (§13.4): a score band, phase subtotals and points per row, the form version, and Team page / Edit buttons (Edit only for who may edit, §7.6). See the living spec's §21, v0.93.*
+
+*v1.40: the team page is designed (§13.1): tiles, stat rows with trend lines, a match strip on the Matches tab only, the scouter on every match row; the worst → best shading ramp is fixed (§12.6). See the living spec's §21, v0.92.*
 
 *v1.39: a held wipe gains **Wipe anyway**, for a device whose records cannot reach the cloud (§9.9). See the living spec's §21, v0.91.*
 
@@ -1561,6 +1569,7 @@ Every numeric cell or mark carrying a metric value is **colour-scaled from worst
 - **No data** — a cell with no value renders as a distinct **"—"** and is **excluded from the column's min/max domain**. Missing data must never look like a bad value.
 - **All-equal or single row** — when min == max, shading falls back to a **flat mid-colour**. Inferring "best" from one data point would be dishonest.
 - **Colourblindness** — the shading ramp must vary **lightness monotonically**, so it stays legible without hue, **and the numeric value is always printed in the cell**. Colour is a fast cue, never the only channel.
+- **The ramp** *(v1.40, 2026-10-23)* — one hue, the accent, mixed into the surface from 6 % (worst) to 52 % (best); the text stays ink. Flat cells (neutral, min = max) use `--line-2`. Tokens in `docs/design/THEME.md`, "Value shading".
 
 ### 12.7 Operational (meta) statistics
 
@@ -1634,6 +1643,8 @@ Required content, beyond the team dashboard's configurable charts:
 
 There are no photos on this page.
 
+*(v1.40, user 2026-10-23)* **The page as designed** (`docs/design/pages/24-team/final/`): tabs **Stats · Matches · Progress · Notes** under the sticky header (which shrinks to one line on a phone once scrolled). Stats opens with four stat tiles (median points, availability, best match, trend = the `slope`), then every metric as **label → shaded value → bar → a per-match trend line**, grouped by phase, with the reliability counts. **Matches** opens with a **match strip** (one shaded cell per match, oldest → newest; a broke-down match edged amber, a no-show dashed with "—"), shown on that tab only. Then on a phone the list shows match · robot status · **scouter** · points, with no station and no field values (they are one tap away in the entry); on a computer the table keeps the metric columns above and adds the **scouter**. Progress stacks up to four charts (§12.5). Notes are quotes, newest first. A team with no entries shows "No entries for this team yet".
+
 ### 13.2 Team search page
 
 Searches **all teams in the season** by number or name.
@@ -1641,6 +1652,8 @@ Searches **all teams in the season** by number or name.
 - A team **in the active event** shows a **small side rank badge**; the **top 3 carry a medal icon**. Teams not in the active event show no rank.
 - Team **in the active event** → a button → that team's page (13.1).
 - Team **not in the active event** → a **differently-styled button** → pick from the **events that team competed at** (events where we hold entries for it) → an **"are you sure?" confirmation** → on yes, switch the active event as a **session-only override** and land on that team's page. **Disabled offline.**
+
+*(v1.42, user 2026-10-23)* **The page as designed** (`docs/design/pages/23-team-search/final/`): one list with the chips All · **At this event (the default)** · Other events, filtering as you type. A team at the active event is a row whose **whole area opens its team page** (a round › at the end; pressed or hovered rows tint with an accent edge). It carries the rank badge at the side, with the medal on the top 3. A team at another event shows a dashed **Other event** button instead. While At this event is selected, a closing line offers "n more teams at other events · Show all". The computer table is Team · Rank here · Entries here, with no column naming other events. The event pick is a sheet of radio rows (events where we hold entries); the are-you-sure names the event and the team, says the switch is for this session and this device only, and offers **Keep District #3** first. The phone bottom bar becomes Home · Scout · Search · Entries.
 
 ### 13.3 Entry search page
 
@@ -1650,9 +1663,13 @@ Searchable by **team name, team number, match number, scouter name**. Each row s
 
 Filters as chips, search that filters as you type. A row opens the preview **as a full page, not a drawer**.
 
+*(v1.43, user 2026-10-23)* **One page.** The entry search *is* `/entries`: the Entries page as designed in round 05 (search, All · Mine · Waiting · Needs a look) plus a **Both · Match · Super** switch (Both by default). Super entries sit in the list by time with a SUPER tag and no score, and every row opens the entry preview. The station tag is dropped from the list (table and phone cards). Design: `docs/design/pages/26-entry-search/final/`.
+
 ### 13.4 Entry preview page
 
 A read-only rendering of a **single entry**: all field values laid out **by phase**, plus the entry's **scouted score**, team, match, alliance, robot status, scouter, form kind and timestamp.
+
+*(v1.41, user 2026-10-23)* **The page as designed** (`docs/design/pages/25-entry-preview/final/`): a header with the match, team, robot status, station, form kind and the score ("—" over "not counted" for an excluded entry; no score for a super entry), then "Scouted by …", the time and the **form version**. A match entry with a score then shows a **score band**: where the points came from, by phase, against the team's average. The answers follow by phase, each phase with its **points subtotal** and each scored row with its **points**. A no-show or disabled entry shows a note and no field rows. At the end come **Team page** and **Edit**; Edit shows only to someone allowed to edit it under §7.6 (the scouter's own match entry within its 5 minutes, their own super entry, a lead or an admin) and opens the entry in its form.
 
 ### 13.5 Ranking page
 
