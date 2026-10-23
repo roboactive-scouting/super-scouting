@@ -185,6 +185,13 @@ Only the Vercel runtime log separates them.
 - **Push authorization is per operation, against `op.author_user_id`, not against the
   bearer** (§7.5). That is what makes a shared collector tablet work.
 - **No Postgres RLS.** Authorization lives in the use-case layer.
+- **Every migration that creates a table grants it to `service_role` in the same file**:
+  `grant select, insert, update, delete on public.<table> to service_role;`. Since
+  2026-10-30 Supabase no longer grants new `public` tables automatically, and without
+  the grant the server gets "permission denied" — on dev after CI's push, and on a
+  rebuilt schema. Never grant `anon` or `authenticated`: the client does not use the
+  Data API. Migration `20261023090000_service_role_grants.sql` covers every table
+  that existed before the change.
 - **A dead or no-show robot never records zeros** (§11.3).
 - **`main` is barred from receiving phase 1A until the bearer token lands**
   (SPEC §19.4): the slice is unauthenticated, and `main` deploys to a public

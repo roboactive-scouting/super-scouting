@@ -11,7 +11,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { formatCount, formatTime } from '@frc/shared';
-import { QR_FRAMES_PER_SECOND } from '@frc/shared/qr';
+import { frameToText, QR_FRAMES_PER_SECOND, QR_MODULES, QR_VERSION } from '@frc/shared/qr';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useModalFocus } from '@/components/ui/useModalFocus';
@@ -23,8 +23,8 @@ import { markShownByQr, planLine, planQrSend, type QrBatch, type QrSendPlan } fr
 
 /** Quiet modules around the code; the white card's 10 px padding adds the rest. */
 const QR_MARGIN = 1;
-/** A version-40 code is 177 modules a side. */
-const QR_MODULES = 177 + 2 * QR_MARGIN;
+/** The drawn side in modules: a version-`QR_VERSION` code (89 modules) and its margin. */
+const QR_SIDE = QR_MODULES + 2 * QR_MARGIN;
 
 /**
  * `/sync/qr/send` (20-qr-send final, variant A; SPEC-FINAL 9.8; task 1.47): this device's whole
@@ -80,10 +80,13 @@ export function QrSendPage({ onDone }: { onDone?: () => void }) {
     if (!el || !frame) return;
     // As many device pixels per module as the card allows, so the modules stay sharp.
     const px = el.clientWidth * (window.devicePixelRatio || 1);
-    const scale = px > 0 ? Math.max(1, Math.floor(px / QR_MODULES)) : 4;
-    void QRCode.toCanvas(el, [{ data: frame, mode: 'byte' }], {
+    const scale = px > 0 ? Math.max(1, Math.floor(px / QR_SIDE)) : 4;
+    // The frame as Base45 text in one alphanumeric segment, which every reader returns intact
+    // (BarcodeDetector's rawValue is a string), at one fixed version so the code never changes
+    // size between frames (DEVIATIONS, "Phase 1 G fix").
+    void QRCode.toCanvas(el, [{ data: frameToText(frame), mode: 'alphanumeric' }], {
       errorCorrectionLevel: 'M',
-      version: 40,
+      version: QR_VERSION,
       margin: QR_MARGIN,
       scale,
     }).catch(() => undefined);

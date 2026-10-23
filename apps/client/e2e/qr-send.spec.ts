@@ -1,4 +1,22 @@
+import { createRequire } from 'node:module';
 import { expect, test, type Page } from '@playwright/test';
+import {
+  BarcodeFormat,
+  BinaryBitmap,
+  DecodeHintType,
+  HybridBinarizer,
+  QRCodeReader,
+  RGBLuminanceSource,
+} from '@zxing/library';
+import { newCollector, QR_MODULES, textToFrame } from '@frc/shared/qr';
+import { improveFinder } from '../src/features/qr/zxingFinder';
+
+/** zxing's QR finder in the build Node loads `@zxing/library` from (cjs/), to fix as the app does. */
+const FinderPatternFinder = (
+  createRequire(import.meta.url)('@zxing/library/cjs/core/qrcode/detector/FinderPatternFinder') as {
+    default: { prototype: object };
+  }
+).default;
 import { goOffline, signIn } from './api-mock';
 import { ENTRIES, EVENT_ID, FORM, MATCHES, teamId, userByName } from './fixtures';
 import { shoot } from './shoot';
@@ -159,11 +177,12 @@ test('qr send: the moving code, looping by itself, over Sync on a computer', asy
   await expect(counter(page)).toHaveText(/^Frame \d+ of \d+$/);
   await expect(sender.getByRole('button', { name: 'Done — back to Sync' })).toBeVisible();
   await expect(sender.getByRole('button', { name: /next batch/i })).toHaveCount(0);
-  // The code is drawn: a version-40 canvas, black on white.
-  const drawn = await sender
+  // The code is drawn: a version-18 canvas (89 modules and a 1-module margin a side), square.
+  const side = await sender
     .getByRole('img', { name: /QR code/ })
-    .evaluate((c: HTMLCanvasElement) => c.width > 177 && c.width === c.height);
-  expect(drawn).toBe(true);
+    .evaluate((c: HTMLCanvasElement) => (c.width === c.height ? c.width : -1));
+  expect(side).toBeGreaterThan(QR_MODULES + 2);
+  expect(side % (QR_MODULES + 2)).toBe(0);
 
   await shoot(page, 'qr-send');
 
@@ -188,7 +207,8 @@ test('qr send: above 200 records, batch 1 of 2, then Next batch and the last bat
   await page.getByRole('button', { name: /next batch/i }).click();
   await expect(page.getByRole('dialog')).toContainText('Batch 2 of 2');
   await expect(page.getByRole('dialog')).toContainText('the last 5 records');
-  await expect(counter(page)).toHaveText(/^Frame 1 of 1$/);
+  // Five records are two 500-byte frames.
+  await expect(counter(page)).toHaveText(/^Frame [12] of 2$/);
   await expect(page.getByRole('button', { name: /next batch/i })).toHaveCount(0);
   await shoot(page, 'qr-send-last-batch');
 });
@@ -237,4 +257,93 @@ test('qr send: Escape closes it on a computer', async ({ page }) => {
   await page.keyboard.press('Escape');
   await expect(page).toHaveURL(/\/sync$/);
   await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+/**
+ * Pictures of the sender's canvas as a camera might take them, one each time the frame changes,
+ * for `cycles` full loops: each scaled down (smoothed) to `px` pixels a module on the white
+ * plate's border, as luminance (base64). A camera at 1080p sees the code at about this resolution
+ * from 20 cm. Taken in the page, on each animation frame, so no frame is missed by a slow round
+ * trip to the test.
+ */
+async function snapshots(page: Page, px: number, cycles: number) {
+  return page.getByRole('img', { name: /QR code/ }).evaluate(
+    (canvas: HTMLCanvasElement, { px, modules, cycles }) =>
+      new Promise<{ side: number; shots: string[] }>((done) => {
+        const counter = document.querySelector('[role="dialog"] [role="status"]')!;
+        const border = 3 * px;
+        const code = modules * px;
+        const side = code + 2 * border;
+        const shot = document.createElement('canvas');
+        shot.width = side;
+        shot.height = side;
+        const g = shot.getContext('2d', { willReadFrequently: true })!;
+        const shots: string[] = [];
+        let last = '';
+        let changes = 0;
+        const take = () => {
+          g.fillStyle = '#fff';
+          g.fillRect(0, 0, side, side);
+          g.imageSmoothingEnabled = true;
+          g.drawImage(canvas, border, border, code, code);
+          const rgba = g.getImageData(0, 0, side, side).data;
+          let luma = '';
+          for (let i = 0; i < rgba.length; i += 4) {
+            luma += String.fromCharCode(
+              Math.round(0.299 * rgba[i]! + 0.587 * rgba[i + 1]! + 0.114 * rgba[i + 2]!),
+            );
+          }
+          shots.push(btoa(luma));
+        };
+        const total = Number(counter.textContent!.match(/of (\d+)/)![1]);
+        const tick = () => {
+          const now = counter.textContent!;
+          if (now !== last) {
+            last = now;
+            changes += 1;
+            take();
+          }
+          if (changes > total * cycles) done({ side, shots });
+          else requestAnimationFrame(tick);
+        };
+        tick();
+      }),
+    { px, modules: QR_MODULES + 2, cycles },
+  );
+}
+
+test('qr send: the drawn code reads back with zxing, every frame, at 3 px a module', async ({
+  page,
+}) => {
+  test.slow();
+  const ops = operations(40, 1);
+  await openSync(page, ops);
+  await openSender(page);
+  await expect(counter(page)).toHaveText(/^Frame \d+ of \d+$/);
+  const total = Number((await counter(page).textContent())!.match(/of (\d+)/)![1]);
+  expect(total).toBeGreaterThan(1);
+
+  const { side, shots } = await snapshots(page, 3, 2);
+  // The receiver's reader: zxing with its finder fixed (qrScanner.ts; Node loads the cjs/ build).
+  improveFinder(FinderPatternFinder);
+  const reader = new QRCodeReader();
+  const hints = new Map([[DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.QR_CODE]]]);
+  const collector = newCollector();
+  const read = new Set<number>();
+  for (const shot of shots) {
+    const luma = Uint8ClampedArray.from(Buffer.from(shot, 'base64'));
+    const source = new RGBLuminanceSource(luma, side, side);
+    let text: string;
+    try {
+      text = reader.decode(new BinaryBitmap(new HybridBinarizer(source)), hints).getText();
+    } catch {
+      continue; // a picture taken mid-redraw: the next pass has it
+    }
+    const frame = textToFrame(text);
+    collector.add(frame);
+    read.add(new DataView(frame.buffer).getUint16(4, false));
+  }
+  expect(read.size).toBe(total);
+  expect(collector.isComplete()).toBe(true);
+  expect(collector.result().map((op) => op.op_id)).toEqual(ops.map((op) => op.op_id));
 });

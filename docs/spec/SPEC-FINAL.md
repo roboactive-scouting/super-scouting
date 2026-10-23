@@ -1,6 +1,10 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.36 · **Date:** 2026-10-20 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.38 · **Date:** 2026-10-23 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.38: QR frames are 500-byte Base45 text in alphanumeric mode at a fixed version 18, the receiver asks for a 1080p camera and uses the browser's own QR reader where it has one (§9.8, D12); version 40 was unreadable by a phone camera (user, 2026-10-23). See the living spec's §21, v0.90.*
+
+*v1.37: every migration that creates a table grants it to `service_role` explicitly, because Supabase stops doing so automatically on 2026-10-30 (§19.4). See the living spec's §21, v0.89.*
 
 *v1.36 (Phase 1 G build): a received QR copy never replaces the receiving device's own unsent change, and discarding received QR data makes the next sync a full pull (§9.8). See the living spec's §21, 2026-10-20 (v0.88).*
 
@@ -1232,16 +1236,16 @@ The venue workflow: a **central tablet collects scouters' data by QR inside the 
 |---|---|
 | Payload | The sender's pending outbox operations, serialised as JSON |
 | Compression | **`fflate`** raw deflate (browser-safe, tiny, fast) |
-| Framing | The compressed byte stream is split into frames of **2,300 bytes** |
-| QR parameters | Version 40, error-correction level **M**, **byte mode** (binary — no base64 expansion) |
+| Framing | The compressed byte stream is split into frames of **500 bytes** *(v1.38; was 2,300)* |
+| QR parameters | *(v1.38)* Each frame (header + slice) is written as **Base45 text** (RFC 9285) in **alphanumeric mode** — about 3% larger than raw bytes, and plain text, so every scanner reads it. Error-correction level **M**; **one fixed version for the batch, version 18** (89 modules), the smallest that holds a full frame. *Was version 40 byte mode: 177 modules, unreadable by a phone camera at the resolution a browser opens it.* |
 | Frame header | 12 bytes: 4-byte batch id, 2-byte frame index, 2-byte frame count, 4-byte CRC32 of the *whole* compressed payload |
 | Display | **Cyclic repeat at 5 frames per second** — frames are shown 1…N, 1…N, … indefinitely until the sender stops |
-| Library — render | `qrcode` (byte-mode capable) |
-| Library — scan | `@zxing/browser`, continuous scan from the rear camera |
+| Library — render | `qrcode` |
+| Library — scan | *(v1.38)* The browser's own **`BarcodeDetector`** where it reads `qr_code` (Android Chrome), else **`@zxing/browser`** (iPhone Safari) with zxing 3.4's finder-pattern selection. Continuous scan from the rear camera, asked for at **1920×1080** with continuous focus where offered. |
 
 The receiver collects frames by index and completes when it holds all N. Order does not matter, and because the sender loops indefinitely, a frame missed on one pass is caught on the next.
 
-**Sizing.** ~200 KB of raw JSON (≈100–200 entries) compresses to roughly 20–30 KB → **9–13 frames** → one full cycle in ~2.5 s, with a complete scan typically inside 5 s. The sender **caps a batch at 200 operations** and splits larger backlogs into consecutive batches, each with its own batch id.
+**Sizing.** *(v1.38)* A realistic backlog of 100–200 entries compresses to roughly 10–30 KB → **about 20–60 frames** → one full cycle in about 4–12 s; frames are collected in any order, so a scan completes within a few cycles. The sender **caps a batch at 200 operations** and splits larger backlogs into consecutive batches, each with its own batch id.
 
 **Semantics.**
 
@@ -2173,6 +2177,7 @@ A pull request into `main` cannot merge unless the run is green.
 - **CI auto-applies them to the dev project** on every push to `develop`.
 - **Production is migrated by hand, one deliberate CLI command** — never automatically on merge. A merge on a Friday must not be able to alter the database on a competition Saturday.
 - **The production schema is never hand-edited in the Supabase dashboard.** The schema must be reproducible from the repo alone.
+- **Every migration that creates a table grants it to `service_role`** (`select, insert, update, delete`) in the same file, and grants nothing to `anon` or `authenticated`. From 2026-10-30 Supabase no longer grants new `public` tables automatically.
 
 ### 19.5 Required documentation deliverables
 
@@ -2492,7 +2497,7 @@ Every one of these is a decision that was **made** during consolidation because 
 | D9 | Match-timer configuration location | `forms.timer_config`, edited in place, no new version | §3.3, §8.4 |
 | D10 | Cross-version type change | Metric refuses with an explicit message rather than mixing types | §11.7 |
 | D11 | Practice-mode drafts | A separate IndexedDB store, cleared on exit from practice mode | §8.5 |
-| D12 | QR encoding parameters | fflate deflate, 2,300-byte frames, QR v40/EC-M byte mode, cyclic repeat at 5 fps, 200-op batch cap | §9.8 |
+| D12 | QR encoding parameters | fflate deflate, 500-byte frames as Base45 text, QR v18/EC-M alphanumeric mode, cyclic repeat at 5 fps, 200-op batch cap; native `BarcodeDetector` else zxing, 1080p camera *(v1.38; was 2,300-byte v40 byte mode)* | §9.8 |
 | D13 | Device wipe code | `VITE_DEVICE_WIPE_CODE`, explicitly not a secret | §9.9 |
 | D14 | Disposal of QR copies | **On cloud ack, with no TTL** — never before the ack, plus a manual "discard received QR data" action guarded the same way as the device wipe | §9.8 |
 | D15 | Parent-deleted records | Client hard-deletes, but raises a notice naming exactly what was discarded and logs it locally | §9.7 |

@@ -1,5 +1,3 @@
-import { BrowserQRCodeReader, type IScannerControls } from '@zxing/browser';
-import { DecodeHintType } from '@zxing/library';
 import { Camera, CameraOff, Check, Info, TriangleAlert, Volume2, VolumeX } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -18,7 +16,8 @@ import { qrSound, useBoolPref } from '@/lib/devicePrefs';
 import { plural } from '@/lib/plural';
 import { useIsDesktop } from '@/lib/useMediaQuery';
 import { cn } from '@/lib/utils';
-import { batchOperations, FRAME_CHARSET, frameBytes, frameHeader } from './qrFrame';
+import { batchOperations, frameFromText, frameHeader } from './qrFrame';
+import { startScanner, type Scanner } from './qrScanner';
 
 /** The camera: starting, running, refused by the browser or the user, or failed otherwise. */
 type CameraState = 'starting' | 'on' | 'blocked' | 'failed';
@@ -27,15 +26,12 @@ type Trouble = 'damaged' | 'unsaved' | null;
 type Phase = { kind: 'scanning' } | { kind: 'saving' } | { kind: 'done'; summary: BatchSummary };
 type Progress = { total: number | null; held: number[] };
 
-/** Between decode attempts and after a hit: fast enough for a sender at five frames a second. */
-const SCAN_DELAY_MS = 50;
-
 /**
  * `/sync/qr/receive` (21-qr-receive final, variant C; SPEC-FINAL 9.8; task 1.48): the collector
  * tablet scans another phone's looping QR frames. Scanning runs continuously from the rear camera
- * (`decodeFromVideoDevice` with no device asks for `facingMode: 'environment'`); every decoded
- * frame's bytes go into a `Collector`, the ring counts them and one cell per frame shows which
- * are held, in any order. A batch is written only when complete — `receiveOperations`, one
+ * at 1080p (`qrScanner`: the browser's BarcodeDetector where it reads QR codes, zxing elsewhere);
+ * every decoded code's Base45 text is turned back into the frame's bytes and goes into a
+ * `Collector`, the ring counts them and one cell per frame shows which are held, in any order. A batch is written only when complete — `receiveOperations`, one
  * transaction — so leaving mid-batch writes nothing. A checksum failure drops the batch whole and
  * starts again. Done: the whole screen turns `--accent`, a beep (unless Sound is off on this
  * device) and a vibration where the device has one.
@@ -147,36 +143,28 @@ export function QrReceivePage({ onDone }: { onDone?: () => void }) {
   useEffect(() => {
     if (!video) return;
     let stopped = false;
-    let controls: IScannerControls | null = null;
+    let scanner: Scanner | null = null;
     setCamera('starting');
-    // Byte-mode text is decoded as ISO-8859-1, never guessed: the frames are binary, and the
-    // bytes are read from the result's byte segments anyway (qrFrame.frameBytes).
-    const hints = new Map([[DecodeHintType.CHARACTER_SET, FRAME_CHARSET]]);
-    const reader = new BrowserQRCodeReader(hints, {
-      delayBetweenScanAttempts: SCAN_DELAY_MS,
-      delayBetweenScanSuccess: SCAN_DELAY_MS,
-    });
-    reader
-      .decodeFromVideoDevice(undefined, video, (result) => {
-        if (stopped || !result) return;
-        const bytes = frameBytes(result);
-        if (bytes) void handle.current(bytes);
-      })
-      .then(
-        (started) => {
-          if (stopped) started.stop();
-          else {
-            controls = started;
-            setCamera('on');
-          }
-        },
-        (error: unknown) => {
-          if (!stopped) setCamera(isBlocked(error) ? 'blocked' : 'failed');
-        },
-      );
+    startScanner(video, (text) => {
+      if (stopped) return;
+      // Not Base45 (a foreign code): ignored, and the scan goes on.
+      const bytes = frameFromText(text);
+      if (bytes) void handle.current(bytes);
+    }).then(
+      (started) => {
+        if (stopped) started.stop();
+        else {
+          scanner = started;
+          setCamera('on');
+        }
+      },
+      (error: unknown) => {
+        if (!stopped) setCamera(isBlocked(error) ? 'blocked' : 'failed');
+      },
+    );
     return () => {
       stopped = true;
-      controls?.stop();
+      scanner?.stop();
     };
   }, [video, attempt]);
 

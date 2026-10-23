@@ -1,50 +1,46 @@
-import { ResultMetadataType, ZXingStringEncoding, type Result } from '@zxing/library';
+import { ZXingStringEncoding } from '@zxing/library';
 import { operationSchema, type Operation } from '@frc/shared';
-import { QR_BATCH_MAX_OPERATIONS, QR_HEADER_BYTES } from '@frc/shared/qr';
+import { QR_BATCH_MAX_OPERATIONS, QR_HEADER_BYTES, textToFrame } from '@frc/shared/qr';
 
 /**
  * The QR receiver's frame handling (SPEC-FINAL 9.8; task 1.48). Only the lazy receive page
  * imports this module, so `@zxing/library` and the codec never reach the initial chunk.
  */
 
-/** The character set the page asks zxing to read byte-mode text in (never guessed). */
-export const FRAME_CHARSET = 'ISO-8859-1';
-
 /**
- * zxing turns every byte segment into text too, and fails the whole code when that throws. For
- * ISO-8859-1 outside what it recognises as a browser (a test's jsdom, a webview) it falls back to
- * `decodeURIComponent`, which throws on binary. Every byte is one ISO-8859-1 character, so this
- * decoder never throws; any other character set goes to the platform's TextDecoder as before.
+ * zxing turns a byte-mode code's bytes into text with `TextDecoder` and a guessed character set.
+ * Our frames are alphanumeric text and never reach this, but any other code held up to the
+ * camera may (a URL on a badge): a decoder that throws — a character set this browser's
+ * TextDecoder does not know, or zxing's `decodeURIComponent` fallback on a page it does not take
+ * for a browser — is not an error zxing's scan loop retries after, and the loop would stop for
+ * good. This decoder never throws: what TextDecoder cannot read is read as ISO-8859-1, one
+ * character per byte, and then ignored as not Base45.
  */
 function decodeText(bytes: Uint8Array, encoding: string): string {
-  if (encoding.toUpperCase() !== FRAME_CHARSET) return new TextDecoder(encoding).decode(bytes);
-  let text = '';
-  for (let at = 0; at < bytes.length; at += 4096) {
-    text += String.fromCharCode(...bytes.subarray(at, at + 4096));
+  try {
+    return new TextDecoder(encoding).decode(bytes);
+  } catch {
+    let text = '';
+    for (let at = 0; at < bytes.length; at += 4096) {
+      text += String.fromCharCode(...bytes.subarray(at, at + 4096));
+    }
+    return text;
   }
-  return text;
 }
 ZXingStringEncoding.customDecoder = decodeText;
 
 /**
- * A decoded frame's raw bytes. The sender writes each frame as one **byte-mode** segment of
- * binary data (task 1.47), and `Result.getText()` is lossy for binary: zxing decodes the bytes
- * as text in a guessed character set. The bytes themselves are in the result's
- * `BYTE_SEGMENTS` metadata (QRCodeReader puts the decoder's byte segments there), one
- * Uint8Array per byte-mode segment; they are concatenated in order. Null when the code holds no
- * byte segment (a text or numeric code is not one of ours).
+ * A decoded code's frame: the sender draws each frame as Base45 text in one alphanumeric
+ * segment (`frameToText`), and every reader — zxing's `getText()`, BarcodeDetector's `rawValue`
+ * — hands that text back as it was. Null when the text is not Base45 (a foreign code); the scan
+ * goes on. A text too short to be a frame is turned away by `frameHeader`.
  */
-export function frameBytes(result: Pick<Result, 'getResultMetadata'>): Uint8Array | null {
-  const segments = result.getResultMetadata()?.get(ResultMetadataType.BYTE_SEGMENTS) as
-    Uint8Array[] | undefined;
-  if (!segments || segments.length === 0) return null;
-  const bytes = new Uint8Array(segments.reduce((n, s) => n + s.byteLength, 0));
-  let at = 0;
-  for (const segment of segments) {
-    bytes.set(segment, at);
-    at += segment.byteLength;
+export function frameFromText(text: string): Uint8Array | null {
+  try {
+    return textToFrame(text);
+  } catch {
+    return null;
   }
-  return bytes;
 }
 
 export type FrameHeader = { batchId: number; index: number; count: number };
