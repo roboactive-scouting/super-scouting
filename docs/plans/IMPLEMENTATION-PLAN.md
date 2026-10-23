@@ -1,6 +1,7 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.19 · **Date:** 2026-10-20 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.20 · **Date:** 2026-10-23 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.20 (2026-10-23): a side task at the top of Phase 1 H: the sign-in fields stay left-to-right when the keyboard types Hebrew (user).*
 *v1.19 (2026-10-20): side task 2 of 1.47 is designed (`docs/design/pages/22-super-readonly/final/`, spec v0.87 / SPEC-FINAL v1.35 §7.6, §8.1): a quiet read-only page replaces the lock line, and the super picker names who did each Done team.*
 *v1.18 (2026-10-20): the QR receiver is designed (`docs/design/pages/21-qr-receive/final/`, spec v0.86 / SPEC-FINAL v1.34 §9.8); task 1.48 points at it.*
 *v1.17 (2026-10-20): the QR sender is designed (`docs/design/pages/20-qr-send/final/`, spec v0.85 / SPEC-FINAL v1.33 §9.8): a Next batch button and a Screen Wake Lock (Q7.9, Q7.10); task 1.47 points at it.*
@@ -15858,6 +15859,8 @@ git add -A && git commit -m "feat(client): add the lead-approved device wipe, re
 ---
 
 # Phase 1 H — browse and search (§20.2.8)
+
+> **Side task (v1.20, user 2026-10-23): sign-in fields stay left-to-right in Hebrew.** On `/login`, a password typed with the Hebrew keyboard by mistake is drawn from the right and runs under the eye button (screenshot from the user: the text sits over the eye icon). Usernames and passwords are Latin credentials, so `PasswordInput` and the username field get `dir="ltr"` with left-aligned text, keeping the eye's `pe-12` room, wherever they are used (sign-in, Switch scouter, Change password, reconnect, the admin's set-password). *[RAISED BY ME]* While the field holds any Hebrew letter, a quiet `--muted` line under it says "Your keyboard is typing Hebrew." (never an error, and the value is not changed). Tests: the input is `dir="ltr"`; Hebrew text shows the hint and Latin text does not; e2e shots of `/login` with a Hebrew password at both widths in every theme, shown and hidden. Logged under Phase 1 H in `DEVIATIONS.md`; ships with Phase 1 H.
 
 ---
 
