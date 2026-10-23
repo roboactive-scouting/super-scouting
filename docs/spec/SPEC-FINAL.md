@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.44 · **Date:** 2026-10-23 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.45 · **Date:** 2026-10-23 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.45: no edit is possible after the 5 minutes (§7.6): an open form counts down its last minute, saves what is typed at 5:00 and locks. See the living spec's §21, v0.97.*
 
 *v1.44: a record refused for the edit window reads "Not sent: changed after the 5-minute edit window. A lead can save it for you." everywhere (§7.6), replacing "this entry is locked — ask a lead". See the living spec's §21, v0.96.*
 
@@ -930,8 +932,13 @@ A scouter may edit their **own** entry for **5 minutes** after creating it. Afte
 **Super entries are exempt** *(v1.26, user, 2026-10-12)*: a scouter may edit their own super entry (§8.1) at any time during the event. A super entry is one running judgement of a team, built up over every match the scouter watches, not a record of one match, so locking it after five minutes defeats its purpose. The window below applies to `form_kind = 'match'` entries only, on the client and on the server; another scouter's super entry stays read-only to a scouter, as before. *(v1.32, user 2026-10-20)* **Read only means visible:** a scouter who opens another scouter's super entry sees *(v1.35: in place of the lock line)* a **Read only** chip, **whose entry it is** (the author, when it was started and last changed, and how many matches the author scouted the team in) with "Only *name*, a lead or an admin can change it.", **and the entry's answers by phase**, as the confirmation summary shows them (map fields open their map view only), with no control that edits. Leads and admins still edit any super entry at any time.
 
 - The window is measured from the entry's **`client_created_at`**, so it behaves identically offline and online.
-- The **client enforces it** by locking the UI at the 5-minute mark.
-- **The server also enforces it**, using the two client timestamps carried on the mutation: an operation whose `author_user_id` has the `scouter` role and targets its own entry is accepted only when `client_updated_at − client_created_at ≤ 5 minutes`. An edit outside the window is rejected with `edit-window-expired`, and the client surfaces it as **"Not sent: changed after the 5-minute edit window. A lead can save it for you."** *(v1.44, user 2026-10-23; was "this entry is locked — ask a lead", which read as if syncing had locked it)*. The same one line is the refused-record line on Entries and on Sync, with no second "why" sentence; the server's `message` for this code is the same text.
+- The **client enforces it** by locking the UI at the 5-minute mark. *(v1.45, user 2026-10-23)* **There is no way to edit after 5 minutes:**
+  - Once the window has closed, nothing offers an edit: the Entry preview shows no Edit (§13.4), and opening the entry from Entries, Sync or the team page shows it read only.
+  - **A form left open runs down with the window.** In the last 60 seconds the form's Save bar shows a countdown, "Editable for 0:45" (mono, `--warn`), above the Save button.
+  - **At 5:00 the form saves what is typed and locks.** The save is stamped `client_updated_at` = `client_created_at` + 5:00, so it passes the server's check below. The form then becomes the read-only entry preview, with a Success banner: "Saved — the 5 minutes are up."
+  - **[RAISED BY ME] A change that cannot be saved is not kept.** A value the save would refuse (out of `expected_range`, §15.1; a required field emptied) keeps its last saved value. The banner says so in one line per field: "Not kept: High goal 40 is over 20." The lead can still make that change. Nothing else typed is lost.
+  - Leads, admins and super entries are unaffected (above).
+- **The server also enforces it**, using the two client timestamps carried on the mutation: an operation whose `author_user_id` has the `scouter` role and targets its own entry is accepted only when `client_updated_at − client_created_at ≤ 5 minutes`. An edit outside the window is rejected with `edit-window-expired`, and the client surfaces it as **"Not sent: changed after the 5-minute edit window. A lead can save it for you."** *(v1.44, user 2026-10-23; was "this entry is locked — ask a lead", which read as if syncing had locked it)*. The same one line is the refused-record line on Entries and on Sync, with no second "why" sentence; the server's `message` for this code is the same text. *(v1.45)* With the client rule above, this refusal is only a safety net (a device clock moved back, a bug); a scouter should not meet it in normal use.
 - **The server compares the two client timestamps to each other, never to server time.** An entry created and edited offline and uploaded six hours later still passes, because the elapsed time measured is the scouter's own, exactly as it is on-device.
 - Scouters never hard-delete entries. Removal is a lead/admin soft-delete.
 - Leads and admins may edit or manage any entry at any time.

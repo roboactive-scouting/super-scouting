@@ -1,6 +1,7 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.27 · **Date:** 2026-10-23 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.28 · **Date:** 2026-10-23 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.28 (2026-10-23): a fifth side task at the top of Phase 1 H: no edit after 5 minutes — countdown, save at the mark, lock (user; SPEC-FINAL v1.45 §7.6).*
 *v1.27 (2026-10-23): a fourth side task at the top of Phase 1 H: the edit-window refusal reads "Not sent: changed after the 5-minute edit window. A lead can save it for you." (user; SPEC-FINAL v1.44 §7.6).*
 *v1.26 (2026-10-23): the entry search is designed as the Entries page plus a kind switch (`docs/design/pages/26-entry-search/final/`, spec v0.95 / SPEC-FINAL v1.43 §13.3); task 1.52 extends the existing `/entries` page instead of replacing it.*
 *v1.25 (2026-10-23): the team search page is designed (`docs/design/pages/23-team-search/final/`, spec v0.94 / SPEC-FINAL v1.42 §13.2); task 1.51 points at it.*
@@ -15874,6 +15875,25 @@ git add -A && git commit -m "feat(client): add the lead-approved device wipe, re
 > **Side task 3 (v1.22, user 2026-10-23): option-button labels never split mid-word.** In a four-column option group on a phone (the screenshot: an end-game select with Climb · Parked · Low …), "Parked" with its ✓ breaks as "Park / ed", because `components/ui/option-buttons.tsx` lets the label break anywhere (`[overflow-wrap:anywhere]`). A label wraps only **between words**; a single word never breaks. When the longest word of any option does not fit beside the ✓ at four columns, the whole group drops to two columns (one rule for the group, so the buttons stay even), measured, not guessed from character counts; a word too long even for one column (rare) may still break, as the last resort. The ✓ keeps its place. Applies wherever `OptionButtons` is used (entry fields, builder preview). Tests: "Parked", "Defense" and a Hebrew label are never split at 375 px; a group whose longest word fits keeps four columns; e2e shots of the entry's end-game group at 375 and 1440 in every theme, with the selected state. Logged under Phase 1 H in `DEVIATIONS.md`; ships with Phase 1 H.
 
 > **Side task 4 (v1.27, user 2026-10-23): the edit-window refusal says what happened** (SPEC-FINAL v1.44 §7.6). A record refused with `edit-window-expired` now reads, on Entries and on Sync alike, **"Not sent: changed after the 5-minute edit window. A lead can save it for you."** — one line, replacing "Not synced: This entry is locked — ask a lead" (Entries) and "Not sent: This entry is locked — ask a lead. It was changed after its 5 minutes were up." (Sync). `rejectionMessage` (`apps/client/src/data/rejections.ts`) returns "Changed after the 5-minute edit window. A lead can save it for you."; the refused-line label is **"Not sent:"** on both pages (`EntryParts.tsx` changes from "Not synced:"); Sync drops its second "why" sentence for this code; `syncPush`'s `message` for the code becomes the same sentence in lower case. The entry form's own lock message when a scouter opens a locked entry (`EntryPage`, `SuperForm`) is out of scope. Tests: the unit tests and e2e specs that pin the old text (`rejections.test.ts`, `EntriesPage.test.tsx`, `SyncPage.test.tsx`, `outbox.test.ts`, `entries.spec.ts`, `sync.spec.ts`) pin the new one; e2e shots of the refused line on Entries and Sync at both widths in every theme. Logged under Phase 1 H in `DEVIATIONS.md`; ships with Phase 1 H.
+
+> **Side task 5 (v1.28, user 2026-10-23): no edit after 5 minutes** (SPEC-FINAL v1.45 §7.6). Today a scouter's form left open across the 5-minute mark keeps accepting input and only `commit()` refuses ("This entry is locked — ask a lead to change it.", `EntryPage.tsx`). Instead, for a scouter editing their own **match** entry (leads, admins and super entries unchanged):
+> - In the last 60 s the Save bar shows "Editable for 0:45" (mono, `--warn`) above the button, ticking each second from `client_created_at` (the same clock `canSelfEdit` uses).
+> - At the mark the form commits what is typed with `client_updated_at` = `client_created_at` + 5:00 (so `withinSelfEditWindow` passes on the server). It then navigates to the read-only `/entries/:id` (page 25), which shows the Success banner "Saved — the 5 minutes are up."
+> - A field whose value would fail the save's checks (out of `expected_range`, a required field emptied) keeps its last saved value, and the banner adds one line per field: "Not kept: High goal 40 is over 20."
+> - Every other place that could start an edit after the window shows the entry read only: Entries, Sync's **Open entry**, the team page's match rows. The preview's Edit is already hidden.
+> - The old "locked" error in `commit()` stays only as the last guard.
+> 
+> Built from the existing Primary action bar, Success banner and Error-line parts; **no new design page.**
+> 
+> Tests (fake timers):
+> - the countdown appears at 4:00, not before;
+> - at 5:00 the entry is saved with the stamped time and the form is gone;
+> - an out-of-range edit at the mark keeps the old value and names it;
+> - a lead's form never counts down;
+> - a super entry never counts down;
+> - e2e shots of the countdown and the banner at both widths in every theme.
+> 
+> Logged under Phase 1 H in `DEVIATIONS.md`; ships with Phase 1 H.
 
 ---
 
