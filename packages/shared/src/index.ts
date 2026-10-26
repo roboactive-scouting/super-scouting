@@ -33,3 +33,4 @@ export * from './version';
 export * from './engine/score';
 export * from './engine/select';
 export * from './engine/types';
+export * from './engine/aggregate';

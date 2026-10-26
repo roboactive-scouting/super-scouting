@@ -896,7 +896,7 @@ function selectOptions(field) {
 }
 
 // ../../packages/shared/src/forms/visibility.ts
-function compare(left, op, right) {
+function conditionHolds(left, op, right) {
   switch (op) {
     case "=":
       return left === right;
@@ -922,7 +922,7 @@ function isVisible(field, values) {
   if (!condition) return true;
   const controlling = values[condition.field_key];
   if (controlling === void 0) return false;
-  return compare(controlling, condition.op, condition.value);
+  return conditionHolds(controlling, condition.op, condition.value);
 }
 
 // ../../packages/shared/src/forms/validate.ts
