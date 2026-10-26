@@ -8,7 +8,14 @@ import { cachedRows } from '@/data/cache';
 import { db } from '@/data/db';
 import { matchLabel } from '@/lib/matchLabel';
 import { EntryPage } from './EntryPage';
-import { canSelfEdit, findLocalEntry, type Editor, type LocalEntry } from './localEntries';
+import { MatchReadOnly } from './lazyParts';
+import {
+  canSelfEdit,
+  editableUntil,
+  findLocalEntry,
+  type Editor,
+  type LocalEntry,
+} from './localEntries';
 import { usePracticeMode } from './practice';
 import type { SavedNotice } from './SelectRobotPage';
 import { draftedVersion } from './useDraft';
@@ -48,6 +55,13 @@ type Resolved = {
   timerConfig: TimerConfig | null;
   /** The season's game image for the map fields (16.7); null when this device lacks the season. */
   fieldImagePath: string | null;
+  /**
+   * When the route resolved (ms). Whether the entry opens as a form is decided against this, not
+   * against each render's clock: a form left open past the mark is its own to lock (EntryPage
+   * saves at 5:00 and shows the entry read only with its banner), and a later re-render of the
+   * route must not swap it for the route's read-only view and lose that banner.
+   */
+  resolvedAt: number;
 };
 
 export function EntryRoute({ eventId, author }: { eventId: string; author: Editor }) {
@@ -124,6 +138,7 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
         existing,
         timerConfig: form.timer_config ?? null,
         fieldImagePath: seasons.find((s) => s.id === seasonId)?.field_image_path ?? null,
+        resolvedAt: Date.now(),
       });
     })();
   }, [eventId, matchId, teamId, practice]);
@@ -182,26 +197,23 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
     );
   }
 
-  // The picker never offers this, but a stale screen or a typed URL can still get here.
-  if (resolved.existing && !canSelfEdit(resolved.existing, author, new Date())) {
+  // SPEC-FINAL 7.6 v1.45: an entry this user can no longer edit opens read only — Home's and
+  // Sync's Open, a draft's Resume, a stale screen or a typed URL alike; never a form or a lock
+  // error. A lead or an admin always gets the form (canSelfEdit).
+  const existing = resolved.existing;
+  if (existing && !canSelfEdit(existing, author, new Date(resolved.resolvedAt))) {
     return (
-      <main className="mx-auto w-full max-w-xl px-4 pt-6">
-        <h1 className="text-xl font-semibold">
-          {resolved.matchLabel} · <span dir="auto">{resolved.teamLabel}</span>
-        </h1>
-        <Notice role="alert" tone="warning" still className="mt-4">
-          This robot is already scouted in this match on this device, and the entry is locked — ask
-          a lead to change it.
-        </Notice>
-        <Button
-          variant="secondary"
-          size="block"
-          className="mt-4"
-          onClick={() => navigate(PATHS.scout)}
-        >
-          Back to scouting
-        </Button>
-      </main>
+      <MatchReadOnly
+        formVersionId={resolved.formVersionId}
+        matchId={matchId}
+        teamId={teamId}
+        alliance={existing.alliance ?? alliance}
+        matchLabel={resolved.matchLabel}
+        teamLabel={resolved.teamLabel}
+        fieldImagePath={resolved.fieldImagePath}
+        entry={existing}
+        note={lockNote(existing, author, resolved.resolvedAt)}
+      />
     );
   }
 
@@ -248,4 +260,12 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
       {page}
     </>
   );
+}
+
+/** Who can still change an entry the route shows read only (SPEC-FINAL 7.6). */
+export function lockNote(entry: LocalEntry, editor: Editor, now: number): string {
+  if (entry.scouter_id === editor.id) return 'Only a lead or an admin can change it now.';
+  return now < editableUntil(entry).getTime()
+    ? 'Another scouter’s entry. Only they, a lead or an admin can change it.'
+    : 'Another scouter’s entry. Only a lead or an admin can change it.';
 }

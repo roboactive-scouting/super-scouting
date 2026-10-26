@@ -163,3 +163,14 @@ export function CyclePathInput(props: ComponentProps<Parts['CyclePathInput']>) {
   if (parts) return <parts.CyclePathInput {...props} />;
   return failed ? <NotLoaded what={`“${props.field.label}”`} onRetry={retry} /> : null;
 }
+
+/**
+ * A match entry read only (SPEC-FINAL 7.6 v1.45): after the save at the 5-minute mark, and on the
+ * entry route for an entry this scouter can no longer edit. Nothing to edit is lost if the chunk
+ * failed: the entry is already saved, and the notice says so with Try again.
+ */
+export function MatchReadOnly(props: ComponentProps<Parts['MatchReadOnly']>) {
+  const { parts, failed, retry } = useTimedParts();
+  if (parts) return <parts.MatchReadOnly {...props} />;
+  return failed ? <NotLoaded what="This entry" onRetry={retry} /> : null;
+}

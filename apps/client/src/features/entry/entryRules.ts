@@ -50,35 +50,40 @@ const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : u
 
 /**
  * A number or counter outside its limits (SPEC-FINAL 15.1): the input's own `config` min / max
- * first, then the `expected_range` — the order `validateEntryData` checks them in. Null when the
- * value is inside both, or not a number.
+ * first, then the `expected_range` — the order `validateEntryData` checks them in. The value, the
+ * limit it passed and which side; null when the value is inside both, or not a number.
  */
-export function rangeProblem(
+export function rangeBreach(
   field: FormFieldDefinition,
   value: unknown,
-): { reason: string; line: string } | null {
+): { value: number; limit: number; over: boolean } | null {
   if (field.type !== 'number' && field.type !== 'counter') return null;
   const v = num(value);
   if (v === undefined) return null;
-  const unit = field.unit ? UNIT_WORD[field.unit] : undefined;
-  const word = (n: number) => (unit ? `${n} ${unit}` : String(n));
   const bounds: [number | undefined, number | undefined][] = [
     [num(field.config.min), num(field.config.max)],
     [field.expected_range?.min, field.expected_range?.max],
   ];
   for (const [lo, hi] of bounds) {
-    if (hi !== undefined && v > hi)
-      return {
-        reason: `${v} is over the most, ${hi}`,
-        line: `Most is ${word(hi)} — check this number`,
-      };
-    if (lo !== undefined && v < lo)
-      return {
-        reason: `${v} is under the least, ${lo}`,
-        line: `Least is ${word(lo)} — check this number`,
-      };
+    if (hi !== undefined && v > hi) return { value: v, limit: hi, over: true };
+    if (lo !== undefined && v < lo) return { value: v, limit: lo, over: false };
   }
   return null;
+}
+
+/** `rangeBreach` in words: the problems list's reason and the line under the field. */
+export function rangeProblem(
+  field: FormFieldDefinition,
+  value: unknown,
+): { reason: string; line: string } | null {
+  const breach = rangeBreach(field, value);
+  if (!breach) return null;
+  const { value: v, limit, over } = breach;
+  const unit = field.unit ? UNIT_WORD[field.unit] : undefined;
+  const word = unit ? `${limit} ${unit}` : String(limit);
+  return over
+    ? { reason: `${v} is over the most, ${limit}`, line: `Most is ${word} — check this number` }
+    : { reason: `${v} is under the least, ${limit}`, line: `Least is ${word} — check this number` };
 }
 
 /** What a missed required field says under itself, by what answering it takes. */

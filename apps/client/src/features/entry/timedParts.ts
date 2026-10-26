@@ -14,3 +14,7 @@ export { PositionInput } from './inputs/PositionInput';
 export { TimerInput } from './inputs/TimerInput';
 // UF.24: a map field opened view only from the confirmation; it brings MapSheet into this chunk.
 export { MapFieldView } from './map/MapFieldView';
+// Phase 1 H side task 5: a match entry read only (after the 5-minute mark, or opened past it),
+// and what the form keeps at the mark; only needed from the mark on.
+export { MatchReadOnly } from './MatchReadOnly';
+export { keepSavable } from './editWindow';
