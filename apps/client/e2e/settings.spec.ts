@@ -258,6 +258,85 @@ test('settings: the wipe asks for the lead’s code, refuses a wrong one, then w
   });
 });
 
+/**
+ * Wipe anyway (SPEC-FINAL 9.9 v1.39; Phase 1 H side task 2): while held, the sheet offers Send
+ * by QR first and Wipe anyway…; the second confirmation asks for the lead's code and the typed
+ * count; a wrong count is refused (removing nothing); the right one logs each lost record and
+ * wipes the device.
+ */
+test('settings: Wipe anyway, from the held wipe, logs each lost record then wipes', async ({
+  page,
+}) => {
+  test.slow();
+  await signIn(page, 'lead', HOLD_PUSH);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto('/settings');
+  await seedWaiting(page, 3);
+  const openWipe = async () => {
+    await page.getByRole('button', { name: /^Wipe this device/ }).click();
+    return page.getByRole('dialog', { name: 'Wipe this device?' });
+  };
+
+  // Send by QR first opens the sender.
+  let wipe = await openWipe();
+  await wipe.getByRole('link', { name: 'Send by QR first' }).click();
+  await expect(page).toHaveURL(/\/sync\/qr\/send$/);
+  await expect(page.getByRole('dialog', { name: 'Send by QR' })).toBeVisible();
+
+  // The held sheet: the held line, then the two ways out; the normal wipe stays off.
+  await page.goto('/settings');
+  wipe = await openWipe();
+  await expect(wipe.getByRole('link', { name: 'Send by QR first' })).toBeVisible();
+  await expect(wipe.getByRole('button', { name: 'Wipe anyway…' })).toBeVisible();
+  await expect(wipe.getByRole('button', { name: 'Wipe this device' })).toHaveAttribute(
+    'aria-disabled',
+    'true',
+  );
+  await shoot(page, 'settings-wipe-anyway-held');
+
+  // The second confirmation: the loss, the code, the count typed; Keep this device first.
+  await wipe.getByRole('button', { name: 'Wipe anyway…' }).click();
+  const anyway = page.getByRole('dialog', { name: 'Wipe anyway?' });
+  await expect(anyway).toContainText(
+    '3 records have not reached the cloud. Wiping now deletes them for good.',
+  );
+  const code = anyway.getByLabel('Lead’s code');
+  const count = anyway.getByRole('textbox', { name: 'Type 3 to confirm' });
+  const confirm = anyway.getByRole('button', { name: 'Wipe anyway' });
+  await expect(confirm).toHaveAttribute('aria-disabled', 'true');
+  await code.fill('WIPE2096');
+  await count.fill('2');
+  await expect(confirm).toHaveAttribute('aria-disabled', 'true');
+  const fill = async () => {
+    await code.fill('WIPE2096');
+    await count.fill('3');
+  };
+  await fill();
+  await expect(confirm).not.toHaveAttribute('aria-disabled');
+  await shoot(page, 'settings-wipe-anyway-confirm', undefined, { before: fill });
+
+  // A wrong code: nothing removed, nothing logged.
+  const before = await storeCounts(page);
+  await code.fill('WIPE2069');
+  await confirm.click();
+  await expect(anyway.getByRole('alert')).toHaveText(
+    'That is not the lead’s code. Nothing was wiped.',
+  );
+  expect(await storeCounts(page)).toEqual(before);
+
+  // The right code and count: one log row per lost record, and the device is empty.
+  await fill();
+  await confirm.click();
+  await page.waitForURL('/login');
+  expect(await storeCounts(page)).toEqual({
+    rows: 0,
+    outbox: 0,
+    syncState: 0,
+    drafts: 0,
+    discarded: 3,
+  });
+});
+
 test('settings: on a computer it is in the sidebar under This device', async ({ page }) => {
   await signIn(page, 'scouter');
   await page.setViewportSize({ width: 1440, height: 900 });

@@ -24,8 +24,9 @@ export function DiscardedStatus({ summary }: { summary: DiscardedSummary }) {
   ) : null;
 }
 
-/** "Match entry" / "Super entry". */
+/** "Match entry" / "Super entry"; what a wiped record was when it was not an entry. */
 export function kindLabel(summary: DiscardedSummary): string {
+  if (summary.what) return summary.what;
   return summary.form_kind === 'super' ? 'Super entry' : 'Match entry';
 }
 

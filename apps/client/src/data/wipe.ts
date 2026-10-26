@@ -6,11 +6,21 @@ import { heldCount, isHeld, readWipeHold } from '@/features/settings/wipeHold';
 import { clearDevicePrefs } from '@/lib/devicePrefs';
 import { notifyChanged } from './changes';
 import { db, WIPED_AT_KEY } from './db';
+import { recordWiped } from './wipeLog';
 
 export type WipeResult =
   | { ok: true }
   | { ok: false; reason: 'wrong-code' }
-  | { ok: false; reason: 'unacked'; unacked: number };
+  | { ok: false; reason: 'unacked'; unacked: number }
+  /** Wipe anyway: the typed count is not the device's count now. `unacked` is the count now. */
+  | { ok: false; reason: 'wrong-count'; unacked: number };
+
+/**
+ * **Wipe anyway** (SPEC-FINAL 9.9, v1.39): wipe although records have no cloud ack. `expected`
+ * is the number of records the lead typed as lost; the wipe goes ahead only when it equals the
+ * device's count (`heldCount`) read inside the wipe's own transaction.
+ */
+export type WipeAnyway = { force: true; expected: number };
 
 /**
  * What a wipe leaves in `meta`: the install's own identity, never anything about a person or a
@@ -46,16 +56,31 @@ export function isWipeCode(code: string): boolean {
  * Then the device's own settings (theme, text size, the switches, Sound on) go back to their
  * defaults, practice mode ends and the session signs out: the next person signs in to a device
  * that knows nothing, and the next sync pulls the competition from scratch.
+ *
+ * With `anyway` (**Wipe anyway**, v1.39; Phase 1 H side task 2) the hold does not refuse it:
+ * instead `anyway.expected` must equal the device's count of records without a cloud ack
+ * (`heldCount`), read in the same transaction — a record saved after the lead read the count
+ * makes it `wrong-count` and removes nothing. When it matches, every one of those records is
+ * first written to the discarded-records log (`recordWiped`, summary only), then the outbox goes
+ * with everything else and the wipe runs exactly as the normal one.
  */
-export async function wipeDevice(code: string): Promise<WipeResult> {
+export async function wipeDevice(code: string, anyway?: WipeAnyway): Promise<WipeResult> {
   if (!isWipeCode(code)) return { ok: false, reason: 'wrong-code' };
+  const forced = anyway?.force === true;
 
   const refused = await db.transaction(
     'rw',
-    [db.rows, db.outbox, db.syncState, db.drafts, db.practiceDrafts, db.meta],
-    async () => {
+    [db.rows, db.outbox, db.syncState, db.drafts, db.practiceDrafts, db.meta, db.discarded],
+    async (): Promise<WipeResult | null> => {
       const hold = await readWipeHold();
-      if (isHeld(hold)) return heldCount(hold);
+      const count = heldCount(hold);
+      if (anyway?.force === true) {
+        if (count !== anyway.expected) return { ok: false, reason: 'wrong-count', unacked: count };
+        if (count > 0) await recordWiped();
+      } else if (isHeld(hold)) {
+        return { ok: false, reason: 'unacked', unacked: count };
+      }
+      await db.outbox.clear();
       await db.rows.clear();
       await db.syncState.clear();
       await db.drafts.clear();
@@ -64,14 +89,15 @@ export async function wipeDevice(code: string): Promise<WipeResult> {
       await db.meta.bulkDelete(gone);
       // A sync whose pull began before the wipe must not mark the emptied device as hydrated.
       await db.meta.put({ key: WIPED_AT_KEY, value: new Date().toISOString() });
-      return 0;
+      return null;
     },
   );
-  if (refused > 0) return { ok: false, reason: 'unacked', unacked: refused };
+  if (refused) return refused;
 
   notifyChanged('rows');
   notifyChanged('outbox');
   notifyChanged('meta');
+  if (forced) notifyChanged('discarded');
   clearDevicePrefs();
   applyDeviceLook();
   await practiceMode.exit();

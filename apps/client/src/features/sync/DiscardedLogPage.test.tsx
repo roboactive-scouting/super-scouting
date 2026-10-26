@@ -4,7 +4,14 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { formatDayTime, type Operation } from '@frc/shared';
 import { db } from '@/data/db';
-import { listDiscarded, recordDiscarded } from '@/data/discarded';
+import {
+  listDiscarded,
+  recordDiscarded,
+  undismissedDiscarded,
+  WIPE_REASON,
+} from '@/data/discarded';
+import { enqueue } from '@/data/outbox';
+import { recordWiped } from '@/data/wipeLog';
 import { PATHS } from '@/lib/paths';
 import { DiscardedLogPage } from './DiscardedLogPage';
 import { DiscardedNotice } from './DiscardedNotice';
@@ -133,6 +140,28 @@ describe('DiscardedLogPage (19-discarded final)', () => {
   it('has the back link to Sync', async () => {
     renderAt(<DiscardedLogPage />);
     expect(await screen.findByRole('link', { name: 'Sync' })).toHaveAttribute('href', PATHS.sync);
+  });
+
+  it('lists records lost to Wipe anyway with their own cause; the notice does not raise them', async () => {
+    await seed();
+    await enqueue(op('w', { row_id: '00000000-0000-4000-8000-000000000001' }));
+    expect(await recordWiped(NEW)).toBe(1);
+    renderAt(
+      <>
+        <DiscardedNotice />
+        <DiscardedLogPage />
+      </>,
+    );
+    expect(await screen.findByText(WIPE_REASON)).toBeVisible();
+    expect(
+      screen.getByText('An admin deleted the competition, season or form it belonged to.'),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/Records removed from this device before they reached the cloud\./),
+    ).toBeVisible();
+    // Wiped rows are written dismissed: the lead confirmed the loss; only the 2 others notify.
+    expect((await undismissedDiscarded()).map((r) => r.id).sort()).toEqual(['a', 's']);
+    expect(document.body.textContent).not.toContain('SECRET-VALUE-17');
   });
 });
 

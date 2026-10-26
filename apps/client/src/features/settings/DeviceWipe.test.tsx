@@ -1,5 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { notifyChanged } from '@/data/changes';
 import { db } from '@/data/db';
@@ -41,7 +42,14 @@ async function queueEntries(n: number) {
 
 function renderWipe() {
   const onClose = vi.fn();
-  render(<DeviceWipe onClose={onClose} />);
+  render(
+    <MemoryRouter initialEntries={['/settings']}>
+      <Routes>
+        <Route path="/settings" element={<DeviceWipe onClose={onClose} />} />
+        <Route path="/sync/qr/send" element={<p>QR sender</p>} />
+      </Routes>
+    </MemoryRouter>,
+  );
   return onClose;
 }
 
@@ -76,11 +84,16 @@ describe('DeviceWipe (SPEC-FINAL 9.9, 17.8)', () => {
       '3 entries are still waiting to send. Wipe is held until they are sent, so nothing is lost.',
     );
     expect(within(held).getByText('3 entries are still waiting to send.').tagName).toBe('B');
+    // Under the held line, the two ways out (v1.39); the footer keeps Keep this device first.
     expect(
       within(dialog)
         .getAllByRole('button')
         .map((b) => b.textContent),
-    ).toEqual(['Keep this device', 'Wipe this device']);
+    ).toEqual(['Wipe anyway…', 'Keep this device', 'Wipe this device']);
+    expect(within(dialog).getByRole('link', { name: 'Send by QR first' })).toHaveAttribute(
+      'href',
+      '/sync/qr/send',
+    );
     expect(wipeButton()).toHaveAttribute('aria-disabled', 'true');
     expect(within(dialog).queryByLabelText('Lead’s code')).toBeNull();
     expect(within(dialog).queryByRole('textbox')).toBeNull();
@@ -140,5 +153,118 @@ describe('DeviceWipe (SPEC-FINAL 9.9, 17.8)', () => {
     );
     await userEvent.click(wipeButton());
     await waitFor(async () => expect(await db.rows.count()).toBe(0));
+  });
+});
+
+describe('Wipe anyway (SPEC-FINAL 9.9 v1.39; Phase 1 H side task 2)', () => {
+  const anywayDialog = () => screen.getByRole('dialog', { name: 'Wipe anyway?' });
+  const anywayButton = () => within(anywayDialog()).getByRole('button', { name: 'Wipe anyway' });
+
+  async function openAnyway() {
+    await userEvent.click(await screen.findByRole('button', { name: 'Wipe anyway…' }));
+    return anywayDialog();
+  }
+
+  it('the normal wipe stays off while held, even with Wipe anyway on offer', async () => {
+    await queueEntries(3);
+    renderWipe();
+    await screen.findByRole('button', { name: 'Wipe anyway…' });
+    expect(wipeButton()).toHaveAttribute('aria-disabled', 'true');
+    await userEvent.click(wipeButton());
+    expect(await db.outbox.count()).toBe(3);
+  });
+
+  it('Send by QR first opens the sender', async () => {
+    await queueEntries(2);
+    renderWipe();
+    await userEvent.click(await screen.findByRole('link', { name: 'Send by QR first' }));
+    expect(await screen.findByText('QR sender')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('asks for the loss, the code and the typed count; Keep this device first', async () => {
+    await queueEntries(3);
+    const onClose = renderWipe();
+    const dialog = await openAnyway();
+    expect(dialog).toHaveTextContent(
+      '3 records have not reached the cloud. Wiping now deletes them for good.',
+    );
+    expect(
+      within(dialog)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['Keep this device', 'Wipe anyway']);
+    expect(document.activeElement).toBe(
+      within(dialog).getByRole('button', { name: 'Keep this device' }),
+    );
+    const code = within(dialog).getByLabelText('Lead’s code');
+    const count = within(dialog).getByRole('textbox', { name: 'Type 3 to confirm' });
+    expect(anywayButton()).toHaveAttribute('aria-disabled', 'true');
+    await userEvent.type(count, '3');
+    expect(anywayButton()).toHaveAttribute('aria-disabled', 'true');
+    await userEvent.clear(count);
+    await userEvent.type(code, 'WIPE2096');
+    expect(anywayButton()).toHaveAttribute('aria-disabled', 'true');
+    await userEvent.type(count, '2');
+    expect(anywayButton()).toHaveAttribute('aria-disabled', 'true');
+    await userEvent.clear(count);
+    await userEvent.type(count, '3');
+    expect(anywayButton()).not.toHaveAttribute('aria-disabled');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Keep this device' }));
+    expect(onClose).toHaveBeenCalled();
+    expect(await db.outbox.count()).toBe(3);
+  });
+
+  it('says 1 record in the singular', async () => {
+    await queueEntries(1);
+    renderWipe();
+    expect(await openAnyway()).toHaveTextContent(
+      '1 record has not reached the cloud. Wiping now deletes it for good.',
+    );
+  });
+
+  it('a wrong code wipes nothing and says so', async () => {
+    await queueEntries(3);
+    renderWipe();
+    const dialog = await openAnyway();
+    await userEvent.type(within(dialog).getByLabelText('Lead’s code'), 'WIPE2095');
+    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Type 3 to confirm' }), '3');
+    await userEvent.click(anywayButton());
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(WRONG_CODE_LINE);
+    expect(await db.outbox.count()).toBe(3);
+    expect(await db.discarded.count()).toBe(0);
+  });
+
+  it('a record saved after the count was typed turns the confirm off again', async () => {
+    await queueEntries(3);
+    renderWipe();
+    const dialog = await openAnyway();
+    await userEvent.type(within(dialog).getByLabelText('Lead’s code'), 'WIPE2096');
+    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Type 3 to confirm' }), '3');
+    expect(anywayButton()).not.toHaveAttribute('aria-disabled');
+    await queueEntries(4);
+    notifyChanged('outbox');
+    expect(
+      await within(dialog).findByText(
+        '4 records have not reached the cloud. Wiping now deletes them for good.',
+      ),
+    ).toBeInTheDocument();
+    expect(anywayButton()).toHaveAttribute('aria-disabled', 'true');
+    expect(await db.discarded.count()).toBe(0);
+  });
+
+  it('with the right code and count: one log row per lost record, then the device is empty', async () => {
+    await queueEntries(3);
+    renderWipe();
+    const dialog = await openAnyway();
+    await userEvent.type(within(dialog).getByLabelText('Lead’s code'), 'WIPE2096');
+    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Type 3 to confirm' }), '3');
+    await userEvent.click(anywayButton());
+    await waitFor(async () => expect(await db.outbox.count()).toBe(0));
+    expect(await db.rows.count()).toBe(0);
+    expect(await db.syncState.count()).toBe(0);
+    const log = await db.discarded.toArray();
+    expect(log.map((r) => r.row_id).sort()).toEqual(['r-1', 'r-2', 'r-3']);
+    expect(log.every((r) => r.reason === 'Wiped before it reached the cloud.')).toBe(true);
   });
 });
