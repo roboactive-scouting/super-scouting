@@ -208,19 +208,28 @@ const sentence = (line: string) => {
   return /[.!?]$/.test(capital) ? capital : `${capital}.`;
 };
 
-/** "This entry is locked — ask a lead.": the server's detail as a sentence (17-sync final). */
+/**
+ * The server's detail as a sentence (17-sync final). The edit window's line is the client's
+ * own, the same as on Entries (SPEC-FINAL 7.6, v1.44), so a record refused before the
+ * rewording still reads "Changed after the 5-minute edit window. A lead can save it for you."
+ */
 export function notSentLine(rejection: PushRejection): string {
-  return sentence(rejection.message.trim() || rejectionMessage(rejection));
+  return sentence(
+    (rejection.code !== 'edit-window-expired' && rejection.message.trim()) ||
+      rejectionMessage(rejection),
+  );
 }
 
-/** Why it was refused, in plain words, by reason (17-sync final, Problems). */
-const REASON_WORDS: Record<RejectionReason, string> = {
-  'edit-window-expired': 'It was changed after its 5 minutes were up.',
+/**
+ * Why it was refused, in plain words, by reason (17-sync final, Problems). None for the edit
+ * window: its one line already says why (SPEC-FINAL 7.6, v1.44).
+ */
+const REASON_WORDS: Partial<Record<RejectionReason, string>> = {
   forbidden: 'The account that saved it isn’t allowed to make this change.',
   invalid: 'Something in it didn’t pass the server’s checks.',
   'parent-deleted': 'Something it belongs to was deleted.',
 };
 
-export function reasonInWords(code: RejectionReason): string {
+export function reasonInWords(code: RejectionReason): string | undefined {
   return REASON_WORDS[code];
 }

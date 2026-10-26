@@ -135,25 +135,57 @@ describe('SyncPage (SPEC-FINAL 9.10, 17-sync final)', () => {
     expect(await screen.findByRole('button', { name: 'Sync now' })).toBeEnabled();
   });
 
-  it('lists a refused record with the server’s words and its reason, and only Open entry', async () => {
+  const EDIT_WINDOW_LINE =
+    'Not sent: Changed after the 5-minute edit window. A lead can save it for you.';
+
+  it('lists a refused record in one line that says what happened, and only Open entry', async () => {
     await enqueue(op('e-2'));
-    await reject('e-2', 'edit-window-expired', 'this entry is locked — ask a lead');
+    await reject(
+      'e-2',
+      'edit-window-expired',
+      'changed after the 5-minute edit window. A lead can save it for you.',
+    );
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => expect(records()).toHaveLength(1));
-    // In Waiting, counted, with its reason line.
-    expect(record('e-2').nextElementSibling).toHaveTextContent(
-      'Not sent: This entry is locked — ask a lead. It was changed after its 5 minutes were up.',
+    // In Waiting, counted, with its one line: no second "why" sentence (SPEC-FINAL 7.6, v1.44).
+    expect(record('e-2').nextElementSibling!.querySelector('p')!.textContent).toBe(
+      EDIT_WINDOW_LINE,
     );
     await user.click(tab(/Problems/));
     expect(tab(/^Problems\s*1/)).toHaveAttribute('aria-selected', 'true');
     const panel = screen.getByRole('tabpanel', { name: 'Problems' });
-    expect(within(panel).getByText(/This entry is locked — ask a lead\./)).toBeInTheDocument();
+    expect(
+      within(panel).getByText(
+        (_, el) => el?.tagName === 'P' && el.textContent === EDIT_WINDOW_LINE,
+      ),
+    ).toBeInTheDocument();
+    expect(panel).not.toHaveTextContent(/locked|5 minutes were up/);
     const open = within(panel).getByRole('link', { name: 'Open entry' });
     expect(open).toHaveAttribute('href', '/entry/m-1/t-1?alliance=red');
     // No discard, no retry: one action only (SPEC-FINAL 9.10, 17-sync README).
     expect(within(panel).queryAllByRole('button')).toHaveLength(0);
     expect(within(panel).getAllByRole('link')).toHaveLength(1);
+  });
+
+  it('reads the new line for a record the server refused in its old words', async () => {
+    await enqueue(op('e-2'));
+    await reject('e-2', 'edit-window-expired', 'this entry is locked — ask a lead');
+    renderPage();
+    await waitFor(() => expect(records()).toHaveLength(1));
+    expect(record('e-2').nextElementSibling!.querySelector('p')!.textContent).toBe(
+      EDIT_WINDOW_LINE,
+    );
+  });
+
+  it('keeps the server’s words and the why for any other refusal', async () => {
+    await enqueue(op('e-2'));
+    await reject('e-2', 'forbidden', 'a scouter may edit only their own entry');
+    renderPage();
+    await waitFor(() => expect(records()).toHaveLength(1));
+    expect(record('e-2').nextElementSibling!.querySelector('p')!.textContent).toBe(
+      'Not sent: A scouter may edit only their own entry. The account that saved it isn’t allowed to make this change.',
+    );
   });
 
   it('opens a refused super entry on its own route', async () => {

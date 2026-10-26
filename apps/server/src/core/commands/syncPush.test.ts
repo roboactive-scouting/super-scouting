@@ -490,7 +490,13 @@ describe('syncPush', () => {
       },
       ctx,
     );
-    expect(res.results[0]).toMatchObject({ status: 'rejected', reason: 'edit-window-expired' });
+    // The detail says what happened, as the client's line does (SPEC-FINAL 7.6, v1.44).
+    expect(res.results[0]).toEqual({
+      op_id: expect.any(String),
+      status: 'rejected',
+      reason: 'edit-window-expired',
+      detail: 'changed after the 5-minute edit window. A lead can save it for you.',
+    });
   });
 
   it('measures elapsed CLIENT time, so an upload six hours later still passes', async () => {

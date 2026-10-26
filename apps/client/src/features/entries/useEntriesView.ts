@@ -41,7 +41,7 @@ export type EntryRow = {
    * refused record in the unsynced count until it is fixed). RB.19.
    */
   unsent: boolean;
-  /** Why the server refused it ("This entry is locked — ask a lead"), or null. */
+  /** Why the server refused it ("Changed after the 5-minute edit window. …"), or null. */
   refused: string | null;
   notInLineup: boolean;
   /** Refused by the server or not in the line-up: the "Needs a look" chip. */

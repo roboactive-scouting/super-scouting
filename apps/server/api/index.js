@@ -5645,7 +5645,11 @@ async function applyEntry(op, author, ctx) {
       }
       const exempt = existing.form_kind === "super" && payload.form_kind === "super";
       if (!exempt && !withinSelfEditWindow(String(existing.client_created_at), op.client_updated_at)) {
-        return rejected(op.op_id, "edit-window-expired", "this entry is locked \u2014 ask a lead");
+        return rejected(
+          op.op_id,
+          "edit-window-expired",
+          "changed after the 5-minute edit window. A lead can save it for you."
+        );
       }
     }
     scouterId = String(existing.scouter_id);

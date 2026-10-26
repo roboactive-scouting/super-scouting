@@ -29,11 +29,11 @@ export function WaitingMark() {
   );
 }
 
-/** The "Not synced: …" line under a refused entry. */
+/** The "Not sent: …" line under a refused entry, labelled as on Sync (SPEC-FINAL 7.6, v1.44). */
 export function refusedText(reason: string) {
   return (
     <>
-      <b className="font-bold">Not synced:</b> {reason}
+      <b className="font-bold">Not sent:</b> {reason}
     </>
   );
 }

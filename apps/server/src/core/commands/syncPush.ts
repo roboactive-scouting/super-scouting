@@ -355,7 +355,11 @@ async function applyEntry(
         !exempt &&
         !withinSelfEditWindow(String(existing.client_created_at), op.client_updated_at)
       ) {
-        return rejected(op.op_id, 'edit-window-expired', 'this entry is locked — ask a lead');
+        return rejected(
+          op.op_id,
+          'edit-window-expired',
+          'changed after the 5-minute edit window. A lead can save it for you.',
+        );
       }
     }
     scouterId = String(existing.scouter_id);

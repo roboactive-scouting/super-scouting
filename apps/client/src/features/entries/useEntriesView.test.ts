@@ -88,7 +88,9 @@ describe('buildEntryRows', () => {
           entry('x', { team_id: 't3316', client_created_at: '2026-03-17T09:41:00.000Z' }),
         ],
         outboxIds: new Set(['w', 'r']),
-        refusals: new Map([['r', 'This entry is locked — ask a lead']]),
+        refusals: new Map([
+          ['r', 'Changed after the 5-minute edit window. A lead can save it for you.'],
+        ]),
       }),
     );
     const by = Object.fromEntries(rows.map((r) => [r.id, r]));
@@ -96,7 +98,7 @@ describe('buildEntryRows', () => {
     expect(by.r).toMatchObject({
       waiting: false,
       unsent: true,
-      refused: 'This entry is locked — ask a lead',
+      refused: 'Changed after the 5-minute edit window. A lead can save it for you.',
       look: true,
     });
     expect(by.x).toMatchObject({ notInLineup: true, station: null, look: true });
@@ -162,7 +164,9 @@ describe('search, filter and counts', () => {
       source({
         entries: [entry('w'), entry('r', { client_created_at: '2026-03-17T09:40:00.000Z' })],
         outboxIds: new Set(['w', 'r']),
-        refusals: new Map([['r', 'This entry is locked — ask a lead']]),
+        refusals: new Map([
+          ['r', 'Changed after the 5-minute edit window. A lead can save it for you.'],
+        ]),
       }),
     );
     expect(chipCounts(withRefused, 'u-noa')).toMatchObject({ waiting: 2, look: 1 });

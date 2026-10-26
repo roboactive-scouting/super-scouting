@@ -6,8 +6,10 @@ import type { PushRejection } from './db';
  */
 export function rejectionMessage(rejection: PushRejection): string {
   switch (rejection.code) {
+    // SPEC-FINAL 7.6 (v1.44): what happened, and who can fix it. The client's own words,
+    // not the server's, so a record refused before the rewording reads the same line.
     case 'edit-window-expired':
-      return 'This entry is locked — ask a lead';
+      return 'Changed after the 5-minute edit window. A lead can save it for you.';
     case 'forbidden':
       return 'Not allowed for this account — ask a lead';
     default:

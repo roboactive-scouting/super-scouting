@@ -77,7 +77,7 @@ async function seedEntries(
       origin: 'local',
       rejection: {
         code: 'edit-window-expired',
-        message: 'this entry is locked — ask a lead',
+        message: 'changed after the 5-minute edit window. A lead can save it for you.',
         at: '2026-03-17T09:05:00.000Z',
       },
     });
@@ -133,8 +133,11 @@ describe('EntriesPage', () => {
     renderEntries();
     await userEvent.click(await screen.findByRole('button', { name: /Needs a look 2/ }));
     expect(screen.getByText('Not in line-up')).toBeInTheDocument();
-    expect(screen.getByText(/Not synced:/)).toBeInTheDocument();
-    expect(screen.getByText(/This entry is locked/)).toBeInTheDocument();
+    expect(screen.getByText(/Not sent:/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Changed after the 5-minute edit window\. A lead can save it for you\./),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/This entry is locked/)).not.toBeInTheDocument();
     // the header, two entries, and the refused one's own line
     expect(screen.getAllByRole('row')).toHaveLength(1 + 2 + 1);
   });
@@ -184,8 +187,8 @@ describe('EntriesPage', () => {
   it.each([
     [
       'edit-window-expired',
-      'this entry is locked — ask a lead',
-      'This entry is locked — ask a lead',
+      'changed after the 5-minute edit window. A lead can save it for you.',
+      'Changed after the 5-minute edit window. A lead can save it for you.',
     ],
     [
       'forbidden',
@@ -206,8 +209,10 @@ describe('EntriesPage', () => {
       });
       renderEntries();
       const notice = await screen.findByText(line, { exact: false });
-      expect(notice).toHaveTextContent(`Not synced: ${line}`);
-      expect(screen.getAllByText(/not synced/i)).toHaveLength(1);
+      // One label for every refusal, the same as on Sync (SPEC-FINAL 7.6, v1.44).
+      expect(notice).toHaveTextContent(`Not sent: ${line}`);
+      expect(screen.getAllByText(/not sent:/i)).toHaveLength(1);
+      expect(document.body).not.toHaveTextContent(/not synced/i);
       if (code !== 'invalid') expect(document.body).not.toHaveTextContent(code);
     },
   );

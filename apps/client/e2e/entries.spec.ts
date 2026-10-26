@@ -6,6 +6,10 @@ import { shoot } from './shoot';
 /** A long full name (Q38 1574's scouter): it wraps on a phone, never cut (UF.8). */
 const LONG_NAME = 'Amit Ben-David Abramovich-Rosenthal';
 
+/** The edit window's refused line, word for word as on Sync (SPEC-FINAL 7.6, v1.44). */
+const REFUSED_LINE =
+  'Not sent: Changed after the 5-minute edit window. A lead can save it for you.';
+
 /**
  * The server takes nothing, so what is queued stays waiting to send; Amit's name is the long
  * one.
@@ -66,7 +70,7 @@ async function seedOutbox(page: Page) {
         origin: 'local',
         rejection: {
           code: 'edit-window-expired',
-          message: 'this entry is locked — ask a lead',
+          message: 'changed after the 5-minute edit window. A lead can save it for you.',
           at: '2026-03-17T09:05:00.000Z',
         },
       });
@@ -97,7 +101,7 @@ test('entries: newest first, waiting arrows, the refused line', async ({ page })
   await expect(page.getByRole('button', { name: /^Waiting to send 4/ })).toBeVisible();
   await expect(page.getByRole('banner').getByText('4 waiting')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Needs a look 2/ })).toBeVisible();
-  await expect(page.getByText('Not synced:')).toBeVisible();
+  await expect(page.getByText(REFUSED_LINE)).toBeVisible();
   await expect(page.getByLabel('waiting to send', { exact: true })).toHaveCount(3);
   // Rows open nothing yet (the entry preview is a later page): no pointer, no hover tint.
   const first = rows.nth(1);
@@ -121,8 +125,11 @@ test('entries: Needs a look shows the refused and the not-in-line-up entries', a
   await page.setViewportSize({ width: 375, height: 812 });
   await page.getByRole('button', { name: /^Needs a look/ }).click();
   await expect(page.getByText('Not in line-up')).toBeVisible();
-  await expect(page.getByText('Not synced:')).toBeVisible();
-  await shoot(page, 'entries-look', 'phone');
+  // The edit window's refusal says what happened, in one line (SPEC-FINAL 7.6, v1.44): the
+  // refused line at both widths, in every theme.
+  await expect(page.getByText(REFUSED_LINE)).toBeVisible();
+  await expect(page.getByText(/locked/)).toHaveCount(0);
+  await shoot(page, 'entries-look');
 });
 
 test('entries: search by scouter', async ({ page }) => {

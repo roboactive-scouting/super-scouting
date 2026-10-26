@@ -80,7 +80,10 @@ function records(): Seed[] {
       alliance: 'blue',
       status: 'disabled',
       saved: ago(23),
-      refused: { code: 'edit-window-expired', message: 'this entry is locked — ask a lead' },
+      refused: {
+        code: 'edit-window-expired',
+        message: 'changed after the 5-minute edit window. A lead can save it for you.',
+      },
       seq: 6,
     },
     {
@@ -294,7 +297,13 @@ test('sync: Waiting, grouped by competition, with the lead’s conflicts link, o
   );
   await expect(page.locator('[data-record="e2e-q38"]')).toContainText('QR · from Yael');
   await expect(page.locator(`[data-record="${NEW_MATCH}"]`)).toHaveCount(0);
-  await expect(page.getByText(/Not sent: This entry is locked — ask a lead\./)).toBeVisible();
+  // One line, no second "why" sentence (SPEC-FINAL 7.6, v1.44).
+  await expect(
+    page.getByText(
+      'Not sent: Changed after the 5-minute edit window. A lead can save it for you.',
+      { exact: true },
+    ),
+  ).toBeVisible();
   // The sidebar's Sync row carries the same count as the indicator.
   await expect(page.getByRole('link', { name: 'Sync, 6 waiting to send' })).toBeVisible();
 
@@ -315,7 +324,13 @@ test('sync: Problems — the refused record and the discarded notice', async ({ 
     'href',
     `/entry/${matchId(36)}/${teamId(5135)}?alliance=blue`,
   );
-  await expect(panel.getByText('It was changed after its 5 minutes were up.')).toBeVisible();
+  await expect(
+    panel.getByText(
+      'Not sent: Changed after the 5-minute edit window. A lead can save it for you.',
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(panel.getByText(/locked|5 minutes were up/)).toHaveCount(0);
   await expect(panel.getByRole('region', { name: 'Discarded entries' })).toContainText(
     '2 entries were removed from this device.',
   );
