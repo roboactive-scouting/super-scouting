@@ -28,3 +28,8 @@ export * from './sync/conflict';
 export * from './sync/operation';
 export * from './sync/protocol';
 export * from './version';
+// The engine (Phase 1 I) goes last: its modules import forms/* and sync/*, and exporting it
+// earlier reorders those modules in the server's function bundle (bundle-drift.test.ts).
+export * from './engine/score';
+export * from './engine/select';
+export * from './engine/types';
