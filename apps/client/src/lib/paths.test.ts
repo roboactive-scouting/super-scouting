@@ -7,6 +7,8 @@ import {
   PATHS,
   SUPER_TEAM_ROUTE,
   superTeamPath,
+  TEAM_ROUTE,
+  teamPath,
 } from './paths';
 
 describe('paths (redesign R.4)', () => {
@@ -42,5 +44,13 @@ describe('paths (redesign R.4)', () => {
     expect(isEntryPath('/super')).toBe(true);
     expect(isEntryPath('/super/t-1')).toBe(true);
     expect(isEntryPath('/superb')).toBe(false);
+  });
+
+  it('puts team search at /teams and one team’s page under it, off the data-entry path (task 1.51)', () => {
+    expect(PATHS.teams).toBe('/teams');
+    expect(TEAM_ROUTE).toBe('/teams/:teamId');
+    expect(teamPath('t-4')).toBe('/teams/t-4');
+    expect(isEntryPath(PATHS.teams)).toBe(false);
+    expect(isEntryPath(teamPath('t-4'))).toBe(false);
   });
 });

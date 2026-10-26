@@ -14,6 +14,8 @@ export const PATHS = {
    */
   practice: '/practice',
   entries: '/entries',
+  /** Season-wide team search (SPEC-FINAL 13.2, task 1.51): the bottom bar's Search. */
+  teams: '/teams',
   switchScouter: '/switch-scouter',
   changePassword: '/change-password',
   login: '/login',
@@ -61,6 +63,17 @@ export function formBuilderPath(formId: string, version?: number): string {
 /** The forms list on one season, by its year (`?season=2026`); the list honours it on arrival. */
 export function formsSeasonPath(year: number): string {
   return `${PATHS.forms}?season=${year}`;
+}
+
+/**
+ * One team's page (SPEC-FINAL 13.1). Team search's rows open it (task 1.51); the route itself is
+ * task 1.53's.
+ */
+export const TEAM_ROUTE = '/teams/:teamId';
+
+/** One team's page, by the team's id. */
+export function teamPath(teamId: string): string {
+  return `${PATHS.teams}/${encodeURIComponent(teamId)}`;
 }
 
 /** The entry route's pattern, for `matchPath` and the route tree. */

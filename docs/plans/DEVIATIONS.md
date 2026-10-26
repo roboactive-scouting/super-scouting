@@ -9096,3 +9096,80 @@ Rejected: an embedded-resource filter (`teams!inner(...)`) — PostgREST cannot 
 **What I did instead:** the seed lives in its own module, `apps/server/src/test/small-season.ts` (`SMALL_SEASON` ids exported), called from `fake-context.ts` — the fake is 1700 lines already. ev-2's entries are `e-21`/`e-22` (t-2's and t-3's), so `listTeamEvents('t-1')` is `['ev-1']`; `e-9` is on the retired v1 and scores 3 by v2's rules (the active-version rule is tested). `softDelete` sets `deleted_at`, `updated_at` and bumps `version`. The plan's test is verbatim except its imports carry `.js` (`./search.js`, `../../test/fake-context.js`), as every server test does. The new API rows put the initial client JS at **229.4 KB** gzip (no engine code reached the initial chunk; the growth is the four zod schemas the typed client imports with the whole `API` map), so `BUDGET_KB` went **229 → 230** (`scripts/check-bundle.mjs`, BUILD-CONTEXT §12.5 updated).
 
 **Risk:** `pnpm format:check` reports only `NEXT-CHAT.md` (the untracked handoff file, untouched here); it passes once that file is deleted before the commit.
+
+## Task 1.51 — The plan's test predates the design; adapted to the final (A2)
+
+**Plan said:** the plan's `TeamSearchPage.test.tsx` verbatim: `listitem`s named by team, a button "Open 2096" navigating to `/teams/t-1`, a button "3339 competed elsewhere", an event button "Week 3", an "are you sure" dialog with Cancel and "Switch for this session", the offline line "only the default competition is available offline", and a `searchTeams` mock returning `{ items, next_cursor }`.
+
+**What was wrong:** `docs/design/pages/23-team-search/final/README.md` (user, 2026-10-23) replaced every one of those: the WHOLE row is the link (no Open button; a `<li>` takes no accessible name from its content anyway), At this event is the default chip (3339 is not in the default list), the dashed Other event button, a radio picker with Cancel / Continue, the are-you-sure "Switch to another event?" with **Keep <event>** first and **Switch and open**, and the offline Note "Offline. Other events need a connection; teams at <event> still open." The mock also lacked `counts` and `event`, which `searchTeamsOutput` requires.
+
+**What I did instead:** the same proofs against the final: rows are links named "2096 ROBACTIVE, team page" with `href="/teams/t-1"` (no Open button); the rank badge is an image named "Rank 1, medal" / "Rank 9", only on at-event rows; medals on ranks ≤ 3 only; "3339 BumbleB: other event" opens the picker (`listTeamEvents` called with the team id), Continue opens "Switch to another event?", Keep leaves `sessionOverride.get()` null and never navigates, Switch and open sets `ev-2` and navigates to `/teams/t-4`; offline the button is disabled, a click opens nothing, the design's Note shows and the rpc is never called. Added: At this event is the default, Show all selects All, the override's event is what `searchTeams` is asked for, the offline list comes from the cache with the shared ranks, a server failure falls back to the device, an override with no connection offers the way back, and the phone rows.
+
+**Risk:** none; every plan proof is kept in substance.
+
+## Task 1.51 — Offline, the list holds the season's other teams too (orchestrator: "All shows those teams only")
+
+**Plan said (orchestrator decision):** offline, build the at-this-event list from the cache; All shows those teams only, and the Other events part shows the offline note.
+
+**What was wrong:** the device already holds every team of the season (SPEC-FINAL 9.3's synced set: "Every team in the season … needed because team search is season-wide (§13.2) and must work offline"; `apps/server/src/repos/pull.ts` scopes `teams` as `season-teams`), and the final's offline frame (phone 5) lists teams at other events with their Other event buttons disabled at 45 %.
+
+**What I did instead:** offline, the list is every cached season team: the roster's teams ranked at the event, the rest as "not at this event" rows with the Other event button disabled; the chips and counts cover both; the Note shows. The device holds no other event, so those rows name no event offline ("not at this event") and `other_events` is empty. Rejected: hiding them (a search for a team at another event would look empty offline, the thing the Show-all line exists to prevent).
+
+**Risk:** a team that left every roster of the season since the last pull still shows until the next pull, as every cached row does.
+
+## Task 1.51 — One season list per event, filtered and searched on the device
+
+**Plan said:** "filters as you type"; the orchestrator: page through `next_cursor`; debounce, or search on the device.
+
+**What was wrong:** nothing; the choice was open.
+
+**What I did instead:** online (no override) and always under an override, ONE `searchTeams({ event_id: <effective>, filter: 'all', limit: 200 })` walk (at most 5 pages) per effective event and connection change; the query and the chips filter that list on the device with `teamHit`, the server's own rule (name substring, any case; digits = number prefix), so no keystroke reaches the server and nothing needs a debounce. The chip counts follow the query, as the server's `counts` do (the mock-up's static counts while typing came from its helper, not a decision). While the server answers, and if it fails, the device's list shows (no override). Under an override: offline → `StateMessage offline-needs-server` ("<event> is not on this device; its teams need a connection") with "Back to <default>" (clears the override); a failure → `StateMessage failed` with Try again. Whether to fetch reads the app's `useOnline`; the cross-event path itself is gated only by `useCapability('cross_event_view')`.
+
+**Risk:** a season over 1000 teams would be cut at 5 pages; a real season has a few hundred.
+
+## Task 1.51 — Small calls the design left open
+
+**Plan said:** the README's head, rows and dialogs.
+
+**What was wrong:** some values were not specified.
+
+**What I did instead:**
+- **Our team** is `OUR_TEAM_NUMBER = 2096` in `features/teams/teamSearch.ts`, as the Brand and AccountBlock already hard-code "Team 2096"; no setting holds it.
+- **Short event name** ("District #3") is the name before " · " (`shortEventName`), used where the design shortens it: the picker's title, Keep <event>, the offline Note, the phone sub-line. "Scouting still saves to" names the admin default in full.
+- **Head under an override** omits the year ("25 teams · ranks from …"): the device holds only the default's season, and an override set from Switch competition may be another season's event.
+- **The picker** preselects its first event (one tap to Continue); with no events it says "We hold no entries for <team> at another event." and Continue stays disabled. A pick that is the admin default clears the override instead of setting it. Going offline while it is open closes it.
+- **Empty results:** with At this event on and only other-event matches, the Show-all line stands alone; with nothing at all, `StateMessage no-results` with "Clear the search" (clears the query, selects All).
+- **The desktop table's fourth header** is the screen-reader-only word "Open" (the design's is blank).
+- **Event picker rows** are their own radio rows in `CrossEventJump.tsx`, not `DescribedChoice stacked` (which has no radio circle; the final draws one).
+
+**Risk:** none known.
+
+## Task 1.51 — Shared pieces, and what the screenshots differ in
+
+**Plan said:** components Rank badge (side), Link row, Other-event button, Show-all line, Event picker; compare the screenshots at 1440 and 375 px.
+
+**What was wrong:** nothing; recording the shape.
+
+**What I did instead:** `components/ui/link-row.tsx` exports `LinkRow` (the phone row: one `<Link>` over the whole row, round ›, pressed / hovered / focused = `--accent-tint` + 3 px `--accent` start edge, the › filled) and `LinkTableRow` (a table row whose last cell's link is stretched over the row with `after:inset-0`; the row takes the tint, the edge and the focus ring, the number underlines through `LINK_KEY_TEXT`, "Team page ›" shows on hover or focus). `components/ui/rank-badge.tsx` is one `role="img"` named "Rank 7" / "Rank 1, medal" (lucide `Medal`, no metal colours), with `none` words in its place. The Other-event button, Show-all line and Event picker live in `features/teams/`. BUILD-CONTEXT §12.5's component list names the two new ones. Differences from the finals: the computer table's rows are the locked Data table's 46 px, not the mock-up's ~42 px; the shots light a row by keyboard focus (with its focus ring), because `shoot()` moves the pointer away before each picture, so neither hover nor press can be captured; the medal glyph is lucide's; the fixture ranks other teams than the mock-up (2096 is #20 and shows in the long phone shot).
+
+**Risk:** none known. The `e2e/shell.spec.ts` phone-bar test now shoots five pages in two themes and is marked `test.slow()` (it passed alone in 29 s, and timed out at 60 s beside the teams spec).
+
+## Task 1.51 — Bundle
+
+**Plan said:** a lazy page; raise `BUDGET_KB` only if needed.
+
+**What was wrong:** nothing.
+
+**What I did instead:** `TeamSearchPage` is a lazy chunk (8.2 KB gzip, precached by the `**/*.js` glob); the nav row, the `Search` icon and the paths moved the initial JS from 229.4 to **229.6 KB** gzip, under the 230 KB budget. No raise.
+
+**Risk:** 0.4 KB of headroom is left; task 1.52 will likely need a raise.
+
+## Task 1.51 — Rows link to a route that does not exist yet
+
+**Plan said:** rows open `/teams/:teamId`; do not register it (task 1.53 does).
+
+**What was wrong:** nothing, but until 1.53 lands a tap on a row reaches React Router's default error element (the route tree has no catch-all).
+
+**What I did instead:** left as instructed: `TEAM_ROUTE` and `teamPath()` are in `lib/paths.ts`, with no route.
+
+**Risk:** a reviewer on dev between 1.51 and 1.53 sees the router's 404 when opening a team.

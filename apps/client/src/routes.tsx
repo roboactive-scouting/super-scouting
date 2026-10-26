@@ -86,6 +86,11 @@ const QrSendPage = lazy(() =>
 const QrReceivePage = lazy(() =>
   import('@/features/qr/QrReceivePage').then((m) => ({ default: m.QrReceivePage })),
 );
+// Season-wide team search (task 1.51): a lazy chunk, precached, so it opens offline — where it
+// ranks the event's teams from the device's own rows.
+const TeamSearchPage = lazy(() =>
+  import('@/features/teams/TeamSearchPage').then((m) => ({ default: m.TeamSearchPage })),
+);
 const ManageRoute = lazy(() =>
   import('@/features/admin/ManageRoute').then((m) => ({ default: m.ManageRoute })),
 );
@@ -234,6 +239,19 @@ function ConflictsRoute() {
   );
 }
 
+/**
+ * SPEC-FINAL 13.2 (task 1.51): every team in the season, ranked at the event. It reads the event's
+ * roster and entries, so it waits for the event like Entries.
+ */
+function TeamsRoute() {
+  const eventId = useActiveEventId();
+  return (
+    <Loading>
+      <TeamSearchPage eventId={eventId} />
+    </Loading>
+  );
+}
+
 function EntriesRoute() {
   return <EntriesPage eventId={useActiveEventId()} />;
 }
@@ -299,6 +317,9 @@ export function routeTree(): RouteObject[] {
           element: <SignedInPracticeRoute />,
           handle: named({ title: 'Practice', crumb: ['Scout'] }),
         },
+        // SPEC-FINAL 13.2 (task 1.51): team search, the bottom bar's Search. Its rows open
+        // /teams/:teamId, which is task 1.53's route.
+        { path: 'teams', element: <TeamsRoute />, handle: named({ title: 'Search' }) },
         { path: 'entries', element: <EntriesRoute />, handle: named({ title: 'Entries' }) },
         // Inside the shell: it needs a signed-in device, and never leaves the outbox. It
         // reads only the cached accounts, so it works before any event is loaded.

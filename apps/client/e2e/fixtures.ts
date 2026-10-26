@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { validateEntryData, validateEntryShape } from '@frc/shared';
+import { rankByAveragePoints, validateEntryData, validateEntryShape } from '@frc/shared';
 import type { PullEntityKey, PullResponse } from '@frc/shared';
 
 /**
@@ -693,7 +693,75 @@ type Answer = unknown | ((input: Record<string, unknown>) => unknown);
 
 const matchesOf = (event_id: unknown) => (event_id === EVENT_ID ? MATCHES : []);
 
+/**
+ * Team search (task 1.51): the off-roster teams are the season's teams at other events, where we
+ * hold entries for them ([event index in EVENTS, entries, last entry]).
+ */
+const ELSEWHERE: Record<number, [number, number, string][]> = {
+  7845: [
+    [0, 4, '2026-03-03T09:00:00.000Z'],
+    [1, 6, '2026-03-10T12:00:00.000Z'],
+  ],
+  8223: [[1, 3, '2026-03-10T10:00:00.000Z']],
+  9036: [[0, 5, '2026-03-03T11:00:00.000Z']],
+};
+
+/** District #3's ranks, by the same shared helper the server and the device rank with. */
+const RANKS = new Map(
+  rankByAveragePoints(
+    ENTRIES.map((e) => ({
+      ...e,
+      match_type: 'qualification' as const,
+      match_number: MATCHES.find((m) => m.id === e.match_id)?.number ?? null,
+      event_sort_order: EVENT.sort_order,
+    })),
+    ROSTER,
+    FORM_FIELDS as never,
+    SCORING_RULES.map((r) => ({
+      field_key: r.field_key,
+      points: r.points as number,
+      option_points: r.option_points,
+    })),
+  ).map((r) => [r.team_id, r.rank]),
+);
+
+/** `searchTeams` for District #3, every team of the season in one page (the page filters). */
+function searchTeamsAnswer() {
+  const onRoster = new Set(ROSTER.map((t) => t.id));
+  const items = TEAMS.map((t) => ({
+    id: t.id,
+    number: t.number,
+    name: t.name,
+    in_active_event: onRoster.has(t.id),
+    rank: onRoster.has(t.id) ? (RANKS.get(t.id) ?? null) : null,
+    entries_here: ENTRIES.filter((e) => e.team_id === t.id).length,
+    other_events: (ELSEWHERE[t.number] ?? []).map(([i]) => ({
+      id: EVENTS[i]!.id,
+      name: EVENTS[i]!.name,
+    })),
+  }));
+  const here = items.filter((t) => t.in_active_event).length;
+  return {
+    items,
+    counts: { all: items.length, at_event: here, other: items.length - here },
+    event: { id: EVENT_ID, name: EVENT.name },
+    next_cursor: null,
+  };
+}
+
 const RPC: Record<string, Answer> = {
+  searchTeams: () => searchTeamsAnswer(),
+  listTeamEvents: (input: Record<string, unknown>) => ({
+    items: (ELSEWHERE[TEAMS.find((t) => t.id === input.team_id)?.number ?? 0] ?? []).map(
+      ([i, count, last]) => ({
+        id: EVENTS[i]!.id,
+        name: EVENTS[i]!.name,
+        entry_count: count,
+        last_entry_at: last,
+      }),
+    ),
+    next_cursor: null,
+  }),
   getActiveContext: { active_season_id: SEASON_ID, active_event_id: EVENT_ID },
   listSeasons: { items: SEASONS, next_cursor: null },
   listEvents: (input: Record<string, unknown>) => ({
