@@ -12,6 +12,27 @@ export function formatCount(value: number | null | undefined): string {
   return String(Math.round(value));
 }
 
+/**
+ * The compact match label prefix (Q12, P3, PO1 — SPEC-FINAL 6.4). Moved here from the client's
+ * `lib/matchLabel.ts` by task 1.50, so the server's entry search writes the same label the
+ * device shows (`match_label`); the client re-exports it, unchanged.
+ */
+export const MATCH_TYPE_PREFIX: Record<'qualification' | 'practice' | 'playoff', string> = {
+  qualification: 'Q',
+  practice: 'P',
+  playoff: 'PO',
+};
+
+/**
+ * `match_type` is typed loosely (`string`) so this also accepts the entry flow's own local
+ * `MatchRow` (cached rows read back as plain JSON, not the shared zod type).
+ */
+export function matchLabel(match: { match_type: string; number: number }): string {
+  const prefix =
+    MATCH_TYPE_PREFIX[match.match_type as keyof typeof MATCH_TYPE_PREFIX] ?? match.match_type;
+  return `${prefix}${formatCount(match.number)}`;
+}
+
 /** Rates: a 0–1 fraction rendered as a whole-number percentage. */
 export function formatPercent(fraction: number | null | undefined): string {
   if (fraction === null || fraction === undefined || !Number.isFinite(fraction)) return NO_VALUE;

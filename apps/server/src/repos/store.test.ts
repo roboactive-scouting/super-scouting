@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Db } from '../db/client.js';
-import { escapeLikePattern, numberPrefixFilter, supabaseStore } from './store.js';
+import {
+  entryKeysetFilter,
+  escapeLikePattern,
+  numberPrefixFilter,
+  supabaseStore,
+} from './store.js';
 
 const BS = '\\';
 
@@ -1421,5 +1426,202 @@ describe('supabaseStore conflict queue and resolution (task 1.41, SPEC-FINAL 9.5
     expect(await store.getEntriesByIds([])).toEqual([]);
     expect(await store.getTeamsByIds(['t-1'])).toEqual([]);
     expect(chains).toHaveLength(4);
+  });
+});
+
+describe('supabaseStore browse and search reads (task 1.50)', () => {
+  const EVENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const EVENT_2 = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const TEAM = '00000000-0000-4000-8000-00000000000a';
+  const TEAM_2 = '00000000-0000-4000-8000-00000000000b';
+  const MATCH = '00000000-0000-4000-8000-0000000000c1';
+  const USER = '00000000-0000-4000-8000-0000000000d1';
+  const ENTRY = '00000000-0000-4000-8000-0000000000e1';
+  const AT = '2026-11-14T08:01:00.123456+00:00';
+
+  it('getEntry reads one row by id, and a non-uuid id names no row without a query', async () => {
+    const { db, chains } = scriptedDb([{ data: { id: ENTRY }, error: null }]);
+    const store = supabaseStore(db);
+    expect(await store.getEntry(ENTRY)).toEqual({ id: ENTRY });
+    expect(chains[0]).toEqual([
+      ['from', 'scouting_entries'],
+      ['select', '*'],
+      ['eq', 'id', ENTRY],
+      ['maybeSingle'],
+    ]);
+    expect(await store.getEntry('e-1')).toBeNull();
+    expect(chains).toHaveLength(1);
+  });
+
+  it('getEntry throws on a database error instead of reading as "no such entry"', async () => {
+    const { db } = scriptedDb([{ data: null, error: { message: 'boom' } }]);
+    await expect(supabaseStore(db).getEntry(ENTRY)).rejects.toThrow('boom');
+  });
+
+  it('queryEntries reads one event’s live rows newest first, narrowed by kind and team', async () => {
+    const { db, chains } = scriptedDb([{ data: [{ id: ENTRY }], error: null }]);
+    const out = await supabaseStore(db).queryEntries({
+      eventId: EVENT,
+      formKind: 'super',
+      teamId: TEAM,
+      limit: 51,
+    });
+    expect(out).toEqual([{ id: ENTRY }]);
+    expect(chains[0]).toEqual([
+      ['from', 'scouting_entries'],
+      ['select', '*'],
+      ['eq', 'event_id', EVENT],
+      ['is', 'deleted_at', null],
+      ['eq', 'form_kind', 'super'],
+      ['eq', 'team_id', TEAM],
+      ['order', 'client_created_at', { ascending: false }],
+      ['order', 'id', { ascending: false }],
+      ['limit', 51],
+    ]);
+  });
+
+  it('queryEntries pages on a quoted (client_created_at, id) keyset', async () => {
+    const { db, chains } = scriptedDb([{ data: [], error: null }]);
+    await supabaseStore(db).queryEntries({
+      eventId: EVENT,
+      limit: 10,
+      after: { client_created_at: AT, id: ENTRY },
+    });
+    expect(chains[0]).toContainEqual([
+      'or',
+      entryKeysetFilter({ client_created_at: AT, id: ENTRY }),
+    ]);
+    expect(entryKeysetFilter({ client_created_at: AT, id: ENTRY })).toBe(
+      `client_created_at.lt."${AT}",and(client_created_at.eq."${AT}",id.lt.${ENTRY})`,
+    );
+  });
+
+  it('queryEntries refuses a keyset that is not a timestamp and a uuid, before any query', async () => {
+    const { db, chains } = scriptedDb([]);
+    await expect(
+      supabaseStore(db).queryEntries({
+        eventId: EVENT,
+        limit: 10,
+        after: { client_created_at: 'x),or(1.eq.1', id: ENTRY },
+      }),
+    ).rejects.toThrow('a keyset must be a timestamp and a uuid');
+    expect(chains).toHaveLength(0);
+  });
+
+  it('queryEntries answers nothing for an event or team id that is not a uuid, without a query', async () => {
+    const { db, chains } = scriptedDb([]);
+    const store = supabaseStore(db);
+    expect(await store.queryEntries({ eventId: 'ev-1', limit: 10 })).toEqual([]);
+    expect(await store.queryEntries({ eventId: EVENT, teamId: 't-1', limit: 10 })).toEqual([]);
+    expect(chains).toHaveLength(0);
+  });
+
+  it('queryEntries resolves a search to the event’s team, match and scouter ids, then filters by them', async () => {
+    const { db, chains } = scriptedDb([
+      // the event's live entries' ids
+      {
+        data: [
+          { team_id: TEAM, match_id: MATCH, scouter_id: USER },
+          { team_id: TEAM_2, match_id: null, scouter_id: USER },
+        ],
+        error: null,
+      },
+      // their teams, matches and users
+      {
+        data: [
+          { id: TEAM, number: 3065, name: 'Jatt' },
+          { id: TEAM_2, number: 1690, name: 'Orbit' },
+        ],
+        error: null,
+      },
+      { data: [{ id: MATCH, match_type: 'qualification', number: 3 }], error: null },
+      { data: [{ id: USER, full_name: 'Noa 3rd' }], error: null },
+      // the page
+      { data: [{ id: ENTRY }], error: null },
+    ]);
+    const out = await supabaseStore(db).queryEntries({
+      eventId: EVENT,
+      query: ' 3 ',
+      limit: 10,
+      after: { client_created_at: AT, id: ENTRY },
+    });
+    expect(out).toEqual([{ id: ENTRY }]);
+    expect(chains[0]).toEqual([
+      ['from', 'scouting_entries'],
+      ['select', 'team_id, match_id, scouter_id'],
+      ['eq', 'event_id', EVENT],
+      ['is', 'deleted_at', null],
+      ['order', 'id'],
+      ['range', 0, 999],
+    ]);
+    expect(chains[1]).toContainEqual(['in', 'id', [TEAM, TEAM_2]]);
+    expect(chains[2]).toContainEqual(['in', 'id', [MATCH]]);
+    expect(chains[3]).toContainEqual(['in', 'id', [USER]]);
+    // '3': team 3065 by prefix, match 3 exactly; 'Noa 3rd' holds a '3', so the scouter too.
+    const search = `team_id.in.(${TEAM}),match_id.in.(${MATCH}),scouter_id.in.(${USER})`;
+    const keyset = entryKeysetFilter({ client_created_at: AT, id: ENTRY });
+    expect(chains[4]).toContainEqual(['or', `and(or(${search}),or(${keyset}))`]);
+    expect(chains[4]!.filter(([m]) => m === 'or')).toHaveLength(1);
+  });
+
+  it('queryEntries answers nothing, without reading the page, when the search names nothing', async () => {
+    const { db, chains } = scriptedDb([
+      { data: [{ team_id: TEAM, match_id: null, scouter_id: USER }], error: null },
+      { data: [{ id: TEAM, number: 3065, name: 'Jatt' }], error: null },
+      { data: [{ id: USER, full_name: 'Noa' }], error: null },
+    ]);
+    const store = supabaseStore(db);
+    expect(await store.queryEntries({ eventId: EVENT, query: 'orbit', limit: 10 })).toEqual([]);
+    expect(chains).toHaveLength(3);
+  });
+
+  it('listTeamEvents groups live entries by team and event, paging past 1000 rows', async () => {
+    const rows = (team: string, event: string, n: number, at: string) =>
+      Array.from({ length: n }, () => ({ team_id: team, event_id: event, client_created_at: at }));
+    const { db, chains } = scriptedDb([
+      {
+        data: [
+          ...rows(TEAM, EVENT, 999, '2026-03-01T10:00:00+00:00'),
+          ...rows(TEAM, EVENT_2, 1, '2026-04-01T10:00:00+00:00'),
+        ],
+        error: null,
+      },
+      { data: rows(TEAM, EVENT, 1, '2026-03-02T09:00:00+00:00'), error: null },
+    ]);
+    const out = await supabaseStore(db).listTeamEvents([TEAM, 't-1'], [EVENT, EVENT_2]);
+    expect(out).toEqual([
+      {
+        team_id: TEAM,
+        event_id: EVENT,
+        entry_count: 1000,
+        last_entry_at: '2026-03-02T09:00:00+00:00',
+      },
+      {
+        team_id: TEAM,
+        event_id: EVENT_2,
+        entry_count: 1,
+        last_entry_at: '2026-04-01T10:00:00+00:00',
+      },
+    ]);
+    expect(chains[0]).toEqual([
+      ['from', 'scouting_entries'],
+      ['select', 'team_id, event_id, client_created_at'],
+      ['in', 'team_id', [TEAM]],
+      ['in', 'event_id', [EVENT, EVENT_2]],
+      ['is', 'deleted_at', null],
+      ['order', 'id'],
+      ['range', 0, 999],
+    ]);
+    expect(chains[1]).toContainEqual(['range', 1000, 1999]);
+    expect(chains).toHaveLength(2);
+  });
+
+  it('listTeamEvents reads nothing for no teams or no events, and throws on a database error', async () => {
+    const { db, chains } = scriptedDb([{ data: null, error: { message: 'boom' } }]);
+    const store = supabaseStore(db);
+    expect(await store.listTeamEvents([], [EVENT])).toEqual([]);
+    expect(await store.listTeamEvents([TEAM], [])).toEqual([]);
+    expect(chains).toHaveLength(0);
+    await expect(store.listTeamEvents([TEAM], [EVENT])).rejects.toThrow('boom');
   });
 });

@@ -8997,3 +8997,102 @@ Rejected: `versions` as a plain array with the active one first (an order conven
 **What I did instead:** the rank mapping was given to 1.56 as `aggregationValue` beside the cross-version guard (0-based, top of the list = 0; an ordinal multi select reads its highest rank; an ordinal whose older option list is not an in-order subsequence of the active one is refused as `type-changed`) — see the 1.56 entry. The orchestrator read every diff, re-ran `pnpm test && pnpm typecheck && pnpm lint && pnpm format:check && pnpm docs:check` before each commit, and ran its own mutation checks: the status rule out of `entriesForAggregates` (3 tests fail) and the type check out of `resolveFieldAcrossVersions` (5 tests fail), each restored. Floor: 3033 tests / 215 files at `cffc922`.
 
 **Risk:** whether an entry was timed is not stored, so `deriveCycles`' `timed` argument cannot be chosen per stored entry yet — a spec decision before any cycle metric ships. The flaky client tests can fail CI intermittently.
+
+## Task 1.50 — The scoring breakdown lives in `packages/shared` (orchestrator D1)
+
+**Plan said:** `getEntry` returns "one entry fully rendered with its derived score", and task 1.52's design note adds each field's points, each phase's subtotal, the form version and the team's average. The plan names no function for the per-field points.
+
+**What was wrong:** `scoreEntry` returns only the total. A breakdown built in the server or the client would be a second scoring implementation (SPEC-FINAL 11.1), and the 1.52 preview must render offline from the device's own rows.
+
+**What I did instead:** `packages/shared/src/engine/breakdown.ts` (new, exported last from `index.ts`):
+- `scoutedPoints(entry, fields, rules): number | null` — `scoreEntry`, except a **super entry is null**. `scoreEntry` itself scores a super entry's data (it reads only `robot_status`), but no page shows a super score (13.3, 13.4), so this is the one place that says so. `queryEntries.scouted_points` and `getEntry.scouted_points` both come from it.
+- `scoreBreakdown(entry, fields, rules): { total, phases }` with `entry = { form_kind, robot_status, data }` (plain row columns). No-show / disabled → `{ total: null, phases: [] }`. Super → phases with every `points` and `subtotal` null, total null. Otherwise `total` IS `scoutedPoints(...)` (not a re-summed figure, so fractional points can never drift from `scoreEntry`), and each phase's `subtotal` is the sum of its rows' points, or null when no row in it is scored.
+- Rows are what the confirmation summary shows (`EntryAnswers`): every field but a `section` heading, each key once (the first field that carries it, as `scoreEntry` does), under `phase ?? 'post_match'`, phases in `FIELD_PHASES` order, empty phases dropped. Computed fields are re-derived (`hydrateComputed`) and shown, unscored. A field the active version retired (`deprecated`) or whose own condition hides it is left out **unless the entry holds a value for it** — a held value is exactly what `scoreEntry` scores, so the rows always add up to the total. The confirmation summary has no such rows because its fields are the entry's own version; scoring here uses the ACTIVE version (5.1), whose fields can differ.
+- `points` is a number when a rule names the field and the type is scorable (0 included: "a scored field that earned nothing"), null otherwise. `value` is the hydrated stored value, except a single select's is its option **label** and a multi select's is the array of its picks' labels (an option no longer listed reads as its stored value). A field the entry holds nothing for has **no `value` key** (not null: a Timer's null means "Unsure").
+- Tests: `breakdown.test.ts` (14), including `total === scoreEntry` for played, empty and broke-down entries and for fractional points, and the held-retired-field case.
+
+Rejected: subtotal 0 for an unscored phase (the Notes card would read "0 pts"); `value` as a display string (a map field needs its taps to open the map view, UF.24); including a retired field only when it scores (a held value is shown either way, as the device would).
+
+**Risk:** the preview shows the ACTIVE version's labels and options for an entry scouted on an older version; a key the active version no longer has at all is not shown (and not scored, as before).
+
+## Task 1.50 — `averagePoints` and the interim rank (orchestrator D2, D3)
+
+**Plan said:** §13.2 "marks a team in the active event with its rank". No stored rank exists in the schema.
+
+**What was wrong:** nothing to read; the ranking dashboard is task 1.58.
+
+**What I did instead:** `averagePoints(entries, fields, rules) → { avg, matches_counted }` = `aggregate(applyFilters(entries.filter(form_kind === 'match'), {}, fields).map(scoreEntry), 'avg')`; one team's entries, the caller groups. `rankByAveragePoints(entries, teams, fields, rules) → TeamRank[]` (`{ team_id, number, rank, avg, matches_counted }`): each roster team's `averagePoints`, ranked highest first, ties to the lower team number, positions 1, 2, 3 with no shared places; a team with no counted match entry (only no-show, disabled, practice, playoff or no entries) has `rank: null` and comes after the ranked ones by number; entries of a team not in `teams` are ignored. `searchTeams` ranks the event's live roster with the season's match form (its active version's fields and the form's rules). **Interim until task 1.58** — 1.58 should replace the source of `rank`, not add a second one.
+
+**Risk:** a team whose only counted matches all scored 0 is ranked (avg 0), last among the ranked.
+
+## Task 1.50 — Which event, which season, which teams (orchestrator D4)
+
+**Plan said:** `searchTeams` searches "all teams in the season"; `listTeamEvents` returns "the events a team has entries at".
+
+**What was wrong:** teams are a global registry with no season column; the only season link is `event_teams` (an event's roster). The Store's `listTeams({ seasonId })` option is "reserved for searchTeams" and unused.
+
+**What I did instead:**
+- **The season's teams** = teams on the **live** roster of any event of the season (rosters read per event, `getRoster`). A team removed from every roster but still holding entries is not listed. `listTeams`' `seasonId` stays unused.
+- `searchTeams` takes the effective event from `event_id`, else `getActiveContext().active_event_id`; an `event_id` naming no event is `not-found`. With no event, the active season's teams are listed unranked (`event: null`); with no season either, an empty result. Default `filter` is `all` (the plan's test expects t-3 in an unfiltered search); the page's own default chip ("At this event") is the client's.
+- `listTeamEvents` has no event input (D5's shape), so it reads the **active season** (`getActiveContext().active_season_id`): the event picker only offers events of the season being searched. No active season → empty.
+- `queryEntries` requires `event_id` and reads only that event.
+
+**Risk:** a session override (1.51) to an event of ANOTHER season would make `listTeamEvents` list the global active season's events, not the override's. Today every event the picker offers is in the active season, so this cannot arise from the UI.
+
+## Task 1.50 — The Store's three read stubs changed shape
+
+**Plan said:** `context.ts` declared `queryEntries({ eventId, formKind?, query?, limit, cursor?: string })`, `listTeamEvents(teamId): StoredRow[]` and `getEntry(id)`, and "a task that wants a method not on this list has drifted".
+
+**What was wrong:** an opaque string cursor inside the Store would have to be decoded twice (the use case validates every cursor before it reaches a PostgREST filter, as listConflicts does); `getEntry`'s team average needs one team's entries; a team search page needs the other events of a whole page of teams in one read, not one read per team.
+
+**What I did instead:** no new methods; the three stubs' signatures changed (as task 1.41 replaced `listConflicts`):
+- `queryEntries({ eventId, formKind?, teamId?, query?, limit, after?: EntryKeyset })` — `EntryKeyset = { client_created_at, id }`; live rows only, newest first by (client_created_at desc, id desc).
+- `listTeamEvents(teamIds, eventIds): TeamEventEntries[]` — `{ team_id, event_id, entry_count, last_entry_at }` per pair with live entries; batched (`in` chunks of 100), paged by 1000 (`range`), grouped in TS (PostgREST aggregates are off by default on Supabase).
+- `getEntry(id)` returns a soft-deleted row too; the use case refuses it (`not-found`).
+- `entriesForScope` is still a stub (task 1.57).
+
+**The search in SQL (Supabase store):** a query first reads the typed `team_id, match_id, scouter_id` of the event's live entries (paged), then those teams, matches and users, matches them in TS by `core/entrySearch.ts` (ONE copy, also used by the fake), and filters the page by `or=(team_id.in.(…),match_id.in.(…),scouter_id.in.(…))`. Every list is bounded by the event's entries, not the registry. With a keyset as well, both go in ONE `or` parameter as `or=(and(or(<search>),or(<keyset>)))`, because two `or` query parameters are not documented to AND. A query that names nothing returns `[]` without reading the page. The JSONB is never read by SQL.
+
+Rejected: an embedded-resource filter (`teams!inner(...)`) — PostgREST cannot OR across different embedded tables; resolving teams over the whole registry (an `ilike '%a%'` could name thousands of ids in a URL); fetching the event's rows and paging in TS (the plan: "filters and pages in SQL").
+
+**Risk:** the nested `and(or(…),or(…))` filter and the quoted-timestamp keyset are verified by the recording-db unit tests only, not against a live PostgREST (this task ran nothing against Supabase). The quoted keyset is the form `listOpenConflicts` already uses on dev. A first dev run of 1.52's entry search with a query AND a second page is the real proof.
+
+## Task 1.50 — Search and pagination rules
+
+**Plan said:** searchable "by team name, team number, match number and scouter name"; "bounded and paginated".
+
+**What was wrong:** the matching rules and the cursor kinds were not specified.
+
+**What I did instead:** case-insensitive and literal throughout. Team: name substring or number **prefix** (as `listTeams`). Match: the number **exactly** ("3" is Q3/P3/PO3, never Q13), or the device's label ("q4", "PO1"). Scouter: full-name substring. `queryEntries` pages by keyset (`{c, i}`, the instant kept as the database wrote it); `searchTeams` and `listTeamEvents` page by **offset** (`{o}`) because their order is computed (rank) — a team whose rank changes between pages can repeat or be skipped, as on any live ranking. Limits: searchTeams 50 / max 200, listTeamEvents 50 / max 100, queryEntries 50 / max 200, each clamped. Event-wide reads inside a use case (ranks, counts, a team's average) walk `queryEntries` 1000 at a time and stop at 20 000 rows.
+
+**Risk:** `searchTeams` reads every live entry of the event (with `data`, to score the ranks) on each call. At a venue-sized event (~600 entries) that is one page, but a client that calls it per keystroke should debounce, or rank on the device with `rankByAveragePoints` from its pulled rows.
+
+## Task 1.50 — `mayEditEntryNow`: one Edit rule (orchestrator D6)
+
+**Plan said:** `getEntry`'s Edit shows only to someone allowed to edit under §7.6.
+
+**What was wrong:** `canEditEntry` (shared) does not exempt a super entry; the client's `canSelfEdit` added the exemption itself, so a server-side `can_edit` would have been a third copy.
+
+**What I did instead:** `mayEditEntryNow(caller, { scouter_id, form_kind, client_created_at }, now: Date): boolean` in `packages/shared/src/auth/permissions.ts` (plus `EntryEditSubject`): lead/admin always; a scouter their own super entry any time and their own match entry while `withinSelfEditWindow(client_created_at, now)`; another scouter's entry and any `service` caller never; an invalid `now` or stamp is false, not a throw. `canSelfEdit` (`apps/client/src/features/entry/localEntries.ts`) now delegates to it, with identical results. `getEntry` passes `ctx.now()` (the injected clock; the fake's `nowValue`). Tests: 7 in `permissions.test.ts`, 5 `can_edit` cases in `search.test.ts` (past 5 min, another scouter's entry and a service caller are false), each proved by a mutation (`can_edit` forced true → 4 failures; the soft-delete check removed → 1).
+
+**Risk:** the server's push still exempts a super entry by its own code path (task 1.40) — the same rule, a second spelling. Moving it onto `mayEditEntryNow` is a later clean-up (it compares `client_updated_at`, not `now`).
+
+## Task 1.50 — Wire shapes as built (orchestrator D5)
+
+**Plan said:** the shapes of D5.
+
+**What was wrong:** a few types were open.
+
+**What I did instead:** schemas in `packages/shared/src/api/search.ts`, rows in `API`: `searchTeamsInput/Output`, `teamSearchItem`, `listTeamEventsInput/Output`, `queryEntriesInput/Output`, `entrySummary`, `getEntryInput/Output`, `breakdownField`, `breakdownPhase`, constants `SEARCH_TEAMS_*`, `LIST_TEAM_EVENTS_*`, `QUERY_ENTRIES_*`, `TEAM_SEARCH_FILTERS`, `ROBOT_STATUSES`. Ids are `z.string().min(1)`, not uuids (the fake's ids are not; the Supabase store reads a non-uuid as no row), as `conflicts.ts`. `team_number`/`team_name` are non-null (`scouting_entries.team_id` is `on delete restrict`; a missing team throws); `scouter_name` is nullable, as conflicts' authors are. `match_label` comes from `matchLabel` — moved from the client's `lib/matchLabel.ts` into `packages/shared/src/format.ts` (with `MATCH_TYPE_PREFIX`) so the server writes the label the device shows; the client module re-exports it. `match_label`, `match_type`, `match_number` are null for a super entry. `getEntry.form_version` is the version NUMBER; `team_average` is `averagePoints` over the team's live match entries at the **entry's** event (null for a super entry). A form with no `active_version_id` scores with the entry's own version; an entry whose version is gone scores null in the list and is `not-found` in `getEntry`.
+
+**Risk:** none known.
+
+## Task 1.50 — Fixture, plan test and bundle
+
+**Plan said:** implement `seedSmallSeason` and `softDelete` in `fake-context.ts`; the plan's test file verbatim.
+
+**What was wrong:** nothing; three small departures.
+
+**What I did instead:** the seed lives in its own module, `apps/server/src/test/small-season.ts` (`SMALL_SEASON` ids exported), called from `fake-context.ts` — the fake is 1700 lines already. ev-2's entries are `e-21`/`e-22` (t-2's and t-3's), so `listTeamEvents('t-1')` is `['ev-1']`; `e-9` is on the retired v1 and scores 3 by v2's rules (the active-version rule is tested). `softDelete` sets `deleted_at`, `updated_at` and bumps `version`. The plan's test is verbatim except its imports carry `.js` (`./search.js`, `../../test/fake-context.js`), as every server test does. The new API rows put the initial client JS at **229.4 KB** gzip (no engine code reached the initial chunk; the growth is the four zod schemas the typed client imports with the whole `API` map), so `BUDGET_KB` went **229 → 230** (`scripts/check-bundle.mjs`, BUILD-CONTEXT §12.5 updated).
+
+**Risk:** `pnpm format:check` reports only `NEXT-CHAT.md` (the untracked handoff file, untouched here); it passes once that file is deleted before the commit.

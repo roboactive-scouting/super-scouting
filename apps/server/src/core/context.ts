@@ -360,16 +360,37 @@ export type Store = {
   listUserNames(ids: string[]): Promise<{ id: string; full_name: string }[]>;
 
   // reads for browse, search and statistics (tasks 1.50, 1.57)
+  /**
+   * Task 1.50: one scouting entry by id, a soft-deleted one included (the use case refuses it);
+   * null for an unknown id or one that is not a uuid. THROWS on a database error.
+   */
   getEntry(id: string): Promise<StoredRow | null>;
+  /**
+   * Task 1.50 (replaces the stub's opaque `cursor` with a keyset, and adds `teamId`): one
+   * event's LIVE entries (`deleted_at is null`), newest first by (client_created_at desc, id
+   * desc), at most `limit`; `after` is the last row of the previous page. `formKind` and
+   * `teamId` narrow it. `query` (trimmed, non-empty) keeps the entries whose team name holds it,
+   * whose team number starts with it, whose match number is it (or whose match label is it,
+   * "Q12"), or whose scouter's full name holds it — case-insensitive and literal
+   * (`core/entrySearch.ts`, one copy for both stores). Filtered and paged in SQL over typed
+   * columns; the JSONB is never read by SQL. THROWS on a database error.
+   */
   queryEntries(options: {
     eventId: string;
     formKind?: 'match' | 'super';
+    teamId?: string;
     query?: string;
     limit: number;
-    cursor?: string;
+    after?: EntryKeyset;
   }): Promise<StoredRow[]>;
   entriesForScope(scope: { eventIds: string[]; teamId?: string }): Promise<StoredRow[]>;
-  listTeamEvents(teamId: string): Promise<StoredRow[]>;
+  /**
+   * Task 1.50 (replaces the stub's `(teamId)`): for each of `teamIds`, the events among
+   * `eventIds` where it has LIVE entries, with how many and the newest `client_created_at`.
+   * One row per (team, event) that has any; nothing for a pair with none. Batched; reads only
+   * the three typed columns it needs. THROWS on a database error.
+   */
+  listTeamEvents(teamIds: string[], eventIds: string[]): Promise<TeamEventEntries[]>;
 
   // deletes (task 1.60; the season and event ones landed with RB.20)
   /**
@@ -501,6 +522,17 @@ export type ConflictResolutionWrite = {
   resolved_at: string;
   resolved_by: string;
   resolution: Record<string, unknown>;
+};
+
+/** The queryEntries keyset (task 1.50): client_created_at is not unique, so the id breaks ties. */
+export type EntryKeyset = { client_created_at: string; id: string };
+
+/** One (team, event) pair's live entries, as `listTeamEvents` answers it (task 1.50). */
+export type TeamEventEntries = {
+  team_id: string;
+  event_id: string;
+  entry_count: number;
+  last_entry_at: string;
 };
 
 /** The counts `countDeleteImpact` answers. */

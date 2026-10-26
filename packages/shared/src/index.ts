@@ -37,3 +37,7 @@ export * from './engine/aggregate';
 export * from './engine/cycles';
 export * from './engine/reliability';
 export * from './engine/versions';
+// Task 1.50: the browse and search queries' wire schemas, and the engine's breakdown, average
+// and interim rank. Last, for the same reason as the engine above.
+export * from './api/search';
+export * from './engine/breakdown';

@@ -76,6 +76,16 @@ import {
   updateMatchInput,
 } from './matches';
 import {
+  getEntryInput,
+  getEntryOutput,
+  listTeamEventsInput,
+  listTeamEventsOutput,
+  queryEntriesInput,
+  queryEntriesOutput,
+  searchTeamsInput,
+  searchTeamsOutput,
+} from './search';
+import {
   createTeamInput,
   eventRosterOutput,
   listEventRosterInput,
@@ -163,6 +173,10 @@ export const API = {
   getFormExport: { input: getFormExportInput, output: getFormExportOutput },
   listConflicts: { input: listConflictsInput, output: listConflictsOutput },
   resolveConflict: { input: resolveConflictInput, output: resolveConflictOutput },
+  searchTeams: { input: searchTeamsInput, output: searchTeamsOutput },
+  listTeamEvents: { input: listTeamEventsInput, output: listTeamEventsOutput },
+  queryEntries: { input: queryEntriesInput, output: queryEntriesOutput },
+  getEntry: { input: getEntryInput, output: getEntryOutput },
 } as const;
 
 export type Api = typeof API;

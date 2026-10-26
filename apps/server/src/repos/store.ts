@@ -6,6 +6,7 @@ import {
   type SyncEntity,
 } from '@frc/shared';
 import type {
+  EntryKeyset,
   MatchKeyset,
   PullScope,
   FormDeletion,
@@ -25,7 +26,15 @@ import type {
   StoredSeason,
   StoredTeam,
   StoredUser,
+  TeamEventEntries,
 } from '../core/context.js';
+import {
+  entrySearch,
+  matchMatches,
+  scouterMatches,
+  teamMatches,
+  type EntrySearch,
+} from '../core/entrySearch.js';
 import type { Db } from '../db/client.js';
 import { supabasePullEntity } from './pull.js';
 
@@ -80,6 +89,11 @@ const IN_CHUNK = 100;
 const EVENT_TEAMS_READ_LIMIT = 1000;
 /** A bound on one read of the saved exports; they are deleted after 24 hours. */
 const FORM_EXPORTS_READ_LIMIT = 200;
+/**
+ * One page of a read that walks many entry rows (task 1.50): Supabase answers at most 1000
+ * rows a request (its max-rows setting), so a longer read pages with `range`, ordered by id.
+ */
+const ENTRY_READ_PAGE = 1000;
 
 function chunks<T>(items: T[]): T[][] {
   const out: T[][] = [];
@@ -118,6 +132,63 @@ export function dbError(error: { message: string; code?: string }): Error & { co
 
 export function supabaseStore(db: Db): Store {
   const pullEntity = supabasePullEntity(db);
+
+  /**
+   * Task 1.50: the entry search as a PostgREST `or` filter over typed columns —
+   * `team_id.in.(…),match_id.in.(…),scouter_id.in.(…)` — or null when the query names nothing.
+   * The candidates are the ids the event's LIVE entries carry (three typed columns, paged), so
+   * every list is bounded by the event, not by the registry; their teams, matches and users are
+   * then read and matched by `core/entrySearch.ts`. Every id interpolated is a uuid.
+   */
+  async function entrySearchFilter(eventId: string, q: EntrySearch): Promise<string | null> {
+    const teamIds = new Set<string>();
+    const matchIds = new Set<string>();
+    const scouterIds = new Set<string>();
+    for (let from = 0; ; from += ENTRY_READ_PAGE) {
+      const { data, error } = await db
+        .from('scouting_entries')
+        .select('team_id, match_id, scouter_id')
+        .eq('event_id', eventId)
+        .is('deleted_at', null)
+        .order('id')
+        .range(from, from + ENTRY_READ_PAGE - 1);
+      if (error) throw dbError(error);
+      for (const row of data ?? []) {
+        teamIds.add(row.team_id);
+        if (row.match_id) matchIds.add(row.match_id);
+        scouterIds.add(row.scouter_id);
+      }
+      if ((data ?? []).length < ENTRY_READ_PAGE) break;
+    }
+    const hitTeams: string[] = [];
+    for (const chunk of chunks([...teamIds].filter((id) => UUID.test(id)))) {
+      const { data, error } = await db.from('teams').select('id, number, name').in('id', chunk);
+      if (error) throw dbError(error);
+      for (const t of data ?? []) if (teamMatches(t, q)) hitTeams.push(t.id);
+    }
+    const hitMatches: string[] = [];
+    for (const chunk of chunks([...matchIds].filter((id) => UUID.test(id)))) {
+      const { data, error } = await db
+        .from('matches')
+        .select('id, match_type, number')
+        .in('id', chunk);
+      if (error) throw dbError(error);
+      for (const m of data ?? []) if (matchMatches(m, q)) hitMatches.push(m.id);
+    }
+    const hitScouters: string[] = [];
+    for (const chunk of chunks([...scouterIds].filter((id) => UUID.test(id)))) {
+      const { data, error } = await db.from('users').select('id, full_name').in('id', chunk);
+      if (error) throw dbError(error);
+      for (const u of data ?? []) if (scouterMatches(u.full_name, q)) hitScouters.push(u.id);
+    }
+    const parts = [
+      hitTeams.length > 0 ? `team_id.in.(${hitTeams.join(',')})` : null,
+      hitMatches.length > 0 ? `match_id.in.(${hitMatches.join(',')})` : null,
+      hitScouters.length > 0 ? `scouter_id.in.(${hitScouters.join(',')})` : null,
+    ].filter((p): p is string => p !== null);
+    return parts.length > 0 ? parts.join(',') : null;
+  }
+
   return {
     async getUser(id: string): Promise<StoredUser | null> {
       const { data, error } = await db
@@ -1205,7 +1276,75 @@ export function supabaseStore(db: Db): Store {
     // The remaining methods start as loud stubs, exactly as the fake does. Each later
     // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
     // without these the file does not compile at all.
-    ...stubsFor(['getEntry', 'queryEntries', 'entriesForScope', 'listTeamEvents']),
+    // Task 1.50: the browse and search reads. SQL fetches rows over typed columns; the shared
+    // engine scores them in the use case. Nothing here reads into the JSONB.
+    async getEntry(id: string): Promise<StoredRow | null> {
+      // A non-uuid id names no row, and Postgres would refuse the filter (22P02).
+      if (!UUID.test(id)) return null;
+      const { data, error } = await db
+        .from('scouting_entries')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw dbError(error);
+      return (data as StoredRow | null) ?? null;
+    },
+    async queryEntries(options: Parameters<Store['queryEntries']>[0]): Promise<StoredRow[]> {
+      const { eventId, formKind, teamId, limit, after } = options;
+      // The keyset is interpolated into a filter string, so both values are checked here as
+      // well as in the use case's cursor schema (as listOpenConflicts).
+      if (after && (!TIMESTAMP.test(after.client_created_at) || !UUID.test(after.id))) {
+        throw new Error('queryEntries: a keyset must be a timestamp and a uuid');
+      }
+      if (!UUID.test(eventId) || (teamId !== undefined && !UUID.test(teamId))) return [];
+      const search = entrySearch(options.query);
+      const searchFilter = search ? await entrySearchFilter(eventId, search) : null;
+      if (search && searchFilter === null) return [];
+      const keyset = after ? entryKeysetFilter(after) : null;
+
+      let query = db
+        .from('scouting_entries')
+        .select('*')
+        .eq('event_id', eventId)
+        .is('deleted_at', null);
+      if (formKind) query = query.eq('form_kind', formKind);
+      if (teamId !== undefined) query = query.eq('team_id', teamId);
+      // ONE `or` parameter: both conditions must hold, so the two nest under an `and`.
+      if (searchFilter && keyset) query = query.or(`and(or(${searchFilter}),or(${keyset}))`);
+      else if (searchFilter ?? keyset) query = query.or((searchFilter ?? keyset) as string);
+      const { data, error } = await query
+        .order('client_created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(limit);
+      if (error) throw dbError(error);
+      return (data ?? []) as StoredRow[];
+    },
+    async listTeamEvents(teamIds: string[], eventIds: string[]): Promise<TeamEventEntries[]> {
+      const teams = [...new Set(teamIds)].filter((id) => UUID.test(id));
+      const events = [...new Set(eventIds)].filter((id) => UUID.test(id));
+      const groups = new Map<string, TeamEventEntries>();
+      for (const teamChunk of chunks(teams)) {
+        for (const eventChunk of chunks(events)) {
+          for (let from = 0; ; from += ENTRY_READ_PAGE) {
+            const { data, error } = await db
+              .from('scouting_entries')
+              .select('team_id, event_id, client_created_at')
+              .in('team_id', teamChunk)
+              .in('event_id', eventChunk)
+              .is('deleted_at', null)
+              .order('id')
+              .range(from, from + ENTRY_READ_PAGE - 1);
+            if (error) throw dbError(error);
+            for (const row of data ?? []) addTeamEventEntry(groups, row);
+            if ((data ?? []).length < ENTRY_READ_PAGE) break;
+          }
+        }
+      }
+      return [...groups.values()];
+    },
+    // The remaining method starts as a loud stub, exactly as the fake's does. Task 1.57
+    // replaces it.
+    ...stubsFor(['entriesForScope']),
     // The spread above only carries an index signature (its keys come from a plain
     // string[]), so TS can't see that it supplies the remaining named Store methods;
     // the assertion tells it what `stubsFor` guarantees at runtime instead.
@@ -1222,6 +1361,41 @@ export function supabaseStore(db: Db): Store {
  */
 export function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, (c) => `\\${c}`).replace(/\*/g, '_');
+}
+
+/**
+ * The queryEntries keyset as a PostgREST `or` filter (newest first): rows strictly before the
+ * last row of the previous page. The instant is quoted, as listOpenConflicts' is, so a `+00:00`
+ * offset and microseconds survive.
+ */
+export function entryKeysetFilter(after: EntryKeyset): string {
+  const c = after.client_created_at;
+  return `client_created_at.lt."${c}",and(client_created_at.eq."${c}",id.lt.${after.id})`;
+}
+
+/**
+ * Folds one live entry into its (team, event) group (task 1.50, both stores): one more entry,
+ * and the newest `client_created_at`, compared as an instant and kept as the database wrote it.
+ */
+export function addTeamEventEntry(
+  groups: Map<string, TeamEventEntries>,
+  row: { team_id: string; event_id: string; client_created_at: string },
+): void {
+  const key = `${row.team_id}|${row.event_id}`;
+  const group = groups.get(key);
+  if (!group) {
+    groups.set(key, {
+      team_id: row.team_id,
+      event_id: row.event_id,
+      entry_count: 1,
+      last_entry_at: row.client_created_at,
+    });
+    return;
+  }
+  group.entry_count += 1;
+  if (Date.parse(row.client_created_at) > Date.parse(group.last_entry_at)) {
+    group.last_entry_at = row.client_created_at;
+  }
 }
 
 /** Shared by both Store implementations. A missing method fails by name, never as undefined. */
