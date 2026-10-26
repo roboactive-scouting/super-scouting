@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { HEBREW_KEYBOARD_LINE } from '@/components/ui/password-input';
 import { db } from '@/data/db';
 import { LoginPage } from './LoginPage';
 import { SERVER_UNREACHABLE_LINE } from './messages';
@@ -71,6 +72,28 @@ describe('LoginPage (SPEC-FINAL 7.3, 7.5)', () => {
     expect(await screen.findByLabelText('Username')).toHaveAttribute('autocomplete', 'username');
     expect(screen.getByLabelText('Password')).toHaveAttribute('autocomplete', 'current-password');
     expect(screen.getByLabelText('Password')).toHaveAttribute('type', 'password');
+  });
+
+  it('keeps both fields left-to-right and says when the keyboard types Hebrew', async () => {
+    renderLogin();
+    const u = userEvent.setup();
+    const name = await screen.findByLabelText('Username');
+    const password = screen.getByLabelText('Password');
+    expect(name).toHaveAttribute('dir', 'ltr');
+    expect(password).toHaveAttribute('dir', 'ltr');
+    expect(name).toHaveClass('text-left');
+    expect(password).toHaveClass('text-left', 'pe-12');
+    await u.type(name, 'seed_scouter');
+    await u.type(password, 'seedpass');
+    expect(screen.queryByText(HEBREW_KEYBOARD_LINE)).toBeNull();
+    await u.type(password, 'שדג');
+    expect(screen.getByText(HEBREW_KEYBOARD_LINE)).toBeInTheDocument();
+    expect(password).toHaveValue('seedpassשדג');
+    expect(screen.queryByRole('alert')).toBeNull();
+    await u.clear(password);
+    await u.type(name, 'ש');
+    expect(screen.getByText(HEBREW_KEYBOARD_LINE)).toBeInTheDocument();
+    expect(name).toHaveAccessibleDescription(HEBREW_KEYBOARD_LINE);
   });
 
   it('has no forgot-password link, and says to ask an admin', async () => {

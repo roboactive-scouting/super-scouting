@@ -2,7 +2,14 @@ import { useId, useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  CREDENTIAL_DIR,
+  credentialClass,
+  KeyboardHint,
+  withKeyboardHint,
+} from '@/components/ui/password-input';
 import { RpcError } from '@/data/rpc';
+import { cn } from '@/lib/utils';
 import { AuthError } from './AuthFrame';
 import { DISABLED } from './messages';
 import { OfflineLoginError, signInErrorLine } from './offlineLogin';
@@ -84,8 +91,9 @@ export function ReconnectPrompt({
             type="password"
             value={password}
             autoComplete="current-password"
-            dir="auto"
-            className="flex-1"
+            dir={CREDENTIAL_DIR}
+            aria-describedby={withKeyboardHint(password, `${id}-keyboard`)}
+            className={cn('flex-1', credentialClass)}
             onChange={(e) => setPassword(e.target.value)}
           />
           <Button type="submit" variant="primary" disabled={busy}>
@@ -95,6 +103,7 @@ export function ReconnectPrompt({
             Not now
           </Button>
         </div>
+        <KeyboardHint value={password} id={`${id}-keyboard`} />
         <AuthError message={error} />
       </form>
     </section>

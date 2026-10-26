@@ -26,6 +26,25 @@ test('login: a wrong password shows the error line', async ({ page }) => {
   await shoot(page, 'login-error', 'phone');
 });
 
+test('login: a password typed in Hebrew stays left-to-right and says so', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/login');
+  await page.getByLabel('Username').fill(SCOUTER);
+  const password = page.getByLabel('Password', { exact: true });
+  await password.fill('שדגכעיחל');
+  await expect(password).toHaveAttribute('dir', 'ltr');
+  await expect(page.getByText('Your keyboard is typing Hebrew.')).toBeVisible();
+  // The text starts at the left edge and stays clear of the eye button.
+  const box = await password.boundingBox();
+  const eye = await page.getByRole('button', { name: 'Show password' }).boundingBox();
+  expect(await password.evaluate((el) => getComputedStyle(el).textAlign)).toBe('left');
+  expect(box && eye && eye.x > box.x + box.width / 2).toBe(true);
+  await shoot(page, 'login-hebrew');
+  await page.getByRole('button', { name: 'Show password' }).click();
+  await expect(password).toHaveAttribute('type', 'text');
+  await shoot(page, 'login-hebrew-shown');
+});
+
 test('login: offline says so and uses the cached accounts', async ({ page }) => {
   await mockApi(page);
   await page.goto('/login');

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardTitle } from '@/components/ui/card';
 import { Handover } from '@/components/ui/handover';
 import { Input } from '@/components/ui/input';
+import { credentialClass, KeyboardHint, withKeyboardHint } from '@/components/ui/password-input';
 import { ErrorLine } from '@/components/ui/notice';
 import { adminErrorLine } from './adminMessages';
 import { generatePassword } from './password';
@@ -105,8 +106,12 @@ export function ResetPasswordSection({
             spellCheck={false}
             dir="ltr"
             aria-invalid={error !== null ? true : undefined}
-            aria-describedby={error !== null ? `${id}-error` : undefined}
-            className="flex-1"
+            aria-describedby={withKeyboardHint(
+              password,
+              `${id}-keyboard`,
+              error !== null ? `${id}-error` : undefined,
+            )}
+            className={`flex-1 ${credentialClass}`}
             onChange={(e) => setPassword(e.target.value)}
           />
           <Button onClick={() => setPassword(generatePassword())}>
@@ -123,6 +128,7 @@ export function ResetPasswordSection({
             Reset password
           </Button>
         </div>
+        <KeyboardHint value={password} id={`${id}-keyboard`} />
         <label className="tap-target mt-1 flex cursor-pointer items-center gap-3 text-sm text-ink">
           <input
             type="checkbox"
