@@ -2,7 +2,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildTeamStats, type TeamStats } from '@frc/shared';
+import { buildTeamStats, formatTime, type TeamStats } from '@frc/shared';
 import type * as Shared from '@frc/shared';
 import { db } from '@/data/db';
 import { RpcError, type Rpc } from '@/data/rpc';
@@ -342,8 +342,9 @@ describe('TeamPage (SPEC-FINAL 13.1; 24-team final)', () => {
     expect(notes[0]).toHaveTextContent(HEBREW_NOTE);
     expect(notes[0]).toHaveTextContent('הערות');
     expect(notes[0]).toHaveTextContent('Yael Shapira');
-    expect(notes[0]).toHaveTextContent('15:50');
-    expect(notes[4]).toHaveTextContent(/Fri 11:20/);
+    // Local time, as the page prints it: 15:50 in Israel, 13:50 on a UTC CI runner.
+    expect(notes[0]).toHaveTextContent(formatTime('2026-11-14T13:50:00.000Z'));
+    expect(notes[4]).toHaveTextContent(`Fri ${formatTime('2026-11-13T09:20:00.000Z')}`);
     // Never the deleted entry's note, nor another event's.
     expect(list).not.toHaveTextContent('deleted note');
     expect(list).not.toHaveTextContent('far note');
