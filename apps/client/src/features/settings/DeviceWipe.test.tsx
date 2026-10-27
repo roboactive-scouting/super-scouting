@@ -1,10 +1,16 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { notifyChanged } from '@/data/changes';
 import { db } from '@/data/db';
-import { DeviceWipe, WIPE_PHRASE, WRONG_CODE_LINE } from './DeviceWipe';
+import {
+  DeviceWipe,
+  OFFLINE_WIPE_LEAD,
+  OFFLINE_WIPE_LINE,
+  WIPE_PHRASE,
+  WRONG_CODE_LINE,
+} from './DeviceWipe';
 
 vi.mock('@/config', () => ({
   clientConfig: () => ({
@@ -312,5 +318,92 @@ describe('Wipe anyway (SPEC-FINAL 9.9 v1.39; Phase 1 H side task 2)', () => {
     const log = await db.discarded.toArray();
     expect(log.map((r) => r.row_id).sort()).toEqual(['r-1', 'r-2', 'r-3']);
     expect(log.every((r) => r.reason === 'Wiped before it reached the cloud.')).toBe(true);
+  });
+});
+
+describe('offline, both confirmations warn that the phone cannot sign in again (Phase 1 I side task 4)', () => {
+  let online = true;
+  beforeEach(() => {
+    online = true;
+    vi.spyOn(navigator, 'onLine', 'get').mockImplementation(() => online);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const warning = (dialog: HTMLElement) =>
+    within(dialog).queryByText(OFFLINE_WIPE_LINE, { exact: false });
+
+  it('the line reads as the plan words it', () => {
+    expect(`${OFFLINE_WIPE_LEAD} ${OFFLINE_WIPE_LINE}`).toBe(
+      "You're offline. After the wipe, this phone can't sign in again until it has a connection.",
+    );
+  });
+
+  it('the normal wipe, offline: the warning above the confirm, and the confirm still enables', async () => {
+    online = false;
+    renderWipe();
+    const code = await screen.findByLabelText('Lead’s code');
+    const dialog = screen.getByRole('dialog', { name: 'Wipe this device?' });
+    const line = warning(dialog);
+    expect(line).not.toBeNull();
+    expect(within(dialog).getByText(OFFLINE_WIPE_LEAD).tagName).toBe('B');
+    // Last before the actions: after the typed phrase.
+    const phrase = within(dialog).getByRole('textbox', {
+      name: `Type ${WIPE_PHRASE} to confirm`,
+    });
+    expect(phrase.compareDocumentPosition(line!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // It informs, it does not hold.
+    await userEvent.type(code, 'WIPE2096');
+    await userEvent.type(phrase, WIPE_PHRASE);
+    expect(wipeButton()).not.toHaveAttribute('aria-disabled');
+  });
+
+  it('the normal wipe, online: no warning', async () => {
+    renderWipe();
+    await screen.findByLabelText('Lead’s code');
+    expect(warning(screen.getByRole('dialog', { name: 'Wipe this device?' }))).toBeNull();
+  });
+
+  it('appears and goes with the connection while the sheet is open', async () => {
+    renderWipe();
+    await screen.findByLabelText('Lead’s code');
+    const dialog = () => screen.getByRole('dialog', { name: 'Wipe this device?' });
+    expect(warning(dialog())).toBeNull();
+    online = false;
+    act(() => void window.dispatchEvent(new Event('offline')));
+    await waitFor(() => expect(warning(dialog())).not.toBeNull());
+    online = true;
+    act(() => void window.dispatchEvent(new Event('online')));
+    await waitFor(() => expect(warning(dialog())).toBeNull());
+  });
+
+  it('held, offline: no warning, since there is no confirm to warn above', async () => {
+    online = false;
+    await queueEntries(2);
+    renderWipe();
+    await screen.findByRole('button', { name: 'Wipe anyway…' });
+    expect(warning(screen.getByRole('dialog', { name: 'Wipe this device?' }))).toBeNull();
+  });
+
+  it('Wipe anyway, offline: the warning, and the confirm still enables', async () => {
+    online = false;
+    await queueEntries(3);
+    renderWipe();
+    await userEvent.click(await screen.findByRole('button', { name: 'Wipe anyway…' }));
+    const dialog = screen.getByRole('dialog', { name: 'Wipe anyway?' });
+    expect(warning(dialog)).not.toBeNull();
+    await userEvent.type(within(dialog).getByLabelText('Lead’s code'), 'WIPE2096');
+    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Type 3 to confirm' }), '3');
+    expect(within(dialog).getByRole('button', { name: 'Wipe anyway' })).not.toHaveAttribute(
+      'aria-disabled',
+    );
+  });
+
+  it('Wipe anyway, online: no warning', async () => {
+    await queueEntries(3);
+    renderWipe();
+    await userEvent.click(await screen.findByRole('button', { name: 'Wipe anyway…' }));
+    expect(warning(screen.getByRole('dialog', { name: 'Wipe anyway?' }))).toBeNull();
   });
 });

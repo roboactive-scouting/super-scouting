@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PULL_ENTITY_KEYS, type Operation, type PullResponse } from '@frc/shared';
+import { offlineLogin, signInErrorLine, WIPED_DEVICE_LINE } from '@/auth/offlineLogin';
 import { session } from '@/auth/session';
 import { practiceMode } from '@/features/entry/practice';
 import { readPref, writePref } from '@/lib/devicePrefs';
 import { onChanged, type ChangeKind } from './changes';
-import { db, getMeta, setMeta, WIPED_AT_KEY, type DiscardedRecord } from './db';
+import { db, getMeta, JUST_WIPED_KEY, setMeta, WIPED_AT_KEY, type DiscardedRecord } from './db';
 import { ackResults, enqueue } from './outbox';
 import { receiveOperations } from './qrReceive';
 import { syncNow } from './sync';
@@ -206,6 +207,8 @@ describe('wipeDevice (SPEC-FINAL 9.9)', () => {
       'device.id': 'dev-1',
       'outbox.seq': 41,
       [WIPED_AT_KEY]: expect.any(String),
+      // The sign-in page's mark (Phase 1 I side task 4): cleared by the next sign-in.
+      [JUST_WIPED_KEY]: true,
       // signOut writes the empty session.
       'auth.session': null,
     });
@@ -215,6 +218,15 @@ describe('wipeDevice (SPEC-FINAL 9.9)', () => {
     expect(practiceMode.active()).toBe(false);
     // Every open screen re-reads: nothing keeps showing what the wipe removed.
     expect(seen).toEqual(expect.arrayContaining(['rows', 'outbox', 'meta']));
+  });
+
+  it('leaves the sign-in page saying the device was wiped (Phase 1 I side task 4)', async () => {
+    await seedDevice();
+    // The cached account an offline sign-in needs: the wipe takes it.
+    await db.rows.put({ entity: 'users', id: 'u-1', username: 'noa', full_name: 'Noa Levi' });
+    await expect(wipeDevice('2096')).resolves.toEqual({ ok: true });
+    const error = await offlineLogin('noa', 'any').catch((e: unknown) => e);
+    expect(signInErrorLine(error)).toBe(WIPED_DEVICE_LINE);
   });
 
   it('a record saved while the wipe runs is never lost', async () => {

@@ -1,14 +1,16 @@
+import { WifiOff } from 'lucide-react';
 import { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { actionButtonClass, Button } from '@/components/ui/button';
 import { DestructiveConfirm } from '@/components/ui/destructive-confirm';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ErrorLine, Notice } from '@/components/ui/notice';
+import { ErrorLine, Notice, WarningNotice } from '@/components/ui/notice';
 import { SurfaceActions } from '@/components/ui/surface-actions';
 import { useDeviceQuery } from '@/data/useDeviceQuery';
 import { wipeDevice, type WipeAnyway } from '@/data/wipe';
 import { PATHS } from '@/lib/paths';
+import { useOnline } from '@/lib/useOnline';
 import { heldCount, heldLines, isHeld, readWipeHold, type WipeHold } from './wipeHold';
 
 /** What the lead types back to confirm (SPEC-FINAL 17.8: a multi-record irreversible). */
@@ -25,6 +27,11 @@ export function lostLine(n: number): string {
     ? '1 record has not reached the cloud. Wiping now deletes it for good.'
     : `${n} records have not reached the cloud. Wiping now deletes them for good.`;
 }
+
+/** The offline warning's bold lead and its line (Phase 1 I side task 4). */
+export const OFFLINE_WIPE_LEAD = "You're offline.";
+export const OFFLINE_WIPE_LINE =
+  "After the wipe, this phone can't sign in again until it has a connection.";
 
 /** Wipe anyway refused because a record was saved after the count was read. */
 export function countChangedLine(n: number): string {
@@ -46,9 +53,14 @@ export function countChangedLine(n: number): string {
  * destructive **Wipe anyway…** turns this same confirmation into the second, harder one: the loss
  * as a count, the lead's code, and that count typed before the filled-ink **Wipe anyway**
  * enables. The count is read live; the wipe itself checks it again in its own transaction.
+ *
+ * **Offline** (Phase 1 I side task 4): a wipe removes the cached accounts an offline sign-in
+ * needs (9.9), so both confirmations say, above the confirm, that the phone cannot sign in again
+ * until it has a connection. It informs; the confirm stays as it was. Read through `useOnline`.
  */
 export function DeviceWipe({ onClose }: { onClose: () => void }) {
   const id = useId();
+  const online = useOnline();
   const hold = useDeviceQuery<WipeHold>(readWipeHold, [], ['outbox']);
   const [anyway, setAnyway] = useState(false);
   const [code, setCode] = useState('');
@@ -99,6 +111,15 @@ export function DeviceWipe({ onClose }: { onClose: () => void }) {
     }
   }
 
+  // Above the confirm, while offline: after the wipe nobody can sign in here until it connects.
+  const offlineWarning = online ? null : (
+    <div role="status">
+      <WarningNotice icon={WifiOff} lead={OFFLINE_WIPE_LEAD}>
+        {OFFLINE_WIPE_LINE}
+      </WarningNotice>
+    </div>
+  );
+
   const codeField = (
     <div>
       <Label htmlFor={`${id}-code`} className="font-semibold">
@@ -143,6 +164,7 @@ export function DeviceWipe({ onClose }: { onClose: () => void }) {
         typeToConfirm={String(lost)}
         ready={code.trim() !== ''}
         busy={busy}
+        notice={offlineWarning}
         error={error}
         onConfirm={() => void confirm()}
         onCancel={onClose}
@@ -173,6 +195,7 @@ export function DeviceWipe({ onClose }: { onClose: () => void }) {
         )
       }
       busy={busy}
+      notice={open ? offlineWarning : null}
       error={error}
       onConfirm={() => void confirm()}
       onCancel={onClose}

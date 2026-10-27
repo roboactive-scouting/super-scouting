@@ -48,6 +48,11 @@ export type DestructiveConfirmProps = {
   ready?: boolean;
   /** The caller's own fields, between the body and type-to-confirm (the wipe's lead's code). */
   children?: ReactNode;
+  /**
+   * Something to know before confirming, drawn last, just above the actions (the device wipe's
+   * offline warning, Phase 1 I side task 4). Unlike `held` it holds nothing: it informs.
+   */
+  notice?: ReactNode;
   /** A sentence to show inside the dialog when the action failed. */
   error?: string | null;
   onConfirm: () => void;
@@ -83,6 +88,7 @@ function OpenConfirm({
   hideConfirm = false,
   ready = true,
   children,
+  notice,
   error,
   onConfirm,
   onCancel,
@@ -163,6 +169,7 @@ function OpenConfirm({
         </div>
       )}
       {typeof held === 'string' ? held && <p className="text-sm text-muted">{held}</p> : held}
+      {notice}
       {error && <ErrorLine>{error}</ErrorLine>}
     </ResponsiveDialog>
   );

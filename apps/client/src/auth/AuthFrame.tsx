@@ -131,7 +131,7 @@ export function AuthField(props: {
 }
 
 /** The one error line: in view, announced, and never a raw code (SPEC-FINAL 17.8). */
-export function AuthError({ message }: { message: string | null }) {
+export function AuthError({ message }: { message: ReactNode }) {
   if (!message) return null;
   return <ErrorLine className="mt-4">{message}</ErrorLine>;
 }

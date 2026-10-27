@@ -5,7 +5,7 @@ import { applyDeviceLook } from '@/features/settings/theme';
 import { heldCount, isHeld, readWipeHold } from '@/features/settings/wipeHold';
 import { clearDevicePrefs } from '@/lib/devicePrefs';
 import { notifyChanged } from './changes';
-import { db, WIPED_AT_KEY } from './db';
+import { db, JUST_WIPED_KEY, WIPED_AT_KEY } from './db';
 import { recordWiped } from './wipeLog';
 
 export type WipeResult =
@@ -25,12 +25,18 @@ export type WipeAnyway = { force: true; expected: number };
 /**
  * What a wipe leaves in `meta`: the install's own identity, never anything about a person or a
  * competition. `device.id` names this install to the server (push's `device_id`); `outbox.seq`
- * keeps the local operation order rising for the life of the install; the wipe's own mark is
+ * keeps the local operation order rising for the life of the install; the wipe's own two marks
+ * (`WIPED_AT_KEY` for sync, `JUST_WIPED_KEY` for the sign-in page, Phase 1 I side task 4) are
  * rewritten by the wipe. Everything else goes — the session, the station, the sync watermark and
  * hydration mark, the last sync and failure, the match remap and gone events, the QR disposal
  * notice, the token-loss diagnostic.
  */
-const KEPT_META: ReadonlySet<string> = new Set(['device.id', 'outbox.seq', WIPED_AT_KEY]);
+const KEPT_META: ReadonlySet<string> = new Set([
+  'device.id',
+  'outbox.seq',
+  WIPED_AT_KEY,
+  JUST_WIPED_KEY,
+]);
 
 /**
  * The lead's code as typed, against `VITE_DEVICE_WIPE_CODE`. Not a secret (SPEC-FINAL 9.9): an
@@ -89,6 +95,8 @@ export async function wipeDevice(code: string, anyway?: WipeAnyway): Promise<Wip
       await db.meta.bulkDelete(gone);
       // A sync whose pull began before the wipe must not mark the emptied device as hydrated.
       await db.meta.put({ key: WIPED_AT_KEY, value: new Date().toISOString() });
+      // The sign-in page says the device was wiped until someone signs in (side task 4).
+      await db.meta.put({ key: JUST_WIPED_KEY, value: true });
       return null;
     },
   );

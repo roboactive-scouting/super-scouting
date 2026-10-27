@@ -9694,3 +9694,68 @@ Tests: 6 new in `surface-actions.test.tsx`:
 Mutation: measuring the laid-out width instead of the one-line width fails 3 of them. e2e `drafts-practice.spec.ts`: Practice finished at 375 is stacked, both buttons 52 px, equal width, the primary below. At 1440 the two buttons sit on one line at 44 px.
 
 Bundle: initial JS **228.2 KB** gzip, under 230.
+
+## Phase 1 I side task 4 — an offline wipe warns that the phone cannot sign in again (plan v1.32)
+
+**Plan said:** while offline, both wipe confirmations show a warning Notice above the confirm ("**You're offline.** After the wipe, this phone can't sign in again until it has a connection."); online it is not shown; the confirm stays enabled. *[RAISED BY ME]* after a wipe the sign-in page's no-accounts line reads "**This device was wiped.** Connect to the internet to sign in.", from a marker that survives the wipe and is cleared by the first successful sign-in. The connection is read through the existing state, never a new `navigator.onLine` check.
+
+**What was wrong:** nothing in the plan. Five choices it left open:
+1. *Which "warning Notice".* `WarningNotice` (THEME "Warning notice", `--warn-tint`) with `lead="You're offline."` and the `WifiOff` icon. That is the shape the builder already uses for its "You're offline." line, and THEME's "Something to know before going on". Rejected: the legacy `Notice tone="warning"` (the held line's edge). Here the warning sits under the type-to-confirm field, and a second edge-only box read as part of the form.
+2. *Where it goes.* There was no slot "above the confirm" in `DestructiveConfirm`: `children` sit before the typed phrase, and `held` disables the confirm. I added a `notice` prop, drawn after the type-to-confirm field and `held`, before the error line. It holds nothing. Rejected: passing it as `held` (that disables the confirm), or as `children` (it would sit between the code and the phrase).
+3. *Which states of the normal wipe show it.* Only the open one (nothing waiting, confirm drawn). Since side task 3 the held sheet has no confirm, and its own way out is Wipe anyway…, whose confirmation shows the warning. While the hold is still being read it is not shown, so it does not flash and then go when the sheet turns held.
+4. *The marker.* A new `meta` key, `JUST_WIPED_KEY = 'device.just_wiped'` (`data/db.ts`). The wipe writes it in its own transaction, after it deletes `meta`, and lists it in `KEPT_META`. Rejected: reusing `WIPED_AT_KEY`. A sync reads that at the start of its pull and again when it marks hydration, so a sign-in clearing it would cost the first pull after sign-in its hydration mark. Rejected: `localStorage`. The wipe's `clearDevicePrefs` and the session live in IndexedDB, and the discarded log (the precedent the plan names) is there too.
+5. *Who clears it.* `session.signIn`, inside the same `meta` transaction as the session write (`update`'s new `alsoInMeta`). Every successful sign-in goes through it: online, offline, and the reconnect exchange. Rejected: clearing it after the session write, outside the transaction. The first cut did that, and two existing tests failed (`AppShell.test.tsx` "exchanges the held password…" and `offlineLogin.integration.test.ts` "on reconnect, mints a token…"). They read `pendingCredential` the moment the token appears, and the extra await after the notify moved `pendingCredential.clear()` later:
+   `AssertionError: expected { username: 'seed_scouter', …(1) } to be null`
+
+**What I did instead:**
+- `offlineLogin` reads the mark only when no accounts are cached. With the mark it throws `OfflineLoginError('wiped')` (`WIPED_DEVICE_LINE`); without it, `'no-accounts'` as before. `signInWithFallback` treats `'wiped'` exactly as `'no-accounts'`. So an online device with no answer still gets the server-unreachable line, and a 5xx still gets the server line.
+- `LoginPage` draws `WIPED_LEAD` in bold inside the error line. `AuthError` takes a `ReactNode`.
+- `DeviceWipe` reads `useOnline()` (settings is not one of the folders `offlineGates.test.ts` restricts) and passes the warning as `notice` to both confirmations.
+- The wipe itself is unchanged.
+
+**Risk:**
+- The error line is already semibold, so the bold lead is only a little heavier than the rest of the line (`login-wiped-*.png`).
+- `SwitchScouter` still shows `NO_CACHED_ACCOUNTS_LINE` when nothing is cached. It cannot be reached after a wipe, because the wipe signs out, so it was left alone.
+- *[RAISED BY ME]* On `/login` after an offline wipe, the offline note above the form still says "Signing in will use the credentials cached on this device", and none are cached. The wiped line only appears after a submit. Not changed here: the plan names only the no-accounts line.
+
+Tests:
+- `DeviceWipe.test.tsx`, 7 new:
+  - the wording
+  - normal wipe, offline: the warning, placed after the typed phrase, with the lead in `<b>`, and the confirm still enables
+  - normal wipe, online: none
+  - it comes and goes with the `offline`/`online` events
+  - held and offline: none
+  - Wipe anyway, offline: the warning, and the confirm still enables
+  - Wipe anyway, online: none
+- `offlineLogin.test.ts`, 5 new:
+  - the wiped line
+  - the offline fallback says it and keeps the mark
+  - online with no answer, the server line still wins
+  - no mark gives the old line
+  - an online sign-in clears the mark and the old line comes back
+- `LoginPage.test.tsx`, 2 new: the wiped line with its bold lead, not the old line; an online sign-in clears the mark.
+- `wipe.test.ts`: the wipe leaves `JUST_WIPED_KEY: true` in `meta`, plus 1 new test: after a real wipe of a device with a cached account, offline sign-in gives the wiped line.
+- Mutation: dropping the clear from `session.signIn` fails 2.
+- e2e:
+  - `settings.spec.ts`, new test: online, neither confirmation has the line. Offline, both do, and the confirm enables. Wipe anyway offline lands on `/login`, and an offline sign-in there says the device was wiped. Shots: `settings-wipe-offline`, `settings-wipe-anyway-offline`.
+  - `auth.spec.ts`, new test: the mark set and offline, the sign-in shows the wiped line with `<b>` on the lead. Shot: `login-wiped`.
+  - Both specs ran, every theme, at 375 and 1440.
+
+Bundle: initial JS **228.3 KB** gzip, under 230.
+
+**Follow-up (orchestrator, same task): the wiped line up front on `/login`.** The *[RAISED BY ME]* risk above is fixed. While the wipe's mark is set and the device is offline, `/login` shows "**This device was wiped.** Connect to the internet to sign in." as soon as it opens, in the offline note's style (`Note icon="offline"`, `role="status"`), in place of the note that offers cached credentials. Online with the mark set, nothing extra is shown. Offline without the mark, the old note is unchanged.
+- The page reads the mark through `useDeviceQuery(readJustWiped, [], ['meta'])`. `readJustWiped` is the new helper in `auth/offlineLogin.ts`, and `offlineLogin` uses it too.
+- Neither offline line is drawn until the mark has been read, so the cached-credentials note never flashes before the wiped line.
+- Pressing Sign in while the line is up gets the same refusal. That refusal is not drawn a second time as an error line, because the same line twice reads as two problems. If the page still thought it was online (the connection dropped with no event), the refusal shows as the error line, as before.
+
+Rejected: keeping both the note and the error line.
+
+Tests:
+- `LoginPage.test.tsx`, now 4 in the wipe group:
+  - offline with the mark: the wiped line up front with a bold lead, no cached-credentials note, and no second copy after a refused submit
+  - offline without the mark: the old note
+  - online with the mark: neither; going offline then brings the wiped line, which proves the mark was read
+  - the error-line case
+- e2e `auth.spec.ts`: the mark set and the page reloaded. Online, no status line. Offline, the wiped line up front with a bold lead and no cached-credentials note. A refused Sign in adds no alert. The `login-wiped` shot is taken again.
+- e2e `settings.spec.ts`: after the offline Wipe anyway, `/login` shows the wiped line up front, with no cached-credentials note.
+- Bundle: still 228.3 KB.

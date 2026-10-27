@@ -1,13 +1,13 @@
 import bcrypt from 'bcryptjs';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HEBREW_KEYBOARD_LINE } from '@/components/ui/password-input';
-import { db } from '@/data/db';
+import { db, getMeta, JUST_WIPED_KEY, setMeta } from '@/data/db';
 import { LoginPage } from './LoginPage';
-import { SERVER_UNREACHABLE_LINE } from './messages';
-import { NO_CACHED_ACCOUNTS_LINE } from './offlineLogin';
+import { OFFLINE_SIGN_IN_LINE, SERVER_UNREACHABLE_LINE } from './messages';
+import { NO_CACHED_ACCOUNTS_LINE, WIPED_DEVICE_LINE, WIPED_LEAD } from './offlineLogin';
 import { pendingCredential } from './pendingCredential';
 import { session } from './session';
 
@@ -314,5 +314,71 @@ describe('LoginPage offline (SPEC-FINAL 7.5, task 1.16)', () => {
     await session.signIn(user, 'live');
     renderLogin();
     expect(await screen.findByText('the scout page')).toBeInTheDocument();
+  });
+});
+
+describe('LoginPage after a wipe (Phase 1 I side task 4)', () => {
+  beforeEach(async () => {
+    await setMeta(JUST_WIPED_KEY, true); // the wipe's mark; it took the cached accounts with it
+  });
+
+  it('offline: says up front that the device was wiped, in place of the cached-credentials note', async () => {
+    online = false;
+    renderLogin();
+    const line = await screen.findByText(WIPED_LEAD);
+    expect(line.tagName).toBe('B');
+    const status = line.closest('[role="status"]');
+    expect(status).toHaveTextContent(WIPED_DEVICE_LINE);
+    expect(screen.queryByText(OFFLINE_SIGN_IN_LINE)).toBeNull();
+    expect(screen.queryByText(NO_CACHED_ACCOUNTS_LINE)).toBeNull();
+    // Pressing Sign in is refused on the device, and the line is not said a second time.
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await signInWith('seed_scouter', 'seedpass1');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled());
+    expect(screen.getAllByText(WIPED_LEAD)).toHaveLength(1);
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(await session.current()).toBeNull();
+  });
+
+  it('offline without the mark: the cached-credentials note, no wiped line', async () => {
+    await db.meta.delete(JUST_WIPED_KEY);
+    online = false;
+    renderLogin();
+    expect(await screen.findByText(OFFLINE_SIGN_IN_LINE)).toBeInTheDocument();
+    expect(screen.queryByText(WIPED_LEAD)).toBeNull();
+  });
+
+  it('online with the mark: neither line', async () => {
+    renderLogin();
+    await screen.findByLabelText('Username');
+    // The mark has been read (it shows the moment the connection goes): online it says nothing.
+    online = false;
+    act(() => void window.dispatchEvent(new Event('offline')));
+    expect(await screen.findByText(WIPED_LEAD)).toBeInTheDocument();
+    online = true;
+    act(() => void window.dispatchEvent(new Event('online')));
+    await waitFor(() => expect(screen.queryByText(WIPED_LEAD)).toBeNull());
+    expect(screen.queryByText(OFFLINE_SIGN_IN_LINE)).toBeNull();
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('a refusal on a page that still thought it was online: the wiped line as the error, bold lead', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    renderLogin();
+    online = false;
+    await signInWith('seed_scouter', 'seedpass1');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(WIPED_DEVICE_LINE);
+    expect(alert).not.toHaveTextContent(NO_CACHED_ACCOUNTS_LINE);
+    expect(within(alert).getByText(WIPED_LEAD).tagName).toBe('B');
+    expect(await session.current()).toBeNull();
+  });
+
+  it('an online sign-in clears the mark', async () => {
+    fetchMock.mockResolvedValueOnce(json(200, { token: 'tok-1', user }));
+    renderLogin();
+    await signInWith('seed_scouter', 'seedpass1');
+    expect(await screen.findByText('the scout page')).toBeInTheDocument();
+    expect(await getMeta(JUST_WIPED_KEY, null)).toBeNull();
   });
 });
