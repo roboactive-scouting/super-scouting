@@ -58,6 +58,11 @@ const wipeButton = () =>
     name: 'Wipe this device',
   });
 
+const queryWipeButton = () =>
+  within(screen.getByRole('dialog', { name: 'Wipe this device?' })).queryByRole('button', {
+    name: 'Wipe this device',
+  });
+
 beforeEach(async () => {
   await db.delete();
   await db.open();
@@ -75,7 +80,7 @@ afterEach(() => {
 });
 
 describe('DeviceWipe (SPEC-FINAL 9.9, 17.8)', () => {
-  it('is held while entries wait to send: Keep this device first, the wipe off, no code asked', async () => {
+  it('is held while entries wait to send: no wipe button, Keep this device the footer alone, no code asked', async () => {
     await queueEntries(3);
     const onClose = renderWipe();
     const dialog = screen.getByRole('dialog', { name: 'Wipe this device?' });
@@ -84,21 +89,63 @@ describe('DeviceWipe (SPEC-FINAL 9.9, 17.8)', () => {
       '3 entries are still waiting to send. Wipe is held until they are sent, so nothing is lost.',
     );
     expect(within(held).getByText('3 entries are still waiting to send.').tagName).toBe('B');
-    // Under the held line, the two ways out (v1.39); the footer keeps Keep this device first.
+    // Under the held line, the two ways out (v1.39); the footer is Keep this device alone: the
+    // greyed Wipe this device beside a live Wipe anyway… read as two wipes (Phase 1 I side task 3).
     expect(
       within(dialog)
         .getAllByRole('button')
         .map((b) => b.textContent),
-    ).toEqual(['Wipe anyway…', 'Keep this device', 'Wipe this device']);
+    ).toEqual(['Wipe anyway…', 'Keep this device']);
     expect(within(dialog).getByRole('link', { name: 'Send by QR first' })).toHaveAttribute(
       'href',
       '/sync/qr/send',
     );
-    expect(wipeButton()).toHaveAttribute('aria-disabled', 'true');
+    expect(queryWipeButton()).toBeNull();
     expect(within(dialog).queryByLabelText('Lead’s code')).toBeNull();
     expect(within(dialog).queryByRole('textbox')).toBeNull();
     await userEvent.click(within(dialog).getByRole('button', { name: 'Keep this device' }));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('held: every action is one size and both rows are the shared full-width row (side task 3)', async () => {
+    await queueEntries(3);
+    renderWipe();
+    const dialog = screen.getByRole('dialog', { name: 'Wipe this device?' });
+    await within(dialog).findByRole('status');
+    // Two rows, the held line's ways out and the footer, each the shared action row: full width
+    // below 1024 px (so on a phone they share both edges), right-aligned at 1024 px and up.
+    const rows = [...dialog.querySelectorAll<HTMLElement>('[data-surface-actions]')];
+    expect(rows.map((r) => r.textContent)).toEqual([
+      'Send by QR firstWipe anyway…',
+      'Keep this device',
+    ]);
+    // The same row, spacing above it aside (the footer sits `mt-2` under the content).
+    const layout = (r: HTMLElement) => r.className.replace(/\s*\bmt-\S+/g, '');
+    for (const row of rows) expect(layout(row)).toBe(layout(rows[0]!));
+    // Every action, the link drawn as a button too, carries the same size classes.
+    const actions = rows.flatMap((r) => [...r.children]);
+    expect(actions).toHaveLength(3);
+    const size = (el: Element) =>
+      el.className
+        .split(/\s+/)
+        .filter((c) => /(^|:)(min-h|flex-1|px|text-(base|\[)|w-full)/.test(c))
+        .sort()
+        .join(' ');
+    for (const a of actions) expect(size(a)).toBe(size(actions[0]!));
+    expect(size(actions[0]!)).toContain('max-lg:min-h-[52px]');
+  });
+
+  it('not held: Keep this device and the wipe, one row', async () => {
+    renderWipe();
+    await screen.findByLabelText('Lead’s code');
+    const dialog = screen.getByRole('dialog', { name: 'Wipe this device?' });
+    const rows = dialog.querySelectorAll('[data-surface-actions]');
+    expect(rows).toHaveLength(1);
+    expect(
+      within(rows[0] as HTMLElement)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['Keep this device', 'Wipe this device']);
   });
 
   it('enables the wipe only once the lead’s code and the typed phrase are both in', async () => {
@@ -140,7 +187,7 @@ describe('DeviceWipe (SPEC-FINAL 9.9, 17.8)', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(
       '1 entry is still waiting to send. Wipe is held until it is sent, so nothing is lost.',
     );
-    expect(wipeButton()).toHaveAttribute('aria-disabled', 'true');
+    expect(queryWipeButton()).toBeNull();
     expect(screen.queryByLabelText('Lead’s code')).toBeNull();
   });
 
@@ -165,12 +212,11 @@ describe('Wipe anyway (SPEC-FINAL 9.9 v1.39; Phase 1 H side task 2)', () => {
     return anywayDialog();
   }
 
-  it('the normal wipe stays off while held, even with Wipe anyway on offer', async () => {
+  it('the normal wipe is not drawn while held, so Wipe anyway is the only wipe on offer', async () => {
     await queueEntries(3);
     renderWipe();
     await screen.findByRole('button', { name: 'Wipe anyway…' });
-    expect(wipeButton()).toHaveAttribute('aria-disabled', 'true');
-    await userEvent.click(wipeButton());
+    expect(queryWipeButton()).toBeNull();
     expect(await db.outbox.count()).toBe(3);
   });
 

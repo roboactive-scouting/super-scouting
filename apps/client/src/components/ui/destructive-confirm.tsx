@@ -1,6 +1,7 @@
 import { Ban, type LucideIcon } from 'lucide-react';
 import { useId, useRef, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { Button } from './button';
 import { inputClass } from './input';
 import { ErrorLine } from './notice';
 import { ResponsiveDialog } from './responsive-dialog';
@@ -35,6 +36,12 @@ export type DestructiveConfirmProps = {
    */
   held?: ReactNode;
   /**
+   * Draw no confirm at all while held (Phase 1 I side task 3): the held node carries its own way
+   * out (the device wipe's Wipe anyway…), and a greyed confirm beside it would read as a second,
+   * dead copy of that action. Cancel is then the footer alone.
+   */
+  hideConfirm?: boolean;
+  /**
    * More the confirm waits for, filled in by the caller's own fields (`children`): the device
    * wipe's lead's code. True unless given.
    */
@@ -59,8 +66,8 @@ export function DestructiveConfirm(props: DestructiveConfirmProps) {
   return <OpenConfirm {...props} />;
 }
 
-const BUTTON =
-  'tap-target hover-veil motion-safe:transition motion-safe:active:not-disabled:scale-[0.97] inline-flex items-center justify-center gap-2 rounded-control px-4 font-semibold aria-disabled:pointer-events-none aria-disabled:opacity-50';
+/** Held, not disabled: a held button stays focusable (Cancel takes first focus while busy). */
+const HELD = 'aria-disabled:pointer-events-none aria-disabled:opacity-50';
 
 function OpenConfirm({
   title,
@@ -73,6 +80,7 @@ function OpenConfirm({
   typeToConfirm,
   busy = false,
   held = null,
+  hideConfirm = false,
   ready = true,
   children,
   error,
@@ -96,24 +104,26 @@ function OpenConfirm({
       width={460}
       footer={
         <>
-          <button
+          <Button
             ref={cancel}
-            type="button"
+            variant="secondary"
             aria-disabled={busy || undefined}
             onClick={busy ? undefined : onCancel}
-            className={`${BUTTON} border border-control-border bg-surface text-ink`}
+            className={HELD}
           >
             {cancelLabel}
-          </button>
-          <button
-            type="button"
-            aria-disabled={busy || !armed || undefined}
-            onClick={busy || !armed ? undefined : onConfirm}
-            className={`${BUTTON} border border-ink bg-ink text-surface`}
-          >
-            {Icon && <Icon aria-hidden="true" className="size-5 shrink-0" />}
-            <span dir="auto">{confirmLabel}</span>
-          </button>
+          </Button>
+          {!hideConfirm && (
+            <Button
+              variant="destructive"
+              aria-disabled={busy || !armed || undefined}
+              onClick={busy || !armed ? undefined : onConfirm}
+              className={HELD}
+            >
+              {Icon && <Icon aria-hidden="true" />}
+              <span dir="auto">{confirmLabel}</span>
+            </Button>
+          )}
         </>
       }
     >

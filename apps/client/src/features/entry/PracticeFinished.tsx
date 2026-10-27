@@ -3,6 +3,7 @@ import { useId, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { ResponsiveDialog } from '@/components/ui/responsive-dialog';
+import { SurfaceActions } from '@/components/ui/surface-actions';
 import { db } from '@/data/db';
 import { PATHS } from '@/lib/paths';
 import { practiceMode } from './practice';
@@ -53,21 +54,8 @@ export function PracticeFinished({
       <p id={line} className="-mt-2 text-center text-[0.84375rem] text-muted">
         Nothing was saved or sent.
       </p>
-      <div className="mt-1 flex flex-col gap-2.5">
+      <SurfaceActions className="mt-1">
         <Button
-          ref={another}
-          variant="primary"
-          size="block"
-          onClick={() => {
-            onClose();
-            const state: PracticeStartState = after ? { after } : {};
-            void db.practiceDrafts.clear().then(() => navigate(PATHS.practice, { state }));
-          }}
-        >
-          Practice another match
-        </Button>
-        <Button
-          size="block"
           onClick={() => {
             onClose();
             navigate(PATHS.scout);
@@ -76,7 +64,18 @@ export function PracticeFinished({
         >
           Exit practice
         </Button>
-      </div>
+        <Button
+          ref={another}
+          variant="primary"
+          onClick={() => {
+            onClose();
+            const state: PracticeStartState = after ? { after } : {};
+            void db.practiceDrafts.clear().then(() => navigate(PATHS.practice, { state }));
+          }}
+        >
+          Practice another match
+        </Button>
+      </SurfaceActions>
     </ResponsiveDialog>
   );
 }

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { signIn } from './api-mock';
 import { shoot } from './shoot';
 
@@ -113,7 +113,8 @@ test('settings: rows, theme and text size choices, outdoor, wipe held', async ({
   await sizeChoice.getByRole('button', { name: 'Done' }).click();
   await expect(page.locator('html')).toHaveCSS('font-size', '16px');
 
-  // 5 · Wipe is held while entries wait: Keep this device first, the wipe button disabled.
+  // 5 · Wipe is held while entries wait: Keep this device, and no wipe button (Phase 1 I side
+  // task 3: the held line's Wipe anyway… is the one wipe).
   await page.getByRole('button', { name: /^Wipe this device/ }).click();
   const wipe = page.getByRole('dialog', { name: 'Wipe this device?' });
   await expect(
@@ -121,14 +122,41 @@ test('settings: rows, theme and text size choices, outdoor, wipe held', async ({
       '3 entries are still waiting to send. Wipe is held until they are sent, so nothing is lost.',
     ),
   ).toBeVisible();
-  await expect(wipe.getByRole('button', { name: 'Wipe this device' })).toHaveAttribute(
-    'aria-disabled',
-    'true',
-  );
+  await expect(wipe.getByRole('button', { name: 'Wipe this device' })).toHaveCount(0);
   await shoot(page, 'settings-wipe-held');
   await wipe.getByRole('button', { name: 'Keep this device' }).click();
   await expect(wipe).toBeHidden();
 });
+
+type ActionRow = {
+  labels: string[];
+  left: number;
+  right: number;
+  lastRight: number;
+  buttons: { width: number; height: number }[];
+};
+
+/** The boxes of a surface's action rows (SurfaceActions, Phase 1 I side task 3), in order. */
+function actionRows(surface: Locator): Promise<ActionRow[]> {
+  return surface.evaluate((el) =>
+    [...el.querySelectorAll<HTMLElement>('[data-surface-actions]')].map((row) => {
+      const box = row.getBoundingClientRect();
+      const kids = [...row.children].map((c) => c.getBoundingClientRect());
+      return {
+        labels: [...row.children].map((c) => (c.textContent ?? '').trim()),
+        left: Math.round(box.left),
+        right: Math.round(box.right),
+        lastRight: Math.round(kids.at(-1)!.right),
+        buttons: kids.map((k) => ({ width: k.width, height: k.height })),
+      };
+    }),
+  );
+}
+
+/** Every action in the rows is this many px tall (52 on a phone, 44 on a computer). */
+function expectOneSize(rows: ActionRow[], height: number) {
+  for (const b of rows.flatMap((r) => r.buttons)) expect(Math.round(b.height)).toBe(height);
+}
 
 /** One record in the discarded-records log (SPEC-FINAL 9.7), which a wipe keeps. */
 async function seedDiscarded(page: Page) {
@@ -283,15 +311,31 @@ test('settings: Wipe anyway, from the held wipe, logs each lost record then wipe
   await expect(page).toHaveURL(/\/sync\/qr\/send$/);
   await expect(page.getByRole('dialog', { name: 'Send by QR' })).toBeVisible();
 
-  // The held sheet: the held line, then the two ways out; the normal wipe stays off.
+  // The held sheet: the held line, then the two ways out; the normal wipe is not drawn, so the
+  // footer is Keep this device alone (Phase 1 I side task 3).
   await page.goto('/settings');
   wipe = await openWipe();
   await expect(wipe.getByRole('link', { name: 'Send by QR first' })).toBeVisible();
   await expect(wipe.getByRole('button', { name: 'Wipe anyway…' })).toBeVisible();
-  await expect(wipe.getByRole('button', { name: 'Wipe this device' })).toHaveAttribute(
-    'aria-disabled',
-    'true',
-  );
+  await expect(wipe.getByRole('button', { name: 'Wipe this device' })).toHaveCount(0);
+  // One size and one edge for every action (side task 3): on a phone both rows run edge to edge
+  // of the same box; on a computer they end at the same right edge. Every button one height.
+  const phoneRows = await actionRows(wipe);
+  expect(phoneRows.map((r) => r.labels)).toEqual([
+    ['Send by QR first', 'Wipe anyway…'],
+    ['Keep this device'],
+  ]);
+  expectOneSize(phoneRows, 52);
+  expect(phoneRows[1]!.left).toBe(phoneRows[0]!.left);
+  expect(phoneRows[1]!.right).toBe(phoneRows[0]!.right);
+  // Equal widths in the two-button row.
+  const [qr, anywayBox] = phoneRows[0]!.buttons;
+  expect(Math.abs(qr!.width - anywayBox!.width)).toBeLessThanOrEqual(1);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const desktopRows = await actionRows(page.getByRole('dialog', { name: 'Wipe this device?' }));
+  expectOneSize(desktopRows, 44);
+  expect(desktopRows[1]!.lastRight).toBe(desktopRows[0]!.lastRight);
+  await page.setViewportSize({ width: 375, height: 812 });
   await shoot(page, 'settings-wipe-anyway-held');
 
   // The second confirmation: the loss, the code, the count typed; Keep this device first.
@@ -313,6 +357,11 @@ test('settings: Wipe anyway, from the held wipe, logs each lost record then wipe
   };
   await fill();
   await expect(confirm).not.toHaveAttribute('aria-disabled');
+  // Keep this device and Wipe anyway: one height, sharing the row (side task 3).
+  expectOneSize(await actionRows(anyway), 52);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  expectOneSize(await actionRows(anyway), 44);
+  await page.setViewportSize({ width: 375, height: 812 });
   await shoot(page, 'settings-wipe-anyway-confirm', undefined, { before: fill });
 
   // A wrong code: nothing removed, nothing logged.

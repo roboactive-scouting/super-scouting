@@ -2,6 +2,7 @@ import { useIsDesktop } from '@/lib/useMediaQuery';
 import { cn } from '@/lib/utils';
 import { Dialog, type DialogProps } from './dialog';
 import { Sheet } from './sheet';
+import { SurfaceActions } from './surface-actions';
 
 export type ResponsiveDialogProps = DialogProps & {
   /**
@@ -49,7 +50,7 @@ export function ResponsiveDialog({ sheetClose, dragToClose, ...props }: Responsi
       {/* With a pinned foot, the foot carries the room below (its own top padding meets this). */}
       <div className={cn('flex flex-col gap-3', foot ? 'pb-3' : 'pb-4')}>
         {children}
-        {footer && <div className="mt-2 flex flex-wrap justify-end gap-2">{footer}</div>}
+        {footer && <SurfaceActions className="mt-2">{footer}</SurfaceActions>}
       </div>
     </Sheet>
   );

@@ -9593,3 +9593,104 @@ Rejected:
 - **`TableHeader sticky`** still won't stick to the page inside `Table`'s `overflow-x-auto` box. See its doc comment.
 
 Bundle: initial JS **227.7 KB** gzip, unchanged. No raise.
+
+## Phase 1 I side task 3 — the Wipe sheet's buttons line up; one action rule for every sheet and dialog (plan v1.31)
+
+**Plan said:** one size and one edge for every button in the held Wipe sheet; one rule for every sheet and dialog, built into the shared surface: on a phone, a full-width row of equal-width buttons (secondary first, primary or destructive last); on a computer, right-aligned, equal height. *[RAISED BY ME]* while held, drop the disabled **Wipe this device**, so the footer is **Keep this device** alone. Audit every `ResponsiveDialog`, `Dialog`, `Sheet` and `DestructiveConfirm` footer and log each.
+
+**What was wrong:** the held row (`flex flex-wrap gap-2`, 44 px `md` buttons, content width, left) and the footer (`DestructiveConfirm`'s own hand-styled buttons, 48 px from `tap-target`, `justify-end`) were two layouts. Across the app the "action row" was rebuilt per page in six different ways: `flex flex-wrap justify-end gap-2` (Dialog/ResponsiveDialog footer, EventForm, SeasonForm), `flex gap-2.5` + `size="lg" flex-1` (Review, LineupTiles, StationSheet), `flex-1 lg:flex-none` (CrossEventJump), `w-full lg:w-auto` (SwitchCompetition, Problems), `max-lg:w-full` (Settings Done), stacked `size="block"` (PracticeFinished, the map's failed-to-load sheet).
+
+**What I did instead:** the rule is one component, `components/ui/surface-actions.tsx`:
+- `SurfaceActions` draws the row: `flex gap-2.5 max-lg:w-full lg:flex-wrap lg:justify-end lg:gap-2`. Below 1024 px it is full width; at 1024 px and above it is right-aligned. It decides by **width** (Tailwind's `lg`, SPEC-FINAL 17.3's breakpoint), not by which surface it is in, so a `Dialog` below 1024 px and a sheet agree, and the rule reads exactly as the plan states it.
+- `Button` reads `InActionRow`: inside the row it takes `md` (44 px) plus `ACTION_BUTTON` (`max-lg:min-h-[52px] max-lg:min-w-0 max-lg:flex-1 max-lg:px-3 max-lg:text-base max-lg:whitespace-normal`). So on a phone every action is 52 px and equal width (a long label wraps inside its half instead of overflowing); on a computer every action is the 44 px `md` button. **A `size` passed to a Button inside the row is set aside**: the row decides, so no caller can make one action taller again. `actionButtonClass(variant)` gives a `Link` drawn as a button (Send by QR first) the same classes.
+- `Dialog`'s and `ResponsiveDialog`'s `footer` render inside `SurfaceActions` (it replaced their `mt-2 flex flex-wrap justify-end gap-2` div). A pinned `foot` (side task 1) or a row in the content uses `SurfaceActions` directly. **`footer` vs `foot`:** both kept. `footer` is the unpinned row, `foot` the pinned column (an error line above the row); one rule now governs the buttons in both, which was the point. Folding `footer` into `foot` would pin every confirmation's buttons and give short dialogs that never scroll a sticky foot for nothing; rejected.
+- `DestructiveConfirm` now draws its two actions with `Button` (`secondary`, then `destructive`) instead of its own `BUTTON` string, keeping `aria-disabled` (focusable while held or busy). New prop `hideConfirm`: no confirm button at all. `DeviceWipe` passes `hideConfirm={held}`: while held the footer is **Keep this device** alone, and the held line's **Send by QR first · Wipe anyway…** is the sheet's action row, the same `SurfaceActions`. While the hold is still being read ("Checking what is waiting to send.") the disabled wipe stays, because nothing else is offered yet.
+- **Sizes chosen:** phone 52 px, the established phone action size (THEME "Primary action bar", the Review sheet, the station and lineup sheets). Computer 44 px `md`, the default every admin and builder dialog already used. `DestructiveConfirm` was 48 px on both; it is now 52 / 44. Its icon is now the Button's 17 px (it was 20 px).
+- **Review on a computer** (side task 1's note): the rule wins. The Review dialog's Keep editing · Submit entry are now right-aligned 44 px buttons, not two equal 52 px halves. Practice finished, the station sheet and "Scout … instead?" also go right-aligned on a computer. Practice finished on a phone goes from two stacked 52 px buttons (Practice another match first) to one row, **Exit practice · Practice another match** (secondary first, primary last); first focus stays on Practice another match.
+
+**The audit** (every `features/**/*.tsx` that renders `ResponsiveDialog`, `Dialog`, `Sheet` or `DestructiveConfirm`; 32 files):
+
+| File | Surface | Before | Now |
+|---|---|---|---|
+| admin/AddMatchesSheet.tsx | Sheet (phone) | a form's full-width 52 px submit, then "or one match" with an inline input + button | **Unchanged, exempt:** no action row. These are form submits, already full width or an input's own button (07-manage final) |
+| admin/AddUserDialog.tsx | Dialog ×2 | `footer`: Cancel · Add user; Add another · Done | Shared row through `footer`, no page change |
+| admin/DeleteCompetition.tsx | DestructiveConfirm | its own 48 px buttons | Shared row (through DestructiveConfirm) |
+| admin/DisableSection.tsx | DestructiveConfirm | as above | Shared row |
+| admin/DisableUserConfirm.tsx | DestructiveConfirm | as above | Shared row |
+| admin/EditMatchDialog.tsx | Dialog | `footer`: Cancel · Save changes | Shared row through `footer` |
+| admin/EditMatchSheet.tsx | Sheet (phone) | full-width 52 px Save changes, then a ghost full-width Delete match | **Unchanged, judgement call:** one action (Save) already full width. Delete is a low-emphasis ghost that *starts* a separate destructive flow (07-manage final); a row would give a destructive start the weight of Save |
+| admin/EventFormDialog.tsx | Dialog | own `mt-5 flex flex-wrap justify-end gap-2` row in the form | `SurfaceActions className="mt-5"` (kept inside the `<form>` for submit) |
+| admin/MatchesPanel.tsx | DestructiveConfirm | own buttons | Shared row |
+| admin/PhoneMatchList.tsx | DestructiveConfirm | own buttons | Shared row (the page's `ActionBar` is not a sheet; unchanged) |
+| admin/ResetPasswordDialog.tsx | Dialog ×2 | `footer`: Cancel · Reset password; Done | Shared row through `footer` |
+| admin/SeasonFormDialog.tsx | Dialog | own `justify-end` row | `SurfaceActions className="mt-5"` |
+| admin/UnsavedConfirm.tsx | DestructiveConfirm | own buttons | Shared row |
+| builder/BuilderLeaveGuard.tsx | DestructiveConfirm | own buttons | Shared row |
+| builder/BuilderPage.tsx | DestructiveConfirm | own buttons | Shared row |
+| builder/DeleteFormDialog.tsx | DestructiveConfirm | own buttons | Shared row (the in-body `size="sm"` export button is not an action row) |
+| builder/ImportExport.tsx | Dialog ×2 | `footer` with a `me-auto` ghost "Also download a copy" and an offline line | Shared row through `footer`; `me-auto` and the line still work in the `lg:` row (a desktop-only page) |
+| builder/RawJsonEditor.tsx | Dialog | `footer`: `me-auto` Copy all, offline line, Cancel · Apply | Shared row, otherwise unchanged |
+| builder/TimerConfigEditor.tsx | Dialog | `footer`: `me-auto` ghost Remove the timer, line, Cancel · Save | Shared row, otherwise unchanged |
+| context/SwitchCompetitionSheet.tsx | ResponsiveDialog | `footer` Close with `w-full lg:w-auto` | Class removed; the row does it |
+| entry/ConfirmEntry.tsx | ResponsiveDialog `foot` | `flex gap-2.5`, `size="lg" flex-1` at both widths | `SurfaceActions` in the foot; the error line stays a direct child of the foot. Computer: right-aligned 44 px |
+| entry/LineupTiles.tsx | ResponsiveDialog | own `flex gap-2.5` row, `size="lg" flex-1 px-3` | `SurfaceActions className="mt-1"` |
+| entry/PracticeFinished.tsx | ResponsiveDialog | stacked `size="block"`, primary first | `SurfaceActions`: Exit practice · Practice another match |
+| entry/ProblemsDialog.tsx | ResponsiveDialog | Keep editing `size="lg" w-full lg:w-auto lg:self-end` | `SurfaceActions className="mt-1"` |
+| entry/StationSheet.tsx | ResponsiveDialog | own `flex gap-2.5` row, `size="lg" flex-1 px-3` | `SurfaceActions className="mt-2"` (the station bar's `max-lg:w-full` button is on the page, not in the sheet) |
+| entry/lazyParts.tsx | ResponsiveDialog (map not loaded) | Close `size="block"` | `SurfaceActions` |
+| entry/map/MapSheet.tsx | Dialog (computer) + own full-screen pop-up (phone) | a tool bar: tools, count, Close/Done | **Unchanged, exempt:** THEME "Map dialog (computer)" is one 40 px tool row with Done at its end, and "Map pop-up (phone)" a full-screen bar with tools and a full-width Done. A tool bar, not a footer; the phone pop-up is not a `Sheet` |
+| settings/DeviceWipe.tsx | DestructiveConfirm ×2 | held row `flex flex-wrap gap-2` (44 px, left) + footer (48 px, right, with a disabled wipe) | Held: the held row is `SurfaceActions`; the footer is Keep this device alone (`hideConfirm`). Wipe anyway: shared row |
+| settings/SettingsPage.tsx | ResponsiveDialog ×2 | Done `max-lg:w-full` | Class removed; the row does it |
+| shell/NavDrawer.tsx | Sheet `start` | the menu | **Unchanged, exempt:** no actions |
+| sync/SyncPage.tsx | Sheet "More" + DestructiveConfirm | menu rows; own confirm buttons | More: **unchanged, exempt** (a menu). Discard confirm: shared row |
+| teams/CrossEventJump.tsx | ResponsiveDialog ×2 | `footer`, `flex-1 lg:flex-none` on each | Classes removed; the row does it |
+
+A source test (`surface-actions.test.tsx`) fails if any feature file brings back `flex flex-wrap justify-end gap-2`, `flex-1 lg:flex-none`, `w-full lg:w-auto` or a closing `max-lg:w-full"`.
+
+**Rejected:**
+- **Deciding by surface shape** (a context from `Sheet` = phone layout, `Dialog` = computer layout). It would leave a plain `Dialog` below 1024 px right-aligned, and a test could check only the shape, not the width the plan names.
+- **`*:` child selectors on the row** to size the buttons. Their order against the button's own `px-…`/`min-h-…` would hang on Tailwind's output order; classes on the button go through `tailwind-merge`.
+- **A new `Button` size** (`action`): one more locked size where a context-bound class does it.
+- **The held row as the pinned `foot`** (side task 1's suggestion). The wipe sheet is short and does not scroll; a foot adds nothing there.
+- **Keeping the disabled wipe while held:** the plan's decided *[RAISED BY ME]*.
+
+**Risk:**
+- The 16-settings final draws the held wipe with two stacked full-width buttons (Keep this device, the disabled Wipe this device). The plan's rule replaces it: the phone sheet is now [Send by QR first | Wipe anyway…] over [Keep this device], both rows edge to edge (e2e-measured: same left and right, every action 52 px; on a computer every action 44 px and both rows end at the same right edge).
+- Two-line labels on a phone ("Practice another match" in half of 343 px) wrap inside the 52 px button and the row's other button stretches to match. A label of three lines would grow the row; none does today.
+- The 14-entry-parts final and side task 1's Review shots drew the Review dialog's buttons as two equal halves on a computer. They are now right-aligned (the plan's rule).
+- `EditMatchSheet` is the one sheet left with two buttons of different heights (Save 52 px over a ghost Delete 44 px), logged above as a judgement call, not moved.
+
+Bundle: initial JS **227.8 KB** gzip (from 227.7), under the 230 budget. No raise.
+
+**Follow-up (orchestrator, before commit): a button label never wraps.**
+
+**What was wrong:** the first cut let a long label wrap inside its half (`max-lg:whitespace-normal`): "Practice another match" took two lines in a 52 px button (`practice-finished-phone.png`).
+
+**What I did instead:**
+- `ACTION_BUTTON` no longer has `max-lg:whitespace-normal`, so the button keeps its own `whitespace-nowrap`.
+- `SurfaceActions` measures, as `OptionButtons` does for its column drop. Each button's one-line width is read on the button itself: inline `width: max-content; flex: none` for the read, put back before paint. That width is checked against its equal share of the row (`fitsInRow(need, count, width, gap)`, with half a pixel of slack).
+- When any label does not fit, the row gets `data-stacked="true"` and `ACTIONS_STACKED` (`max-lg:flex-col`). Below 1024 px that is full width, one per line, in the caller's order, so the primary or destructive button is at the bottom. At 1024 px and up nothing changes (the class is `max-lg:` only).
+- A ResizeObserver on the row and its buttons re-measures. The one-line width does not depend on the row's layout, so stacking cannot feed back into the measure. A row with no width keeps its answer.
+- The copy is unchanged.
+- Practice finished on a phone is now Exit practice over Practice another match, each full width and 52 px. The held wipe's rows and Wipe anyway's row still fit side by side at 375 px.
+
+**Rejected:**
+- A hidden probe element, which is what `OptionButtons` uses. Here the buttons themselves can be read at `max-content`, so a probe would be a second copy of every label.
+- Guessing from character counts.
+- `truncate`.
+
+**Risk:**
+- A single label wider than the full row would still overflow its one line. No current label comes close: the longest is "Practice another match", about 204 px of a 343 px row.
+- The measure forces a layout read on each render of a row. Rows are few and small.
+
+Tests: 6 new in `surface-actions.test.tsx`:
+- the `fitsInRow` rule
+- a long label stacks, with the primary last and the styles put back
+- short labels stay one row
+- re-measure on a resize, both ways
+- a zero-width row keeps its answer
+- no row button may wrap
+
+Mutation: measuring the laid-out width instead of the one-line width fails 3 of them. e2e `drafts-practice.spec.ts`: Practice finished at 375 is stacked, both buttons 52 px, equal width, the primary below. At 1440 the two buttons sit on one line at 44 px.
+
+Bundle: initial JS **228.2 KB** gzip, under 230.

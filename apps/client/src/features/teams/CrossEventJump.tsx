@@ -132,10 +132,8 @@ export function CrossEventJump({
         width={440}
         footer={
           <>
-            <Button className="flex-1 lg:flex-none" onClick={onClose}>
-              Keep {here}
-            </Button>
-            <Button variant="primary" className="flex-1 lg:flex-none" onClick={switchAndOpen}>
+            <Button onClick={onClose}>Keep {here}</Button>
+            <Button variant="primary" onClick={switchAndOpen}>
               Switch and open
             </Button>
           </>
@@ -162,15 +160,8 @@ export function CrossEventJump({
       width={460}
       footer={
         <>
-          <Button className="flex-1 lg:flex-none" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            className="flex-1 lg:flex-none"
-            disabled={!choice}
-            onClick={() => setStep('confirm')}
-          >
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" disabled={!choice} onClick={() => setStep('confirm')}>
             Continue
           </Button>
         </>

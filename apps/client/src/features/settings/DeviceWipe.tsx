@@ -1,10 +1,11 @@
 import { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { actionButtonClass, Button } from '@/components/ui/button';
 import { DestructiveConfirm } from '@/components/ui/destructive-confirm';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ErrorLine, Notice } from '@/components/ui/notice';
+import { SurfaceActions } from '@/components/ui/surface-actions';
 import { useDeviceQuery } from '@/data/useDeviceQuery';
 import { wipeDevice, type WipeAnyway } from '@/data/wipe';
 import { PATHS } from '@/lib/paths';
@@ -33,7 +34,9 @@ export function countChangedLine(n: number): string {
 /**
  * Wipe this device (SPEC-FINAL 9.9, 17.8; 16-settings final; task 1.49), opened from Settings
  * only. The one destructive pattern with **Keep this device** first. While anything would be lost
- * (`readWipeHold`, read live) it is held: the final's warning line, and the wipe button off. With
+ * (`readWipeHold`, read live) it is held: the final's warning line, and no wipe button at all
+ * (Phase 1 I side task 3: a greyed wipe beside a live Wipe anyway… read as two wipes), so the
+ * footer is Keep this device alone and the held line's two ways out are the actions. With
  * nothing waiting it asks for the lead's code and the typed phrase before the filled-ink button
  * enables; a wrong code says so here and wipes nothing. A wipe signs out, so the app leaves for
  * sign-in on its own.
@@ -161,6 +164,7 @@ export function DeviceWipe({ onClose }: { onClose: () => void }) {
       icon={null}
       typeToConfirm={open ? WIPE_PHRASE : undefined}
       ready={code.trim() !== ''}
+      hideConfirm={held}
       held={
         hold === undefined ? (
           'Checking what is waiting to send.'
@@ -180,7 +184,8 @@ export function DeviceWipe({ onClose }: { onClose: () => void }) {
 
 /**
  * The final's held line: a warning edge, what holds it in bold, then what lets it go. Under it
- * (v1.39) the two ways out: Send by QR first, and the destructive Wipe anyway….
+ * (v1.39) the two ways out: Send by QR first, and the destructive Wipe anyway…, in the shared
+ * action row (`SurfaceActions`), so they share the footer's size and edges (side task 3).
  */
 function Held({ hold, onAnyway }: { hold: WipeHold; onAnyway: () => void }) {
   const { what, until } = heldLines(hold);
@@ -189,14 +194,14 @@ function Held({ hold, onAnyway }: { hold: WipeHold; onAnyway: () => void }) {
       <Notice tone="warning" still role="status">
         <b className="font-bold">{what}</b> {until}
       </Notice>
-      <div className="flex flex-wrap gap-2">
-        <Link to={PATHS.syncQrSend} className={buttonVariants({ variant: 'secondary' })}>
+      <SurfaceActions>
+        <Link to={PATHS.syncQrSend} className={actionButtonClass('secondary')}>
           Send by QR first
         </Link>
         <Button variant="destructive" onClick={onAnyway}>
           Wipe anyway…
         </Button>
-      </div>
+      </SurfaceActions>
     </div>
   );
 }

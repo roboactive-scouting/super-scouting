@@ -2,6 +2,7 @@ import { X } from 'lucide-react';
 import { useId, useLayoutEffect, useRef, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
+import { SurfaceActions } from './surface-actions';
 import { SurfaceFoot } from './surface-foot';
 import { useModalFocus } from './useModalFocus';
 
@@ -11,7 +12,10 @@ export type DialogProps = {
   title: string;
   onClose: () => void;
   children: ReactNode;
-  /** Actions, right-aligned: secondary first, then primary. */
+  /**
+   * Actions, secondary first, then primary or destructive, in `SurfaceActions`: right-aligned
+   * at 1024 px and up, full width with equal buttons below (Phase 1 I side task 3).
+   */
   footer?: ReactNode;
   /** Width in px (default 520); never wider than the screen. */
   width?: number;
@@ -123,7 +127,7 @@ function OpenDialog({
         </div>
         <div ref={body} className="flex flex-col gap-3">
           {children}
-          {footer && <div className="mt-2 flex flex-wrap justify-end gap-2">{footer}</div>}
+          {footer && <SurfaceActions className="mt-2">{footer}</SurfaceActions>}
         </div>
         {foot && (
           <SurfaceFoot scroller={panel} className="-mx-6 px-6 pt-2 pb-[1.375rem]">

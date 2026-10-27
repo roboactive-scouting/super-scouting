@@ -3,6 +3,7 @@ import { SELF_EDIT_WINDOW_MS, type RobotStatus } from '@frc/shared';
 import { Button } from '@/components/ui/button';
 import { ErrorLine } from '@/components/ui/notice';
 import { ResponsiveDialog } from '@/components/ui/responsive-dialog';
+import { SurfaceActions } from '@/components/ui/surface-actions';
 import { EntryAnswers, useMapView } from './EntryAnswers';
 import { MapFieldView } from './lazyParts';
 import type { Phase } from './phases';
@@ -82,26 +83,14 @@ export function ConfirmEntry(props: {
                 Not saved. {props.error}
               </ErrorLine>
             )}
-            <div className="flex gap-2.5">
-              <Button
-                ref={back}
-                variant="secondary"
-                size="lg"
-                className="flex-1"
-                onClick={props.onBack}
-              >
+            <SurfaceActions>
+              <Button ref={back} variant="secondary" onClick={props.onBack}>
                 Keep editing
               </Button>
-              <Button
-                variant="primary"
-                size="lg"
-                className="flex-1"
-                busy={props.submitting}
-                onClick={props.onSubmit}
-              >
+              <Button variant="primary" busy={props.submitting} onClick={props.onSubmit}>
                 {props.practice ? 'Finish practice' : 'Submit entry'}
               </Button>
-            </div>
+            </SurfaceActions>
           </>
         }
       >
