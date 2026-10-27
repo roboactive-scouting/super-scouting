@@ -9515,3 +9515,81 @@ Rejected: (1) moving the foot outside the scroller (a non-scrolling body + a fix
 **Risk:** `foot` and `footer` now sit side by side on `Dialog`/`ResponsiveDialog` (pinned vs unpinned action row); side task 3's one action-row rule may want to fold them into one. The `ConfirmEntry` action row keeps its equal-width buttons at both widths, as before (side task 3 decides the computer's alignment). The safe-area part is proven by structure (no scroller padding, the inset inside the foot's box), not by a picture: Chrome's inset is 0 in Playwright.
 
 Bundle: initial JS **227.7 KB** gzip (227.3 before: `SurfaceFoot` and the `foot` plumbing ride in the shared `Dialog`/`Sheet`). No raise.
+
+## Phase 1 I side task 2 — nothing pinned floats (plan v1.30)
+
+**Plan said:** on the team page (`/teams/:teamId`) the tab strip floats: it is not flush under the team header. Reproduce it at 375 and 1440, scrolling slowly through the compact switch both ways. Then make the header and the tabs ONE sticky block: one wrapper that sticks, the tabs inside it, no measured offset, no gap, and "a tab chosen while stuck keeps them stuck" kept. Then audit the same pattern elsewhere and fix what floats: hard-coded bar heights (`MatchTimer`, `HEADER_TOP`) → the shell publishes the top bar's height once as a CSS variable; the bottom-pinned bars (Save bars, `ActionBar`); sticky inside a scroller (the Review foot, the builder's phase headers, `TableHeader sticky`); every pinned surface opaque edge to edge with the right z-order. Tests: tabs' top = header's bottom at every scroll position (unit + step-by-step e2e), a source test that no `top-[…]` holds a bar height, and e2e shots of the team page scrolled and of the entry form scrolled under the timer, at 375 and 1440, every theme.
+
+**What was wrong:** reproduced before the fix with the new test in `e2e/team.spec.ts`. It scrolls 4 px at a time from 0 to 480 and back, with motion on, reads the boxes on 4 frames per step, and treats the tabs as stuck once the panel has slid under them. Phone, before: `phone: 964 samples, 540 stuck; header off its bar 0; tabs over the header 0; stuck with a gap 540`. Every stuck sample was `{"bar":54,"headerTop":54,"header":121,"tabs":129,…}`, an **8 px gap** with the rules showing through it. Computer, before: `desktop: … stuck with a gap 0`; there was no gap at 1440. The 8 px is exactly the vertical padding the compact header gives back (`pt-3.5 pb-3` = 26 px → `py-[9px]` = 18 px). By inference, not instrumented: the `ResizeObserver` watched the header's content box (its default), and the padding transition does not change that box. So the height measured at the switch (new content + old padding) was never measured again. It was a steady 8 px, not the one-frame lag the plan suspected.
+
+The stalled agent's uncommitted test was **replaced, not kept.** Its "parted" filter counted every sample where the tabs were < 60 px below the header, which included the tabs scrolling up toward the header (gaps 57, 53, … 9). It would have failed with a correct fix. It also wrote files through `SEAMS_DIR`/`writeFileSync`.
+
+**What I did instead:**
+- **One sticky block** (`TeamPage.tsx`, `div[data-team-head]`, `sticky top-[calc(var(--top-bar,0px)-var(--team-tiles,0px))] z-20`):
+  - The block holds the header, the phone's stat tiles, and the tab bar.
+  - The header keeps its own `sticky top-[var(--top-bar,0px)]` inside the block.
+  - The tabs follow the header **in flow** in the same box. Whatever the header's height, or its padding transition, they touch it by layout. There is no offset between them, measured or not.
+  - The computer has no tiles, so `--team-tiles` is unset (0) and the block simply sticks on the bar.
+  - On the phone, the design puts the four stat tiles **between** the header and the tabs (24-team final, frame 1). They must scroll away under the header. So the block sticks the tiles' height *above* the bar while the header's own sticky keeps it on the bar.
+  - That height is the one value read from layout: `--team-tiles`, the tiles' border-box height. It is unrounded, published on the page root by a `ResizeObserver` (`box: 'border-box'`), and written straight to the style, so there is no React render in between. It is the tiles' height, never the header's: the tiles never animate, and nothing about the header (its compact switch, its transition) enters it.
+  - **This is a deviation from "no measured offset"**, logged as such. With the tiles between the two, CSS has no way to say "stop when the tabs reach the header" without knowing the tiles' height. The alternatives are under Rejected.
+  - The panel's minimum height moved to the page root: `calc(100dvh - var(--top-bar) + var(--team-tiles))`. This is the same room as before (a screen under the stuck block) without the header's height in it.
+  - The "keeps them stuck" rule now reads the block. If the panel's top is under the block's bottom when a tab is chosen, the new panel is scrolled to start at that bottom.
+  - The header's `ref` prop and `HEADER_TOP` are gone.
+- **`--top-bar`** (`features/shell/barHeights.ts`, `TOP_BAR`):
+  - The two heights are written once: phone `calc(3.375rem + env(safe-area-inset-top))`, computer `3.75rem`. `ShellLayout` publishes the current one on every page as `--top-bar`, next to `--bottom-bar`.
+  - `TopBar` and `CrumbBar` take their own height from the same `TOP_BAR` (inline `height`; the TopBar's row is `h-full` under its safe-area padding). So the bar and every sticky element under it cannot disagree.
+  - Moved onto `top-[var(--top-bar,0px)]`: `MatchTimer` (both layouts), `TeamHeader`, and `TableHeader sticky` (it was `top-0`, behind the bar).
+  - `BuilderPage`'s `h-[calc(100dvh-3.75rem)]` is now `h-[calc(100dvh-var(--top-bar,0px))]`. That is the same copy of the height, though not a `top-[…]`.
+- **Audit:** what was checked and what was found.
+
+  | Pinned element | Finding | Change |
+  |---|---|---|
+  | Team page tabs (phone) | **Floated** by 8 px. | Fixed above. |
+  | Team page tabs (computer) | Flush before and after. | Now in the one block. |
+  | `MatchTimer` (phone `top-[calc(3.375rem+env(safe-area-inset-top))]`, computer `top-[3.75rem]`) | Did not float: the values matched the bars. A copy of the bars' heights. | → `--top-bar`. e2e: the timer sits within 0.5 px of the bar at 375 and 1440, and every probe point (every 2 px down, every 12 px across) from the screen top to the timer's bottom lands on the bar or the timer. |
+  | `HEADER_TOP` (`TeamHeader.tsx`) | A copy of the bars' heights. | Removed. |
+  | `TopBar` (sticky `z-30` `bg-rail`, safe-area inside its padding) | Opaque edge to edge. | Its height now comes from `TOP_BAR`. |
+  | `CrumbBar` (sticky `z-20` `bg-surface`) | Opaque edge to edge. | Its height now comes from `TOP_BAR`. |
+  | Entry Save bar (`EntryPage.tsx`: wrapper `sticky bottom-[var(--bottom-bar,0px)]` + `ActionBar`) | Phone e2e, scrolled: every probe point from the bar's top to the screen's bottom edge lands on the bar. The entry route hides the bottom bar. The computer has no pinned Save bar: Review entry sits in the side panel. | No change. |
+  | Super entry Save bar (`SuperForm.tsx`) | Same wrapper and classes as the entry's, so checked by code. `super.spec` passes. Not probed on its own. | No change. |
+  | `ActionBar` above `BottomBar` (Scout page) | `scout.spec`, the long roster scrolled to its end: every probe point from the action bar's top to the screen's bottom lands on the action bar or the bottom bar, including the raised Scout button and the safe-area foot. The existing flush check (≤ 1 px) still holds. | No change. |
+  | `PhoneMatchList`'s `ActionBar` | The same component. | Not probed. |
+  | Review sheet foot (`SurfaceFoot`, side task 1) | Checked: `sticky bottom-0 z-10 bg-surface`, edge to edge, the scroller has no bottom padding. `review-foot.spec` passes. | No change. |
+  | Builder phase header (`BuilderCanvas.tsx`, `sticky top-0 z-[3] bg-line-2`) | Its scroller (`overflow-y-auto bg-line-2`) has no top padding, so `top-0` is its edge. The header is opaque, the same colour as the scroller, and spans the 410 px column the items live in. Its own rule shows once scrolled. `forms.spec` passes. | No change. |
+  | `TableHeader sticky` | Was `top-0`, behind the bar. Unused. | → `top-[var(--top-bar,0px)]`. Its doc comment notes that it only sticks where `Table`'s own `overflow-x-auto` box is made `overflow-visible`: that box is a scroll container. |
+  | `Sidebar` (`sticky top-0 h-dvh z-30 bg-rail`) | Opaque. | No change. |
+  | `BottomBar` (`fixed bottom-0 z-30 bg-rail`, safe area in its own padding) | Opaque to the bottom edge. | No change. |
+  | Z-order | The team block `z-20` sits under `TopBar` `z-30`, so the part of the block above the bar (the tiles, on the phone) is covered by the bar. On the computer, the block and `CrumbBar` (`z-20`) never overlap. | — |
+- **Tests:**
+  - `TeamPage.test.tsx` (+4):
+    - On the computer, the block holds exactly [header, tab bar]. Nothing on the page has an inline `top`, and nothing else is sticky. The panel is outside the block. Every tab keeps the same block.
+    - On the phone, the block holds [header, tiles, tab bar], and `--team-tiles` is the tiles' unrounded height (`217.25px`). Compact, the block holds the same three in the same order.
+    - A tab chosen while stuck scrolls the new panel to the block's bottom. The negative: a tab chosen while not stuck does not scroll.
+  - `styles/classes.test.ts` (+3): `BAR_COPY` finds no bar height (3.375rem, 3.75rem, 54px, 60px, `safe-area-inset-top`) in a `top-[…]` class and no `100dvh-<bar>`. The phone bar's `3.375rem + env(safe-area-inset-top)` appears in `features/shell/barHeights.ts` only. The rule's own catch and accept cases are tested too.
+  - `ShellLayout.test.tsx` (+1): `--top-bar` is published on the entry route (no bottom bar) and on the computer, and each bar is exactly that tall.
+  - `MatchTimer.test.tsx`: both layouts read `--top-bar`, and no `top-[…rem]` remains.
+  - `ui.test.tsx` (+1): `TableHeader sticky` sits on `--top-bar` and is not `top-0`. Without `sticky`, it is not sticky.
+  - e2e:
+    - `team.spec.ts`: the step-by-step walk at 375 and 1440, waiting first until the header sits on the bar. Then, stuck, every probe point from the screen top to the tab bar's bottom lands on the bar or the block. Then the keep-stuck check after choosing Notes. Shot: `team-scrolled-desktop`. The phone's `team-scrolled` is shot by the phone-frames test.
+    - `entry-timer.spec.ts`: a new test with a long Teleop (12 extra counters, so the form scrolls at 1440 × 900). Shots: `entry-timer-scrolled-{phone,desktop}`.
+    - `scout.spec.ts`: the bottom-band probe.
+    - The probe helper is `e2e/pinned.ts` (`showsThrough`).
+  - **Mutations:** each change fails its test.
+    - The block's top `+8px` fails the walk: `desktop: … header off its bar 964` and `phone: … stuck with a gap 540`.
+    - The phone timer's top `+6px` fails the timer test: `Error: phone: timer on the bar … Received: 6`.
+
+Rejected:
+1. **Two sticky elements, the tabs' `top` from one CSS variable that the header's height also reads.** The header would need a fixed height, and the phone header's sub-line can wrap. It is also still two sticky elements, which the plan rules out.
+2. **Swapping the tabs into the header's sticky box once they reach it (a JS "stuck" boolean).** It is structurally exact while stuck. But the tab strip would remount at the swap and lose keyboard focus, and the swap must render in the same frame as the scroll (`flushSync` in a scroll listener).
+3. **Moving the phone's tiles under the tabs**, so the block needs no measure. This is a design change: the final puts them between the header and the tabs.
+4. **Fixing the tiles' height in CSS** (each `StatTile` line `truncate`d, a computed rem height). This is fragile: notes like "9 of 10 matches" wrap at 320 px. It is also a second copy of `StatTile`'s box.
+5. **CSS anchor positioning** (`anchor()` on the tabs). It does not work with `position: sticky`, and support on the venue phones is not there.
+
+**Risk:**
+- **Landmarks.** The tiles and the tab strip are now outside `<main>`. The block has to hold the header (the page's `banner`, which must stay outside `main`) and the tabs together. `<main>` now holds the panel. axe (wcag2a/aa) is clean, and the `region` rule is best-practice only.
+- **The tiles' height.** If it were ever stale, the phone block would stick early or late by that much. It is published before paint and on every resize of the tiles, and the e2e walk proves it at 375.
+- **The opening transient.** At the very first frame after the team page opens, the e2e saw the header 61.5 px below the bar once (`headerTop 115.5`), as the stalled agent's data also shows. The test now waits for the header to sit on the bar before walking. This looks like a shell notice that shows for a moment; I did not identify it.
+- **`TableHeader sticky`** still won't stick to the page inside `Table`'s `overflow-x-auto` box. See its doc comment.
+
+Bundle: initial JS **227.7 KB** gzip, unchanged. No raise.

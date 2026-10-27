@@ -32,6 +32,11 @@ export function Table({
   );
 }
 
+/**
+ * `sticky`: the header row stays on the shell's top bar (`--top-bar`, Phase 1 I side task 2), not at
+ * `top-0` behind it. It sticks only where the table's own `overflow-x-auto` box does not scroll
+ * (give `Table` a `containerClassName` of `overflow-visible`); nothing uses it yet.
+ */
 export function TableHeader({
   className,
   sticky = false,
@@ -42,7 +47,7 @@ export function TableHeader({
       <thead
         className={cn(
           '[&_tr]:border-b [&_tr]:border-line',
-          sticky && 'sticky top-0 z-10 bg-surface',
+          sticky && 'sticky top-[var(--top-bar,0px)] z-10 bg-surface',
           className,
         )}
         {...props}

@@ -1,5 +1,4 @@
 import { ChevronLeft } from 'lucide-react';
-import type { Ref } from 'react';
 import type { TeamStats } from '@frc/shared';
 import { plural } from '@/lib/plural';
 import { cn } from '@/lib/utils';
@@ -11,13 +10,11 @@ import { formatStat, lastSeen } from './teamView';
  * headline (Average points, the canonical basic rank's value, mono) and the rank badge. A phone
  * has a ‹ back button, and once scrolled the header shrinks to ONE line (‹ · number · name ·
  * headline · "Rank #4 / 42") with a soft shadow; reduced motion gets no animation.
+ *
+ * It sticks on the shell's `--top-bar` (under the phone's top bar or the computer's crumb bar).
+ * On a page with tabs it is the top of TeamPage's one sticky block, the tabs under it in the same
+ * block (Phase 1 I side task 2: nothing pinned floats).
  */
-
-/** Where the header sticks: under the phone's top bar, or under the computer's crumb bar. */
-export const HEADER_TOP = {
-  phone: 'calc(3.375rem + env(safe-area-inset-top))',
-  desktop: '3.75rem',
-} as const;
 
 /** "Rank #4 / 42" (the phone's tag), or the words when the team is not ranked. */
 function RankTag({ rank, of, small }: { rank: number | null; of: number; small?: boolean }) {
@@ -63,14 +60,12 @@ export function TeamHeader({
   desktop,
   compact = false,
   onBack,
-  ref,
 }: {
   stats: TeamStats;
   desktop: boolean;
   /** The phone's one-line header, once the page is scrolled. */
   compact?: boolean;
   onBack: () => void;
-  ref?: Ref<HTMLElement>;
 }) {
   const { team, rank, headline } = stats;
   const entries = plural(stats.entry_count, 'entry', 'entries');
@@ -95,10 +90,6 @@ export function TeamHeader({
     </button>
   );
 
-  const stick = {
-    top: desktop ? HEADER_TOP.desktop : HEADER_TOP.phone,
-  };
-
   if (desktop) {
     const sub = [
       stats.event?.name ?? null,
@@ -108,11 +99,7 @@ export function TeamHeader({
       .filter(Boolean)
       .join(' · ');
     return (
-      <header
-        ref={ref}
-        style={stick}
-        className="sticky z-20 flex items-center gap-[18px] border-b border-line bg-surface px-8 pt-[18px] pb-4"
-      >
+      <header className="sticky top-[var(--top-bar,0px)] z-20 flex items-center gap-[18px] border-b border-line bg-surface px-8 pt-[18px] pb-4">
         <span
           aria-hidden="true"
           className="num text-[2.5rem] font-semibold leading-none tracking-[-0.02em]"
@@ -143,10 +130,8 @@ export function TeamHeader({
   if (compact) {
     return (
       <header
-        ref={ref}
-        style={stick}
         data-compact=""
-        className="motion-safe:transition-[padding,box-shadow] sticky z-20 flex items-center gap-2.5 border-b border-line bg-surface px-4 py-[9px] shadow-[0_6px_14px_-12px_color-mix(in_srgb,var(--ink)_50%,transparent)]"
+        className="motion-safe:transition-[padding,box-shadow] sticky top-[var(--top-bar,0px)] z-20 flex items-center gap-2.5 border-b border-line bg-surface px-4 py-[9px] shadow-[0_6px_14px_-12px_color-mix(in_srgb,var(--ink)_50%,transparent)]"
       >
         {back}
         <h1 className="flex min-w-0 items-baseline gap-2">
@@ -166,11 +151,7 @@ export function TeamHeader({
   }
 
   return (
-    <header
-      ref={ref}
-      style={stick}
-      className="motion-safe:transition-[padding,box-shadow] sticky z-20 flex items-center gap-3 border-b border-line bg-surface px-4 pt-3.5 pb-3"
-    >
+    <header className="motion-safe:transition-[padding,box-shadow] sticky top-[var(--top-bar,0px)] z-20 flex items-center gap-3 border-b border-line bg-surface px-4 pt-3.5 pb-3">
       {back}
       <div className="min-w-0">
         <h1 className="flex min-w-0 items-baseline gap-2">

@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './api-mock';
 import { ENTRIES, FORM, matchId, pullWithSupers, teamId, TEAMS } from './fixtures';
 import type { PullResponse } from '@frc/shared';
+import { showsThrough } from './pinned';
 import { shoot } from './shoot';
 
 /*
@@ -236,3 +237,139 @@ test('team page: a team with no entries yet', async ({ page }) => {
   await expect(page.getByRole('link', { name: 'Scout a match' })).toBeVisible();
   await shoot(page, 'team-empty');
 });
+
+/*
+ * Phase 1 I side task 2 (plan v1.30): nothing pinned floats. The page is scrolled 4 px at a time,
+ * down through the phone header's compact switch until the tabs stick and on, then back up, with
+ * motion ON so the header's padding transition runs, and the boxes are read on every frame:
+ * - the team header sits on the shell's top bar (nothing shows between them);
+ * - the tabs never ride over the header;
+ * - once the tabs stick (the panel slides under them), they touch the header: no gap.
+ */
+type Seam = {
+  y: number;
+  frame: number;
+  bar: number;
+  headerTop: number;
+  header: number;
+  tabs: number;
+  tabsBottom: number;
+  panel: number;
+};
+
+async function walk(page: Page, to: number, step: number): Promise<Seam[]> {
+  return page.evaluate(
+    async ({ to, step }) => {
+      const frame = () => new Promise((done) => requestAnimationFrame(done));
+      const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+      const out: Seam[] = [];
+      const ys: number[] = [];
+      for (let y = 0; y <= to; y += step) ys.push(y);
+      for (const y of [...ys, ...ys.slice(0, -1).reverse()]) {
+        window.scrollTo(0, y);
+        for (let f = 0; f < 4; f++) {
+          await frame();
+          // The shell's bar: the phone's top bar or the computer's crumb bar (the header with no h1).
+          const bar = [...document.querySelectorAll('header')].find((h) => !h.querySelector('h1'))!;
+          out.push({
+            y: window.scrollY,
+            frame: f,
+            bar: bar.getBoundingClientRect().bottom,
+            headerTop: box('header:has(h1)').top,
+            header: box('header:has(h1)').bottom,
+            tabs: box('[role="tablist"]').top,
+            // The tab bar's bottom: the tablist's bar, with its 1 px rule.
+            tabsBottom: document
+              .querySelector('[role="tablist"]')!
+              .parentElement!.getBoundingClientRect().bottom,
+            panel: box('[role="tabpanel"]').top,
+          });
+        }
+      }
+      return out;
+    },
+    { to, step },
+  );
+}
+
+for (const [layout, size] of [
+  ['phone', { width: 375, height: 812 }],
+  ['desktop', { width: 1440, height: 900 }],
+] as const) {
+  test.describe(() => {
+    test.use({ reducedMotion: 'no-preference' });
+    test(`team page: the tabs stay flush under the header while scrolling (${layout})`, async ({
+      page,
+    }) => {
+      test.slow();
+      await page.setViewportSize(size);
+      await openTeam(page, ORBIT);
+      // Settled first: a shell notice can sit over the page for a moment after it opens.
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const bar = [...document.querySelectorAll('header')].find(
+              (h) => !h.querySelector('h1'),
+            )!;
+            const head = document.querySelector('header:has(h1)')!;
+            return head.getBoundingClientRect().top - bar.getBoundingClientRect().bottom;
+          }),
+        )
+        .toBe(0);
+      const seams = await walk(page, 480, 4);
+      // The header sits on the shell's bar wherever the page is scrolled.
+      const off = seams.filter((s) => Math.abs(s.headerTop - s.bar) > 0.5);
+      // The tabs never ride over the header.
+      const over = seams.filter((s) => s.tabs < s.header - 0.5);
+      // Stuck (the panel has slid under the tabs): they touch the header.
+      const stuck = seams.filter((s) => s.panel < s.tabsBottom - 0.5);
+      const parted = stuck.filter((s) => Math.abs(s.tabs - s.header) > 0.5);
+      console.log(
+        `${layout}: ${seams.length} samples, ${stuck.length} stuck; header off its bar ${off.length}; ` +
+          `tabs over the header ${over.length}; stuck with a gap ${parted.length}`,
+        JSON.stringify(parted.slice(0, 4)),
+      );
+      expect(stuck.length).toBeGreaterThan(0);
+      expect(off).toEqual([]);
+      expect(over).toEqual([]);
+      expect(parted).toEqual([]);
+
+      // Stuck, nothing shows between the shell's bar, the header and the tabs: that band is all bar.
+      const scrolled = async () => {
+        await page.evaluate(() => window.scrollTo(0, 400));
+        await expect(page.locator('[data-team-head]')).toBeVisible();
+      };
+      await scrolled();
+      const head = (await page.locator('[data-team-head]').boundingBox())!;
+      const tabsBar = (await page.getByRole('tablist').locator('..').boundingBox())!;
+      expect(
+        await showsThrough(
+          page,
+          { top: 0, bottom: tabsBar.y + tabsBar.height, left: head.x, right: head.x + head.width },
+          ['header:not(:has(h1))', '[data-team-head]'],
+        ),
+      ).toEqual([]);
+      // The phone's scrolled frame is shot by the phone frames test.
+      if (layout === 'desktop') await shoot(page, 'team-scrolled', 'desktop', { before: scrolled });
+
+      // A tab chosen while the block is stuck keeps it stuck, the new panel from its top.
+      await page.evaluate(() => window.scrollTo(0, 600));
+      await page.getByRole('tab', { name: /^Notes/ }).click();
+      await expect(page.getByRole('tabpanel', { name: 'Notes' })).toBeVisible();
+      const after = await page.evaluate(() => {
+        const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+        return {
+          header: box('header:has(h1)').bottom,
+          tabs: box('[role="tablist"]').top,
+          // The tab bar's bottom: the tablist's bar, with its 1 px rule.
+          tabsBottom: document
+            .querySelector('[role="tablist"]')!
+            .parentElement!.getBoundingClientRect().bottom,
+          panel: box('[role="tabpanel"]').top,
+        };
+      });
+      expect(Math.abs(after.tabs - after.header)).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(after.panel - after.tabsBottom)).toBeLessThanOrEqual(0.5);
+    });
+  });
+}

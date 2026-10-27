@@ -44,6 +44,14 @@ const LEGACY_NAME =
   /brand-plate|status-(played|broke|disabled|no-show)|sync-(online|offline|syncing)|PRIMARY_BUTTON|motion-transition|state-layer|enter-(fade|rise|scale|drawer|sheet-up)|usePlayOnChange|var\(--(text|text-muted|border|brand|on-brand|focus|danger|warning)\)/g;
 
 /**
+ * A copy of a shell bar's height (`TOP_BAR`, features/shell/barHeights.ts: 3.375rem under the
+ * notch, 3.75rem) in a `top-[…]` class or a window-minus-bar height. Sticky elements sit on the
+ * shell's `--top-bar` instead (Phase 1 I side task 2: nothing pinned floats).
+ */
+const BAR_COPY =
+  /(?<![\w-])top-\[[^\]]*(?:3\.375rem|3\.75rem|54px|60px|safe-area-inset-top)[^\]]*\]|100dvh-(?:3\.375rem|3\.75rem)/g;
+
+/**
  * Class tokens that move (`animate-*`, `transition*`) without a `motion-safe` variant anywhere in
  * their variant chain. `transition-none` and `animate-none` stop motion, so they are always fine.
  */
@@ -73,6 +81,15 @@ describe('class names in src/', () => {
   it('uses none of the pre-redesign names or retired token utilities (RB.18)', () => {
     expect(hits(LEGACY_NAME, (s) => s)).toEqual([]);
     expect(hits(RETIRED_TOKEN_UTILITY)).toEqual([]);
+  });
+
+  it('sticks under the shell bars on --top-bar, never a copy of a bar height (Phase 1 I side task 2)', () => {
+    expect(hits(BAR_COPY)).toEqual([]);
+    // The phone bar's height is written once, where ShellLayout publishes it.
+    const phoneBar = /3\.375rem\s*\+\s*env\(safe-area-inset-top\)/;
+    expect(FILES.filter((f) => phoneBar.test(code(f.source))).map((f) => f.path)).toEqual([
+      'features/shell/barHeights.ts',
+    ]);
   });
 
   it('moves only under motion-safe:, so reduced motion gets still screens (17.9)', () => {
@@ -150,6 +167,28 @@ describe('the class-name rules themselves', () => {
       'var(--danger)',
     ])
       expect(found(LEGACY_NAME, bad), bad).toHaveLength(1);
+  });
+
+  it('bar copies: catches a bar height in a top class or a window-minus-bar height', () => {
+    for (const bad of [
+      'top-[3.75rem]',
+      'lg:top-[60px]',
+      'top-[calc(3.375rem+env(safe-area-inset-top))]',
+      'top-[env(safe-area-inset-top)]',
+      'h-[calc(100dvh-3.75rem)]',
+    ])
+      expect(found(BAR_COPY, bad), bad).toHaveLength(1);
+  });
+
+  it('bar copies: accepts --top-bar and the same lengths elsewhere', () => {
+    for (const ok of [
+      'top-[var(--top-bar,0px)]',
+      'top-[calc(var(--top-bar,0px)-var(--team-tiles,0px))]',
+      'h-[calc(100dvh-var(--top-bar,0px))]',
+      'grid-cols-[minmax(0,1fr)_3.375rem]',
+      'top-0',
+    ])
+      expect(found(BAR_COPY, ok), ok).toEqual([]);
   });
 
   it('motion: flags a bare transition or animation, or one only under another variant', () => {

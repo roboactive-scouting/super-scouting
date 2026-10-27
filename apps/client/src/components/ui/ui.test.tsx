@@ -91,6 +91,32 @@ describe('design-system primitives (SPEC-FINAL 17.4, 17.7)', () => {
     expect(screen.getByRole('cell', { name: '12' })).toHaveClass('text-end', 'num');
   });
 
+  it('a sticky table header sits on the shell’s --top-bar, not behind it at top-0 (Phase 1 I side task 2)', () => {
+    const { container } = render(
+      <Table>
+        <TableHeader sticky>
+          <TableRow>
+            <TableHead>Match</TableHead>
+          </TableRow>
+        </TableHeader>
+      </Table>,
+    );
+    const head = container.querySelector('thead')!;
+    expect(head).toHaveClass('sticky', 'top-[var(--top-bar,0px)]', 'bg-surface');
+    expect(head).not.toHaveClass('top-0');
+    // Not sticky unless asked.
+    const plain = render(
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Match</TableHead>
+          </TableRow>
+        </TableHeader>
+      </Table>,
+    );
+    expect(plain.container.querySelector('thead')).not.toHaveClass('sticky');
+  });
+
   it('renders a card as a labelled section with its heading at the level asked', () => {
     render(
       <Card as="section" aria-labelledby="t">

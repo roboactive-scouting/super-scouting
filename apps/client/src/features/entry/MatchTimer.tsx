@@ -17,10 +17,13 @@ function phaseOf(config: TimerConfig, t: number) {
   return null;
 }
 
-/** The phone bar sits under the sticky top bar (54 px plus the notch); the desktop bar under the crumb bar. */
+/**
+ * The phone bar sits under the sticky top bar, the desktop bar under the crumb bar: both on the
+ * shell's `--top-bar`, never a copy of a bar's height (Phase 1 I side task 2).
+ */
 const STICKY = {
-  phone: 'sticky top-[calc(3.375rem+env(safe-area-inset-top))] z-20',
-  desktop: 'sticky top-[3.75rem] z-10',
+  phone: 'sticky top-[var(--top-bar,0px)] z-20',
+  desktop: 'sticky top-[var(--top-bar,0px)] z-10',
 } as const;
 
 /** The phase tag: 10.5 px / 800, tracked, on `--accent` (THEME, smaller timer 2026-10-09). */
