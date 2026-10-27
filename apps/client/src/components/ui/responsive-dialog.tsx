@@ -1,4 +1,5 @@
 import { useIsDesktop } from '@/lib/useMediaQuery';
+import { cn } from '@/lib/utils';
 import { Dialog, type DialogProps } from './dialog';
 import { Sheet } from './sheet';
 
@@ -19,8 +20,18 @@ export type ResponsiveDialogProps = DialogProps & {
 export function ResponsiveDialog({ sheetClose, dragToClose, ...props }: ResponsiveDialogProps) {
   const desktop = useIsDesktop();
   if (desktop) return <Dialog {...props} />;
-  const { open, title, onClose, children, footer, initialFocus, dismissible, describedBy, icon } =
-    props;
+  const {
+    open,
+    title,
+    onClose,
+    children,
+    footer,
+    initialFocus,
+    dismissible,
+    describedBy,
+    icon,
+    foot,
+  } = props;
   return (
     <Sheet
       open={open}
@@ -33,8 +44,10 @@ export function ResponsiveDialog({ sheetClose, dragToClose, ...props }: Responsi
       showClose={sheetClose}
       dragToClose={dragToClose}
       icon={icon}
+      foot={foot}
     >
-      <div className="flex flex-col gap-3 pb-4">
+      {/* With a pinned foot, the foot carries the room below (its own top padding meets this). */}
+      <div className={cn('flex flex-col gap-3', foot ? 'pb-3' : 'pb-4')}>
         {children}
         {footer && <div className="mt-2 flex flex-wrap justify-end gap-2">{footer}</div>}
       </div>

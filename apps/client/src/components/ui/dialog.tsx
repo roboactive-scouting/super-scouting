@@ -1,6 +1,8 @@
 import { X } from 'lucide-react';
 import { useId, useLayoutEffect, useRef, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
+import { cn } from '@/lib/utils';
+import { SurfaceFoot } from './surface-foot';
 import { useModalFocus } from './useModalFocus';
 
 export type DialogProps = {
@@ -26,6 +28,12 @@ export type DialogProps = {
    * The body lays itself out; the × is not drawn.
    */
   icon?: ReactNode;
+  /**
+   * A foot pinned to the dialog's bottom edge while the rest scrolls (the Review sheet's
+   * buttons; Phase 1 I side task 1): `SurfaceFoot`, edge to edge, opaque down to the bottom
+   * edge. Its children are laid out as a column. `footer` is the unpinned action row.
+   */
+  foot?: ReactNode;
 };
 
 const FOCUSABLE =
@@ -53,15 +61,20 @@ function OpenDialog({
   showClose = true,
   describedBy,
   icon,
+  foot,
 }: DialogProps) {
   const heading = useId();
   const body = useRef<HTMLDivElement>(null);
   const close = useRef<HTMLButtonElement>(null);
   const first = useRef<HTMLElement | null>(null);
-  // The × comes first in the DOM, but first focus belongs to the work in the body.
+  // The × comes first in the DOM, but first focus belongs to the work in the body, then to a
+  // pinned foot's actions (the body's next sibling).
   useLayoutEffect(() => {
     first.current =
-      initialFocus?.current ?? body.current?.querySelector<HTMLElement>(FOCUSABLE) ?? close.current;
+      initialFocus?.current ??
+      body.current?.querySelector<HTMLElement>(FOCUSABLE) ??
+      body.current?.nextElementSibling?.querySelector<HTMLElement>(FOCUSABLE) ??
+      close.current;
   }, [initialFocus]);
   const { panel, onKeyDown } = useModalFocus(() => {
     if (dismissible) onClose();
@@ -79,7 +92,12 @@ function OpenDialog({
         aria-describedby={describedBy}
         onKeyDown={onKeyDown}
         style={{ width }}
-        className="motion-safe:animate-scale-in flex max-h-full max-w-full flex-col gap-3 overflow-y-auto rounded-2xl bg-surface px-6 py-[1.375rem] text-ink shadow-[var(--shadow-float)]"
+        className={cn(
+          'motion-safe:animate-scale-in flex max-h-full max-w-full flex-col gap-3 overflow-y-auto rounded-2xl bg-surface px-6 pt-[1.375rem] text-ink shadow-[var(--shadow-float)]',
+          // A pinned foot carries the bottom room itself: padding here would be a strip under
+          // it that the scroller does not paint over, where scrolled content shows through.
+          foot ? 'pb-0' : 'pb-[1.375rem]',
+        )}
       >
         <div
           className={
@@ -107,6 +125,11 @@ function OpenDialog({
           {children}
           {footer && <div className="mt-2 flex flex-wrap justify-end gap-2">{footer}</div>}
         </div>
+        {foot && (
+          <SurfaceFoot scroller={panel} className="-mx-6 px-6 pt-2 pb-[1.375rem]">
+            {foot}
+          </SurfaceFoot>
+        )}
       </div>
     </div>
   );
