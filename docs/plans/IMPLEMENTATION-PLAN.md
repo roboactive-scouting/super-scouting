@@ -1,6 +1,7 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.28 · **Date:** 2026-10-23 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.29 · **Date:** 2026-10-27 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.29 (2026-10-27): a side task at the top of Phase 1 I: the entry's Review sheet keeps its answers from showing under Keep editing and Submit (user).*
 *v1.28 (2026-10-23): a fifth side task at the top of Phase 1 H: no edit after 5 minutes — countdown, save at the mark, lock (user; SPEC-FINAL v1.45 §7.6).*
 *v1.27 (2026-10-23): a fourth side task at the top of Phase 1 H: the edit-window refusal reads "Not sent: changed after the 5-minute edit window. A lead can save it for you." (user; SPEC-FINAL v1.44 §7.6).*
 *v1.26 (2026-10-23): the entry search is designed as the Entries page plus a kind switch (`docs/design/pages/26-entry-search/final/`, spec v0.95 / SPEC-FINAL v1.43 §13.3); task 1.52 extends the existing `/entries` page instead of replacing it.*
@@ -16420,6 +16421,8 @@ git add -A && git commit -m "feat(client): add the team page with stats, match-b
 # Phase 1 I — basic statistics (§20.2.9)
 
 **One metric implementation, in TypeScript, in `packages/shared`** (SPEC-FINAL §11.1). It runs unchanged in the browser (offline) and on the server (online). There is no second implementation and no metric logic in SQL. Wrong numbers are worse than no numbers, so this is one of the two non-negotiable test suites (§18.4).
+
+> **Side task (v1.29, user 2026-10-27): the Review sheet's buttons sit on a solid foot.** On the entry's Review sheet (`features/entry/ConfirmEntry.tsx`), **Keep editing** and **Submit entry** float over the answers: the user can see entry data under them. Cause, from the code: the foot is `sticky bottom-0 bg-surface pt-2`, but the scrolling surface keeps padding below it (the phone `Sheet`'s `pb-[env(safe-area-inset-bottom)]` plus `ResponsiveDialog`'s `pb-4`; the computer `Dialog`'s `py-[1.375rem]`), so answers scrolled under the foot show through that strip. Fix it so the foot is opaque from its top edge to the sheet's bottom edge, the buttons never overlap a row, and the last answer can scroll fully above the foot; the failed-submit line stays a direct child of the foot (`EntryPage.test.tsx` asserts it). *[RAISED BY ME]* Fix it in the shared surface, not only in `ConfirmEntry`, so every sticky foot in a `Sheet` or `Dialog` behaves the same (the super entry's Review sheet is the same `ConfirmEntry`, and so is any later sheet with a pinned foot), and give the foot a hairline `--line` top edge while content scrolls under it, so the edge reads as a bar, not a gap. Tests: the foot's box reaches the scroller's bottom edge with no padding below it; an e2e shot of a long entry's Review sheet scrolled halfway, at 375 and 1440, every theme, with nothing visible under the buttons. Logged under Phase 1 I in `DEVIATIONS.md`; ships with Phase 1 I.
 
 ---
 
