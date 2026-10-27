@@ -143,13 +143,18 @@ function observedDomain(values: readonly (number | null)[]): { min: number; max:
   return { min: Math.min(...xs), max: Math.max(...xs) };
 }
 
-/** How a scorable field renders and aggregates (O2 of the task brief). */
+/**
+ * How a metric field renders and aggregates (O2 of the task brief). A rating (1..max) and a
+ * timer (seconds) average like a number (task 1.53 follow-up, user 2026-10-27).
+ */
 function fieldMetricShape(
   field: FormFieldDefinition,
 ): { kind: MetricKind; aggregation: StatsMetric['aggregation'] } | null {
   switch (field.type) {
     case 'counter':
     case 'number':
+    case 'rating':
+    case 'timer':
       return { kind: 'number', aggregation: 'avg' };
     case 'toggle':
       return { kind: 'rate', aggregation: 'rate' };
@@ -163,16 +168,39 @@ function fieldMetricShape(
   }
 }
 
-/** The fields one metric each: live, scorable, each key once, in form order. */
-function scorableFields(fields: readonly FormFieldDefinition[]): FormFieldDefinition[] {
+/** The types that get a metric row: the scorable ones, then a rating and a timer. */
+const isMetricType = (type: FormFieldDefinition['type']): boolean =>
+  isScorable(type) || type === 'rating' || type === 'timer';
+
+/** The fields one metric each: live, scorable, rating or timer, each key once, in form order. */
+function metricFields(fields: readonly FormFieldDefinition[]): FormFieldDefinition[] {
   const seen = new Set<string>();
   const out: FormFieldDefinition[] = [];
   for (const field of fields) {
-    if (field.deprecated || !isScorable(field.type) || seen.has(field.key)) continue;
+    if (field.deprecated || !isMetricType(field.type) || seen.has(field.key)) continue;
     seen.add(field.key);
     out.push(field);
   }
   return out;
+}
+
+/** A rating's top value: `config.max`, else 5 (as `validateEntryData`). */
+const ratingMax = (field: FormFieldDefinition): number =>
+  typeof field.config.max === 'number' ? field.config.max : 5;
+
+/**
+ * A metric field's direction when the form declares none: higher is better, except a timer,
+ * where a faster time is (user, 2026-10-27). A declared `direction` always wins, so a timer
+ * where longer is better (a defence hold) sets it in the builder.
+ */
+const defaultDirection = (field: FormFieldDefinition): FieldDirection =>
+  field.direction ?? (field.type === 'timer' ? 'lower_is_better' : 'higher_is_better');
+
+/** A timer metric's value in words: whole bare ("12 s"), else one place ("12.4 s"). */
+function secondsText(value: number | null): string | null {
+  if (value === null) return null;
+  const one = Math.round(value * 10) / 10;
+  return `${Number.isInteger(one) ? String(one) : one.toFixed(1)} s`;
 }
 
 const optionLabel = (field: FormFieldDefinition, value: unknown): string | null => {
@@ -206,6 +234,7 @@ function fieldValue(
   }
   const values = counted.map((e) => aggregationValue(field, e.data[field.key]));
   const value = aggregate(values, shape.aggregation as 'avg' | 'rate', undefined, direction);
+  if (field.type === 'timer') return { value, display: secondsText(value) };
   if (shape.kind !== 'ordinal' || value === null) return { value, display: null };
   const options = selectOptions(field);
   const nearest = options[Math.min(Math.max(Math.round(value), 0), options.length - 1)];
@@ -329,11 +358,15 @@ export function buildRankTable(input: RankTableInput): RankRow[] {
  * - `headline` — `averagePoints` (11.5). `tiles` — median points, availability (`reliabilityFor`),
  *   the best counted match, and the `slope` of points per match.
  * - `metrics` — Overall (average, median, std dev of points; std dev is `neutral`), then one
- *   per scorable field of the ACTIVE match version, grouped by phase in form order, each through
- *   `resolveFieldAcrossVersions` → `applyFilters` → `aggregationValue` → `aggregate`. A field
- *   whose type changed between the versions in scope is `type-changed`, value null.
+ *   per scorable, rating or timer field of the ACTIVE match version, grouped by phase in form
+ *   order, each through `resolveFieldAcrossVersions` → `applyFilters` → `aggregationValue` →
+ *   `aggregate`. A rating's domain is its declared 1..max; a timer's is its `expected_range`,
+ *   else the observed range, and with no declared direction it is `lower_is_better`; an "unsure" timer
+ *   (null) is a gap in the series, never 0. A field whose type changed between the versions in
+ *   scope is `type-changed`, value null.
  * - `columns` / `matches` — every canonical match entry of the team (practice and playoff too),
- *   in match order, with its points and the scored fields' values; a dead robot shows nulls.
+ *   in match order, with its points and the scored fields' values (never a rating or a timer:
+ *   they score nothing); a dead robot shows nulls.
  * - `notes` — every Long-text answer of its canonical entries (both kinds), newest first.
  * - `reliability` — `reliabilityFor` on the RAW entries, with the matches named.
  */
@@ -385,7 +418,7 @@ export function buildTeamStats(input: TeamStatsInput): TeamStats {
     pointsMetric(POINTS_KEYS.stddev, 'Std dev of points', 'stddev', 'neutral'),
   ];
 
-  // One metric per scorable field, checked against every version the counted entries name.
+  // One metric per metric field, checked against every version the counted entries name.
   const versionFields = new Map(input.versions.map((v) => [v.id, v.fields]));
   const inScopeIds = new Set<string>();
   for (const population of populations.values()) {
@@ -396,11 +429,11 @@ export function buildTeamStats(input: TeamStatsInput): TeamStats {
     return f ? [{ fields: f }] : [];
   });
   const byGroup = new Map<StatGroup, StatsMetric[]>();
-  for (const field of scorableFields(fields)) {
+  for (const field of metricFields(fields)) {
     const shape = fieldMetricShape(field);
     if (!shape) continue;
     const group: StatGroup = field.phase ?? 'post_match';
-    const direction: FieldDirection = field.direction ?? 'higher_is_better';
+    const direction = defaultDirection(field);
     const base = {
       key: fieldMetricKey(field.key),
       field_key: field.key,
@@ -428,6 +461,8 @@ export function buildTeamStats(input: TeamStatsInput): TeamStats {
       if (shape.kind === 'rate') domain = { min: 0, max: 1 };
       else if (shape.kind === 'ordinal') {
         domain = { min: 0, max: Math.max(selectOptions(f).length - 1, 0) };
+      } else if (f.type === 'rating') {
+        domain = { min: 1, max: ratingMax(f) };
       } else if (shape.kind === 'number') {
         domain = f.expected_range
           ? { min: f.expected_range.min, max: f.expected_range.max }
@@ -460,7 +495,7 @@ export function buildTeamStats(input: TeamStatsInput): TeamStats {
   // The match table: every canonical match entry of the team, in match order.
   const names = new Map(input.scouters.map((s) => [s.id, s.full_name]));
   const ruled = new Set(scoring.rules.map((r) => r.field_key));
-  const scored = scorableFields(fields).filter((f) => ruled.has(f.key));
+  const scored = metricFields(fields).filter((f) => isScorable(f.type) && ruled.has(f.key));
   const columns = scored.map((f) => ({ key: fieldMetricKey(f.key), label: f.label }));
   const canonical = canonicalEntries(ownEntries);
   const matches: StatsMatchRow[] = canonical

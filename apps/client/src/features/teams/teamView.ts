@@ -81,10 +81,14 @@ export function metricShade(metric: StatsMetric): Shade | null {
   return shadeFor(metric.value, metricDomain(metric), metric.direction);
 }
 
-/** A metric's value in words: "38.4", "89%", the ordinal's nearest option, the nominal's mode. */
+/**
+ * A metric's value in words: "38.4", "89%", the ordinal's nearest option, the nominal's mode,
+ * and a timer's "12.4 s" (its `display`).
+ */
 export function metricText(metric: StatsMetric): string {
   if (metric.kind === 'nominal' || metric.kind === 'ordinal') return metric.display ?? NO_VALUE;
   if (metric.value === null) return NO_VALUE;
+  if (metric.display !== null) return metric.display;
   return metric.kind === 'rate' ? formatPercent(metric.value) : formatStat(metric.value);
 }
 

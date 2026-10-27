@@ -2429,6 +2429,8 @@ function fieldMetricShape(field) {
   switch (field.type) {
     case "counter":
     case "number":
+    case "rating":
+    case "timer":
       return { kind: "number", aggregation: "avg" };
     case "toggle":
       return { kind: "rate", aggregation: "rate" };
@@ -2439,15 +2441,23 @@ function fieldMetricShape(field) {
       return null;
   }
 }
-function scorableFields(fields) {
+var isMetricType = (type) => isScorable(type) || type === "rating" || type === "timer";
+function metricFields(fields) {
   const seen = /* @__PURE__ */ new Set();
   const out = [];
   for (const field of fields) {
-    if (field.deprecated || !isScorable(field.type) || seen.has(field.key)) continue;
+    if (field.deprecated || !isMetricType(field.type) || seen.has(field.key)) continue;
     seen.add(field.key);
     out.push(field);
   }
   return out;
+}
+var ratingMax = (field) => typeof field.config.max === "number" ? field.config.max : 5;
+var defaultDirection = (field) => field.direction ?? (field.type === "timer" ? "lower_is_better" : "higher_is_better");
+function secondsText(value) {
+  if (value === null) return null;
+  const one = Math.round(value * 10) / 10;
+  return `${Number.isInteger(one) ? String(one) : one.toFixed(1)} s`;
 }
 var optionLabel = (field, value) => {
   if (typeof value !== "string") return null;
@@ -2470,6 +2480,7 @@ function fieldValue(field, shape, direction2, counted) {
   }
   const values = counted.map((e) => aggregationValue(field, e.data[field.key]));
   const value = aggregate(values, shape.aggregation, void 0, direction2);
+  if (field.type === "timer") return { value, display: secondsText(value) };
   if (shape.kind !== "ordinal" || value === null) return { value, display: null };
   const options = selectOptions(field);
   const nearest = options[Math.min(Math.max(Math.round(value), 0), options.length - 1)];
@@ -2611,11 +2622,11 @@ function buildTeamStats(input) {
     return f ? [{ fields: f }] : [];
   });
   const byGroup = /* @__PURE__ */ new Map();
-  for (const field of scorableFields(fields)) {
+  for (const field of metricFields(fields)) {
     const shape = fieldMetricShape(field);
     if (!shape) continue;
     const group = field.phase ?? "post_match";
-    const direction2 = field.direction ?? "higher_is_better";
+    const direction2 = defaultDirection(field);
     const base2 = {
       key: fieldMetricKey(field.key),
       field_key: field.key,
@@ -2643,6 +2654,8 @@ function buildTeamStats(input) {
       if (shape.kind === "rate") domain = { min: 0, max: 1 };
       else if (shape.kind === "ordinal") {
         domain = { min: 0, max: Math.max(selectOptions(f).length - 1, 0) };
+      } else if (f.type === "rating") {
+        domain = { min: 1, max: ratingMax(f) };
       } else if (shape.kind === "number") {
         domain = f.expected_range ? { min: f.expected_range.min, max: f.expected_range.max } : observedDomain(
           domainTeams.map(
@@ -2668,7 +2681,7 @@ function buildTeamStats(input) {
   for (const phase of FIELD_PHASES) metrics.push(...byGroup.get(phase) ?? []);
   const names = new Map(input.scouters.map((s) => [s.id, s.full_name]));
   const ruled = new Set(scoring.rules.map((r) => r.field_key));
-  const scored = scorableFields(fields).filter((f) => ruled.has(f.key));
+  const scored = metricFields(fields).filter((f) => isScorable(f.type) && ruled.has(f.key));
   const columns = scored.map((f) => ({ key: fieldMetricKey(f.key), label: f.label }));
   const canonical = canonicalEntries(ownEntries);
   const matches = canonical.filter((e) => e.form_kind === "match").sort(matchOrder).map((e) => {

@@ -186,6 +186,21 @@ describe('TeamPage (SPEC-FINAL 13.1; 24-team final)', () => {
     expect(avg.getAttribute('style')).toContain('color-mix(in srgb, var(--accent)');
   });
 
+  it('lists a rating on its 1..max scale and a timer in seconds, a faster time shaded better', async () => {
+    open();
+    const metrics = await screen.findByRole('table', { name: 'All metrics' });
+    expect(within(metrics).getByRole('columnheader', { name: 'Post-match' })).toBeInTheDocument();
+    const driver = metrics.querySelector('[data-metric="field:driver"]') as HTMLElement;
+    expect(driver).toHaveTextContent('Driver skill4');
+    expect(within(driver).getByRole('meter')).toHaveAttribute('aria-valuemax', '5');
+    // 14.2, 11.8, unsure, 12.5, 10.9, 9.6 → 11.8; the unsure one and the no-show are not 0.
+    const timer = metrics.querySelector('[data-metric="field:climb_time"]') as HTMLElement;
+    expect(timer).toHaveTextContent('Climb time11.8 s');
+    const chip = timer.querySelector('[data-shade]') as HTMLElement;
+    expect(chip).not.toHaveAttribute('data-shade', 'flat');
+    expect(chip.getAttribute('style')).toContain('color-mix(in srgb, var(--accent)');
+  });
+
   it('shades a metric flat when its domain has min = max', async () => {
     open();
     const metrics = await screen.findByRole('table', { name: 'All metrics' });

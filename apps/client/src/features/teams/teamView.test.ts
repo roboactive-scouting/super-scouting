@@ -82,6 +82,8 @@ describe('team page words (task 1.53)', () => {
       'Shallow',
     );
     expect(metricText(metric({ value: null }))).toBe('—');
+    // A timer's seconds come worded by the engine.
+    expect(metricText(metric({ value: 12.43, display: '12.4 s' }))).toBe('12.4 s');
   });
 
   it('never shades a neutral metric, and a nominal one not at all', () => {

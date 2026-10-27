@@ -9489,3 +9489,13 @@ AssertionError: features/entries/serverEntries.ts: expected 'import { useEffect,
 **What I did instead:** the team page, the shared builder and the shading reach only the lazy `TeamPage` chunk (13.6 KB gzip). Measured initial JS **227.3 KB** gzip (227.1 before; the route row and the lazy import). No raise.
 
 **Risk:** none known.
+
+## Task 1.53 follow-up — Rating and timer fields get a team-page metric (user, 2026-10-27)
+
+**Plan said:** "All metrics for the team" in phase 1 is "the fixed ranking columns plus one row per scorable field" (IMPLEMENTATION-PLAN, the 1.57 note), so `buildTeamStats` made a metric for the five scorable types only, and a post-match "Driver skill" rating or a climb-time timer had no row.
+
+**What was wrong:** nothing failed; the user asked for ratings and timers on the team page.
+
+**What I did instead:** `packages/shared/src/engine/teamStats.ts` — `scorableFields` is now `metricFields` (scorable, `rating` or `timer`); both are `kind: 'number'`, `aggregation: 'avg'`, through the same `resolveFieldAcrossVersions` → `applyFilters` → `aggregationValue` → `aggregate` pipeline, in their phase's group in form order (a rating with no phase lands in Post-match, which then appears). A rating's domain is its declared 1..`config.max` (5 when unset, as `validateEntryData`); a timer's is its `expected_range`, else the observed range across the event's teams. Sparkline series: a no-show or disabled match and an "unsure" timer (null) are null, never 0. Neither is a match-table column (`columns` stays the scored fields). A timer metric carries `display` "12.4 s" (whole bare, else one place), and the client's `metricText` prints a number metric's `display` when the engine set one. Default directions when the form declares none: a rating is `higher_is_better` (a higher rating is a better rating by construction); a timer is `lower_is_better` (user, 2026-10-27: a faster time is the common case — climb, cycle, auto routine). A declared `direction` always wins, so a timer where longer is better (a defence hold) sets it in the builder. Rejected: `neutral` for an undirected timer (my first cut — it never shades, which hides the spread); the user chose `lower_is_better`. Fixtures: `src/test/teamPageFixtures.ts` gains Climb time (timer, no direction, one "unsure" answer) and Driver skill (rating 1–5); `e2e/team.spec.ts` adds the same two fields to its own pull only, so the other specs' entry and builder screens keep their form.
+
+**Risk:** a form whose timers measure something where longer is better and that left `direction` blank will shade those timers backwards until an admin sets the direction. A rating's `expected_range`, if one is ever declared, is ignored in favour of 1..max.

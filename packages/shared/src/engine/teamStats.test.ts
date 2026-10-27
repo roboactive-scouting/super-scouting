@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { getTeamStatsOutput, rankRow } from '../api/stats';
 import type { FormFieldDefinition } from '../forms/types';
 import { averagePoints, rankByAveragePoints } from './breakdown';
+import { shadeFor } from './shading';
 import {
   buildRankTable,
   buildTeamStats,
@@ -66,6 +67,8 @@ const FIELDS: FormFieldDefinition[] = [
   }),
   field('old', 'counter', 'auto', { deprecated: true }),
   field('rating', 'rating', 'teleop'),
+  field('climb_time', 'timer', 'endgame', { unit: 'seconds' }),
+  field('driver', 'rating', 'post_match', { config: { max: 10 } }),
   field('comment', 'long_text', 'post_match', { label: 'Comment' }),
 ];
 const RULES: ScoringRule[] = [
@@ -180,9 +183,112 @@ describe('buildTeamStats (task 1.57)', () => {
     expect(cell).toEqual({ value: 2, display: 'Low, High' });
   });
 
-  it('gives one metric per live scorable field: no computed, rating, text or deprecated one', () => {
-    const keys = buildTeamStats(input([])).metrics.map((m) => m.field_key);
-    expect(keys).toEqual([null, null, null, 'cycles', 'fouls', 'reached', 'tags', 'auto_score']);
+  it('gives one metric per live scorable, rating or timer field: no computed, text or deprecated one', () => {
+    const stats = buildTeamStats(input([]));
+    expect(stats.metrics.map((m) => m.field_key)).toEqual([
+      null,
+      null,
+      null,
+      'cycles',
+      'fouls',
+      'rating',
+      'reached',
+      'tags',
+      'climb_time',
+      'auto_score',
+      'driver',
+    ]);
+    // A Post-match group with a rating in it; ratings and timers are never match-table columns.
+    expect(stats.metrics.filter((m) => m.group === 'post_match').map((m) => m.field_key)).toEqual([
+      'auto_score',
+      'driver',
+    ]);
+    expect(stats.columns.map((c) => c.key)).toEqual([
+      fieldMetricKey('cycles'),
+      fieldMetricKey('reached'),
+    ]);
+  });
+
+  it('averages a rating over its declared 1..max domain, higher is better by default', () => {
+    const stats = buildTeamStats(
+      input([
+        entry({ team_id: 'a', data: { rating: 4, driver: 7 } }),
+        entry({ team_id: 'a', data: { rating: 5, driver: 8 } }),
+        entry({ team_id: 'b', data: { rating: 1, driver: 2 } }),
+      ]),
+    );
+    const by = (key: string) => stats.metrics.find((m) => m.field_key === key)!;
+    expect(by('rating')).toMatchObject({
+      kind: 'number',
+      aggregation: 'avg',
+      value: 4.5,
+      display: null,
+      direction: 'higher_is_better',
+      domain: { min: 1, max: 5 },
+    });
+    expect(by('driver')).toMatchObject({ value: 7.5, domain: { min: 1, max: 10 } });
+    expect(by('driver').series.map((p) => p.value)).toEqual([7, 8]);
+  });
+
+  it('reads a timer as lower-is-better with no declared direction, worded in seconds', () => {
+    const stats = buildTeamStats(
+      input([
+        entry({ team_id: 'a', data: { climb_time: 10 } }),
+        entry({ team_id: 'a', data: { climb_time: 14.75 } }),
+        entry({ team_id: 'b', data: { climb_time: 30 } }),
+      ]),
+    );
+    const timer = stats.metrics.find((m) => m.field_key === 'climb_time')!;
+    expect(timer).toMatchObject({
+      kind: 'number',
+      aggregation: 'avg',
+      group: 'endgame',
+      direction: 'lower_is_better',
+      value: 12.375,
+      display: '12.4 s',
+      domain: { min: 12.375, max: 30 },
+    });
+    // The reversed scale: the fastest team at the event is shaded best, not flat.
+    const domain = { kind: 'range' as const, ...timer.domain! };
+    expect(shadeFor(timer.value, domain, timer.direction)).toMatchObject({
+      position: 1,
+      flat: false,
+    });
+    expect(shadeFor(30, domain, timer.direction)).toMatchObject({ position: 0, flat: false });
+    // A declared direction and range win.
+    const declared = buildTeamStats(
+      input([entry({ team_id: 'a', data: { climb_time: 10 } })], {
+        scoring: {
+          fields: FIELDS.map((f) =>
+            f.key === 'climb_time'
+              ? { ...f, direction: 'higher_is_better', expected_range: { min: 0, max: 60 } }
+              : f,
+          ),
+          rules: RULES,
+        },
+      }),
+    );
+    expect(declared.metrics.find((m) => m.field_key === 'climb_time')).toMatchObject({
+      direction: 'higher_is_better',
+      domain: { min: 0, max: 60 },
+      display: '10 s',
+    });
+  });
+
+  it('leaves an unsure timer and a no-show out of the figure: null in the series, never 0', () => {
+    const stats = buildTeamStats(
+      input([
+        entry({ team_id: 'a', match_number: 1, data: { climb_time: 8, driver: 6 } }),
+        entry({ team_id: 'a', match_number: 2, data: { climb_time: null, driver: 4 } }),
+        entry({ team_id: 'a', match_number: 3, robot_status: 'no_show', data: {} }),
+        entry({ team_id: 'a', match_number: 4, data: { driver: 5 } }),
+      ]),
+    );
+    const by = (key: string) => stats.metrics.find((m) => m.field_key === key)!;
+    expect(by('climb_time').value).toBe(8);
+    expect(by('climb_time').series.map((p) => p.value)).toEqual([8, null, null, null]);
+    expect(by('driver').value).toBe(5);
+    expect(by('driver').series.map((p) => p.value)).toEqual([6, 4, null, 5]);
   });
 
   it('refuses a field whose type changed in a version a counted entry names, and only then', () => {

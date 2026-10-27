@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './api-mock';
-import { ENTRIES, matchId, pullWithSupers, teamId } from './fixtures';
+import { ENTRIES, FORM, matchId, pullWithSupers, teamId, TEAMS } from './fixtures';
+import type { PullResponse } from '@frc/shared';
 import { shoot } from './shoot';
 
 /*
@@ -10,6 +11,8 @@ import { shoot } from './shoot';
  * shared engine from the pulled cache, scored by the fixture form's rules, so the points are real.
  * Computer: Stats and Matches. Phone: Stats, Stats scrolled (compact header), Matches, Progress
  * with a second chart, Notes, and a team with no entries (5987 Galaxia, its entries removed).
+ * The form gains a Climb time timer (no declared direction: faster shades better) and a
+ * post-match Driver skill rating here only, so the other specs' screens keep their form.
  */
 
 const ORBIT = teamId(1690);
@@ -28,9 +31,29 @@ const NOTES: Record<number, [string, string]> = {
   19: ['Lost a wheel at 1:10 and sat still until the end.', '09:12'],
 };
 
+const numberOf = new Map(TEAMS.map((t) => [t.id, t.number]));
+
+/**
+ * Every played match's climb time and driver skill, fixed by match and team: a robot that did
+ * not climb answered "unsure" (null), and a no-show records neither.
+ */
+function withTimerAndRating(e: (typeof ENTRIES)[number]): (typeof ENTRIES)[number] {
+  if (e.robot_status === 'no_show') return e;
+  const seed = matchNumber(e.match_id) * 7 + (numberOf.get(e.team_id) ?? 0);
+  const climbed = e.data.endgame_climb !== undefined && e.data.endgame_climb !== 'none';
+  return {
+    ...e,
+    data: {
+      ...e.data,
+      climb_time: climbed ? 6 + (seed % 120) / 10 : null,
+      driver: 1 + (seed % 5),
+    },
+  };
+}
+
 /** Orbit's entries as the design draws them: a breakdown, a no-show, four notes. */
 const TEAM_ENTRIES = ENTRIES.map((e) => {
-  if (e.team_id !== ORBIT) return e;
+  if (e.team_id !== ORBIT) return withTimerAndRating(e);
   const n = matchNumber(e.match_id);
   let out = { ...e, data: { ...e.data } };
   if (n === 19) {
@@ -53,7 +76,7 @@ const TEAM_ENTRIES = ENTRIES.map((e) => {
       client_updated_at: at(note[1]),
     };
   }
-  return out;
+  return withTimerAndRating(out);
 });
 
 function matchNumber(id: string): number {
@@ -61,8 +84,55 @@ function matchNumber(id: string): number {
   return 0;
 }
 
-const PULL = pullWithSupers(TEAM_ENTRIES);
-const EMPTY_PULL = pullWithSupers(TEAM_ENTRIES.filter((e) => e.team_id !== GALAXIA));
+/** The match form's last field, cloned: a timer in Endgame and a 1–5 rating in Post-match. */
+function withTimerAndRatingFields(pull: PullResponse): PullResponse {
+  const fields = pull.entities.form_fields as Record<string, unknown>[];
+  const match = fields.filter((f) => f.form_version_id === FORM.version_id);
+  const last = match[match.length - 1]!;
+  const extra = (n: number, over: Record<string, unknown>) => ({
+    ...last,
+    id: `0000000a-0000-4000-8000-${String(900 + n).padStart(12, '0')}`,
+    display_order: match.length + n,
+    help_text: null,
+    expected_range: null,
+    is_ordinal: null,
+    ...over,
+  });
+  return {
+    ...pull,
+    entities: {
+      ...pull.entities,
+      form_fields: [
+        ...fields,
+        extra(1, {
+          key: 'climb_time',
+          label: 'Climb time',
+          type: 'timer',
+          phase: 'endgame',
+          unit: 'seconds',
+          direction: null,
+          description: 'Seconds from starting the climb to hanging',
+          config: {},
+        }),
+        extra(2, {
+          key: 'driver',
+          label: 'Driver skill',
+          type: 'rating',
+          phase: 'post_match',
+          unit: null,
+          direction: 'higher_is_better',
+          description: 'How well the driver handled the robot, 1 to 5',
+          config: { max: 5 },
+        }),
+      ],
+    },
+  } as PullResponse;
+}
+
+const PULL = withTimerAndRatingFields(pullWithSupers(TEAM_ENTRIES));
+const EMPTY_PULL = withTimerAndRatingFields(
+  pullWithSupers(TEAM_ENTRIES.filter((e) => e.team_id !== GALAXIA)),
+);
 
 /** Signs in at the design's 12:00 (Tel Aviv, 17 March 2026) and opens a team's page. */
 async function openTeam(page: Page, id: string, pull = PULL) {
@@ -87,7 +157,12 @@ test('team page: Stats and Matches on a computer and a phone', async ({ page }) 
     'page',
   );
   await expect(page.locator('header p').first()).toHaveText(/^Search\s*\/\s*1690 Orbit$/);
-  await expect(main.getByRole('table', { name: 'All metrics' })).toBeVisible();
+  const metrics = main.getByRole('table', { name: 'All metrics' });
+  await expect(metrics).toBeVisible();
+  // The timer in seconds and the rating, under Endgame and Post-match.
+  await expect(metrics.locator('[data-metric="field:climb_time"]')).toContainText(/\d s$/);
+  await expect(metrics.locator('[data-metric="field:driver"]')).toContainText('Driver skill');
+  await expect(metrics.getByRole('columnheader', { name: 'Post-match' })).toBeVisible();
   await expect(main.getByRole('group', { name: 'Reliability' })).toContainText('Q19');
   await expect(main.getByRole('figure', { name: /Points per match/ })).toBeVisible();
   await expect(main.locator('[data-match-strip]')).toHaveCount(0);
