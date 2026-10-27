@@ -425,6 +425,22 @@ for (const [layout, size] of [
       const scrolled = async () => {
         await page.evaluate(() => window.scrollTo(0, 400));
         await expect(page.locator('[data-team-head]')).toBeVisible();
+        // Settled: the phone header's shrink is a padding transition, and a box read mid-way is
+        // taller than the block ends up (a loaded full e2e run probed content under that edge).
+        await expect
+          .poll(
+            () =>
+              page.evaluate(
+                () =>
+                  new Promise<boolean>((resolve) => {
+                    const el = document.querySelector('[data-team-head]')!;
+                    const before = el.getBoundingClientRect().height;
+                    setTimeout(() => resolve(el.getBoundingClientRect().height === before), 150);
+                  }),
+              ),
+            { timeout: 5000 },
+          )
+          .toBe(true);
       };
       await scrolled();
       const head = (await page.locator('[data-team-head]').boundingBox())!;
@@ -443,20 +459,22 @@ for (const [layout, size] of [
       await page.evaluate(() => window.scrollTo(0, 600));
       await page.getByRole('tab', { name: /^Notes/ }).click();
       await expect(page.getByRole('tabpanel', { name: 'Notes' })).toBeVisible();
-      const after = await page.evaluate(() => {
-        const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
-        return {
-          header: box('header:has(h1)').bottom,
-          tabs: box('[role="tablist"]').top,
+      // Measured once the new panel has settled (the scroll back and the header's padding
+      // transition): under a loaded full e2e run one read taken mid-render saw 54 px.
+      const gaps = () =>
+        page.evaluate(() => {
+          const box = (selector: string) =>
+            document.querySelector(selector)!.getBoundingClientRect();
+          const header = box('header:has(h1)').bottom;
+          const tabs = box('[role="tablist"]').top;
           // The tab bar's bottom: the tablist's bar, with its 1 px rule.
-          tabsBottom: document
+          const tabsBottom = document
             .querySelector('[role="tablist"]')!
-            .parentElement!.getBoundingClientRect().bottom,
-          panel: box('[role="tabpanel"]').top,
-        };
-      });
-      expect(Math.abs(after.tabs - after.header)).toBeLessThanOrEqual(0.5);
-      expect(Math.abs(after.panel - after.tabsBottom)).toBeLessThanOrEqual(0.5);
+            .parentElement!.getBoundingClientRect().bottom;
+          const panel = box('[role="tabpanel"]').top;
+          return Math.max(Math.abs(tabs - header), Math.abs(panel - tabsBottom));
+        });
+      await expect.poll(gaps, { timeout: 5000 }).toBeLessThanOrEqual(0.5);
     });
   });
 }
