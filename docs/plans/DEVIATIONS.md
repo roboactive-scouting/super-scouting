@@ -9406,3 +9406,86 @@ AssertionError: features/entries/serverEntries.ts: expected 'import { useEffect,
 **What I did instead:** the new schemas reach the initial chunk through the `API` map; the builders do not, since nothing in the client imports them yet. Measured initial JS **227.1 KB** gzip (226.5 before). No raise.
 
 **Risk:** 1.53 keeps `buildTeamStats` and the engine in its lazy chunk only if it imports them from the team page alone.
+
+## Task 1.53 — The plan's test predates the design and task 1.57; adapted to the final (D2)
+
+**Plan said:** `render(<TeamPage teamId="t-1" rpc={rpcFor()} />)` with an rpc payload; the header's headline `'15.50'` and `getByLabelText(/rank 1/i)`; `getComputedStyle(header).position === 'sticky'`; the match table on the page from the start and `navigate('/entries/e-1')` from a mocked `useNavigate`; notes as `listitem`s named /note/; `queryByRole('img')` null; the empty state from an rpc payload.
+
+**What was wrong:** task 1.57 moved the statistics into the shared `buildTeamStats`, and the brief made the page compute ON THE DEVICE (statistics are viewable offline, 9.6), so the page has no rpc payload outside a session override. The design (24-team final, D2) prints one decimal ("38.4", not "15.50"), puts the match table on the Matches tab, and makes every match row a link (THEME "Table row as a link"), not a click handler. jsdom loads no CSS, so `getComputedStyle(...).position` is never `sticky` for a Tailwind class. An `aria-label` on a plain `<span>` is not a valid name (and the side `RankBadge` is `role="img"`, which this page must not have).
+
+**What I did instead:** `TeamPage({ teamId, eventId, rpc? })`; the tests seed the device cache (`src/test/teamPageFixtures.ts`) and watch the real shared `buildTeamStats` (`vi.mock` wrapper). Kept, adapted: sticky header as the `banner` standalone (`toHaveClass('sticky')` plus `tagName === 'HEADER'`); number, name, "Average points", "32.3" and the sr-only words "Rank 2 of 4"; every metric row label → shaded value → `role="meter"` → sparkline; the match table (after choosing Matches) with header + one row per match and "—" in every value column of the no-show row; the row's link `href="/entries/<id>"`, clicked, lands on `/entries/<id>` (a `MemoryRouter` route, no mocked navigate); notes `listitem`s named "Note, Q9, הערות, Yael Shapira", newest first; Hebrew `dir="auto"`; reliability `role="group"` "Reliability" with 86% and the counts; no `img` role and no `<img>` on any tab at both widths; the empty state. Added: the builder is fed the whole event; neutral and min = max are flat; the strip is on Matches only; the chart's no-show gap; up to four charts; the phone list, the compact header and ‹; the override path (getTeamStats, offline, not found, a dead payload row). Mutation-checked (scratchpad `mutate-153.cjs`): a dead row showing its stale columns, neutral shaded, min = max shaded, the strip on every tab, a no-show drawn as 0, notes oldest first, the chart exposed as `role="img"`, the phone list printing 0 for a no-show — each fails the suite, and each was restored.
+
+**Risk:** none known; the plan's literal assertions on rpc payload shapes (`team.rank`, `columns: { auto_notes: 2 }`) no longer exist in 1.57's wire shape.
+
+## Task 1.53 — The page is computed on the device by the shared `buildTeamStats`; `getTeamStats` only under a session override
+
+**Plan said:** "The charts on this page consume … the `getTeamStats` query of task 1.57" (the test passes an rpc).
+
+**What was wrong:** the venue is offline (9.6: statistics are viewable offline) and 1.57 built `buildTeamStats` precisely so the device can run the server's computation.
+
+**What I did instead:** `features/teams/teamStats.ts` `loadDeviceTeamStats(teamId, eventId)` mirrors `apps/server/src/core/queries/stats.ts`: the event's live roster (`event_teams` → `teams`), EVERY live entry of the event (all teams, both kinds) joined by `toEngineEntry` (match type, number, event sort order), every form version those entries name (live fields in display order), the season's match form's ACTIVE scoring (`formScoring`), the super form's active fields, and every cached user's name; then one `buildTeamStats` call. No formula in the client. A team or event the device does not hold → "This team is not here" + Back to Search. Under a session override (6.3) `useServerTeamStats` calls `getTeamStats` with `limit: 200`, following `next_cursor` (at most 5 pages) to hold every match row, gated by `useCapability('cross_event_view')` — offline: `StateMessage offline-needs-server` "<event> is not on this device; its statistics need a connection." with "Back to <default>" (clears the override), and no call; `not-found` → the not-found state; any other failure → Try again. Mirrors `features/entries/serverEntries.ts`. The shell already shows the override banner, so the page adds none. The engine stays out of the initial chunk: only the lazy team page imports `buildTeamStats`.
+
+**Risk:** the device reads every live entry of the event on each cache change (`useDeviceQuery(['rows'])`); a few hundred rows at an event; the e2e device (about 200 entries) renders without a visible wait.
+
+## Task 1.53 — Task 1.59's shading, `ShadedValue` and `ProgressionChart` pulled forward (user's decision); the THEME ramp wins over 1.59's test
+
+**Plan said:** (1.59) `shadeFor(value, domain, direction)` "→ a colour from the shared ramp and a lightness, or `null` for no value"; the test maps "the worst value to red and the best to green", "returns no scale at all for neutral" (`null`); `shadeFor` returns `{ background, text }`; `ProgressionChart` is a Recharts `LineChart`; add `recharts` to `apps/client/package.json`; modify `RankingPage.tsx`.
+
+**What was wrong:** the user locked the ramp on 2026-10-23 (THEME "Value shading", SPEC-FINAL 12.6 v1.40): one hue, the accent mixed into the surface 6 % (worst) → 52 % (best), text `--ink`, `neutral` and min = max FLAT `--line-2` (not "no scale"), no data a bare `--muted` "—" excluded from the domain. The brief also required the shared module to return numbers, never CSS. `RankingPage` is task 1.58 (Phase 1 I).
+
+**What I did instead:** `packages/shared/src/engine/shading.ts` (exported at the END of `index.ts`): `ShadeDomain` = `range {min,max}` | `rate` (fixed 0–1) | `ordinal {options}`; `shadeFor(value, domain, direction)` → `{ position 0–1 (lower_is_better reversed), mix (6–52, rounded), flat, lightness (1 − mix/100, monotonic) }`, FLAT `{0.5, 0, true, 1}` for neutral, a single-point domain and a value with no domain, `null` for no value (null, undefined, NaN, an option not in the list); `domainPosition(value, domain)` is the raw 0–1 placement a meter reads. An ordinal option's rank comes from `aggregationValue` (the engine's one rank); an average rank (a number) is placed on the same 0…n−1 scale. `SHADE_MIX_WORST` 6, `SHADE_MIX_BEST` 52. 1.59's test adapted (12 tests): "red/green" → palest/darkest with the mix values; neutral → flat, not null; min = max → `position 0.5, flat`; plus clamping, NaN, a no-domain value, the meter placement. `components/ShadedValue.tsx` turns a shade into `color-mix(in srgb, var(--accent) N%, var(--surface))` (or `var(--line-2)`) through a `--shade-bg` custom property (jsdom drops a `color-mix` background, so the tests can read it), a 5 px chip, mono 600, `--ink` text, the value ALWAYS printed; null → a bare `--muted` "—". Its test proves the value is printed for best, worst, flat, neutral and no-domain shades. `RankingPage` untouched (Phase 1 I). No `recharts`.
+
+**Risk:** 1.58/1.59 must reuse `shadeFor`/`ShadedValue` rather than the plan's `{ background, text }` shape.
+
+## Task 1.53 — No Recharts: the progression chart and the sparklines are hand-written SVG
+
+**Plan said:** (1.59) "`ProgressionChart` is a Recharts `LineChart` over match number"; add `"recharts": "^2.13.3"`.
+
+**What was wrong:** the team page is a precached offline chunk; Recharts (with d3 pieces) would add tens of KB to it for one line, and the THEME marks (a no-show gap bridged by a dotted line with "—", the broke-down diamond, the dashed average) are custom anyway. Rejected Recharts for those reasons (orchestrator).
+
+**What I did instead:** `features/teams/ProgressionChart.tsx`: an SVG sized to its box (ResizeObserver; 340 px until measured), `--line-2` grid, three ticks from 0 (a 1/2/2.5/5 × 10ⁿ step covering the highest value / 2.2; rates 0 · 50 · 100 %), mono 10 px `--muted` axes labelled with the match number (thinned to one label per 18 px), the series 2.2 px `--accent` with white 3 px dots, broke down a `--warn` diamond, a null (no-show, disabled, unanswered) a GAP bridged by a dotted `--faint` line with "—" over it — never a 0 — the team's value as a dashed `--faint` line, and the legend under the first chart. The SVG is `aria-hidden` with `focusable="false"`; the `<figure>` is named "<metric>, match by match" and holds a visually hidden list ("Q26: no show, not counted", "Q14: 11, broke down", "Team value: 32.3"), so no `img` role. `MetricPicker` (the 12.5 view-time selector) is the locked `Select` labelled "Chart metric"; `ProgressPanel` stacks up to `MAX_CHARTS` 4 with "+ Add a chart under it · up to 4" (adds the first metric not on a chart yet, hidden at 4 or when none is left) and a ✕ on every chart but the first. The picker offers "Points per match" and every field metric with a series (median and std dev share the points series; nominal and unavailable metrics have none), named with the phase word: "Teleop high goal" (a label already naming its phase is not prefixed again). The stat-row sparkline (`StatRows.tsx`) is a 64 × 20 SVG, 1.5 px `--accent`, end dot, `aria-hidden`; it leaves a no-show OUT rather than drawing a gap (at 64 px a gap read as two charts in the first screenshots; the Progress chart shows the gap).
+
+**Risk:** none known.
+
+## Task 1.53 — Small calls the design left open
+
+**Plan said:** nothing on these.
+
+**What was wrong:** the design (24 final) and THEME leave them open, or the data differs from the mock.
+
+**What I did instead:**
+- **Formatting:** points and averages to one place, whole bare ("38.4", "41"; `formatStat`), not SPEC 17.8's two places (the brief: the design wins); rates whole percents (`formatPercent`); the trend signed ("+2.3", "−0.4"); counts plain.
+- **Metrics:** exactly `buildTeamStats`' metrics, labels as the builder gives them ("Std dev of points", not the mock's "Spread (std dev)"; no "Best match" row — it is a tile); groups Overall, Autonomous, Teleop, Endgame, Post-match. Ordinal: its nearest option's label in the shaded chip (UI face, not mono, no wrapping), a bar and a sparkline of ranks; nominal: words, no bar, no trend line; `unavailable_reason` → "cannot calculate this metric" (+ " — field type changed between versions"). The meter's `aria-valuemin/max` are the domain, `aria-valuenow` the value clamped into it, `aria-valuetext` "7, 0 to 20 at the event" (+ ", lower is better"); the fill is the shade's position (reversed for `lower_is_better`), `--faint` for neutral.
+- **Header:** the `<h1>` is "1690 Orbit" (on a computer the big number is `aria-hidden` and the h1 carries an sr-only "1690 "); the rank badge's words are sr-only "Rank 4 of 22" with the visual "#4 / of 22" (computer) or "Rank #4 / 22" (phone) `aria-hidden` — no `RankBadge` (it is `role="img"`); no rank → "not ranked yet"; the phone's full header puts the small rank tag in its sub-line, as frame 1 does; "last seen" is the last match row's label; entries counted as `entry_count` (both kinds — the e2e team shows "11 entries", 10 matches and a super entry). ‹ goes back through history, or to Search when opened directly (`aria-label` "Back to Search"). The compact header switches at scrollY > 24 and back at < 4 (hysteresis, so the height it gives back cannot flip it).
+- **Tabs:** the locked `Tabs`, `flush`; a new `fit` prop (computer: each tab as wide as its words, 22 px a side, from the start) and `tight` prop (phone: 5 px label-to-count, 4 px inset, 13.5 px, so "Matches 10" fits a quarter of 375 px). 48 px tall (the §17.7 floor the component already uses over THEME's 44). The tabs bar sticks under the header (its `top` = the header's `top` + the header's measured height); a tab chosen while the bar is stuck scrolls so the new panel starts right under it; every panel is at least a screen tall under the tabs, so a short panel (Notes, Progress) can still be read with the bar stuck.
+- **Phone tiles:** the four tiles sit between the header and the tabs on EVERY tab (they are the team's summary, like the header), so the tab bar does not jump when a tab is chosen; frames 3–5 show the scrolled state, where the tiles have scrolled away.
+- **Reliability on a phone:** a 4-column strip card at the top of the Stats panel, above the stat rows, always (frame 2 shows it once scrolled; frame 1 is cut at the tabs). The matches are named under the counts at both widths (the brief), where the mock's phone strip hid them.
+- **Match strip:** shaded over the strip's OWN points (12.6: the observed min–max of the values shown), not the event's average-points domain the mock used; the cell label is `--ink-2`, not `--muted` (axe: `--muted` mono 10 px fails 4.5:1 on the darker shades); 28 px minimum cells with a sideways scroll past ~10 matches on a phone; each cell is a link named "Q14 Broke down, 11 points, Omer K.: open the entry"; the strip is a `nav` named "Match strip".
+- **Computer table:** newest first like the mock's rows, so the header says "Points" WITHOUT the mock's "↓" (the rows are not sorted by points; an arrow would claim a sort that is not there); not shaded (the final's table is unshaded); a column of words (Yes / No, an option label) and its header read from the start, numbers from the end; the caption "A row opens the entry · Q25 was a no-show: no values, not counted" names every no-show.
+- **Phone list:** `LinkCard`s made flat rows (no radius or border but the `--line-2` divider), 52 px min, the faint ›; the scouter as first name + initial.
+- **Notes:** a super entry's note is labelled "Super"; time "11:52" today, "Fri 16:05" within six days, else "14/11/2026 16:05"; the computer's Stats tab shows the newest 4 under "NOTES ——— newest first"; no notes → "No notes for this team yet."; a `<ul aria-label="Notes">` of `<li aria-label="Note, Q9, Notes, Yael Shapira">`.
+- **Progress on a computer:** the Progress tab is one column, at most 768 px wide; the Stats tab's Progress card shows the first chart and its picker (the same `charts` state as the tab).
+- **Empty state:** the locked `EmptyState` with a new `align="start"` (the final's card is set from the start edge), the Search icon, "No entries for this team yet", "Stats, matches and notes appear here once someone scouts 5987 at District #3 · Tel Aviv.", one action "Scout a match" (→ `/scout`); no tabs; the header "0 entries · not ranked yet" and "—".
+- **Picker size:** the locked `Select` keeps the 48 px tap floor (THEME draws a 34 px select).
+
+**Risk:** the user may want the tiles on the Stats tab only, the strip on the event's domain, or the ↓ back; each is a one-line change.
+
+## Task 1.53 — Route, shared pieces and docs
+
+**Plan said:** produce `/teams/:teamId`.
+
+**What was wrong:** nothing; recording where it lives.
+
+**What I did instead:** `routes.tsx` registers `teams/:teamId` as a lazy chunk (`TeamPage`, precached by the service worker's glob like every chunk), gated (waits for the event, `routes.test.tsx`'s list), keyed by the team, handle `{ title: 'Team', crumb: ['Search'] }`; the page names itself "Team 1690" (phone top bar) and the crumb "Search / 1690 Orbit"; nav's Search has no `end`, so the sidebar and the bar mark Search. New files beyond the plan's list: `teamStats.ts` (device + override data), `teamView.ts` (words and shades, unit-tested), `StatRows.tsx`, `ProgressionChart.tsx` (1.59), `components/ShadedValue.tsx` (1.59), `src/test/teamPageFixtures.ts`, `e2e/team.spec.ts`. `Tabs` gains `fit` and `tight`, `EmptyState` gains `align`; BUILD-CONTEXT §12.5's component list names them and `ShadedValue`.
+
+**Risk:** none known.
+
+## Task 1.53 — Bundle
+
+**Plan said:** nothing (BUILD-CONTEXT §12.5: initial JS at most 230 KB gzip; the brief: the page is lazy).
+
+**What was wrong:** nothing.
+
+**What I did instead:** the team page, the shared builder and the shading reach only the lazy `TeamPage` chunk (13.6 KB gzip). Measured initial JS **227.3 KB** gzip (227.1 before; the route row and the lazy import). No raise.
+
+**Risk:** none known.

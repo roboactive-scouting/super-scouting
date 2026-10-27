@@ -1,0 +1,192 @@
+import { useEffect, useState } from 'react';
+import {
+  buildTeamStats,
+  GET_TEAM_STATS_MAX_LIMIT,
+  type FormFieldDefinition,
+  type GetTeamStatsOutput,
+  type StatsScoring,
+  type TeamStats,
+} from '@frc/shared';
+import { cachedRows } from '@/data/cache';
+import { RpcError, type Rpc } from '@/data/rpc';
+import { formScoring, toEngineEntry } from '@/lib/derive/scoring';
+import { useCapability } from '@/lib/useCapability';
+
+/*
+ * The team page's data (SPEC-FINAL 13.1, task 1.53). Statistics are viewable offline (9.6), and
+ * the venue is offline, so the page is computed ON THE DEVICE from its cache by the very function
+ * the server's `getTeamStats` calls — @frc/shared's `buildTeamStats` (task 1.57) — fed exactly as
+ * `apps/server/src/core/queries/stats.ts` feeds it: the event's live roster, EVERY live entry of
+ * the event (all teams, both kinds) joined with match type, number and event sort order, every
+ * form version those entries name, the match form's ACTIVE scoring, the super form's active
+ * fields and the scouters' names. Anything less would change the rank, the colour domains or the
+ * cross-version guard. No formula lives here.
+ *
+ * Under a session override (6.3) the device does not hold the event: the page asks the server's
+ * `getTeamStats`, held offline through `cross_event_view` (9.6).
+ */
+
+type Row = Record<string, unknown>;
+const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+const live = (r: Row) => r.deleted_at == null;
+
+/** What the device found for a team: its statistics, or that it does not hold the team. */
+export type DeviceTeamStats = { state: 'held'; stats: TeamStats } | { state: 'unknown' };
+
+/** A version's live fields in display order, as the server's `getFormFields` returns them. */
+function versionFields(fields: Row[], versionId: string): FormFieldDefinition[] {
+  return fields
+    .filter((f) => f.form_version_id === versionId && live(f))
+    .sort((a, b) => Number(a.display_order) - Number(b.display_order))
+    .map((f) => f as unknown as FormFieldDefinition);
+}
+
+const NO_SCORING: StatsScoring = { fields: [], rules: [] };
+
+/**
+ * `teamId`'s statistics at `eventId`, from this device's cache. `unknown` when the device holds no
+ * such team (a mistyped link, a team of another season), or not the event.
+ */
+export async function loadDeviceTeamStats(
+  teamId: string,
+  eventId: string,
+): Promise<DeviceTeamStats> {
+  const [events, teams, roster, entries, matches, forms, fields, rules, users] = await Promise.all([
+    cachedRows<Row>('events'),
+    cachedRows<Row>('teams'),
+    cachedRows<Row>('event_teams'),
+    cachedRows<Row>('scouting_entries'),
+    cachedRows<Row>('matches'),
+    cachedRows<Row>('forms'),
+    cachedRows<Row>('form_fields'),
+    cachedRows<Row>('scoring_rules'),
+    cachedRows<Row>('users'),
+  ]);
+  const event = events.find((e) => e.id === eventId);
+  const team = teams.find((t) => t.id === teamId);
+  if (!event || !team) return { state: 'unknown' };
+
+  const toTeam = (t: Row) => ({
+    id: String(t.id),
+    number: Number(t.number),
+    name: String(t.name ?? ''),
+  });
+  const teamById = new Map(teams.map((t) => [String(t.id), t]));
+  const rosterTeams = roster
+    .filter((r) => r.event_id === eventId && live(r))
+    .flatMap((r) => {
+      const t = teamById.get(String(r.team_id));
+      return t && live(t) ? [toTeam(t)] : [];
+    });
+
+  // EVERY live entry of the event, every team, both kinds (the server's `entriesForScope`).
+  const rows = entries.filter((e) => e.event_id === eventId && live(e));
+  const matchById = new Map(matches.map((m) => [String(m.id), m]));
+  const sortOrder = typeof event.sort_order === 'number' ? event.sort_order : 0;
+
+  const seasonId = str(event.season_id);
+  const scoringOf = (kind: 'match' | 'super'): StatsScoring => {
+    const form = forms.find((f) => f.season_id === seasonId && f.kind === kind && live(f));
+    if (!form || !str(form.active_version_id)) return NO_SCORING;
+    return formScoring(String(form.id), { forms, versions: [], fields, rules }) ?? NO_SCORING;
+  };
+  const versionIds = [...new Set(rows.map((r) => String(r.form_version_id)))];
+
+  const stats = buildTeamStats({
+    team: toTeam(team),
+    event: { id: String(event.id), name: String(event.name ?? '') },
+    teams: rosterTeams,
+    entries: rows.map((r) => toEngineEntry(r, matchById, sortOrder)),
+    scoring: scoringOf('match'),
+    versions: versionIds.map((id) => ({ id, fields: versionFields(fields, id) })),
+    superFields: scoringOf('super').fields,
+    scouters: users.map((u) => ({ id: String(u.id), full_name: String(u.full_name ?? '') })),
+  });
+  return { state: 'held', stats };
+}
+
+/** At most this many pages of `getTeamStats` (200 match rows a page): far above one event. */
+export const MAX_STATS_PAGES = 5;
+
+/**
+ * Every match row of `teamId` at `eventId` from the server's `getTeamStats` (it pages `matches`
+ * only; the rest of the answer is the same on every page).
+ */
+export async function serverTeamStats(
+  rpc: Rpc,
+  teamId: string,
+  eventId: string,
+): Promise<TeamStats> {
+  let first: GetTeamStatsOutput | null = null;
+  const matches: GetTeamStatsOutput['matches'] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < MAX_STATS_PAGES; page += 1) {
+    const out = (await rpc.call('getTeamStats', {
+      team_id: teamId,
+      scope: { mode: 'event', event_id: eventId },
+      limit: GET_TEAM_STATS_MAX_LIMIT,
+      ...(cursor ? { cursor } : {}),
+    })) as GetTeamStatsOutput;
+    first ??= out;
+    matches.push(...out.matches);
+    if (!out.next_cursor) break;
+    cursor = out.next_cursor;
+  }
+  const { next_cursor: _cursor, ...rest } = first!;
+  return { ...rest, matches };
+}
+
+export type ServerTeamStats =
+  | { status: 'offline' }
+  | { status: 'loading' }
+  | { status: 'not-found' }
+  | { status: 'failed'; retry: () => void }
+  | { status: 'ok'; stats: TeamStats };
+
+type Remote =
+  | { key: string; status: 'loading' }
+  | { key: string; status: 'ok'; stats: TeamStats }
+  | { key: string; status: 'not-found' }
+  | { key: string; status: 'failed' };
+
+/**
+ * The team page under a session override (6.3: "the client asks the server"), mirroring the
+ * Entries list's `useServerEntries`: one read per team and event, held offline through
+ * `cross_event_view` (9.6). `enabled` false asks nothing (no override: the device answers).
+ */
+export function useServerTeamStats(
+  rpc: Rpc,
+  teamId: string,
+  eventId: string,
+  enabled: boolean,
+): ServerTeamStats {
+  const canView = useCapability('cross_event_view');
+  const [retry, setRetry] = useState(0);
+  const key = `${teamId}|${eventId}|${retry}`;
+  const [remote, setRemote] = useState<Remote | null>(null);
+  useEffect(() => {
+    if (!enabled || !canView) return;
+    let on = true;
+    setRemote({ key, status: 'loading' });
+    serverTeamStats(rpc, teamId, eventId).then(
+      (stats) => on && setRemote({ key, status: 'ok', stats }),
+      (error: unknown) =>
+        on &&
+        setRemote({
+          key,
+          status: error instanceof RpcError && error.code === 'not-found' ? 'not-found' : 'failed',
+        }),
+    );
+    return () => {
+      on = false;
+    };
+    // rpc is an injected dependency held stable by the caller; a reconnect asks again.
+  }, [key, canView, enabled]);
+  if (!canView) return { status: 'offline' };
+  const current = remote?.key === key ? remote : null;
+  if (current?.status === 'ok') return { status: 'ok', stats: current.stats };
+  if (current?.status === 'not-found') return { status: 'not-found' };
+  if (current?.status === 'failed')
+    return { status: 'failed', retry: () => setRetry((n) => n + 1) };
+  return { status: 'loading' };
+}

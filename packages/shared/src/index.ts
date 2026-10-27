@@ -45,3 +45,6 @@ export * from './engine/breakdown';
 // table's pure builders. Last, for the same reason as the engine above.
 export * from './api/stats';
 export * from './engine/teamStats';
+// Task 1.53 (task 1.59's shading, pulled forward): the value-shading ramp as numbers. Last, for
+// the same reason as the engine above.
+export * from './engine/shading';

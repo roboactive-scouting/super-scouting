@@ -92,6 +92,11 @@ const QrReceivePage = lazy(() =>
 const TeamSearchPage = lazy(() =>
   import('@/features/teams/TeamSearchPage').then((m) => ({ default: m.TeamSearchPage })),
 );
+// The team page (task 1.53): a lazy chunk, precached, so it opens offline — where it computes the
+// team's statistics from the device's own rows with the shared engine (SPEC-FINAL 9.6).
+const TeamPage = lazy(() =>
+  import('@/features/teams/TeamPage').then((m) => ({ default: m.TeamPage })),
+);
 // Entries — the entry search — and one entry's preview (task 1.52): lazy chunks, precached, so
 // they open offline; the 5-minute mark lands on the preview offline.
 const EntriesPage = lazy(() =>
@@ -261,6 +266,20 @@ function TeamsRoute() {
   );
 }
 
+/**
+ * SPEC-FINAL 13.1 (task 1.53): one team's statistics at the active competition. It reads the
+ * event's roster, entries and forms, so it waits for the event like team search; keyed by the
+ * team, so moving from one team to another starts afresh (tab, charts, scroll state).
+ */
+function TeamRoute() {
+  const teamId = useParams<{ teamId: string }>().teamId ?? '';
+  return (
+    <Loading>
+      <TeamPage key={teamId} teamId={teamId} eventId={useActiveEventId()} />
+    </Loading>
+  );
+}
+
 function EntriesRoute() {
   return (
     <Loading>
@@ -350,8 +369,15 @@ export function routeTree(): RouteObject[] {
           handle: named({ title: 'Practice', crumb: ['Scout'] }),
         },
         // SPEC-FINAL 13.2 (task 1.51): team search, the bottom bar's Search. Its rows open
-        // /teams/:teamId, which is task 1.53's route.
+        // /teams/:teamId (task 1.53).
         { path: 'teams', element: <TeamsRoute />, handle: named({ title: 'Search' }) },
+        // SPEC-FINAL 13.1 (task 1.53): the team page names itself ("Team 1690"; the desktop crumb
+        // "Search / 1690 Orbit"); the sidebar and the bar mark Search (no `end`).
+        {
+          path: 'teams/:teamId',
+          element: <TeamRoute />,
+          handle: named({ title: 'Team', crumb: ['Search'] }),
+        },
         { path: 'entries', element: <EntriesRoute />, handle: named({ title: 'Entries' }) },
         // SPEC-FINAL 13.4 (task 1.52): the entry preview names itself ("Q37 · 1690"; the desktop
         // crumb "Entries / Q37 · 1690 Orbit"); the sidebar marks Entries (no `end`).
