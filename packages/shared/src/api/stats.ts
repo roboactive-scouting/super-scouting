@@ -57,11 +57,19 @@ export type MetricKind = (typeof METRIC_KINDS)[number];
 /** The aggregations the phase 1 team page uses (a subset of the engine's `AGGREGATIONS`). */
 export const STAT_AGGREGATIONS = ['avg', 'median', 'stddev', 'rate', 'mode'] as const;
 
-/** One point of a metric's sparkline. A no-show or disabled match is `value: null`, a gap. */
+/**
+ * One point of a metric's sparkline. A no-show or disabled match is `value: null`, a gap.
+ * `asked` (Phase 1 I side task 5) tells a gap from a field that was not on the form: false when
+ * the entry's form version had no such field, so the match has no value of it to miss (the chart
+ * draws nothing there: no point, no "—"); true for every points metric and every answer, a
+ * no-show, a field left empty and an "unsure" timer. A server that predates it sends none, read
+ * as true: the old reading.
+ */
 export const statsSeriesPoint = z.object({
   entry_id: z.string(),
   match_label: z.string(),
   value: z.number().nullable(),
+  asked: z.boolean().default(true),
 });
 
 /**

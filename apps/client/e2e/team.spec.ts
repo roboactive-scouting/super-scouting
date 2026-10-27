@@ -231,6 +231,93 @@ test('team page: the phone frames — scrolled, Matches, Progress with two chart
   await expect(page.getByRole('img')).toHaveCount(0);
 });
 
+/*
+ * Phase 1 I side task 5 (plan v1.33): a field's chart shows the answers it has. The form grew:
+ * Orbit's first five matches were scouted on version 1, which had no Climb time and no Driver
+ * skill, and the rest on version 2. Nobody timed a climb (every Climb time "unsure"). Driver
+ * skill draws nothing over the version 1 matches (the axis keeps them) and "—" only over the
+ * no-show; Climb time has no value at all, so its chart is the one line.
+ */
+const OLD_VERSION_ID = '0000000b-0000-4000-8000-000000000001';
+
+function grownForm(): PullResponse {
+  const pull = withTimerAndRatingFields(pullWithSupers(TEAM_ENTRIES));
+  const orbitMatches = TEAM_ENTRIES.filter((e) => e.team_id === ORBIT)
+    .map((e) => matchNumber(e.match_id))
+    .sort((a, b) => a - b);
+  const firstNew = orbitMatches[5]!;
+  const fields = pull.entities.form_fields as Record<string, unknown>[];
+  const oldFields = fields
+    .filter((f) => f.form_version_id === FORM.version_id)
+    .filter((f) => f.key !== 'climb_time' && f.key !== 'driver')
+    .map((f) => ({
+      ...f,
+      id: `0000000b-${String(f.id).slice(9)}`,
+      form_version_id: OLD_VERSION_ID,
+    }));
+  const versions = pull.entities.form_versions as Record<string, unknown>[];
+  const current = versions.find((v) => v.id === FORM.version_id)!;
+  const entries = (pull.entities.scouting_entries as (typeof TEAM_ENTRIES)[number][]).map((e) => {
+    if (e.form_kind !== 'match') return e;
+    const { climb_time: _climb, driver, ...rest } = e.data;
+    if (e.team_id === ORBIT && matchNumber(e.match_id) < firstNew) {
+      return { ...e, form_version_id: OLD_VERSION_ID, data: rest };
+    }
+    return { ...e, data: driver === undefined ? rest : { ...rest, climb_time: null, driver } };
+  });
+  return {
+    ...pull,
+    entities: {
+      ...pull.entities,
+      form_versions: [
+        { ...current, id: OLD_VERSION_ID, version_no: 1 },
+        { ...current, version_no: 2 },
+        ...versions.filter((v) => v.id !== FORM.version_id),
+      ],
+      form_fields: [...oldFields, ...fields],
+      scouting_entries: entries,
+    },
+  } as PullResponse;
+}
+
+test("team page: a field's chart shows the answers it has (Driver skill, Climb time)", async ({
+  page,
+}) => {
+  test.slow();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openTeam(page, ORBIT, grownForm());
+  const main = page.getByRole('main');
+  await page.getByRole('tab', { name: /^Progress/ }).click();
+  await main
+    .getByRole('region', { name: /^Chart 1/ })
+    .getByRole('combobox', { name: 'Chart metric' })
+    .selectOption({ label: 'Post-match driver skill' });
+  const driver = main.getByRole('figure', { name: /driver skill, match by match/ });
+  await expect(driver).toBeVisible();
+  // Every match on the axis; the five on version 1 not asked (no mark at all), a dead robot on
+  // version 2 the only "—", every other match a mark.
+  const newer = TEAM_ENTRIES.filter((e) => e.team_id === ORBIT)
+    .sort((x, y) => matchNumber(x.match_id) - matchNumber(y.match_id))
+    .slice(5);
+  const dead = newer.filter((e) => e.robot_status === 'no_show' || e.robot_status === 'disabled');
+  const said = await driver.locator('li').allTextContents();
+  expect(said.filter((s) => s.includes('not on the form for this match'))).toHaveLength(5);
+  expect(said.filter((s) => s.startsWith('Q'))).toHaveLength(5 + newer.length);
+  expect(await driver.locator('svg text').filter({ hasText: '—' }).count()).toBe(dead.length);
+  expect(await driver.locator('[data-mark="point"], [data-mark="broke-down"]').count()).toBe(
+    newer.length - dead.length,
+  );
+
+  await main.getByRole('button', { name: /Add a chart under it/ }).click();
+  await main
+    .getByRole('region', { name: /^Chart 2/ })
+    .getByRole('combobox', { name: 'Chart metric' })
+    .selectOption({ label: 'Endgame climb time' });
+  await expect(main.getByText('No Climb time answers for this team yet')).toBeVisible();
+  await expect(main.getByRole('figure')).toHaveCount(1);
+  await shoot(page, 'team-progress-field');
+});
+
 test('team page: a team with no entries yet', async ({ page }) => {
   await openTeam(page, GALAXIA, EMPTY_PULL);
   await expect(page.getByText('No entries for this team yet')).toBeVisible();

@@ -43,6 +43,33 @@ function versionFields(fields: Row[], versionId: string): FormFieldDefinition[] 
 
 const NO_SCORING: StatsScoring = { fields: [], rules: [] };
 
+/** The cached tables the team page is computed from, as `cachedRows` returns them. */
+export type DeviceStatsRows = {
+  events: Row[];
+  teams: Row[];
+  event_teams: Row[];
+  scouting_entries: Row[];
+  matches: Row[];
+  forms: Row[];
+  form_versions: Row[];
+  form_fields: Row[];
+  scoring_rules: Row[];
+  users: Row[];
+};
+
+const DEVICE_STATS_TABLES = [
+  'events',
+  'teams',
+  'event_teams',
+  'scouting_entries',
+  'matches',
+  'forms',
+  'form_versions',
+  'form_fields',
+  'scoring_rules',
+  'users',
+] as const satisfies readonly (keyof DeviceStatsRows)[];
+
 /**
  * `teamId`'s statistics at `eventId`, from this device's cache. `unknown` when the device holds no
  * such team (a mistyped link, a team of another season), or not the event.
@@ -51,17 +78,26 @@ export async function loadDeviceTeamStats(
   teamId: string,
   eventId: string,
 ): Promise<DeviceTeamStats> {
-  const [events, teams, roster, entries, matches, forms, fields, rules, users] = await Promise.all([
-    cachedRows<Row>('events'),
-    cachedRows<Row>('teams'),
-    cachedRows<Row>('event_teams'),
-    cachedRows<Row>('scouting_entries'),
-    cachedRows<Row>('matches'),
-    cachedRows<Row>('forms'),
-    cachedRows<Row>('form_fields'),
-    cachedRows<Row>('scoring_rules'),
-    cachedRows<Row>('users'),
-  ]);
+  const tables = await Promise.all(DEVICE_STATS_TABLES.map((t) => cachedRows<Row>(t)));
+  const rows = Object.fromEntries(
+    DEVICE_STATS_TABLES.map((t, i) => [t, tables[i]!]),
+  ) as DeviceStatsRows;
+  return deviceTeamStats(rows, teamId, eventId);
+}
+
+/**
+ * `loadDeviceTeamStats` over rows already read: the cached rows as they are, a pulled row and
+ * a row still in the outbox alike (Phase 1 I side task 5: `teamStats.parity.test.ts` holds it
+ * to the server's `getTeamStats` on the same rows).
+ */
+export function deviceTeamStats(
+  cache: DeviceStatsRows,
+  teamId: string,
+  eventId: string,
+): DeviceTeamStats {
+  const { events, teams, scouting_entries: entries, matches, forms, users } = cache;
+  const { event_teams: roster, form_versions: versions, form_fields: fields } = cache;
+  const rules = cache.scoring_rules;
   const event = events.find((e) => e.id === eventId);
   const team = teams.find((t) => t.id === teamId);
   if (!event || !team) return { state: 'unknown' };
@@ -88,7 +124,7 @@ export async function loadDeviceTeamStats(
   const scoringOf = (kind: 'match' | 'super'): StatsScoring => {
     const form = forms.find((f) => f.season_id === seasonId && f.kind === kind && live(f));
     if (!form || !str(form.active_version_id)) return NO_SCORING;
-    return formScoring(String(form.id), { forms, versions: [], fields, rules }) ?? NO_SCORING;
+    return formScoring(String(form.id), { forms, versions, fields, rules }) ?? NO_SCORING;
   };
   const versionIds = [...new Set(rows.map((r) => String(r.form_version_id)))];
 

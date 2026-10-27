@@ -18,7 +18,13 @@ import { useIsDesktop } from '@/lib/useMediaQuery';
 import { cn } from '@/lib/utils';
 import { MatchByMatchTable, MatchList, MatchStrip } from './MatchByMatchTable';
 import { NotesList } from './NotesList';
-import { ChartLegend, MetricPicker, ProgressionChart, ProgressPanel } from './ProgressionChart';
+import {
+  ChartLegend,
+  chartHasValues,
+  MetricPicker,
+  ProgressionChart,
+  ProgressPanel,
+} from './ProgressionChart';
 import { StatRows } from './StatRows';
 import { TeamHeader } from './TeamHeader';
 import { loadDeviceTeamStats, useServerTeamStats } from './teamStats';
@@ -383,7 +389,7 @@ function TeamView({ stats }: { stats: TeamStats }) {
               <div className="mt-2 mb-1.5">
                 <ProgressionChart metric={first} statusOf={statusOf} height={150} />
               </div>
-              <ChartLegend metric={first} />
+              {chartHasValues(first) && <ChartLegend metric={first} />}
             </section>
           )}
         </div>

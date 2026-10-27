@@ -9759,3 +9759,78 @@ Tests:
 - e2e `auth.spec.ts`: the mark set and the page reloaded. Online, no status line. Offline, the wiped line up front with a bold lead and no cached-credentials note. A refused Sign in adds no alert. The `login-wiped` shot is taken again.
 - e2e `settings.spec.ts`: after the offline Wipe anyway, `/login` shows the wiped line up front, with no cached-credentials note.
 - Bundle: still 228.3 KB.
+
+## Phase 1 I side task 5 — a field's chart shows the answers it has (plan v1.33)
+
+**Plan said:** find why picking Driver skill, Climb time, Cycle time or Cycle estimate draws "—" over every match, ruling the four suspects in or out (the device's `formScoring(…, { versions: [] })`; a version the cache lacks; an outbox row without `form_version_id`, `match_type` or `match_number`; the chart reading a different metric object). Fix the cause on the device path or in the shared input, never a second formula, and add a test that device and server agree. *[RAISED BY ME]* A match whose form version did not have the field is not drawn at all (no point, no dash, no dotted bridge; the x-axis keeps the match). A field chart with no value says so in one line ("No Driver skill answers for this team yet"). One value shows its dot and the team value line.
+
+**What was wrong:** none of the four suspects. On the dev event the device path agrees with the server metric for metric and match for match. The "—" was the engine's correct null, drawn as a gap. Evidence, from the local server against dev on 2026-10-28:
+
+- I logged in as `seed_lead` and pulled event `…0002` the way the device does: 1 page, 103 entries, 5 form versions, 32 form fields.
+- I fed those rows through `loadDeviceTeamStats` (cache mocked with the pulled rows) and compared with `getTeamStats` for 8009, 8014, 8020 and 8000. All 40 metrics were `SAME`: value, `unavailable_reason` and every series point. For example 8009's Driver skill was `[null,null,null,4]` on both sides, and its Cycle estimate `[null,null,null,10]` on both.
+- Of the event's 100 match entries, 90 are on versions `…0004` and `…0005`. Those versions hold only `auto_left_zone, auto_notes, notes, teleop_notes, endgame_climb`. The new fields exist only on the active version `…98e3f5` (10 entries).
+  - So every team with one new-version match shows three "—" and one lone dot. A single point draws no line segment, only a 3 px dot at the right edge.
+  - 8014 (three seed entries, all on `…0005`) shows "—" over every match.
+  - Cycle time and Climb time have no number on the new version either: 8009's Q17 timer is `null` ("unsure"), and Climb time (`climb_seconds`, shown only when the climb is `high`) is unanswered. So they are dashes throughout.
+- Suspect 3, tested directly: an outbox-shaped 8014 row (the exact keys `submitEntry` writes, a client `.000Z` stamp) on Q20, added to the dump, shows on the device as `[null,null,null,3]` with value 3. The row shape is fine.
+- Suspect 4: `ProgressPanel` and the Stats card both take their metric from `chartMetrics(stats.metrics)` by key. That is the same object the Stats row reads.
+- Suspect 1: `versions: []` only feeds `formScoring`'s fallback when a form has no active version, and `scoringOf` returns before that. Harmless, but it now gets the cached `form_versions` anyway.
+- Suspect 2: a version missing from the cache only touched the type-changed guard and the note labels. With the new reading rule it would also touch "asked", so it is handled there (below).
+- The 8014 entry the user scouted on the phone was not on the server. If it was in the phone's cache, the device would have drawn it, as the probe shows. I cannot see the phone. Likely causes are practice mode (which writes nothing) or a push still waiting. **Not verified.**
+
+**What I did instead:**
+
+- **Shared engine (one implementation).**
+  - `statsSeriesPoint` gains `asked: boolean`, as `z.boolean().default(true)`, so a server that predates it parses as the old reading.
+  - `buildTeamStats` sets `asked` on every field series point through the new `wasAsked`. A point is asked when the entry holds a value of the key (`null` included, so an "unsure" timer was asked) or when its version holds a live field of that key. A not-asked point is `value: null, asked: false`. Points-per-match points are always `asked: true`.
+  - A version the caller does not hold reads as a version without the field. The server reads a version whose fields it cannot find the same way, so a device with a stale cache never shows a dash the server would not.
+  - Rejected: inferring "asked" from `data` alone. A field left empty is absent from `data` (8020's Q19 has no `cycle_time` key), so it would vanish instead of showing "—".
+  - Rejected: reading an unknown version as asked. That is the old dash, the very one this task removes.
+  - Server bundle rebuilt (`apps/server/api/index.js`).
+- **Device path.** `loadDeviceTeamStats` now reads the cache and calls the new pure `deviceTeamStats(rows, teamId, eventId)`. It also reads `form_versions` and passes them to `formScoring`. Nothing else changed, because the device was already right.
+- **Chart (`ProgressionChart`).**
+  - A not-asked point keeps its x position and label, and draws no point and no "—".
+  - A gap's dotted bridge stops at a not-asked match, and so does the solid line.
+  - The text alternative says "Qn: not on the form for this match". A broke-down suffix is kept, because it is still true.
+  - A field chart with no value is one `--muted` line, "No {label} answers for this team yet", at the chart's height. It sits inside the same measured box, so switching metrics keeps the width.
+  - Its legend is dropped (`chartHasValues`, in `ProgressPanel` and on the computer's Stats card).
+  - Points per match always keeps its plot.
+- **Small calls.**
+  - The empty line uses the field's own label ("Climb time"), not the picker's phase-prefixed one ("Endgame climb time"), as in the plan's example.
+  - A conditional field hidden by its condition is still "—", because it is on the version. Example: Climb time when the climb was not `high`. The rule is about the version, not the condition.
+  - A no-show on a version without the field is not drawn: "not asked" wins over "dead".
+  - The match table's cells are unchanged (out of scope).
+- **The device-equals-server test** is `apps/client/src/features/teams/teamStats.parity.test.ts`.
+  - It runs the server's own `getTeamStats`, through a Store stub over the same rows, against `deviceTeamStats`.
+  - The fixture has an entry still in the outbox: a client-stamped row on a match the device made itself (`ensureMatchLocally`'s bare row). It also has two versions where v1 lacks the four fields, a no-show, a disabled robot, an "unsure" timer, a field left empty, and the super form's own `driver_skill` select.
+  - It compares the whole `TeamStats`, with note stamps compared as instants.
+  - The server module is loaded with `import.meta.glob`, not imported. A static import fails the client's composite `tsc -b` with `error TS6307: File 'C:/dev/frc-scouting/apps/server/src/core/queries/stats.ts' is not listed within the file list of project 'C:/dev/frc-scouting/apps/client/tsconfig.app.json'`. Its signature is restated in the test.
+  - Rejected: putting the test in `apps/server`, importing the client. The server's `tsc --noEmit` is its Vercel build, and it would then reach into `apps/client`, which is not a server input (`SERVER_INPUTS`).
+
+**Risk:**
+
+- The restated `getTeamStats` type in the parity test is not checked against the server's. A changed signature fails the test at run time, not at `tsc`.
+- A phone with a stale cache (missing a version's fields) now draws nothing where the server draws "—" for a field left empty on that version. The reverse cannot happen.
+- The phone's missing 8014 entry is unexplained; see "What was wrong".
+- Bundle: 228.3 KB, unchanged against the 230 budget.
+
+Tests:
+
+- `packages/shared/src/engine/teamStats.test.ts`, 2 new:
+  - On v1 (no Driver skill or Climb time) the points are not asked, a no-show included. On v2 an answer, a no-show, a field left empty and an unsure timer are all asked. An unknown version is read from the entry. Points are always asked. The wire schema passes.
+  - A series point without `asked` parses as asked.
+- `apps/server/src/core/queries/stats.test.ts`: the no-show point now carries `asked: true`.
+- `teamStats.parity.test.ts`, 4 new: 8009, 8014 (with the outbox entry) and 8020 are equal on both sides, and the four cases read as the plan names them. Mutation: the device passing `versions: []` fails all 4.
+- `ProgressionChart.test.tsx`, 7 new:
+  - one answer is one dot plus the team value line
+  - not-asked matches draw no dash, point or bridge, and the axis keeps them
+  - nothing is bridged across a not-asked match
+  - a gap still draws "—"
+  - the empty line when there is no value (all not asked, or asked but empty)
+  - points per match keeps its plot
+  - the Progress tab drops the legend under an empty chart
+- e2e `team.spec.ts`, 1 new:
+  - Setup: Orbit's first five matches are on an older version without Climb time and Driver skill, and nobody timed a climb.
+  - Driver skill shows the five not-asked matches, the one no-show as the only "—", and a mark on every other match.
+  - Climb time shows its empty line.
+  - Shot `team-progress-field` at 1440 and 375, Light and Outdoor.
