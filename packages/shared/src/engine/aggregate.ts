@@ -286,8 +286,9 @@ export type MetricFilters = {
  * The "last N" order (11.2): by event `sort_order`, then match number within the event. A
  * super entry (no match) sorts after its event's matches. Event id, team and entry id break
  * the remaining ties, so the order is total and the same on the browser and the server.
+ * Exported (task 1.57) so a team's per-match series reads the one order `slope` reads.
  */
-function sequenceOrder(a: EngineEntry, b: EngineEntry): number {
+export function sequenceOrder(a: EngineEntry, b: EngineEntry): number {
   if (a.event_sort_order !== b.event_sort_order) return a.event_sort_order - b.event_sort_order;
   if (a.event_id !== b.event_id) return a.event_id < b.event_id ? -1 : 1;
   const ma = a.match_number ?? Number.POSITIVE_INFINITY;

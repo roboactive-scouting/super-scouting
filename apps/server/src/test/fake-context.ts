@@ -19,7 +19,12 @@ import type {
 } from '../core/context.js';
 import { DUMMY_PASSWORD_HASH } from '../auth/password.js';
 import { entrySearch, matchMatches, scouterMatches, teamMatches } from '../core/entrySearch.js';
-import { addTeamEventEntry, stubsFor } from '../repos/store.js';
+import { addTeamEventEntry } from '../repos/store.js';
+import {
+  changeFieldTypeBetweenVersions,
+  duplicateEntry,
+  seedRankingFixture,
+} from './ranking-fixture.js';
 import { seedSmallSeason } from './small-season.js';
 
 export type FakeRow = Record<string, unknown> & { id: string; version: number };
@@ -723,9 +728,8 @@ export function makeFakeContext(): FakeContext {
     nowValue: new Date('2026-11-14T10:00:00.000Z'),
     // Task 1.50: the browse-and-search fixture (test/small-season.ts).
     seedSmallSeason: () => seedSmallSeason(fake),
-    seedRankingFixture: () => {
-      throw new Error('seedRankingFixture lands with task 1.57');
-    },
+    // Task 1.57: the statistics fixture and its two mutations (test/ranking-fixture.ts).
+    seedRankingFixture: () => seedRankingFixture(fake),
     // A fixture that writes the singleton directly, as a migration or an admin would. It is
     // not Store.setActiveContext (task 1.18): it validates nothing, so a test can make the
     // singleton name an event that does not exist.
@@ -744,12 +748,9 @@ export function makeFakeContext(): FakeContext {
         version: row.version + 1,
       });
     },
-    duplicateEntry: () => {
-      throw new Error('duplicateEntry lands with task 1.57');
-    },
-    changeFieldTypeBetweenVersions: () => {
-      throw new Error('lands with task 1.57');
-    },
+    duplicateEntry: (sourceId: string, options: { scoreDelta: number; newer: boolean }) =>
+      duplicateEntry(fake, sourceId, options),
+    changeFieldTypeBetweenVersions: (key: string) => changeFieldTypeBetweenVersions(fake, key),
   } as unknown as FakeContext;
 
   // UF.1: the AFTER DELETE trigger on matches (migration 20261008090000_match_deletions.sql).
@@ -858,9 +859,8 @@ export function makeFakeContext(): FakeContext {
   // Typed separately, rather than inline in the Object.assign below: Object.assign's
   // generic inference does not flow FakeContext's `store: Store` field back in as a
   // contextual type for a nested object literal, which left every method parameter
-  // here implicitly `any`. The `as Store` cast is the same fix as repos/store.ts's —
-  // stubsFor's spread only carries an index signature, not the named methods it
-  // supplies at runtime.
+  // here implicitly `any`. The `as Store` cast matches repos/store.ts's (task 1.57 filled
+  // the last stub, so every Store method is now implemented in both).
   const store = {
     async getUser(id) {
       return users.get(id) ?? null;
@@ -1711,8 +1711,15 @@ export function makeFakeContext(): FakeContext {
       }
       return [...groups.values()];
     },
-    // Everything else on the Store starts as a loud stub; task 1.57 replaces it.
-    ...stubsFor(['entriesForScope']),
+    // Task 1.57: the statistics read, as the Supabase store's (live rows of the events).
+    async entriesForScope({ eventIds, teamId }) {
+      const wanted = new Set(eventIds);
+      return [...rows.scouting_entries.values()]
+        .filter((row) => wanted.has(String(row.event_id)) && row.deleted_at == null)
+        .filter((row) => teamId === undefined || row.team_id === teamId)
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+        .map((row) => ({ ...row }));
+    },
   } as Store;
 
   return Object.assign(fake, {

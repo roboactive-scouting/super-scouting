@@ -41,3 +41,7 @@ export * from './engine/versions';
 // and interim rank. Last, for the same reason as the engine above.
 export * from './api/search';
 export * from './engine/breakdown';
+// Task 1.57: the statistics queries' wire schemas, and the team page's and the fixed ranking
+// table's pure builders. Last, for the same reason as the engine above.
+export * from './api/stats';
+export * from './engine/teamStats';

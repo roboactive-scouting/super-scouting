@@ -917,6 +917,141 @@ var getEntryOutput = entrySummary.extend({
   can_edit: z10.boolean()
 });
 
+// ../../packages/shared/src/api/stats.ts
+import { z as z11 } from "zod";
+var rowId3 = z11.string().min(1);
+var eventRef2 = z11.object({ id: z11.string(), name: z11.string() });
+var direction = z11.enum(["higher_is_better", "lower_is_better", "neutral"]);
+var GET_TEAM_STATS_DEFAULT_LIMIT = 100;
+var GET_TEAM_STATS_MAX_LIMIT = 200;
+var TEAM_NOTES_MAX = 200;
+var statsScope = z11.object({ mode: z11.literal("event"), event_id: rowId3 }).strict();
+var getTeamStatsInput = z11.object({
+  team_id: rowId3,
+  scope: statsScope,
+  limit: z11.number().int().min(1).optional(),
+  cursor: z11.string().min(1).optional()
+}).strict();
+var STAT_GROUPS = ["overall", ...FIELD_PHASES];
+var METRIC_KINDS = ["number", "rate", "ordinal", "nominal"];
+var STAT_AGGREGATIONS = ["avg", "median", "stddev", "rate", "mode"];
+var statsSeriesPoint = z11.object({
+  entry_id: z11.string(),
+  match_label: z11.string(),
+  value: z11.number().nullable()
+});
+var statsMetric = z11.object({
+  key: z11.string(),
+  field_key: z11.string().nullable(),
+  label: z11.string(),
+  group: z11.enum(STAT_GROUPS),
+  kind: z11.enum(METRIC_KINDS),
+  aggregation: z11.enum(STAT_AGGREGATIONS),
+  direction,
+  value: z11.number().nullable(),
+  display: z11.string().nullable(),
+  domain: z11.object({ min: z11.number(), max: z11.number() }).nullable(),
+  /** The team's per-match values, oldest → newest (qualification matches only). */
+  series: z11.array(statsSeriesPoint),
+  unavailable_reason: z11.enum(["type-changed", "absent"]).nullable()
+});
+var statsCell = z11.object({ value: z11.number().nullable(), display: z11.string().nullable() });
+var statsMatchRow = z11.object({
+  entry_id: z11.string(),
+  match_id: z11.string().nullable(),
+  match_label: z11.string().nullable(),
+  match_type: matchType.nullable(),
+  match_number: z11.number().int().nullable(),
+  robot_status: z11.enum(ROBOT_STATUSES).nullable(),
+  scouted_points: z11.number().nullable(),
+  scouter_id: z11.string(),
+  scouter_name: z11.string().nullable(),
+  /** Keyed by `columns[].key`. */
+  columns: z11.record(statsCell)
+});
+var statsNote = z11.object({
+  entry_id: z11.string(),
+  form_kind: z11.enum(["match", "super"]),
+  match_label: z11.string().nullable(),
+  match_number: z11.number().int().nullable(),
+  field_key: z11.string(),
+  field_label: z11.string(),
+  value: z11.string(),
+  scouter_name: z11.string().nullable(),
+  client_updated_at: z11.string()
+});
+var statsReliability = z11.object({
+  breakdowns: z11.number().int().nonnegative(),
+  no_shows: z11.number().int().nonnegative(),
+  disabled: z11.number().int().nonnegative(),
+  available: z11.number().int().nonnegative(),
+  missed: z11.number().int().nonnegative(),
+  availability_rate: z11.number().nullable(),
+  breakdown_matches: z11.array(z11.string()),
+  no_show_matches: z11.array(z11.string()),
+  disabled_matches: z11.array(z11.string())
+});
+var getTeamStatsOutput = z11.object({
+  team: z11.object({ id: z11.string(), number: z11.number().int(), name: z11.string() }),
+  event: eventRef2.nullable(),
+  /** The team's live entries at the event, both kinds (the header's "10 entries"). */
+  entry_count: z11.number().int().nonnegative(),
+  /** The canonical basic rank among the event's roster — the same ordering as `rankTeams`. */
+  rank: z11.object({
+    rank: z11.number().int().positive().nullable(),
+    of: z11.number().int().nonnegative()
+  }),
+  headline: z11.object({ label: z11.string(), value: z11.number().nullable() }),
+  tiles: z11.object({
+    median: z11.number().nullable(),
+    availability: z11.object({
+      rate: z11.number().nullable(),
+      available: z11.number().int().nonnegative(),
+      total: z11.number().int().nonnegative()
+    }),
+    best_match: z11.object({ entry_id: z11.string(), match_label: z11.string(), points: z11.number() }).nullable(),
+    /** The `slope` of points per match; null with fewer than two counted matches. */
+    trend: z11.number().nullable()
+  }),
+  metrics: z11.array(statsMetric),
+  /** The match table's metric columns: the scored fields, in form order. */
+  columns: z11.array(z11.object({ key: z11.string(), label: z11.string() })),
+  matches: z11.array(statsMatchRow),
+  /** Every match row before paging; `matches` holds one page of them. */
+  match_count: z11.number().int().nonnegative(),
+  notes: z11.array(statsNote),
+  reliability: statsReliability,
+  next_cursor: z11.string().nullable()
+});
+var RANK_SORT_KEYS = [
+  "average_points",
+  "availability_rate",
+  "breakdowns",
+  "no_shows",
+  "disabled",
+  "matches_counted",
+  "number"
+];
+var SORT_DIRECTIONS = ["asc", "desc"];
+var rankTeamsInput = z11.object({
+  event_id: rowId3,
+  sort_by: z11.enum(RANK_SORT_KEYS).optional(),
+  direction: z11.enum(SORT_DIRECTIONS).optional()
+}).strict();
+var rankRow = z11.object({
+  team_id: z11.string(),
+  number: z11.number().int(),
+  name: z11.string(),
+  rank: z11.number().int().positive().nullable(),
+  average_points: z11.number().nullable(),
+  matches_counted: z11.number().int().nonnegative(),
+  breakdowns: z11.number().int().nonnegative(),
+  no_shows: z11.number().int().nonnegative(),
+  disabled: z11.number().int().nonnegative(),
+  availability_rate: z11.number().nullable()
+});
+var rankTeamsOutput = z11.object({ event: eventRef2, rows: z11.array(rankRow) });
+
 // ../../packages/shared/src/api/index.ts
 var API = {
   login: { input: loginInput, output: loginOutput },
@@ -975,7 +1110,9 @@ var API = {
   searchTeams: { input: searchTeamsInput, output: searchTeamsOutput },
   listTeamEvents: { input: listTeamEventsInput, output: listTeamEventsOutput },
   queryEntries: { input: queryEntriesInput, output: queryEntriesOutput },
-  getEntry: { input: getEntryInput, output: getEntryOutput }
+  getEntry: { input: getEntryInput, output: getEntryOutput },
+  getTeamStats: { input: getTeamStatsInput, output: getTeamStatsOutput },
+  rankTeams: { input: rankTeamsInput, output: rankTeamsOutput }
 };
 
 // ../../packages/shared/src/errors.ts
@@ -1671,7 +1808,7 @@ function stripServerColumns(row) {
 }
 
 // ../../packages/shared/src/sync/operation.ts
-import { z as z11 } from "zod";
+import { z as z12 } from "zod";
 var SYNC_ENTITIES = [
   "scouting_entry",
   "match",
@@ -1681,26 +1818,26 @@ var SYNC_ENTITIES = [
   "alliance_slot",
   "alliance_decline"
 ];
-var isoDateTime = z11.string().datetime({ offset: true }).transform((value, ctx) => {
+var isoDateTime = z12.string().datetime({ offset: true }).transform((value, ctx) => {
   const ms = Date.parse(value);
   if (Number.isNaN(ms)) {
     ctx.addIssue({ code: "custom", message: "Invalid datetime" });
-    return z11.NEVER;
+    return z12.NEVER;
   }
   return new Date(ms).toISOString();
 });
-var operationSchema = z11.object({
-  op_id: z11.string().min(1),
-  entity: z11.enum(SYNC_ENTITIES),
-  row_id: z11.string().uuid(),
-  action: z11.enum(["create", "update", "delete"]),
-  base_version: z11.number().int().positive().nullable(),
+var operationSchema = z12.object({
+  op_id: z12.string().min(1),
+  entity: z12.enum(SYNC_ENTITIES),
+  row_id: z12.string().uuid(),
+  action: z12.enum(["create", "update", "delete"]),
+  base_version: z12.number().int().positive().nullable(),
   /** Always the whole row, never a patch. Field-level merging does not exist. */
-  payload: z11.record(z11.unknown()),
-  author_user_id: z11.string().uuid(),
+  payload: z12.record(z12.unknown()),
+  author_user_id: z12.string().uuid(),
   client_created_at: isoDateTime,
   client_updated_at: isoDateTime,
-  seq: z11.number().int().nonnegative()
+  seq: z12.number().int().nonnegative()
 }).superRefine((op, ctx) => {
   if (op.action === "create" && op.base_version !== null) {
     ctx.addIssue({
@@ -1726,16 +1863,16 @@ var operationSchema = z11.object({
 });
 
 // ../../packages/shared/src/sync/protocol.ts
-import { z as z12 } from "zod";
+import { z as z13 } from "zod";
 var MAX_OPERATIONS_PER_PUSH = 200;
 var WATERMARK_OVERLAP_MS = 5e3;
-var pushRequestSchema = z12.object({
-  device_id: z12.string().uuid(),
-  operations: z12.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
+var pushRequestSchema = z13.object({
+  device_id: z13.string().uuid(),
+  operations: z13.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
 });
-var pushEnvelopeSchema = z12.object({
-  device_id: z12.string().uuid(),
-  operations: z12.array(z12.unknown()).max(MAX_OPERATIONS_PER_PUSH)
+var pushEnvelopeSchema = z13.object({
+  device_id: z13.string().uuid(),
+  operations: z13.array(z13.unknown()).max(MAX_OPERATIONS_PER_PUSH)
 });
 var PARENT_DELETED_DETAIL = {
   event: "the event no longer exists",
@@ -1770,10 +1907,10 @@ var PULL_ENTITY_KEYS = [
   "dashboard_charts",
   "weight_presets"
 ];
-var pullRequestSchema = z12.object({
-  event_id: z12.string().uuid(),
-  since: z12.string().datetime({ offset: false }).optional(),
-  cursor: z12.string().optional()
+var pullRequestSchema = z13.object({
+  event_id: z13.string().uuid(),
+  since: z13.string().datetime({ offset: false }).optional(),
+  cursor: z13.string().optional()
 });
 var FORM_DELETION_ENTITIES = [
   "forms",
@@ -1958,7 +2095,7 @@ function rateHit(value, condition) {
   if (condition) return conditionHolds(value, condition.op, condition.value);
   return value === true || typeof value === "number" && value > 0;
 }
-function compute(raw, aggregation, options, direction) {
+function compute(raw, aggregation, options, direction2) {
   const values = presentValues(raw);
   if (values.length === 0) return null;
   switch (aggregation) {
@@ -2008,16 +2145,16 @@ function compute(raw, aggregation, options, direction) {
     }
     case "best":
     case "worst": {
-      if (direction !== "higher_is_better" && direction !== "lower_is_better") return null;
-      const wantMax = aggregation === "best" === (direction === "higher_is_better");
+      if (direction2 !== "higher_is_better" && direction2 !== "lower_is_better") return null;
+      const wantMax = aggregation === "best" === (direction2 === "higher_is_better");
       return wantMax ? maxOf(xs) : minOf(xs);
     }
     default:
       return null;
   }
 }
-function aggregate(values, aggregation, options, direction = "higher_is_better") {
-  return compute(values, aggregation, options, direction);
+function aggregate(values, aggregation, options, direction2 = "higher_is_better") {
+  return compute(values, aggregation, options, direction2);
 }
 function sequenceOrder(a, b) {
   if (a.event_sort_order !== b.event_sort_order) return a.event_sort_order - b.event_sort_order;
@@ -2069,6 +2206,97 @@ function applyFilters(entries, filters, fields) {
   population.sort(sequenceOrder);
   const lastN = filters.last_n_matches;
   return typeof lastN === "number" ? lastNPerTeam(population, lastN) : population;
+}
+
+// ../../packages/shared/src/engine/reliability.ts
+function reliabilityFor(entries) {
+  let breakdowns = 0;
+  let noShows = 0;
+  let disabled = 0;
+  let played = 0;
+  for (const entry of canonicalEntries(entries)) {
+    if (entry.form_kind !== "match" || entry.match_type !== "qualification") continue;
+    switch (entry.robot_status) {
+      case "played":
+        played += 1;
+        break;
+      case "broke_down":
+        breakdowns += 1;
+        break;
+      case "no_show":
+        noShows += 1;
+        break;
+      case "disabled":
+        disabled += 1;
+        break;
+      default:
+        break;
+    }
+  }
+  const available = played + breakdowns;
+  const missed = noShows + disabled;
+  const counted = available + missed;
+  return {
+    breakdowns,
+    no_shows: noShows,
+    disabled,
+    available,
+    missed,
+    availability_rate: counted === 0 ? null : available / counted
+  };
+}
+
+// ../../packages/shared/src/engine/versions.ts
+function optionValues3(field) {
+  return selectOptions(field).map(
+    (option2) => typeof option2 === "object" && option2 !== null ? option2.value : void 0
+  );
+}
+function isOrdinalSelect(field) {
+  return field.is_ordinal === true && (field.type === "single_select" || field.type === "multi_select");
+}
+function ranksCarryOver(older, active) {
+  let previous = -1;
+  for (const value of older) {
+    const at = active.indexOf(value);
+    if (at === -1 || at <= previous) return false;
+    previous = at;
+  }
+  return true;
+}
+function resolveFieldAcrossVersions(key2, versions) {
+  const field = versions.active.fields.find((f) => f.key === key2 && !f.deprecated);
+  if (!field) return { ok: false, reason: "absent" };
+  const ordinal = isOrdinalSelect(field);
+  const activeOptions = ordinal ? optionValues3(field) : [];
+  for (const version of [versions.active, ...versions.inScope]) {
+    for (const other of version.fields) {
+      if (other.key !== key2) continue;
+      if (other.type !== field.type) return { ok: false, reason: "type-changed" };
+      if (ordinal && !ranksCarryOver(optionValues3(other), activeOptions)) {
+        return { ok: false, reason: "type-changed" };
+      }
+    }
+  }
+  return { ok: true, field };
+}
+function rankOf(options, value) {
+  if (typeof value !== "string") return null;
+  const at = options.indexOf(value);
+  return at === -1 ? null : at;
+}
+function aggregationValue(field, value) {
+  if (!isOrdinalSelect(field)) return value;
+  const options = optionValues3(field);
+  if (field.type === "single_select") return rankOf(options, value);
+  if (!Array.isArray(value) || value.length === 0) return null;
+  let best = -1;
+  for (const option2 of value) {
+    const rank = rankOf(options, option2);
+    if (rank === null) return null;
+    if (rank > best) best = rank;
+  }
+  return best;
 }
 
 // ../../packages/shared/src/engine/breakdown.ts
@@ -2142,16 +2370,397 @@ function averagePoints(entries, fields, rules) {
   };
 }
 function rankByAveragePoints(entries, teams, fields, rules) {
-  const byTeam = new Map(teams.map((t) => [t.id, []]));
-  for (const entry of entries) byTeam.get(entry.team_id)?.push(entry);
+  const byTeam2 = new Map(teams.map((t) => [t.id, []]));
+  for (const entry of entries) byTeam2.get(entry.team_id)?.push(entry);
   const all = [...new Map(teams.map((t) => [t.id, t])).values()].map((team) => ({
     team_id: team.id,
     number: team.number,
-    ...averagePoints(byTeam.get(team.id) ?? [], fields, rules)
+    ...averagePoints(byTeam2.get(team.id) ?? [], fields, rules)
   }));
   const ranked = all.filter((t) => t.matches_counted > 0 && t.avg !== null).sort((a, b) => b.avg - a.avg || a.number - b.number).map((t, i) => ({ ...t, rank: i + 1 }));
   const unranked = all.filter((t) => t.matches_counted === 0 || t.avg === null).sort((a, b) => a.number - b.number).map((t) => ({ ...t, rank: null }));
   return [...ranked, ...unranked];
+}
+
+// ../../packages/shared/src/engine/teamStats.ts
+var RANK_SORT_DEFAULT_DIRECTION = {
+  average_points: "desc",
+  availability_rate: "desc",
+  matches_counted: "desc",
+  breakdowns: "asc",
+  no_shows: "asc",
+  disabled: "asc",
+  number: "asc"
+};
+var HEADLINE_LABEL = "Average points";
+var POINTS_KEYS = {
+  average: "average_points",
+  median: "median_points",
+  stddev: "stddev_points"
+};
+var fieldMetricKey = (fieldKey) => `field:${fieldKey}`;
+function byTeam(entries) {
+  const out = /* @__PURE__ */ new Map();
+  for (const entry of entries) {
+    const list = out.get(entry.team_id);
+    if (list) list.push(entry);
+    else out.set(entry.team_id, [entry]);
+  }
+  return out;
+}
+function populationOf(entries, scoring) {
+  const matchEntries = entries.filter((e) => e.form_kind === "match");
+  const counted = applyFilters(matchEntries, {}, scoring.fields);
+  const series = canonicalEntries(matchEntries).filter((e) => e.match_type === "qualification").map((e) => ({ ...e, data: hydrateComputed(e.data, scoring.fields) })).sort(sequenceOrder);
+  return {
+    counted,
+    points: counted.map((e) => scoreEntry(e, scoring.fields, scoring.rules)),
+    series
+  };
+}
+var isDead = (e) => e.robot_status !== null && isDeadRobot(e.robot_status);
+var labelOf = (e) => e.match_type !== null && e.match_number !== null ? matchLabel({ match_type: e.match_type, number: e.match_number }) : null;
+function observedDomain(values) {
+  const xs = values.filter((v) => v !== null && Number.isFinite(v));
+  if (xs.length === 0) return null;
+  return { min: Math.min(...xs), max: Math.max(...xs) };
+}
+function fieldMetricShape(field) {
+  switch (field.type) {
+    case "counter":
+    case "number":
+      return { kind: "number", aggregation: "avg" };
+    case "toggle":
+      return { kind: "rate", aggregation: "rate" };
+    case "single_select":
+    case "multi_select":
+      return field.is_ordinal === true ? { kind: "ordinal", aggregation: "avg" } : { kind: "nominal", aggregation: "mode" };
+    default:
+      return null;
+  }
+}
+function scorableFields(fields) {
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const field of fields) {
+    if (field.deprecated || !isScorable(field.type) || seen.has(field.key)) continue;
+    seen.add(field.key);
+    out.push(field);
+  }
+  return out;
+}
+var optionLabel = (field, value) => {
+  if (typeof value !== "string") return null;
+  return selectOptions(field).find((o) => o.value === value)?.label ?? value;
+};
+function seriesValue(kind, field, raw) {
+  if (kind === "rate") return typeof raw === "boolean" ? raw ? 1 : 0 : null;
+  const v = aggregationValue(field, raw);
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+function fieldValue(field, shape, direction2, counted) {
+  if (shape.kind === "nominal") {
+    const mode = aggregate(
+      counted.map((e) => e.data[field.key]),
+      "mode",
+      { option_order: selectOptions(field).map((o) => o.value) },
+      direction2
+    );
+    return { value: null, display: mode === null ? null : optionLabel(field, String(mode)) };
+  }
+  const values = counted.map((e) => aggregationValue(field, e.data[field.key]));
+  const value = aggregate(values, shape.aggregation, void 0, direction2);
+  if (shape.kind !== "ordinal" || value === null) return { value, display: null };
+  const options = selectOptions(field);
+  const nearest = options[Math.min(Math.max(Math.round(value), 0), options.length - 1)];
+  return { value, display: nearest ? nearest.label : null };
+}
+function cellOf(field, raw) {
+  switch (field.type) {
+    case "counter":
+    case "number":
+      return {
+        value: typeof raw === "number" && Number.isFinite(raw) ? raw : null,
+        display: null
+      };
+    case "toggle":
+      return typeof raw === "boolean" ? { value: raw ? 1 : 0, display: raw ? "Yes" : "No" } : { value: null, display: null };
+    case "single_select": {
+      const rank = aggregationValue(field, raw);
+      return { value: typeof rank === "number" ? rank : null, display: optionLabel(field, raw) };
+    }
+    case "multi_select": {
+      if (!Array.isArray(raw) || raw.length === 0) return { value: null, display: null };
+      const rank = aggregationValue(field, raw);
+      return {
+        value: typeof rank === "number" ? rank : null,
+        display: raw.map((v) => optionLabel(field, v) ?? String(v)).join(", ")
+      };
+    }
+    default:
+      return { value: null, display: null };
+  }
+}
+var EMPTY_CELL = { value: null, display: null };
+var MATCH_TYPE_ORDER = ["practice", "qualification", "playoff"];
+function matchOrder(a, b) {
+  const ta = a.match_type === null ? 99 : MATCH_TYPE_ORDER.indexOf(a.match_type);
+  const tb = b.match_type === null ? 99 : MATCH_TYPE_ORDER.indexOf(b.match_type);
+  if (ta !== tb) return ta - tb;
+  const na = a.match_number ?? Number.POSITIVE_INFINITY;
+  const nb = b.match_number ?? Number.POSITIVE_INFINITY;
+  if (na !== nb) return na < nb ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+var instant2 = (stamp2) => {
+  const ms = Date.parse(stamp2);
+  return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+};
+function buildRankTable(input) {
+  const { scoring } = input;
+  const teams = [...new Map(input.teams.map((t) => [t.id, t])).values()];
+  const grouped = byTeam(input.entries);
+  const ranks = new Map(
+    rankByAveragePoints(input.entries, teams, scoring.fields, scoring.rules).map((r) => [
+      r.team_id,
+      r
+    ])
+  );
+  const rows = teams.map((team) => {
+    const r = ranks.get(team.id);
+    const reliability = reliabilityFor(grouped.get(team.id) ?? []);
+    return {
+      team_id: team.id,
+      number: team.number,
+      name: team.name,
+      rank: r?.rank ?? null,
+      average_points: r?.avg ?? null,
+      matches_counted: r?.matches_counted ?? 0,
+      breakdowns: reliability.breakdowns,
+      no_shows: reliability.no_shows,
+      disabled: reliability.disabled,
+      availability_rate: reliability.availability_rate
+    };
+  });
+  const key2 = input.sort_by ?? "average_points";
+  const dir = input.direction ?? RANK_SORT_DEFAULT_DIRECTION[key2];
+  const tie = (a, b) => {
+    if (a.rank !== b.rank) {
+      if (a.rank === null) return 1;
+      if (b.rank === null) return -1;
+      return a.rank - b.rank;
+    }
+    return a.number - b.number;
+  };
+  return rows.sort((a, b) => {
+    const va = a[key2];
+    const vb = b[key2];
+    if (va === null || vb === null) {
+      if (va === vb) return tie(a, b);
+      return va === null ? 1 : -1;
+    }
+    if (va !== vb) return dir === "asc" ? va - vb : vb - va;
+    return tie(a, b);
+  });
+}
+function buildTeamStats(input) {
+  const { scoring, team } = input;
+  const fields = scoring.fields;
+  const roster = [...new Map(input.teams.map((t) => [t.id, t])).values()];
+  const grouped = byTeam(input.entries);
+  const ownEntries = grouped.get(team.id) ?? [];
+  const domainTeams = roster.some((t) => t.id === team.id) ? roster : [...roster, team];
+  const populations = new Map(
+    domainTeams.map((t) => [t.id, populationOf(grouped.get(t.id) ?? [], scoring)])
+  );
+  const own = populations.get(team.id);
+  const ownLabel = (e) => labelOf(e) ?? "";
+  const pointsSeries = own.series.map((e) => ({
+    entry_id: e.id,
+    match_label: ownLabel(e),
+    value: isDead(e) ? null : scoreEntry(e, fields, scoring.rules)
+  }));
+  const pointsOf = (teamId) => populations.get(teamId)?.points ?? [];
+  const average = averagePoints(ownEntries, fields, scoring.rules).avg;
+  const pointsMetric = (key2, label, aggregation, direction2) => ({
+    key: key2,
+    field_key: null,
+    label,
+    group: "overall",
+    kind: "number",
+    aggregation,
+    direction: direction2,
+    value: aggregation === "avg" ? average : aggregate(own.points, aggregation),
+    display: null,
+    domain: observedDomain(domainTeams.map((t) => aggregate(pointsOf(t.id), aggregation))),
+    series: pointsSeries,
+    unavailable_reason: null
+  });
+  const metrics = [
+    pointsMetric(POINTS_KEYS.average, HEADLINE_LABEL, "avg", "higher_is_better"),
+    pointsMetric(POINTS_KEYS.median, "Median points", "median", "higher_is_better"),
+    pointsMetric(POINTS_KEYS.stddev, "Std dev of points", "stddev", "neutral")
+  ];
+  const versionFields = new Map(input.versions.map((v) => [v.id, v.fields]));
+  const inScopeIds = /* @__PURE__ */ new Set();
+  for (const population of populations.values()) {
+    for (const e of population.counted) inScopeIds.add(e.form_version_id);
+  }
+  const inScope = [...inScopeIds].flatMap((id) => {
+    const f = versionFields.get(id);
+    return f ? [{ fields: f }] : [];
+  });
+  const byGroup = /* @__PURE__ */ new Map();
+  for (const field of scorableFields(fields)) {
+    const shape = fieldMetricShape(field);
+    if (!shape) continue;
+    const group = field.phase ?? "post_match";
+    const direction2 = field.direction ?? "higher_is_better";
+    const base2 = {
+      key: fieldMetricKey(field.key),
+      field_key: field.key,
+      label: field.label,
+      group,
+      kind: shape.kind,
+      aggregation: shape.aggregation,
+      direction: direction2
+    };
+    const resolved = resolveFieldAcrossVersions(field.key, { active: { fields }, inScope });
+    let metric;
+    if (!resolved.ok) {
+      metric = {
+        ...base2,
+        value: null,
+        display: null,
+        domain: null,
+        series: [],
+        unavailable_reason: resolved.reason
+      };
+    } else {
+      const f = resolved.field;
+      const { value, display } = fieldValue(f, shape, direction2, own.counted);
+      let domain = null;
+      if (shape.kind === "rate") domain = { min: 0, max: 1 };
+      else if (shape.kind === "ordinal") {
+        domain = { min: 0, max: Math.max(selectOptions(f).length - 1, 0) };
+      } else if (shape.kind === "number") {
+        domain = f.expected_range ? { min: f.expected_range.min, max: f.expected_range.max } : observedDomain(
+          domainTeams.map(
+            (t) => fieldValue(f, shape, direction2, populations.get(t.id)?.counted ?? []).value
+          )
+        );
+      }
+      metric = {
+        ...base2,
+        value,
+        display,
+        domain,
+        series: shape.kind === "nominal" ? [] : own.series.map((e) => ({
+          entry_id: e.id,
+          match_label: ownLabel(e),
+          value: isDead(e) ? null : seriesValue(shape.kind, f, e.data[f.key])
+        })),
+        unavailable_reason: null
+      };
+    }
+    byGroup.set(group, [...byGroup.get(group) ?? [], metric]);
+  }
+  for (const phase of FIELD_PHASES) metrics.push(...byGroup.get(phase) ?? []);
+  const names = new Map(input.scouters.map((s) => [s.id, s.full_name]));
+  const ruled = new Set(scoring.rules.map((r) => r.field_key));
+  const scored = scorableFields(fields).filter((f) => ruled.has(f.key));
+  const columns = scored.map((f) => ({ key: fieldMetricKey(f.key), label: f.label }));
+  const canonical = canonicalEntries(ownEntries);
+  const matches = canonical.filter((e) => e.form_kind === "match").sort(matchOrder).map((e) => {
+    const dead = isDead(e);
+    const data = hydrateComputed(e.data, fields);
+    return {
+      entry_id: e.id,
+      match_id: e.match_id,
+      match_label: labelOf(e),
+      match_type: e.match_type,
+      match_number: e.match_number,
+      robot_status: e.robot_status,
+      scouted_points: scoutedPoints(
+        { form_kind: e.form_kind, robot_status: e.robot_status, data: e.data },
+        fields,
+        scoring.rules
+      ),
+      scouter_id: e.scouter_id,
+      scouter_name: names.get(e.scouter_id) ?? null,
+      columns: Object.fromEntries(
+        scored.map((f) => [fieldMetricKey(f.key), dead ? EMPTY_CELL : cellOf(f, data[f.key])])
+      )
+    };
+  });
+  const activeOf = (kind) => kind === "match" ? fields : input.superFields ?? [];
+  const notes = [];
+  for (const e of canonical) {
+    const seen = /* @__PURE__ */ new Set();
+    const candidates = [...activeOf(e.form_kind), ...versionFields.get(e.form_version_id) ?? []];
+    for (const field of candidates) {
+      if (seen.has(field.key)) continue;
+      seen.add(field.key);
+      const value = e.data[field.key];
+      if (field.type !== "long_text" || typeof value !== "string" || value.trim() === "") continue;
+      notes.push({
+        entry_id: e.id,
+        form_kind: e.form_kind,
+        match_label: e.form_kind === "match" ? labelOf(e) : null,
+        match_number: e.form_kind === "match" ? e.match_number : null,
+        field_key: field.key,
+        field_label: field.label,
+        value,
+        scouter_name: names.get(e.scouter_id) ?? null,
+        client_updated_at: e.client_updated_at
+      });
+    }
+  }
+  notes.sort(
+    (a, b) => instant2(b.client_updated_at) - instant2(a.client_updated_at) || (a.entry_id < b.entry_id ? 1 : a.entry_id > b.entry_id ? -1 : 0)
+  );
+  const base = reliabilityFor(ownEntries);
+  const named = (status) => own.series.filter((e) => e.robot_status === status).map(ownLabel);
+  const reliability = {
+    ...base,
+    breakdown_matches: named("broke_down"),
+    no_show_matches: named("no_show"),
+    disabled_matches: named("disabled")
+  };
+  let best = null;
+  own.counted.forEach((e, i) => {
+    const points = own.points[i];
+    if (typeof points !== "number") return;
+    if (best === null || points > best.points) {
+      best = { entry_id: e.id, match_label: ownLabel(e), points };
+    }
+  });
+  const rank = rankByAveragePoints(input.entries, roster, fields, scoring.rules).find(
+    (r) => r.team_id === team.id
+  );
+  return {
+    team: { id: team.id, number: team.number, name: team.name },
+    event: input.event,
+    entry_count: ownEntries.filter((e) => e.deleted_at === null || e.deleted_at === void 0).length,
+    rank: { rank: rank?.rank ?? null, of: roster.length },
+    headline: { label: HEADLINE_LABEL, value: average },
+    tiles: {
+      median: aggregate(own.points, "median"),
+      availability: {
+        rate: base.availability_rate,
+        available: base.available,
+        total: base.available + base.missed
+      },
+      best_match: best,
+      trend: aggregate(own.points, "slope")
+    },
+    metrics,
+    columns,
+    matches,
+    match_count: matches.length,
+    notes,
+    reliability
+  };
 }
 
 // src/routes/errors.ts
@@ -2219,13 +2828,13 @@ function createApp(deps) {
 
 // src/auth/token.ts
 import { jwtVerify, SignJWT } from "jose";
-import { z as z13 } from "zod";
-var sessionClaims = z13.object({
-  sub: z13.string().min(1),
-  role: z13.enum(["scouter", "lead", "admin"]),
-  username: z13.string().min(1),
-  iat: z13.number().int(),
-  exp: z13.number().int()
+import { z as z14 } from "zod";
+var sessionClaims = z14.object({
+  sub: z14.string().min(1),
+  role: z14.enum(["scouter", "lead", "admin"]),
+  username: z14.string().min(1),
+  iat: z14.number().int(),
+  exp: z14.number().int()
 });
 var key = (config2) => new TextEncoder().encode(config2.authJwtSecret);
 async function issueToken(user, config2) {
@@ -2265,18 +2874,18 @@ async function callerFor(request, config2, store, options = {}) {
 }
 
 // src/config.ts
-import { z as z14 } from "zod";
-var schema = z14.object({
-  SUPABASE_URL: z14.string().url(),
-  SUPABASE_SERVICE_ROLE_KEY: z14.string().min(1),
-  AUTH_JWT_SECRET: z14.string().min(32, "must be at least 32 characters"),
-  AUTH_TOKEN_TTL_DAYS: z14.coerce.number().int().positive().default(30),
-  AUTH_TOKEN_REFRESH_AFTER_DAYS: z14.coerce.number().int().positive().default(7),
-  ALLOWED_ORIGIN: z14.string().url(),
-  NODE_ENV: z14.enum(["development", "production", "test"]).default("development"),
+import { z as z15 } from "zod";
+var schema = z15.object({
+  SUPABASE_URL: z15.string().url(),
+  SUPABASE_SERVICE_ROLE_KEY: z15.string().min(1),
+  AUTH_JWT_SECRET: z15.string().min(32, "must be at least 32 characters"),
+  AUTH_TOKEN_TTL_DAYS: z15.coerce.number().int().positive().default(30),
+  AUTH_TOKEN_REFRESH_AFTER_DAYS: z15.coerce.number().int().positive().default(7),
+  ALLOWED_ORIGIN: z15.string().url(),
+  NODE_ENV: z15.enum(["development", "production", "test"]).default("development"),
   // Vercel's own system env var (https://vercel.com/docs/environment-variables/system-environment-variables),
   // not something anyone sets by hand. Absent locally and in tests.
-  VERCEL_GIT_COMMIT_SHA: z14.string().min(1).optional()
+  VERCEL_GIT_COMMIT_SHA: z15.string().min(1).optional()
 });
 function loadServerConfig(env) {
   const parsed = schema.safeParse(env);
@@ -2471,6 +3080,7 @@ var IN_CHUNK = 100;
 var EVENT_TEAMS_READ_LIMIT = 1e3;
 var FORM_EXPORTS_READ_LIMIT = 200;
 var ENTRY_READ_PAGE = 1e3;
+var ENTRIES_FOR_SCOPE_MAX = 2e4;
 function chunks(items) {
   const out = [];
   for (let i = 0; i < items.length; i += IN_CHUNK) out.push(items.slice(i, i + IN_CHUNK));
@@ -3238,9 +3848,6 @@ function supabaseStore(db) {
       }
       return { events: eventIds.length, matches, entries, forms };
     },
-    // The remaining methods start as loud stubs, exactly as the fake does. Each later
-    // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
-    // without these the file does not compile at all.
     // Task 1.50: the browse and search reads. SQL fetches rows over typed columns; the shared
     // engine scores them in the use case. Nothing here reads into the JSONB.
     async getEntry(id) {
@@ -3284,12 +3891,25 @@ function supabaseStore(db) {
       }
       return [...groups.values()];
     },
-    // The remaining method starts as a loud stub, exactly as the fake's does. Task 1.57
-    // replaces it.
-    ...stubsFor(["entriesForScope"])
-    // The spread above only carries an index signature (its keys come from a plain
-    // string[]), so TS can't see that it supplies the remaining named Store methods;
-    // the assertion tells it what `stubsFor` guarantees at runtime instead.
+    // Task 1.57: the statistics read. Every LIVE entry of the events (optionally one team's),
+    // paged by id, at most ENTRIES_FOR_SCOPE_MAX rows; the engine computes everything else.
+    async entriesForScope(scope) {
+      const events = [...new Set(scope.eventIds)].filter((id) => UUID.test(id));
+      if (events.length === 0) return [];
+      if (scope.teamId !== void 0 && !UUID.test(scope.teamId)) return [];
+      const out = [];
+      for (const chunk of chunks(events)) {
+        for (let from = 0; out.length < ENTRIES_FOR_SCOPE_MAX; from += ENTRY_READ_PAGE) {
+          let query = db.from("scouting_entries").select("*").in("event_id", chunk).is("deleted_at", null);
+          if (scope.teamId !== void 0) query = query.eq("team_id", scope.teamId);
+          const { data, error } = await query.order("id").range(from, from + ENTRY_READ_PAGE - 1);
+          if (error) throw dbError(error);
+          out.push(...data ?? []);
+          if ((data ?? []).length < ENTRY_READ_PAGE) break;
+        }
+      }
+      return out.slice(0, ENTRIES_FOR_SCOPE_MAX);
+    }
   };
 }
 function escapeLikePattern(value) {
@@ -3315,16 +3935,6 @@ function addTeamEventEntry(groups, row) {
   if (Date.parse(row.client_created_at) > Date.parse(group.last_entry_at)) {
     group.last_entry_at = row.client_created_at;
   }
-}
-function stubsFor(names) {
-  return Object.fromEntries(
-    names.map((name) => [
-      name,
-      async () => {
-        throw new Error(`Store.${name} is not implemented yet \u2014 it lands with its own task`);
-      }
-    ])
-  );
 }
 
 // src/routes/rpc.ts
@@ -3654,7 +4264,7 @@ function pgCode(e) {
 }
 
 // src/core/queries/listEvents.ts
-import { z as z15 } from "zod";
+import { z as z16 } from "zod";
 
 // src/core/cursor.ts
 function encodeCursor(value) {
@@ -3675,7 +4285,7 @@ function decodeCursor(schema2, raw) {
 }
 
 // src/core/queries/listEvents.ts
-var eventCursor = z15.object({ s: z15.number().int(), i: z15.string().uuid() }).strict();
+var eventCursor = z16.object({ s: z16.number().int(), i: z16.string().uuid() }).strict();
 async function listEvents(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listEventsInput, input);
@@ -3782,8 +4392,8 @@ async function setActiveEvent(caller, input, ctx) {
 }
 
 // src/core/queries/listSeasons.ts
-import { z as z16 } from "zod";
-var seasonCursor = z16.object({ y: z16.number().int() }).strict();
+import { z as z17 } from "zod";
+var seasonCursor = z17.object({ y: z17.number().int() }).strict();
 async function listSeasons(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listSeasonsInput, input);
@@ -3943,8 +4553,8 @@ async function inWaves(items, fn) {
 }
 
 // src/core/queries/listMatches.ts
-import { z as z17 } from "zod";
-var matchCursor = z17.object({ t: matchType, n: z17.number().int() }).strict();
+import { z as z18 } from "zod";
+var matchCursor = z18.object({ t: matchType, n: z18.number().int() }).strict();
 async function listMatches(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listMatchesInput, input);
@@ -4175,8 +4785,8 @@ async function teamOrNotFound(ctx, id) {
 }
 
 // src/core/queries/listTeams.ts
-import { z as z18 } from "zod";
-var teamCursor = z18.object({ n: z18.number().int() }).strict();
+import { z as z19 } from "zod";
+var teamCursor = z19.object({ n: z19.number().int() }).strict();
 async function listTeams(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listTeamsInput, input);
@@ -5488,10 +6098,10 @@ async function getFormExport(caller, input, ctx) {
 
 // src/core/queries/conflicts.ts
 import { isDeepStrictEqual } from "node:util";
-import { z as z19 } from "zod";
-var conflictCursor = z19.object({
-  c: z19.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/),
-  i: z19.string().uuid()
+import { z as z20 } from "zod";
+var conflictCursor = z20.object({
+  c: z20.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/),
+  i: z20.string().uuid()
 }).strict();
 var STATUS_FIELDS = ["robot_status", "breakdown_seconds"];
 var str = (value) => typeof value === "string" ? value : null;
@@ -5724,15 +6334,15 @@ async function listUsers(caller, input, ctx) {
 }
 
 // src/core/queries/search.ts
-import { z as z20 } from "zod";
+import { z as z21 } from "zod";
 var SEASON_EVENTS_READ_LIMIT = 200;
 var EVENT_ENTRIES_PAGE = 1e3;
 var EVENT_ENTRIES_MAX = 2e4;
-var entryCursor = z20.object({
-  c: z20.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/),
-  i: z20.string().min(1).max(64)
+var entryCursor = z21.object({
+  c: z21.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/),
+  i: z21.string().min(1).max(64)
 }).strict();
-var offsetCursor = z20.object({ o: z20.number().int().nonnegative() }).strict();
+var offsetCursor = z21.object({ o: z21.number().int().nonnegative() }).strict();
 var str2 = (value) => typeof value === "string" ? value : null;
 var record2 = (value) => typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
 var unique2 = (values) => [
@@ -5895,8 +6505,8 @@ async function searchTeams(caller, input, ctx) {
     seasonId = event?.season_id ?? active.active_season_id;
   }
   const empty = { all: 0, at_event: 0, other: 0 };
-  const eventRef2 = event ? { id: event.id, name: event.name } : null;
-  if (!seasonId) return { items: [], counts: empty, event: eventRef2, next_cursor: null };
+  const eventRef3 = event ? { id: event.id, name: event.name } : null;
+  if (!seasonId) return { items: [], counts: empty, event: eventRef3, next_cursor: null };
   const events = await ctx.store.listEvents(seasonId, SEASON_EVENTS_READ_LIMIT);
   const rosterEvents = event && !events.some((e) => e.id === event.id) ? [...events, event] : events;
   const rosters = await Promise.all(rosterEvents.map((e) => ctx.store.getRoster(e.id)));
@@ -5931,10 +6541,10 @@ async function searchTeams(caller, input, ctx) {
     }
   }
   const hits = [...seasonTeams.values()].filter((t) => teamHit(t, parsed.query));
-  const rankOf = (t) => rank.get(t.id) ?? null;
+  const rankOf2 = (t) => rank.get(t.id) ?? null;
   const here = hits.filter((t) => atEvent.has(t.id)).sort((a, b) => {
-    const ra = rankOf(a);
-    const rb = rankOf(b);
+    const ra = rankOf2(a);
+    const rb = rankOf2(b);
     if (ra !== null && rb !== null) return ra - rb;
     if (ra !== null) return -1;
     if (rb !== null) return 1;
@@ -5955,14 +6565,14 @@ async function searchTeams(caller, input, ctx) {
     number: team.number,
     name: team.name,
     in_active_event: atEvent.has(team.id),
-    rank: atEvent.has(team.id) ? rankOf(team) : null,
+    rank: atEvent.has(team.id) ? rankOf2(team) : null,
     entries_here: entriesHere.get(team.id) ?? 0,
     other_events: otherEvents.filter((e) => heldAt.has(`${team.id}|${e.id}`)).map((e) => ({ id: e.id, name: e.name }))
   }));
   return {
     items,
     counts,
-    event: eventRef2,
+    event: eventRef3,
     next_cursor: offset + limit2 < listed.length ? encodeCursor({ o: offset + limit2 }) : null
   };
 }
@@ -6086,6 +6696,105 @@ async function getEntry(caller, input, ctx) {
       },
       ctx.now()
     )
+  };
+}
+
+// src/core/queries/stats.ts
+import { z as z22 } from "zod";
+var offsetCursor2 = z22.object({ o: z22.number().int().nonnegative() }).strict();
+var noSuchEvent2 = (eventId) => new AppError("not-found", "that event does not exist; it may have been deleted", {
+  event_id: eventId
+});
+async function activeScoring(ctx, seasonId, kind) {
+  const form = await ctx.store.getFormByKind(seasonId, kind);
+  if (!form?.active_version_id) return { fields: [], rules: [] };
+  const [fields, rules] = await Promise.all([
+    ctx.store.getFormFields(form.active_version_id),
+    ctx.store.getScoringRules(form.id)
+  ]);
+  return {
+    fields,
+    rules: rules.map((r) => ({
+      field_key: r.field_key,
+      points: r.points,
+      option_points: r.option_points
+    }))
+  };
+}
+async function loadEvent(ctx, eventId) {
+  const event = await ctx.store.getEvent(eventId);
+  if (!event) throw noSuchEvent2(eventId);
+  const [roster, rows, scoring] = await Promise.all([
+    ctx.store.getRoster(event.id),
+    ctx.store.entriesForScope({ eventIds: [event.id] }),
+    activeScoring(ctx, event.season_id, "match")
+  ]);
+  const matches = new Map(
+    (await ctx.store.getMatchesByIds(unique2(rows.map((r) => str2(r.match_id))))).map((m) => [
+      m.id,
+      m
+    ])
+  );
+  return {
+    event,
+    roster: roster.map((t) => ({ id: t.id, number: t.number, name: t.name })),
+    rows,
+    entries: rows.map((r) => toEngineEntry(r, matches, event.sort_order)),
+    scoring
+  };
+}
+async function rankTeams(caller, input, ctx) {
+  void caller;
+  const parsed = parseInput(rankTeamsInput, input);
+  const { event, roster, entries, scoring } = await loadEvent(ctx, parsed.event_id);
+  return {
+    event: { id: event.id, name: event.name },
+    rows: buildRankTable({
+      teams: roster,
+      entries,
+      scoring,
+      sort_by: parsed.sort_by,
+      direction: parsed.direction
+    })
+  };
+}
+async function getTeamStats(caller, input, ctx) {
+  void caller;
+  const parsed = parseInput(getTeamStatsInput, input);
+  const limit2 = Math.min(parsed.limit ?? GET_TEAM_STATS_DEFAULT_LIMIT, GET_TEAM_STATS_MAX_LIMIT);
+  const offset = parsed.cursor ? decodeCursor(offsetCursor2, parsed.cursor).o : 0;
+  const team = await ctx.store.getTeam(parsed.team_id);
+  if (!team) {
+    throw new AppError("not-found", "that team does not exist", { team_id: parsed.team_id });
+  }
+  const { event, roster, rows, entries, scoring } = await loadEvent(ctx, parsed.scope.event_id);
+  const own = rows.filter((r) => r.team_id === team.id);
+  const versionIds = unique2(rows.map((r) => str2(r.form_version_id)));
+  const [versions, superScoring, scouters] = await Promise.all([
+    Promise.all(
+      versionIds.map(async (id) => ({
+        id,
+        fields: await ctx.store.getFormFields(id)
+      }))
+    ),
+    activeScoring(ctx, event.season_id, "super"),
+    ctx.store.listUserNames(unique2(own.map((r) => str2(r.scouter_id))))
+  ]);
+  const stats = buildTeamStats({
+    team: { id: team.id, number: team.number, name: team.name },
+    event: { id: event.id, name: event.name },
+    teams: roster,
+    entries,
+    scoring,
+    versions,
+    superFields: superScoring.fields,
+    scouters
+  });
+  return {
+    ...stats,
+    matches: stats.matches.slice(offset, offset + limit2),
+    notes: stats.notes.slice(0, TEAM_NOTES_MAX),
+    next_cursor: offset + limit2 < stats.matches.length ? encodeCursor({ o: offset + limit2 }) : null
   };
 }
 
@@ -6491,6 +7200,20 @@ var REGISTRY = {
     input: API.getEntry.input,
     output: API.getEntry.output,
     handler: getEntry
+  },
+  getTeamStats: {
+    kind: "query",
+    description: "One team's statistics at one event, computed by the shared engine: its rank among the roster by average scouted points, median, availability, best match and trend, every metric (average, median and std dev of points, then one per scorable field by phase) with its per-match series and its colour range at the event, the match-by-match table (paginated), its Long-text notes newest first, and its reliability counts with the matches named.",
+    input: API.getTeamStats.input,
+    output: API.getTeamStats.output,
+    handler: getTeamStats
+  },
+  rankTeams: {
+    kind: "query",
+    description: "The fixed phase 1 ranking table of one event: every roster team with its rank by average scouted points (no-shows and disabled robots excluded, never zero), matches counted, breakdowns, no-shows, disabled and availability rate, sortable by any of those columns (never by standard deviation). No weighting.",
+    input: API.rankTeams.input,
+    output: API.rankTeams.output,
+    handler: rankTeams
   }
 };
 

@@ -383,6 +383,13 @@ export type Store = {
     limit: number;
     after?: EntryKeyset;
   }): Promise<StoredRow[]>;
+  /**
+   * Task 1.57 (the statistics read): every LIVE entry (`deleted_at is null`) of the events,
+   * both kinds, every team unless `teamId` narrows it, in no particular order, paged by id
+   * past Supabase's 1000-row cap and stopped at ENTRIES_FOR_SCOPE_MAX (20,000) rows. An id
+   * that is not a uuid names nothing. Typed columns only; the engine reads the JSONB. THROWS
+   * on a database error.
+   */
   entriesForScope(scope: { eventIds: string[]; teamId?: string }): Promise<StoredRow[]>;
   /**
    * Task 1.50 (replaces the stub's `(teamId)`): for each of `teamIds`, the events among

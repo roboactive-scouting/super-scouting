@@ -1625,3 +1625,44 @@ describe('supabaseStore browse and search reads (task 1.50)', () => {
     await expect(store.listTeamEvents([TEAM], [EVENT])).rejects.toThrow('boom');
   });
 });
+
+describe('supabaseStore statistics read (task 1.57)', () => {
+  const EVENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const TEAM = '00000000-0000-4000-8000-00000000000a';
+
+  it('entriesForScope reads the events’ live rows of every kind, paged by id past 1000', async () => {
+    const page = (n: number, from: number) =>
+      Array.from({ length: n }, (_, i) => ({ id: `e-${from + i}`, version: 1 }));
+    const { db, chains } = scriptedDb([
+      { data: page(1000, 0), error: null },
+      { data: page(2, 1000), error: null },
+    ]);
+    const out = await supabaseStore(db).entriesForScope({ eventIds: [EVENT, EVENT, 'ev-1'] });
+    expect(out).toHaveLength(1002);
+    expect(chains[0]).toEqual([
+      ['from', 'scouting_entries'],
+      ['select', '*'],
+      ['in', 'event_id', [EVENT]],
+      ['is', 'deleted_at', null],
+      ['order', 'id'],
+      ['range', 0, 999],
+    ]);
+    expect(chains[1]).toContainEqual(['range', 1000, 1999]);
+    expect(chains).toHaveLength(2);
+  });
+
+  it('entriesForScope narrows to one team, and reads nothing for ids that are not uuids', async () => {
+    const { db, chains } = scriptedDb([{ data: [], error: null }]);
+    const store = supabaseStore(db);
+    expect(await store.entriesForScope({ eventIds: ['ev-1'] })).toEqual([]);
+    expect(await store.entriesForScope({ eventIds: [EVENT], teamId: 't-1' })).toEqual([]);
+    expect(chains).toHaveLength(0);
+    await store.entriesForScope({ eventIds: [EVENT], teamId: TEAM });
+    expect(chains[0]).toContainEqual(['eq', 'team_id', TEAM]);
+  });
+
+  it('entriesForScope throws on a database error instead of reading as "no entries"', async () => {
+    const { db } = scriptedDb([{ data: null, error: { message: 'boom' } }]);
+    await expect(supabaseStore(db).entriesForScope({ eventIds: [EVENT] })).rejects.toThrow('boom');
+  });
+});

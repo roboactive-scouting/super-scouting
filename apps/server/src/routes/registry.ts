@@ -69,6 +69,7 @@ import { listConflicts } from '../core/queries/conflicts.js';
 import { countEntriesByScouter } from '../core/queries/countEntriesByScouter.js';
 import { listUsers } from '../core/queries/listUsers.js';
 import { getEntry, listTeamEvents, queryEntries, searchTeams } from '../core/queries/search.js';
+import { getTeamStats, rankTeams } from '../core/queries/stats.js';
 
 type EntryMeta = {
   kind: 'query' | 'command';
@@ -561,5 +562,21 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     input: API.getEntry.input,
     output: API.getEntry.output,
     handler: getEntry,
+  },
+  getTeamStats: {
+    kind: 'query',
+    description:
+      "One team's statistics at one event, computed by the shared engine: its rank among the roster by average scouted points, median, availability, best match and trend, every metric (average, median and std dev of points, then one per scorable field by phase) with its per-match series and its colour range at the event, the match-by-match table (paginated), its Long-text notes newest first, and its reliability counts with the matches named.",
+    input: API.getTeamStats.input,
+    output: API.getTeamStats.output,
+    handler: getTeamStats,
+  },
+  rankTeams: {
+    kind: 'query',
+    description:
+      'The fixed phase 1 ranking table of one event: every roster team with its rank by average scouted points (no-shows and disabled robots excluded, never zero), matches counted, breakdowns, no-shows, disabled and availability rate, sortable by any of those columns (never by standard deviation). No weighting.',
+    input: API.rankTeams.input,
+    output: API.rankTeams.output,
+    handler: rankTeams,
   },
 };

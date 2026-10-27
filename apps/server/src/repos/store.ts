@@ -94,6 +94,12 @@ const FORM_EXPORTS_READ_LIMIT = 200;
  * rows a request (its max-rows setting), so a longer read pages with `range`, ordered by id.
  */
 const ENTRY_READ_PAGE = 1000;
+/**
+ * A bound on one statistics read (task 1.57, `entriesForScope`): an FRC event is well under
+ * 1000 entries; past this the read stops rather than walk an unbounded table (as 1.50's
+ * EVENT_ENTRIES_MAX).
+ */
+export const ENTRIES_FOR_SCOPE_MAX = 20_000;
 
 function chunks<T>(items: T[]): T[][] {
   const out: T[][] = [];
@@ -1273,9 +1279,6 @@ export function supabaseStore(db: Db): Store {
       }
       return { events: eventIds.length, matches, entries, forms };
     },
-    // The remaining methods start as loud stubs, exactly as the fake does. Each later
-    // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
-    // without these the file does not compile at all.
     // Task 1.50: the browse and search reads. SQL fetches rows over typed columns; the shared
     // engine scores them in the use case. Nothing here reads into the JSONB.
     async getEntry(id: string): Promise<StoredRow | null> {
@@ -1342,12 +1345,29 @@ export function supabaseStore(db: Db): Store {
       }
       return [...groups.values()];
     },
-    // The remaining method starts as a loud stub, exactly as the fake's does. Task 1.57
-    // replaces it.
-    ...stubsFor(['entriesForScope']),
-    // The spread above only carries an index signature (its keys come from a plain
-    // string[]), so TS can't see that it supplies the remaining named Store methods;
-    // the assertion tells it what `stubsFor` guarantees at runtime instead.
+    // Task 1.57: the statistics read. Every LIVE entry of the events (optionally one team's),
+    // paged by id, at most ENTRIES_FOR_SCOPE_MAX rows; the engine computes everything else.
+    async entriesForScope(scope: { eventIds: string[]; teamId?: string }): Promise<StoredRow[]> {
+      const events = [...new Set(scope.eventIds)].filter((id) => UUID.test(id));
+      if (events.length === 0) return [];
+      if (scope.teamId !== undefined && !UUID.test(scope.teamId)) return [];
+      const out: StoredRow[] = [];
+      for (const chunk of chunks(events)) {
+        for (let from = 0; out.length < ENTRIES_FOR_SCOPE_MAX; from += ENTRY_READ_PAGE) {
+          let query = db
+            .from('scouting_entries')
+            .select('*')
+            .in('event_id', chunk)
+            .is('deleted_at', null);
+          if (scope.teamId !== undefined) query = query.eq('team_id', scope.teamId);
+          const { data, error } = await query.order('id').range(from, from + ENTRY_READ_PAGE - 1);
+          if (error) throw dbError(error);
+          out.push(...((data ?? []) as StoredRow[]));
+          if ((data ?? []).length < ENTRY_READ_PAGE) break;
+        }
+      }
+      return out.slice(0, ENTRIES_FOR_SCOPE_MAX);
+    },
   } as Store;
 }
 
@@ -1396,16 +1416,4 @@ export function addTeamEventEntry(
   if (Date.parse(row.client_created_at) > Date.parse(group.last_entry_at)) {
     group.last_entry_at = row.client_created_at;
   }
-}
-
-/** Shared by both Store implementations. A missing method fails by name, never as undefined. */
-export function stubsFor(names: string[]): Record<string, () => Promise<never>> {
-  return Object.fromEntries(
-    names.map((name) => [
-      name,
-      async (): Promise<never> => {
-        throw new Error(`Store.${name} is not implemented yet — it lands with its own task`);
-      },
-    ]),
-  );
 }

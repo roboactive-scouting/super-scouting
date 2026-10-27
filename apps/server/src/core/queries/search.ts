@@ -95,12 +95,12 @@ const entryCursor = z
 /** searchTeams and listTeamEvents order by computed values, so they page by offset. */
 const offsetCursor = z.object({ o: z.number().int().nonnegative() }).strict();
 
-const str = (value: unknown): string | null => (typeof value === 'string' ? value : null);
+export const str = (value: unknown): string | null => (typeof value === 'string' ? value : null);
 const record = (value: unknown): Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-const unique = (values: (string | null | undefined)[]): string[] => [
+export const unique = (values: (string | null | undefined)[]): string[] => [
   ...new Set(values.filter((v): v is string => typeof v === 'string' && v.length > 0)),
 ];
 const formKindOf = (row: StoredRow): 'match' | 'super' =>
@@ -222,8 +222,11 @@ function toSummary(row: StoredRow, look: Lookups, points: number | null): EntryS
   };
 }
 
-/** A stored row as the engine reads it, with the match and event columns joined (NEXT-CHAT). */
-function toEngineEntry(
+/**
+ * A stored row as the engine reads it, with the match and event columns joined (NEXT-CHAT).
+ * Exported for the statistics queries (task 1.57, stats.ts).
+ */
+export function toEngineEntry(
   row: StoredRow,
   matches: Map<string, StoredMatch>,
   eventSortOrder: number,

@@ -9307,3 +9307,102 @@ AssertionError: features/entries/serverEntries.ts: expected 'import { useEffect,
 **What I did instead:** the guard names `features/entries/serverEntries.ts` as not scouting, with the reason in a comment: under an override, Entries lists another event's entries, which is a server read and a cross-event view (§9.6, "not available offline"). No entry is created there (an override blocks new entries, §6.3), and the device's own list stays ungated (`EntriesPage.test.tsx`: without an override, no rpc call and no gate). Rejected: moving the hook to `features/context/` only to dodge the folder rule. That passes the guard while hiding the gate, which is worse than naming it.
 
 **Risk:** a later gate added to that one file would also pass the guard. The exemption is a single path, not a folder.
+
+## Task 1.57 — The statistics live in `packages/shared`, as two pure builders (orchestrator O1)
+
+**Plan said:** "Both use cases fetch rows with SQL (through the store) and hand them to the same shared engine the browser runs. Neither contains a formula." Files: `stats.ts` and `stats.test.ts` in the server, plus registry, store and fake.
+
+**What was wrong:** nothing in the engine assembles a team page or a ranking table, so "hand them to the engine" would have left the assembly (which metric, which population, which domain, which order) in the server, and the device (SPEC-FINAL 9.6: statistics are computed on the device from raw entries, offline) would have needed a second copy.
+
+**What I did instead:** new `packages/shared/src/engine/teamStats.ts` with `buildTeamStats(input)` and `buildRankTable(input)`, pure over plain rows (`EngineEntry[]`, the roster, the active match version's fields and rules, the versions the entries name, the super form's active fields, the scouters' names), built only from the engine's own pieces (`applyFilters`, `aggregate`, `aggregationValue`, `resolveFieldAcrossVersions`, `averagePoints`, `rankByAveragePoints`, `reliabilityFor`, `canonicalEntries`, `scoutedPoints`). The wire schemas are the new `packages/shared/src/api/stats.ts`, in the `API` map as `getTeamStats` and `rankTeams`. Both new modules are exported at the END of `packages/shared/src/index.ts`. `sequenceOrder` in `engine/aggregate.ts` is now exported (one "last N" order for the per-match series and for `slope`, instead of a second comparator). The server's `stats.ts` only loads rows, calls the builder and pages the match list. Tests: `engine/teamStats.test.ts` (11) and `core/queries/stats.test.ts` (29).
+
+**Risk:** 1.53 must call the same builders with the same inputs on the device (the task report lists them). A device that lacks a version's fields skips that version in the cross-version guard (see "The cross-version window" below).
+
+## Task 1.57 — "All metrics" in phase 1 (orchestrator O2; the plan's pinned answer)
+
+**Plan said:** `getTeamStats` returns "all metrics for the team"; the plan's closing note pins it as "the fixed ranking columns plus one row per scorable field".
+
+**What was wrong:** nothing said which aggregation each field gets, or what "scorable" covers.
+
+**What I did instead:** groups in this order. **Overall:** `average_points` (Average points, `averagePoints`, the headline), `median_points` (Median points), `stddev_points` (Std dev of points, `direction: 'neutral'`). Then one group per phase in `FIELD_PHASES` order (auto, teleop, endgame, post_match; a field with no phase is post_match, as `scoreBreakdown` files it; a group with no field is absent), **one metric per live (non-deprecated) field whose type `isScorable`** (toggle, counter, number, single select, multi select) of the ACTIVE match version, each key once, in form order. Aggregation by type: counter/number → `avg` (kind `number`); toggle → `rate` (kind `rate`, 0–1; an unanswered toggle is no data); ordinal single or multi select → `avg` over `aggregationValue` ranks (kind `ordinal`; a multi select reads its highest rank), with `display` = the label of the option at `Math.round(avg)`; nominal single or multi select → `mode` over the RAW values with the option list as `option_order` (kind `nominal`, `value: null`, `display` = the mode's label, no domain, no series). A field with `direction: null` reads as `higher_is_better`. The reliability figures are not metric rows: they are `reliability` and `tiles.availability`. Rating, timer, computed, text, position, cycle and event-log fields get no metric because they are not scorable. Rejected: adding rating and timer fields (useful, but outside the pinned answer; the phase 2 metric builder covers them).
+
+**Risk:** a team page will not show a driver-skill rating or a timer field until the metric builder (phase 2). The ordinal label rounds half up (a 1.5 average of None/Low/High shows "High").
+
+## Task 1.57 — What a metric carries, and its colour domain (orchestrator O3)
+
+**Plan said:** nothing beyond "all metrics".
+
+**What was wrong:** the brief left the neutral metric's domain open ("decide and log").
+
+**What I did instead:** each metric is `{ key, field_key | null, label, group, kind, aggregation, direction, value, display, domain, series, unavailable_reason }`. `key` is `average_points` / `median_points` / `stddev_points` or `field:<key>` (exported `fieldMetricKey`), the same key the match table's columns use. `domain` (12.6): a declared `expected_range` for a `number` metric; `{0, 1}` for a rate; `{0, n − 1}` (option ranks) for an ordinal; otherwise the observed min–max of that metric over the event's roster teams, nulls excluded (null when no team has a value). **A neutral metric keeps its domain** (std dev, a neutral toggle) so the client can draw the faint bar; the client must never shade it or sort by it. The domain population is the roster plus the team itself when it is not on the roster, so its bar still lies inside the range. `series` is the team's canonical qualification match entries, oldest → newest in `sequenceOrder` (the order `slope` reads), with a no-show or disabled match as `value: null`; a rate's point is 1/0, an ordinal's its rank. The std-dev row's series is the points series (what the spread is measured over). A nominal metric and an unavailable one have `series: []`.
+
+**Risk:** the observed domain is recomputed for every roster team per request (`applyFilters` once per team, then one `aggregate` per field). Fine for a 50-team event.
+
+## Task 1.57 — The cross-version window is the event's counted entries
+
+**Plan said:** "refuses a metric whose field type changed between versions". NEXT-CHAT: `inScope` holds the fields of every distinct `form_version_id` among the scoped entries.
+
+**What was wrong:** "scoped entries" could be read as the team's alone. Then one team's metric would be refused while another team's was not, and the domain would mix types across teams.
+
+**What I did instead:** `inScope` is every version named by an entry that FEEDS an aggregate (`applyFilters`' output) for any team of the domain population. A field is then available for every team at the event or for none, and a practice or dead entry on an old version (never read) refuses nothing. A version the input does not list is not checked (`resolveFieldAcrossVersions`' own rule); the server loads every version its rows name. A refused metric is `value: null, display: null, domain: null, series: []` with `unavailable_reason: 'type-changed'` (or `'absent'`), and `aggregate` is never called for it.
+
+**Risk:** on the device, a version the cache does not hold is not checked, so the device could compute a value the server refuses. The pull carries every published version of the season, so this needs a version deleted under live entries, which cascades those entries away.
+
+## Task 1.57 — The rest of `getTeamStats` (orchestrator O4)
+
+**Plan said:** "all metrics … plus the match-by-match series and its notes". The test reads `matches[].match_number`, `notes[].field_label / scouter_name / client_updated_at`, `metrics[].field_key / value / unavailable_reason`, and pages with `limit`.
+
+**What was wrong:** the shapes were open.
+
+**What I did instead:** the output is `team`, `event`, `entry_count`, `rank { rank, of }`, `headline { label: 'Average points', value }`, `tiles { median, availability { rate, available, total }, best_match, trend }`, `metrics`, `columns`, `matches`, `match_count`, `notes`, `reliability`, `next_cursor`. Beyond the brief: **`entry_count`** (the team's live entries at the event, both kinds — the header's "10 entries", counted as `searchTeams.entries_here` counts), **`match_count`** (the whole match list's size, since `matches` is one page) and **`form_kind` on each note** (a super note has no match). Choices:
+
+- `rank` is `rankByAveragePoints` over the roster, the same call `buildRankTable` makes, so the badge and the table cannot disagree (a test walks every row). `of` is the roster's size; a team not on the roster is `rank: null`.
+- `best_match` is the counted match with the most points, the earliest on a tie. `trend` is `aggregate(points, 'slope')` over the counted matches.
+- `matches` holds the team's **canonical** match entries (one per match: a duplicate shows once, the newer; a soft-deleted one never), **practice and playoff included** (they never feed a figure), ordered practice → qualification → playoff, then by number. That is the plan's "match-number order"; `sequenceOrder` ignores the type and would interleave P1 and Q1. `scouted_points` is `scoutedPoints` with the active version. A no-show or disabled row has `scouted_points: null` and every cell `{ value: null, display: null }`, whatever its data holds.
+- `columns` are the live scorable fields that a scoring rule names, in form order (`{ key: 'field:<key>', label }`). A cell is `{ value, display }`: counter/number → the number; toggle → 1/0 and "Yes"/"No"; single select → its rank if ordinal (else null) and the option's label; multi select → the highest rank if ordinal and the labels joined with ", ".
+- `notes` are every non-blank Long-text answer of the team's canonical entries, **both kinds, every match type and every status** (a no-show's "never came out" is a note). Each is labelled by the active version of the entry's form (the entry's own version for a key the active one no longer has), newest first by `client_updated_at` as an instant, then entry id. The server returns the newest **200** (`TEAM_NOTES_MAX`); the builder returns all.
+- `reliability` is `reliabilityFor` on the team's RAW entries, plus `breakdown_matches`, `no_show_matches` and `disabled_matches` (labels of the canonical qualification entries with that status, in match order).
+- Paging: `limit` (default 100, clamped to 200) and an offset `cursor` page `matches` only; every other part comes whole on every page.
+- **Scope:** only `{ mode: 'event', event_id }` is accepted; any other mode is `invalid`. The season scope (11.4's full-season view) waits for the dashboards that need it.
+
+**Risk:** the device builds the whole page in one call, so 1.53 pages nothing.
+
+## Task 1.57 — `rankTeams` sorting (orchestrator O5)
+
+**Plan said:** "sorts by any column on request, and never by standard deviation"; "returns no weighting inputs at all in phase 1".
+
+**What was wrong:** the default direction per column and the tie-break were open.
+
+**What I did instead:** `sort_by` ∈ `average_points` (default) | `availability_rate` | `breakdowns` | `no_shows` | `disabled` | `matches_counted` | `number`, checked by the zod schema (anything else, `stddev` included, is `invalid`). With no `direction`, each column sorts best first (`RANK_SORT_DEFAULT_DIRECTION`): average points, availability and matches counted descending; breakdowns, no-shows, disabled and number ascending. A null sorts last whatever the direction. A tie falls to the canonical rank (unranked last), then the lower number, so the default sort is exactly `rankByAveragePoints`' order. `rank` on every row is the canonical rank whatever the sort. The output is `{ event, rows }` and nothing else: no `weights`, `contributions` or normalised values anywhere (tested on the table, and on each row with `.strict()`). Not paginated (13.5).
+
+**Risk:** none known.
+
+## Task 1.57 — Scoring and the store reads (orchestrator O6; `entriesForScope`)
+
+**Plan said:** modify `repos/store.ts` and `test/fake-context.ts`. `entriesForScope(scope: { eventIds; teamId? })` was a stub on both.
+
+**What was wrong:** nothing; recording the calls.
+
+**What I did instead:** `entriesForScope` is implemented in both stores: every LIVE entry of the events (both kinds, every team unless `teamId`), paged by id in 1000-row pages, at most `ENTRIES_FOR_SCOPE_MAX` (20,000, 1.50's bound). A non-uuid id reads nothing; a database error throws. Store tests cover the paging, the team narrowing and the error. The use cases score with the season's match form's ACTIVE version and the form's rules (`searchTeams`' rule; there is one match form per season, so it equals `scoringLoader` for every match entry). A season with no match form or no active version scores with no fields and no rules, and then has no entries either, since they cascade with their versions. With `entriesForScope` filled, no Store method is a stub any more, so `stubsFor` (now unused) is deleted from `repos/store.ts` with its two comments. `search.ts` now exports `toEngineEntry`, `str` and `unique` for `stats.ts` rather than duplicating them. No migration.
+
+**Risk:** an event past 20,000 live entries would be truncated silently (as 1.50's reads are).
+
+## Task 1.57 — The fixture and the plan's test
+
+**Plan said:** implement `seedRankingFixture`, `duplicateEntry` and `changeFieldTypeBetweenVersions` in the fake; the test as written.
+
+**What was wrong:** nothing. The plan's test runs verbatim apart from the `.js` import extensions (`./stats.js`, as `search.test.ts`) and prettier's line wrapping.
+
+**What I did instead:** the fixture is its own file, `apps/server/src/test/ranking-fixture.ts` (as `small-season.ts`): se-1 / ev-1, teams t-1 2096, t-2 1690 and t-3 3065 all on the roster, Q1–Q3 and P1, match form fm-1 (v1 retired, v2 active) with a toggle, two counters, a nominal pickup, a neutral defense toggle, an ordinal climb and a Long-text "Notes", and super form fs-1 with its own "Notes". t-1 scores 10 and 20 and has a no-show that holds stale values, so a "never 0" test can fail. t-2 scores 12 (played) and 12 (broke down). t-3 has only a practice entry (30). `duplicateEntry(id, { scoreDelta, newer })` copies the entry as `<id>-dup`, adds `scoreDelta / points` to the first counter or number field a positive rule scores, and moves `client_updated_at` one minute later (or earlier). `changeFieldTypeBetweenVersions(key)` writes `key` into the newest older version of the form whose active version holds it (creating `<active>-old` when there is none) with another type (`short_text`, or `counter` for a short_text), and moves that form's oldest live counted entry onto that version. 25 tests beyond the plan's prove: a no-show is null in points, every cell and every series; std dev is neutral; the wire schemas parse; the header rank equals the table's row for every team; every role and a service caller get the same answers; soft-deleted entries never count; the newer duplicate wins in the list and the average; the cursor pages; an unknown team, event, scope or cursor is refused; sorting and tie-breaks. Mutation-checked: making a dead match's series 0, making std dev `higher_is_better`, emptying the version window and dropping the dead-row cell rule each fail the suite.
+
+**Risk:** none known.
+
+## Task 1.57 — Bundle
+
+**Plan said:** nothing (BUILD-CONTEXT §12.5: initial JS at most 230 KB gzip).
+
+**What was wrong:** nothing.
+
+**What I did instead:** the new schemas reach the initial chunk through the `API` map; the builders do not, since nothing in the client imports them yet. Measured initial JS **227.1 KB** gzip (226.5 before). No raise.
+
+**Risk:** 1.53 keeps `buildTeamStats` and the engine in its lazy chunk only if it imports them from the team page alone.
