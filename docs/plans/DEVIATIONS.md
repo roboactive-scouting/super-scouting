@@ -9173,3 +9173,137 @@ Rejected: an embedded-resource filter (`teams!inner(...)`) — PostgREST cannot 
 **What I did instead:** left as instructed: `TEAM_ROUTE` and `teamPath()` are in `lib/paths.ts`, with no route.
 
 **Risk:** a reviewer on dev between 1.51 and 1.53 sees the router's 404 when opening a team.
+
+## Task 1.52 — One `/entries` page; the plan's tests predate the designs
+
+**Plan said:** create `EntrySearchPage.tsx` and `EntrySearchPage.test.tsx`, replace `/entries` with it; the list test drives `rpc.call('queryEntries', { form_kind, query })` from a chip `match`, expects points as `25.00`, and `navigate('/entries/e-1')` on a row click; the preview test feeds `EntryPreviewPage` an `rpc` that returns a hand-made entry.
+
+**What was wrong:** the closed designs (26-entry-search A, 25-entry-preview B + D) and the user's decisions settle it otherwise: `/entries` stays ONE page (the round-05 page extended), the kind filter is a Both · Match · Super `segmented` switch (not chips), points are whole numbers as on every final ("34", not "25.00"), each row is a link (`href`), and the device is the source offline.
+
+**What I did instead:** no `EntrySearchPage.tsx`: `features/entries/EntriesPage.tsx` (+ `useEntriesView.ts`, `EntriesTable.tsx`, `EntryCard.tsx`, `EntryParts.tsx`) IS the entry search; its tests stay in `EntriesPage.test.tsx` / `useEntriesView.test.ts`. The plan's assertions were adapted: kind → `radio` "Super 2" etc.; search filters in memory (no `query` input); row → `link` with `href="/entries/<id>"` and a click landing on the `/entries/:id` route (no dialog). `EntryPreviewPage.test.tsx` seeds the device (`src/test/entryPreviewFixtures.ts`) and keeps the plan's proofs: phase headings in order (h2), no `definition` rows and the "—" for a no-show, Hebrew `dir="auto"`, DD/MM/YYYY HH:MM.
+
+**Risk:** none known. Rejected: a second page beside `/entries` (the user ruled one page).
+
+## Task 1.52 — The list reads the device, not `queryEntries`
+
+**Plan said:** the list calls `queryEntries` (task 1.50) with `form_kind` and `query`.
+
+**What was wrong:** the venue is offline (the normal mode), Entries already reads the device cache, and the waiting and refused lines exist only on the device.
+
+**What I did instead:** `buildEntryRows` reads the cached entries (both kinds), matches, teams, users, line-up, outbox and refusals, plus `forms` / `form_versions` / `form_fields` / `scoring_rules`; each match row's points are `scoutedPoints` from `@frc/shared`, scored with the entry's form's ACTIVE version and the form's rules (`lib/derive/scoring.ts` `scoringForVersion`, which mirrors 1.50's `scoringLoader`). Soft-deleted entries and another event's are dropped. `queryEntries` stays for online and service callers.
+
+**Risk:** under a session override to an event the device does not hold, the list is empty (as before this task). The server's `queryEntries` with a search AND a cursor is still unproven against live PostgREST (1.50's note); this task does not exercise it.
+
+## Task 1.52 — The preview: device first, `getEntry` only for an entry the device does not hold
+
+**Plan said:** `EntryPreviewPage` renders `getEntry`'s answer.
+
+**What was wrong:** offline the server cannot answer, and the 5:00 mark lands on the preview offline.
+
+**What I did instead:** `features/entries/entryPreview.ts` `loadDevicePreview` builds the page from the cache with `scoreBreakdown` and `averagePoints` (`@frc/shared`; the active version's fields and the form's rules, like `getEntry`), the entry's OWN version number for "form vN", the line-up's station and the season image for the map view. A soft-deleted entry, or another event's, gives "This entry is not here" with no server call. Only when the device does not hold the entry (or its form) does the page call `getEntry`; `fromWire` draws the answer (map fields read their words but do not open: the device has no field definition or image for them). A server `not-found`, or an answer for another event, gives "This entry is not here"; any other failure gives `StateMessage offline-needs-server` "This entry is not on this device". No `navigator.onLine` / `useOnline` check: `data/offlineGates.test.ts` forbids `useOnline(` under `features/entries/`, and BUILD-CONTEXT §12.5 says no page keeps its own online check; trying the call and reading the failure needs neither.
+
+**Risk:** offline, an id the device does not hold costs one failed fetch (immediate when the browser is offline) before the message.
+
+## Task 1.52 — Edit: the shared rule on the device clock, everywhere
+
+**Plan said:** Edit only when §7.6 allows the viewer (getEntry's `can_edit`).
+
+**What was wrong:** `can_edit` is measured on the server's clock at fetch time, and most previews never fetch.
+
+**What I did instead:** the page always decides with `mayEditEntryNow(viewer, entry, deviceNow)`, also for an entry that came from `getEntry` (overriding `can_edit`), and sets a timer to the 5:00 mark so an open page drops Edit when the window closes. Edit opens `entryPath(match, team, alliance)` for a match entry and `superTeamPath(team)` for a super entry. Without Edit, Team page stands alone, full width.
+
+**Risk:** a device clock set back keeps Edit longer; the server's window check stays the safety net (§7.6).
+
+## Task 1.52 — Paths
+
+**Plan said:** `PATHS` gains an `entry(id)` helper.
+
+**What was wrong:** helpers are module functions, not members of `PATHS`, and `entryPath` is taken by the entry form.
+
+**What I did instead:** `ENTRY_PREVIEW_ROUTE = '/entries/:id'` and `entryPreviewPath(id)` in `lib/paths.ts`, with a paths test (off the data-entry path).
+
+**Risk:** none.
+
+## Task 1.52 — The 5-minute mark and the read-only entry route land on the preview (Phase 1 H side-task carry-overs)
+
+**Plan said:** (NEXT-CHAT.md carry-overs) navigate the mark to `/entries/:id` with the banner and the "Not kept" lines; turn `EntryRoute`'s read-only branch into a redirect; Entries rows open the preview; reuse `MatchReadOnly` / `EntryAnswers` where they fit.
+
+**What was wrong:** nothing.
+
+**What I did instead:** `EntryPage` gains `onWindowClosed(rowId, outcome)` (its `Closed` type became the exported `WindowOutcome = { notKept, failed }`) and draws nothing after the mark; `EntryRoute` navigates with `replace` to `entryPreviewPath(id)` and `state: { windowClosed }`; the preview draws the Success banner with each "Not kept: …" line (or the Error line "Not saved — the 5 minutes are up. …") at the top of its body and moves focus to it. `EntryRoute`'s read-only branch is `<Navigate to={entryPreviewPath(existing.id)} replace />` (Home's Open, Sync's Open entry, a draft's Resume, a typed URL). Dead code removed: `features/entry/MatchReadOnly.tsx`, its `lazyParts` stand-in and `timedParts` export, and `lockNote` (the "Only a lead or an admin can change it now." line: the preview says it by showing no Edit). `EntryAnswers`' `MapRow` is exported and reused for the preview's map rows (new optional `end` and `className`; its label span is now `flex-1`, which changes nothing with two children). Tests rewritten: `EntryPage.test.tsx` (the mark calls `onWindowClosed` with the outcome), `EntryRoute.test.tsx` (redirect to the preview; the mark lands there with the banner, focused, no Edit), `SyncPage.test.tsx` (Open entry → the preview), `e2e/entry-window.spec.ts` (the URL is `/entries/<id>`, no Edit).
+
+**Risk:** router state survives a reload, so the banner shows again after a refresh of that preview; harmless.
+
+## Task 1.52 — Small calls the designs left open
+
+**Plan said:** nothing on these.
+
+**What was wrong:** nothing; recording the calls.
+
+**What I did instead:**
+- **Kind counts** are faceted: they follow the search AND the chip ("Super 0" under Needs a look); the chip counts follow the search and the kind (the brief). The final's static mock counts do not settle it.
+- **"Waiting"** is the chip's word at both widths (26 final; it was "Waiting to send" on a computer).
+- **The time** on a row and in the preview is `client_created_at` (when it was scouted), not the plan test fixture's `client_updated_at`.
+- **Points** print whole ("47"); a fractional total prints one place. The team average prints one place ("avg 38.5").
+- **Phase names:** `PHASE_NAME`, except the last phase is "Post-match" for a match entry (25 desktop) and "Notes" for a super entry (25 phone frame 4). The band's legend uses the short tab words (Auto, Teleop, Endgame); a fourth scored phase would take the accent at 25 %.
+- **Rows:** in a phase that scores anything every row keeps the 34 px points column (empty for an unscored row, as the final's map row); a phase that scores nothing has no column. An unanswered field reads a `--muted` "—" inline (never stacked as a long answer); an untouched counter reads 0 and a switch "No", as the confirmation does.
+- **Header:** on a computer there is no ‹ back row (the final has none; the crumb "Entries / Q37 · 1690 Orbit" and the sidebar carry it). On a phone ‹ Entries goes back through history, or to `/entries` when the preview was opened directly. The phone title is "Q37 · 1690" / "Super · 1690".
+- **Phone cards** keep the scouter's full name (UF.8: wrapping, never cut) where the 26 mock-up shows a first name.
+- **List refusal lines** are `ErrorLine announce={false}` (a line that describes a record, as on Sync), not a live alert on every render.
+
+**Risk:** none known.
+
+## Task 1.52 — Shared pieces
+
+**Plan said:** add "Table row as a link" (and its card twin) and a SUPER tag variant in `components/ui`; reuse `link-row`.
+
+**What was wrong:** nothing.
+
+**What I did instead:** `LinkTableRow` without an `endLabel` is THEME "Table row as a link" (a narrow last cell, a faint › turning `--accent` while the row is lit; the row's tint, edge and focus ring are 1.51's); `LinkCard` is its phone twin (white card, faint ›, pressed / hovered / focused = tint + 3 px edge). `SuperTag compact` (22 px: the card and the preview header) and `FormKindTag` ("Match entry" grey, or SUPER) in `tag.tsx`; `Initials` size 26. `lib/derive/scoring.ts` holds `toEngineEntry` (moved out of `features/teams/teamSearch.ts`, which now imports it), `formScoring`, `scoringForVersion` and `scoringCache`. BUILD-CONTEXT §12.5's list names them.
+
+**Risk:** none known.
+
+## Task 1.52 — Bundle
+
+**Plan said:** keep the new pages out of the initial chunk; raise `BUDGET_KB` only if needed.
+
+**What was wrong:** nothing.
+
+**What I did instead:** `EntriesPage` became a lazy chunk (3.9 KB gzip) and `EntryPreviewPage` is one (5.5 KB), both precached (`dist/sw.js` lists both). Initial JS went from 229.6 to **226.5 KB** gzip (budget 230). No raise. `routes.tsx`'s comment now says Entries left the main bundle.
+
+**Risk:** Entries now waits on a (precached) chunk when first opened.
+
+## Task 1.52 — e2e fixture, and what the screenshots differ in
+
+**Plan said:** screenshots at 1440 and 375 px, compared with the finals.
+
+**What was wrong:** nothing; recording the differences.
+
+**What I did instead:** `e2e/fixtures.ts` gains a super form (v3) and three super entries (`SUPER_ENTRIES`, `pullWithSupers()`), outside the default pull so no other screen changes. Differences left: the phone bottom bar raises Entries on the preview (the shell raises the current nav item; the 25 mock-ups draw it flat); the kind switch is the locked Segmented control's 46 px, not the mock-up's 40 px; lit rows and cards are shot by keyboard focus (with its ring) because `shoot()` moves the pointer away; the fixture's match form has no map field and one Notes field, so the e2e preview has no "6 spots" row and no Hebrew note (the unit tests prove both); values differ from the mock-ups (Q37 1690 is Amit's 52 points at Red 2); the Entries crumb reads "District #3 · Tel Aviv / Entries" as before this task (the 26 mock-up shows "Entries").
+
+**Risk:** none known.
+
+## Task 1.52 — Entries under a session override
+
+**Plan said:** the entry search reads `queryEntries` (the build read the device instead; see "The list reads the device, not `queryEntries`" above).
+
+**What was wrong:** under a session override (SPEC-FINAL 6.3, "While an override is in effect the client asks the server for computed results") the device holds only the default event, so `/entries` listed nothing for the overridden event.
+
+**What I did instead:** `EntriesPage` branches on `useSessionOverride()`. No override: `DeviceEntries`, the device path exactly as before (no rpc call; a unit test asserts it). Override: `OverrideEntries` reads `queryEntries({ event_id: <override id>, limit: 200, cursor })` through the injected `rpc` (default `typedCall`), following `next_cursor` up to 10 pages (2,000 entries, far above an event's few hundred), once per event, with no `query` and no `form_kind`: the search, the Both · Match · Super switch and Mine then run in memory over those rows through the same `useRowsView` the device path uses, so the counts behave as on the device and nothing needs debouncing. Rejected: sending the search to the server (a call per keystroke, the switch's counts would need a call per kind, and the server's match-number rule is exact where the device's is a substring) and a Load more button (a second pagination UI for a list that fits in a few pages). `rowFromSummary` maps `EntrySummary` to `EntryRow`: points are the server's `scouted_points` (null → "—" for a no-show, disabled and super, never 0); `match_label`, `team_*`, `scouter_name`, `client_created_at` → the row's label, team, scouter, time. Waiting and Needs a look are this device's states (outbox, refusals, line-up) and say nothing about another event's server rows: those two chips are **hidden** under an override (not shown as 0, which would read as "nothing to fix there"); the row flags are all false. The read is held through `useCapability('cross_event_view')`: offline it makes no call and shows `StateMessage` `offline-needs-server` ("<event> is not on this device; other events need a connection.") with Back to <default event>, which clears the override; a failed read shows `failed` with Try again. The empty state offers Back to <default event> in place of Scout a match (no entry may be created under an override). The crumb names the overridden event. New file `features/entries/serverEntries.ts`; `useEntriesView` is split into the device read plus `useRowsView(all, me)`. Lazy: `EntriesPage` chunk 3.9 → 4.8 KB gzip; initial JS unchanged at 226.5 KB.
+
+**Risk:** an event with more than 2,000 live entries would list only the newest 2,000 under an override. The server rows are read once per event per visit; an entry synced by another device while the page is open appears on the next visit. Not checked live against dev seed data (no Supabase in this fix).
+
+## Task 1.52 — The offline-gates guard exempts the override's server read (orchestrator)
+
+**Plan said:** `src/data/offlineGates.test.ts` (task 1.45): no file under `features/entry/`, `features/entries/` or `data/outbox.ts` may call `useCapability(` or render `<OfflineGate`, because the scouting path is never gated.
+
+**What was wrong:** the session-override fix for Entries (above) holds its server read through `useCapability('cross_event_view')` in `features/entries/serverEntries.ts`, and the guard failed:
+
+```
+FAIL src/data/offlineGates.test.ts > the offline gates (SPEC-FINAL 9.6, task 1.45) > never gates the scouting path: entry creation, the self-edit and bare match creation
+AssertionError: features/entries/serverEntries.ts: expected 'import { useEffect, useState } from \…' not to match /\buseCapability\(|<OfflineGate\b/
+```
+
+**What I did instead:** the guard names `features/entries/serverEntries.ts` as not scouting, with the reason in a comment: under an override, Entries lists another event's entries, which is a server read and a cross-event view (§9.6, "not available offline"). No entry is created there (an override blocks new entries, §6.3), and the device's own list stays ungated (`EntriesPage.test.tsx`: without an override, no rpc call and no gate). Rejected: moving the hook to `features/context/` only to dodge the folder rule. That passes the guard while hiding the gate, which is worse than naming it.
+
+**Risk:** a later gate added to that one file would also pass the guard. The exemption is a single path, not a folder.

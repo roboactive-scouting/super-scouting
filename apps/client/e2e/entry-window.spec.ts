@@ -6,15 +6,17 @@ import { shoot } from './shoot';
 /**
  * Phase 1 H side task 5 (SPEC-FINAL 7.6 v1.45): no edit after 5 minutes. Yael (a scouter) saved
  * Q39 · 2630 at 12:00 Tel Aviv and reopened it: in the last minute the Save bar counts down, at
- * 5:00 the form saves what can be saved, stamped 12:05:00, and becomes the entry read only with
- * the Success banner; an out-of-range change is not kept and is named. Opened again later, the
- * entry route shows it read only. Built from the Primary action bar, Success banner and Error
- * line parts (14-entry-parts final); no design page of its own.
+ * 5:00 the form saves what can be saved, stamped 12:05:00, and becomes the entry's preview
+ * (`/entries/:id`, task 1.52) with the Success banner; an out-of-range change is not kept and is
+ * named. Opened again later, the entry route sends it to the preview. Built from the Primary
+ * action bar, Success banner and Error line parts (14-entry-parts final) and page 25.
  */
 
 const CREATED = Date.parse('2026-03-17T10:00:00.000Z');
 const ENTRY_ID = '0000000e-0000-4000-8000-000000009999';
 const PATH = `/entry/${matchId(39)}/${teamId(2630)}?alliance=red`;
+/** The entry's preview (task 1.52): where the mark lands, and where PATH sends it later. */
+const PREVIEW = new RegExp(`/entries/${ENTRY_ID}$`);
 
 const ENTRY = {
   id: ENTRY_ID,
@@ -116,7 +118,7 @@ async function openEntry(page: Page) {
   await page.goto(PATH);
 }
 
-test('no edit after 5 minutes: the countdown, the save at 5:00, and the entry read only', async ({
+test('no edit after 5 minutes: the countdown, the save at 5:00, and the entry preview', async ({
   page,
 }) => {
   test.slow();
@@ -152,7 +154,10 @@ test('no edit after 5 minutes: the countdown, the save at 5:00, and the entry re
   const banner = page.getByRole('status').filter({ hasText: 'Saved — the 5 minutes are up.' });
   await expect(banner).toBeVisible();
   await expect(banner).toContainText('Not kept: Auto notes scored 11 is over 10.');
+  // The form became the entry's preview: its own page, read only, and no Edit past 5:00.
+  await expect(page).toHaveURL(PREVIEW);
   await expect(page.getByText('Read only')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Edit' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /review entry/i })).toHaveCount(0);
   await expect(page.getByRole('tab')).toHaveCount(0);
   await shoot(page, 'entry-window-saved', undefined, { long: true });
@@ -168,9 +173,11 @@ test('no edit after 5 minutes: the countdown, the save at 5:00, and the entry re
   expect(api.pushed[0]!.client_updated_at).toBe('2026-03-17T10:05:00.000Z');
   expect(api.pushed[0]!.payload.data).toMatchObject({ auto_notes: 9, teleop_notes: 13 });
 
-  // Opened again after the window (Home's Open and Sync's Open entry come here): read only.
+  // Opened again after the window (Home's Open and Sync's Open entry come here): the preview.
   await page.goto(PATH);
-  await expect(page.getByText('Only a lead or an admin can change it now.')).toBeVisible();
+  await expect(page).toHaveURL(PREVIEW);
+  await expect(page.getByText('Read only')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Edit' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /review entry/i })).toHaveCount(0);
   await expect(page.getByText(/locked/)).toHaveCount(0);
   // The saved values: Teleop's change kept, Auto's out-of-range one not.

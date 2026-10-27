@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { formatCount, type TimerConfig } from '@frc/shared';
 import { StateMessage } from '@/components/StateMessage';
 import { Button } from '@/components/ui/button';
@@ -8,18 +8,11 @@ import { cachedRows } from '@/data/cache';
 import { db } from '@/data/db';
 import { matchLabel } from '@/lib/matchLabel';
 import { EntryPage } from './EntryPage';
-import { MatchReadOnly } from './lazyParts';
-import {
-  canSelfEdit,
-  editableUntil,
-  findLocalEntry,
-  type Editor,
-  type LocalEntry,
-} from './localEntries';
+import { canSelfEdit, findLocalEntry, type Editor, type LocalEntry } from './localEntries';
 import { usePracticeMode } from './practice';
 import type { SavedNotice } from './SelectRobotPage';
 import { draftedVersion } from './useDraft';
-import { PATHS } from '@/lib/paths';
+import { entryPreviewPath, PATHS } from '@/lib/paths';
 
 type MatchRow = { id: string; event_id?: string; match_type: string; number: number };
 type TeamRow = { id: string; number: number; name: string };
@@ -58,8 +51,8 @@ type Resolved = {
   /**
    * When the route resolved (ms). Whether the entry opens as a form is decided against this, not
    * against each render's clock: a form left open past the mark is its own to lock (EntryPage
-   * saves at 5:00 and shows the entry read only with its banner), and a later re-render of the
-   * route must not swap it for the route's read-only view and lose that banner.
+   * saves at 5:00 and hands over to the preview with its banner), and a later re-render of the
+   * route must not redirect first and lose that banner.
    */
   resolvedAt: number;
 };
@@ -199,22 +192,11 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
 
   // SPEC-FINAL 7.6 v1.45: an entry this user can no longer edit opens read only — Home's and
   // Sync's Open, a draft's Resume, a stale screen or a typed URL alike; never a form or a lock
-  // error. A lead or an admin always gets the form (canSelfEdit).
+  // error. Read only is the entry preview (task 1.52). A lead or an admin always gets the form
+  // (canSelfEdit).
   const existing = resolved.existing;
   if (existing && !canSelfEdit(existing, author, new Date(resolved.resolvedAt))) {
-    return (
-      <MatchReadOnly
-        formVersionId={resolved.formVersionId}
-        matchId={matchId}
-        teamId={teamId}
-        alliance={existing.alliance ?? alliance}
-        matchLabel={resolved.matchLabel}
-        teamLabel={resolved.teamLabel}
-        fieldImagePath={resolved.fieldImagePath}
-        entry={existing}
-        note={lockNote(existing, author, resolved.resolvedAt)}
-      />
-    );
+    return <Navigate to={entryPreviewPath(existing.id)} replace />;
   }
 
   const page = (
@@ -230,6 +212,11 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
       existing={resolved.existing}
       timerConfig={resolved.timerConfig}
       fieldImagePath={resolved.fieldImagePath}
+      onWindowClosed={(rowId, outcome) => {
+        // SPEC-FINAL 7.6 v1.45: at 5:00 the form becomes the entry's preview, with the banner.
+        // Replace, so Back does not reopen a form that is over.
+        navigate(entryPreviewPath(rowId), { replace: true, state: { windowClosed: outcome } });
+      }}
       onSubmitted={() => {
         // SPEC-FINAL 8.1: submit returns to a fresh manual selection, offering the next match
         // after a new entry. Replace, so Back does not reopen a form that has already been saved.
@@ -260,12 +247,4 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
       {page}
     </>
   );
-}
-
-/** Who can still change an entry the route shows read only (SPEC-FINAL 7.6). */
-export function lockNote(entry: LocalEntry, editor: Editor, now: number): string {
-  if (entry.scouter_id === editor.id) return 'Only a lead or an admin can change it now.';
-  return now < editableUntil(entry).getTime()
-    ? 'Another scouter’s entry. Only they, a lead or an admin can change it.'
-    : 'Another scouter’s entry. Only a lead or an admin can change it.';
 }

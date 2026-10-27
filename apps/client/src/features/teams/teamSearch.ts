@@ -1,13 +1,6 @@
-import {
-  rankByAveragePoints,
-  type EngineEntry,
-  type FormFieldDefinition,
-  type MatchType,
-  type RobotStatus,
-  type ScoringRule,
-  type TeamSearchItem,
-} from '@frc/shared';
+import { rankByAveragePoints, type TeamSearchItem } from '@frc/shared';
 import { cachedRows } from '@/data/cache';
+import { formScoring, toEngineEntry } from '@/lib/derive/scoring';
 
 /*
  * Team search (SPEC-FINAL 13.2, task 1.51) as plain functions: the device's own list (offline,
@@ -100,7 +93,6 @@ export function matchSpan(
 type Row = Record<string, unknown>;
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const live = (r: Row) => r.deleted_at == null;
-const ROBOT_STATUSES: readonly string[] = ['played', 'no_show', 'disabled', 'broke_down'];
 
 export type CachedTeamSearch = {
   items: TeamItem[];
@@ -109,35 +101,6 @@ export type CachedTeamSearch = {
   /** The year of the event's season, or null when the device does not hold it. */
   seasonYear: number | null;
 };
-
-/** A cached entry as the shared engine reads it, with its match and event joined. */
-function toEngineEntry(row: Row, matches: Map<string, Row>, eventSortOrder: number): EngineEntry {
-  const matchId = str(row.match_id);
-  const match = matchId ? matches.get(matchId) : undefined;
-  const status = str(row.robot_status);
-  return {
-    id: String(row.id),
-    form_version_id: String(row.form_version_id),
-    form_kind: row.form_kind === 'super' ? 'super' : 'match',
-    event_id: String(row.event_id),
-    match_id: matchId,
-    team_id: String(row.team_id),
-    alliance: row.alliance === 'red' || row.alliance === 'blue' ? row.alliance : null,
-    scouter_id: String(row.scouter_id),
-    robot_status: status && ROBOT_STATUSES.includes(status) ? (status as RobotStatus) : null,
-    breakdown_seconds: typeof row.breakdown_seconds === 'number' ? row.breakdown_seconds : null,
-    data:
-      typeof row.data === 'object' && row.data !== null && !Array.isArray(row.data)
-        ? (row.data as Record<string, unknown>)
-        : {},
-    client_created_at: String(row.client_created_at),
-    client_updated_at: String(row.client_updated_at ?? row.client_created_at),
-    deleted_at: str(row.deleted_at),
-    match_type: (str(match?.match_type) as MatchType | null) ?? null,
-    match_number: typeof match?.number === 'number' ? match.number : null,
-    event_sort_order: eventSortOrder,
-  };
-}
 
 /**
  * The season's teams as the device holds them, ranked at `eventId` by the SAME shared helper the
@@ -179,26 +142,18 @@ export async function loadCachedTeamSearch(eventId: string): Promise<CachedTeamS
 
   const rank = new Map<string, number | null>();
   const form = forms.find((f) => f.season_id === seasonId && f.kind === 'match' && live(f));
-  const activeVersion = str(form?.active_version_id);
-  if (form && activeVersion) {
-    const versionFields = fields
-      .filter((f) => f.form_version_id === activeVersion && live(f))
-      .sort((a, b) => Number(a.display_order) - Number(b.display_order))
-      .map((f) => f as unknown as FormFieldDefinition);
-    const formRules: ScoringRule[] = rules
-      .filter((r) => r.form_id === form.id && live(r))
-      .map((r) => ({
-        field_key: String(r.field_key),
-        points: Number(r.points),
-        option_points: (r.option_points ?? null) as ScoringRule['option_points'],
-      }));
+  const scoring =
+    form && str(form.active_version_id)
+      ? formScoring(String(form.id), { forms, versions: [], fields, rules })
+      : null;
+  if (scoring) {
     const byId = new Map(matches.map((m) => [String(m.id), m]));
     const sortOrder = typeof event?.sort_order === 'number' ? event.sort_order : 0;
     const ranks = rankByAveragePoints(
       here.filter((e) => e.form_kind !== 'super').map((e) => toEngineEntry(e, byId, sortOrder)),
       seasonTeams.filter((t) => atEvent.has(t.id)),
-      versionFields,
-      formRules,
+      scoring.fields,
+      scoring.rules,
     );
     for (const r of ranks) rank.set(r.team_id, r.rank);
   }

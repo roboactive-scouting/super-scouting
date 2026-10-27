@@ -76,6 +76,20 @@ export function teamPath(teamId: string): string {
   return `${PATHS.teams}/${encodeURIComponent(teamId)}`;
 }
 
+/**
+ * One entry, read only (SPEC-FINAL 13.4, task 1.52): a full page under Entries, never a drawer.
+ * Entries' rows, the 5-minute mark and an entry this user can no longer edit open it.
+ */
+export const ENTRY_PREVIEW_ROUTE = '/entries/:id';
+
+/**
+ * One entry's preview, by its row id. (The plan names it `entry(id)`; `entryPath` is the entry
+ * FORM's, below.)
+ */
+export function entryPreviewPath(id: string): string {
+  return `${PATHS.entries}/${encodeURIComponent(id)}`;
+}
+
 /** The entry route's pattern, for `matchPath` and the route tree. */
 export const ENTRY_ROUTE = '/entry/:matchId/:teamId';
 

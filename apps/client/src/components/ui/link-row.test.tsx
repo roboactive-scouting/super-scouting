@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
-import { LinkRow, LinkTableRow } from './link-row';
+import { LinkCard, LinkRow, LinkTableRow } from './link-row';
 import { RankBadge } from './rank-badge';
 import { Table, TableBody, TableCell } from './table';
 
@@ -54,6 +54,44 @@ describe('LinkRow (THEME "Link row (opens a page)", task 1.51)', () => {
     expect(link.className).toContain('after:inset-0');
     expect(link.closest('tr')?.className).toContain('relative');
     expect(within(link).getByText('Team page')).toBeInTheDocument();
+  });
+});
+
+describe('Table row as a link and its card twin (THEME, entry search 2026-10-23, task 1.52)', () => {
+  it('without an end label: a narrow cell, a faint › that turns accent while the row is lit', () => {
+    render(
+      <MemoryRouter>
+        <Table>
+          <TableBody>
+            <LinkTableRow to="/entries/e-1" label="Q38 5951 Tiny Titans: open the entry">
+              <TableCell>Q38</TableCell>
+            </LinkTableRow>
+          </TableBody>
+        </Table>
+      </MemoryRouter>,
+    );
+    const link = screen.getByRole('link', { name: 'Q38 5951 Tiny Titans: open the entry' });
+    expect(link).toHaveAttribute('href', '/entries/e-1');
+    expect(link.className).toContain('after:inset-0');
+    expect(link.className).toContain('text-faint');
+    expect(link.className).toContain('group-hover:text-accent');
+    expect(link.textContent).toBe('');
+    expect(link.closest('td')?.className).toContain('w-10');
+  });
+
+  it('the card: one link over the whole card, a faint ›, tint and edge when pressed', () => {
+    render(
+      <MemoryRouter>
+        <LinkCard to="/entries/e-2" label="Super 1690 Orbit: open the entry">
+          <span>1690</span>
+        </LinkCard>
+      </MemoryRouter>,
+    );
+    const link = screen.getByRole('link', { name: 'Super 1690 Orbit: open the entry' });
+    expect(link).toHaveAttribute('href', '/entries/e-2');
+    expect(link.className).toContain('active:bg-accent-tint');
+    expect(link.className).toContain('active:shadow-[inset_3px_0_0_var(--accent)]');
+    expect(link.querySelector('svg')?.getAttribute('class')).toContain('text-faint');
   });
 });
 

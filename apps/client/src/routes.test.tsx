@@ -270,7 +270,7 @@ describe('which routes wait for the event to load (task 1.17b)', () => {
     ]);
   });
 
-  it('leaves Scout, the entry screen, super scouting, practice, Entries, Conflicts and team search gated', () => {
+  it('leaves Scout, the entry screen, super scouting, practice, Entries, the entry preview, Conflicts and team search gated', () => {
     const shell = routeTree().find((r) => r.path === '/');
     const gated = (shell?.children ?? [])
       .filter((r) => !needsNoHydration(r.handle))
@@ -281,6 +281,8 @@ describe('which routes wait for the event to load (task 1.17b)', () => {
     expect(gated.sort()).toEqual([
       'conflicts',
       'entries',
+      // The entry preview (task 1.52) reads the event's entries, matches and forms.
+      'entries/:id',
       'entry/:matchId/:teamId',
       'practice',
       'scout',

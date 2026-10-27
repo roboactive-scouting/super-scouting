@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Operation, Role } from '@frc/shared';
 import { beginSync, endSync, setSyncProgress } from '@/data/connection';
@@ -8,6 +8,7 @@ import { db, setMeta, type PushRejection } from '@/data/db';
 import { recordDiscarded } from '@/data/discarded';
 import { ackResults, enqueue, unsyncedCount } from '@/data/outbox';
 import { receiveOperations } from '@/data/qrReceive';
+import { EntryPreviewPage } from '@/features/entries/EntryPreviewPage';
 import { EntryRoute } from '@/features/entry/EntryRoute';
 import { SyncPage } from './SyncPage';
 import type * as QrReceiveModule from '@/data/qrReceive';
@@ -170,7 +171,7 @@ describe('SyncPage (SPEC-FINAL 9.10, 17-sync final)', () => {
   });
 
   // Phase 1 H side task 5 (SPEC-FINAL 7.6 v1.45): Open entry never starts an edit after the window.
-  it('Open entry on a scouter’s own entry past its window opens it read only', async () => {
+  it('Open entry on a scouter’s own entry past its window opens its read-only preview', async () => {
     const created = new Date(Date.now() - 6 * 60_000).toISOString();
     await db.rows.bulkPut([
       { entity: 'forms', id: 'f-1', kind: 'match', season_id: 'se-1', active_version_id: 'fv-1' },
@@ -214,17 +215,23 @@ describe('SyncPage (SPEC-FINAL 9.10, 17-sync final)', () => {
             path="/entry/:matchId/:teamId"
             element={<EntryRoute eventId="ev-1" author={SCOUTER} />}
           />
+          <Route path="/entries/:id" element={<PreviewRoute />} />
         </Routes>
       </MemoryRouter>,
     );
     await user.click(await screen.findByRole('tab', { name: /Problems/ }));
     await user.click(screen.getByRole('link', { name: 'Open entry' }));
-    expect(await screen.findByText('Only a lead or an admin can change it now.')).toBeVisible();
-    expect(screen.getByText('Read only')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Q12 · 2096 ROBACTIVE');
+    expect(await screen.findByText('Read only')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Q122096ROBACTIVE');
+    expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /review entry/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/locked/)).not.toBeInTheDocument();
   });
+
+  /** The entry preview (task 1.52) as the route tree mounts it. */
+  function PreviewRoute() {
+    return <EntryPreviewPage entryId={useParams().id ?? ''} eventId="ev-1" viewer={SCOUTER} />;
+  }
 
   it('reads the new line for a record the server refused in its old words', async () => {
     await enqueue(op('e-2'));

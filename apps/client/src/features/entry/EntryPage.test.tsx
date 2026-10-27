@@ -1234,7 +1234,7 @@ describe('no edit after 5 minutes (SPEC-FINAL 7.6 v1.45; Phase 1 H side task 5)'
   const timer = () => screen.queryByRole('timer');
 
   beforeEach(async () => {
-    // The read-only view lives in the timed parts' chunk: in memory before any clock is faked.
+    // What the mark keeps lives in the timed parts' chunk: in memory before any clock is faked.
     await loadTimedParts();
     // A required field on the first tab, to empty at the mark.
     await db.rows.put(
@@ -1255,14 +1255,18 @@ describe('no edit after 5 minutes (SPEC-FINAL 7.6 v1.45; Phase 1 H side task 5)'
     vi.useRealTimers();
   });
 
+  /** What the page hands the route at the mark (task 1.52: the route opens the preview). */
+  const closedWith = vi.fn();
+
   async function open(
     entry: ReturnType<typeof own>,
     author: { id: string; role: 'scouter' | 'lead' | 'admin' } = props.author,
   ) {
+    closedWith.mockClear();
     await db.rows.put({ ...entry, entity: 'scouting_entries', version: 1 } as CachedRow);
     render(
       <MemoryRouter>
-        <EntryPage {...props} author={author} existing={entry} />
+        <EntryPage {...props} author={author} existing={entry} onWindowClosed={closedWith} />
       </MemoryRouter>,
     );
     await screen.findByLabelText('Auto notes value');
@@ -1287,12 +1291,13 @@ describe('no edit after 5 minutes (SPEC-FINAL 7.6 v1.45; Phase 1 H side task 5)'
     expect(await pending(10)).toHaveLength(0);
   });
 
-  it('at 5:00 saves what is typed, stamped created + 5:00, and the form becomes the entry read only', async () => {
+  it('at 5:00 saves what is typed, stamped created + 5:00, and hands over to the preview', async () => {
     clockAt(4 * MIN + 50_000);
     const user = await open(own());
     await user.click(screen.getByRole('button', { name: 'Auto notes minus one' }));
     await advance(10_500); // past 5:00
-    expect(await screen.findByText('Saved — the 5 minutes are up.')).toBeInTheDocument();
+    await waitFor(() => expect(closedWith).toHaveBeenCalledTimes(1));
+    expect(closedWith).toHaveBeenCalledWith('e-1', { notKept: [], failed: null });
 
     const [op, ...rest] = await pending(10);
     expect(rest).toHaveLength(0);
@@ -1303,16 +1308,13 @@ describe('no edit after 5 minutes (SPEC-FINAL 7.6 v1.45; Phase 1 H side task 5)'
     expect(op!.payload.data).toEqual({ auto_notes: 8, driver: 'Ana', notes: 'quick' });
     expect((await db.rows.get(['scouting_entries', 'e-1']))?.client_updated_at).toBe(STAMP);
 
-    // The form is gone: no tabs, no controls, no Review entry, no lock error. Read only instead.
+    // The form is gone: no tabs, no controls, no Review entry, no lock error. The route shows
+    // the preview (EntryRoute.test.tsx proves the banner lands there).
     expect(screen.queryByRole('tab')).toBeNull();
     expect(screen.queryByRole('button', { name: /review entry/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /plus one|minus one/ })).toBeNull();
     expect(timer()).toBeNull();
     expect(screen.queryByText(/locked/)).toBeNull();
-    expect(screen.getByText('Read only')).toBeInTheDocument();
-    expect(screen.getByText('Only a lead or an admin can change it now.')).toBeInTheDocument();
-    expect(screen.getByText('Auto notes').parentElement).toHaveTextContent('8');
-    expect(screen.getByRole('status')).not.toHaveTextContent(/Not kept/);
   });
 
   it('keeps the saved value of an out-of-range change at the mark, names it, and keeps the rest', async () => {
@@ -1324,15 +1326,11 @@ describe('no edit after 5 minutes (SPEC-FINAL 7.6 v1.45; Phase 1 H side task 5)'
     await user.click(screen.getByRole('tab', { name: /Notes/ }));
     await user.type(screen.getByRole('textbox', { name: 'Notes' }), ' and steady');
     await advance(20_500);
-    // The counter's value is a status too, until the form goes: wait for the banner itself.
-    await screen.findByText('Saved — the 5 minutes are up.');
-    const banner = screen.getByRole('status');
-    expect(banner).toHaveTextContent('Saved — the 5 minutes are up.');
-    expect(
-      within(banner)
-        .getAllByRole('listitem')
-        .map((li) => li.textContent),
-    ).toEqual(['Not kept: Auto notes 11 is over 10.']);
+    await waitFor(() => expect(closedWith).toHaveBeenCalledTimes(1));
+    expect(closedWith).toHaveBeenCalledWith('e-1', {
+      notKept: ['Not kept: Auto notes 11 is over 10.'],
+      failed: null,
+    });
     const [op] = await pending(10);
     expect(op!.client_updated_at).toBe(STAMP);
     expect(op!.payload.data).toEqual({ auto_notes: 9, driver: 'Ana', notes: 'quick and steady' });
@@ -1344,14 +1342,11 @@ describe('no edit after 5 minutes (SPEC-FINAL 7.6 v1.45; Phase 1 H side task 5)'
     await user.clear(screen.getByRole('textbox', { name: /Driver/ }));
     await user.click(screen.getByRole('button', { name: 'Auto notes minus one' }));
     await advance(10_500);
-    // The counter's value is a status too, until the form goes: wait for the banner itself.
-    await screen.findByText('Saved — the 5 minutes are up.');
-    const banner = screen.getByRole('status');
-    expect(
-      within(banner)
-        .getAllByRole('listitem')
-        .map((li) => li.textContent),
-    ).toEqual(['Not kept: Driver is required and was left empty.']);
+    await waitFor(() => expect(closedWith).toHaveBeenCalledTimes(1));
+    expect(closedWith).toHaveBeenCalledWith('e-1', {
+      notKept: ['Not kept: Driver is required and was left empty.'],
+      failed: null,
+    });
     const [op] = await pending(10);
     expect(op!.payload.data).toEqual({ auto_notes: 8, driver: 'Ana', notes: 'quick' });
   });
@@ -1362,7 +1357,7 @@ describe('no edit after 5 minutes (SPEC-FINAL 7.6 v1.45; Phase 1 H side task 5)'
     await user.click(screen.getByRole('button', { name: /review entry/i }));
     expect(await screen.findByRole('dialog', { name: 'Confirm this entry' })).toBeInTheDocument();
     await advance(10_500);
-    expect(await screen.findByText('Saved — the 5 minutes are up.')).toBeInTheDocument();
+    await waitFor(() => expect(closedWith).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(await pending(10)).toHaveLength(1);
   });
@@ -1372,7 +1367,7 @@ describe('no edit after 5 minutes (SPEC-FINAL 7.6 v1.45; Phase 1 H side task 5)'
     await open(own(), { id: 'u-lead', role: 'lead' });
     await advance(60_000); // 5:30
     expect(timer()).toBeNull();
-    expect(screen.queryByText('Saved — the 5 minutes are up.')).toBeNull();
+    expect(closedWith).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: /review entry/i })).toBeInTheDocument();
     expect(await pending(10)).toHaveLength(0);
   });
@@ -1382,7 +1377,7 @@ describe('no edit after 5 minutes (SPEC-FINAL 7.6 v1.45; Phase 1 H side task 5)'
     await open(own());
     await advance(60_000);
     expect(timer()).toBeNull();
-    expect(screen.queryByText('Saved — the 5 minutes are up.')).toBeNull();
+    expect(closedWith).not.toHaveBeenCalled();
     expect(await pending(10)).toHaveLength(0);
   });
 });

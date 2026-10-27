@@ -804,3 +804,125 @@ const RPC: Record<string, Answer> = {
 };
 
 export const FIXTURE = { pull: PULL, rpc: RPC };
+
+// ---------------------------------------------------------------------------------------
+// Super scouting (task 1.52's entry search and preview): a super form and three super entries,
+// as the 26-entry-search final lists them. Not in the default pull — the specs that want them
+// pull `pullWithSupers()` — so every other screen keeps its pictures.
+
+const SUPER_FORM_ID = uid(KIND.form, 2);
+const SUPER_VERSION_ID = uid(KIND.formVersion, 2);
+const SUPER_FIELDS = (
+  [
+    ['reliability', 'Auto reliability', 'single_select', 'auto'],
+    ['start', 'Start position', 'position', 'auto'],
+    ['driver', 'Driver skill', 'single_select', 'teleop'],
+    ['defence', 'Defence', 'single_select', 'teleop'],
+    ['strengths', 'Strengths', 'long_text', 'post_match'],
+  ] as const
+).map(([key, label, type, phase], i) => ({
+  ...FORM_FIELDS[0]!,
+  id: uid(KIND.field, 50 + i),
+  form_version_id: SUPER_VERSION_ID,
+  key,
+  label,
+  type,
+  phase,
+  display_order: i + 1,
+  unit: type === 'long_text' ? 'text' : type === 'position' ? 'count' : 'enum',
+  direction: 'neutral',
+  description: label,
+  expected_range: null,
+  is_ordinal: null,
+  config:
+    type === 'single_select'
+      ? {
+          options: [
+            { value: 'none', label: 'None' },
+            { value: 'some', label: 'Some' },
+            { value: 'good', label: 'Good' },
+          ],
+        }
+      : type === 'position'
+        ? { mirror_axis: 'horizontal' }
+        : {},
+}));
+
+/** [team, scouter, local time, data] — Yael's 1690 is her own (the preview's Edit). */
+const SUPER_SEEDS: [number, string, string, Record<string, unknown>][] = [
+  [
+    1690,
+    'Yael Shapira',
+    '11:12',
+    {
+      reliability: 'good',
+      start: { x: 0.18, y: 0.62 },
+      driver: 'good',
+      defence: 'some',
+      strengths: 'Fast cycles on the near side; quick to recover after contact',
+    },
+  ],
+  [1574, 'Noa Levi', '10:58', { reliability: 'some', driver: 'good', defence: 'none' }],
+  [4590, 'Daniel Rosen', '10:40', { reliability: 'good', driver: 'some', defence: 'good' }],
+];
+
+export const SUPER_ENTRIES = SUPER_SEEDS.map(([team, who, time, data], i) => {
+  const [h, m] = time.split(':').map(Number) as [number, number];
+  const at = `2026-03-17T${String(h - 2).padStart(2, '0')}:${String(m).padStart(2, '0')}:00.000Z`;
+  return {
+    id: uid(KIND.entry, 900 + i),
+    form_version_id: SUPER_VERSION_ID,
+    form_kind: 'super' as const,
+    event_id: EVENT_ID,
+    match_id: null,
+    team_id: teamId(team),
+    alliance: null,
+    scouter_id: userByFullName(who).id,
+    robot_status: null,
+    breakdown_seconds: null,
+    data,
+    version: 1,
+    created_at: at,
+    updated_at: at,
+    client_created_at: at,
+    client_updated_at: at,
+    deleted_at: null,
+  };
+});
+
+/** The default pull plus the super form and its three entries; `entries` replaces the match ones. */
+export function pullWithSupers(entries: Record<string, unknown>[] = ENTRIES): PullResponse {
+  return {
+    ...PULL,
+    entities: {
+      ...PULL.entities,
+      forms: [
+        ...PULL.entities.forms,
+        {
+          id: SUPER_FORM_ID,
+          season_id: SEASON_ID,
+          kind: 'super',
+          name: 'Super scouting',
+          active_version_id: SUPER_VERSION_ID,
+          timer_config: { phases: [] },
+          created_at: T0,
+          updated_at: T0,
+        },
+      ],
+      form_versions: [
+        ...PULL.entities.form_versions,
+        {
+          id: SUPER_VERSION_ID,
+          form_id: SUPER_FORM_ID,
+          version_no: 3,
+          published_at: T0,
+          is_locked: true,
+          created_at: T0,
+          updated_at: T0,
+        },
+      ],
+      form_fields: [...PULL.entities.form_fields, ...SUPER_FIELDS],
+      scouting_entries: [...entries, ...SUPER_ENTRIES],
+    },
+  } as PullResponse;
+}

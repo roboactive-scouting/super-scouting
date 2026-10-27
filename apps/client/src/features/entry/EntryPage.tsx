@@ -25,7 +25,7 @@ import {
   type LocalEntry,
 } from './localEntries';
 import { asClockOrigin, matchClock } from './matchClock';
-import { loadTimedParts, MatchReadOnly, MatchTimer } from './lazyParts';
+import { loadTimedParts, MatchTimer } from './lazyParts';
 import { PHASE_NAME } from './phases';
 import { PhaseTabs } from './PhaseTabs';
 import { usePracticeMode } from './practice';
@@ -56,6 +56,11 @@ export type EntryPageProps = {
   teamLabel: string;
   matchLabel: string;
   onSubmitted?: (rowId: string) => void;
+  /**
+   * The 5-minute mark saved (or could not save) and the form is over (SPEC-FINAL 7.6 v1.45): the
+   * route opens the entry's preview with what the save did. The page draws nothing after it.
+   */
+  onWindowClosed?: (rowId: string, outcome: WindowOutcome) => void;
   /** This device's entry for the same match and robot: the page edits it (SPEC-FINAL 7.6). */
   existing?: LocalEntry;
   /**
@@ -75,10 +80,11 @@ export function matchDraftKey(formVersionId: string, matchId: string, teamId: st
 const isPhase = (value: unknown): value is FieldPhase =>
   typeof value === 'string' && Object.hasOwn(PHASE_NAME, value);
 
-/** What the page became at the 5-minute mark (SPEC-FINAL 7.6 v1.45): the entry, read only. */
-type Closed = {
-  /** The entry as it now stands saved (or, when nothing could be saved, as it was). */
-  entry: { robot_status: string | null; data: Record<string, unknown> };
+/**
+ * What the save at the 5-minute mark did (SPEC-FINAL 7.6 v1.45), for the entry preview's banner:
+ * a "Not kept: …" line per change put back, or why nothing could be saved.
+ */
+export type WindowOutcome = {
   notKept: string[];
   /** Why nothing was saved; null when the save went through. */
   failed: string | null;
@@ -129,10 +135,10 @@ export function EntryPage(props: EntryPageProps) {
       : null;
   /**
    * The window was still open when the page opened: only then does the mark save. An entry
-   * opened after it closed is the route's read-only view; here `commit()`'s lock is the guard.
+   * opened after it closed is the route's redirect to the preview; here `commit()`'s lock is the guard.
    */
   const [armed] = useState(() => deadline !== null && deadline > Date.now());
-  const [closed, setClosed] = useState<Closed | null>(null);
+  const [closed, setClosed] = useState<WindowOutcome | null>(null);
   /** The save at the mark: set every render (below), so its timer reads the form as it stands. */
   const mark = useRef<() => Promise<void>>(async () => undefined);
   const marked = useRef(false);
@@ -340,17 +346,12 @@ export function EntryPage(props: EntryPageProps) {
     } catch (e) {
       failed = e instanceof Error ? e.message : 'could not save';
     }
-    setClosed(
-      failed === null && settled
-        ? {
-            entry: { robot_status: settled.status, data: settled.saved },
-            notKept: settled.notKept,
-            failed,
-          }
-        : { entry: { robot_status: own.robot_status, data: own.data ?? {} }, notKept: [], failed },
-    );
+    const outcome: WindowOutcome =
+      failed === null && settled ? { notKept: settled.notKept, failed } : { notKept: [], failed };
+    setClosed(outcome);
     inFlight.current = false;
     setSubmitting(false);
+    props.onWindowClosed?.(own.id, outcome);
   };
 
   /** One tap, one entry and one outbox operation, however fast the second tap comes. */
@@ -504,23 +505,8 @@ export function EntryPage(props: EntryPageProps) {
   // The last minute, above Review entry (SPEC-FINAL 7.6 v1.45); it draws nothing before then.
   const countdown = armed && deadline !== null ? <EditCountdown deadline={deadline} /> : null;
 
-  // After the mark: the entry read only, in place (the preview at /entries/:id is task 1.52).
-  if (closed) {
-    return (
-      <MatchReadOnly
-        formVersionId={props.formVersionId}
-        matchId={props.matchId}
-        teamId={props.teamId}
-        alliance={props.alliance}
-        matchLabel={props.matchLabel}
-        teamLabel={props.teamLabel}
-        fieldImagePath={props.fieldImagePath}
-        entry={closed.entry}
-        note="Only a lead or an admin can change it now."
-        outcome={closed}
-      />
-    );
-  }
+  // After the mark the form is over: the route has gone to the entry's preview (task 1.52).
+  if (closed) return null;
 
   if (desktop) {
     return (

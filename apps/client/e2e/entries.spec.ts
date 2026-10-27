@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './api-mock';
-import { ENTRIES, FIXTURE } from './fixtures';
+import { ENTRIES, FIXTURE, pullWithSupers } from './fixtures';
 import { shoot } from './shoot';
 
 /** A long full name (Q38 1574's scouter): it wraps on a phone, never cut (UF.8). */
@@ -12,21 +12,28 @@ const REFUSED_LINE =
 
 /**
  * The server takes nothing, so what is queued stays waiting to send; Amit's name is the long
- * one.
+ * one. The pull carries the super form and three super entries (task 1.52, 26-entry-search).
  */
+const SUPER_PULL = pullWithSupers();
 const HOLD_PUSH = {
   overrides: {
     'sync/push': { results: [] },
     'sync/pull': {
-      ...FIXTURE.pull,
+      ...SUPER_PULL,
       entities: {
-        ...FIXTURE.pull.entities,
-        users: FIXTURE.pull.entities.users.map((u) =>
+        ...SUPER_PULL.entities,
+        users: SUPER_PULL.entities.users.map((u) =>
           u.full_name === 'Amit Ben-David' ? { ...u, full_name: LONG_NAME } : u,
         ),
       },
     },
   },
+};
+
+/** A row or card lit as when hovered or pressed: keyboard focus draws the same tint and edge. */
+const focusLink = (page: Page, name: RegExp) => async () => {
+  await page.keyboard.press('Shift');
+  await page.getByRole('link', { name }).first().focus();
 };
 
 /** The design's clock: Tuesday 17 March 2026, 12:00 in Tel Aviv, so the entries are "today". */
@@ -88,7 +95,9 @@ async function openEntries(page: Page) {
   await page.goto('/entries');
 }
 
-test('entries: newest first, waiting arrows, the refused line', async ({ page }) => {
+test('entries: newest first, match and super, waiting arrows, the refused line', async ({
+  page,
+}) => {
   // axe walks the whole desktop table (all 209 fixture entries): slower than the default 30 s
   test.slow();
   await openEntries(page);
@@ -98,26 +107,52 @@ test('entries: newest first, waiting arrows, the refused line', async ({ page })
   await expect(rows.nth(1)).toContainText('Q38');
   await expect(page.getByRole('button', { name: /^All \d+/ })).toBeVisible();
   // The refused entry is still in the outbox: the chip says 4, like the top bar (RB.19).
-  await expect(page.getByRole('button', { name: /^Waiting to send 4/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Waiting 4/ })).toBeVisible();
   await expect(page.getByRole('banner').getByText('4 waiting')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Needs a look 2/ })).toBeVisible();
   await expect(page.getByText(REFUSED_LINE)).toBeVisible();
   await expect(page.getByLabel('waiting to send', { exact: true })).toHaveCount(3);
-  // Rows open nothing yet (the entry preview is a later page): no pointer, no hover tint.
-  const first = rows.nth(1);
-  await first.hover();
-  await expect(first).toHaveCSS('cursor', 'auto');
-  await expect(first).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-  await shoot(page, 'entries', 'desktop');
+  // The kind switch: Both by default, with the counts (14 + 3 + the morning's entries).
+  const both = page.getByRole('radio', { name: /^Both \d+$/ });
+  await expect(both).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('radio', { name: 'Super 3' })).toBeVisible();
+  // A super entry sits in the list by time: Match "—", the SUPER tag, no points.
+  const superRow = rows.filter({ hasText: 'SUPER' }).first();
+  await expect(superRow).toContainText('1690');
+  await expect(superRow.getByRole('cell').first()).toHaveText('—');
+  // Every row is a link to its preview: hovered, it is tinted with the accent edge.
+  const falcons = rows.filter({ hasText: '4338' }).first();
+  await falcons.hover();
+  await expect(falcons).toHaveCSS('cursor', 'pointer');
+  await expect(falcons).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await shoot(page, 'entries', 'desktop', { before: focusLink(page, /^Q38 4338 Falcons/) });
   // Phone: the long name is whole, on as many lines as it needs.
   await page.setViewportSize({ width: 375, height: 812 });
   const card = page.getByRole('main').getByRole('listitem').filter({ hasText: LONG_NAME }).first();
   await expect(card).toContainText(`${LONG_NAME} ·`);
-  await expect(card).toHaveCSS('cursor', 'auto');
+  await expect(card.getByRole('link')).toHaveCount(1);
   const name = card.getByText(LONG_NAME, { exact: false });
   const [nameBox, cardBox] = [await name.boundingBox(), await card.boundingBox()];
   expect(nameBox!.x + nameBox!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width);
-  await shoot(page, 'entries', 'phone');
+  await shoot(page, 'entries', 'phone', { before: focusLink(page, /^Q38 1574 MisCar/) });
+});
+
+test('entries: Super only, and a row opens the preview as a full page', async ({ page }) => {
+  await openEntries(page);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.getByRole('radio', { name: 'Super 3' }).click();
+  const cards = page.getByRole('main').getByRole('listitem');
+  await expect(cards).toHaveCount(3);
+  for (const card of await cards.all()) {
+    await expect(card).toContainText('SUPER');
+    await expect(card).toContainText('whole event');
+  }
+  await expect(page.getByRole('button', { name: /^All 3/ })).toBeVisible();
+  await shoot(page, 'entries-super', 'phone');
+  await cards.first().getByRole('link').click();
+  await expect(page).toHaveURL(/\/entries\/[0-9a-f-]+$/);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('1690');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
 test('entries: Needs a look shows the refused and the not-in-line-up entries', async ({ page }) => {
@@ -130,6 +165,8 @@ test('entries: Needs a look shows the refused and the not-in-line-up entries', a
   await expect(page.getByText(REFUSED_LINE)).toBeVisible();
   await expect(page.getByText(/locked/)).toHaveCount(0);
   await shoot(page, 'entries-look');
+  // The kind switch counts follow the chip: no super entry needs a look.
+  await expect(page.getByRole('radio', { name: 'Super 0' })).toBeVisible();
 });
 
 test('entries: search by scouter', async ({ page }) => {
@@ -145,6 +182,16 @@ test('entries: search by scouter', async ({ page }) => {
   await expect(items).toHaveCount(count);
   await expect(items.filter({ hasNotText: 'Noa' })).toHaveCount(0);
   await shoot(page, 'entries-search', 'phone');
+});
+
+test('entries: searching "orbit" finds its match and super entries', async ({ page }) => {
+  await openEntries(page);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.getByRole('searchbox', { name: 'Search entries' }).fill('orbit');
+  const items = page.getByRole('main').getByRole('listitem');
+  await expect(items.filter({ hasText: 'SUPER' })).toHaveCount(1);
+  await expect(items.filter({ hasNotText: 'Orbit' })).toHaveCount(0);
+  await shoot(page, 'entries-search-orbit', 'phone');
 });
 
 test('entries: an empty device says so and offers Scout a match', async ({ page }) => {
