@@ -1,5 +1,5 @@
 import { Check } from 'lucide-react';
-import { useId } from 'react';
+import { useId, type ReactNode } from 'react';
 import { NO_VALUE, type FieldPhase, type RobotStatus } from '@frc/shared';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -48,6 +48,7 @@ export function EntrySummary({
   onReview,
   reviewDisabled,
   reviewLabel = 'Review entry',
+  foot,
 }: {
   status: RobotStatus | null;
   /** False on the super entry, which has no robot status (SPEC-FINAL 8.1). */
@@ -65,6 +66,8 @@ export function EntrySummary({
   reviewDisabled?: boolean;
   /** "Finish practice" in practice mode (SPEC-FINAL 8.5). */
   reviewLabel?: string;
+  /** Above Review entry: the last minute's countdown of a scouter's window (SPEC-FINAL 7.6). */
+  foot?: ReactNode;
 }) {
   const title = useId();
   const statusFix = toFix?.get('status') ?? 0;
@@ -125,6 +128,8 @@ export function EntrySummary({
           </button>
         );
       })}
+      {/* Empty until the last minute (the countdown draws nothing before it): then no room. */}
+      {foot ? <div className="mt-3.5 -mb-1.5 empty:hidden">{foot}</div> : null}
       <Button
         variant="primary"
         size="block"

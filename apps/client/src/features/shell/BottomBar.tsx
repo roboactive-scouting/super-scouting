@@ -69,7 +69,7 @@ function Tab({ item, who, waiting }: { item: NavItem; who: NavAudience; waiting:
 
 /**
  * The phone's navigation bar on `--rail` (THEME "Phone bottom bar", UI fix UF.10): Home ·
- * Scout · Entries, Scout in the middle. The current page is the raised green button and it
+ * Scout · Search · Entries (task 1.51). The current page is the raised green button and it
  * moves with the page; on any other page every tab is flat. Entries carries the
  * waiting-to-send count, flat or raised.
  */

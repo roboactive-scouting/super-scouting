@@ -199,7 +199,6 @@ export function SwitchScouter() {
                 value={password}
                 autoComplete="current-password"
                 autoFocus
-                dir="auto"
                 aria-invalid={error ? true : undefined}
                 aria-describedby={error ? errorId : undefined}
                 className="mt-1.5"

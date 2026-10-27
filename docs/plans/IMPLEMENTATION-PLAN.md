@@ -1,6 +1,15 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.19 · **Date:** 2026-10-20 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.28 · **Date:** 2026-10-23 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.28 (2026-10-23): a fifth side task at the top of Phase 1 H: no edit after 5 minutes — countdown, save at the mark, lock (user; SPEC-FINAL v1.45 §7.6).*
+*v1.27 (2026-10-23): a fourth side task at the top of Phase 1 H: the edit-window refusal reads "Not sent: changed after the 5-minute edit window. A lead can save it for you." (user; SPEC-FINAL v1.44 §7.6).*
+*v1.26 (2026-10-23): the entry search is designed as the Entries page plus a kind switch (`docs/design/pages/26-entry-search/final/`, spec v0.95 / SPEC-FINAL v1.43 §13.3); task 1.52 extends the existing `/entries` page instead of replacing it.*
+*v1.25 (2026-10-23): the team search page is designed (`docs/design/pages/23-team-search/final/`, spec v0.94 / SPEC-FINAL v1.42 §13.2); task 1.51 points at it.*
+*v1.24 (2026-10-23): the entry preview is designed (`docs/design/pages/25-entry-preview/final/`, spec v0.93 / SPEC-FINAL v1.41 §13.4); task 1.52 points at it.*
+*v1.23 (2026-10-23): the team page is designed (`docs/design/pages/24-team/final/`, spec v0.92 / SPEC-FINAL v1.40 §13.1, §12.6); task 1.53 points at it.*
+*v1.22 (2026-10-23): a third side task at the top of Phase 1 H: option-button labels never split mid-word (user).*
+*v1.21 (2026-10-23): a second side task at the top of Phase 1 H: Wipe anyway, for a device whose records cannot reach the cloud (user; SPEC-FINAL v1.39 §9.9).*
+*v1.20 (2026-10-23): a side task at the top of Phase 1 H: the sign-in fields stay left-to-right when the keyboard types Hebrew (user).*
 *v1.19 (2026-10-20): side task 2 of 1.47 is designed (`docs/design/pages/22-super-readonly/final/`, spec v0.87 / SPEC-FINAL v1.35 §7.6, §8.1): a quiet read-only page replaces the lock line, and the super picker names who did each Done team.*
 *v1.18 (2026-10-20): the QR receiver is designed (`docs/design/pages/21-qr-receive/final/`, spec v0.86 / SPEC-FINAL v1.34 §9.8); task 1.48 points at it.*
 *v1.17 (2026-10-20): the QR sender is designed (`docs/design/pages/20-qr-send/final/`, spec v0.85 / SPEC-FINAL v1.33 §9.8): a Next batch button and a Screen Wake Lock (Q7.9, Q7.10); task 1.47 points at it.*
@@ -15859,6 +15868,33 @@ git add -A && git commit -m "feat(client): add the lead-approved device wipe, re
 
 # Phase 1 H — browse and search (§20.2.8)
 
+> **Side task (v1.20, user 2026-10-23): sign-in fields stay left-to-right in Hebrew.** On `/login`, a password typed with the Hebrew keyboard by mistake is drawn from the right and runs under the eye button (screenshot from the user: the text sits over the eye icon). Usernames and passwords are Latin credentials, so `PasswordInput` and the username field get `dir="ltr"` with left-aligned text, keeping the eye's `pe-12` room, wherever they are used (sign-in, Switch scouter, Change password, reconnect, the admin's set-password). *[RAISED BY ME]* While the field holds any Hebrew letter, a quiet `--muted` line under it says "Your keyboard is typing Hebrew." (never an error, and the value is not changed). Tests: the input is `dir="ltr"`; Hebrew text shows the hint and Latin text does not; e2e shots of `/login` with a Hebrew password at both widths in every theme, shown and hidden. Logged under Phase 1 H in `DEVIATIONS.md`; ships with Phase 1 H.
+
+> **Side task 2 (v1.21, user 2026-10-23): Wipe anyway** (SPEC-FINAL v1.39 §9.9). Today a held wipe has no way out, so a device whose records can never reach the cloud cannot be cleared. While the wipe is held, the Wipe sheet in Settings keeps its held line and adds, under it, **Send by QR first** (opens `/sync/qr/send`, so the unsent records can be copied to another device) and a destructive **Wipe anyway…** that opens a second confirmation: "**3 records have not reached the cloud. Wiping now deletes them for good.**", the lead's code, and typing the number of records that will be lost ("3") before the filled-ink **Wipe anyway** enables; **Keep this device** first. On confirm, every unacked record (and unfinished entry) is first written to the discarded-records log with the reason "wiped before it reached the cloud" (summary only, as 9.7 does — never the values), then the device is wiped exactly as the normal wipe does (signs out; the discarded log survives). `wipeDevice` gains `{ force: true, expected: n }`: refused unless the code matches **and** `n` equals the device's current unacked count, read in the same transaction (a record saved meanwhile refuses the wipe). Built from the existing sheet and `DestructiveConfirm`; no new design page (16-settings final's sheet, plus the second confirmation in the same component). Tests: the normal wipe is unchanged while held; Wipe anyway with a wrong code, or a wrong or stale count, removes nothing; with the right ones the log holds one row per lost record and the device is empty; Send by QR first opens the sender. e2e shots of the held sheet with the two actions and the second confirmation, both widths, every theme. Logged under Phase 1 H in `DEVIATIONS.md`; ships with Phase 1 H.
+
+> **Side task 3 (v1.22, user 2026-10-23): option-button labels never split mid-word.** In a four-column option group on a phone (the screenshot: an end-game select with Climb · Parked · Low …), "Parked" with its ✓ breaks as "Park / ed", because `components/ui/option-buttons.tsx` lets the label break anywhere (`[overflow-wrap:anywhere]`). A label wraps only **between words**; a single word never breaks. When the longest word of any option does not fit beside the ✓ at four columns, the whole group drops to two columns (one rule for the group, so the buttons stay even), measured, not guessed from character counts; a word too long even for one column (rare) may still break, as the last resort. The ✓ keeps its place. Applies wherever `OptionButtons` is used (entry fields, builder preview). Tests: "Parked", "Defense" and a Hebrew label are never split at 375 px; a group whose longest word fits keeps four columns; e2e shots of the entry's end-game group at 375 and 1440 in every theme, with the selected state. Logged under Phase 1 H in `DEVIATIONS.md`; ships with Phase 1 H.
+
+> **Side task 4 (v1.27, user 2026-10-23): the edit-window refusal says what happened** (SPEC-FINAL v1.44 §7.6). A record refused with `edit-window-expired` now reads, on Entries and on Sync alike, **"Not sent: changed after the 5-minute edit window. A lead can save it for you."** — one line, replacing "Not synced: This entry is locked — ask a lead" (Entries) and "Not sent: This entry is locked — ask a lead. It was changed after its 5 minutes were up." (Sync). `rejectionMessage` (`apps/client/src/data/rejections.ts`) returns "Changed after the 5-minute edit window. A lead can save it for you."; the refused-line label is **"Not sent:"** on both pages (`EntryParts.tsx` changes from "Not synced:"); Sync drops its second "why" sentence for this code; `syncPush`'s `message` for the code becomes the same sentence in lower case. The entry form's own lock message when a scouter opens a locked entry (`EntryPage`, `SuperForm`) is out of scope. Tests: the unit tests and e2e specs that pin the old text (`rejections.test.ts`, `EntriesPage.test.tsx`, `SyncPage.test.tsx`, `outbox.test.ts`, `entries.spec.ts`, `sync.spec.ts`) pin the new one; e2e shots of the refused line on Entries and Sync at both widths in every theme. Logged under Phase 1 H in `DEVIATIONS.md`; ships with Phase 1 H.
+
+> **Side task 5 (v1.28, user 2026-10-23): no edit after 5 minutes** (SPEC-FINAL v1.45 §7.6). Today a scouter's form left open across the 5-minute mark keeps accepting input and only `commit()` refuses ("This entry is locked — ask a lead to change it.", `EntryPage.tsx`). Instead, for a scouter editing their own **match** entry (leads, admins and super entries unchanged):
+> - In the last 60 s the Save bar shows "Editable for 0:45" (mono, `--warn`) above the button, ticking each second from `client_created_at` (the same clock `canSelfEdit` uses).
+> - At the mark the form commits what is typed with `client_updated_at` = `client_created_at` + 5:00 (so `withinSelfEditWindow` passes on the server). It then navigates to the read-only `/entries/:id` (page 25), which shows the Success banner "Saved — the 5 minutes are up."
+> - A field whose value would fail the save's checks (out of `expected_range`, a required field emptied) keeps its last saved value, and the banner adds one line per field: "Not kept: High goal 40 is over 20."
+> - Every other place that could start an edit after the window shows the entry read only: Entries, Sync's **Open entry**, the team page's match rows. The preview's Edit is already hidden.
+> - The old "locked" error in `commit()` stays only as the last guard.
+> 
+> Built from the existing Primary action bar, Success banner and Error-line parts; **no new design page.**
+> 
+> Tests (fake timers):
+> - the countdown appears at 4:00, not before;
+> - at 5:00 the entry is saved with the stamped time and the form is gone;
+> - an out-of-range edit at the mark keeps the old value and names it;
+> - a lead's form never counts down;
+> - a super entry never counts down;
+> - e2e shots of the countdown and the banner at both widths in every theme.
+> 
+> Logged under Phase 1 H in `DEVIATIONS.md`; ships with Phase 1 H.
+
 ---
 
 ## Task 1.50: Server — the browse and search queries
@@ -15996,6 +16032,7 @@ git add -A && git commit -m "feat(server): add team search, entry search and ent
 - `/teams` → `PATHS.teams`, plus a `NAV_ITEMS` row `{ id: 'teams', label: 'Search', icon: Search, group: 'competition', bottomBar: 2, visible: () => true }`. Set Entries' `bottomBar` to 3.
 - The bottom bar becomes Home · Scout · Search · Entries.
 - The search box is `Input type="search"`, and results are `Table` or list rows.
+- *(v1.25)* Build `docs/design/pages/23-team-search/final/` (variant A2) and compare screenshots at 1440 and 375 px: chips All · At this event (**default**) · Other events; a team at the active event is a link row (the whole row, `role="link"`, with the round › and the pressed/hovered state from `THEME.md`), not a separate button; a team elsewhere gets the dashed Other event button; a "Show all" line closes the filtered list; the computer table has no column of other events. Components: Rank badge (side), Link row, Other-event button, Show-all line, Event picker.
 
 **Files:**
 - Create: `apps/client/src/features/teams/TeamSearchPage.tsx`, `apps/client/src/features/teams/TeamSearchPage.test.tsx`, `apps/client/src/features/teams/CrossEventJump.tsx`
@@ -16127,12 +16164,13 @@ git add -A && git commit -m "feat(client): add the season-wide team search with 
 
 ## Task 1.52: Client — entry search and the entry preview page
 
-**Design (redesign system).** Filters are toggle chips with `aria-pressed`. A row opens `/entries/:id` (`PATHS` gains an `entry(id)` helper) as a **full page**, never a drawer or `Sheet`.
+**Design (redesign system).** *(v1.24)* The preview is `docs/design/pages/25-entry-preview/final/` (variant B + D's buttons); compare screenshots at 1440 and 375 px. It shows the header (score, or "—" / "not counted"; none for super), "Scouted by …", the time and the form version; the score band; per-phase subtotals and per-row points; and Team page / Edit, with Edit rendered only when §7.6 allows the viewer to edit (it opens the entry form). `getEntry` (1.50) therefore also returns each field's points, each phase's subtotal, the form version and the team's average. The page's components are in `THEME.md` (Entry header, Score band, Answer rows with points). Filters are toggle chips with `aria-pressed`. A row opens `/entries/:id` (`PATHS` gains an `entry(id)` helper) as a **full page**, never a drawer or `Sheet`.
 
 **Files:**
 - Create: `apps/client/src/features/entries/EntrySearchPage.tsx`, `apps/client/src/features/entries/EntryPreviewPage.tsx`
 - Create: `apps/client/src/features/entries/EntrySearchPage.test.tsx`, `apps/client/src/features/entries/EntryPreviewPage.test.tsx`
 - Modify: `apps/client/src/routes.tsx` (replace the walking skeleton's `/entries` with this)
+- *(v1.26)* **Design: `docs/design/pages/26-entry-search/final/` (variant A).** `/entries` is already the round-05 Entries page (RB.11); `EntrySearchPage` **extends it** rather than starting over: keep its search, chips (All · Mine · Waiting · Needs a look), refused line and key; add the Both · Match · Super segmented switch (Both default), list super entries by time (SUPER tag, no score), make every row and card a link to `/entries/:id`, and drop the station tag from the computer table and the phone cards. Compare screenshots at 1440 and 375 px.
 
 **Interfaces:**
 - Produces: `/entries` — list rows, filters as chips, search that filters as you type; `/entries/:id` — the read-only preview, **a full page, not a drawer**.
@@ -16251,7 +16289,7 @@ git add -A && git commit -m "feat(client): add entry search and the full-page en
 
 ## Task 1.53: Client — the team page
 
-**Design (redesign system).** The team header is the page's own sticky `<header>`, not `PageHeader`. This task's test finds it as `banner` rendering the page standalone. On the live phone layout the shell's `TopBar` is the top-level banner, and a `<header>` inside `<main>` is not one. The tab strip is `<Tabs>`, and stat rows are label → value → inline bar with `ShadedValue`.
+**Design (redesign system).** *(v1.23)* Build `docs/design/pages/24-team/final/` (variant D2) and compare screenshots at 1440 and 375 px against it: tabs Stats · Matches · Progress · Notes; Stats = four stat tiles (median, availability, best match, trend), then stat rows label → shaded value → bar → sparkline, plus reliability; Matches = the match strip (that tab only), then match · status · scouter · points on a phone (no station, no field values) and the table with the metric columns and a Scouter column on a computer; the phone header shrinks to one line once scrolled; the shading ramp and the new components are in `THEME.md` (Team header, Value shading, Stat row, Match strip, Note quote, Progression chart). The `matches` rows of `getTeamStats` (1.57) carry `scouter_name`. The team header is the page's own sticky `<header>`, not `PageHeader`. This task's test finds it as `banner` rendering the page standalone. On the live phone layout the shell's `TopBar` is the top-level banner, and a `<header>` inside `<main>` is not one. The tab strip is `<Tabs>`, and stat rows are label → value → inline bar with `ShadedValue`.
 
 **Files:**
 - Create: `apps/client/src/features/teams/TeamPage.tsx`, `apps/client/src/features/teams/TeamHeader.tsx`, `apps/client/src/features/teams/MatchByMatchTable.tsx`, `apps/client/src/features/teams/NotesList.tsx`

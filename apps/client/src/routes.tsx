@@ -4,6 +4,7 @@ import {
   Navigate,
   useLocation,
   useNavigate,
+  useParams,
   type RouteObject,
 } from 'react-router-dom';
 import { DesktopOnly } from '@/components/DesktopOnly';
@@ -16,7 +17,6 @@ import {
   useShellContext,
   useSignedInUser,
 } from '@/features/shell/shellContext';
-import { EntriesPage } from '@/features/entries/EntriesPage';
 import { HomePage } from '@/features/home/HomePage';
 import { SelectRobotPage } from '@/features/entry/SelectRobotPage';
 import { EntryRoute } from '@/features/entry/EntryRoute';
@@ -26,8 +26,9 @@ import { useIsDesktop } from '@/lib/useMediaQuery';
 
 /*
  * Sign-in and the admin pages load on first use (redesign P7); the PWA precaches their
- * chunks, so they still open offline. Home, Scout, Entry and Entries stay in the main
- * bundle: the competition path never waits on a chunk.
+ * chunks, so they still open offline. Home, Scout and Entry stay in the main bundle: the
+ * competition path never waits on a chunk. Entries left it with task 1.52 (the entry search and
+ * the preview: off the data-entry path, precached, so they open offline).
  */
 const LoginPage = lazy(() => import('@/auth/LoginPage').then((m) => ({ default: m.LoginPage })));
 const ChangePasswordPage = lazy(() =>
@@ -85,6 +86,24 @@ const QrSendPage = lazy(() =>
 // needed. It alone carries `@zxing/browser` and `@zxing/library`; neither reaches the initial chunk.
 const QrReceivePage = lazy(() =>
   import('@/features/qr/QrReceivePage').then((m) => ({ default: m.QrReceivePage })),
+);
+// Season-wide team search (task 1.51): a lazy chunk, precached, so it opens offline — where it
+// ranks the event's teams from the device's own rows.
+const TeamSearchPage = lazy(() =>
+  import('@/features/teams/TeamSearchPage').then((m) => ({ default: m.TeamSearchPage })),
+);
+// The team page (task 1.53): a lazy chunk, precached, so it opens offline — where it computes the
+// team's statistics from the device's own rows with the shared engine (SPEC-FINAL 9.6).
+const TeamPage = lazy(() =>
+  import('@/features/teams/TeamPage').then((m) => ({ default: m.TeamPage })),
+);
+// Entries — the entry search — and one entry's preview (task 1.52): lazy chunks, precached, so
+// they open offline; the 5-minute mark lands on the preview offline.
+const EntriesPage = lazy(() =>
+  import('@/features/entries/EntriesPage').then((m) => ({ default: m.EntriesPage })),
+);
+const EntryPreviewPage = lazy(() =>
+  import('@/features/entries/EntryPreviewPage').then((m) => ({ default: m.EntryPreviewPage })),
 );
 const ManageRoute = lazy(() =>
   import('@/features/admin/ManageRoute').then((m) => ({ default: m.ManageRoute })),
@@ -234,8 +253,58 @@ function ConflictsRoute() {
   );
 }
 
+/**
+ * SPEC-FINAL 13.2 (task 1.51): every team in the season, ranked at the event. It reads the event's
+ * roster and entries, so it waits for the event like Entries.
+ */
+function TeamsRoute() {
+  const eventId = useActiveEventId();
+  return (
+    <Loading>
+      <TeamSearchPage eventId={eventId} />
+    </Loading>
+  );
+}
+
+/**
+ * SPEC-FINAL 13.1 (task 1.53): one team's statistics at the active competition. It reads the
+ * event's roster, entries and forms, so it waits for the event like team search; keyed by the
+ * team, so moving from one team to another starts afresh (tab, charts, scroll state).
+ */
+function TeamRoute() {
+  const teamId = useParams<{ teamId: string }>().teamId ?? '';
+  return (
+    <Loading>
+      <TeamPage key={teamId} teamId={teamId} eventId={useActiveEventId()} />
+    </Loading>
+  );
+}
+
 function EntriesRoute() {
-  return <EntriesPage eventId={useActiveEventId()} />;
+  return (
+    <Loading>
+      <EntriesPage eventId={useActiveEventId()} />
+    </Loading>
+  );
+}
+
+/**
+ * SPEC-FINAL 13.4 (task 1.52): one entry, read only, a full page under Entries. It reads the
+ * event's data, so it waits for the event like Entries; keyed by the id, so moving from one entry
+ * to another starts afresh.
+ */
+function EntryPreviewRoute() {
+  const id = useParams<{ id: string }>().id ?? '';
+  return (
+    <Loading>
+      <EntryPreviewPage
+        key={id}
+        entryId={id}
+        eventId={useActiveEventId()}
+        viewer={useSignedInUser()}
+      />
+    </Loading>
+  );
 }
 
 /**
@@ -299,7 +368,24 @@ export function routeTree(): RouteObject[] {
           element: <SignedInPracticeRoute />,
           handle: named({ title: 'Practice', crumb: ['Scout'] }),
         },
+        // SPEC-FINAL 13.2 (task 1.51): team search, the bottom bar's Search. Its rows open
+        // /teams/:teamId (task 1.53).
+        { path: 'teams', element: <TeamsRoute />, handle: named({ title: 'Search' }) },
+        // SPEC-FINAL 13.1 (task 1.53): the team page names itself ("Team 1690"; the desktop crumb
+        // "Search / 1690 Orbit"); the sidebar and the bar mark Search (no `end`).
+        {
+          path: 'teams/:teamId',
+          element: <TeamRoute />,
+          handle: named({ title: 'Team', crumb: ['Search'] }),
+        },
         { path: 'entries', element: <EntriesRoute />, handle: named({ title: 'Entries' }) },
+        // SPEC-FINAL 13.4 (task 1.52): the entry preview names itself ("Q37 · 1690"; the desktop
+        // crumb "Entries / Q37 · 1690 Orbit"); the sidebar marks Entries (no `end`).
+        {
+          path: 'entries/:id',
+          element: <EntryPreviewRoute />,
+          handle: named({ title: 'Entry', crumb: ['Entries'] }),
+        },
         // Inside the shell: it needs a signed-in device, and never leaves the outbox. It
         // reads only the cached accounts, so it works before any event is loaded.
         {

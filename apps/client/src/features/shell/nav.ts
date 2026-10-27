@@ -6,6 +6,7 @@ import {
   House,
   List,
   RefreshCw,
+  Search,
   Settings,
   Users,
   type LucideIcon,
@@ -73,8 +74,8 @@ export const NAV_COUNT_WORDS: Record<NavCountKey, string> = {
 };
 
 /**
- * Tabs either side of Scout in the middle (spec v1.15). Task 1.51 (Teams) and 1.58 (Ranking)
- * make it Home · Teams · Scout · Ranking · Entries — Entries stays in the bar.
+ * Tabs either side of Scout in the middle (spec v1.15). Task 1.51 makes the bar Home · Scout ·
+ * Search · Entries (23-team-search final): Search and Entries both after Scout.
  */
 export const BOTTOM_BAR_SIDE_MAX = 2;
 
@@ -104,13 +105,23 @@ export const NAV_ITEMS: readonly NavItem[] = [
     visible: () => true,
     disabled: (who) => who.override,
   },
+  // SPEC-FINAL 13.2 (task 1.51): season-wide team search, for every role, after Scout.
+  {
+    id: 'teams',
+    label: 'Search',
+    to: PATHS.teams,
+    icon: Search,
+    group: 'competition',
+    bottomBar: 2,
+    visible: () => true,
+  },
   {
     id: 'entries',
     label: 'Entries',
     to: PATHS.entries,
     icon: List,
     group: 'competition',
-    bottomBar: 2,
+    bottomBar: 3,
     visible: () => true,
   },
   {

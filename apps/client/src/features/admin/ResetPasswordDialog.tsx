@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Handover } from '@/components/ui/handover';
 import { Input } from '@/components/ui/input';
+import { credentialClass, KeyboardHint, withKeyboardHint } from '@/components/ui/password-input';
 import { ErrorLine } from '@/components/ui/notice';
 import type { Rpc } from '@/data/rpc';
 import { adminErrorLine } from './adminMessages';
@@ -142,8 +143,12 @@ export function ResetPasswordDialog({
               autoCorrect="off"
               spellCheck={false}
               aria-invalid={error !== null || undefined}
-              aria-describedby={error !== null ? `${id}-error` : undefined}
-              className="flex-1"
+              aria-describedby={withKeyboardHint(
+                password,
+                `${id}-keyboard`,
+                error !== null ? `${id}-error` : undefined,
+              )}
+              className={`flex-1 ${credentialClass}`}
               onChange={(e) => setPassword(e.target.value)}
             />
             <Button onClick={() => setPassword(generatePassword())}>
@@ -151,6 +156,7 @@ export function ResetPasswordDialog({
               Generate
             </Button>
           </div>
+          <KeyboardHint value={password} id={`${id}-keyboard`} />
         </div>
         <label className="tap-target flex cursor-pointer items-center gap-3 text-sm font-semibold text-ink-2">
           <input

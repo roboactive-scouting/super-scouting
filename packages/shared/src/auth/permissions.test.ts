@@ -6,6 +6,7 @@ import {
   can,
   canEditEntry,
   CAPABILITIES,
+  mayEditEntryNow,
   SELF_EDIT_WINDOW_MS,
   withinSelfEditWindow,
 } from './permissions';
@@ -123,5 +124,47 @@ describe('the five-minute self-edit window (SPEC-FINAL 7.6)', () => {
     };
     expect(canEditEntry(lead, old)).toBe(true);
     expect(canEditEntry(admin, old)).toBe(true);
+  });
+});
+
+describe('mayEditEntryNow (SPEC-FINAL 7.6, task 1.50: the one Edit rule)', () => {
+  const created = '2026-03-14T10:00:00.000Z';
+  const at = (ms: number) => new Date(Date.parse(created) + ms);
+  const own = { scouter_id: 'u-s', form_kind: 'match' as const, client_created_at: created };
+  const service: Caller = { kind: 'service', label: 'mcp' };
+
+  it('lets a scouter edit their own match entry within five minutes of creating it', () => {
+    expect(mayEditEntryNow(scouter, own, at(0))).toBe(true);
+    expect(mayEditEntryNow(scouter, own, at(SELF_EDIT_WINDOW_MS))).toBe(true);
+  });
+
+  it('refuses a scouter past five minutes', () => {
+    expect(mayEditEntryNow(scouter, own, at(SELF_EDIT_WINDOW_MS + 1))).toBe(false);
+  });
+
+  it("refuses another scouter's match entry, and their super entry", () => {
+    const other = { ...own, scouter_id: 'u-other' };
+    expect(mayEditEntryNow(scouter, other, at(1000))).toBe(false);
+    expect(mayEditEntryNow(scouter, { ...other, form_kind: 'super' }, at(1000))).toBe(false);
+  });
+
+  it('lets a scouter edit their own super entry at any time', () => {
+    expect(mayEditEntryNow(scouter, { ...own, form_kind: 'super' }, at(86_400_000))).toBe(true);
+  });
+
+  it('lets a lead or admin edit any entry at any time', () => {
+    const other = { ...own, scouter_id: 'u-other' };
+    expect(mayEditEntryNow(lead, other, at(86_400_000))).toBe(true);
+    expect(mayEditEntryNow(admin, other, at(86_400_000))).toBe(true);
+  });
+
+  it('refuses a service caller, even for a lead-like reading', () => {
+    expect(mayEditEntryNow(service, own, at(0))).toBe(false);
+    expect(mayEditEntryNow(service, { ...own, form_kind: 'super' }, at(0))).toBe(false);
+  });
+
+  it('refuses rather than throws on an unreadable clock or stamp', () => {
+    expect(mayEditEntryNow(scouter, own, new Date(Number.NaN))).toBe(false);
+    expect(mayEditEntryNow(scouter, { ...own, client_created_at: 'nope' }, at(0))).toBe(false);
   });
 });

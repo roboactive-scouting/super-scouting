@@ -128,14 +128,14 @@ describe('the shell (redesign RB.6)', () => {
     expect(screen.getByRole('link', { name: 'Entries' })).toBeInTheDocument();
   });
 
-  it('puts Scout between Home and Entries, and titles the top bar', async () => {
+  it('puts Scout after Home, then Search and Entries (task 1.51), and titles the top bar', async () => {
     await renderShell({ width: 375 });
     const bar = await screen.findByRole('navigation', { name: 'Main' });
     expect(
       within(bar)
         .getAllByRole('link')
         .map((l) => l.textContent),
-    ).toEqual(['Home', 'Scout', 'Entries']);
+    ).toEqual(['Home', 'Scout', 'Search', 'Entries']);
     expect(within(screen.getByRole('banner')).getByText('Home')).toBeInTheDocument();
   });
 
@@ -170,16 +170,18 @@ describe('the phone bar: the current page is the raised button (UF.10)', () => {
     ['/', 'Home'],
     ['/scout', 'Scout'],
     ['/entries', 'Entries'],
+    // Task 1.51: Search is the raised button on team search.
+    ['/teams', 'Search'],
   ])('on %s raises %s, and only it, and marks it current', async (path, name) => {
     const bar = await phoneBar(path);
-    expect(bar.order).toEqual(['Home', 'Scout', 'Entries']);
+    expect(bar.order).toEqual(['Home', 'Scout', 'Search', 'Entries']);
     expect(bar.raised).toEqual([name]);
     expect(bar.current).toEqual([name]);
   });
 
   it('raises nothing on any other page, Scout a flat tab in the middle', async () => {
     const bar = await phoneBar('/switch-scouter');
-    expect(bar.order).toEqual(['Home', 'Scout', 'Entries']);
+    expect(bar.order).toEqual(['Home', 'Scout', 'Search', 'Entries']);
     expect(bar.raised).toEqual([]);
     expect(bar.current).toEqual([]);
   });

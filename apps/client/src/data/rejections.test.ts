@@ -4,10 +4,17 @@ import { rejectionMessage } from './rejections';
 const at = '2026-11-14T09:00:00.000Z';
 
 describe('rejectionMessage — never a raw code in front of a student (SPEC-FINAL 17.8)', () => {
-  it('says a locked entry needs a lead', () => {
-    expect(rejectionMessage({ code: 'edit-window-expired', message: 'x', at })).toBe(
-      'This entry is locked — ask a lead',
-    );
+  it('says what happened to an edit after the window, and that a lead can save it (7.6, v1.44)', () => {
+    const line = 'Changed after the 5-minute edit window. A lead can save it for you.';
+    expect(rejectionMessage({ code: 'edit-window-expired', message: 'x', at })).toBe(line);
+    // A record refused before the rewording still holds the server's old words.
+    expect(
+      rejectionMessage({
+        code: 'edit-window-expired',
+        message: 'this entry is locked — ask a lead',
+        at,
+      }),
+    ).toBe(line);
   });
 
   it('says a forbidden one is not allowed for this account', () => {

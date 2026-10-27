@@ -96,12 +96,34 @@ export function RobotStatusTag({ status }: { status: RobotStatus }) {
 
 /**
  * The dark SUPER tag (15-super final): `--rail` with white text, like the admin tag. It stands
- * where a match entry shows its robot status (super scouting, Sync, the discarded log).
+ * where a match entry shows its robot status (super scouting, Sync, the discarded log, entry
+ * search's table). `compact`: the 22 px tag of a phone entry card and the entry preview's
+ * header (THEME "Super row in a list", "Entry header (read only)").
  */
-export function SuperTag() {
+export function SuperTag({ compact = false }: { compact?: boolean }) {
   return (
-    <span className="inline-flex h-6 items-center rounded-tag bg-rail px-[9px] text-[0.71875rem] font-bold tracking-[0.04em] text-surface">
+    <span
+      className={cn(
+        'inline-flex items-center rounded-tag bg-rail text-surface',
+        compact
+          ? 'h-[22px] px-[7px] text-[0.6875rem] font-extrabold tracking-[0.06em]'
+          : 'h-6 px-[9px] text-[0.71875rem] font-bold tracking-[0.04em]',
+      )}
+    >
       SUPER
+    </span>
+  );
+}
+
+/**
+ * An entry's form kind in the entry preview's header (THEME "Entry header (read only)"): a grey
+ * 22 px "Match entry", or the dark SUPER tag.
+ */
+export function FormKindTag({ kind }: { kind: 'match' | 'super' }) {
+  if (kind === 'super') return <SuperTag compact />;
+  return (
+    <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-tag bg-line-2 px-2 text-[0.71875rem] font-bold text-ink-2">
+      Match entry
     </span>
   );
 }

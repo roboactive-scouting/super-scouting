@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Operation, Role } from '@frc/shared';
 import { beginSync, endSync, setSyncProgress } from '@/data/connection';
@@ -8,6 +8,8 @@ import { db, setMeta, type PushRejection } from '@/data/db';
 import { recordDiscarded } from '@/data/discarded';
 import { ackResults, enqueue, unsyncedCount } from '@/data/outbox';
 import { receiveOperations } from '@/data/qrReceive';
+import { EntryPreviewPage } from '@/features/entries/EntryPreviewPage';
+import { EntryRoute } from '@/features/entry/EntryRoute';
 import { SyncPage } from './SyncPage';
 import type * as QrReceiveModule from '@/data/qrReceive';
 
@@ -135,25 +137,120 @@ describe('SyncPage (SPEC-FINAL 9.10, 17-sync final)', () => {
     expect(await screen.findByRole('button', { name: 'Sync now' })).toBeEnabled();
   });
 
-  it('lists a refused record with the server’s words and its reason, and only Open entry', async () => {
+  const EDIT_WINDOW_LINE =
+    'Not sent: Changed after the 5-minute edit window. A lead can save it for you.';
+
+  it('lists a refused record in one line that says what happened, and only Open entry', async () => {
     await enqueue(op('e-2'));
-    await reject('e-2', 'edit-window-expired', 'this entry is locked — ask a lead');
+    await reject(
+      'e-2',
+      'edit-window-expired',
+      'changed after the 5-minute edit window. A lead can save it for you.',
+    );
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => expect(records()).toHaveLength(1));
-    // In Waiting, counted, with its reason line.
-    expect(record('e-2').nextElementSibling).toHaveTextContent(
-      'Not sent: This entry is locked — ask a lead. It was changed after its 5 minutes were up.',
+    // In Waiting, counted, with its one line: no second "why" sentence (SPEC-FINAL 7.6, v1.44).
+    expect(record('e-2').nextElementSibling!.querySelector('p')!.textContent).toBe(
+      EDIT_WINDOW_LINE,
     );
     await user.click(tab(/Problems/));
     expect(tab(/^Problems\s*1/)).toHaveAttribute('aria-selected', 'true');
     const panel = screen.getByRole('tabpanel', { name: 'Problems' });
-    expect(within(panel).getByText(/This entry is locked — ask a lead\./)).toBeInTheDocument();
+    expect(
+      within(panel).getByText(
+        (_, el) => el?.tagName === 'P' && el.textContent === EDIT_WINDOW_LINE,
+      ),
+    ).toBeInTheDocument();
+    expect(panel).not.toHaveTextContent(/locked|5 minutes were up/);
     const open = within(panel).getByRole('link', { name: 'Open entry' });
     expect(open).toHaveAttribute('href', '/entry/m-1/t-1?alliance=red');
     // No discard, no retry: one action only (SPEC-FINAL 9.10, 17-sync README).
     expect(within(panel).queryAllByRole('button')).toHaveLength(0);
     expect(within(panel).getAllByRole('link')).toHaveLength(1);
+  });
+
+  // Phase 1 H side task 5 (SPEC-FINAL 7.6 v1.45): Open entry never starts an edit after the window.
+  it('Open entry on a scouter’s own entry past its window opens its read-only preview', async () => {
+    const created = new Date(Date.now() - 6 * 60_000).toISOString();
+    await db.rows.bulkPut([
+      { entity: 'forms', id: 'f-1', kind: 'match', season_id: 'se-1', active_version_id: 'fv-1' },
+      { entity: 'app_settings', id: 'singleton', active_season_id: 'se-1' },
+      {
+        entity: 'scouting_entries',
+        id: 'e-2',
+        event_id: 'ev-1',
+        form_kind: 'match',
+        form_version_id: 'fv-1',
+        match_id: 'm-1',
+        team_id: 't-1',
+        alliance: 'red',
+        scouter_id: 'u-yael',
+        robot_status: 'played',
+        breakdown_seconds: null,
+        data: {},
+        version: 1,
+        client_created_at: created,
+        client_updated_at: created,
+        deleted_at: null,
+      },
+    ]);
+    await enqueue(op('e-2', { action: 'update', client_created_at: created }));
+    await reject(
+      'e-2',
+      'edit-window-expired',
+      'changed after the 5-minute edit window. A lead can save it for you.',
+    );
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/sync']}>
+        <Routes>
+          <Route
+            path="/sync"
+            element={
+              <SyncPage eventId="ev-1" viewer={SCOUTER} syncNow={vi.fn(async () => undefined)} />
+            }
+          />
+          <Route
+            path="/entry/:matchId/:teamId"
+            element={<EntryRoute eventId="ev-1" author={SCOUTER} />}
+          />
+          <Route path="/entries/:id" element={<PreviewRoute />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('tab', { name: /Problems/ }));
+    await user.click(screen.getByRole('link', { name: 'Open entry' }));
+    expect(await screen.findByText('Read only')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Q122096ROBACTIVE');
+    expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /review entry/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/locked/)).not.toBeInTheDocument();
+  });
+
+  /** The entry preview (task 1.52) as the route tree mounts it. */
+  function PreviewRoute() {
+    return <EntryPreviewPage entryId={useParams().id ?? ''} eventId="ev-1" viewer={SCOUTER} />;
+  }
+
+  it('reads the new line for a record the server refused in its old words', async () => {
+    await enqueue(op('e-2'));
+    await reject('e-2', 'edit-window-expired', 'this entry is locked — ask a lead');
+    renderPage();
+    await waitFor(() => expect(records()).toHaveLength(1));
+    expect(record('e-2').nextElementSibling!.querySelector('p')!.textContent).toBe(
+      EDIT_WINDOW_LINE,
+    );
+  });
+
+  it('keeps the server’s words and the why for any other refusal', async () => {
+    await enqueue(op('e-2'));
+    await reject('e-2', 'forbidden', 'a scouter may edit only their own entry');
+    renderPage();
+    await waitFor(() => expect(records()).toHaveLength(1));
+    expect(record('e-2').nextElementSibling!.querySelector('p')!.textContent).toBe(
+      'Not sent: A scouter may edit only their own entry. The account that saved it isn’t allowed to make this change.',
+    );
   });
 
   it('opens a refused super entry on its own route', async () => {

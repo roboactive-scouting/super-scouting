@@ -26,6 +26,11 @@ export type SubmitEntryInput = {
   data: Record<string, unknown>;
   draftKey?: string;
   rowId?: string;
+  /**
+   * The edit's `client_updated_at` when it is not now: the save at the 5-minute mark is stamped
+   * `client_created_at` + 5:00 exactly (SPEC-FINAL 7.6 v1.45), however late its timer fired.
+   */
+  clientUpdatedAt?: string;
 };
 
 /**
@@ -76,7 +81,7 @@ export async function submitEntry(input: SubmitEntryInput): Promise<{ row_id: st
   }
 
   const rowId = input.rowId ?? crypto.randomUUID();
-  const now = new Date().toISOString();
+  const now = input.clientUpdatedAt ?? new Date().toISOString();
   const existingRow = input.rowId ? await db.rows.get(['scouting_entries', rowId]) : undefined;
   // A pulled row's timestamp is Postgres's `…+00:00`, which the push protocol refuses.
   const createdAt =

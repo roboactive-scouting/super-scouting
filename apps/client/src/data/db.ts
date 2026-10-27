@@ -69,6 +69,11 @@ export type DiscardedSummary = {
   scouter_id: string | null;
   /** When the entry was last saved on the device. */
   client_updated_at: string;
+  /**
+   * What the record was when it was not a submitted entry (Wipe anyway, SPEC-FINAL 9.9):
+   * "Unfinished match entry", "Match", "Pick list change". Absent for an entry.
+   */
+  what?: string;
 };
 
 /** SPEC-FINAL 9.7: one record in the discarded log, kept for the life of the install. */

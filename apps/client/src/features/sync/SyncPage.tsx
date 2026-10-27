@@ -698,11 +698,12 @@ function openPath(record: SyncRecord): string | null {
 function NotSent({ record, full }: { record: SyncRecord; full: boolean }) {
   if (!record.rejection) return null;
   const to = openPath(record);
+  const why = full && reasonInWords(record.rejection.code);
   return (
     <ErrorLine announce={false} className="py-2 text-[0.8125rem] font-normal">
       <p>
         <b className="font-bold">Not sent:</b> {notSentLine(record.rejection)}
-        {full && <span className="text-ink-2"> {reasonInWords(record.rejection.code)}</span>}
+        {why && <span className="text-ink-2"> {why}</span>}
       </p>
       {full && to && (
         <Link

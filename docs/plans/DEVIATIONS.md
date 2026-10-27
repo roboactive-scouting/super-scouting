@@ -8778,3 +8778,724 @@ Tests, each mutation-checked (guard removed → named test fails → restored): 
 **Rejected alternatives (from the orchestrator's decision, with the user's go-ahead):** keeping version 40 and only raising the camera resolution (177 modules is at most 6 px a module at 1080p, less in practice, and zxing's finder fails worst on large codes: 36 of 40 clean v40 renders missed at 6 px); byte mode read by BarcodeDetector (its `rawValue` is a string, which mangles binary); base64 text (a third larger than the bytes, and it needs byte mode: 10.7 bits a byte, against Base45's 8.25 in alphanumeric mode); slowing the display below 5 fps (longer loops for every batch, and it does not fix a code that cannot be resolved or found).
 
 **Risk:** no real camera has run yet (CI has none): the next device rehearsal is the proof, on an iPhone (zxing path) and an Android phone (native path). Batches are about 4.6 times as many frames: SPEC-FINAL 9.8's "9–13 frames, a cycle in ~2.5 s" for 100–200 entries is now about 40–60 frames, a cycle of 8–12 s. Entries with long entry-map paths make more: the e2e fixture of 13 records with two 95-point paths each is 49 frames, about 10 s, and the receiver's cells wrap to five rows on a phone. At 1080p, zxing decodes about 2.25 times as many pixels per attempt as at 640×480, which is slower on an older iPhone; the 50 ms delay between attempts is unchanged. The finder fix patches a private zxing-js class (`FinderPatternFinder` in esm/), so a `@zxing/library` upgrade must re-check it: `zxingFinder.test.ts` and the `IMPROVED` assertion in `QrReceivePage.test.tsx` will tell. SPEC-FINAL 9.8's encoding table (2,300 bytes, version 40, byte mode, "no base64 expansion", `@zxing/browser` alone) and decision D12 now disagree with the code. They were not edited here (orchestrator's call).
+
+## Phase 1 H side task 1 — sign-in fields stay left-to-right
+
+**Plan said:** `PasswordInput` and the username field get `dir="ltr"` with left-aligned text, keeping the eye's `pe-12` room, wherever they are used (sign-in, Switch scouter, Change password, reconnect, the admin's set-password). While the field holds any Hebrew letter, a quiet `--muted` line under it says "Your keyboard is typing Hebrew." (never an error; the value is not changed). Tests: the input is `dir="ltr"`; Hebrew shows the hint and Latin does not; e2e shots of `/login` with a Hebrew password at both widths in every theme, shown and hidden.
+
+**What was wrong:** nothing blocking. Three facts the plan text does not mention: (1) only sign-in, Change password (both through `AuthField`) and Switch scouter use `PasswordInput`; the reconnect prompt and the three admin set-password fields (Users page Reset password dialog, user page Reset password card, Add a user's Initial password) are plain `Input`s in a row beside buttons, and the admin ones were already `dir="ltr"`. (2) `usernameSchema` accepts letters of any script, so a Hebrew username such as `דנה` is valid (`packages/shared/src/api/users.test.ts`, "accepts letters of any script, including Hebrew"). (3) Python's text mode on Windows wrote CRLF into the edited files on the first pass and `pnpm format:check` failed on 9 files ("Code style issues found in 9 files"); converted back to LF, then clean.
+
+**What I did instead:** the hint lives once, in `components/ui/password-input.tsx`: `hasHebrew(value)` (U+05D0–U+05EA and the presentation forms U+FB1D–U+FB4F; niqqud alone does not count), `HEBREW_KEYBOARD_LINE`, `KeyboardHint({ value, id?, className? })` (renders nothing for Latin text), `withKeyboardHint(value, hintId, describedBy?)` (adds the hint to the field's `aria-describedby` only while it shows), and `CREDENTIAL_DIR` / `credentialClass` (`'ltr'` / `'text-left'`). `PasswordInput` now forces `dir="ltr"` on the input *and* on the wrapper that positions the eye (so `pe-12` and the `end-1` eye stay on the same side even inside a right-to-left container), ignores a caller's `dir` (Switch scouter passed `dir="auto"`; removed there too), and shows the hint under itself, tracking its own text for an uncontrolled `defaultValue`. `AuthField` sets `dir="ltr"` + `text-left` for every field (it is only used for credentials) and adds the hint under the username. The reconnect prompt and the three admin set-password fields keep their plain `Input` and layout and get `dir="ltr"`, `text-left` and a `KeyboardHint` under the row (not inside it, so the buttons beside the field do not move). The hint is a plain `<p>`, not `role="status"`/`alert`, and never sets `aria-invalid`. Alternatives rejected: moving the reconnect prompt onto `PasswordInput` (it would add an eye button the design for that prompt does not have — a UI change outside this task); a `CredentialInput` wrapper component for the row layouts (its hint would sit inside the flex row beside the buttons, or need a wrapper-class prop that every caller must get right); changing the admin Add-a-user and Rename *username* fields (not in the plan's list, and Hebrew usernames are valid there, so the admin types them on purpose); blocking or transliterating Hebrew (the plan says the value is never changed).
+
+**Risk:** a user whose username really is Hebrew sees the quiet line under the sign-in username while typing it; it is informational only and the sign-in still works, and the text renders correctly left-to-right because it is a single-direction run. The admin username fields still use `dir="auto"`, so a Hebrew username there is drawn from the right — consistent with it being a deliberate entry. If a later page adds another password field, it must use `PasswordInput` or `KeyboardHint` + `CREDENTIAL_DIR` to get the same behaviour; nothing enforces it.
+
+## Phase 1 H side task 2 — Wipe anyway
+
+**Plan said:** while the wipe is held, the Wipe sheet adds **Send by QR first** (opens `/sync/qr/send`) and a destructive **Wipe anyway…** that opens a second confirmation ("**3 records have not reached the cloud. Wiping now deletes them for good.**", the lead's code, the count typed, filled-ink **Wipe anyway**, **Keep this device** first). `wipeDevice` gains `{ force: true, expected: n }`, refused unless the code matches and `n` equals the current unacked count read in the same transaction. Every unacked record and unfinished entry goes to the discarded log with the reason "wiped before it reached the cloud" (summary only) before the normal wipe runs. Built from the existing sheet and `DestructiveConfirm`; no new design page.
+
+**What was wrong:** nothing blocked the plan. Choices it left open, and one guard that fired:
+1. *The count.* "Unacked count" is taken as `heldCount(readWipeHold())` = unacked rows + unfinished entries — the same number the held sheet and the normal wipe's refusal already use, and the same set the log is written for, so the typed count always equals the rows the log gains. Rejected: unacked rows only (the drafts are also destroyed, and the plan logs them too, so the typed number would be smaller than the loss).
+2. *Result shape.* A count mismatch returns `{ ok: false, reason: 'wrong-count', unacked: <count now> }`; a stale count is the same refusal (it is a mismatch at transaction time). The normal path's results are unchanged (`{ ok: true }`, `wrong-code`, `unacked`). `{ force: true, expected: 0 }` on a device with nothing held is just the normal wipe. The forced wipe also clears `db.outbox` (the normal wipe never needed to: it only runs with an empty outbox, so adding `outbox.clear()` to the shared path changes nothing for it).
+3. *Log rows.* One row per lost record: each outbox row (its latest operation), each `pending` sync-state row with no operation left (parked / received-by-QR copies), each draft. Ids are `wiped:<at>:<row_id>` / `wiped:<at>:draft:<key>`, so they never collide with the 9.7 rows (keyed by op_id). Reason stored as the sentence `Wiped before it reached the cloud.` (exported `WIPE_REASON`), sentence-cased like `DISCARD_REASON`. Entries use the existing `describeEntry`; a draft is described from its key (`<version>:<match id | super>:<team id>`) with the signed-in user as scouter; a bare match or pick-list/alliance change gets a new optional `DiscardedSummary.what` ("Match", "Pick list change", "Unfinished match entry"…), which `kindLabel` shows. Values are never kept (tested: a `data` value in the payload and in a draft never reaches the log).
+4. *Dismissed on write.* Wiped rows are written with `dismissed_at = discarded_at`, so the Sync notice does not greet the next person to sign in on the handed-on device; the log page still lists them. Rejected: leaving them undismissed (the loss was already shown and confirmed by the lead in the second confirmation; the notice exists for losses nobody saw).
+5. *The log page.* `/sync/discarded` said only "an admin deleted…". It now shows one Note per cause present (the admin's delete, and/or the wipe) and, when any wiped row exists, the subtitle "Records removed from this device before they reached the cloud." Smallest change that keeps the page truthful; no design page touched.
+6. *UI.* Same `DeviceWipe` component: under the held `Notice`, a secondary `Link` "Send by QR first" and a `destructive` `Button` "Wipe anyway…"; the latter swaps the `DestructiveConfirm` (keyed, so the typed field resets) to title "Wipe anyway?", the loss sentence as `loss`, the lead's code as `children`, `typeToConfirm={String(count)}`, confirm "Wipe anyway", no icon. The count is read live: a record saved while the confirmation is open changes the sentence and the required typed number, so the confirm turns off again; if it races the click, the transaction refuses with `wrong-count` and the sheet says "The count changed: N records have not reached the cloud now. Nothing was wiped." "Keep this device" closes the whole sheet. While the forced wipe runs the sheet keeps the count it was sent with (otherwise the emptied device flipped it back to the normal sheet for a frame before sign-out). Singular: "1 record has not reached the cloud. Wiping now deletes it for good."
+7. *Bundle guard fired.* With `recordWiped` in `data/discarded.ts` (which the outbox pulls into the initial chunk), `pnpm bundle:check` printed `initial JS 228.2 KB gzip` / `initial JS over 228 KB gzip` (HEAD measured 227.4 KB).
+
+**What I did instead:** for 7, moved `recordWiped` and its helpers into a new `apps/client/src/data/wipeLog.ts`, imported only by `data/wipe.ts` (reached only from the lazy `DeviceWipe`): initial JS 227.5 KB, under the 228 KB budget, which was not raised. Everything else as described above.
+
+**Risk:** the 228 KB budget now has 0.5 KB of headroom; the next client task will likely need to raise it. `DiscardedSummary.what` is optional and absent on every pre-existing log row, so old rows render as before. A pending sync-state row whose cached row is gone is logged as a scouting entry with "unknown team" (the only shape it can be resolved to). The e2e shot `settings-wipe-held` (existing test) now also shows the two new actions.
+
+## Phase 1 H side task 3 — option labels never split mid-word
+
+**Plan said:** an option button's label wraps only between words; a single word never breaks. When the longest word of any option does not fit beside the ✓ at four columns, the whole group drops to two columns, measured, not guessed from character counts; a word too long even for one column may still break as the last resort. The ✓ keeps its place. Tests: "Parked", "Defense" and a Hebrew label never split at 375 px; a group whose longest word fits keeps four columns; e2e shots of the entry's end-game group at 375 and 1440 in every theme, with the selected state.
+
+**What was wrong:** nothing blocked the plan. Choices it left open, and one existing test the rule contradicts:
+1. *How it measures.* A hidden probe card in each group (`[data-option-probe]`, inside an `aria-hidden`, `invisible h-0 overflow-hidden` holder so it never widens the page): the card's own edge and padding (`CARD_BODY`, shared with the real cards), the accent dot when any option has one, every word of every label stacked one per line (`whitespace-nowrap`), and the ✓. Its width is the card the longest word needs beside the ✓ at the live font and text size. A `ResizeObserver` on the grid and on the probe re-measures (a resize, the fonts arriving, the 150 % text size); `useLayoutEffect` measures once before the first paint. Rule: exported pure `fitColumns(need, width, gap)` → the most of 4 / 2 / 1 columns at which `need <= (width − (n−1)·gap)/n + 0.5`. Rejected: canvas `measureText` (jsdom has no canvas, and the edge, gap and ✓ would still have to be added up by hand); reading a rendered card's overflow (the ✓ is only on the chosen card and the measurement would oscillate between 4 and 2); character counts (the plan forbids it).
+2. *The ✓ is reserved for every option.* The rule uses the chosen card's width for every word, so whichever option is chosen its words stay whole; the visible ✓ is unchanged (only on the chosen card, `ms-auto`, `shrink-0`).
+3. *Words in the probe are drawn by `::before` (`content: attr(data-word)`),* so no `getByText` / Playwright text locator finds a second "Parked" and no screen reader reads it.
+4. *The cascade goes to one column too.* A word that does not fit at two columns sends the group to one (`grid-cols-1`), the plan's "too long even for one column" read as the floor; only then does a word break (`[overflow-wrap:break-word]`, which replaced `[overflow-wrap:anywhere]` and breaks a word only when it overflows its line). The container queries stay as the unmeasured fallback (no `ResizeObserver`, and jsdom): `@min-[26rem]:grid-cols-4` is dropped once the measure says the words do not fit at four, and `@max-[14rem]:grid-cols-1` (task 1.38) is kept.
+5. *A hidden group* (an inactive panel, width 0) keeps its last answer until it shows.
+6. *Labels that are not text* (a `ReactNode` label) bring no words to the probe; every caller today passes strings (`FieldInput`, and the builder's canvas and Try it through it).
+7. *The UF.18 e2e (`entry.spec.ts`, "a four-option select at phone, tablet and desktop widths") expected four columns at 768 and 1440.* Measured in Chrome: the control column is 440 px at both, a quarter is 104 px, and "Parked" (47.5 px at 14 px semibold) with its ✓ needs a 113.5 px card (2 px edge + 32 px padding + 12 px gap + 20 px ✓). Chosen, it broke as "Park / ed": the reported bug. Real output before the change to the spec: `Expected: 4` / `Received: 2` at `entry.spec.ts:143`.
+8. *Bundle.* `pnpm build && pnpm bundle:check` printed `initial JS 228.0 KB gzip` (233,412 bytes in the e2e build, 60 bytes under the 228 KB budget; HEAD measured 227.5 KB). Under budget, so `BUDGET_KB` was not raised.
+
+**What I did instead:** for 7, the spec now expects two columns at 768 and 1440, with a comment giving the measured numbers; its tablet and desktop shots now show the climb group in two columns (the small-desktop shot already did). Everything else as described above. New tests: six in `controls.test.tsx` (the rule with numbers; the whole group drops to two; a group whose words fit keeps four; re-measure on resize down to one column and back; a hidden group keeps its answer; the probe holds every word once, with the ✓, and no text query finds it), with `ResizeObserver` and `getBoundingClientRect` stubbed. New e2e `option-labels.spec.ts`: an end-game group ("Parked", "Defense", "Deep climb", "חנייה חלקית") and a "Fouls drawn" group (0 / 1 / 2 / 3+); with each option chosen in turn, every word of every label is on one line box (`Range.getClientRects()` tops) at 375 and 1440; at 1440 the end-game group is two columns (`data-fit="2"`) and the fouls group four (`data-fit="4"`). Mutation check: with `fitColumns` forced to 4 the spec fails (`Parked chosen: "Parked" on one line`, `Expected - 1 / Received + 1` lines).
+
+**Risk:** with the entry's 440 px control column, a four-option group keeps four columns only when its longest word is about 38 px or less at the default text size (digits, "Low", "Mid"); most real end-game groups now show two columns on a tablet and a computer. That is the plan's rule, but it changes how the UF.18 shots look. The initial-JS budget now has about 60 bytes of headroom: side task 5 (the countdown in the Save bar) will almost certainly have to raise `BUDGET_KB` (BUILD-CONTEXT §12.5). One probe per option group adds a few hidden nodes to the entry page (one span per distinct word).
+
+## Phase 1 H side task 4 — the edit-window refusal says what happened
+
+**Plan said:** a record refused with `edit-window-expired` reads, on Entries and on Sync alike, "Not sent: changed after the 5-minute edit window. A lead can save it for you." — one line. `rejectionMessage` returns "Changed after the 5-minute edit window. A lead can save it for you."; the refused-line label is "Not sent:" on both pages (`EntryParts.tsx` changes from "Not synced:"); Sync drops its second "why" sentence for this code; `syncPush`'s `message` for the code becomes the same sentence in lower case. The entry form's own lock message (`EntryPage`, `SuperForm`) is out of scope.
+
+**What was wrong:** nothing failed; five points the plan left open or stated two ways.
+1. *Capital or lower-case "changed" after the label.* The plan and SPEC-FINAL 7.6 quote the line as "Not sent: changed after …", but the same paragraph has `rejectionMessage` return "Changed after …", Entries renders `rejectionMessage` after the label as it is, Sync's `notSentLine` capitalises whatever it shows, and the 17-sync final README renders "**Not sent:** Changed after the 5-minute edit window. A lead can save it for you."
+2. *"The same sentence in lower case" for the server.* Taken whole, "changed after the 5-minute edit window. a lead can save it for you." would show on Sync as "… window. a lead can save it for you." (Sync capitalises only the first letter of the server's words).
+3. *Records already refused.* Sync showed the server's stored `message`, not the client's text. A device holding a record refused before this ships keeps "this entry is locked — ask a lead" in IndexedDB until the record is re-saved, so Sync would have gone on showing the old line for it.
+4. *Is "Not sent:" for this code only, or for every refusal on Entries?* `refusedText` in `EntryParts.tsx` is the label for every refusal code (`forbidden`, `invalid` too), and the 05-entries README describes "Not synced: …" in general with the edit-window line as the exception.
+5. *The Sync "why" sentence is a `Record<RejectionReason, string>`*, so dropping one code needs a type change.
+
+**What I did instead:**
+1. Capital "C" on both pages ("Not sent: Changed after the 5-minute edit window. A lead can save it for you."), as `rejectionMessage` and the 17-sync final render it; the plan's lower-case quote read as the sentence's wording, not its case after a bold label.
+2. The server's `detail` is `'changed after the 5-minute edit window. A lead can save it for you.'` — lower-case first letter only, the server's existing convention (the old detail was "this entry is locked — ask a lead"). `apps/server/api/index.js` regenerated with `pnpm --filter @frc/server build` (226.6 kb) and in the diff.
+3. `notSentLine` (`data/syncList.ts`) uses the client's `rejectionMessage` for `edit-window-expired` and the server's words for every other code, so Sync and Entries say the same line from the same source, and a record refused under the old wording reads the new line. Rejected: trusting the server's `message` (stale on devices; the two pages could drift apart again).
+4. "Not sent:" for every refusal on Entries, the same label Sync already used for every code. Rejected: "Not sent:" for the edit window only, which would put two labels for the same state on one list; the plan names the label change on `EntryParts.tsx`, and the label is shared there.
+5. `REASON_WORDS` became `Partial<Record<RejectionReason, string>>` without the `edit-window-expired` key, and `reasonInWords` returns `string | undefined`; `NotSent` (SyncPage) renders the "why" span only when there is one. `forbidden`, `invalid` and `parent-deleted` keep their why.
+
+Tests: `rejections.test.ts` (the new line, also for a stored old message), `EntriesPage.test.tsx` (the label "Not sent:" for all three codes, "not synced" nowhere on the page, the new line in Needs a look), `useEntriesView.test.ts`, `outbox.test.ts`, `SyncPage.test.tsx` (the `<p>` is exactly the one line in Waiting and in Problems; new: a record refused in the old words reads the new line; a `forbidden` refusal keeps the server's words and its why), `syncPush.test.ts` (the exact `detail`), `entries.spec.ts` and `sync.spec.ts` (the exact line; "locked" / "5 minutes were up" absent). `entries-look` is now shot at both widths (was phone only), so the Entries refused line has a desktop shot too. Out of scope and unchanged: "This entry is locked — ask a lead to change it." in `EntryPage.tsx` and `SuperForm.tsx`, and "…and the entry is locked — ask a lead…" in `EntryRoute.tsx` (side task 5's path).
+
+Bundle: `pnpm build && pnpm bundle:check` printed `initial JS 228.0 KB gzip`; the e2e build's manifest measures 233,441 bytes, 31 bytes under the 228 KB budget (side task 3 left 233,412). `BUDGET_KB` not raised.
+
+**Risk:** the label "Not synced:" no longer appears anywhere on Entries, also for `forbidden` and `invalid` refusals — a wording change beyond the edit window that the user has not seen on those codes. For records refused before the deploy only the text shown on the device changes; their stored rejection and outbox state are untouched. The initial-JS headroom is now 31 bytes: side task 5 will have to raise `BUDGET_KB` (BUILD-CONTEXT §12.5).
+
+## Phase 1 H side task 5 — no edit after 5 minutes
+
+**Plan said:** for a scouter editing their own match entry (leads, admins and super entries unchanged): in the last 60 s the Save bar shows "Editable for 0:45" (mono, `--warn`) above the button, ticking each second from `client_created_at`; at the mark the form commits what is typed with `client_updated_at` = `client_created_at` + 5:00, then navigates to the read-only `/entries/:id` (page 25) with the Success banner "Saved — the 5 minutes are up."; a field whose value would fail the save's checks (out of `expected_range`, a required field emptied) keeps its last saved value and the banner adds "Not kept: High goal 40 is over 20."; every other place that could start an edit after the window (Entries, Sync's Open entry, the team page's match rows) shows the entry read only; the old "locked" error in `commit()` stays only as the last guard. Built from the Primary action bar, Success banner and Error-line parts; no new design page. Tests with fake timers; e2e shots of the countdown and the banner at both widths in every theme.
+
+**What was wrong:** nothing failed outright; the plan could not be followed literally in one place and left several choices open.
+1. *`/entries/:id` (page 25) does not exist.* It is built in task 1.52, and this run builds nothing from task 1.50 on. **Orchestrator's call (2026-10-26):** after the save at the mark the entry route itself shows the entry read only, in place; when 1.52 lands, the mark should navigate to `/entries/:id` instead.
+2. *Entries opens nothing* (`EntryCard` / `EntriesTable` are static until the preview, SPEC-FINAL 13.4), and the team page is task 1.53. The places that do open an entry today all go to the `/entry/:matchId/:teamId` route: Sync's Open entry, Home's Open, and a draft's Resume.
+3. *The route already had a lock path* (`EntryRoute.tsx`: "This robot is already scouted in this match on this device, and the entry is locked — ask a lead to change it." with Back to scouting), and it was decided on **every render** against `new Date()`. Built as planned, a re-render of the route after 5:00 (seen in the e2e run after a sync) swapped the form's own read-only view for the route's and threw away the banner. Seen in the e2e run: the banner was on screen, and 3 s later the route's view without it (a temporary `DBG` log showed `EntryPage` unmounting with no new resolve).
+4. *The countdown's placement on a computer.* The desktop entry has no Save bar: Review entry is at the foot of the "This entry" panel (`EntrySummary`).
+5. *What "the same checks the normal save uses" are.* Review entry is held by `entryProblems` (out of range — config min/max first, then `expected_range`, as `validateEntryData` orders them —, a required field unanswered, a stopwatch still running, Broke down with no time); `submitEntry` then runs `validateEntryShape` / `validateEntryData`.
+6. *Wording the plan did not give:* a required field emptied, a stopwatch still running, Broke down with no time, and a save that cannot happen at all.
+7. *An entry opened after its window had already closed* (on `EntryPage` directly, e.g. its existing unit test at 6 minutes): saving it at a "mark" would stamp changes made after the window as made inside it.
+8. *Bundle.* The entry route and `EntryPage` are in the initial bundle (the competition path never waits on a chunk), and the budget had 31 bytes left.
+
+**What I did instead:**
+1. **At the mark, read only in place.** `EntryPage` arms one `setTimeout` for `client_created_at` + 5:00 when a scouter (`!editsAnyTime`) opens their own `form_kind = 'match'` entry while its window is still open (`editableUntil`, the clock `canSelfEdit` uses). When it fires, the form closes the review sheet and the problems list, works out what can be kept (`keepSavable`), saves through `submitEntry` with the new `clientUpdatedAt` = `new Date(deadline).toISOString()` (also written to the local row's `client_updated_at` / `updated_at`), and renders `MatchReadOnly`: the header with a **Read only** chip (`ReadOnlyTag`, as the super read-only view), the Success banner with one "Not kept: …" line per change put back, the lock line "Only a lead or an admin can change it now.", and the answers by phase (`EntryAnswers`, as the confirmation and the read-only super entry draw them; a map row opens its map view only). Focus moves to the banner. The stamp does not depend on when the timer actually runs (a sleeping tab), and a `commit()` after the mark whose timer has not yet run goes to the same save. A submit already in flight at the mark goes on (it was stamped inside the window); if it fails, the mark runs then. Rejected: navigating to `/scout` with a notice (the plan wants the entry shown); building a stand-in `/entries/:id` route (task 1.52's job, and a route the preview would then have to replace).
+2. **Every route that opens an entry shows it read only once it cannot be edited.** `EntryRoute` now renders `MatchReadOnly` (no form, no lock error, no alert) instead of the old lock notice, for a scouter's own match entry past its window and for another scouter's match entry (whose lock notice it was too): "Another scouter's entry. Only they, a lead or an admin can change it." inside that scouter's window, "… Only a lead or an admin can change it." after. A lead or admin gets the form as before. Rejected: keeping the notice for another scouter's entry (SPEC-FINAL 7.6 v1.32's "read only means visible" applies to a match entry just as well, and two different refusals on one route read as two rules).
+3. **The route decides once, when it resolves** (`resolvedAt` in its resolved state; `canSelfEdit(existing, author, new Date(resolved.resolvedAt))`). A form left open past the mark is `EntryPage`'s to lock. Test: `EntryRoute.test.tsx` "keeps the form's own save at the mark on screen, banner and all, when the route renders again" (re-renders with a new author object); with the old `new Date()` the test fails.
+4. **Desktop: the countdown sits above Review entry in the "This entry" panel** (`EntrySummary` gained a `foot` slot, `empty:hidden` so nothing moves before the last minute). Phone: inside the `ActionBar`, above the Review entry button, in a column. `EditCountdown` ticks on its own (a `setTimeout` asleep until the last minute, then on each second boundary), so the form does not re-render every second; it is `role="timer"`, `font-num`, `text-warn`, centred, text only (nothing moves, under reduced motion or not). Shown when 0 < time left ≤ 60 s, rounded up to the whole second: "Editable for 1:00" at exactly 4:00, nothing at 3:59. Rejected: an `aria-live` announcement each second (noisy); re-rendering `EntryPage` with `useNow`.
+5. **`keepSavable` (`features/entry/editWindow.ts`, pure) uses `entryProblems`** — the very checks that hold Review entry — on the form as typed: each refused field goes back to its last saved value (or to nothing, i.e. its starting value, when the saved entry never held it), and the checks run again, because putting a value back can show or hide a conditional field. A stopwatch still running at the mark keeps its saved time. Broke down with no time keeps the saved status and breakdown time, and the field changes are still kept. A dead robot (No show, Disabled) saves no field data, as always. If the saved entry itself now fails a check (a field made required in place since) nothing can be saved: `refused`. `rangeProblem` was split into `rangeBreach` (value, limit, side) and the words, so the "Not kept" line reuses the same limit; the problems list's text is unchanged.
+6. **Wording.** Range: "Not kept: High goal 40 is over 20." / "Not kept: High goal -1 is under 0." (the plan's shape; the plain number, no unit). Required emptied: "Not kept: Driver is required and was left empty." Running stopwatch: "Not kept: Cycle time was still running." (always named: its running time is not in its value yet). Broke down with no time: "Not kept: Broke down needs the time it stopped." (the problems list's own reason). A value put back that the scout had not changed is not named. Nothing saved (refused, or `submitEntry` threw): an Error line "Not saved — the 5 minutes are up. A lead can save it for you." with the reason under it, over the entry as last saved; the draft is left on the device (nothing typed is deleted). Rejected: "… was emptied" (reads as if the app emptied it).
+7. **Only an entry opened inside its window counts down or saves by itself.** Opened after it closed (only reachable on `EntryPage` directly, since the route now shows it read only), no countdown and no save: `commit()`'s "This entry is locked — ask a lead to change it." is the last guard, kept as the plan says (`SuperForm`'s copy is untouched: a scouter's own super entry is never locked, and another scouter's is already read only).
+8. **Bundle.** `keepSavable` and `MatchReadOnly` (with the banner) live in the timed parts' lazy chunk (`timedParts.ts`), which `lazyParts.tsx` starts loading as the app starts and the service worker precaches; `MatchReadOnly` has a `lazyParts` stand-in with the existing "didn't load · Try again" notice, and the mark awaits `loadTimedParts()` (if that ever failed: the Error line above, "Part of the app didn't load. What was typed stays on this device."). In the initial bundle stay the mark's timer and save, `EditCountdown`, and the route's switch. Measured: `pnpm build && pnpm bundle:check` printed `initial JS 229.5 KB gzip` with everything in the initial bundle, `initial JS 228.9 KB gzip` after the move (timed parts 13.0 → 13.7 KB). **`BUDGET_KB` raised from 228 to 229** in `scripts/check-bundle.mjs`, and the line in BUILD-CONTEXT §12.5 updated, as the user allows (2026-10-11). Rejected: a separate lazy chunk for the read-only view (a second loader and stand-in set in `lazyParts`, which is initial, would cost about what it saves).
+9. **Tests.** `EntryPage.test.tsx` "no edit after 5 minutes" (fake `setTimeout`/`setInterval`/`Date` with `shouldAdvanceTime`; fake-indexeddb's `setImmediate` stays real): nothing at 3:59 and "Editable for 1:00" at 4:00 in the panel, then 0:45 and 0:44; at 5:00 one `update` op with `client_updated_at` = created + 300000 ms (`2026-11-14T09:05:00.000Z`) and the form gone (no tabs, no controls, no Review entry, no lock text; Read only, the lock line and the saved value shown); an out-of-range change kept at its saved value and named while the other change is kept; a required field emptied likewise; the review sheet open at the mark closes; a lead never counts down or locks; an entry opened after its window never saves by itself. `editWindow.test.ts`: `countdownText`, every "Not kept" line, and `keepSavable` (all kept; range; required; a field never held; a running stopwatch; Broke down with no time; a dead robot; a value put back showing a conditional field; refused). `EntryRoute.test.tsx`: own entry past the window read only (no form, no alert, no "locked"); another scouter's entry read only with the note; a lead gets the form past the window with no countdown; the re-render test above. `SyncPage.test.tsx`: Sync's Open entry on a scouter's own entry past its window lands on the read-only view. `SuperEntryPage.test.tsx`: a super entry left open across 5:00 never counts down or locks. `syncPush.test.ts`: a scouter's update stamped exactly created + 5:00 is applied, created + 5:00 + 1 ms is refused `edit-window-expired` (no server source changed; `pnpm --filter @frc/server build` left `apps/server/api/index.js` unchanged). e2e `entry-window.spec.ts` (Playwright `page.clock`): the countdown at 4:15 (`entry-window-countdown`), the save at 5:00 with "Not kept: Auto notes scored 11 is over 10." (`entry-window-saved`, plus the long phone shot), the pushed operation stamped `2026-03-17T10:05:00.000Z` with Teleop's change and Auto's saved value, the entry opened again read only with the saved values (`entry-window-readonly`), and a lead's form that never counts down; each at 375 and 1440 in Light and Outdoor. The spec answers pushes and pulls with a one-entry server: the shared mock's static pull would otherwise put the server's older copy back over the save.
+
+**Risk:**
+- When task 1.52 builds `/entries/:id`, the mark should navigate there (the Success banner and the "Not kept" lines move with it), and `EntryRoute`'s read-only branch can become a redirect to the preview. Task 1.53's team-page match rows must open the preview, not `/entry/...` for a locked entry. Entries rows open nothing until 1.52.
+- A draft left from before the window closed (a crash at 4:50, reopened at 6:00) is never finished by the scouter: Resume now opens the entry read only, and the draft stays until a lead finishes it on that device or it is discarded.
+- The mark relies on one `setTimeout` up to 5 minutes long; a phone that suspends the page fires it late, which only delays the lock (the stamp is exact either way, and a submit after the mark takes the same path).
+- The pull (`upsertEntities`) puts every pulled row over the local one, including a row whose update is still in the outbox; the e2e shows that with a static mock. Unchanged behaviour, outside this task, but the read-only view shows whatever the device holds.
+- Initial-JS headroom after the raise: about 0.1 KB.
+
+## Phase 1 H side tasks — orchestration (orchestrator, 2026-10-26)
+
+**Plan said:** BUILD-CONTEXT §9: load `executing-plans` and `subagent-driven-development`, one subagent per task, sequentially; the orchestrator commits. The chat's prompt: side tasks 1 → 5 on `feat/phase-1h` from `design/phase-1h` (`f2bbca6`), one commit per side task, never stop to ask, push the branch, no pull request; the last commit carries the exact side task 5 message.
+
+**What was wrong:** instructions set aside by precedence (prompt, BUILD-CONTEXT, then the skills): `executing-plans` says stop and ask on a blocker and use a worktree and `finishing-a-development-branch` — the prompt says never stop, there is one working copy, and the branch is pushed with no pull request. The plan's side tasks carry no commit lines. The side task 2 subagent stalled once ("Agent stalled: no progress for 600s") after its refactor had landed; it was resumed with its work intact and finished. Side task 5's plan text navigates to `/entries/:id` (page 25), which task 1.52 builds, and the prompt forbids anything from 1.50 onwards.
+
+**What I did instead:** commits written in the prompt's side task 5 style (`fix(client)|feat(client): … (Phase 1 H side task N)`). For side task 5, the orchestrator's call: the entry route shows the entry read only in place after the mark, and when opened past the window; 1.52 turns that into a navigation to the preview (see the side task 5 entry). Every subagent's diff was read and the full suite, typecheck, lint, format, `docs:check`, `build` and `bundle:check` re-run by the orchestrator before each commit. Baseline before side task 1: 213 files, 2977 tests.
+
+**Risk:** the read-only view in place is a stand-in that 1.52 must replace; the team page's match rows (1.53) must also open an entry past its window read only.
+
+## Task 1.54 — the scoring engine, the canonical entry and the status rule
+
+**Plan said:** create `packages/shared/src/engine/{types,score,select}.ts` with the tests `score.test.ts` and `select.test.ts` as written in the plan; `scoreField` with a module-level `SCORABLE = new Set([...])` and `Math.max(0, …)` clamps; `hydrateComputed` setting a computed key to the expression's value or `null`; `scoreEntry` returning null for `no_show` / `disabled`; `canonicalEntries` keeping the entry with `entry.client_updated_at > current.client_updated_at` (a string comparison) per `logicalKeyOf`; `entriesForAggregates` = canonical → qualification only (super entries pass) → status rule; export from `index.ts`. Step 2: run the tests and watch them fail; step 4: `pnpm vitest run packages/shared && pnpm typecheck`.
+
+**What was wrong:**
+
+1. _The plan's test file does not compile._ `score.test.ts` calls `hydrateComputed` without importing it, and `const entry = { … } as never; hydrateComputed(entry.data, …)` reads a property of `never` (TS2339, "Property 'data' does not exist on type 'never'").
+2. _The canonical rule compared strings, and left the tie undefined._ `client_updated_at` reaches the engine in two formats (a server row `2026-11-14T09:08:00+00:00`, a client row `….000Z`), which `sync/conflict.ts`'s `isLater` already documents as ordering differently from the instants. With `>` on a tie (the same instant) the first row seen wins, so the canonical entry depended on row order, which differs between a Postgres result and IndexedDB: the browser and the server could count different entries.
+3. _The clamps leaked._ `Math.max(0, NaN)` is `NaN`, so a non-finite `points` poisoned a whole score; `Math.max(0, rule.points * value)` turns a negative `points` times a negative number value into positive points; `rule.option_points?.[value]` reads `Object.prototype` for an option value such as `constructor` (a function, then `NaN`); a multi-select payload repeating an option scored it twice.
+4. _`hydrateComputed`'s `null` differs from what the device saves._ The client's `previewData` (`apps/client/src/features/entry/entryValues.ts`) leaves a computed key out when its value is null or not finite, or when the field's own condition hides it (SPEC-FINAL 5.8).
+5. _Exporting the engine from the middle of `index.ts` broke the server bundle check._ First full run: "FAIL |@frc/server| src/bundle-drift.test.ts > the deployed function bundle > matches src/handler.ts (regenerate with `pnpm --filter @frc/server build`)". A rebuild diffed against `apps/server/api/index.js` showed 297 lines, all module reordering (`forms/scoring.ts` and others pulled ahead of `season/manifest.ts`) and no engine code (the server does not use it yet, so it is shaken out).
+6. _The same first run also failed_ `UserDetailPage.test.tsx > offline once loaded … > holds every section's action, under the one state that says the data is safe` ("Unable to find an element with the text: /safe on this device/"). It passes alone (24/24) and in the second full run; no client file was touched. A timing flake under full-suite load.
+
+**What I did instead:**
+
+1. Tests: `hydrateComputed` is imported, and a typed `scored(status, data)` helper replaces the `as never` casts. Every plan test is kept with its assertion. Added — score: a repeated multi-select option; every type outside the five (derived from `FIELD_TYPES` minus `SCORABLE_FIELD_TYPES`, so a new type is covered) scores 0 with a rule and any value shape; no rule → 0; null / wrong-shape / NaN / Infinity values → 0; `Object.prototype` keys; negative points, negative option points and a negative number value → 0; non-finite points → 0; a dead robot with values is still null; a played robot with nothing is a real 0; a super entry is scored; a rule naming no field or an unscorable field is ignored; fouls recorded as data leave the score unchanged; a key listed twice scores once; a computed field with a rule is never scored; `hydrateComputed` on division by zero, no expression, its own condition hiding it, and other keys left as stored. Select: distinct matches; three duplicates in either order; instants vs strings (`…T11:00:00+02:00` vs `…T10:00:00.000Z`); both tie-break steps in either order; one super entry per team per event; a soft-deleted later duplicate neither counts nor hides the live one; empty input; an unknown match type dropped; a super entry kept; a mixed population; a duplicate counted once. 53 engine tests (the plan had 18).
+2. **The canonical order, defined (`select.ts`, `outranks`), and total, so it does not depend on row order:** (a) the greater `client_updated_at` **as an instant** (`Date.parse`) wins; (b) on the same instant, the greater `client_created_at` instant; (c) on that too, the greater `id` by plain string order. An unparseable stamp sorts below every real one. Soft-deleted rows are dropped before the choice, so a live row always beats a deleted one whatever the stamps (as the conflict review's `counted` already does). Rejected: `latestWins` as it is (a tie keeps the first argument, so order-dependent); the server's `updated_at` or `version` (not on `EngineEntry`, and a row created offline has neither yet); a string comparison (wrong across formats, point 2 above).
+3. `scoreField` reuses `isScorable` from `forms/scoring.ts` (no module-level `Set`: the 1.29 shared-module rule) and takes `Pick<FormFieldDefinition, 'type'>`. One `nonNegative` (finite and > 0, else 0) clamps `points` first and then the product; option scores are read from own keys only (`hasOwnProperty`); a multi select scores each distinct option once.
+4. `hydrateComputed` follows the device's payload shape: a computed field whose value is null, not finite, or hidden by its own condition (`isVisible`) holds no key; otherwise it is set to the recomputed value. It is exported (the plan's interface list omits it; its own comment names it for every read path).
+5. `scoreEntry` uses `isDeadRobot` (`forms/validate.ts`), takes `readonly` arrays, scores each field key once (the first field carrying it), and hydrates computed fields first as the plan says (no effect on the score, since computed is never scored). `entriesForAggregates` uses `isDeadRobot` too; a null status (a super entry) passes, as in the plan. `canonicalEntries` also treats an `undefined` `deleted_at` as live.
+6. `EngineEntry` uses the existing `FormKind`, `Alliance` and `MatchType` types instead of restated literal unions (identical members).
+7. `index.ts`: the engine exports go **last**, after `./version`, with a comment saying why. The rebuilt bundle then differs from the committed one only in the `sourceMappingURL` file name the temp outfile carries, and `bundle-drift.test.ts` passes. Rejected: regenerating and committing a reordered `apps/server/api/index.js` (a 297-line diff to a deployed artifact for no change in behaviour).
+8. Step 2 ("watch fail") was not run as its own step. Instead each rule was mutation-checked, restored and byte-compared with its backup: status rule out of `entriesForAggregates` → 3 failures; out of `scoreEntry` → 2; no tie-break → 2; no `id` tie-break → 1; string comparison → 2; qualification filter out → 2; super entries dropped by it → 1; soft-delete filter out → 3; non-negative clamp out → 1. The gate was `pnpm test && pnpm typecheck && pnpm lint && pnpm format:check`.
+
+**Risk:**
+
+- On an exact `client_updated_at` tie the conflict review's "counted" label (`latestWins(a, b)`, which keeps `a`: server `core/queries/conflicts.ts`, client `features/sync/conflictsView.ts`) can name a different row from the one the engine counts. Millisecond ties between two devices are rare; the fix is for both to call one shared comparator (export `outranks`, or give `latestWins` the same tie-break). Not done here: outside this task.
+- `scoreEntry` scores every field it is handed, deprecated ones included, if a rule names them. Which field set to pass (the active version's, SPEC-FINAL 5.1) is the caller's choice in 1.50 and 1.57.
+- Super entries pass `entriesForAggregates`; an aggregate that must be match-only has to filter on `form_kind` itself.
+
+## Task 1.55 — the aggregation catalogue
+
+**Plan said:** create `packages/shared/src/engine/aggregate.ts` and `aggregate.test.ts`. `aggregate(raw: unknown[], aggregation, options?, direction = 'higher_is_better'): AggregateResult` with `AggregateResult = number | string | null | DistributionBucket[]` and `DistributionBucket = { value: unknown; count: number }`; drop `null` / `undefined`, return null on an empty set; `numbers()` narrowing to finite numbers, linear-interpolated `percentileOf`, OLS `slopeOf` against 1…n, population `stddevOf`, `best` / `worst` null for `neutral`. `applyFilters(entries, filters, fields)` is named in the interface with only "a `describe('applyFilters')` block asserting the fixed evaluation order, `exclude_match_numbers`, `last_n_matches` ordering by event `sort_order` then match number, and `field_filters` with all six operators". Run `pnpm vitest run packages/shared && pnpm typecheck`.
+
+**What was wrong:**
+
+1. _`applyFilters` has no body in the plan,_ and the plan's evaluation order starts with qualification-only and the status rule, which 1.54 put in `entriesForAggregates`. Left to the caller, an aggregate over raw rows would count no-shows, playoffs and duplicates.
+2. _The plan's result types are too loose and too narrow at once._ `value: unknown` loses the type a renderer needs; `number | string` has no `boolean`, yet the mode of a toggle is `true` or `false`. Every caller of a numeric aggregation (1.57's `average_points: number | null`) would have to narrow a union that can never hold a string there.
+3. _Dropping only null / undefined lets NaN and ±Infinity in._ `count` and `rate` would count a NaN as a value (`rate([0, NaN, 5])` = 1/3), and `min([4, -Infinity])` is `-Infinity`. Sums of very large finite values overflow to `Infinity`, which is not a number the UI can show.
+4. _The default rate condition never holds for a toggle._ "points > 0" judged with the visibility rule (ordered operators hold only between numbers) makes `rate([true, true])` = 0, though SPEC-FINAL 11.2 lists rate as the boolean aggregation.
+5. _A multi select's value is an array._ Counted as a distinct value, two equal arrays are two different objects, so `distribution` and `mode` give one bucket per entry.
+6. _The rate condition and `field_filters` need SPEC-FINAL's `Op` comparison,_ which already exists privately in `forms/visibility.ts` (`compare`). A second copy could drift from the visibility rule.
+
+**What I did instead:**
+
+1. `applyFilters(entries, filters, fields)` runs the whole fixed order: scope (the caller's `entries`) → `entriesForAggregates` (canonical → qualification only → status rule) → the metric's `robot_status` → `field_filters` → `exclude_match_numbers` → `last_n_matches`. Details: computed fields are re-derived with `hydrateComputed(entry.data, fields)` before any filter reads them, and the returned entries are copies carrying the hydrated `data` (inputs untouched). `robot_status` only narrows: it cannot bring back a no-show or disabled entry, and a super entry (null status) passes it. An empty list is no filter (all three lists). A field filter on a missing or null value fails, whatever the operator. `exclude_match_numbers` never drops a super entry. The result is sorted in the "last N" order — event `sort_order`, then event id, then match number (a super entry after its event's matches), then team, then id, so it is total — and `last_n_matches` keeps **each team's** last N (`Math.floor`; N ≤ 0 or NaN keeps nothing, N larger than the population keeps all). Map the result to values in its order and `slope` reads the match sequence.
+2. Types: `ScalarValue = number | string | boolean`; `DistributionBucket = { value: ScalarValue; count: number }`; `AggregateResult = ScalarValue | DistributionBucket[] | null`; and `aggregate` is generic, returning `AggregateResultFor<A>` — `DistributionBucket[] | null` for `distribution`, `ScalarValue | null` for `mode`, `number | null` for the rest. Also exported: `AGGREGATIONS` (the catalogue as a const array, so tests iterate every aggregation and a new one cannot be forgotten), `ComparisonOp` (= `VisibilityCondition['op']`), `FieldFilter`, `MetricFilters`. `values` and `option_order` are `readonly`; `direction` is `FieldDirection`.
+3. null, undefined, NaN and ±Infinity are all "not a value": dropped before anything counts. A numeric aggregation reads only `typeof v === 'number'` (no coercion of booleans or numeric strings) and returns null when none is left. Any numeric result that is not finite (overflow) is null, and -0 is returned as 0. `median` is the 50th percentile. `percentile` without a number in 0..100 is null rather than a guess. An aggregation name outside the catalogue is null. A real zero is still a value (`avg([0, 0])` = 0).
+4. `rate` with no `rate_condition` counts `true` or a number > 0 as a hit; with one, it judges through the shared comparison.
+5. `mode` / `distribution` count each distinct option of an array once per entry, skip non-scalar values (coordinates, event logs), and return null when nothing was counted. Order (and mode tie-break): options in `option_order` first, by list position; then unlisted values — numbers ascending, false before true, strings by code unit. Only observed values get a bucket.
+6. `forms/visibility.ts`'s private `compare` is now the exported `conditionHolds` (same body, one doc comment); `isVisible` calls it. The server bundle was regenerated (`pnpm --filter @frc/server build`): the diff to `apps/server/api/index.js` and its `.map` is the two renamed lines only. The engine export goes last in `index.ts`, after `./engine/types`.
+7. Tests: the plan's 11 tests are kept with their assertions (prettier-formatted). Added, 149 more (160 in the file): every aggregation null on empty, all-null, all-NaN/Infinity and (numeric ones) all-non-numeric input, each as its own `it.each` case; a sample of one for all 14; mixed values; NaN out of count and rate's denominator; real zeros; overflow; -0; input not mutated; odd median; negatives; population vs sample stddev; numeric (not string) sort; invalid percentiles; slope by index; toggle rate; explicit conditions; neutral / unknown direction; string, unlisted, boolean, `1` vs `"1"` and multi-select buckets. `applyFilters`: each pair of steps in the fixed order shown to matter; "last N" across two events in either input order; numeric match order; slope fed the sequence; per-team last N; N edge cases; the six operators; strict `=`; missing / null values; AND; a stale stored computed value; `robot_status` narrowing; a super entry. End to end: for every aggregation, a population with a no-show, a disabled robot, a practice and a playoff match, an older duplicate and a soft-deleted copy gives exactly what the two played matches give; the scouted score through `scoreEntry` likewise; null for a team whose every entry is excluded and when the filters leave nothing.
+8. Step "watch it fail" was replaced by mutation checks, each restored and byte-compared with a backup: the empty case returning 0 for each aggregation alone (14 runs, 6 failures each); the numeric guard → 0 (10); mode / distribution with no category → 0 (1 each); stddev and slope of one → 0 (2 each); invalid percentile → 0 (1); neutral best/worst → 0 (2); NaN kept as a value (7); sample stddev (2); overflow passed through (1); raw entries instead of `entriesForAggregates` (35); canonical only (34); status rule removed (31); qualification removed (32); duplicates unresolved (17); `robot_status` re-admitting (1); last N before the field filters (3); no sequence sort (3); last N across teams (1); no computed hydration (1).
+
+Rejected: a running mean (accumulates rounding on integer data, where `sum / n` is exact); coercing booleans to 1/0 for numeric aggregations (the spec gives booleans `rate`, and a silent coercion is a wrong number waiting to happen); throwing on a missing percentile (a metric must render "—", not crash a dashboard); a local copy of the comparison; an empty `robot_status` list meaning "no status allowed"; last N over the whole population (a ranking over many teams would keep the event's last N rows, not each team's); counting arrays as values; mapping ordinal options to rank indices inside `aggregate` (that is value extraction, done before aggregation; see Risk).
+
+**Risk:**
+
+- `applyFilters` hydrates every entry with the one field list it is given. Pass the active version's fields (SPEC-FINAL 5.1); the cross-version type guard (1.56, `resolveFieldAcrossVersions`) must run before a metric aggregates.
+- The population must be one form kind's entries: a super entry passes the qualification and status rules, and in a mixed population it would take a "last N" slot.
+- Ordinal selects: `aggregate` does not turn options into rank indices (SPEC-FINAL 5.3, 12.6). Given the raw option strings, every numeric aggregation returns null — no wrong number, but no number either — until the caller maps values to ranks.
+- `slope` indexes the values it is given 1…n, so a match whose value is missing closes the gap rather than leaving one.
+- The first full gate run failed 3 client tests no file of this task touches: `routes.test.tsx` ("Unable to find role="radio" and name `/broke down/i`", and "expect(element).toBeChecked() … Received element is not checked") and `BuilderUndo.test.tsx` ("Test timed out in 10000ms."), plus 1 unhandled error attributed to `routes.test.tsx`. Both files pass alone (33/33), and the second full run was green (218 files, 3246 tests). Timing flakes under full-suite load, like 1.54's `UserDetailPage` one.
+
+## Task 1.56 — cycles, reliability and the cross-version guard
+
+**Plan said:** create `packages/shared/src/engine/{cycles,reliability,versions}.ts` with tests. `deriveCycles(taps, eventType, timed, tEnd)` → `{ count, durations, timeToFirst }` with the plan's body and seven tests; `reliabilityFor(entries)` → `{ breakdowns, no_shows, disabled, available, missed, availability_rate }`, tested for "the four counts and the rate, that a team with no entries yields `null` rather than `0`, and that `broke_down` counts as available and flagged"; `resolveFieldAcrossVersions(key, versions)` → `{ ok: true; field } | { ok: false; reason: 'type-changed' | 'absent' }`, tested for same type, type changed, absent and a label change. No body for `reliabilityFor` or `resolveFieldAcrossVersions`, and no shape for `versions`. Run `pnpm vitest run packages/shared && pnpm typecheck && pnpm lint`.
+
+**What was wrong:**
+
+1. _`versions` has no shape,_ yet the guard must know which version is the active one (its field is the one returned, SPEC-FINAL 5.1) and which versions the window's entries were recorded under (11.7: "between versions inside the aggregation window").
+2. _"A team with no entries yields `null` rather than `0`" cannot hold for the counts._ No no-shows is a real 0, and task 1.57's own fixtures expect `{ breakdowns: 0, no_shows: 0, disabled: 0, availability_rate: null }` for an empty team.
+3. _Reliability's population is unspecified, and the obvious one is wrong._ `entriesForAggregates` / `applyFilters` (1.54, 1.55) remove no_show and disabled, so reliability built on them would always report 0 missed and a 100 % rate.
+4. _The plan's `deriveCycles` turns bad data into wrong numbers._ A tap stored after `tEnd` gives a negative final cycle (`tEnd − tₙ < 0`); a `NaN` `t` breaks the sort (`a - b` is NaN) and propagates; a negative `t` gives a negative first cycle. `validateEntryData` accepts any finite `t`, negative included (`validTap`).
+5. _Ordinal selects (the orchestrator's addition)._ SPEC-FINAL 5.3 and 12.6 say an ordinal select aggregates on its option rank, but nothing mapped options to ranks: 1.55 left it to callers, which would invite a second implementation, and `aggregate` handed the raw option strings returns null for every numeric aggregation.
+6. _Ordinal option lists across versions._ Adding, removing or reordering an option makes a new version (5.1, v1.20). Ranks read by the active list are wrong for an older entry whose list had another order, and an option the active list no longer has would read as no value and drop out of an average unseen.
+
+**What I did instead:**
+
+1. `resolveFieldAcrossVersions(key, { active, inScope })`, with `VersionFields = { fields: readonly FormFieldDefinition[] }` (a `FormVersionDefinition` satisfies it). `inScope` = every version an entry in the window was recorded under; including the active one is harmless. Rules, in order: no live (non-deprecated) field with the key in the active version → `absent`; any field with the key, in the active version or a version in scope (deprecated ones included), with another `type` → `type-changed`; otherwise `{ ok: true, field }` with the ACTIVE version's field. A label, help text, range, metadata or a nominal select's option list never refuses. A key missing from an older version (the field was added later) is fine. Also exported: `VersionsInScope`, `FieldUnavailableReason`, `FieldResolution`.
+2. `reliabilityFor` returns 0 counts and a null `availability_rate` when no match counts (also when the only entries are practice or playoff ones). `Reliability` is exported.
+3. Reliability reads `canonicalEntries(entries)` (one entry per (team, match), the latest `client_updated_at`, soft-deleted never) filtered to `form_kind = 'match'` and `match_type = 'qualification'`, then counts each status: played → available; broke_down → available and a breakdown; no_show → missed and a no-show; disabled → missed and disabled. A super entry never counts; a match entry with a null `robot_status` (the column is nullable) is counted neither way. It takes ONE team's entries and does not split by team.
+4. `deriveCycles` keeps the plan's formulas and its seven tests verbatim, and also: ignores a tap whose `t` is not finite or is below 0; closes the timed final open cycle only when `tEnd` is finite and ≥ tₙ (a tap at exactly `tEnd` gives a real 0-length final cycle, as a tap at t = 0 gives a 0 first cycle in the plan's own test); sorts a copy (input untouched). Taps are typed `readonly CycleTap[]` (`{ type: string; t: number }`, which `EventLogTap` satisfies). Added tests: empty input timed and un-timed; the empty series aggregates to null for 8 aggregations; unsorted input; same-instant taps; the bad-`t` and late-tap cases; un-timed ignores `tEnd`; every duration ≥ 0; and, over a population through `applyFilters` (a no-show, a disabled robot, an older duplicate, a practice match), only the two played matches' series appear, so no zero stands in for a dead robot.
+5. **The orchestrator's call:** one exported helper, `aggregationValue(field, value)`, in `versions.ts` beside the guard (the guard decides which field reads every entry). Ordinal single select (`is_ordinal === true`) → the option's 0-based index in the field's option list, worst → best, top = 0; an unlisted option or a non-string → null. **Ordinal multi select → the highest rank selected** (the best level reached); an empty array → null, and any unlisted option in it → null rather than a rank read from the rest. Every other field (a nominal select, `is_ordinal` null or false, any other type even if wrongly marked ordinal) → the value unchanged. Read it with the field the guard returned, so every version's entries share the active list's ranks.
+6. **The orchestrator's call, decided here:** when the active field is an ordinal select, the guard returns `type-changed` unless every in-scope version's option values appear in the active list in the same relative order (a subsequence). An option ADDED anywhere is accepted (each older option keeps exactly one rank under the active list); an option REMOVED from the active list, or a REORDER, refuses. The older version's own `is_ordinal` does not matter: the active field decides how values read (`is_ordinal` is an in-place edit, plan line 13022). It is the same reason as a type change rather than a third one, so the UI keeps SPEC-FINAL 11.7's two messages.
+7. The exports go at the end of `packages/shared/src/index.ts`, after `./engine/aggregate`. The server does not use them yet; the full suite (bundle-drift included) is green without rebuilding `apps/server/api/index.js`. No module-level `Set` or `Map`.
+8. Step "watch it fail" was replaced by mutation checks, each restored and byte-compared with a backup (`cmp`): the cross-version `type` check removed → 5 failures; practice/playoff let into reliability → 2; duplicates let through (soft-deleted still dropped) → 1; raw entries into reliability → 2; the ordinal mapping made identity → 6; the ordinal order check removed → 3; the late-tap final-cycle guard removed → 2. 60 new tests (cycles 26, reliability 10, versions 24). The gate was `pnpm test && pnpm typecheck && pnpm lint && pnpm format:check` and `pnpm docs:check`.
+
+Rejected: `versions` as a plain array with the active one first (an order convention a caller can get wrong silently); handing the guard the entries so it finds the versions itself (it would still need every version's definition, and the caller has both); building reliability on `entriesForAggregates` (it would count no missed match at all); counting a null-status match entry as available (it says nothing either way); clamping a negative final cycle to 0 (a zero cycle that never happened); throwing on a bad tap (a dashboard must render "—", not crash); a third refusal reason for a reordered ordinal (the spec has two messages); refusing an ordinal on any option-list change (one option added to a climb list would refuse a whole season's metric with no wrong number to prevent); an ordinal multi select always null, or its mean rank (the highest level reached is what a "levels" field is built for; the mean rank of a set has no meaning); mapping ranks inside `aggregate` (value extraction, not aggregation, as 1.55 decided).
+
+**Risk:**
+
+- `timed` is not stored on an entry. The client knows it while scouting (`matchClock.wasTimed()`, `apps/client/src/features/entry/matchClock.ts`), but neither `data` nor a skeleton column records it, so a cycle metric cannot choose the timed or un-timed series per entry. `tEnd` is `matchEndSeconds(timer_config)` (`forms/timer.ts`). Whoever builds cycle metrics has to decide how `timed` is persisted.
+- `deriveCycles` takes taps, not entries: a dead robot's empty log gives `count: 0`. Feed it only entries `applyFilters` kept, or a no-show becomes a zero cycle count.
+- `reliabilityFor` adds up whatever it is handed: pass one team's entries, or the counts are the population's.
+- `aggregationValue` turns ordinal values into ranks for every aggregation, so `mode` / `distribution` then report ranks; a renderer that wants option labels maps the rank back through the option list. The plan's 12.6 shading (`shadeFor` with `{ kind: 'ordinal', options }`) computes an option's position itself; it should read the rank from `aggregationValue` rather than become a second copy.
+- The guard checks only the versions it is given: a caller that leaves a version out of `inScope` is not protected.
+
+## Phase 1 I engine (1.54–1.56) — orchestration (orchestrator, 2026-10-26)
+
+**Plan said:** BUILD-CONTEXT §9: one subagent per task, sequentially, the orchestrator commits with the plan's exact messages. The chat's prompt: 1.54 → 1.55 → 1.56 on `feat/phase-1h`, never stop to ask, push the branch with no pull request, prove the negatives and mutation-check the status rule.
+
+**What was wrong:** SPEC-FINAL 5.3 / 12.6 say an ordinal select aggregates on its option rank, but no engine task maps options to ranks: 1.55's `aggregate` reads only numbers, so "average climb level" would have been null, or a caller would have written a second rank implementation. Two client tests (`routes.test.tsx`, `BuilderUndo.test.tsx`) and one in 1.54's run (`UserDetailPage.test.tsx`) failed once each under full-suite load and passed alone and on re-runs.
+
+**What I did instead:** the rank mapping was given to 1.56 as `aggregationValue` beside the cross-version guard (0-based, top of the list = 0; an ordinal multi select reads its highest rank; an ordinal whose older option list is not an in-order subsequence of the active one is refused as `type-changed`) — see the 1.56 entry. The orchestrator read every diff, re-ran `pnpm test && pnpm typecheck && pnpm lint && pnpm format:check && pnpm docs:check` before each commit, and ran its own mutation checks: the status rule out of `entriesForAggregates` (3 tests fail) and the type check out of `resolveFieldAcrossVersions` (5 tests fail), each restored. Floor: 3033 tests / 215 files at `cffc922`.
+
+**Risk:** whether an entry was timed is not stored, so `deriveCycles`' `timed` argument cannot be chosen per stored entry yet — a spec decision before any cycle metric ships. The flaky client tests can fail CI intermittently.
+
+## Task 1.50 — The scoring breakdown lives in `packages/shared` (orchestrator D1)
+
+**Plan said:** `getEntry` returns "one entry fully rendered with its derived score", and task 1.52's design note adds each field's points, each phase's subtotal, the form version and the team's average. The plan names no function for the per-field points.
+
+**What was wrong:** `scoreEntry` returns only the total. A breakdown built in the server or the client would be a second scoring implementation (SPEC-FINAL 11.1), and the 1.52 preview must render offline from the device's own rows.
+
+**What I did instead:** `packages/shared/src/engine/breakdown.ts` (new, exported last from `index.ts`):
+- `scoutedPoints(entry, fields, rules): number | null` — `scoreEntry`, except a **super entry is null**. `scoreEntry` itself scores a super entry's data (it reads only `robot_status`), but no page shows a super score (13.3, 13.4), so this is the one place that says so. `queryEntries.scouted_points` and `getEntry.scouted_points` both come from it.
+- `scoreBreakdown(entry, fields, rules): { total, phases }` with `entry = { form_kind, robot_status, data }` (plain row columns). No-show / disabled → `{ total: null, phases: [] }`. Super → phases with every `points` and `subtotal` null, total null. Otherwise `total` IS `scoutedPoints(...)` (not a re-summed figure, so fractional points can never drift from `scoreEntry`), and each phase's `subtotal` is the sum of its rows' points, or null when no row in it is scored.
+- Rows are what the confirmation summary shows (`EntryAnswers`): every field but a `section` heading, each key once (the first field that carries it, as `scoreEntry` does), under `phase ?? 'post_match'`, phases in `FIELD_PHASES` order, empty phases dropped. Computed fields are re-derived (`hydrateComputed`) and shown, unscored. A field the active version retired (`deprecated`) or whose own condition hides it is left out **unless the entry holds a value for it** — a held value is exactly what `scoreEntry` scores, so the rows always add up to the total. The confirmation summary has no such rows because its fields are the entry's own version; scoring here uses the ACTIVE version (5.1), whose fields can differ.
+- `points` is a number when a rule names the field and the type is scorable (0 included: "a scored field that earned nothing"), null otherwise. `value` is the hydrated stored value, except a single select's is its option **label** and a multi select's is the array of its picks' labels (an option no longer listed reads as its stored value). A field the entry holds nothing for has **no `value` key** (not null: a Timer's null means "Unsure").
+- Tests: `breakdown.test.ts` (14), including `total === scoreEntry` for played, empty and broke-down entries and for fractional points, and the held-retired-field case.
+
+Rejected: subtotal 0 for an unscored phase (the Notes card would read "0 pts"); `value` as a display string (a map field needs its taps to open the map view, UF.24); including a retired field only when it scores (a held value is shown either way, as the device would).
+
+**Risk:** the preview shows the ACTIVE version's labels and options for an entry scouted on an older version; a key the active version no longer has at all is not shown (and not scored, as before).
+
+## Task 1.50 — `averagePoints` and the interim rank (orchestrator D2, D3)
+
+**Plan said:** §13.2 "marks a team in the active event with its rank". No stored rank exists in the schema.
+
+**What was wrong:** nothing to read; the ranking dashboard is task 1.58.
+
+**What I did instead:** `averagePoints(entries, fields, rules) → { avg, matches_counted }` = `aggregate(applyFilters(entries.filter(form_kind === 'match'), {}, fields).map(scoreEntry), 'avg')`; one team's entries, the caller groups. `rankByAveragePoints(entries, teams, fields, rules) → TeamRank[]` (`{ team_id, number, rank, avg, matches_counted }`): each roster team's `averagePoints`, ranked highest first, ties to the lower team number, positions 1, 2, 3 with no shared places; a team with no counted match entry (only no-show, disabled, practice, playoff or no entries) has `rank: null` and comes after the ranked ones by number; entries of a team not in `teams` are ignored. `searchTeams` ranks the event's live roster with the season's match form (its active version's fields and the form's rules). **Interim until task 1.58** — 1.58 should replace the source of `rank`, not add a second one.
+
+**Risk:** a team whose only counted matches all scored 0 is ranked (avg 0), last among the ranked.
+
+## Task 1.50 — Which event, which season, which teams (orchestrator D4)
+
+**Plan said:** `searchTeams` searches "all teams in the season"; `listTeamEvents` returns "the events a team has entries at".
+
+**What was wrong:** teams are a global registry with no season column; the only season link is `event_teams` (an event's roster). The Store's `listTeams({ seasonId })` option is "reserved for searchTeams" and unused.
+
+**What I did instead:**
+- **The season's teams** = teams on the **live** roster of any event of the season (rosters read per event, `getRoster`). A team removed from every roster but still holding entries is not listed. `listTeams`' `seasonId` stays unused.
+- `searchTeams` takes the effective event from `event_id`, else `getActiveContext().active_event_id`; an `event_id` naming no event is `not-found`. With no event, the active season's teams are listed unranked (`event: null`); with no season either, an empty result. Default `filter` is `all` (the plan's test expects t-3 in an unfiltered search); the page's own default chip ("At this event") is the client's.
+- `listTeamEvents` has no event input (D5's shape), so it reads the **active season** (`getActiveContext().active_season_id`): the event picker only offers events of the season being searched. No active season → empty.
+- `queryEntries` requires `event_id` and reads only that event.
+
+**Risk:** a session override (1.51) to an event of ANOTHER season would make `listTeamEvents` list the global active season's events, not the override's. Today every event the picker offers is in the active season, so this cannot arise from the UI.
+
+## Task 1.50 — The Store's three read stubs changed shape
+
+**Plan said:** `context.ts` declared `queryEntries({ eventId, formKind?, query?, limit, cursor?: string })`, `listTeamEvents(teamId): StoredRow[]` and `getEntry(id)`, and "a task that wants a method not on this list has drifted".
+
+**What was wrong:** an opaque string cursor inside the Store would have to be decoded twice (the use case validates every cursor before it reaches a PostgREST filter, as listConflicts does); `getEntry`'s team average needs one team's entries; a team search page needs the other events of a whole page of teams in one read, not one read per team.
+
+**What I did instead:** no new methods; the three stubs' signatures changed (as task 1.41 replaced `listConflicts`):
+- `queryEntries({ eventId, formKind?, teamId?, query?, limit, after?: EntryKeyset })` — `EntryKeyset = { client_created_at, id }`; live rows only, newest first by (client_created_at desc, id desc).
+- `listTeamEvents(teamIds, eventIds): TeamEventEntries[]` — `{ team_id, event_id, entry_count, last_entry_at }` per pair with live entries; batched (`in` chunks of 100), paged by 1000 (`range`), grouped in TS (PostgREST aggregates are off by default on Supabase).
+- `getEntry(id)` returns a soft-deleted row too; the use case refuses it (`not-found`).
+- `entriesForScope` is still a stub (task 1.57).
+
+**The search in SQL (Supabase store):** a query first reads the typed `team_id, match_id, scouter_id` of the event's live entries (paged), then those teams, matches and users, matches them in TS by `core/entrySearch.ts` (ONE copy, also used by the fake), and filters the page by `or=(team_id.in.(…),match_id.in.(…),scouter_id.in.(…))`. Every list is bounded by the event's entries, not the registry. With a keyset as well, both go in ONE `or` parameter as `or=(and(or(<search>),or(<keyset>)))`, because two `or` query parameters are not documented to AND. A query that names nothing returns `[]` without reading the page. The JSONB is never read by SQL.
+
+Rejected: an embedded-resource filter (`teams!inner(...)`) — PostgREST cannot OR across different embedded tables; resolving teams over the whole registry (an `ilike '%a%'` could name thousands of ids in a URL); fetching the event's rows and paging in TS (the plan: "filters and pages in SQL").
+
+**Risk:** the nested `and(or(…),or(…))` filter and the quoted-timestamp keyset are verified by the recording-db unit tests only, not against a live PostgREST (this task ran nothing against Supabase). The quoted keyset is the form `listOpenConflicts` already uses on dev. A first dev run of 1.52's entry search with a query AND a second page is the real proof.
+
+## Task 1.50 — Search and pagination rules
+
+**Plan said:** searchable "by team name, team number, match number and scouter name"; "bounded and paginated".
+
+**What was wrong:** the matching rules and the cursor kinds were not specified.
+
+**What I did instead:** case-insensitive and literal throughout. Team: name substring or number **prefix** (as `listTeams`). Match: the number **exactly** ("3" is Q3/P3/PO3, never Q13), or the device's label ("q4", "PO1"). Scouter: full-name substring. `queryEntries` pages by keyset (`{c, i}`, the instant kept as the database wrote it); `searchTeams` and `listTeamEvents` page by **offset** (`{o}`) because their order is computed (rank) — a team whose rank changes between pages can repeat or be skipped, as on any live ranking. Limits: searchTeams 50 / max 200, listTeamEvents 50 / max 100, queryEntries 50 / max 200, each clamped. Event-wide reads inside a use case (ranks, counts, a team's average) walk `queryEntries` 1000 at a time and stop at 20 000 rows.
+
+**Risk:** `searchTeams` reads every live entry of the event (with `data`, to score the ranks) on each call. At a venue-sized event (~600 entries) that is one page, but a client that calls it per keystroke should debounce, or rank on the device with `rankByAveragePoints` from its pulled rows.
+
+## Task 1.50 — `mayEditEntryNow`: one Edit rule (orchestrator D6)
+
+**Plan said:** `getEntry`'s Edit shows only to someone allowed to edit under §7.6.
+
+**What was wrong:** `canEditEntry` (shared) does not exempt a super entry; the client's `canSelfEdit` added the exemption itself, so a server-side `can_edit` would have been a third copy.
+
+**What I did instead:** `mayEditEntryNow(caller, { scouter_id, form_kind, client_created_at }, now: Date): boolean` in `packages/shared/src/auth/permissions.ts` (plus `EntryEditSubject`): lead/admin always; a scouter their own super entry any time and their own match entry while `withinSelfEditWindow(client_created_at, now)`; another scouter's entry and any `service` caller never; an invalid `now` or stamp is false, not a throw. `canSelfEdit` (`apps/client/src/features/entry/localEntries.ts`) now delegates to it, with identical results. `getEntry` passes `ctx.now()` (the injected clock; the fake's `nowValue`). Tests: 7 in `permissions.test.ts`, 5 `can_edit` cases in `search.test.ts` (past 5 min, another scouter's entry and a service caller are false), each proved by a mutation (`can_edit` forced true → 4 failures; the soft-delete check removed → 1).
+
+**Risk:** the server's push still exempts a super entry by its own code path (task 1.40) — the same rule, a second spelling. Moving it onto `mayEditEntryNow` is a later clean-up (it compares `client_updated_at`, not `now`).
+
+## Task 1.50 — Wire shapes as built (orchestrator D5)
+
+**Plan said:** the shapes of D5.
+
+**What was wrong:** a few types were open.
+
+**What I did instead:** schemas in `packages/shared/src/api/search.ts`, rows in `API`: `searchTeamsInput/Output`, `teamSearchItem`, `listTeamEventsInput/Output`, `queryEntriesInput/Output`, `entrySummary`, `getEntryInput/Output`, `breakdownField`, `breakdownPhase`, constants `SEARCH_TEAMS_*`, `LIST_TEAM_EVENTS_*`, `QUERY_ENTRIES_*`, `TEAM_SEARCH_FILTERS`, `ROBOT_STATUSES`. Ids are `z.string().min(1)`, not uuids (the fake's ids are not; the Supabase store reads a non-uuid as no row), as `conflicts.ts`. `team_number`/`team_name` are non-null (`scouting_entries.team_id` is `on delete restrict`; a missing team throws); `scouter_name` is nullable, as conflicts' authors are. `match_label` comes from `matchLabel` — moved from the client's `lib/matchLabel.ts` into `packages/shared/src/format.ts` (with `MATCH_TYPE_PREFIX`) so the server writes the label the device shows; the client module re-exports it. `match_label`, `match_type`, `match_number` are null for a super entry. `getEntry.form_version` is the version NUMBER; `team_average` is `averagePoints` over the team's live match entries at the **entry's** event (null for a super entry). A form with no `active_version_id` scores with the entry's own version; an entry whose version is gone scores null in the list and is `not-found` in `getEntry`.
+
+**Risk:** none known.
+
+## Task 1.50 — Fixture, plan test and bundle
+
+**Plan said:** implement `seedSmallSeason` and `softDelete` in `fake-context.ts`; the plan's test file verbatim.
+
+**What was wrong:** nothing; three small departures.
+
+**What I did instead:** the seed lives in its own module, `apps/server/src/test/small-season.ts` (`SMALL_SEASON` ids exported), called from `fake-context.ts` — the fake is 1700 lines already. ev-2's entries are `e-21`/`e-22` (t-2's and t-3's), so `listTeamEvents('t-1')` is `['ev-1']`; `e-9` is on the retired v1 and scores 3 by v2's rules (the active-version rule is tested). `softDelete` sets `deleted_at`, `updated_at` and bumps `version`. The plan's test is verbatim except its imports carry `.js` (`./search.js`, `../../test/fake-context.js`), as every server test does. The new API rows put the initial client JS at **229.4 KB** gzip (no engine code reached the initial chunk; the growth is the four zod schemas the typed client imports with the whole `API` map), so `BUDGET_KB` went **229 → 230** (`scripts/check-bundle.mjs`, BUILD-CONTEXT §12.5 updated).
+
+**Risk:** `pnpm format:check` reports only `NEXT-CHAT.md` (the untracked handoff file, untouched here); it passes once that file is deleted before the commit.
+
+## Task 1.51 — The plan's test predates the design; adapted to the final (A2)
+
+**Plan said:** the plan's `TeamSearchPage.test.tsx` verbatim: `listitem`s named by team, a button "Open 2096" navigating to `/teams/t-1`, a button "3339 competed elsewhere", an event button "Week 3", an "are you sure" dialog with Cancel and "Switch for this session", the offline line "only the default competition is available offline", and a `searchTeams` mock returning `{ items, next_cursor }`.
+
+**What was wrong:** `docs/design/pages/23-team-search/final/README.md` (user, 2026-10-23) replaced every one of those: the WHOLE row is the link (no Open button; a `<li>` takes no accessible name from its content anyway), At this event is the default chip (3339 is not in the default list), the dashed Other event button, a radio picker with Cancel / Continue, the are-you-sure "Switch to another event?" with **Keep <event>** first and **Switch and open**, and the offline Note "Offline. Other events need a connection; teams at <event> still open." The mock also lacked `counts` and `event`, which `searchTeamsOutput` requires.
+
+**What I did instead:** the same proofs against the final: rows are links named "2096 ROBACTIVE, team page" with `href="/teams/t-1"` (no Open button); the rank badge is an image named "Rank 1, medal" / "Rank 9", only on at-event rows; medals on ranks ≤ 3 only; "3339 BumbleB: other event" opens the picker (`listTeamEvents` called with the team id), Continue opens "Switch to another event?", Keep leaves `sessionOverride.get()` null and never navigates, Switch and open sets `ev-2` and navigates to `/teams/t-4`; offline the button is disabled, a click opens nothing, the design's Note shows and the rpc is never called. Added: At this event is the default, Show all selects All, the override's event is what `searchTeams` is asked for, the offline list comes from the cache with the shared ranks, a server failure falls back to the device, an override with no connection offers the way back, and the phone rows.
+
+**Risk:** none; every plan proof is kept in substance.
+
+## Task 1.51 — Offline, the list holds the season's other teams too (orchestrator: "All shows those teams only")
+
+**Plan said (orchestrator decision):** offline, build the at-this-event list from the cache; All shows those teams only, and the Other events part shows the offline note.
+
+**What was wrong:** the device already holds every team of the season (SPEC-FINAL 9.3's synced set: "Every team in the season … needed because team search is season-wide (§13.2) and must work offline"; `apps/server/src/repos/pull.ts` scopes `teams` as `season-teams`), and the final's offline frame (phone 5) lists teams at other events with their Other event buttons disabled at 45 %.
+
+**What I did instead:** offline, the list is every cached season team: the roster's teams ranked at the event, the rest as "not at this event" rows with the Other event button disabled; the chips and counts cover both; the Note shows. The device holds no other event, so those rows name no event offline ("not at this event") and `other_events` is empty. Rejected: hiding them (a search for a team at another event would look empty offline, the thing the Show-all line exists to prevent).
+
+**Risk:** a team that left every roster of the season since the last pull still shows until the next pull, as every cached row does.
+
+## Task 1.51 — One season list per event, filtered and searched on the device
+
+**Plan said:** "filters as you type"; the orchestrator: page through `next_cursor`; debounce, or search on the device.
+
+**What was wrong:** nothing; the choice was open.
+
+**What I did instead:** online (no override) and always under an override, ONE `searchTeams({ event_id: <effective>, filter: 'all', limit: 200 })` walk (at most 5 pages) per effective event and connection change; the query and the chips filter that list on the device with `teamHit`, the server's own rule (name substring, any case; digits = number prefix), so no keystroke reaches the server and nothing needs a debounce. The chip counts follow the query, as the server's `counts` do (the mock-up's static counts while typing came from its helper, not a decision). While the server answers, and if it fails, the device's list shows (no override). Under an override: offline → `StateMessage offline-needs-server` ("<event> is not on this device; its teams need a connection") with "Back to <default>" (clears the override); a failure → `StateMessage failed` with Try again. Whether to fetch reads the app's `useOnline`; the cross-event path itself is gated only by `useCapability('cross_event_view')`.
+
+**Risk:** a season over 1000 teams would be cut at 5 pages; a real season has a few hundred.
+
+## Task 1.51 — Small calls the design left open
+
+**Plan said:** the README's head, rows and dialogs.
+
+**What was wrong:** some values were not specified.
+
+**What I did instead:**
+- **Our team** is `OUR_TEAM_NUMBER = 2096` in `features/teams/teamSearch.ts`, as the Brand and AccountBlock already hard-code "Team 2096"; no setting holds it.
+- **Short event name** ("District #3") is the name before " · " (`shortEventName`), used where the design shortens it: the picker's title, Keep <event>, the offline Note, the phone sub-line. "Scouting still saves to" names the admin default in full.
+- **Head under an override** omits the year ("25 teams · ranks from …"): the device holds only the default's season, and an override set from Switch competition may be another season's event.
+- **The picker** preselects its first event (one tap to Continue); with no events it says "We hold no entries for <team> at another event." and Continue stays disabled. A pick that is the admin default clears the override instead of setting it. Going offline while it is open closes it.
+- **Empty results:** with At this event on and only other-event matches, the Show-all line stands alone; with nothing at all, `StateMessage no-results` with "Clear the search" (clears the query, selects All).
+- **The desktop table's fourth header** is the screen-reader-only word "Open" (the design's is blank).
+- **Event picker rows** are their own radio rows in `CrossEventJump.tsx`, not `DescribedChoice stacked` (which has no radio circle; the final draws one).
+
+**Risk:** none known.
+
+## Task 1.51 — Shared pieces, and what the screenshots differ in
+
+**Plan said:** components Rank badge (side), Link row, Other-event button, Show-all line, Event picker; compare the screenshots at 1440 and 375 px.
+
+**What was wrong:** nothing; recording the shape.
+
+**What I did instead:** `components/ui/link-row.tsx` exports `LinkRow` (the phone row: one `<Link>` over the whole row, round ›, pressed / hovered / focused = `--accent-tint` + 3 px `--accent` start edge, the › filled) and `LinkTableRow` (a table row whose last cell's link is stretched over the row with `after:inset-0`; the row takes the tint, the edge and the focus ring, the number underlines through `LINK_KEY_TEXT`, "Team page ›" shows on hover or focus). `components/ui/rank-badge.tsx` is one `role="img"` named "Rank 7" / "Rank 1, medal" (lucide `Medal`, no metal colours), with `none` words in its place. The Other-event button, Show-all line and Event picker live in `features/teams/`. BUILD-CONTEXT §12.5's component list names the two new ones. Differences from the finals: the computer table's rows are the locked Data table's 46 px, not the mock-up's ~42 px; the shots light a row by keyboard focus (with its focus ring), because `shoot()` moves the pointer away before each picture, so neither hover nor press can be captured; the medal glyph is lucide's; the fixture ranks other teams than the mock-up (2096 is #20 and shows in the long phone shot).
+
+**Risk:** none known. The `e2e/shell.spec.ts` phone-bar test now shoots five pages in two themes and is marked `test.slow()` (it passed alone in 29 s, and timed out at 60 s beside the teams spec).
+
+## Task 1.51 — Bundle
+
+**Plan said:** a lazy page; raise `BUDGET_KB` only if needed.
+
+**What was wrong:** nothing.
+
+**What I did instead:** `TeamSearchPage` is a lazy chunk (8.2 KB gzip, precached by the `**/*.js` glob); the nav row, the `Search` icon and the paths moved the initial JS from 229.4 to **229.6 KB** gzip, under the 230 KB budget. No raise.
+
+**Risk:** 0.4 KB of headroom is left; task 1.52 will likely need a raise.
+
+## Task 1.51 — Rows link to a route that does not exist yet
+
+**Plan said:** rows open `/teams/:teamId`; do not register it (task 1.53 does).
+
+**What was wrong:** nothing, but until 1.53 lands a tap on a row reaches React Router's default error element (the route tree has no catch-all).
+
+**What I did instead:** left as instructed: `TEAM_ROUTE` and `teamPath()` are in `lib/paths.ts`, with no route.
+
+**Risk:** a reviewer on dev between 1.51 and 1.53 sees the router's 404 when opening a team.
+
+## Task 1.52 — One `/entries` page; the plan's tests predate the designs
+
+**Plan said:** create `EntrySearchPage.tsx` and `EntrySearchPage.test.tsx`, replace `/entries` with it; the list test drives `rpc.call('queryEntries', { form_kind, query })` from a chip `match`, expects points as `25.00`, and `navigate('/entries/e-1')` on a row click; the preview test feeds `EntryPreviewPage` an `rpc` that returns a hand-made entry.
+
+**What was wrong:** the closed designs (26-entry-search A, 25-entry-preview B + D) and the user's decisions settle it otherwise: `/entries` stays ONE page (the round-05 page extended), the kind filter is a Both · Match · Super `segmented` switch (not chips), points are whole numbers as on every final ("34", not "25.00"), each row is a link (`href`), and the device is the source offline.
+
+**What I did instead:** no `EntrySearchPage.tsx`: `features/entries/EntriesPage.tsx` (+ `useEntriesView.ts`, `EntriesTable.tsx`, `EntryCard.tsx`, `EntryParts.tsx`) IS the entry search; its tests stay in `EntriesPage.test.tsx` / `useEntriesView.test.ts`. The plan's assertions were adapted: kind → `radio` "Super 2" etc.; search filters in memory (no `query` input); row → `link` with `href="/entries/<id>"` and a click landing on the `/entries/:id` route (no dialog). `EntryPreviewPage.test.tsx` seeds the device (`src/test/entryPreviewFixtures.ts`) and keeps the plan's proofs: phase headings in order (h2), no `definition` rows and the "—" for a no-show, Hebrew `dir="auto"`, DD/MM/YYYY HH:MM.
+
+**Risk:** none known. Rejected: a second page beside `/entries` (the user ruled one page).
+
+## Task 1.52 — The list reads the device, not `queryEntries`
+
+**Plan said:** the list calls `queryEntries` (task 1.50) with `form_kind` and `query`.
+
+**What was wrong:** the venue is offline (the normal mode), Entries already reads the device cache, and the waiting and refused lines exist only on the device.
+
+**What I did instead:** `buildEntryRows` reads the cached entries (both kinds), matches, teams, users, line-up, outbox and refusals, plus `forms` / `form_versions` / `form_fields` / `scoring_rules`; each match row's points are `scoutedPoints` from `@frc/shared`, scored with the entry's form's ACTIVE version and the form's rules (`lib/derive/scoring.ts` `scoringForVersion`, which mirrors 1.50's `scoringLoader`). Soft-deleted entries and another event's are dropped. `queryEntries` stays for online and service callers.
+
+**Risk:** under a session override to an event the device does not hold, the list is empty (as before this task). The server's `queryEntries` with a search AND a cursor is still unproven against live PostgREST (1.50's note); this task does not exercise it.
+
+## Task 1.52 — The preview: device first, `getEntry` only for an entry the device does not hold
+
+**Plan said:** `EntryPreviewPage` renders `getEntry`'s answer.
+
+**What was wrong:** offline the server cannot answer, and the 5:00 mark lands on the preview offline.
+
+**What I did instead:** `features/entries/entryPreview.ts` `loadDevicePreview` builds the page from the cache with `scoreBreakdown` and `averagePoints` (`@frc/shared`; the active version's fields and the form's rules, like `getEntry`), the entry's OWN version number for "form vN", the line-up's station and the season image for the map view. A soft-deleted entry, or another event's, gives "This entry is not here" with no server call. Only when the device does not hold the entry (or its form) does the page call `getEntry`; `fromWire` draws the answer (map fields read their words but do not open: the device has no field definition or image for them). A server `not-found`, or an answer for another event, gives "This entry is not here"; any other failure gives `StateMessage offline-needs-server` "This entry is not on this device". No `navigator.onLine` / `useOnline` check: `data/offlineGates.test.ts` forbids `useOnline(` under `features/entries/`, and BUILD-CONTEXT §12.5 says no page keeps its own online check; trying the call and reading the failure needs neither.
+
+**Risk:** offline, an id the device does not hold costs one failed fetch (immediate when the browser is offline) before the message.
+
+## Task 1.52 — Edit: the shared rule on the device clock, everywhere
+
+**Plan said:** Edit only when §7.6 allows the viewer (getEntry's `can_edit`).
+
+**What was wrong:** `can_edit` is measured on the server's clock at fetch time, and most previews never fetch.
+
+**What I did instead:** the page always decides with `mayEditEntryNow(viewer, entry, deviceNow)`, also for an entry that came from `getEntry` (overriding `can_edit`), and sets a timer to the 5:00 mark so an open page drops Edit when the window closes. Edit opens `entryPath(match, team, alliance)` for a match entry and `superTeamPath(team)` for a super entry. Without Edit, Team page stands alone, full width.
+
+**Risk:** a device clock set back keeps Edit longer; the server's window check stays the safety net (§7.6).
+
+## Task 1.52 — Paths
+
+**Plan said:** `PATHS` gains an `entry(id)` helper.
+
+**What was wrong:** helpers are module functions, not members of `PATHS`, and `entryPath` is taken by the entry form.
+
+**What I did instead:** `ENTRY_PREVIEW_ROUTE = '/entries/:id'` and `entryPreviewPath(id)` in `lib/paths.ts`, with a paths test (off the data-entry path).
+
+**Risk:** none.
+
+## Task 1.52 — The 5-minute mark and the read-only entry route land on the preview (Phase 1 H side-task carry-overs)
+
+**Plan said:** (NEXT-CHAT.md carry-overs) navigate the mark to `/entries/:id` with the banner and the "Not kept" lines; turn `EntryRoute`'s read-only branch into a redirect; Entries rows open the preview; reuse `MatchReadOnly` / `EntryAnswers` where they fit.
+
+**What was wrong:** nothing.
+
+**What I did instead:** `EntryPage` gains `onWindowClosed(rowId, outcome)` (its `Closed` type became the exported `WindowOutcome = { notKept, failed }`) and draws nothing after the mark; `EntryRoute` navigates with `replace` to `entryPreviewPath(id)` and `state: { windowClosed }`; the preview draws the Success banner with each "Not kept: …" line (or the Error line "Not saved — the 5 minutes are up. …") at the top of its body and moves focus to it. `EntryRoute`'s read-only branch is `<Navigate to={entryPreviewPath(existing.id)} replace />` (Home's Open, Sync's Open entry, a draft's Resume, a typed URL). Dead code removed: `features/entry/MatchReadOnly.tsx`, its `lazyParts` stand-in and `timedParts` export, and `lockNote` (the "Only a lead or an admin can change it now." line: the preview says it by showing no Edit). `EntryAnswers`' `MapRow` is exported and reused for the preview's map rows (new optional `end` and `className`; its label span is now `flex-1`, which changes nothing with two children). Tests rewritten: `EntryPage.test.tsx` (the mark calls `onWindowClosed` with the outcome), `EntryRoute.test.tsx` (redirect to the preview; the mark lands there with the banner, focused, no Edit), `SyncPage.test.tsx` (Open entry → the preview), `e2e/entry-window.spec.ts` (the URL is `/entries/<id>`, no Edit).
+
+**Risk:** router state survives a reload, so the banner shows again after a refresh of that preview; harmless.
+
+## Task 1.52 — Small calls the designs left open
+
+**Plan said:** nothing on these.
+
+**What was wrong:** nothing; recording the calls.
+
+**What I did instead:**
+- **Kind counts** are faceted: they follow the search AND the chip ("Super 0" under Needs a look); the chip counts follow the search and the kind (the brief). The final's static mock counts do not settle it.
+- **"Waiting"** is the chip's word at both widths (26 final; it was "Waiting to send" on a computer).
+- **The time** on a row and in the preview is `client_created_at` (when it was scouted), not the plan test fixture's `client_updated_at`.
+- **Points** print whole ("47"); a fractional total prints one place. The team average prints one place ("avg 38.5").
+- **Phase names:** `PHASE_NAME`, except the last phase is "Post-match" for a match entry (25 desktop) and "Notes" for a super entry (25 phone frame 4). The band's legend uses the short tab words (Auto, Teleop, Endgame); a fourth scored phase would take the accent at 25 %.
+- **Rows:** in a phase that scores anything every row keeps the 34 px points column (empty for an unscored row, as the final's map row); a phase that scores nothing has no column. An unanswered field reads a `--muted` "—" inline (never stacked as a long answer); an untouched counter reads 0 and a switch "No", as the confirmation does.
+- **Header:** on a computer there is no ‹ back row (the final has none; the crumb "Entries / Q37 · 1690 Orbit" and the sidebar carry it). On a phone ‹ Entries goes back through history, or to `/entries` when the preview was opened directly. The phone title is "Q37 · 1690" / "Super · 1690".
+- **Phone cards** keep the scouter's full name (UF.8: wrapping, never cut) where the 26 mock-up shows a first name.
+- **List refusal lines** are `ErrorLine announce={false}` (a line that describes a record, as on Sync), not a live alert on every render.
+
+**Risk:** none known.
+
+## Task 1.52 — Shared pieces
+
+**Plan said:** add "Table row as a link" (and its card twin) and a SUPER tag variant in `components/ui`; reuse `link-row`.
+
+**What was wrong:** nothing.
+
+**What I did instead:** `LinkTableRow` without an `endLabel` is THEME "Table row as a link" (a narrow last cell, a faint › turning `--accent` while the row is lit; the row's tint, edge and focus ring are 1.51's); `LinkCard` is its phone twin (white card, faint ›, pressed / hovered / focused = tint + 3 px edge). `SuperTag compact` (22 px: the card and the preview header) and `FormKindTag` ("Match entry" grey, or SUPER) in `tag.tsx`; `Initials` size 26. `lib/derive/scoring.ts` holds `toEngineEntry` (moved out of `features/teams/teamSearch.ts`, which now imports it), `formScoring`, `scoringForVersion` and `scoringCache`. BUILD-CONTEXT §12.5's list names them.
+
+**Risk:** none known.
+
+## Task 1.52 — Bundle
+
+**Plan said:** keep the new pages out of the initial chunk; raise `BUDGET_KB` only if needed.
+
+**What was wrong:** nothing.
+
+**What I did instead:** `EntriesPage` became a lazy chunk (3.9 KB gzip) and `EntryPreviewPage` is one (5.5 KB), both precached (`dist/sw.js` lists both). Initial JS went from 229.6 to **226.5 KB** gzip (budget 230). No raise. `routes.tsx`'s comment now says Entries left the main bundle.
+
+**Risk:** Entries now waits on a (precached) chunk when first opened.
+
+## Task 1.52 — e2e fixture, and what the screenshots differ in
+
+**Plan said:** screenshots at 1440 and 375 px, compared with the finals.
+
+**What was wrong:** nothing; recording the differences.
+
+**What I did instead:** `e2e/fixtures.ts` gains a super form (v3) and three super entries (`SUPER_ENTRIES`, `pullWithSupers()`), outside the default pull so no other screen changes. Differences left: the phone bottom bar raises Entries on the preview (the shell raises the current nav item; the 25 mock-ups draw it flat); the kind switch is the locked Segmented control's 46 px, not the mock-up's 40 px; lit rows and cards are shot by keyboard focus (with its ring) because `shoot()` moves the pointer away; the fixture's match form has no map field and one Notes field, so the e2e preview has no "6 spots" row and no Hebrew note (the unit tests prove both); values differ from the mock-ups (Q37 1690 is Amit's 52 points at Red 2); the Entries crumb reads "District #3 · Tel Aviv / Entries" as before this task (the 26 mock-up shows "Entries").
+
+**Risk:** none known.
+
+## Task 1.52 — Entries under a session override
+
+**Plan said:** the entry search reads `queryEntries` (the build read the device instead; see "The list reads the device, not `queryEntries`" above).
+
+**What was wrong:** under a session override (SPEC-FINAL 6.3, "While an override is in effect the client asks the server for computed results") the device holds only the default event, so `/entries` listed nothing for the overridden event.
+
+**What I did instead:** `EntriesPage` branches on `useSessionOverride()`. No override: `DeviceEntries`, the device path exactly as before (no rpc call; a unit test asserts it). Override: `OverrideEntries` reads `queryEntries({ event_id: <override id>, limit: 200, cursor })` through the injected `rpc` (default `typedCall`), following `next_cursor` up to 10 pages (2,000 entries, far above an event's few hundred), once per event, with no `query` and no `form_kind`: the search, the Both · Match · Super switch and Mine then run in memory over those rows through the same `useRowsView` the device path uses, so the counts behave as on the device and nothing needs debouncing. Rejected: sending the search to the server (a call per keystroke, the switch's counts would need a call per kind, and the server's match-number rule is exact where the device's is a substring) and a Load more button (a second pagination UI for a list that fits in a few pages). `rowFromSummary` maps `EntrySummary` to `EntryRow`: points are the server's `scouted_points` (null → "—" for a no-show, disabled and super, never 0); `match_label`, `team_*`, `scouter_name`, `client_created_at` → the row's label, team, scouter, time. Waiting and Needs a look are this device's states (outbox, refusals, line-up) and say nothing about another event's server rows: those two chips are **hidden** under an override (not shown as 0, which would read as "nothing to fix there"); the row flags are all false. The read is held through `useCapability('cross_event_view')`: offline it makes no call and shows `StateMessage` `offline-needs-server` ("<event> is not on this device; other events need a connection.") with Back to <default event>, which clears the override; a failed read shows `failed` with Try again. The empty state offers Back to <default event> in place of Scout a match (no entry may be created under an override). The crumb names the overridden event. New file `features/entries/serverEntries.ts`; `useEntriesView` is split into the device read plus `useRowsView(all, me)`. Lazy: `EntriesPage` chunk 3.9 → 4.8 KB gzip; initial JS unchanged at 226.5 KB.
+
+**Risk:** an event with more than 2,000 live entries would list only the newest 2,000 under an override. The server rows are read once per event per visit; an entry synced by another device while the page is open appears on the next visit. Not checked live against dev seed data (no Supabase in this fix).
+
+## Task 1.52 — The offline-gates guard exempts the override's server read (orchestrator)
+
+**Plan said:** `src/data/offlineGates.test.ts` (task 1.45): no file under `features/entry/`, `features/entries/` or `data/outbox.ts` may call `useCapability(` or render `<OfflineGate`, because the scouting path is never gated.
+
+**What was wrong:** the session-override fix for Entries (above) holds its server read through `useCapability('cross_event_view')` in `features/entries/serverEntries.ts`, and the guard failed:
+
+```
+FAIL src/data/offlineGates.test.ts > the offline gates (SPEC-FINAL 9.6, task 1.45) > never gates the scouting path: entry creation, the self-edit and bare match creation
+AssertionError: features/entries/serverEntries.ts: expected 'import { useEffect, useState } from \…' not to match /\buseCapability\(|<OfflineGate\b/
+```
+
+**What I did instead:** the guard names `features/entries/serverEntries.ts` as not scouting, with the reason in a comment: under an override, Entries lists another event's entries, which is a server read and a cross-event view (§9.6, "not available offline"). No entry is created there (an override blocks new entries, §6.3), and the device's own list stays ungated (`EntriesPage.test.tsx`: without an override, no rpc call and no gate). Rejected: moving the hook to `features/context/` only to dodge the folder rule. That passes the guard while hiding the gate, which is worse than naming it.
+
+**Risk:** a later gate added to that one file would also pass the guard. The exemption is a single path, not a folder.
+
+## Task 1.57 — The statistics live in `packages/shared`, as two pure builders (orchestrator O1)
+
+**Plan said:** "Both use cases fetch rows with SQL (through the store) and hand them to the same shared engine the browser runs. Neither contains a formula." Files: `stats.ts` and `stats.test.ts` in the server, plus registry, store and fake.
+
+**What was wrong:** nothing in the engine assembles a team page or a ranking table, so "hand them to the engine" would have left the assembly (which metric, which population, which domain, which order) in the server, and the device (SPEC-FINAL 9.6: statistics are computed on the device from raw entries, offline) would have needed a second copy.
+
+**What I did instead:** new `packages/shared/src/engine/teamStats.ts` with `buildTeamStats(input)` and `buildRankTable(input)`, pure over plain rows (`EngineEntry[]`, the roster, the active match version's fields and rules, the versions the entries name, the super form's active fields, the scouters' names), built only from the engine's own pieces (`applyFilters`, `aggregate`, `aggregationValue`, `resolveFieldAcrossVersions`, `averagePoints`, `rankByAveragePoints`, `reliabilityFor`, `canonicalEntries`, `scoutedPoints`). The wire schemas are the new `packages/shared/src/api/stats.ts`, in the `API` map as `getTeamStats` and `rankTeams`. Both new modules are exported at the END of `packages/shared/src/index.ts`. `sequenceOrder` in `engine/aggregate.ts` is now exported (one "last N" order for the per-match series and for `slope`, instead of a second comparator). The server's `stats.ts` only loads rows, calls the builder and pages the match list. Tests: `engine/teamStats.test.ts` (11) and `core/queries/stats.test.ts` (29).
+
+**Risk:** 1.53 must call the same builders with the same inputs on the device (the task report lists them). A device that lacks a version's fields skips that version in the cross-version guard (see "The cross-version window" below).
+
+## Task 1.57 — "All metrics" in phase 1 (orchestrator O2; the plan's pinned answer)
+
+**Plan said:** `getTeamStats` returns "all metrics for the team"; the plan's closing note pins it as "the fixed ranking columns plus one row per scorable field".
+
+**What was wrong:** nothing said which aggregation each field gets, or what "scorable" covers.
+
+**What I did instead:** groups in this order. **Overall:** `average_points` (Average points, `averagePoints`, the headline), `median_points` (Median points), `stddev_points` (Std dev of points, `direction: 'neutral'`). Then one group per phase in `FIELD_PHASES` order (auto, teleop, endgame, post_match; a field with no phase is post_match, as `scoreBreakdown` files it; a group with no field is absent), **one metric per live (non-deprecated) field whose type `isScorable`** (toggle, counter, number, single select, multi select) of the ACTIVE match version, each key once, in form order. Aggregation by type: counter/number → `avg` (kind `number`); toggle → `rate` (kind `rate`, 0–1; an unanswered toggle is no data); ordinal single or multi select → `avg` over `aggregationValue` ranks (kind `ordinal`; a multi select reads its highest rank), with `display` = the label of the option at `Math.round(avg)`; nominal single or multi select → `mode` over the RAW values with the option list as `option_order` (kind `nominal`, `value: null`, `display` = the mode's label, no domain, no series). A field with `direction: null` reads as `higher_is_better`. The reliability figures are not metric rows: they are `reliability` and `tiles.availability`. Rating, timer, computed, text, position, cycle and event-log fields get no metric because they are not scorable. Rejected: adding rating and timer fields (useful, but outside the pinned answer; the phase 2 metric builder covers them).
+
+**Risk:** a team page will not show a driver-skill rating or a timer field until the metric builder (phase 2). The ordinal label rounds half up (a 1.5 average of None/Low/High shows "High").
+
+## Task 1.57 — What a metric carries, and its colour domain (orchestrator O3)
+
+**Plan said:** nothing beyond "all metrics".
+
+**What was wrong:** the brief left the neutral metric's domain open ("decide and log").
+
+**What I did instead:** each metric is `{ key, field_key | null, label, group, kind, aggregation, direction, value, display, domain, series, unavailable_reason }`. `key` is `average_points` / `median_points` / `stddev_points` or `field:<key>` (exported `fieldMetricKey`), the same key the match table's columns use. `domain` (12.6): a declared `expected_range` for a `number` metric; `{0, 1}` for a rate; `{0, n − 1}` (option ranks) for an ordinal; otherwise the observed min–max of that metric over the event's roster teams, nulls excluded (null when no team has a value). **A neutral metric keeps its domain** (std dev, a neutral toggle) so the client can draw the faint bar; the client must never shade it or sort by it. The domain population is the roster plus the team itself when it is not on the roster, so its bar still lies inside the range. `series` is the team's canonical qualification match entries, oldest → newest in `sequenceOrder` (the order `slope` reads), with a no-show or disabled match as `value: null`; a rate's point is 1/0, an ordinal's its rank. The std-dev row's series is the points series (what the spread is measured over). A nominal metric and an unavailable one have `series: []`.
+
+**Risk:** the observed domain is recomputed for every roster team per request (`applyFilters` once per team, then one `aggregate` per field). Fine for a 50-team event.
+
+## Task 1.57 — The cross-version window is the event's counted entries
+
+**Plan said:** "refuses a metric whose field type changed between versions". NEXT-CHAT: `inScope` holds the fields of every distinct `form_version_id` among the scoped entries.
+
+**What was wrong:** "scoped entries" could be read as the team's alone. Then one team's metric would be refused while another team's was not, and the domain would mix types across teams.
+
+**What I did instead:** `inScope` is every version named by an entry that FEEDS an aggregate (`applyFilters`' output) for any team of the domain population. A field is then available for every team at the event or for none, and a practice or dead entry on an old version (never read) refuses nothing. A version the input does not list is not checked (`resolveFieldAcrossVersions`' own rule); the server loads every version its rows name. A refused metric is `value: null, display: null, domain: null, series: []` with `unavailable_reason: 'type-changed'` (or `'absent'`), and `aggregate` is never called for it.
+
+**Risk:** on the device, a version the cache does not hold is not checked, so the device could compute a value the server refuses. The pull carries every published version of the season, so this needs a version deleted under live entries, which cascades those entries away.
+
+## Task 1.57 — The rest of `getTeamStats` (orchestrator O4)
+
+**Plan said:** "all metrics … plus the match-by-match series and its notes". The test reads `matches[].match_number`, `notes[].field_label / scouter_name / client_updated_at`, `metrics[].field_key / value / unavailable_reason`, and pages with `limit`.
+
+**What was wrong:** the shapes were open.
+
+**What I did instead:** the output is `team`, `event`, `entry_count`, `rank { rank, of }`, `headline { label: 'Average points', value }`, `tiles { median, availability { rate, available, total }, best_match, trend }`, `metrics`, `columns`, `matches`, `match_count`, `notes`, `reliability`, `next_cursor`. Beyond the brief: **`entry_count`** (the team's live entries at the event, both kinds — the header's "10 entries", counted as `searchTeams.entries_here` counts), **`match_count`** (the whole match list's size, since `matches` is one page) and **`form_kind` on each note** (a super note has no match). Choices:
+
+- `rank` is `rankByAveragePoints` over the roster, the same call `buildRankTable` makes, so the badge and the table cannot disagree (a test walks every row). `of` is the roster's size; a team not on the roster is `rank: null`.
+- `best_match` is the counted match with the most points, the earliest on a tie. `trend` is `aggregate(points, 'slope')` over the counted matches.
+- `matches` holds the team's **canonical** match entries (one per match: a duplicate shows once, the newer; a soft-deleted one never), **practice and playoff included** (they never feed a figure), ordered practice → qualification → playoff, then by number. That is the plan's "match-number order"; `sequenceOrder` ignores the type and would interleave P1 and Q1. `scouted_points` is `scoutedPoints` with the active version. A no-show or disabled row has `scouted_points: null` and every cell `{ value: null, display: null }`, whatever its data holds.
+- `columns` are the live scorable fields that a scoring rule names, in form order (`{ key: 'field:<key>', label }`). A cell is `{ value, display }`: counter/number → the number; toggle → 1/0 and "Yes"/"No"; single select → its rank if ordinal (else null) and the option's label; multi select → the highest rank if ordinal and the labels joined with ", ".
+- `notes` are every non-blank Long-text answer of the team's canonical entries, **both kinds, every match type and every status** (a no-show's "never came out" is a note). Each is labelled by the active version of the entry's form (the entry's own version for a key the active one no longer has), newest first by `client_updated_at` as an instant, then entry id. The server returns the newest **200** (`TEAM_NOTES_MAX`); the builder returns all.
+- `reliability` is `reliabilityFor` on the team's RAW entries, plus `breakdown_matches`, `no_show_matches` and `disabled_matches` (labels of the canonical qualification entries with that status, in match order).
+- Paging: `limit` (default 100, clamped to 200) and an offset `cursor` page `matches` only; every other part comes whole on every page.
+- **Scope:** only `{ mode: 'event', event_id }` is accepted; any other mode is `invalid`. The season scope (11.4's full-season view) waits for the dashboards that need it.
+
+**Risk:** the device builds the whole page in one call, so 1.53 pages nothing.
+
+## Task 1.57 — `rankTeams` sorting (orchestrator O5)
+
+**Plan said:** "sorts by any column on request, and never by standard deviation"; "returns no weighting inputs at all in phase 1".
+
+**What was wrong:** the default direction per column and the tie-break were open.
+
+**What I did instead:** `sort_by` ∈ `average_points` (default) | `availability_rate` | `breakdowns` | `no_shows` | `disabled` | `matches_counted` | `number`, checked by the zod schema (anything else, `stddev` included, is `invalid`). With no `direction`, each column sorts best first (`RANK_SORT_DEFAULT_DIRECTION`): average points, availability and matches counted descending; breakdowns, no-shows, disabled and number ascending. A null sorts last whatever the direction. A tie falls to the canonical rank (unranked last), then the lower number, so the default sort is exactly `rankByAveragePoints`' order. `rank` on every row is the canonical rank whatever the sort. The output is `{ event, rows }` and nothing else: no `weights`, `contributions` or normalised values anywhere (tested on the table, and on each row with `.strict()`). Not paginated (13.5).
+
+**Risk:** none known.
+
+## Task 1.57 — Scoring and the store reads (orchestrator O6; `entriesForScope`)
+
+**Plan said:** modify `repos/store.ts` and `test/fake-context.ts`. `entriesForScope(scope: { eventIds; teamId? })` was a stub on both.
+
+**What was wrong:** nothing; recording the calls.
+
+**What I did instead:** `entriesForScope` is implemented in both stores: every LIVE entry of the events (both kinds, every team unless `teamId`), paged by id in 1000-row pages, at most `ENTRIES_FOR_SCOPE_MAX` (20,000, 1.50's bound). A non-uuid id reads nothing; a database error throws. Store tests cover the paging, the team narrowing and the error. The use cases score with the season's match form's ACTIVE version and the form's rules (`searchTeams`' rule; there is one match form per season, so it equals `scoringLoader` for every match entry). A season with no match form or no active version scores with no fields and no rules, and then has no entries either, since they cascade with their versions. With `entriesForScope` filled, no Store method is a stub any more, so `stubsFor` (now unused) is deleted from `repos/store.ts` with its two comments. `search.ts` now exports `toEngineEntry`, `str` and `unique` for `stats.ts` rather than duplicating them. No migration.
+
+**Risk:** an event past 20,000 live entries would be truncated silently (as 1.50's reads are).
+
+## Task 1.57 — The fixture and the plan's test
+
+**Plan said:** implement `seedRankingFixture`, `duplicateEntry` and `changeFieldTypeBetweenVersions` in the fake; the test as written.
+
+**What was wrong:** nothing. The plan's test runs verbatim apart from the `.js` import extensions (`./stats.js`, as `search.test.ts`) and prettier's line wrapping.
+
+**What I did instead:** the fixture is its own file, `apps/server/src/test/ranking-fixture.ts` (as `small-season.ts`): se-1 / ev-1, teams t-1 2096, t-2 1690 and t-3 3065 all on the roster, Q1–Q3 and P1, match form fm-1 (v1 retired, v2 active) with a toggle, two counters, a nominal pickup, a neutral defense toggle, an ordinal climb and a Long-text "Notes", and super form fs-1 with its own "Notes". t-1 scores 10 and 20 and has a no-show that holds stale values, so a "never 0" test can fail. t-2 scores 12 (played) and 12 (broke down). t-3 has only a practice entry (30). `duplicateEntry(id, { scoreDelta, newer })` copies the entry as `<id>-dup`, adds `scoreDelta / points` to the first counter or number field a positive rule scores, and moves `client_updated_at` one minute later (or earlier). `changeFieldTypeBetweenVersions(key)` writes `key` into the newest older version of the form whose active version holds it (creating `<active>-old` when there is none) with another type (`short_text`, or `counter` for a short_text), and moves that form's oldest live counted entry onto that version. 25 tests beyond the plan's prove: a no-show is null in points, every cell and every series; std dev is neutral; the wire schemas parse; the header rank equals the table's row for every team; every role and a service caller get the same answers; soft-deleted entries never count; the newer duplicate wins in the list and the average; the cursor pages; an unknown team, event, scope or cursor is refused; sorting and tie-breaks. Mutation-checked: making a dead match's series 0, making std dev `higher_is_better`, emptying the version window and dropping the dead-row cell rule each fail the suite.
+
+**Risk:** none known.
+
+## Task 1.57 — Bundle
+
+**Plan said:** nothing (BUILD-CONTEXT §12.5: initial JS at most 230 KB gzip).
+
+**What was wrong:** nothing.
+
+**What I did instead:** the new schemas reach the initial chunk through the `API` map; the builders do not, since nothing in the client imports them yet. Measured initial JS **227.1 KB** gzip (226.5 before). No raise.
+
+**Risk:** 1.53 keeps `buildTeamStats` and the engine in its lazy chunk only if it imports them from the team page alone.
+
+## Task 1.53 — The plan's test predates the design and task 1.57; adapted to the final (D2)
+
+**Plan said:** `render(<TeamPage teamId="t-1" rpc={rpcFor()} />)` with an rpc payload; the header's headline `'15.50'` and `getByLabelText(/rank 1/i)`; `getComputedStyle(header).position === 'sticky'`; the match table on the page from the start and `navigate('/entries/e-1')` from a mocked `useNavigate`; notes as `listitem`s named /note/; `queryByRole('img')` null; the empty state from an rpc payload.
+
+**What was wrong:** task 1.57 moved the statistics into the shared `buildTeamStats`, and the brief made the page compute ON THE DEVICE (statistics are viewable offline, 9.6), so the page has no rpc payload outside a session override. The design (24-team final, D2) prints one decimal ("38.4", not "15.50"), puts the match table on the Matches tab, and makes every match row a link (THEME "Table row as a link"), not a click handler. jsdom loads no CSS, so `getComputedStyle(...).position` is never `sticky` for a Tailwind class. An `aria-label` on a plain `<span>` is not a valid name (and the side `RankBadge` is `role="img"`, which this page must not have).
+
+**What I did instead:** `TeamPage({ teamId, eventId, rpc? })`; the tests seed the device cache (`src/test/teamPageFixtures.ts`) and watch the real shared `buildTeamStats` (`vi.mock` wrapper). Kept, adapted: sticky header as the `banner` standalone (`toHaveClass('sticky')` plus `tagName === 'HEADER'`); number, name, "Average points", "32.3" and the sr-only words "Rank 2 of 4"; every metric row label → shaded value → `role="meter"` → sparkline; the match table (after choosing Matches) with header + one row per match and "—" in every value column of the no-show row; the row's link `href="/entries/<id>"`, clicked, lands on `/entries/<id>` (a `MemoryRouter` route, no mocked navigate); notes `listitem`s named "Note, Q9, הערות, Yael Shapira", newest first; Hebrew `dir="auto"`; reliability `role="group"` "Reliability" with 86% and the counts; no `img` role and no `<img>` on any tab at both widths; the empty state. Added: the builder is fed the whole event; neutral and min = max are flat; the strip is on Matches only; the chart's no-show gap; up to four charts; the phone list, the compact header and ‹; the override path (getTeamStats, offline, not found, a dead payload row). Mutation-checked (scratchpad `mutate-153.cjs`): a dead row showing its stale columns, neutral shaded, min = max shaded, the strip on every tab, a no-show drawn as 0, notes oldest first, the chart exposed as `role="img"`, the phone list printing 0 for a no-show — each fails the suite, and each was restored.
+
+**Risk:** none known; the plan's literal assertions on rpc payload shapes (`team.rank`, `columns: { auto_notes: 2 }`) no longer exist in 1.57's wire shape.
+
+## Task 1.53 — The page is computed on the device by the shared `buildTeamStats`; `getTeamStats` only under a session override
+
+**Plan said:** "The charts on this page consume … the `getTeamStats` query of task 1.57" (the test passes an rpc).
+
+**What was wrong:** the venue is offline (9.6: statistics are viewable offline) and 1.57 built `buildTeamStats` precisely so the device can run the server's computation.
+
+**What I did instead:** `features/teams/teamStats.ts` `loadDeviceTeamStats(teamId, eventId)` mirrors `apps/server/src/core/queries/stats.ts`: the event's live roster (`event_teams` → `teams`), EVERY live entry of the event (all teams, both kinds) joined by `toEngineEntry` (match type, number, event sort order), every form version those entries name (live fields in display order), the season's match form's ACTIVE scoring (`formScoring`), the super form's active fields, and every cached user's name; then one `buildTeamStats` call. No formula in the client. A team or event the device does not hold → "This team is not here" + Back to Search. Under a session override (6.3) `useServerTeamStats` calls `getTeamStats` with `limit: 200`, following `next_cursor` (at most 5 pages) to hold every match row, gated by `useCapability('cross_event_view')` — offline: `StateMessage offline-needs-server` "<event> is not on this device; its statistics need a connection." with "Back to <default>" (clears the override), and no call; `not-found` → the not-found state; any other failure → Try again. Mirrors `features/entries/serverEntries.ts`. The shell already shows the override banner, so the page adds none. The engine stays out of the initial chunk: only the lazy team page imports `buildTeamStats`.
+
+**Risk:** the device reads every live entry of the event on each cache change (`useDeviceQuery(['rows'])`); a few hundred rows at an event; the e2e device (about 200 entries) renders without a visible wait.
+
+## Task 1.53 — Task 1.59's shading, `ShadedValue` and `ProgressionChart` pulled forward (user's decision); the THEME ramp wins over 1.59's test
+
+**Plan said:** (1.59) `shadeFor(value, domain, direction)` "→ a colour from the shared ramp and a lightness, or `null` for no value"; the test maps "the worst value to red and the best to green", "returns no scale at all for neutral" (`null`); `shadeFor` returns `{ background, text }`; `ProgressionChart` is a Recharts `LineChart`; add `recharts` to `apps/client/package.json`; modify `RankingPage.tsx`.
+
+**What was wrong:** the user locked the ramp on 2026-10-23 (THEME "Value shading", SPEC-FINAL 12.6 v1.40): one hue, the accent mixed into the surface 6 % (worst) → 52 % (best), text `--ink`, `neutral` and min = max FLAT `--line-2` (not "no scale"), no data a bare `--muted` "—" excluded from the domain. The brief also required the shared module to return numbers, never CSS. `RankingPage` is task 1.58 (Phase 1 I).
+
+**What I did instead:** `packages/shared/src/engine/shading.ts` (exported at the END of `index.ts`): `ShadeDomain` = `range {min,max}` | `rate` (fixed 0–1) | `ordinal {options}`; `shadeFor(value, domain, direction)` → `{ position 0–1 (lower_is_better reversed), mix (6–52, rounded), flat, lightness (1 − mix/100, monotonic) }`, FLAT `{0.5, 0, true, 1}` for neutral, a single-point domain and a value with no domain, `null` for no value (null, undefined, NaN, an option not in the list); `domainPosition(value, domain)` is the raw 0–1 placement a meter reads. An ordinal option's rank comes from `aggregationValue` (the engine's one rank); an average rank (a number) is placed on the same 0…n−1 scale. `SHADE_MIX_WORST` 6, `SHADE_MIX_BEST` 52. 1.59's test adapted (12 tests): "red/green" → palest/darkest with the mix values; neutral → flat, not null; min = max → `position 0.5, flat`; plus clamping, NaN, a no-domain value, the meter placement. `components/ShadedValue.tsx` turns a shade into `color-mix(in srgb, var(--accent) N%, var(--surface))` (or `var(--line-2)`) through a `--shade-bg` custom property (jsdom drops a `color-mix` background, so the tests can read it), a 5 px chip, mono 600, `--ink` text, the value ALWAYS printed; null → a bare `--muted` "—". Its test proves the value is printed for best, worst, flat, neutral and no-domain shades. `RankingPage` untouched (Phase 1 I). No `recharts`.
+
+**Risk:** 1.58/1.59 must reuse `shadeFor`/`ShadedValue` rather than the plan's `{ background, text }` shape.
+
+## Task 1.53 — No Recharts: the progression chart and the sparklines are hand-written SVG
+
+**Plan said:** (1.59) "`ProgressionChart` is a Recharts `LineChart` over match number"; add `"recharts": "^2.13.3"`.
+
+**What was wrong:** the team page is a precached offline chunk; Recharts (with d3 pieces) would add tens of KB to it for one line, and the THEME marks (a no-show gap bridged by a dotted line with "—", the broke-down diamond, the dashed average) are custom anyway. Rejected Recharts for those reasons (orchestrator).
+
+**What I did instead:** `features/teams/ProgressionChart.tsx`: an SVG sized to its box (ResizeObserver; 340 px until measured), `--line-2` grid, three ticks from 0 (a 1/2/2.5/5 × 10ⁿ step covering the highest value / 2.2; rates 0 · 50 · 100 %), mono 10 px `--muted` axes labelled with the match number (thinned to one label per 18 px), the series 2.2 px `--accent` with white 3 px dots, broke down a `--warn` diamond, a null (no-show, disabled, unanswered) a GAP bridged by a dotted `--faint` line with "—" over it — never a 0 — the team's value as a dashed `--faint` line, and the legend under the first chart. The SVG is `aria-hidden` with `focusable="false"`; the `<figure>` is named "<metric>, match by match" and holds a visually hidden list ("Q26: no show, not counted", "Q14: 11, broke down", "Team value: 32.3"), so no `img` role. `MetricPicker` (the 12.5 view-time selector) is the locked `Select` labelled "Chart metric"; `ProgressPanel` stacks up to `MAX_CHARTS` 4 with "+ Add a chart under it · up to 4" (adds the first metric not on a chart yet, hidden at 4 or when none is left) and a ✕ on every chart but the first. The picker offers "Points per match" and every field metric with a series (median and std dev share the points series; nominal and unavailable metrics have none), named with the phase word: "Teleop high goal" (a label already naming its phase is not prefixed again). The stat-row sparkline (`StatRows.tsx`) is a 64 × 20 SVG, 1.5 px `--accent`, end dot, `aria-hidden`; it leaves a no-show OUT rather than drawing a gap (at 64 px a gap read as two charts in the first screenshots; the Progress chart shows the gap).
+
+**Risk:** none known.
+
+## Task 1.53 — Small calls the design left open
+
+**Plan said:** nothing on these.
+
+**What was wrong:** the design (24 final) and THEME leave them open, or the data differs from the mock.
+
+**What I did instead:**
+- **Formatting:** points and averages to one place, whole bare ("38.4", "41"; `formatStat`), not SPEC 17.8's two places (the brief: the design wins); rates whole percents (`formatPercent`); the trend signed ("+2.3", "−0.4"); counts plain.
+- **Metrics:** exactly `buildTeamStats`' metrics, labels as the builder gives them ("Std dev of points", not the mock's "Spread (std dev)"; no "Best match" row — it is a tile); groups Overall, Autonomous, Teleop, Endgame, Post-match. Ordinal: its nearest option's label in the shaded chip (UI face, not mono, no wrapping), a bar and a sparkline of ranks; nominal: words, no bar, no trend line; `unavailable_reason` → "cannot calculate this metric" (+ " — field type changed between versions"). The meter's `aria-valuemin/max` are the domain, `aria-valuenow` the value clamped into it, `aria-valuetext` "7, 0 to 20 at the event" (+ ", lower is better"); the fill is the shade's position (reversed for `lower_is_better`), `--faint` for neutral.
+- **Header:** the `<h1>` is "1690 Orbit" (on a computer the big number is `aria-hidden` and the h1 carries an sr-only "1690 "); the rank badge's words are sr-only "Rank 4 of 22" with the visual "#4 / of 22" (computer) or "Rank #4 / 22" (phone) `aria-hidden` — no `RankBadge` (it is `role="img"`); no rank → "not ranked yet"; the phone's full header puts the small rank tag in its sub-line, as frame 1 does; "last seen" is the last match row's label; entries counted as `entry_count` (both kinds — the e2e team shows "11 entries", 10 matches and a super entry). ‹ goes back through history, or to Search when opened directly (`aria-label` "Back to Search"). The compact header switches at scrollY > 24 and back at < 4 (hysteresis, so the height it gives back cannot flip it).
+- **Tabs:** the locked `Tabs`, `flush`; a new `fit` prop (computer: each tab as wide as its words, 22 px a side, from the start) and `tight` prop (phone: 5 px label-to-count, 4 px inset, 13.5 px, so "Matches 10" fits a quarter of 375 px). 48 px tall (the §17.7 floor the component already uses over THEME's 44). The tabs bar sticks under the header (its `top` = the header's `top` + the header's measured height); a tab chosen while the bar is stuck scrolls so the new panel starts right under it; every panel is at least a screen tall under the tabs, so a short panel (Notes, Progress) can still be read with the bar stuck.
+- **Phone tiles:** the four tiles sit between the header and the tabs on EVERY tab (they are the team's summary, like the header), so the tab bar does not jump when a tab is chosen; frames 3–5 show the scrolled state, where the tiles have scrolled away.
+- **Reliability on a phone:** a 4-column strip card at the top of the Stats panel, above the stat rows, always (frame 2 shows it once scrolled; frame 1 is cut at the tabs). The matches are named under the counts at both widths (the brief), where the mock's phone strip hid them.
+- **Match strip:** shaded over the strip's OWN points (12.6: the observed min–max of the values shown), not the event's average-points domain the mock used; the cell label is `--ink-2`, not `--muted` (axe: `--muted` mono 10 px fails 4.5:1 on the darker shades); 28 px minimum cells with a sideways scroll past ~10 matches on a phone; each cell is a link named "Q14 Broke down, 11 points, Omer K.: open the entry"; the strip is a `nav` named "Match strip".
+- **Computer table:** newest first like the mock's rows, so the header says "Points" WITHOUT the mock's "↓" (the rows are not sorted by points; an arrow would claim a sort that is not there); not shaded (the final's table is unshaded); a column of words (Yes / No, an option label) and its header read from the start, numbers from the end; the caption "A row opens the entry · Q25 was a no-show: no values, not counted" names every no-show.
+- **Phone list:** `LinkCard`s made flat rows (no radius or border but the `--line-2` divider), 52 px min, the faint ›; the scouter as first name + initial.
+- **Notes:** a super entry's note is labelled "Super"; time "11:52" today, "Fri 16:05" within six days, else "14/11/2026 16:05"; the computer's Stats tab shows the newest 4 under "NOTES ——— newest first"; no notes → "No notes for this team yet."; a `<ul aria-label="Notes">` of `<li aria-label="Note, Q9, Notes, Yael Shapira">`.
+- **Progress on a computer:** the Progress tab is one column, at most 768 px wide; the Stats tab's Progress card shows the first chart and its picker (the same `charts` state as the tab).
+- **Empty state:** the locked `EmptyState` with a new `align="start"` (the final's card is set from the start edge), the Search icon, "No entries for this team yet", "Stats, matches and notes appear here once someone scouts 5987 at District #3 · Tel Aviv.", one action "Scout a match" (→ `/scout`); no tabs; the header "0 entries · not ranked yet" and "—".
+- **Picker size:** the locked `Select` keeps the 48 px tap floor (THEME draws a 34 px select).
+
+**Risk:** the user may want the tiles on the Stats tab only, the strip on the event's domain, or the ↓ back; each is a one-line change.
+
+## Task 1.53 — Route, shared pieces and docs
+
+**Plan said:** produce `/teams/:teamId`.
+
+**What was wrong:** nothing; recording where it lives.
+
+**What I did instead:** `routes.tsx` registers `teams/:teamId` as a lazy chunk (`TeamPage`, precached by the service worker's glob like every chunk), gated (waits for the event, `routes.test.tsx`'s list), keyed by the team, handle `{ title: 'Team', crumb: ['Search'] }`; the page names itself "Team 1690" (phone top bar) and the crumb "Search / 1690 Orbit"; nav's Search has no `end`, so the sidebar and the bar mark Search. New files beyond the plan's list: `teamStats.ts` (device + override data), `teamView.ts` (words and shades, unit-tested), `StatRows.tsx`, `ProgressionChart.tsx` (1.59), `components/ShadedValue.tsx` (1.59), `src/test/teamPageFixtures.ts`, `e2e/team.spec.ts`. `Tabs` gains `fit` and `tight`, `EmptyState` gains `align`; BUILD-CONTEXT §12.5's component list names them and `ShadedValue`.
+
+**Risk:** none known.
+
+## Task 1.53 — Bundle
+
+**Plan said:** nothing (BUILD-CONTEXT §12.5: initial JS at most 230 KB gzip; the brief: the page is lazy).
+
+**What was wrong:** nothing.
+
+**What I did instead:** the team page, the shared builder and the shading reach only the lazy `TeamPage` chunk (13.6 KB gzip). Measured initial JS **227.3 KB** gzip (227.1 before; the route row and the lazy import). No raise.
+
+**Risk:** none known.
+
+## Task 1.53 follow-up — Rating and timer fields get a team-page metric (user, 2026-10-27)
+
+**Plan said:** "All metrics for the team" in phase 1 is "the fixed ranking columns plus one row per scorable field" (IMPLEMENTATION-PLAN, the 1.57 note), so `buildTeamStats` made a metric for the five scorable types only, and a post-match "Driver skill" rating or a climb-time timer had no row.
+
+**What was wrong:** nothing failed; the user asked for ratings and timers on the team page.
+
+**What I did instead:** `packages/shared/src/engine/teamStats.ts` — `scorableFields` is now `metricFields` (scorable, `rating` or `timer`); both are `kind: 'number'`, `aggregation: 'avg'`, through the same `resolveFieldAcrossVersions` → `applyFilters` → `aggregationValue` → `aggregate` pipeline, in their phase's group in form order (a rating with no phase lands in Post-match, which then appears). A rating's domain is its declared 1..`config.max` (5 when unset, as `validateEntryData`); a timer's is its `expected_range`, else the observed range across the event's teams. Sparkline series: a no-show or disabled match and an "unsure" timer (null) are null, never 0. Neither is a match-table column (`columns` stays the scored fields). A timer metric carries `display` "12.4 s" (whole bare, else one place), and the client's `metricText` prints a number metric's `display` when the engine set one. Default directions when the form declares none: a rating is `higher_is_better` (a higher rating is a better rating by construction); a timer is `lower_is_better` (user, 2026-10-27: a faster time is the common case — climb, cycle, auto routine). A declared `direction` always wins, so a timer where longer is better (a defence hold) sets it in the builder. Rejected: `neutral` for an undirected timer (my first cut — it never shades, which hides the spread); the user chose `lower_is_better`. Fixtures: `src/test/teamPageFixtures.ts` gains Climb time (timer, no direction, one "unsure" answer) and Driver skill (rating 1–5); `e2e/team.spec.ts` adds the same two fields to its own pull only, so the other specs' entry and builder screens keep their form.
+
+**Risk:** a form whose timers measure something where longer is better and that left `direction` blank will shade those timers backwards until an admin sets the direction. A rating's `expected_range`, if one is ever declared, is ignored in favour of 1..max.

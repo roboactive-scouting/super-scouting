@@ -1,5 +1,5 @@
 import { Maximize2 } from 'lucide-react';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { NO_VALUE, type FormFieldDefinition, type RobotStatus } from '@frc/shared';
 import { useIsDesktop } from '@/lib/useMediaQuery';
 import { cn } from '@/lib/utils';
@@ -131,19 +131,25 @@ export function EntryAnswers({
  * A map field's row (UF.24): the name at the left; at the right what it holds, in `--ink` 600,
  * over "⤢ Tap to view" in `--accent-ink`. The whole row is the button (≥ 48 px), named
  * "Teleop events: 5 events · 4 on the map"; the name is the list's term for a screen reader.
+ * The entry preview (task 1.52) draws its rows with it too, `end` holding its points cell.
  */
-function MapRow({
+export function MapRow({
   label,
   words,
   verb,
   rowRef,
   onOpen,
+  end,
+  className,
 }: {
   label: string;
   words: string;
   verb: 'Tap' | 'Click';
   rowRef: (el: HTMLButtonElement | null) => void;
   onOpen: () => void;
+  /** Drawn after the value, inside the button: the preview's (empty) points cell. */
+  end?: ReactNode;
+  className?: string;
 }) {
   const hint = useId();
   return (
@@ -158,9 +164,12 @@ function MapRow({
           aria-label={`${label}: ${words}`}
           aria-describedby={hint}
           onClick={onOpen}
-          className="tap-target hover-veil flex w-full items-center justify-between gap-4 px-3.5 py-2.5 text-start"
+          className={cn(
+            'tap-target hover-veil flex w-full items-center justify-between gap-4 px-3.5 py-2.5 text-start',
+            className,
+          )}
         >
-          <span aria-hidden="true" className="text-ink-2" dir="auto">
+          <span aria-hidden="true" className="flex-1 text-ink-2" dir="auto">
             {label}
           </span>
           <span className="flex flex-col items-end text-end">
@@ -175,6 +184,7 @@ function MapRow({
               {verb} to view
             </span>
           </span>
+          {end}
         </button>
       </dd>
     </div>

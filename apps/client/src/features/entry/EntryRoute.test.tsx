@@ -1,10 +1,12 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { db } from '@/data/db';
 import { pending } from '@/data/outbox';
+import { EntryPreviewPage } from '@/features/entries/EntryPreviewPage';
 import { EntryRoute } from './EntryRoute';
+import { loadTimedParts } from './lazyParts';
 import { SelectRobotPage } from './SelectRobotPage';
 
 const entry = (createdMsAgo: number) => ({
@@ -44,6 +46,12 @@ beforeEach(async () => {
 
 const scouter = { id: 'u-1', role: 'scouter' as const };
 
+/** The entry preview (task 1.52), as the route tree mounts it under /entries/:id. */
+function Preview({ viewer }: { viewer: { id: string; role: 'scouter' | 'lead' | 'admin' } }) {
+  const id = useParams().id ?? '';
+  return <EntryPreviewPage entryId={id} eventId="ev-1" viewer={viewer} />;
+}
+
 function renderAt(path: string) {
   render(
     <MemoryRouter initialEntries={[path]}>
@@ -53,6 +61,7 @@ function renderAt(path: string) {
           path="/entry/:matchId/:teamId"
           element={<EntryRoute eventId="ev-1" author={scouter} />}
         />
+        <Route path="/entries/:id" element={<Preview viewer={scouter} />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -92,12 +101,106 @@ describe('EntryRoute and an entry already on this device (SPEC-FINAL 8.1, 7.6)',
     expect(screen.getByLabelText(/match number/i)).toHaveValue(null);
   });
 
-  it('says plainly that the robot is scouted and locked once the window has passed', async () => {
-    await db.rows.put(entry(6 * 60 * 1000));
+  // Phase 1 H side task 5 (SPEC-FINAL 7.6 v1.45): Home's Open and Sync's Open entry both link
+  // here, so this is what a scouter meets opening their own entry after the window.
+  it('opens a scouter’s own entry past its window as the entry preview: no form, no lock error, no Edit', async () => {
+    await db.rows.put({ ...entry(6 * 60 * 1000), data: { auto_notes: 3 } });
+    await db.rows.put({
+      entity: 'form_fields',
+      id: 'ff-1',
+      form_version_id: 'fv-1',
+      key: 'auto_notes',
+      label: 'Auto notes',
+      type: 'counter',
+      display_order: 1,
+      phase: 'auto',
+      unit: 'count',
+      direction: 'higher_is_better',
+      required: false,
+      deprecated: false,
+      config: { min: 0, max: 10, step: 1 },
+    });
     renderAt('/entry/m-1/t-1?alliance=red');
-    expect(await screen.findByRole('alert')).toHaveTextContent(/already scouted.*locked/);
+    expect(await screen.findByText('Auto notes')).toBeInTheDocument();
+    expect(screen.getByText('Read only')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Q21118Robonauts');
+    expect(screen.getByText('Played')).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Team page' })).toHaveAttribute('href', '/teams/t-1');
+    expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /review entry/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /back to scouting/i })).toBeInTheDocument();
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByText(/locked/)).not.toBeInTheDocument();
+  });
+
+  it('lands the 5:00 mark on the entry preview with the banner, and keeps it when the route renders again', async () => {
+    await loadTimedParts();
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+      shouldAdvanceTime: true,
+    });
+    try {
+      await db.rows.put({ ...entry(4 * 60_000 + 55_000), version: 1 });
+      const tree = (author: { id: string; role: 'scouter' }) => (
+        <MemoryRouter initialEntries={['/entry/m-1/t-1?alliance=red']}>
+          <Routes>
+            <Route
+              path="/entry/:matchId/:teamId"
+              element={<EntryRoute eventId="ev-1" author={author} />}
+            />
+            <Route path="/entries/:id" element={<Preview viewer={author} />} />
+          </Routes>
+        </MemoryRouter>
+      );
+      const { rerender } = render(tree(scouter));
+      expect(await screen.findByRole('button', { name: /review entry/i })).toBeInTheDocument();
+      await act(async () => void (await vi.advanceTimersByTimeAsync(6_000)));
+      expect(await screen.findByText('Saved — the 5 minutes are up.')).toBeInTheDocument();
+      // The preview, not the form: its header and its Read only chip, and no Edit past 5:00.
+      expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('Q21118Robonauts');
+      expect(screen.getByText('Read only')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /review entry/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
+      // The banner has focus: what replaced the form is said first.
+      expect(screen.getByRole('status').parentElement).toHaveFocus();
+      // The shell hands the route a new author object on a later render: the banner stays.
+      rerender(tree({ ...scouter }));
+      expect(screen.getByText('Saved — the 5 minutes are up.')).toBeInTheDocument();
+      expect(await pending(10)).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('opens another scouter’s match entry as the preview too, says whose it is, and offers no Edit', async () => {
+    await db.rows.bulkPut([
+      { ...entry(60 * 1000), scouter_id: 'u-2' },
+      { entity: 'users', id: 'u-2', full_name: 'Dana Mor', username: 'dana' },
+    ]);
+    renderAt('/entry/m-1/t-1?alliance=red');
+    expect(await screen.findByText('Dana Mor')).toBeInTheDocument();
+    expect(screen.getByText(/Scouted by/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Team page' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /review entry/i })).not.toBeInTheDocument();
+  });
+
+  it('gives a lead the form for the same entry, past the window, with no countdown', async () => {
+    await db.rows.put(entry(6 * 60 * 1000));
+    render(
+      <MemoryRouter initialEntries={['/entry/m-1/t-1?alliance=red']}>
+        <Routes>
+          <Route
+            path="/entry/:matchId/:teamId"
+            element={<EntryRoute eventId="ev-1" author={{ id: 'u-lead', role: 'lead' }} />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole('button', { name: /review entry/i })).toBeInTheDocument();
+    expect(screen.queryByText('Read only')).not.toBeInTheDocument();
+    expect(screen.queryByRole('timer')).not.toBeInTheDocument();
   });
 
   it('opens the entry form for it while the window is open', async () => {

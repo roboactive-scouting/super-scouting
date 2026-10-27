@@ -5,7 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ErrorLine } from '@/components/ui/notice';
-import { PasswordInput } from '@/components/ui/password-input';
+import {
+  CREDENTIAL_DIR,
+  credentialClass,
+  KeyboardHint,
+  PasswordInput,
+  withKeyboardHint,
+} from '@/components/ui/password-input';
 import { cn } from '@/lib/utils';
 
 const LOGO = '/brand/logo.png';
@@ -64,7 +70,11 @@ export function AuthFrame({
   );
 }
 
-/** A labelled input, 52 px tall. Password fields carry the show/hide eye. The hint sits outside the label. */
+/**
+ * A labelled credential input, 52 px tall, always left-to-right (Phase 1 H side task 1). Password
+ * fields carry the show/hide eye. The keyboard hint shows under the field while it holds a Hebrew
+ * letter; the field's own hint sits under that, outside the label.
+ */
 export function AuthField(props: {
   label: ReactNode;
   type: 'text' | 'password';
@@ -79,6 +89,7 @@ export function AuthField(props: {
 }) {
   const id = useId();
   const hintId = `${id}-hint`;
+  const keyboardId = `${id}-keyboard`;
   const common = {
     id,
     ref: props.inputRef,
@@ -88,9 +99,9 @@ export function AuthField(props: {
     autoCapitalize: 'none',
     autoCorrect: 'off',
     spellCheck: false,
-    dir: 'auto',
+    dir: CREDENTIAL_DIR,
     'aria-describedby': props.hint ? hintId : undefined,
-    className: 'min-h-[52px]',
+    className: cn('min-h-[52px]', credentialClass),
     onChange: (e: { target: { value: string } }) => props.onChange(e.target.value),
   } as const;
   return (
@@ -98,7 +109,17 @@ export function AuthField(props: {
       <Label htmlFor={id} className="mb-1.5 text-[0.84375rem] font-semibold text-ink">
         {props.label}
       </Label>
-      {props.type === 'password' ? <PasswordInput {...common} /> : <Input {...common} />}
+      {props.type === 'password' ? (
+        <PasswordInput {...common} />
+      ) : (
+        <>
+          <Input
+            {...common}
+            aria-describedby={withKeyboardHint(props.value, keyboardId, common['aria-describedby'])}
+          />
+          <KeyboardHint value={props.value} id={keyboardId} />
+        </>
+      )}
       {props.hint && (
         <p id={hintId} className="mt-1.5 text-[0.8125rem] text-muted">
           {props.hint}

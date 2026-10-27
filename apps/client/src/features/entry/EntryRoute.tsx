@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { formatCount, type TimerConfig } from '@frc/shared';
 import { StateMessage } from '@/components/StateMessage';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,7 @@ import { canSelfEdit, findLocalEntry, type Editor, type LocalEntry } from './loc
 import { usePracticeMode } from './practice';
 import type { SavedNotice } from './SelectRobotPage';
 import { draftedVersion } from './useDraft';
-import { PATHS } from '@/lib/paths';
+import { entryPreviewPath, PATHS } from '@/lib/paths';
 
 type MatchRow = { id: string; event_id?: string; match_type: string; number: number };
 type TeamRow = { id: string; number: number; name: string };
@@ -48,6 +48,13 @@ type Resolved = {
   timerConfig: TimerConfig | null;
   /** The season's game image for the map fields (16.7); null when this device lacks the season. */
   fieldImagePath: string | null;
+  /**
+   * When the route resolved (ms). Whether the entry opens as a form is decided against this, not
+   * against each render's clock: a form left open past the mark is its own to lock (EntryPage
+   * saves at 5:00 and hands over to the preview with its banner), and a later re-render of the
+   * route must not redirect first and lose that banner.
+   */
+  resolvedAt: number;
 };
 
 export function EntryRoute({ eventId, author }: { eventId: string; author: Editor }) {
@@ -124,6 +131,7 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
         existing,
         timerConfig: form.timer_config ?? null,
         fieldImagePath: seasons.find((s) => s.id === seasonId)?.field_image_path ?? null,
+        resolvedAt: Date.now(),
       });
     })();
   }, [eventId, matchId, teamId, practice]);
@@ -182,27 +190,13 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
     );
   }
 
-  // The picker never offers this, but a stale screen or a typed URL can still get here.
-  if (resolved.existing && !canSelfEdit(resolved.existing, author, new Date())) {
-    return (
-      <main className="mx-auto w-full max-w-xl px-4 pt-6">
-        <h1 className="text-xl font-semibold">
-          {resolved.matchLabel} · <span dir="auto">{resolved.teamLabel}</span>
-        </h1>
-        <Notice role="alert" tone="warning" still className="mt-4">
-          This robot is already scouted in this match on this device, and the entry is locked — ask
-          a lead to change it.
-        </Notice>
-        <Button
-          variant="secondary"
-          size="block"
-          className="mt-4"
-          onClick={() => navigate(PATHS.scout)}
-        >
-          Back to scouting
-        </Button>
-      </main>
-    );
+  // SPEC-FINAL 7.6 v1.45: an entry this user can no longer edit opens read only — Home's and
+  // Sync's Open, a draft's Resume, a stale screen or a typed URL alike; never a form or a lock
+  // error. Read only is the entry preview (task 1.52). A lead or an admin always gets the form
+  // (canSelfEdit).
+  const existing = resolved.existing;
+  if (existing && !canSelfEdit(existing, author, new Date(resolved.resolvedAt))) {
+    return <Navigate to={entryPreviewPath(existing.id)} replace />;
   }
 
   const page = (
@@ -218,6 +212,11 @@ export function EntryRoute({ eventId, author }: { eventId: string; author: Edito
       existing={resolved.existing}
       timerConfig={resolved.timerConfig}
       fieldImagePath={resolved.fieldImagePath}
+      onWindowClosed={(rowId, outcome) => {
+        // SPEC-FINAL 7.6 v1.45: at 5:00 the form becomes the entry's preview, with the banner.
+        // Replace, so Back does not reopen a form that is over.
+        navigate(entryPreviewPath(rowId), { replace: true, state: { windowClosed: outcome } });
+      }}
       onSubmitted={() => {
         // SPEC-FINAL 8.1: submit returns to a fresh manual selection, offering the next match
         // after a new entry. Replace, so Back does not reopen a form that has already been saved.

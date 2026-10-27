@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils';
 
 const SIZE = {
+  26: 'size-[26px] text-[0.65625rem]',
   32: 'size-8 text-xs',
   34: 'size-[34px] text-xs',
   40: 'size-10 text-sm',
@@ -31,7 +32,7 @@ export function Initials({
   tone = 'neutral',
 }: {
   name: string;
-  size?: 32 | 34 | 40 | 52;
+  size?: 26 | 32 | 34 | 40 | 52;
   tone?: 'neutral' | 'accent' | 'dark';
 }) {
   return (

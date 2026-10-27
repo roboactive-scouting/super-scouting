@@ -1,8 +1,8 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { OptionButtons } from './option-buttons';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fitColumns, OptionButtons } from './option-buttons';
 import { Counter } from './counter';
 import toggleSource from './switch.tsx?raw';
 import { Switch } from './switch';
@@ -186,9 +186,152 @@ describe('OptionButtons in a narrow column (UF.18)', () => {
     const card = screen.getByRole('radio', { name: /Hanging/ }).closest('label')!;
     const text = screen.getByText('Hanging from the highest rung of all');
     expect(text.className).toMatch(/(^|\s)min-w-0(\s|$)/);
-    expect(text.className).toContain('[overflow-wrap:anywhere]');
+    // Between words only; a word breaks only when wider than one column (side task 3).
+    expect(text.className).toContain('[overflow-wrap:break-word]');
+    expect(text.className).not.toContain('anywhere');
     expect(card.className).toMatch(/(^|\s)min-w-0(\s|$)/);
     const check = card.querySelector('[data-chosen-mark]')!;
     expect(check.getAttribute('class')).toMatch(/(^|\s)shrink-0(\s|$)/);
+  });
+});
+
+describe('OptionButtons never split a word (Phase 1 H side task 3)', () => {
+  const FOUR = 'grid-cols-4';
+  /** The measured widths jsdom cannot lay out: the grid, and the probe card for the longest word. */
+  const size = { grid: 440, probe: 0 };
+  let resize: (() => void) | undefined;
+  const realRect = Element.prototype.getBoundingClientRect;
+  beforeEach(() => {
+    resize = undefined;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(cb: () => void) {
+          resize = cb;
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      const width = this.hasAttribute('data-option-grid')
+        ? size.grid
+        : this.hasAttribute('data-option-probe')
+          ? size.probe
+          : 0;
+      return { width } as DOMRect;
+    };
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    Element.prototype.getBoundingClientRect = realRect;
+  });
+
+  const endGame = [
+    { value: 'none', label: 'None' },
+    { value: 'park', label: 'Parked' },
+    { value: 'def', label: 'Defense' },
+    { value: 'he', label: 'חנייה חלקית' },
+  ];
+  const grid = (c: HTMLElement) => c.querySelector<HTMLElement>('[data-option-grid]')!;
+
+  it('the rule: the most columns at which the longest word fits beside its ✓', () => {
+    // 440 px, 8 px gaps: a card is 104 px at four columns, 216 px at two.
+    expect(fitColumns(96, 440, 8)).toBe(4);
+    expect(fitColumns(104, 440, 8)).toBe(4);
+    expect(fitColumns(118, 440, 8)).toBe(2);
+    expect(fitColumns(216, 440, 8)).toBe(2);
+    expect(fitColumns(240, 440, 8)).toBe(1);
+  });
+
+  it('the whole group drops to two columns when its longest word does not fit at four', () => {
+    size.probe = 118; // "Defense" with its ✓, wider than a 110 px quarter
+    const { container } = render(
+      <OptionButtons
+        legend="End game"
+        value="park"
+        onChange={vi.fn()}
+        options={endGame}
+        columns={4}
+      />,
+    );
+    expect(grid(container).dataset.fit).toBe('2');
+    expect(grid(container).className).not.toContain(FOUR);
+    expect(grid(container).className).toMatch(/(^|\s)grid-cols-2(\s|$)/);
+  });
+
+  it('a group whose longest word fits keeps four columns', () => {
+    size.probe = 96;
+    const { container } = render(
+      <OptionButtons
+        legend="Fouls"
+        value="1"
+        onChange={vi.fn()}
+        options={['0', '1', '2', '3+'].map((v) => ({ value: v, label: v }))}
+        columns={4}
+      />,
+    );
+    expect(grid(container).dataset.fit).toBe('4');
+    expect(grid(container).className).toMatch(/(^|\s)@min-\[26rem\]:grid-cols-4(\s|$)/);
+  });
+
+  it('re-measures when the group or its words change size, and goes to one column last', () => {
+    size.probe = 96;
+    const { container } = render(
+      <OptionButtons
+        legend="End game"
+        value={null}
+        onChange={vi.fn()}
+        options={endGame}
+        columns={4}
+      />,
+    );
+    expect(grid(container).className).toContain(FOUR);
+    size.probe = 240; // a large text size: wider than half the group
+    act(() => resize!());
+    expect(grid(container).dataset.fit).toBe('1');
+    expect(grid(container).className).toMatch(/(^|\s)grid-cols-1(\s|$)/);
+    expect(grid(container).className).not.toContain(FOUR);
+    size.probe = 96;
+    act(() => resize!());
+    expect(grid(container).className).toContain(FOUR);
+  });
+
+  it('a hidden group (no width) keeps its last answer', () => {
+    size.probe = 118;
+    const { container } = render(
+      <OptionButtons
+        legend="End game"
+        value={null}
+        onChange={vi.fn()}
+        options={endGame}
+        columns={4}
+      />,
+    );
+    size.grid = 0;
+    act(() => resize!());
+    expect(grid(container).dataset.fit).toBe('2');
+    size.grid = 440;
+  });
+
+  it('the probe holds every word once, with the ✓, and no text query finds it', () => {
+    const { container } = render(
+      <OptionButtons
+        legend="End game"
+        value={null}
+        onChange={vi.fn()}
+        options={endGame}
+        columns={4}
+      />,
+    );
+    const probe = container.querySelector<HTMLElement>('[data-option-probe]')!;
+    const words = [...probe.querySelectorAll('[data-word]')].map((w) =>
+      w.getAttribute('data-word'),
+    );
+    expect(words).toEqual(['None', 'Parked', 'Defense', 'חנייה', 'חלקית']);
+    expect(probe.querySelector('svg')).not.toBeNull();
+    expect(probe.closest('[aria-hidden="true"]')).not.toBeNull();
+    expect(probe.textContent).toBe('');
+    expect(screen.getAllByText('Parked')).toHaveLength(1);
   });
 });

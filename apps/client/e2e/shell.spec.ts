@@ -56,6 +56,8 @@ test('phone shell: bars, menu, and no Users on a phone', async ({ page }) => {
 test('phone bar: the current page is the raised button; elsewhere nothing is (UF.10)', async ({
   page,
 }) => {
+  // Five pages, each shot in two themes with axe (Search joined the bar in task 1.51): past 60 s.
+  test.slow();
   await signIn(page, 'admin', HOLD_PUSH);
   await page.setViewportSize({ width: 375, height: 812 });
   await seedWaiting(page, 3);
@@ -65,6 +67,8 @@ test('phone bar: the current page is the raised button; elsewhere nothing is (UF
   for (const [name, link, shot] of [
     ['Home', 'Home', 'shell-bar-home'],
     ['Scout', 'Scout', 'shell-bar-scout'],
+    // Task 1.51: Home · Scout · Search · Entries; Search is raised on team search.
+    ['Search', 'Search', 'shell-bar-search'],
     ['Entries', 'Entries, 3 waiting to send', 'shell-bar-entries'],
   ] as const) {
     await bar.getByRole('link', { name: link }).click();
@@ -85,7 +89,7 @@ test('phone bar: the current page is the raised button; elsewhere nothing is (UF
   await expect(page.getByRole('banner').getByText('Switch scouter')).toBeVisible();
   await expect(raised).toHaveCount(0);
   await expect(current).toHaveCount(0);
-  await expect(bar.getByRole('link')).toHaveText(['Home', 'Scout', /^Entries/]);
+  await expect(bar.getByRole('link')).toHaveText(['Home', 'Scout', 'Search', /^Entries/]);
   await shoot(page, 'shell-bar-other', 'phone');
 });
 

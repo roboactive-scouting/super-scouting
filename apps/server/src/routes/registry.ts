@@ -68,6 +68,8 @@ import {
 import { listConflicts } from '../core/queries/conflicts.js';
 import { countEntriesByScouter } from '../core/queries/countEntriesByScouter.js';
 import { listUsers } from '../core/queries/listUsers.js';
+import { getEntry, listTeamEvents, queryEntries, searchTeams } from '../core/queries/search.js';
+import { getTeamStats, rankTeams } from '../core/queries/stats.js';
 
 type EntryMeta = {
   kind: 'query' | 'command';
@@ -528,5 +530,53 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     input: API.resolveConflict.input,
     output: API.resolveConflict.output,
     handler: resolveConflict,
+  },
+  searchTeams: {
+    kind: 'query',
+    description:
+      "The season's teams by number prefix or name, paginated: each marked when on the active event's roster (event_id, else the admin's active event) with its rank there by average scouted points (null until it has a counted match), its live entries there, and the other events we hold entries for it at. Counts per chip follow the query.",
+    input: API.searchTeams.input,
+    output: API.searchTeams.output,
+    handler: searchTeams,
+  },
+  listTeamEvents: {
+    kind: 'query',
+    description:
+      "The active season's events where we hold live entries for one team, in event order, each with its entry count and newest entry time, paginated. Powers the cross-event jump of the team search.",
+    input: API.listTeamEvents.input,
+    output: API.listTeamEvents.output,
+    handler: listTeamEvents,
+  },
+  queryEntries: {
+    kind: 'query',
+    description:
+      "One event's live entries, match and super (a kind filter narrows it), newest first and paginated, searchable by team name or number, match number or scouter name. Each row carries its scouted points from the shared engine (none for a no-show, a disabled robot or a super entry) and the scouter's name.",
+    input: API.queryEntries.input,
+    output: API.queryEntries.output,
+    handler: queryEntries,
+  },
+  getEntry: {
+    kind: 'query',
+    description:
+      "One live entry fully rendered: team, match, scouter's name, form version, every answer by phase with each scored field's points and each phase's subtotal, the scouted points, the team's average at that event, and whether the caller may edit it now. A soft-deleted entry is not found.",
+    input: API.getEntry.input,
+    output: API.getEntry.output,
+    handler: getEntry,
+  },
+  getTeamStats: {
+    kind: 'query',
+    description:
+      "One team's statistics at one event, computed by the shared engine: its rank among the roster by average scouted points, median, availability, best match and trend, every metric (average, median and std dev of points, then one per scorable field by phase) with its per-match series and its colour range at the event, the match-by-match table (paginated), its Long-text notes newest first, and its reliability counts with the matches named.",
+    input: API.getTeamStats.input,
+    output: API.getTeamStats.output,
+    handler: getTeamStats,
+  },
+  rankTeams: {
+    kind: 'query',
+    description:
+      'The fixed phase 1 ranking table of one event: every roster team with its rank by average scouted points (no-shows and disabled robots excluded, never zero), matches counted, breakdowns, no-shows, disabled and availability rate, sortable by any of those columns (never by standard deviation). No weighting.',
+    input: API.rankTeams.input,
+    output: API.rankTeams.output,
+    handler: rankTeams,
   },
 };

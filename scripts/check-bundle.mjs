@@ -1,5 +1,10 @@
 // The initial-JS budget (RB.18): the entry chunk and its static imports, gzipped, must stay
-// at or under BUDGET_KB. 228 KB = measured 226.2 KB after merging UI fix round 3 (UF.22–UF.26, 221.3 KB on develop)
+// at or under BUDGET_KB. 230 KB = measured 229.4 KB after task 1.50 (the four browse-and-search rows of the shared API
+// map — searchTeams, listTeamEvents, queryEntries, getEntry — which the typed client imports with every other row; no
+// engine code reaches the initial chunk) + headroom, raised by the build chat as the user allows (2026-10-26); was
+// 229 KB = measured 228.9 KB after Phase 1 H side task 5 (no edit after 5 minutes: the Save bar's
+// countdown and the save at the mark; the read-only view and what the mark keeps are in the lazy timed parts; side
+// tasks 1-4 had left it at 228.0 KB) + headroom, raised by the build chat as the user allows (2026-10-26); was 228 KB = measured 226.2 KB after merging UI fix round 3 (UF.22–UF.26, 221.3 KB on develop)
 // into Phase 1 F (224.7 KB) + headroom, raised by the orchestrator as the user allows (2026-10-20); was 226 KB = measured 224.1 KB after task 1.43 (the Sync nav row with its count,
 // the indicator as a link to /sync, the push progress, Q7.8's re-save rule; the Sync page itself is lazy)
 // + headroom, raised by the build chat as the user allows (2026-10-13); was 224 KB = measured 223.0 KB after task 1.42 (parent-deleted discards and the
@@ -18,7 +23,7 @@ import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
-const BUDGET_KB = 228;
+const BUDGET_KB = 230;
 
 const dist = 'apps/client/dist';
 const manifestPath = join(dist, '.vite/manifest.json');

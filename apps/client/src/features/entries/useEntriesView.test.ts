@@ -3,6 +3,8 @@ import {
   buildEntryRows,
   chipCounts,
   filterRows,
+  kindCounts,
+  kindRows,
   searchRows,
   timeLabel,
   type EntriesSource,
@@ -51,22 +53,36 @@ function source(over: Partial<EntriesSource> = {}): EntriesSource {
 }
 
 describe('buildEntryRows', () => {
-  it('lists newest first and drops other events, deleted and super entries', () => {
+  it('lists match and super entries newest first, and never another event’s or a deleted one', () => {
     const rows = buildEntryRows(
       source({
         entries: [
           entry('old', { match_id: 'm37', client_created_at: '2026-03-17T09:00:00.000Z' }),
           entry('new'),
-          entry('other-event', { event_id: 'ev-2' }),
+          entry('other-event', { event_id: 'ev-2', client_created_at: '2026-03-17T11:00:00.000Z' }),
           entry('gone', { deleted_at: '2026-03-17T10:00:00.000Z' }),
-          entry('super', { form_kind: 'super' }),
+          entry('super', {
+            form_kind: 'super',
+            match_id: null,
+            alliance: null,
+            robot_status: null,
+            client_created_at: '2026-03-17T09:20:00.000Z',
+          }),
         ],
       }),
     );
-    expect(rows.map((r) => r.id)).toEqual(['new', 'old']);
+    expect(rows.map((r) => r.id)).toEqual(['new', 'super', 'old']);
+    expect(rows[1]).toMatchObject({
+      kind: 'super',
+      matchLabel: '',
+      status: null,
+      points: null,
+      notInLineup: false,
+      look: false,
+    });
     expect(rows[0]).toMatchObject({
+      kind: 'match',
       matchLabel: 'Q38',
-      station: 'B2',
       teamNumber: 5951,
       teamName: 'Tiny Titans',
       status: 'played',
@@ -88,7 +104,9 @@ describe('buildEntryRows', () => {
           entry('x', { team_id: 't3316', client_created_at: '2026-03-17T09:41:00.000Z' }),
         ],
         outboxIds: new Set(['w', 'r']),
-        refusals: new Map([['r', 'This entry is locked — ask a lead']]),
+        refusals: new Map([
+          ['r', 'Changed after the 5-minute edit window. A lead can save it for you.'],
+        ]),
       }),
     );
     const by = Object.fromEntries(rows.map((r) => [r.id, r]));
@@ -96,10 +114,10 @@ describe('buildEntryRows', () => {
     expect(by.r).toMatchObject({
       waiting: false,
       unsent: true,
-      refused: 'This entry is locked — ask a lead',
+      refused: 'Changed after the 5-minute edit window. A lead can save it for you.',
       look: true,
     });
-    expect(by.x).toMatchObject({ notInLineup: true, station: null, look: true });
+    expect(by.x).toMatchObject({ notInLineup: true, look: true });
   });
 
   it('falls back to the update time when an entry has no creation time', () => {
@@ -107,6 +125,86 @@ describe('buildEntryRows', () => {
       source({ entries: [entry('a', { client_created_at: undefined })] }),
     );
     expect(rows[0]!.time).toBe(timeLabel('2026-03-17T09:41:00.000Z', NOW));
+  });
+});
+
+describe('scouted points (SPEC-FINAL 13.3, 11.3)', () => {
+  // A form whose active version is v2: entries on v1 are scored with v2's fields, as the server's
+  // entry search scores them (task 1.50).
+  const scoring = {
+    forms: [{ id: 'f-1', kind: 'match', active_version_id: 'fv-2', deleted_at: null }],
+    versions: [
+      { id: 'fv-1', form_id: 'f-1', version_no: 1 },
+      { id: 'fv-2', form_id: 'f-1', version_no: 2 },
+    ],
+    fields: [
+      {
+        id: 'ff-2',
+        form_version_id: 'fv-2',
+        key: 'auto_notes',
+        label: 'Auto notes',
+        type: 'counter',
+        display_order: 1,
+        phase: 'auto',
+        config: { min: 0, max: 10, step: 1 },
+        deprecated: false,
+      },
+    ],
+    rules: [{ id: 'r-1', form_id: 'f-1', field_key: 'auto_notes', points: 4, option_points: null }],
+  };
+
+  it('scores each match row with the form’s active version and rules; "—" for a dead robot and a super entry', () => {
+    const rows = buildEntryRows(
+      source({
+        scoring,
+        entries: [
+          entry('played', { form_version_id: 'fv-1', data: { auto_notes: 3 } }),
+          entry('noshow', { form_version_id: 'fv-2', robot_status: 'no_show', data: {} }),
+          entry('dis', {
+            form_version_id: 'fv-2',
+            robot_status: 'disabled',
+            data: { auto_notes: 5 },
+          }),
+          entry('sup', { form_kind: 'super', form_version_id: 'fv-2', data: { auto_notes: 5 } }),
+        ],
+      }),
+    );
+    const by = Object.fromEntries(rows.map((r) => [r.id, r.points]));
+    expect(by).toEqual({ played: 12, noshow: null, dis: null, sup: null });
+  });
+});
+
+describe('the kind switch (26-entry-search final)', () => {
+  const rows = buildEntryRows(
+    source({
+      entries: [
+        entry('m1'),
+        entry('s1', {
+          form_kind: 'super',
+          match_id: null,
+          client_created_at: '2026-03-17T09:30:00.000Z',
+        }),
+        entry('s2', {
+          form_kind: 'super',
+          match_id: null,
+          scouter_id: 'u-amit',
+          client_created_at: '2026-03-17T09:20:00.000Z',
+        }),
+      ],
+    }),
+  );
+
+  it('Super shows only super rows, Match only match rows, Both all of them', () => {
+    expect(kindRows(rows, 'super').map((r) => r.id)).toEqual(['s1', 's2']);
+    expect(kindRows(rows, 'super').every((r) => r.kind === 'super')).toBe(true);
+    expect(kindRows(rows, 'match').map((r) => r.id)).toEqual(['m1']);
+    expect(kindRows(rows, 'both')).toHaveLength(3);
+  });
+
+  it('counts each kind over what the search and the chip leave', () => {
+    expect(kindCounts(rows)).toEqual({ both: 3, match: 1, super: 2 });
+    expect(kindCounts(filterRows(rows, 'mine', 'u-noa'))).toEqual({ both: 2, match: 1, super: 1 });
+    expect(chipCounts(kindRows(rows, 'super'), 'u-noa')).toMatchObject({ all: 2, mine: 1 });
   });
 });
 
@@ -162,7 +260,9 @@ describe('search, filter and counts', () => {
       source({
         entries: [entry('w'), entry('r', { client_created_at: '2026-03-17T09:40:00.000Z' })],
         outboxIds: new Set(['w', 'r']),
-        refusals: new Map([['r', 'This entry is locked — ask a lead']]),
+        refusals: new Map([
+          ['r', 'Changed after the 5-minute edit window. A lead can save it for you.'],
+        ]),
       }),
     );
     expect(chipCounts(withRefused, 'u-noa')).toMatchObject({ waiting: 2, look: 1 });

@@ -1,7 +1,7 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatTime } from '@frc/shared';
 import type { CachedRow } from '@/data/db';
 import { db } from '@/data/db';
@@ -374,6 +374,29 @@ describe('SuperEntryPage (SPEC-FINAL 8.1, task 1.36)', () => {
     // Their own entry is never read only (22 final).
     expect(screen.queryByText('Read only')).not.toBeInTheDocument();
     expect(screen.queryByText(/’s entry/)).not.toBeInTheDocument();
+  });
+
+  it('never counts down or locks a super entry left open across 5 minutes (SPEC-FINAL 7.6 v1.45)', async () => {
+    // Only the timers the match form's window would use; fake-indexeddb keeps setImmediate real.
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+      shouldAdvanceTime: true,
+    });
+    try {
+      await db.rows.put(superEntry(4 * 60_000 + 30_000));
+      renderAt('/super/t-1690');
+      expect(await screen.findByText(/Editing your entry from/)).toBeInTheDocument();
+      await act(async () => void (await vi.advanceTimersByTimeAsync(31_000))); // 5:01
+      expect(screen.queryByRole('timer')).not.toBeInTheDocument();
+      await act(async () => void (await vi.advanceTimersByTimeAsync(60_000))); // 6:01
+      expect(screen.queryByRole('timer')).not.toBeInTheDocument();
+      expect(screen.queryByText(/the 5 minutes are up/)).not.toBeInTheDocument();
+      expect(screen.queryByText('Read only')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /review entry/i })).toBeInTheDocument();
+      expect(await pending(10)).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('never promises a scouter a five-minute window on a new super entry', async () => {

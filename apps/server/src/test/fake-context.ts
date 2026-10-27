@@ -14,10 +14,18 @@ import type {
   StoredSeason,
   StoredTeam,
   StoredUser,
+  TeamEventEntries,
   UseCaseContext,
 } from '../core/context.js';
 import { DUMMY_PASSWORD_HASH } from '../auth/password.js';
-import { stubsFor } from '../repos/store.js';
+import { entrySearch, matchMatches, scouterMatches, teamMatches } from '../core/entrySearch.js';
+import { addTeamEventEntry } from '../repos/store.js';
+import {
+  changeFieldTypeBetweenVersions,
+  duplicateEntry,
+  seedRankingFixture,
+} from './ranking-fixture.js';
+import { seedSmallSeason } from './small-season.js';
 
 export type FakeRow = Record<string, unknown> & { id: string; version: number };
 /** `matches` is not versioned: SPEC-FINAL 6.4 defines a bare match as event, type, number. */
@@ -718,27 +726,31 @@ export function makeFakeContext(): FakeContext {
     appliedOrder,
     formVersionWrites: 0,
     nowValue: new Date('2026-11-14T10:00:00.000Z'),
-    seedSmallSeason: () => {
-      throw new Error('seedSmallSeason lands with task 1.50');
-    },
-    seedRankingFixture: () => {
-      throw new Error('seedRankingFixture lands with task 1.57');
-    },
+    // Task 1.50: the browse-and-search fixture (test/small-season.ts).
+    seedSmallSeason: () => seedSmallSeason(fake),
+    // Task 1.57: the statistics fixture and its two mutations (test/ranking-fixture.ts).
+    seedRankingFixture: () => seedRankingFixture(fake),
     // A fixture that writes the singleton directly, as a migration or an admin would. It is
     // not Store.setActiveContext (task 1.18): it validates nothing, so a test can make the
     // singleton name an event that does not exist.
     setActiveContext: (seasonId: string | null, eventId: string | null) => {
       activeContext = { active_season_id: seasonId, active_event_id: eventId };
     },
-    softDelete: () => {
-      throw new Error('softDelete lands with task 1.50');
+    // Task 1.50: what a soft delete leaves — the row, with deleted_at set and a new revision.
+    softDelete: (entryId: string) => {
+      const row = rows.scouting_entries.get(entryId);
+      if (!row) throw new Error(`softDelete: no entry ${entryId}`);
+      const at = fake.nowValue.toISOString();
+      rows.scouting_entries.set(entryId, {
+        ...row,
+        deleted_at: at,
+        updated_at: at,
+        version: row.version + 1,
+      });
     },
-    duplicateEntry: () => {
-      throw new Error('duplicateEntry lands with task 1.57');
-    },
-    changeFieldTypeBetweenVersions: () => {
-      throw new Error('lands with task 1.57');
-    },
+    duplicateEntry: (sourceId: string, options: { scoreDelta: number; newer: boolean }) =>
+      duplicateEntry(fake, sourceId, options),
+    changeFieldTypeBetweenVersions: (key: string) => changeFieldTypeBetweenVersions(fake, key),
   } as unknown as FakeContext;
 
   // UF.1: the AFTER DELETE trigger on matches (migration 20261008090000_match_deletions.sql).
@@ -847,9 +859,8 @@ export function makeFakeContext(): FakeContext {
   // Typed separately, rather than inline in the Object.assign below: Object.assign's
   // generic inference does not flow FakeContext's `store: Store` field back in as a
   // contextual type for a nested object literal, which left every method parameter
-  // here implicitly `any`. The `as Store` cast is the same fix as repos/store.ts's —
-  // stubsFor's spread only carries an index signature, not the named methods it
-  // supplies at runtime.
+  // here implicitly `any`. The `as Store` cast matches repos/store.ts's (task 1.57 filled
+  // the last stub, so every Store method is now implemented in both).
   const store = {
     async getUser(id) {
       return users.get(id) ?? null;
@@ -1650,9 +1661,65 @@ export function makeFakeContext(): FakeContext {
           kind === 'season' ? [...fake.forms.values()].filter((f) => f.season_id === id).length : 0,
       };
     },
-    // Everything else on the Store starts as a loud stub; each later task
-    // replaces the two or three entries it needs.
-    ...stubsFor(['getEntry', 'queryEntries', 'entriesForScope', 'listTeamEvents']),
+    // Task 1.50: the browse and search reads, over `rows.scouting_entries`, with the same
+    // matching rules as the Supabase store (core/entrySearch.ts).
+    async getEntry(id) {
+      const row = rows.scouting_entries.get(id);
+      return row ? { ...row } : null;
+    },
+    async queryEntries({ eventId, formKind, teamId, query, limit, after }) {
+      const q = entrySearch(query);
+      const instant = (row: { client_created_at?: unknown }) =>
+        Date.parse(String(row.client_created_at));
+      // Newest first by (client_created_at, id), compared as instants, as timestamptz is.
+      const newerFirst = (
+        a: { client_created_at?: unknown; id: string },
+        b: { client_created_at?: unknown; id: string },
+      ) => instant(b) - instant(a) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+      const hit = (row: FakeRow): boolean => {
+        if (!q) return true;
+        const team = teams.get(String(row.team_id));
+        const match = row.match_id ? rows.matches.get(String(row.match_id)) : undefined;
+        return (
+          (team !== undefined && teamMatches(team, q)) ||
+          (match !== undefined && matchMatches(match, q)) ||
+          scouterMatches(usersById.get(String(row.scouter_id))?.full_name, q)
+        );
+      };
+      return [...rows.scouting_entries.values()]
+        .filter((row) => row.event_id === eventId && row.deleted_at == null)
+        .filter((row) => formKind === undefined || row.form_kind === formKind)
+        .filter((row) => teamId === undefined || row.team_id === teamId)
+        .filter(hit)
+        .sort(newerFirst)
+        .filter((row) => after === undefined || newerFirst(row, after) > 0)
+        .slice(0, limit)
+        .map((row) => ({ ...row }));
+    },
+    async listTeamEvents(teamIds, eventIds) {
+      const wantTeams = new Set(teamIds);
+      const wantEvents = new Set(eventIds);
+      const groups = new Map<string, TeamEventEntries>();
+      for (const row of rows.scouting_entries.values()) {
+        if (row.deleted_at != null) continue;
+        if (!wantTeams.has(String(row.team_id)) || !wantEvents.has(String(row.event_id))) continue;
+        addTeamEventEntry(groups, {
+          team_id: String(row.team_id),
+          event_id: String(row.event_id),
+          client_created_at: String(row.client_created_at),
+        });
+      }
+      return [...groups.values()];
+    },
+    // Task 1.57: the statistics read, as the Supabase store's (live rows of the events).
+    async entriesForScope({ eventIds, teamId }) {
+      const wanted = new Set(eventIds);
+      return [...rows.scouting_entries.values()]
+        .filter((row) => wanted.has(String(row.event_id)) && row.deleted_at == null)
+        .filter((row) => teamId === undefined || row.team_id === teamId)
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+        .map((row) => ({ ...row }));
+    },
   } as Store;
 
   return Object.assign(fake, {

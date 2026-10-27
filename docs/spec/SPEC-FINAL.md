@@ -1,6 +1,20 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.38 · **Date:** 2026-10-23 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.45 · **Date:** 2026-10-23 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.45: no edit is possible after the 5 minutes (§7.6): an open form counts down its last minute, saves what is typed at 5:00 and locks. See the living spec's §21, v0.97.*
+
+*v1.44: a record refused for the edit window reads "Not sent: changed after the 5-minute edit window. A lead can save it for you." everywhere (§7.6), replacing "this entry is locked — ask a lead". See the living spec's §21, v0.96.*
+
+*v1.43: the entry search is the Entries page (§13.3): 05's design plus a Both · Match · Super switch; no station in the table. See the living spec's §21, v0.95.*
+
+*v1.42: the team search page is designed (§13.2): At this event by default, the whole row opens the team page, a Show all line for other events. See the living spec's §21, v0.94.*
+
+*v1.41: the entry preview is designed (§13.4): a score band, phase subtotals and points per row, the form version, and Team page / Edit buttons (Edit only for who may edit, §7.6). See the living spec's §21, v0.93.*
+
+*v1.40: the team page is designed (§13.1): tiles, stat rows with trend lines, a match strip on the Matches tab only, the scouter on every match row; the worst → best shading ramp is fixed (§12.6). See the living spec's §21, v0.92.*
+
+*v1.39: a held wipe gains **Wipe anyway**, for a device whose records cannot reach the cloud (§9.9). See the living spec's §21, v0.91.*
 
 *v1.38: QR frames are 500-byte Base45 text in alphanumeric mode at a fixed version 18, the receiver asks for a 1080p camera and uses the browser's own QR reader where it has one (§9.8, D12); version 40 was unreadable by a phone camera (user, 2026-10-23). See the living spec's §21, v0.90.*
 
@@ -918,8 +932,13 @@ A scouter may edit their **own** entry for **5 minutes** after creating it. Afte
 **Super entries are exempt** *(v1.26, user, 2026-10-12)*: a scouter may edit their own super entry (§8.1) at any time during the event. A super entry is one running judgement of a team, built up over every match the scouter watches, not a record of one match, so locking it after five minutes defeats its purpose. The window below applies to `form_kind = 'match'` entries only, on the client and on the server; another scouter's super entry stays read-only to a scouter, as before. *(v1.32, user 2026-10-20)* **Read only means visible:** a scouter who opens another scouter's super entry sees *(v1.35: in place of the lock line)* a **Read only** chip, **whose entry it is** (the author, when it was started and last changed, and how many matches the author scouted the team in) with "Only *name*, a lead or an admin can change it.", **and the entry's answers by phase**, as the confirmation summary shows them (map fields open their map view only), with no control that edits. Leads and admins still edit any super entry at any time.
 
 - The window is measured from the entry's **`client_created_at`**, so it behaves identically offline and online.
-- The **client enforces it** by locking the UI at the 5-minute mark.
-- **The server also enforces it**, using the two client timestamps carried on the mutation: an operation whose `author_user_id` has the `scouter` role and targets its own entry is accepted only when `client_updated_at − client_created_at ≤ 5 minutes`. An edit outside the window is rejected with `edit-window-expired`, and the client surfaces it as "this entry is locked — ask a lead".
+- The **client enforces it** by locking the UI at the 5-minute mark. *(v1.45, user 2026-10-23)* **There is no way to edit after 5 minutes:**
+  - Once the window has closed, nothing offers an edit: the Entry preview shows no Edit (§13.4), and opening the entry from Entries, Sync or the team page shows it read only.
+  - **A form left open runs down with the window.** In the last 60 seconds the form's Save bar shows a countdown, "Editable for 0:45" (mono, `--warn`), above the Save button.
+  - **At 5:00 the form saves what is typed and locks.** The save is stamped `client_updated_at` = `client_created_at` + 5:00, so it passes the server's check below. The form then becomes the read-only entry preview, with a Success banner: "Saved — the 5 minutes are up."
+  - **[RAISED BY ME] A change that cannot be saved is not kept.** A value the save would refuse (out of `expected_range`, §15.1; a required field emptied) keeps its last saved value. The banner says so in one line per field: "Not kept: High goal 40 is over 20." The lead can still make that change. Nothing else typed is lost.
+  - Leads, admins and super entries are unaffected (above).
+- **The server also enforces it**, using the two client timestamps carried on the mutation: an operation whose `author_user_id` has the `scouter` role and targets its own entry is accepted only when `client_updated_at − client_created_at ≤ 5 minutes`. An edit outside the window is rejected with `edit-window-expired`, and the client surfaces it as **"Not sent: changed after the 5-minute edit window. A lead can save it for you."** *(v1.44, user 2026-10-23; was "this entry is locked — ask a lead", which read as if syncing had locked it)*. The same one line is the refused-record line on Entries and on Sync, with no second "why" sentence; the server's `message` for this code is the same text. *(v1.45)* With the client rule above, this refusal is only a safety net (a device clock moved back, a bug); a scouter should not meet it in normal use.
 - **The server compares the two client timestamps to each other, never to server time.** An entry created and edited offline and uploaded six hours later still passes, because the elapsed time measured is the scouter's own, exactly as it is on-device.
 - Scouters never hard-delete entries. Removal is a lead/admin soft-delete.
 - Leads and admins may edit or manage any entry at any time.
@@ -1277,6 +1296,7 @@ A "clear this device's offline data" action, gated behind a **constant code held
 - It is a guard against accidents, **not a secret** — a client-side build variable is visible in the bundle, and this is accepted.
 - **The wipe is refused for any record without a cloud ack**, so it can never destroy unsynced data. If unacked records exist the action reports how many and refuses.
 - *(v1.27)* It is reached from **Settings** ("Wipe this device", §17.9) only, not from the sync page.
+- *(v1.39, user 2026-10-23)* **Wipe anyway.** While the wipe is held, a second, harder path clears a device whose records cannot reach the cloud (a stuck record, a device that must be cleared in a hurry). It offers **Send by QR first** (§9.8), so the unsent records can be copied to another device, then asks for the lead's code **and the number of records that will be lost**, typed. The count must equal the device's unacked count at the moment of the wipe. Each lost record is written to the discarded-records log (§9.7, summary only) with the reason "wiped before it reached the cloud" before the wipe runs, so the loss is recorded, never silent. The normal wipe keeps its refusal.
 
 ### 9.10 Sync status surface
 
@@ -1558,6 +1578,7 @@ Every numeric cell or mark carrying a metric value is **colour-scaled from worst
 - **No data** — a cell with no value renders as a distinct **"—"** and is **excluded from the column's min/max domain**. Missing data must never look like a bad value.
 - **All-equal or single row** — when min == max, shading falls back to a **flat mid-colour**. Inferring "best" from one data point would be dishonest.
 - **Colourblindness** — the shading ramp must vary **lightness monotonically**, so it stays legible without hue, **and the numeric value is always printed in the cell**. Colour is a fast cue, never the only channel.
+- **The ramp** *(v1.40, 2026-10-23)* — one hue, the accent, mixed into the surface from 6 % (worst) to 52 % (best); the text stays ink. Flat cells (neutral, min = max) use `--line-2`. Tokens in `docs/design/THEME.md`, "Value shading".
 
 ### 12.7 Operational (meta) statistics
 
@@ -1631,6 +1652,8 @@ Required content, beyond the team dashboard's configurable charts:
 
 There are no photos on this page.
 
+*(v1.40, user 2026-10-23)* **The page as designed** (`docs/design/pages/24-team/final/`): tabs **Stats · Matches · Progress · Notes** under the sticky header (which shrinks to one line on a phone once scrolled). Stats opens with four stat tiles (median points, availability, best match, trend = the `slope`), then every metric as **label → shaded value → bar → a per-match trend line**, grouped by phase, with the reliability counts. **Matches** opens with a **match strip** (one shaded cell per match, oldest → newest; a broke-down match edged amber, a no-show dashed with "—"), shown on that tab only. Then on a phone the list shows match · robot status · **scouter** · points, with no station and no field values (they are one tap away in the entry); on a computer the table keeps the metric columns above and adds the **scouter**. Progress stacks up to four charts (§12.5). Notes are quotes, newest first. A team with no entries shows "No entries for this team yet".
+
 ### 13.2 Team search page
 
 Searches **all teams in the season** by number or name.
@@ -1638,6 +1661,8 @@ Searches **all teams in the season** by number or name.
 - A team **in the active event** shows a **small side rank badge**; the **top 3 carry a medal icon**. Teams not in the active event show no rank.
 - Team **in the active event** → a button → that team's page (13.1).
 - Team **not in the active event** → a **differently-styled button** → pick from the **events that team competed at** (events where we hold entries for it) → an **"are you sure?" confirmation** → on yes, switch the active event as a **session-only override** and land on that team's page. **Disabled offline.**
+
+*(v1.42, user 2026-10-23)* **The page as designed** (`docs/design/pages/23-team-search/final/`): one list with the chips All · **At this event (the default)** · Other events, filtering as you type. A team at the active event is a row whose **whole area opens its team page** (a round › at the end; pressed or hovered rows tint with an accent edge). It carries the rank badge at the side, with the medal on the top 3. A team at another event shows a dashed **Other event** button instead. While At this event is selected, a closing line offers "n more teams at other events · Show all". The computer table is Team · Rank here · Entries here, with no column naming other events. The event pick is a sheet of radio rows (events where we hold entries); the are-you-sure names the event and the team, says the switch is for this session and this device only, and offers **Keep District #3** first. The phone bottom bar becomes Home · Scout · Search · Entries.
 
 ### 13.3 Entry search page
 
@@ -1647,9 +1672,13 @@ Searchable by **team name, team number, match number, scouter name**. Each row s
 
 Filters as chips, search that filters as you type. A row opens the preview **as a full page, not a drawer**.
 
+*(v1.43, user 2026-10-23)* **One page.** The entry search *is* `/entries`: the Entries page as designed in round 05 (search, All · Mine · Waiting · Needs a look) plus a **Both · Match · Super** switch (Both by default). Super entries sit in the list by time with a SUPER tag and no score, and every row opens the entry preview. The station tag is dropped from the list (table and phone cards). Design: `docs/design/pages/26-entry-search/final/`.
+
 ### 13.4 Entry preview page
 
 A read-only rendering of a **single entry**: all field values laid out **by phase**, plus the entry's **scouted score**, team, match, alliance, robot status, scouter, form kind and timestamp.
+
+*(v1.41, user 2026-10-23)* **The page as designed** (`docs/design/pages/25-entry-preview/final/`): a header with the match, team, robot status, station, form kind and the score ("—" over "not counted" for an excluded entry; no score for a super entry), then "Scouted by …", the time and the **form version**. A match entry with a score then shows a **score band**: where the points came from, by phase, against the team's average. The answers follow by phase, each phase with its **points subtotal** and each scored row with its **points**. A no-show or disabled entry shows a note and no field rows. At the end come **Team page** and **Edit**; Edit shows only to someone allowed to edit it under §7.6 (the scouter's own match entry within its 5 minutes, their own super entry, a lead or an admin) and opens the entry in its form.
 
 ### 13.5 Ranking page
 
