@@ -1,6 +1,7 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.34 · **Date:** 2026-10-28 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.35 · **Date:** 2026-10-28 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.35 (2026-10-28): the delete confirmation is designed (`docs/design/pages/28-delete/final/`, spec v0.99 / SPEC-FINAL v1.47 §3.9, §17.8); task 1.60 adds deleting a match with its entries and the two-file backup text, task 1.61 points at the final.*
 *v1.34 (2026-10-28): the ranking page is designed (`docs/design/pages/27-ranking/final/`, spec v0.98 / SPEC-FINAL v1.46 §13.5, §17.9, D18); task 1.58 points at it and adds the per-phase averages and the standard deviation to `rankRow`; §17.8 now prints one decimal, so 1.58 also changes `formatMetric`.*
 *v1.33 (2026-10-27): a fifth side task at the top of Phase 1 I: the team page's field charts show "—" for every match, even where the field was answered (user).*
 *v1.32 (2026-10-27): a fourth side task at the top of Phase 1 I: a wipe made offline says first that the phone cannot sign in again until it has a connection (user).*
@@ -17455,10 +17456,10 @@ git add -A && git commit -m "feat: add value shading and the per-match progressi
 **Rules, verbatim (SPEC-FINAL §3.9).**
 - **Hard cascade delete** applies to `seasons`, `events` and `forms`, is **admin-only and irreversible**. Deleting a season deletes its events, their matches and entries, its forms, all their versions, its metrics, dashboards and presets. Deleting an event deletes its matches, entries, pick lists, do-not-pick rows and alliance bracket. Deleting a form deletes its versions, its fields, its scoring rules and **every entry bound to it**.
 - **Deleting a single form version that has entries bound to it is blocked**, and **no confirmation text overrides it**. Deleting the parent is a cascade, not an orphaning, which is why one is allowed and the other is not.
-- **Deleting a match that has entries is blocked.** Correct the match number instead, or delete the entries first.
+- **Deleting a match that has entries is blocked on its own.** Correct the match number instead, or delete the match **with its entries** *(v1.35)*: `deleteMatch({ match_id, with_entries: true, confirm_name })`, admin only, `confirm_name` = the match label ("Q41"); in one transaction it hard-deletes every `scouting_entries` row naming the match — **soft-deleted ones included**, since their rows still hold the `on delete restrict` key — then the match, recording the match tombstone as today (UF.1). `getDeleteImpact` covers `{ kind: 'match' }` (entries, by station). A device that later pushes an entry for it gets the existing `parent-deleted` refusal. "Delete the entries first" is gone: it never worked.
 - **The active season and the active event cannot be deleted.** Switch the active context first.
 - **Confirmation names the damage** — exact counts, and the admin types the object's name to proceed.
-- **Back up first**: the delete screen instructs the admin to run `supabase db dump` before proceeding.
+- **Back up first**: the delete screen shows the **two-file backup** from `docs/ops/SETUP.md` › Backup (schema, then `--data-only --use-copy`), never the bare `supabase db dump`, which saves no rows *(v1.35)*.
 - `deleteEntry` is a **lead/admin soft delete**. Scouters never hard-delete entries.
 
 - [ ] **Step 1: Write the failing test**
@@ -17595,6 +17596,7 @@ git add -A && git commit -m "feat(server): add the admin cascade deletes with an
 ## Task 1.61: Client — the destructive-action surface
 
 **Design (redesign system).** The one dialog is `ConfirmDialog`, already restyled, and `getDeleteImpact`'s counts fill its `loss` line.
+- *(v1.35)* **Design: `docs/design/pages/28-delete/final/` (variant A).** Compare screenshots at 1440 and 375 px; its README's table says which face each kind gets. `DeleteDialog` has three faces: **Bill + type** (the `--ink` band with the biggest count and the itemised counts, then 1 · Back up first with the two SETUP.md lines and Copy both, 2 · Type the name, Cancel focused + the filled-ink delete) for season, event, form, form version and a match with its entries; **Are you sure?** (a small pop-up, no band, nothing typed) for one entry and a match with no entries; **Blocked** (the band with the Blocked tag, the ways forward as cards, no delete) for a form version with entries, the active season or default event — and a match with entries opens a choice (Correct the match number · Delete Q41 and its 6 entries… · Close) before its bill. Components (THEME, Delete): Delete bill, Are-you-sure pop-up, Blocked tag and ways forward, Station tiles, Backup command box. The tests below hold: the commands contain `supabase db dump`; `kind="entry"` has no typing. Add `kind="match"` with entries (typing "Q41") and without (Are you sure?).
 
 **Files:**
 - Create: `apps/client/src/features/admin/DeleteDialog.tsx`, `apps/client/src/features/admin/DeleteDialog.test.tsx`

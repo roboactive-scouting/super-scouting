@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.46 · **Date:** 2026-10-28 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.47 · **Date:** 2026-10-28 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.47: the delete confirmation is designed (§3.9, §17.8): the bill first; a plain "Are you sure?" where nothing is typed; a match with entries can be deleted together with them; the backup step is the two-file dump. See the living spec's §21, v0.99.*
 
 *v1.46: the ranking page is designed (§13.5, D18): phase 1's table gains the Auto, Teleop and Endgame averages and Consistency, two categories (Scoring, Availability) replace column visibility, availability shows on every row, a status spread over the scouted matches, a team study panel, and a sort of several figures; the phone bottom bar is Home · Scout · Search · Ranking (§17.9); averages and standard deviations print **one** decimal, a whole number bare (§17.8). See the living spec's §21, v0.98.*
 
@@ -615,10 +617,10 @@ Two distinct mechanisms, and they do not overlap:
 Additional rules:
 
 - **Deleting a whole form is an admin cascade** and takes its entries with it. **Deleting a single form version that has entries bound to it is blocked** with an explanation, and no confirmation text overrides it. Deleting the parent is a cascade, not an orphaning, which is why one is allowed and the other is not.
-- **Deleting a match that has entries is blocked** (`scouting_entries.match_id` is `on delete restrict`). Correct the match number instead, or delete the entries first.
+- **Deleting a match that has entries is blocked on its own** (`scouting_entries.match_id` is `on delete restrict`). The admin either **corrects the match number**, or **deletes the match together with its entries** — a hard cascade like an event's: the counts, the backup step, the match label typed ("Q41"); the entries, soft-deleted ones included, and the match go in one transaction. *(v1.47, user 2026-10-28. Was "or delete the entries first", which never worked: a soft-deleted entry keeps its row and so still holds the match **[RAISED BY ME]**.)*
 - **The active season and the active event cannot be deleted.** Switch the active context first.
 - **Confirmation names the damage** — exact counts, and the admin types the object's name to proceed (§17.8).
-- **Back up first.** The delete screen instructs the admin to run `supabase db dump` before proceeding (§18.6).
+- **Back up first.** Every hard delete's confirmation shows the **two-file backup** from `docs/ops/SETUP.md` › Backup — the schema (`supabase db dump -f …`) and the rows (`supabase db dump --data-only --use-copy -f …`), shown as two lines with one Copy. **Never the bare `supabase db dump`, which saves no rows** (DEVIATIONS, task 0.7) before proceeding (§18.6). *(v1.47 [RAISED BY ME]; was "run `supabase db dump`".)*
 
 ### 3.10 `updated_at` is load-bearing
 
@@ -2058,7 +2060,8 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 **Destructive actions — one pattern everywhere.**
 
 - A single confirm dialog that **names the object**, **states what is lost as a count** ("this deletes 4 entries"), and puts the destructive verb on the primary button.
-- **Type-to-confirm only for multi-record irreversibles** — delete a season, delete a form version, wipe local device data. **Plain confirm for single records.**
+- **Type-to-confirm only for multi-record irreversibles** — delete a season, an event, a form, a form version, a match together with its entries, wipe local device data. **Plain confirm for single records** — one entry, a match with no entries — as a small **"Are you sure?"** pop-up naming the record, with Cancel first. *(v1.47)*
+- *(v1.47, user 2026-10-28)* **As designed** (`docs/design/pages/28-delete/final/`, variant A): a cascade delete opens on **the bill** — a dark band with the damage as the biggest count, then every count itemised — then the title as a question, **1 · Back up first**, **2 · Type the name**, and Cancel (focused) beside the filled-ink delete button. A blocked delete keeps the band with a Blocked tag and offers the ways forward as cards, with no delete button.
 - **Undo instead of a dialog wherever undo is possible** — repeatable inputs, one-tap do-not-pick removal.
 - **An action that would orphan collected data is blocked, not confirmed.** Deleting a form version with entries bound to it fails with an explanation, and no confirmation text overrides it.
 

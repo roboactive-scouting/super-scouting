@@ -1,0 +1,207 @@
+/* Delete (28) — closed: variant A "The bill comes first" with the user's changes (2026-10-28):
+   no square-per-entry field, a plain "Are you sure?" pop-up where nothing is typed, the
+   two-file backup, and a match deleted with its entries. Loads after a/a.css. */
+
+/* the backup step spans the dialog; the name step sits under it */
+.f-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 18px;
+}
+.f-steps .a-step {
+  padding: 14px 18px;
+}
+.f-name {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 18px;
+  align-items: center;
+}
+.f-name .a-input {
+  margin-top: 0;
+}
+.f-name .hint {
+  margin-top: 0;
+}
+
+/* the backup command box: both SETUP.md lines, one Copy */
+.f-cmd {
+  margin-top: 10px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  overflow: hidden;
+}
+.f-cmd-h {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding-left: 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.f-cmd-h .sp {
+  flex: 1;
+}
+.f-cmd-h .btn {
+  height: 39px;
+  border: 0;
+  border-left: 1px solid var(--control-border);
+  border-radius: 0;
+  font-size: 13px;
+}
+.f-cmd pre {
+  margin: 0;
+  padding: 10px 14px 12px;
+  font-family: var(--font-num);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.f-cmd pre i {
+  font-style: normal;
+  color: var(--muted);
+}
+
+/* "Are you sure?" — a single record, nothing to type: no bill, a small pop-up */
+.f-pscrim {
+  position: absolute;
+  inset: 44px 0 0;
+  background: color-mix(in srgb, var(--ink) 50%, transparent);
+  display: grid;
+  place-items: center;
+  padding: 0 18px;
+}
+.f-pop {
+  width: 100%;
+  background: var(--surface);
+  border-radius: 16px;
+  box-shadow: 0 24px 60px -20px color-mix(in srgb, var(--ink) 60%, transparent);
+  padding: 22px 20px 20px;
+}
+.f-pop h2 {
+  font-size: 19px;
+  font-weight: 750;
+}
+.f-pop .f-obj {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  row-gap: 4px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.f-pop .f-obj b {
+  font-family: var(--font-num);
+  font-size: 16px;
+  color: var(--ink);
+}
+.f-pop .f-obj .pts {
+  grid-row: span 2;
+  align-self: center;
+  text-align: right;
+  font-family: var(--font-num);
+  font-size: 18px;
+  color: var(--ink);
+}
+.f-pop .f-obj .pts small {
+  display: block;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--muted);
+}
+.f-pop p {
+  margin-top: 12px;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.f-pop-btns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 18px;
+}
+.f-pop-btns .btn {
+  height: 52px;
+  font-size: 15px;
+}
+
+/* the phone sheet's backup and name steps (match with its entries) */
+.f-psteps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+.f-psteps .a-step {
+  padding: 12px 14px;
+}
+.f-psteps .f-cmd pre {
+  font-size: 10.5px;
+  line-height: 1.6;
+}
+.f-psteps .a-input {
+  margin-top: 8px;
+}
+.f-way2 {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+}
+
+/* the season bill on a computer: the items in two columns, so the dialog fits 900 px */
+.f-bill2 {
+  padding: 22px 32px 22px;
+}
+.f-bill2 .a-bill-body {
+  grid-template-columns: 1fr 470px;
+  gap: 28px;
+  margin-top: 12px;
+}
+.f-bill2 .a-items {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 20px;
+  align-content: start;
+}
+.f-bill2 .a-items div {
+  grid-template-columns: 48px 1fr;
+  padding: 6px 0;
+}
+.f-bill2 .a-items div:nth-last-child(2) {
+  border-bottom: 0;
+}
+.f-tight {
+  padding: 18px 32px 18px;
+}
+.f-tight .f-steps {
+  margin-top: 12px;
+  gap: 10px;
+}
+.f-tight .a-step p {
+  margin-top: 4px;
+}
+.f-tight .f-cmd {
+  margin-top: 8px;
+}
+.f-tight .f-cmd pre {
+  font-size: 11px;
+  line-height: 1.65;
+  padding: 8px 14px 9px;
+}
+.f-tight .a-foot {
+  margin-top: 14px;
+  padding-top: 14px;
+}

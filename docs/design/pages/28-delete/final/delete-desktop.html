@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Delete — final, desktop</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../src/a/a.css"><link rel="stylesheet" href="../src/final.css">
+<style>body{background:var(--bg)}.desk{zoom:1;border-radius:0;box-shadow:none}</style>
+</head><body>
+<div class="desk">
+  <div data-desk-shell="manage" data-nav="stats" data-crumb="Manage / <b>Competitions</b>">
+    <div class="a-page">
+      <h1>Manage</h1>
+      <div class="a-tabs"><span class="on">Competitions</span><span>Forms</span></div>
+      <div class="a-card">
+        <div class="a-row"><div><b>Season 2026</b><br /><small>2 events · active season</small></div><span class="sp"></span><span class="tag ok">Active</span></div>
+        <div class="a-row"><div><b>Season 2025</b><br /><small>3 events · 246 matches</small></div><span class="sp"></span><span class="btn">Delete season</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="a-scrim">
+    <div class="a-dlg">
+      <div class="a-bill f-bill2">
+        <div class="a-kick"><svg viewBox="0 0 24 24"><path d="M12 3 2 21h20zM12 10v5M12 18h.01" /></svg>Delete Season 2025 · hard delete · cannot be undone<span class="sp"></span><small>Counted on the server just now</small></div>
+        <div class="a-bill-body">
+          <div>
+            <div class="a-big"><span class="num">1,912</span><span>entries go</span></div>
+            <p class="a-sub">with <b>246 matches</b> at <b>3 events</b>, and every form, dashboard, preset and metric Season 2025 holds.</p>
+          </div>
+          <div class="a-items">
+            <div><span class="num">3</span><b>events</b><small>ISR District #1 · ISR District #4 · ISR District Championship</small></div>
+            <div><span class="num">246</span><b>matches</b></div>
+            <div><span class="num">1,912</span><b>entries</b><small>1,804 match · 108 super</small></div>
+            <div><span class="num">2</span><b>forms</b><small>7 versions in all</small></div>
+            <div><span class="num">4</span><b>dashboards</b></div>
+            <div><span class="num">2</span><b>weight presets</b></div>
+          </div>
+        </div>
+      </div>
+      <div class="a-act f-tight">
+        <h2>Delete Season 2025?</h2>
+        <p>The rows are removed from the database for good. Only a backup you take now can bring them back.</p>
+        <div class="f-steps">
+          <div class="a-step">
+            <h3><span class="n">1</span>Back up first</h3>
+            <p>Run both lines in a terminal on your computer, in the scouting repo. The app can't run them for you.</p>
+            <div class="f-cmd"><div class="f-cmd-h">Terminal · two lines: the tables, then the rows (SETUP.md › Backup)<span class="sp"></span><span class="btn">Copy both</span></div><pre>pnpm --filter @frc/db exec supabase db dump -f ~/frc-backups/prod-schema-$(date +%Y-%m-%d).backup.sql
+pnpm --filter @frc/db exec supabase db dump --data-only --use-copy -f ~/frc-backups/prod-data-$(date +%Y-%m-%d).backup.sql</pre></div>
+          </div>
+          <div class="a-step">
+            <h3><span class="n">2</span>Type the season's name</h3>
+            <div class="f-name"><div class="a-input">202<span class="caret"></span><span class="state">No match yet</span></div>
+            <p class="hint">Type <b>2025</b> exactly, including case. The delete button stays off until it matches.</p></div>
+          </div>
+        </div>
+        <div class="a-foot">
+          <span class="note">Admins only · Online, so the delete runs on the server at once.</span>
+          <span class="btn a-focus">Cancel</span>
+          <button class="btn a-del" disabled>Delete season 2025</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="../../shell.js"></script>
+</body></html>
