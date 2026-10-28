@@ -1,4 +1,5 @@
 import {
+  formatMetric,
   formatPercent,
   formatTime,
   formatWeekdayTime,
@@ -36,11 +37,13 @@ const PHASE_WORD: Record<StatGroup, string> = {
   post_match: 'Post-match',
 };
 
-/** Points and averages as the design prints them: whole bare ("41"), else one place ("38.4"). */
+/**
+ * Points and averages as every page prints them: whole bare ("41"), else one place ("38.4").
+ * SPEC-FINAL 17.8 (v1.46) made this the app's one format, so it is @frc/shared's `formatMetric`
+ * (task 1.58), not a copy.
+ */
 export function formatStat(value: number | null | undefined): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return NO_VALUE;
-  const one = Math.round(value * 10) / 10;
-  return Number.isInteger(one) ? String(one) : one.toFixed(1);
+  return formatMetric(value);
 }
 
 /** The trend tile: the slope with its sign, "+1.3" / "−0.4". */

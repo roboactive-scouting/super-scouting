@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { getTeamStatsOutput, rankTeamsOutput, type Caller } from '@frc/shared';
+import {
+  buildRankTable,
+  getTeamStatsOutput,
+  RANK_SORT_KEYS,
+  rankTeamsOutput,
+  SORT_DIRECTIONS,
+  type Caller,
+} from '@frc/shared';
 import { getTeamStats, rankTeams } from './stats.js';
+import { str, toEngineEntry, unique } from './search.js';
 import { makeFakeContext, type FakeContext } from '../../test/fake-context.js';
 
 const lead: Caller = { kind: 'user', userId: 'u-l', role: 'lead' };
@@ -375,8 +383,14 @@ describe('rankTeams — sorting (task 1.57)', () => {
   });
 
   it('sorts a count column fewest first by default, ties to the canonical rank', async () => {
-    // no_shows: t-2 0, t-3 0, t-1 1. The tie t-2 / t-3 falls to the rank (t-2 #2, t-3 none).
-    expect(await order({ event_id: 'ev-1', sort_by: 'no_shows' })).toEqual(['t-2', 't-3', 't-1']);
+    // no_shows: t-2 0, t-1 1. t-3 has no data at all (a practice entry only), so it sorts last
+    // under every sort (SPEC-FINAL 13.5 v1.46, task 1.58; 1.57 had put its 0 first).
+    expect(await order({ event_id: 'ev-1', sort_by: 'no_shows' })).toEqual(['t-2', 't-1', 't-3']);
+    expect(await order({ event_id: 'ev-1', sort_by: 'no_shows', direction: 'desc' })).toEqual([
+      't-1',
+      't-2',
+      't-3',
+    ]);
     expect(await order({ event_id: 'ev-1', sort_by: 'number' })).toEqual(['t-2', 't-1', 't-3']);
     expect(await order({ event_id: 'ev-1', sort_by: 'matches_counted' })).toEqual([
       't-1',
@@ -392,5 +406,81 @@ describe('rankTeams — sorting (task 1.57)', () => {
       ['t-1', 1],
       ['t-3', null],
     ]);
+  });
+});
+
+describe('rankTeams — Consistency, the phases and one table everywhere (task 1.58)', () => {
+  /** The engine's input as any reader would build it from the same rows: no server logic. */
+  async function sameRows() {
+    const event = (await ctx.store.getEvent('ev-1'))!;
+    const rows = await ctx.store.entriesForScope({ eventIds: [event.id] });
+    const matches = new Map(
+      (await ctx.store.getMatchesByIds(unique(rows.map((r) => str(r.match_id))))).map((m) => [
+        m.id,
+        m,
+      ]),
+    );
+    const form = (await ctx.store.getFormByKind(event.season_id, 'match'))!;
+    const [fields, rules, roster] = await Promise.all([
+      ctx.store.getFormFields(form.active_version_id!),
+      ctx.store.getScoringRules(form.id),
+      ctx.store.getRoster(event.id),
+    ]);
+    return {
+      teams: roster.map((t) => ({ id: t.id, number: t.number, name: t.name })),
+      entries: rows.map((r) => toEngineEntry(r, matches, event.sort_order)),
+      scoring: {
+        fields,
+        rules: rules.map((r) => ({
+          field_key: r.field_key,
+          points: r.points,
+          option_points: r.option_points,
+        })),
+      },
+    };
+  }
+
+  it('is exactly the shared builder over the same rows, under every key and direction', async () => {
+    const input = await sameRows();
+    expect((await rankTeams(lead, { event_id: 'ev-1' }, ctx)).rows).toEqual(buildRankTable(input));
+    for (const sort_by of RANK_SORT_KEYS) {
+      for (const direction of SORT_DIRECTIONS) {
+        expect(
+          (await rankTeams(lead, { event_id: 'ev-1', sort_by, direction }, ctx)).rows,
+          `${sort_by} ${direction}`,
+        ).toEqual(buildRankTable({ ...input, sort_by, direction }));
+      }
+    }
+  });
+
+  it('carries Consistency and the phase averages, which add up to Total', async () => {
+    const table = await rankTeams(lead, { event_id: 'ev-1' }, ctx);
+    for (const row of table.rows) {
+      expect(row.phase_averages.length).toBeGreaterThan(0);
+      if (row.average_points === null) {
+        expect(row.stddev).toBeNull();
+        expect(row.phase_averages.every((p) => p.average === null)).toBe(true);
+        continue;
+      }
+      const sum = row.phase_averages.reduce((s, p) => s + (p.average ?? 0), 0);
+      expect(sum, row.team_id).toBeCloseTo(row.average_points, 9);
+    }
+    // t-1 counts 10 and 20 (its no-show is left out): std dev 5, as the team page says.
+    const t1row = table.rows.find((r) => r.team_id === 't-1')!;
+    expect(t1row.stddev).toBe(5);
+    const stats = await getTeamStats(lead, t1, ctx);
+    expect(stats.metrics.find((m) => m.key === 'stddev_points')!.value).toBe(t1row.stddev);
+  });
+
+  it('sorts by a phase, and still refuses Consistency as a key', async () => {
+    const phase = (await rankTeams(lead, { event_id: 'ev-1' }, ctx)).rows[0]!.phase_averages[0]!
+      .phase;
+    const key = `${phase}_points` as (typeof RANK_SORT_KEYS)[number];
+    await expect(rankTeams(lead, { event_id: 'ev-1', sort_by: key }, ctx)).resolves.toBeTruthy();
+    for (const bad of ['stddev', 'consistency', 'stddev_points']) {
+      await expect(
+        rankTeams(lead, { event_id: 'ev-1', sort_by: bad } as never, ctx),
+      ).rejects.toMatchObject({ code: 'invalid' });
+    }
   });
 });

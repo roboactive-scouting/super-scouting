@@ -4,15 +4,22 @@ import {
   formatDate,
   formatMetric,
   formatPercent,
+  formatStdDev,
   formatTime,
   formatDayTime,
   formatWeekdayTime,
 } from './format';
 
 describe('formatting (SPEC-FINAL 17.8)', () => {
-  it('renders metrics and standard deviations to 2 decimals', () => {
-    expect(formatMetric(12.3456)).toBe('12.35');
-    expect(formatMetric(12)).toBe('12.00');
+  it('renders metrics and standard deviations to one decimal, a whole number bare (v1.46)', () => {
+    expect(formatMetric(12.3456)).toBe('12.3');
+    expect(formatMetric(12)).toBe('12');
+    expect(formatMetric(12.04)).toBe('12');
+    expect(formatMetric(12.05)).toBe('12.1');
+    expect(formatMetric(-0.04)).toBe('0');
+    expect(formatMetric(0)).toBe('0');
+    expect(formatStdDev(6.14)).toBe('±6.1');
+    expect(formatStdDev(null)).toBe('—');
   });
 
   it('renders null as an em dash, never as zero', () => {

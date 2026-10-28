@@ -314,7 +314,7 @@ describe('FieldInput: the details of each simple type (entry parts, 1.33)', () =
     expect(onChange).toHaveBeenLastCalledWith(1);
   });
 
-  it('formats a computed float to 2 places and a whole number with none; nothing yet is a dash', () => {
+  it('formats a computed float to one place and a whole number with none (SPEC-FINAL 17.8 v1.46); nothing yet is a dash', () => {
     const ratio = f({
       key: 'r',
       type: 'computed',
@@ -329,7 +329,7 @@ describe('FieldInput: the details of each simple type (entry parts, 1.33)', () =
         siblingValues={{ a: 1, b: 3 }}
       />,
     );
-    expect(screen.getByLabelText('Ratio')).toHaveTextContent('0.33');
+    expect(screen.getByLabelText('Ratio')).toHaveTextContent(/^0\.3$/);
     rerender(
       <FieldInput field={ratio} value={undefined} onChange={vi.fn()} siblingValues={{ a: 1 }} />,
     );

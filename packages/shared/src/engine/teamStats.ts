@@ -1,24 +1,31 @@
 import type { MatchType } from '../api/matches';
-import type {
-  GetTeamStatsOutput,
-  MetricKind,
-  RankRow,
-  RankSortKey,
-  SortDirection,
-  StatGroup,
-  StatsCell,
-  StatsMatchRow,
-  StatsMetric,
-  StatsNote,
-  StatsReliability,
+import {
+  PHASE_SORT_KEYS,
+  type GetTeamStatsOutput,
+  type MetricKind,
+  type RankPhaseAverage,
+  type RankRow,
+  type RankSortKey,
+  type SortDirection,
+  type StatGroup,
+  type StatsCell,
+  type StatsMatchRow,
+  type StatsMetric,
+  type StatsNote,
+  type StatsReliability,
 } from '../api/stats';
 import { FIELD_PHASES } from '../api/forms';
 import { matchLabel } from '../format';
 import { isScorable } from '../forms/scoring';
-import { selectOptions, type FieldDirection, type FormFieldDefinition } from '../forms/types';
+import {
+  selectOptions,
+  type FieldDirection,
+  type FieldPhase,
+  type FormFieldDefinition,
+} from '../forms/types';
 import { isDeadRobot } from '../forms/validate';
 import { aggregate, applyFilters, sequenceOrder } from './aggregate';
-import { averagePoints, rankByAveragePoints, scoutedPoints } from './breakdown';
+import { averagePoints, rankByAveragePoints, scoreBreakdown, scoutedPoints } from './breakdown';
 import { reliabilityFor } from './reliability';
 import { hydrateComputed, scoreEntry } from './score';
 import { canonicalEntries } from './select';
@@ -74,6 +81,10 @@ export type TeamStats = Omit<GetTeamStatsOutput, 'next_cursor'>;
 /** The sort each column takes when none is given: best first (fewest breakdowns, …). */
 export const RANK_SORT_DEFAULT_DIRECTION: Record<RankSortKey, SortDirection> = {
   average_points: 'desc',
+  auto_points: 'desc',
+  teleop_points: 'desc',
+  endgame_points: 'desc',
+  post_match_points: 'desc',
   availability_rate: 'desc',
   matches_counted: 'desc',
   breakdowns: 'asc',
@@ -290,15 +301,95 @@ const instant = (stamp: string): number => {
   return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
 };
 
+/** One figure of a multi-figure sort (task 1.58): each later one settles ties in the one before. */
+export type RankSortStep = { key: RankSortKey; direction: SortDirection };
+
+/**
+ * The phases that carry points in the season's match form (task 1.58): every phase, in
+ * `FIELD_PHASES` order, holding a scorable field that a scoring rule names (a field with no phase
+ * is `post_match`, as `scoreBreakdown` files it; each key once, as `scoreEntry` scores it). A
+ * retired field still counts, since `scoreEntry` still scores a value an entry holds for it, so
+ * the phases of a row always add up to its Total.
+ */
+export function scoringPhases(scoring: StatsScoring): FieldPhase[] {
+  const ruled = new Set(scoring.rules.map((r) => r.field_key));
+  const seen = new Set<string>();
+  const phases = new Set<FieldPhase>();
+  for (const field of scoring.fields) {
+    if (seen.has(field.key)) continue;
+    seen.add(field.key);
+    if (isScorable(field.type) && ruled.has(field.key)) phases.add(field.phase ?? 'post_match');
+  }
+  return FIELD_PHASES.filter((phase) => phases.has(phase));
+}
+
+/** The phase a sort key averages, or null for a key that is not a phase's. */
+export function phaseOfSortKey(key: RankSortKey): FieldPhase | null {
+  return FIELD_PHASES.find((phase) => PHASE_SORT_KEYS[phase] === key) ?? null;
+}
+
+type PlainSortKey = Exclude<RankSortKey, (typeof PHASE_SORT_KEYS)[FieldPhase]>;
+
+/** A row's value of a sort key: a phase key reads `phase_averages` (null for a phase not there). */
+export function rankSortValue(row: RankRow, key: RankSortKey): number | null {
+  const phase = phaseOfSortKey(key);
+  if (phase !== null) return row.phase_averages.find((p) => p.phase === phase)?.average ?? null;
+  return row[key as PlainSortKey];
+}
+
+/**
+ * Whether a row has any data (task 1.58): a counted match, or at least one scouted qualification
+ * match with a status (a team that only ever no-showed HAS data: 0 % available). A row with none
+ * shows "—" in every figure and sorts last under every sort.
+ */
+export function rankRowHasData(row: RankRow): boolean {
+  return row.matches_counted > 0 || row.availability_rate !== null;
+}
+
+/**
+ * The one ranking order (SPEC-FINAL 13.5, v1.46), shared by `buildRankTable` (the server's
+ * `rankTeams`) and the ranking page's client sort: a row with no data last whatever the sort;
+ * then each step in turn, a null in that step's key after every value whatever its direction;
+ * still tied, the canonical rank (unranked last), then the lower team number.
+ */
+export function compareRankRows(a: RankRow, b: RankRow, sort: readonly RankSortStep[]): number {
+  const da = rankRowHasData(a);
+  const db = rankRowHasData(b);
+  if (da !== db) return da ? -1 : 1;
+  for (const { key, direction } of sort) {
+    const va = rankSortValue(a, key);
+    const vb = rankSortValue(b, key);
+    if (va === null || vb === null) {
+      if (va === vb) continue;
+      return va === null ? 1 : -1;
+    }
+    if (va !== vb) return direction === 'asc' ? va - vb : vb - va;
+  }
+  if (a.rank !== b.rank) {
+    if (a.rank === null) return 1;
+    if (b.rank === null) return -1;
+    return a.rank - b.rank;
+  }
+  return a.number - b.number;
+}
+
+/** `rows` in `sort`'s order (a copy; the rows themselves, `rank` included, are untouched). */
+export function sortRankRows(rows: readonly RankRow[], sort: readonly RankSortStep[]): RankRow[] {
+  return [...rows].sort((a, b) => compareRankRows(a, b, sort));
+}
+
 /**
  * The fixed phase 1 ranking table (SPEC-FINAL 13.5, D18; 11.5): one row per roster team with
  * the canonical basic rank (`rankByAveragePoints`, whatever the sort), the average scouted
  * points (`averagePoints`: match entries only, no-show and disabled excluded, never zero), how
  * many matches it counts, and the four reliability figures (`reliabilityFor` on the team's RAW
- * entries). Sorted by `sort_by` (default `average_points`) in `direction` (default: the
- * column's best-first, `RANK_SORT_DEFAULT_DIRECTION`); a null sorts LAST whatever the
- * direction; ties fall to the canonical rank, then the lower team number. No weighting, no
- * normalisation, no contributions: those are phase 2.
+ * entries). Task 1.58 adds, over the SAME counted entries as the average: `stddev`
+ * (Consistency, `aggregate(points, 'stddev')`, the team page's "Std dev of points") and
+ * `phase_averages` (`scoringPhases`, each the mean of `scoreBreakdown`'s phase subtotal, 0 for a
+ * phase an entry scored nothing in). Sorted by `sort_by` (default `average_points`) in
+ * `direction` (default: the column's best-first, `RANK_SORT_DEFAULT_DIRECTION`) through
+ * `compareRankRows`: no data last, a null last whatever the direction, ties to the canonical rank
+ * then the lower team number. No weighting, no normalisation, no contributions: those are phase 2.
  */
 export function buildRankTable(input: RankTableInput): RankRow[] {
   const { scoring } = input;
@@ -310,15 +401,39 @@ export function buildRankTable(input: RankTableInput): RankRow[] {
       r,
     ]),
   );
+  const phases = scoringPhases(scoring);
   const rows: RankRow[] = teams.map((team) => {
     const r = ranks.get(team.id);
-    const reliability = reliabilityFor(grouped.get(team.id) ?? []);
+    const own = grouped.get(team.id) ?? [];
+    const reliability = reliabilityFor(own);
+    // The population `averagePoints` reads: canonical, live, qualification, not-dead match entries.
+    const counted = applyFilters(
+      own.filter((e) => e.form_kind === 'match'),
+      {},
+      scoring.fields,
+    );
+    const points = counted.map((e) => scoreEntry(e, scoring.fields, scoring.rules));
+    const subtotals = counted.map(
+      (e) =>
+        new Map(
+          scoreBreakdown(e, scoring.fields, scoring.rules).phases.map((p) => [p.phase, p.subtotal]),
+        ),
+    );
+    const phaseAverages: RankPhaseAverage[] = phases.map((phase) => ({
+      phase,
+      average: aggregate(
+        subtotals.map((byPhase) => byPhase.get(phase) ?? 0),
+        'avg',
+      ),
+    }));
     return {
       team_id: team.id,
       number: team.number,
       name: team.name,
       rank: r?.rank ?? null,
       average_points: r?.avg ?? null,
+      stddev: aggregate(points, 'stddev'),
+      phase_averages: phaseAverages,
       matches_counted: r?.matches_counted ?? 0,
       breakdowns: reliability.breakdowns,
       no_shows: reliability.no_shows,
@@ -328,25 +443,8 @@ export function buildRankTable(input: RankTableInput): RankRow[] {
   });
 
   const key = input.sort_by ?? 'average_points';
-  const dir = input.direction ?? RANK_SORT_DEFAULT_DIRECTION[key];
-  const tie = (a: RankRow, b: RankRow): number => {
-    if (a.rank !== b.rank) {
-      if (a.rank === null) return 1;
-      if (b.rank === null) return -1;
-      return a.rank - b.rank;
-    }
-    return a.number - b.number;
-  };
-  return rows.sort((a, b) => {
-    const va = a[key];
-    const vb = b[key];
-    if (va === null || vb === null) {
-      if (va === vb) return tie(a, b);
-      return va === null ? 1 : -1;
-    }
-    if (va !== vb) return dir === 'asc' ? va - vb : vb - va;
-    return tie(a, b);
-  });
+  const direction = input.direction ?? RANK_SORT_DEFAULT_DIRECTION[key];
+  return sortRankRows(rows, [{ key, direction }]);
 }
 
 /**

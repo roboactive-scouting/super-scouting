@@ -9499,3 +9499,132 @@ AssertionError: features/entries/serverEntries.ts: expected 'import { useEffect,
 **What I did instead:** `packages/shared/src/engine/teamStats.ts` — `scorableFields` is now `metricFields` (scorable, `rating` or `timer`); both are `kind: 'number'`, `aggregation: 'avg'`, through the same `resolveFieldAcrossVersions` → `applyFilters` → `aggregationValue` → `aggregate` pipeline, in their phase's group in form order (a rating with no phase lands in Post-match, which then appears). A rating's domain is its declared 1..`config.max` (5 when unset, as `validateEntryData`); a timer's is its `expected_range`, else the observed range across the event's teams. Sparkline series: a no-show or disabled match and an "unsure" timer (null) are null, never 0. Neither is a match-table column (`columns` stays the scored fields). A timer metric carries `display` "12.4 s" (whole bare, else one place), and the client's `metricText` prints a number metric's `display` when the engine set one. Default directions when the form declares none: a rating is `higher_is_better` (a higher rating is a better rating by construction); a timer is `lower_is_better` (user, 2026-10-27: a faster time is the common case — climb, cycle, auto routine). A declared `direction` always wins, so a timer where longer is better (a defence hold) sets it in the builder. Rejected: `neutral` for an undirected timer (my first cut — it never shades, which hides the spread); the user chose `lower_is_better`. Fixtures: `src/test/teamPageFixtures.ts` gains Climb time (timer, no direction, one "unsure" answer) and Driver skill (rating 1–5); `e2e/team.spec.ts` adds the same two fields to its own pull only, so the other specs' entry and builder screens keep their form.
 
 **Risk:** a form whose timers measure something where longer is better and that left `direction` blank will shade those timers backwards until an admin sets the direction. A rating's `expected_range`, if one is ever declared, is ignored in favour of 1..max.
+
+## Task 1.58 — The plan's test predates the design and task 1.57; adapted to the final (variant N)
+
+**Plan said:** `render(<RankingPage eventId="ev-1" rpc={rpcFor()} />)` with rows of `team_number` / `team_name`, `findByRole('columnheader', { name: /average points/i })` clicked → `aria-sort` `ascending`, then `descending`; `findAllByRole('row')` → 51; the offline test with an rpc that throws and no device data.
+
+**What was wrong:** the real `rankRow` (task 1.57) is `number` / `name` and now carries `stddev` and `phase_averages`; the design (27-ranking final) calls the headline column "Total" and starts it sorted best first, so its header already holds `aria-sort="descending"` before any click; the page links to team pages, so it needs a router; the design's group header row (AVERAGE POINTS PER MATCH · AVAILABILITY) is a second `<tr>` in the `<thead>`, which would make 52 rows; the offline page computes from the device's cache, so an empty cache has nothing to show. The plan's row fixture also gave the no-data team `breakdowns: 1, no_shows: 4` with `availability_rate: null`, which `reliabilityFor` can never return.
+
+**What I did instead:** `apps/client/src/features/ranking/RankingPage.test.tsx` keeps every assertion's intent on the real shapes: Team 1000's row reads "50" (not "50.00"), names its breakdowns and shows availability "100%"; exactly three medals (`Medal, rank 1…3`); the Total header — `descending` at rest — flips to `ascending` on a click and back to `descending` on a second; Consistency never takes `aria-sort` and a click on it changes no order; Team 1049 shows "—" and never "0.00"; 51 rows, no pagination; offline with the device seeded from `src/test/teamPageFixtures.ts` the page says "Computed from the data on this device" and calls no rpc; no weighting button or slider. The page is wrapped in a `MemoryRouter`; the group header row is `aria-hidden` (its words are in the table's sr-only caption), so the 51 holds. The no-data fixture team has 0 counts, as the builder gives. Added (the brief's negatives): the rank of every row is unchanged under every sort key in both directions and both categories, and under a three-figure sort built in the Sort builder; the no-data team is last under every one of those sorts; Consistency has no `aria-sort`, no mark, no button, and is absent from the "+ Figure" pills in both categories; nothing is named /weight/ (button, label or text) and there is no slider or range input in either category or the builder; "—" (or "No counted matches yet") in every figure cell of the no-data row in both categories. Plus the source line (server / device, a failed server falling back to the device), the study panel, the override paths and the phone list and sheets. Mutation-checked (scratchpad `mutate-158.sh`): no-data-not-last in the shared comparator, the rank following the sort, a sort glyph on Consistency, "0" for no data, `stddev` offered as a tie-breaker, a header click that never reverses, a phase averaged over a different population and a std dev over a different population — each fails the suite, and each was restored.
+
+**Risk:** none known.
+
+## Task 1.58 — Shading is task 1.59; the figures print plain, through one seam
+
+**Plan said:** (1.58) "Shading reuses `shadeFor` / `ShadedValue` (1.53's deviation): the figures in the current sort are shaded, the rest plain."
+
+**What was wrong:** nothing; the brief splits it: shading is task 1.59, on the same branch.
+
+**What I did instead:** every figure prints plain. Each figure cell is `FigureValue({ row, figure, inSort })` in `features/ranking/parts.tsx` (`data-figure`, `data-in-sort`): a figure in the current sort already has the chip's box (`min-w-[3.25rem] px-[7px] py-[3px]`, 600 `--ink`), so 1.59 swaps its body for `ShadedValue` without moving anything; the value comes from `figureValue(row, key)` (null for no data) and the text from `figureText`. The phone row's end figure is the first figure of the sort (`inSort`, the one the README says a phone shades). Consistency and Matches are never a `FigureValue`.
+
+**Risk:** 1.59 must read the domain over every row (`allRows`), not only the sorted ones the table is handed; both are passed to the table and the list.
+
+## Task 1.58 — `rankRow` gains `stddev` and `phase_averages`; a sort key per phase
+
+**Plan said:** "`rankRow` gains `stddev` and `phase_averages` (one per phase in `FIELD_PHASES` that carries points in the season's form, from `scoreBreakdown`), both computed in `buildRankTable` over the same counted entries as `average_points`." "`RANK_SORT_KEYS` gains the phase keys."
+
+**What was wrong:** the shape and the key names were open.
+
+**What I did instead:** `phase_averages: { phase: FieldPhase; average: number | null }[]`, in `FIELD_PHASES` order, one item per phase that `scoringPhases(scoring)` (new, `engine/teamStats.ts`) finds: a phase holding a scorable field a scoring rule names (no phase → `post_match`, each key once, a retired ruled field included — `scoreEntry` still scores a value an entry holds for it). The same items, same order, on every row. Each average is `aggregate(…, 'avg')` over the SAME `applyFilters` population as `averagePoints` of each entry's `scoreBreakdown` subtotal for that phase, 0 where the entry has no row or no points there (it was counted, so 0 is real), so the phases add up to Total (tested, including a retired field present in one match and absent in the next); null with no counted entry. `stddev` is `aggregate(points, 'stddev')` over the same points (null under two matches), which is exactly the team page's "Std dev of points" (tested per row on both the device and the server). `RANK_SORT_KEYS` gains `auto_points`, `teleop_points`, `endgame_points`, `post_match_points` (`PHASE_SORT_KEYS`, a test holds them to `FIELD_PHASES`), best first = `desc`; `rankSortValue(row, key)` reads a phase key from `phase_averages` (null for a phase the form does not score, so it ties through). `stddev` stays invalid (`rankTeamsInput` and `rankTeams` tested with `stddev`, `consistency`, `stddev_points`). The server's `rankTeams` is unchanged (it already hands the builder its scoring); a new server test proves its rows equal `buildRankTable` over the same store rows under every key and direction. Server bundle rebuilt (BUILD-CONTEXT §6). No migration.
+
+**Risk:** a deployed pre-1.58 server answers rows without the two fields; the client's `call()` refuses that shape (`rankRow` requires them), so `useRanking` shows the device's table until the server is redeployed — correct, but the "From the server" line will not show until then.
+
+## Task 1.58 — One ranking order; a team with no data sorts last on the server too
+
+**Plan said:** (1.57) `rankTeams` sorts one column, "a null sorts last whatever the direction; ties fall to the canonical rank, then the lower number". (1.58) "Still tied → rank order; no data last." SPEC-FINAL 13.5 v1.46: "a team with no data sorts last whatever the sort."
+
+**What was wrong:** under 1.57's rule a team with no data has 0 in every count, so it came FIRST under a count sort; the 1.57 test pinned that, and the page needs the opposite. With the change, that test failed:
+
+```
+FAIL src/core/queries/stats.test.ts > rankTeams — sorting (task 1.57) > sorts a count column fewest first by default, ties to the canonical rank
+AssertionError: expected [ 't-2', 't-1', 't-3' ] to deeply equal [ 't-2', 't-3', 't-1' ]
+```
+
+**What I did instead:** one comparator in `packages/shared/src/engine/teamStats.ts`, `compareRankRows(a, b, sort: RankSortStep[])` (and `sortRankRows`): `rankRowHasData` false (no counted match and no status-counted match) last whatever the sort; then each step, a null in that key after every value in either direction; then the canonical rank, then the lower number. `buildRankTable` sorts with it (one step), and the ranking page sorts with it (several). A team that only ever no-showed HAS data (0 % available) and sorts among the others. The 1.57 test now expects `['t-2', 't-1', 't-3']` (t-3 has only a practice entry) and checks `desc` too, citing SPEC-FINAL 13.5 v1.46. Rejected: a client-only rule, which would let the server's order and the page's disagree.
+
+**Risk:** a caller of `rankTeams` sorting by a count now sees unscouted teams last instead of first; no caller sorted on the server before this task.
+
+## Task 1.58 — One decimal everywhere (SPEC-FINAL 17.8 v1.46)
+
+**Plan said:** change `formatMetric` to one place with a whole number bare and its test; `teamView.formatStat` delegates; "This task's test below expects `'50'` (was `'50.00'`)."
+
+**What was wrong:** three existing tests expected two places:
+
+```
+FAIL src/features/entry/phases.test.ts > entry phases > reads values for the confirm list
+AssertionError: expected '12.5' to be '12.50' // Object.is equality
+FAIL src/features/sync/conflictsView.test.ts > the card > a duplicate: the earlier copy first, two secondary Keeps, no station from a cleared slot
+AssertionError: expected [ '0.5', '—' ] to deeply equal [ '0.50', '—' ]
+FAIL src/features/entry/FieldInput.test.tsx > … > formats a computed float to 2 places and a whole number with none; nothing yet is a dash
+```
+
+**What I did instead:** `formatMetric` rounds to one place and prints a whole number bare (`12.3456` → `"12.3"`, `12` → `"12"`, `-0.04` → `"0"`, never `"-0"`); new `formatStdDev` → `"±6.1"` (and `"±9"` for a whole SD, by the same rule; "—" for none). `teamView.formatStat` is now `formatMetric`. The three tests expect `'12.5'`, `'0.5'` and `/^0\.3$/`. `ComputedValue` and `conflictsView` still call `formatMetric`.
+
+**Risk:** the design draws "±10.0" / "10.0"; SPEC-FINAL 17.8 v1.46 says a whole number prints bare, which wins, so the page prints "±9" and "10".
+
+## Task 1.58 — One data source for /ranking and Home; the device loader is the team page's
+
+**Plan said:** "computed on-device from cached raw entries while offline and from `rankTeams` while online." Brief: one hook callable without the page; online `rankTeams`; offline or when it fails `buildRankTable` over the device's entries with the inputs the team page passes; copy the team page's device pattern, do not invent a second.
+
+**What was wrong:** nothing; recording the shape and the refactor.
+
+**What I did instead:** `features/teams/teamStats.ts` gains `loadDeviceEventStats(eventId)` — the body of 1.53's `loadDeviceTeamStats` (roster, every live entry of the event via `toEngineEntry`, the active match scoring, the super fields, the versions, teams and users), which `loadDeviceTeamStats` now calls, so the ranking and the team page read the device through ONE function. `features/ranking/deviceRanking.ts` (`deviceRankInput`, `loadDeviceRanking`) is that plus one `buildRankTable` call; it is loaded with a dynamic `import()` from `features/ranking/useRanking.ts`, so a first-chunk page (Home, 1.58b) can call `useRanking` without the engine entering the initial JS. `useRanking(eventId, rpc?)` → `loading | unknown | offline-needs-server | failed (retry) | ready { event, rows, source }`, `source` = `{ kind: 'server', asOf }` or `{ kind: 'device', lastSyncAt, waiting }`. Online it shows the device's table at once and the server's when it answers (asking again when a sync lands after the answer); offline, or when the server fails, the device's; under a session override the server only, held by `cross_event_view` (as the team page). Rows come in the canonical order; the page sorts. `useQualRange(eventId)` gives the sub-line's "Q1–Q40". Tests: `deviceRanking.test.ts` proves the device's rows are `buildRankTable` over the team page's inputs and that every row's rank, Total, Consistency and reliability equal that team's device team page.
+
+**Risk:** online, the device's table shows for the time the request takes, then the server's replaces it; the two can differ by the entries still waiting to send (the device's table counts them, the server's does not yet). The source line says which is shown.
+
+## Task 1.58 — No `@tanstack/react-table`
+
+**Plan said:** modify `apps/client/package.json` (add `"@tanstack/react-table": "^8.20.5"`).
+
+**What was wrong:** sorting 50 rows is one `Array.sort` with the shared comparator, and the locked `Table` already draws the sticky header and numeric cells; the library would add weight to a precached chunk for nothing it does here.
+
+**What I did instead:** no dependency added; the sort is `sortRankRows` (shared), the columns are written out in `RankingTable.tsx`. Rejected: the library for column visibility (the categories replace it) or pagination (there is none).
+
+**Risk:** none known.
+
+## Task 1.58 — Navigation: Ranking in the bar, Entries to the drawer
+
+**Plan said:** a `NAV_ITEMS` row `{ id: 'ranking', label: 'Ranking', icon: Trophy, group: 'competition', bottomBar: 3, visible: () => true }`; Entries' `bottomBar` → `null`.
+
+**What was wrong:** the shell's tests and `e2e/shell.spec.ts` pinned the bar as Home · Scout · Search · Entries and Entries' waiting badge on its tab, e.g.
+
+```
+FAIL src/features/shell/nav.test.ts > navigation (spec v1.15) > phone bar: Home · Scout · Search · Entries (task 1.51, 23-team-search final)
+```
+
+**What I did instead:** the row exactly as given, before Entries (so the sidebar's Competition group reads Home · Scout · Search · Ranking · Entries), `PATHS.ranking = '/ranking'`, the lazy route `ranking` (gated, waits for the event; handle title "Ranking"). Tests now pin Home · Scout · Search · Ranking for every role, Entries in the phone menu and the sidebar, Ranking raised on `/ranking`, nothing raised on `/entries`, and the waiting count in the top-bar pill (and the drawer) only; `routes.test.tsx` lists `ranking` among the gated routes; `e2e/shell.spec.ts` shoots `shell-bar-ranking` in place of `shell-bar-entries`. `BottomBar.tsx`'s Entries badge code is left in place, now unreachable.
+
+**Risk:** the waiting count is no longer on any bottom-bar tab (SPEC-FINAL 17.9 still says "Entries with the waiting-to-send count" for the 1.51 bar); it stays in the top bar's pill and the drawer.
+
+## Task 1.58 — Small calls the design left open
+
+**Plan said:** nothing on these.
+
+**What was wrong:** the design (27-ranking final, THEME "Ranking, 2026-10-28") leaves them open, or the app's data differs from the mock.
+
+**What I did instead:**
+- **Medal:** the design's ribbon-and-disc SVG with the number (`RankMedal`, one image "Medal, rank 1"), not the plan's `Trophy` icon nor the side `RankBadge` (team search's "#7" tag). No rank: "—".
+- **Percent:** "100%" (`formatPercent`, as the team page prints it), not the mock's "100 %".
+- **Consistency:** "±12.9"; under two counted matches "—". The study's strip runs 0 → the round multiple of 20 above every team's Total + SD; the band is Total ± SD (never below 0), "Typical match: 18–43 points".
+- **Place:** among the teams with a value, 1 + those strictly above ("1st · best" at 1); Share is the phase over Total, a whole percent. "Rank 4 of 23": of the teams holding a rank.
+- **Status spread:** Played = `matches_counted − breakdowns`; the scale is the table's most matches on the field (left) and most missed (right, at least one); the study's bar uses the team's own matches. A team with no data shows "No counted matches yet".
+- **Matches** is shown, never sorted (the design gives it no mark), and is not a tie-breaker.
+- **A fourth phase** (post-match) draws in `--control-border`.
+- **Study beside the list from 1360 px**, where the 728 px table still fits beside the 320 px panel; under 1360 px (1024–1359 computers) the study opens in the bottom sheet. The table's header sticks under the crumb bar from 1360 px; narrower, the table scrolls sideways in its card at its least width (728 px Scoring, 920 px Availability), where a sticky header would stick to the card's scroll box, so it does not stick. A second click on the selected row closes the study.
+- **Group headers:** the Availability view's group row reads "Scouted matches by status" + the legend over the spread and Availability, and "Counts of matches" over the three counts (the mock's "Availability · counts of matches" over a narrow span wrapped the legend onto two lines).
+- **Source:** on a computer the header's right reads "From the server · as of 11:43" or "Computed from the data on this device · Last synced 11:08 · 3 entries waiting to send" (Home's words; "Everything is sent" at 0, "Never synced" with none); the phone shows the device notice card (frame 2) or "Q1–Q40 · from the server · as of 11:40".
+- **Empty and failed states:** no roster or no event on the device → "No teams to rank yet" (Back to Home); an override offline → `offline-needs-server` with "Back to <default event>"; an override's server failure → Try again.
+- **Sort builder:** a popover under the control on a computer (Escape or a click outside closes it, focus back to the control), a bottom sheet on a phone; the last figure cannot be removed (its × is disabled); the direction switch is a radio group per figure ("Best first / Worst first", "Fewest first / Most first"); dragging uses `SortableGrip` (keyboard and pointer, with spoken announcements).
+
+**Risk:** the user may want the mock's "100 %", the panel at 1280 px with a narrower table, or Matches sortable; each is a small change.
+
+## Task 1.58 — Bundle
+
+**Plan said:** nothing (BUILD-CONTEXT §12.5: initial JS at most 230 KB gzip).
+
+**What was wrong:** nothing.
+
+**What I did instead:** `/ranking` is a lazy chunk (`RankingPage` 11.8 KB gzip; `deviceRanking` 0.3 KB, the engine shared with the team page's chunk). Measured initial JS **227.8 KB** gzip (the nav row, the route's lazy import and the wider `rankRow` / sort-key schemas in the `API` map). No raise.
+
+**Risk:** if 1.58b imports `useRanking` into Home (first chunk), the hook itself is small and the engine stays lazy (`deviceRanking.ts` is a dynamic import); measure again then.

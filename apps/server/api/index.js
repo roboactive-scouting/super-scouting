@@ -1023,8 +1023,19 @@ var getTeamStatsOutput = z11.object({
   reliability: statsReliability,
   next_cursor: z11.string().nullable()
 });
+var PHASE_SORT_KEYS = {
+  auto: "auto_points",
+  teleop: "teleop_points",
+  endgame: "endgame_points",
+  post_match: "post_match_points"
+};
 var RANK_SORT_KEYS = [
   "average_points",
+  // PHASE_SORT_KEYS, in FIELD_PHASES order (a test holds the two together).
+  "auto_points",
+  "teleop_points",
+  "endgame_points",
+  "post_match_points",
   "availability_rate",
   "breakdowns",
   "no_shows",
@@ -1038,12 +1049,18 @@ var rankTeamsInput = z11.object({
   sort_by: z11.enum(RANK_SORT_KEYS).optional(),
   direction: z11.enum(SORT_DIRECTIONS).optional()
 }).strict();
+var rankPhaseAverage = z11.object({
+  phase: z11.enum(FIELD_PHASES),
+  average: z11.number().nullable()
+});
 var rankRow = z11.object({
   team_id: z11.string(),
   number: z11.number().int(),
   name: z11.string(),
   rank: z11.number().int().positive().nullable(),
   average_points: z11.number().nullable(),
+  stddev: z11.number().nullable(),
+  phase_averages: z11.array(rankPhaseAverage),
   matches_counted: z11.number().int().nonnegative(),
   breakdowns: z11.number().int().nonnegative(),
   no_shows: z11.number().int().nonnegative(),
@@ -2385,6 +2402,10 @@ function rankByAveragePoints(entries, teams, fields, rules) {
 // ../../packages/shared/src/engine/teamStats.ts
 var RANK_SORT_DEFAULT_DIRECTION = {
   average_points: "desc",
+  auto_points: "desc",
+  teleop_points: "desc",
+  endgame_points: "desc",
+  post_match_points: "desc",
   availability_rate: "desc",
   matches_counted: "desc",
   breakdowns: "asc",
@@ -2527,6 +2548,51 @@ var instant2 = (stamp2) => {
   const ms = Date.parse(stamp2);
   return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
 };
+function scoringPhases(scoring) {
+  const ruled = new Set(scoring.rules.map((r) => r.field_key));
+  const seen = /* @__PURE__ */ new Set();
+  const phases = /* @__PURE__ */ new Set();
+  for (const field of scoring.fields) {
+    if (seen.has(field.key)) continue;
+    seen.add(field.key);
+    if (isScorable(field.type) && ruled.has(field.key)) phases.add(field.phase ?? "post_match");
+  }
+  return FIELD_PHASES.filter((phase) => phases.has(phase));
+}
+function phaseOfSortKey(key2) {
+  return FIELD_PHASES.find((phase) => PHASE_SORT_KEYS[phase] === key2) ?? null;
+}
+function rankSortValue(row, key2) {
+  const phase = phaseOfSortKey(key2);
+  if (phase !== null) return row.phase_averages.find((p) => p.phase === phase)?.average ?? null;
+  return row[key2];
+}
+function rankRowHasData(row) {
+  return row.matches_counted > 0 || row.availability_rate !== null;
+}
+function compareRankRows(a, b, sort) {
+  const da = rankRowHasData(a);
+  const db = rankRowHasData(b);
+  if (da !== db) return da ? -1 : 1;
+  for (const { key: key2, direction: direction2 } of sort) {
+    const va = rankSortValue(a, key2);
+    const vb = rankSortValue(b, key2);
+    if (va === null || vb === null) {
+      if (va === vb) continue;
+      return va === null ? 1 : -1;
+    }
+    if (va !== vb) return direction2 === "asc" ? va - vb : vb - va;
+  }
+  if (a.rank !== b.rank) {
+    if (a.rank === null) return 1;
+    if (b.rank === null) return -1;
+    return a.rank - b.rank;
+  }
+  return a.number - b.number;
+}
+function sortRankRows(rows, sort) {
+  return [...rows].sort((a, b) => compareRankRows(a, b, sort));
+}
 function buildRankTable(input) {
   const { scoring } = input;
   const teams = [...new Map(input.teams.map((t) => [t.id, t])).values()];
@@ -2537,15 +2603,37 @@ function buildRankTable(input) {
       r
     ])
   );
+  const phases = scoringPhases(scoring);
   const rows = teams.map((team) => {
     const r = ranks.get(team.id);
-    const reliability = reliabilityFor(grouped.get(team.id) ?? []);
+    const own = grouped.get(team.id) ?? [];
+    const reliability = reliabilityFor(own);
+    const counted = applyFilters(
+      own.filter((e) => e.form_kind === "match"),
+      {},
+      scoring.fields
+    );
+    const points = counted.map((e) => scoreEntry(e, scoring.fields, scoring.rules));
+    const subtotals = counted.map(
+      (e) => new Map(
+        scoreBreakdown(e, scoring.fields, scoring.rules).phases.map((p) => [p.phase, p.subtotal])
+      )
+    );
+    const phaseAverages = phases.map((phase) => ({
+      phase,
+      average: aggregate(
+        subtotals.map((byPhase) => byPhase.get(phase) ?? 0),
+        "avg"
+      )
+    }));
     return {
       team_id: team.id,
       number: team.number,
       name: team.name,
       rank: r?.rank ?? null,
       average_points: r?.avg ?? null,
+      stddev: aggregate(points, "stddev"),
+      phase_averages: phaseAverages,
       matches_counted: r?.matches_counted ?? 0,
       breakdowns: reliability.breakdowns,
       no_shows: reliability.no_shows,
@@ -2554,25 +2642,8 @@ function buildRankTable(input) {
     };
   });
   const key2 = input.sort_by ?? "average_points";
-  const dir = input.direction ?? RANK_SORT_DEFAULT_DIRECTION[key2];
-  const tie = (a, b) => {
-    if (a.rank !== b.rank) {
-      if (a.rank === null) return 1;
-      if (b.rank === null) return -1;
-      return a.rank - b.rank;
-    }
-    return a.number - b.number;
-  };
-  return rows.sort((a, b) => {
-    const va = a[key2];
-    const vb = b[key2];
-    if (va === null || vb === null) {
-      if (va === vb) return tie(a, b);
-      return va === null ? 1 : -1;
-    }
-    if (va !== vb) return dir === "asc" ? va - vb : vb - va;
-    return tie(a, b);
-  });
+  const direction2 = input.direction ?? RANK_SORT_DEFAULT_DIRECTION[key2];
+  return sortRankRows(rows, [{ key: key2, direction: direction2 }]);
 }
 function buildTeamStats(input) {
   const { scoring, team } = input;

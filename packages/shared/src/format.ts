@@ -1,9 +1,20 @@
 export const NO_VALUE = '—';
 
-/** Computed metrics and standard deviations: 2 decimal places (SPEC-FINAL 17.8). */
+/**
+ * Computed metrics, averages and standard deviations: one decimal place, a whole number bare
+ * ("38.4", "41"; SPEC-FINAL 17.8, v1.46 — was two places).
+ */
 export function formatMetric(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return NO_VALUE;
-  return value.toFixed(2);
+  const one = Math.round(value * 10) / 10;
+  // `|| 0` turns a rounded −0 into 0, so −0.04 prints "0", never "-0".
+  return Number.isInteger(one) ? String(one || 0) : one.toFixed(1);
+}
+
+/** A standard deviation as the ranking prints it: "±6.1" (SPEC-FINAL 17.8); none is "—". */
+export function formatStdDev(value: number | null | undefined): string {
+  const text = formatMetric(value);
+  return text === NO_VALUE ? NO_VALUE : `±${text}`;
 }
 
 /** Integer counts, match numbers, team numbers: no decimals, no thousands separator. */

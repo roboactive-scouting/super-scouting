@@ -1,4 +1,4 @@
-import { GitMerge, House, Search } from 'lucide-react';
+import { GitMerge, House, Search, Trophy } from 'lucide-react';
 import { describe, expect, it } from 'vitest';
 import type { Role } from '@frc/shared';
 import { PATHS } from '@/lib/paths';
@@ -24,11 +24,12 @@ const who = (role: Role, over: Partial<NavAudience> = {}): NavAudience => ({
 const ids = (items: NavItem[]) => items.map((i) => i.id);
 
 describe('the nav registry (redesign R.5)', () => {
-  it('gives a scouter and a lead Home, Scout, Search and Entries, and this device’s Sync and Settings; a lead Conflicts too', () => {
+  it('gives a scouter and a lead Home, Scout, Search, Ranking and Entries, and this device’s Sync and Settings; a lead Conflicts too', () => {
     expect(ids(navItemsFor(who('scouter')))).toEqual([
       'home',
       'scout',
       'teams',
+      'ranking',
       'entries',
       'sync',
       'settings',
@@ -37,6 +38,7 @@ describe('the nav registry (redesign R.5)', () => {
       'home',
       'scout',
       'teams',
+      'ranking',
       'entries',
       'sync',
       'conflicts',
@@ -50,6 +52,7 @@ describe('the nav registry (redesign R.5)', () => {
       'home',
       'scout',
       'teams',
+      'ranking',
       'entries',
       'users',
       'manage',
@@ -59,7 +62,7 @@ describe('the nav registry (redesign R.5)', () => {
       'settings',
     ]);
     expect(groupsOf(items).map((g) => [g.group, ids(g.items)])).toEqual([
-      ['competition', ['home', 'scout', 'teams', 'entries']],
+      ['competition', ['home', 'scout', 'teams', 'ranking', 'entries']],
       ['admin', ['users', 'manage', 'forms']],
       ['device', ['sync', 'conflicts', 'settings']],
     ]);
@@ -70,6 +73,7 @@ describe('the nav registry (redesign R.5)', () => {
       'home',
       'scout',
       'teams',
+      'ranking',
       'entries',
       'sync',
       'conflicts',
@@ -173,11 +177,25 @@ const admin = { user: { id: 'u', role: 'admin' as const }, expired: false, overr
 const scouter = { user: { id: 'u', role: 'scouter' as const }, expired: false, override: false };
 
 describe('navigation (spec v1.15)', () => {
-  it('phone bar: Home · Scout · Search · Entries (task 1.51, 23-team-search final)', () => {
-    const bar = bottomBar(scouter, false);
-    expect(bar.left.map((i) => i.id)).toEqual(['home']);
-    expect(bar.middle?.id).toBe('scout');
-    expect(bar.right.map((i) => i.id)).toEqual(['teams', 'entries']);
+  it('phone bar: Home · Scout · Search · Ranking; Entries in the drawer (task 1.58, 27-ranking final)', () => {
+    for (const role of ['scouter', 'lead', 'admin'] as const) {
+      const bar = bottomBar(who(role), false);
+      expect(bar.left.map((i) => i.id)).toEqual(['home']);
+      expect(bar.middle?.id).toBe('scout');
+      expect(bar.right.map((i) => i.id)).toEqual(['teams', 'ranking']);
+      // Entries is still in the phone menu, after Ranking.
+      expect(ids(menuItemsFor(who(role), false))).toContain('entries');
+    }
+  });
+  it('puts Ranking in the bar’s fourth place, at /ranking, for every role (task 1.58)', () => {
+    expect(NAV_ITEMS.find((i) => i.id === 'ranking')).toMatchObject({
+      label: 'Ranking',
+      to: PATHS.ranking,
+      icon: Trophy,
+      group: 'competition',
+      bottomBar: 3,
+    });
+    expect(NAV_ITEMS.find((i) => i.id === 'ranking')!.visible(who('scouter'))).toBe(true);
   });
   it('puts Search after Scout for every role, at /teams (task 1.51)', () => {
     expect(NAV_ITEMS.find((i) => i.id === 'teams')).toMatchObject({
@@ -187,13 +205,13 @@ describe('navigation (spec v1.15)', () => {
       group: 'competition',
       bottomBar: 2,
     });
-    expect(NAV_ITEMS.find((i) => i.id === 'entries')?.bottomBar).toBe(3);
+    expect(NAV_ITEMS.find((i) => i.id === 'entries')?.bottomBar).toBeNull();
     for (const role of ['scouter', 'lead', 'admin'] as const) {
       for (const desktop of [true, false]) {
         const competition = menuItemsFor(who(role), desktop).filter(
           (i) => i.group === 'competition',
         );
-        expect(ids(competition)).toEqual(['home', 'scout', 'teams', 'entries']);
+        expect(ids(competition)).toEqual(['home', 'scout', 'teams', 'ranking', 'entries']);
       }
     }
   });

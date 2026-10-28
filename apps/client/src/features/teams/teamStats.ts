@@ -3,8 +3,10 @@ import {
   buildTeamStats,
   GET_TEAM_STATS_MAX_LIMIT,
   type FormFieldDefinition,
+  type EngineEntry,
   type GetTeamStatsOutput,
   type StatsScoring,
+  type StatsTeam,
   type TeamStats,
 } from '@frc/shared';
 import { cachedRows } from '@/data/cache';
@@ -44,13 +46,37 @@ function versionFields(fields: Row[], versionId: string): FormFieldDefinition[] 
 const NO_SCORING: StatsScoring = { fields: [], rules: [] };
 
 /**
- * `teamId`'s statistics at `eventId`, from this device's cache. `unknown` when the device holds no
- * such team (a mistyped link, a team of another season), or not the event.
+ * What every statistic computed on the device starts from (task 1.53's pattern; task 1.58's
+ * ranking reads it too, so the two pages can never be fed differently): exactly what
+ * `apps/server/src/core/queries/stats.ts` loads for an event — the event's live roster, EVERY live
+ * entry of the event (all teams, both kinds) joined by `toEngineEntry` (match type, number, event
+ * sort order), and the season's match form's ACTIVE scoring — plus the cached rows the team page
+ * reads beyond that. Null when the device does not hold the event.
  */
-export async function loadDeviceTeamStats(
-  teamId: string,
-  eventId: string,
-): Promise<DeviceTeamStats> {
+export type DeviceEventStats = {
+  event: { id: string; name: string };
+  /** The event's live roster: the ranked population and the 12.6 domain population. */
+  roster: StatsTeam[];
+  /** Every live entry of the event, every team, both kinds (the server's `entriesForScope`). */
+  entries: EngineEntry[];
+  /** The match form's ACTIVE version's fields and the form's rules (5.1). */
+  scoring: StatsScoring;
+  /** The super form's ACTIVE version's fields (note labels). */
+  superFields: readonly FormFieldDefinition[];
+  /** Every form version the entries name, with its live fields in display order. */
+  versions: { id: string; fields: FormFieldDefinition[] }[];
+  /** Every cached team (a team page may open a team that is not on the roster). */
+  teams: Row[];
+  users: Row[];
+};
+
+const toTeam = (t: Row): StatsTeam => ({
+  id: String(t.id),
+  number: Number(t.number),
+  name: String(t.name ?? ''),
+});
+
+export async function loadDeviceEventStats(eventId: string): Promise<DeviceEventStats | null> {
   const [events, teams, roster, entries, matches, forms, fields, rules, users] = await Promise.all([
     cachedRows<Row>('events'),
     cachedRows<Row>('teams'),
@@ -63,14 +89,8 @@ export async function loadDeviceTeamStats(
     cachedRows<Row>('users'),
   ]);
   const event = events.find((e) => e.id === eventId);
-  const team = teams.find((t) => t.id === teamId);
-  if (!event || !team) return { state: 'unknown' };
+  if (!event) return null;
 
-  const toTeam = (t: Row) => ({
-    id: String(t.id),
-    number: Number(t.number),
-    name: String(t.name ?? ''),
-  });
   const teamById = new Map(teams.map((t) => [String(t.id), t]));
   const rosterTeams = roster
     .filter((r) => r.event_id === eventId && live(r))
@@ -91,16 +111,38 @@ export async function loadDeviceTeamStats(
     return formScoring(String(form.id), { forms, versions: [], fields, rules }) ?? NO_SCORING;
   };
   const versionIds = [...new Set(rows.map((r) => String(r.form_version_id)))];
-
-  const stats = buildTeamStats({
-    team: toTeam(team),
+  return {
     event: { id: String(event.id), name: String(event.name ?? '') },
-    teams: rosterTeams,
+    roster: rosterTeams,
     entries: rows.map((r) => toEngineEntry(r, matchById, sortOrder)),
     scoring: scoringOf('match'),
-    versions: versionIds.map((id) => ({ id, fields: versionFields(fields, id) })),
     superFields: scoringOf('super').fields,
-    scouters: users.map((u) => ({ id: String(u.id), full_name: String(u.full_name ?? '') })),
+    versions: versionIds.map((id) => ({ id, fields: versionFields(fields, id) })),
+    teams,
+    users,
+  };
+}
+
+/**
+ * `teamId`'s statistics at `eventId`, from this device's cache. `unknown` when the device holds no
+ * such team (a mistyped link, a team of another season), or not the event.
+ */
+export async function loadDeviceTeamStats(
+  teamId: string,
+  eventId: string,
+): Promise<DeviceTeamStats> {
+  const base = await loadDeviceEventStats(eventId);
+  const team = base?.teams.find((t) => t.id === teamId);
+  if (!base || !team) return { state: 'unknown' };
+  const stats = buildTeamStats({
+    team: toTeam(team),
+    event: base.event,
+    teams: base.roster,
+    entries: base.entries,
+    scoring: base.scoring,
+    versions: base.versions,
+    superFields: base.superFields,
+    scouters: base.users.map((u) => ({ id: String(u.id), full_name: String(u.full_name ?? '') })),
   });
   return { state: 'held', stats };
 }

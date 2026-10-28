@@ -113,29 +113,30 @@ describe('the shell (redesign RB.6)', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
-  it('shows the waiting count on the Entries tab and in the top-bar pill', async () => {
+  it('shows the waiting count in the top-bar pill; Entries left the bar for the drawer (task 1.58)', async () => {
     await seedOutbox(3); // three entry ops by the signed-in user
     await renderShell({ width: 375 });
-    expect(
-      await screen.findByRole('link', { name: 'Entries, 3 waiting to send' }),
-    ).toBeInTheDocument();
     expect(await screen.findByText('3 waiting')).toBeInTheDocument();
+    const bar = screen.getByRole('navigation', { name: 'Main' });
+    expect(within(bar).queryByRole('link', { name: /Entries/ })).toBeNull();
+    expect(within(bar).queryByText('3')).toBeNull();
   });
 
-  it('says "All sent" and keeps the plain Entries name with nothing waiting', async () => {
+  it('says "All sent" with nothing waiting, and the bar ends at Ranking', async () => {
     await renderShell({ width: 375 });
     expect(await screen.findByText('All sent')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Entries' })).toBeInTheDocument();
+    const bar = screen.getByRole('navigation', { name: 'Main' });
+    expect(within(bar).getByRole('link', { name: 'Ranking' })).toHaveAttribute('href', '/ranking');
   });
 
-  it('puts Scout after Home, then Search and Entries (task 1.51), and titles the top bar', async () => {
+  it('puts Scout after Home, then Search and Ranking (task 1.58), and titles the top bar', async () => {
     await renderShell({ width: 375 });
     const bar = await screen.findByRole('navigation', { name: 'Main' });
     expect(
       within(bar)
         .getAllByRole('link')
         .map((l) => l.textContent),
-    ).toEqual(['Home', 'Scout', 'Search', 'Entries']);
+    ).toEqual(['Home', 'Scout', 'Search', 'Ranking']);
     expect(within(screen.getByRole('banner')).getByText('Home')).toBeInTheDocument();
   });
 
@@ -169,29 +170,29 @@ describe('the phone bar: the current page is the raised button (UF.10)', () => {
   it.each([
     ['/', 'Home'],
     ['/scout', 'Scout'],
-    ['/entries', 'Entries'],
     // Task 1.51: Search is the raised button on team search.
     ['/teams', 'Search'],
+    // Task 1.58: Ranking took Entries' place.
+    ['/ranking', 'Ranking'],
   ])('on %s raises %s, and only it, and marks it current', async (path, name) => {
     const bar = await phoneBar(path);
-    expect(bar.order).toEqual(['Home', 'Scout', 'Search', 'Entries']);
+    expect(bar.order).toEqual(['Home', 'Scout', 'Search', 'Ranking']);
     expect(bar.raised).toEqual([name]);
     expect(bar.current).toEqual([name]);
   });
 
   it('raises nothing on any other page, Scout a flat tab in the middle', async () => {
     const bar = await phoneBar('/switch-scouter');
-    expect(bar.order).toEqual(['Home', 'Scout', 'Search', 'Entries']);
+    expect(bar.order).toEqual(['Home', 'Scout', 'Search', 'Ranking']);
     expect(bar.raised).toEqual([]);
     expect(bar.current).toEqual([]);
   });
 
-  it("keeps Entries' waiting badge on it when it is raised", async () => {
+  it('raises nothing on Entries, now in the drawer (task 1.58)', async () => {
     await seedOutbox(3);
-    await renderShell({ width: 375, path: '/entries' });
-    const entries = await screen.findByRole('link', { name: 'Entries, 3 waiting to send' });
-    expect(entries).toHaveAttribute('aria-current', 'page');
-    expect(entries.querySelector('[data-raised]')).not.toBeNull();
-    expect(within(entries).getByText('3')).toBeInTheDocument();
+    const bar = await phoneBar('/entries');
+    expect(bar.order).toEqual(['Home', 'Scout', 'Search', 'Ranking']);
+    expect(bar.raised).toEqual([]);
+    expect(bar.current).toEqual([]);
   });
 });
