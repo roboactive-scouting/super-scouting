@@ -9834,3 +9834,647 @@ Tests:
   - Driver skill shows the five not-asked matches, the one no-show as the only "—", and a mark on every other match.
   - Climb time shows its empty line.
   - Shot `team-progress-field` at 1440 and 375, Light and Outdoor.
+
+## Task 1.58 — The plan's test predates the design and task 1.57; adapted to the final (variant N)
+
+**Plan said:** `render(<RankingPage eventId="ev-1" rpc={rpcFor()} />)` with rows of `team_number` / `team_name`, `findByRole('columnheader', { name: /average points/i })` clicked → `aria-sort` `ascending`, then `descending`; `findAllByRole('row')` → 51; the offline test with an rpc that throws and no device data.
+
+**What was wrong:** the real `rankRow` (task 1.57) is `number` / `name` and now carries `stddev` and `phase_averages`; the design (27-ranking final) calls the headline column "Total" and starts it sorted best first, so its header already holds `aria-sort="descending"` before any click; the page links to team pages, so it needs a router; the design's group header row (AVERAGE POINTS PER MATCH · AVAILABILITY) is a second `<tr>` in the `<thead>`, which would make 52 rows; the offline page computes from the device's cache, so an empty cache has nothing to show. The plan's row fixture also gave the no-data team `breakdowns: 1, no_shows: 4` with `availability_rate: null`, which `reliabilityFor` can never return.
+
+**What I did instead:** `apps/client/src/features/ranking/RankingPage.test.tsx` keeps every assertion's intent on the real shapes: Team 1000's row reads "50" (not "50.00"), names its breakdowns and shows availability "100%"; exactly three medals (`Medal, rank 1…3`); the Total header — `descending` at rest — flips to `ascending` on a click and back to `descending` on a second; Consistency never takes `aria-sort` and a click on it changes no order; Team 1049 shows "—" and never "0.00"; 51 rows, no pagination; offline with the device seeded from `src/test/teamPageFixtures.ts` the page says "Computed from the data on this device" and calls no rpc; no weighting button or slider. The page is wrapped in a `MemoryRouter`; the group header row is `aria-hidden` (its words are in the table's sr-only caption), so the 51 holds. The no-data fixture team has 0 counts, as the builder gives. Added (the brief's negatives): the rank of every row is unchanged under every sort key in both directions and both categories, and under a three-figure sort built in the Sort builder; the no-data team is last under every one of those sorts; Consistency has no `aria-sort`, no mark, no button, and is absent from the "+ Figure" pills in both categories; nothing is named /weight/ (button, label or text) and there is no slider or range input in either category or the builder; "—" (or "No counted matches yet") in every figure cell of the no-data row in both categories. Plus the source line (server / device, a failed server falling back to the device), the study panel, the override paths and the phone list and sheets. Mutation-checked (scratchpad `mutate-158.sh`): no-data-not-last in the shared comparator, the rank following the sort, a sort glyph on Consistency, "0" for no data, `stddev` offered as a tie-breaker, a header click that never reverses, a phase averaged over a different population and a std dev over a different population — each fails the suite, and each was restored.
+
+**Risk:** none known.
+
+## Task 1.58 — Shading is task 1.59; the figures print plain, through one seam
+
+**Plan said:** (1.58) "Shading reuses `shadeFor` / `ShadedValue` (1.53's deviation): the figures in the current sort are shaded, the rest plain."
+
+**What was wrong:** nothing; the brief splits it: shading is task 1.59, on the same branch.
+
+**What I did instead:** every figure prints plain. Each figure cell is `FigureValue({ row, figure, inSort })` in `features/ranking/parts.tsx` (`data-figure`, `data-in-sort`): a figure in the current sort already has the chip's box (`min-w-[3.25rem] px-[7px] py-[3px]`, 600 `--ink`), so 1.59 swaps its body for `ShadedValue` without moving anything; the value comes from `figureValue(row, key)` (null for no data) and the text from `figureText`. The phone row's end figure is the first figure of the sort (`inSort`, the one the README says a phone shades). Consistency and Matches are never a `FigureValue`.
+
+**Risk:** 1.59 must read the domain over every row (`allRows`), not only the sorted ones the table is handed; both are passed to the table and the list.
+
+## Task 1.58 — `rankRow` gains `stddev` and `phase_averages`; a sort key per phase
+
+**Plan said:** "`rankRow` gains `stddev` and `phase_averages` (one per phase in `FIELD_PHASES` that carries points in the season's form, from `scoreBreakdown`), both computed in `buildRankTable` over the same counted entries as `average_points`." "`RANK_SORT_KEYS` gains the phase keys."
+
+**What was wrong:** the shape and the key names were open.
+
+**What I did instead:** `phase_averages: { phase: FieldPhase; average: number | null }[]`, in `FIELD_PHASES` order, one item per phase that `scoringPhases(scoring)` (new, `engine/teamStats.ts`) finds: a phase holding a scorable field a scoring rule names (no phase → `post_match`, each key once, a retired ruled field included — `scoreEntry` still scores a value an entry holds for it). The same items, same order, on every row. Each average is `aggregate(…, 'avg')` over the SAME `applyFilters` population as `averagePoints` of each entry's `scoreBreakdown` subtotal for that phase, 0 where the entry has no row or no points there (it was counted, so 0 is real), so the phases add up to Total (tested, including a retired field present in one match and absent in the next); null with no counted entry. `stddev` is `aggregate(points, 'stddev')` over the same points (null under two matches), which is exactly the team page's "Std dev of points" (tested per row on both the device and the server). `RANK_SORT_KEYS` gains `auto_points`, `teleop_points`, `endgame_points`, `post_match_points` (`PHASE_SORT_KEYS`, a test holds them to `FIELD_PHASES`), best first = `desc`; `rankSortValue(row, key)` reads a phase key from `phase_averages` (null for a phase the form does not score, so it ties through). `stddev` stays invalid (`rankTeamsInput` and `rankTeams` tested with `stddev`, `consistency`, `stddev_points`). The server's `rankTeams` is unchanged (it already hands the builder its scoring); a new server test proves its rows equal `buildRankTable` over the same store rows under every key and direction. Server bundle rebuilt (BUILD-CONTEXT §6). No migration.
+
+**Risk:** a deployed pre-1.58 server answers rows without the two fields; the client's `call()` refuses that shape (`rankRow` requires them), so `useRanking` shows the device's table until the server is redeployed — correct, but the "From the server" line will not show until then.
+
+## Task 1.58 — One ranking order; a team with no data sorts last on the server too
+
+**Plan said:** (1.57) `rankTeams` sorts one column, "a null sorts last whatever the direction; ties fall to the canonical rank, then the lower number". (1.58) "Still tied → rank order; no data last." SPEC-FINAL 13.5 v1.46: "a team with no data sorts last whatever the sort."
+
+**What was wrong:** under 1.57's rule a team with no data has 0 in every count, so it came FIRST under a count sort; the 1.57 test pinned that, and the page needs the opposite. With the change, that test failed:
+
+```
+FAIL src/core/queries/stats.test.ts > rankTeams — sorting (task 1.57) > sorts a count column fewest first by default, ties to the canonical rank
+AssertionError: expected [ 't-2', 't-1', 't-3' ] to deeply equal [ 't-2', 't-3', 't-1' ]
+```
+
+**What I did instead:** one comparator in `packages/shared/src/engine/teamStats.ts`, `compareRankRows(a, b, sort: RankSortStep[])` (and `sortRankRows`): `rankRowHasData` false (no counted match and no status-counted match) last whatever the sort; then each step, a null in that key after every value in either direction; then the canonical rank, then the lower number. `buildRankTable` sorts with it (one step), and the ranking page sorts with it (several). A team that only ever no-showed HAS data (0 % available) and sorts among the others. The 1.57 test now expects `['t-2', 't-1', 't-3']` (t-3 has only a practice entry) and checks `desc` too, citing SPEC-FINAL 13.5 v1.46. Rejected: a client-only rule, which would let the server's order and the page's disagree.
+
+**Risk:** a caller of `rankTeams` sorting by a count now sees unscouted teams last instead of first; no caller sorted on the server before this task.
+
+## Task 1.58 — One decimal everywhere (SPEC-FINAL 17.8 v1.46)
+
+**Plan said:** change `formatMetric` to one place with a whole number bare and its test; `teamView.formatStat` delegates; "This task's test below expects `'50'` (was `'50.00'`)."
+
+**What was wrong:** three existing tests expected two places:
+
+```
+FAIL src/features/entry/phases.test.ts > entry phases > reads values for the confirm list
+AssertionError: expected '12.5' to be '12.50' // Object.is equality
+FAIL src/features/sync/conflictsView.test.ts > the card > a duplicate: the earlier copy first, two secondary Keeps, no station from a cleared slot
+AssertionError: expected [ '0.5', '—' ] to deeply equal [ '0.50', '—' ]
+FAIL src/features/entry/FieldInput.test.tsx > … > formats a computed float to 2 places and a whole number with none; nothing yet is a dash
+```
+
+**What I did instead:** `formatMetric` rounds to one place and prints a whole number bare (`12.3456` → `"12.3"`, `12` → `"12"`, `-0.04` → `"0"`, never `"-0"`); new `formatStdDev` → `"±6.1"` (and `"±9"` for a whole SD, by the same rule; "—" for none). `teamView.formatStat` is now `formatMetric`. The three tests expect `'12.5'`, `'0.5'` and `/^0\.3$/`. `ComputedValue` and `conflictsView` still call `formatMetric`.
+
+**Risk:** the design draws "±10.0" / "10.0"; SPEC-FINAL 17.8 v1.46 says a whole number prints bare, which wins, so the page prints "±9" and "10".
+
+## Task 1.58 — One data source for /ranking and Home; the device loader is the team page's
+
+**Plan said:** "computed on-device from cached raw entries while offline and from `rankTeams` while online." Brief: one hook callable without the page; online `rankTeams`; offline or when it fails `buildRankTable` over the device's entries with the inputs the team page passes; copy the team page's device pattern, do not invent a second.
+
+**What was wrong:** nothing; recording the shape and the refactor.
+
+**What I did instead:** `features/teams/teamStats.ts` gains `loadDeviceEventStats(eventId)` — the body of 1.53's `loadDeviceTeamStats` (roster, every live entry of the event via `toEngineEntry`, the active match scoring, the super fields, the versions, teams and users), which `loadDeviceTeamStats` now calls, so the ranking and the team page read the device through ONE function. `features/ranking/deviceRanking.ts` (`deviceRankInput`, `loadDeviceRanking`) is that plus one `buildRankTable` call; it is loaded with a dynamic `import()` from `features/ranking/useRanking.ts`, so a first-chunk page (Home, 1.58b) can call `useRanking` without the engine entering the initial JS. `useRanking(eventId, rpc?)` → `loading | unknown | offline-needs-server | failed (retry) | ready { event, rows, source }`, `source` = `{ kind: 'server', asOf }` or `{ kind: 'device', lastSyncAt, waiting }`. Online it shows the device's table at once and the server's when it answers (asking again when a sync lands after the answer); offline, or when the server fails, the device's; under a session override the server only, held by `cross_event_view` (as the team page). Rows come in the canonical order; the page sorts. `useQualRange(eventId)` gives the sub-line's "Q1–Q40". Tests: `deviceRanking.test.ts` proves the device's rows are `buildRankTable` over the team page's inputs and that every row's rank, Total, Consistency and reliability equal that team's device team page.
+
+**Risk:** online, the device's table shows for the time the request takes, then the server's replaces it; the two can differ by the entries still waiting to send (the device's table counts them, the server's does not yet). The source line says which is shown.
+
+## Task 1.58 — No `@tanstack/react-table`
+
+**Plan said:** modify `apps/client/package.json` (add `"@tanstack/react-table": "^8.20.5"`).
+
+**What was wrong:** sorting 50 rows is one `Array.sort` with the shared comparator, and the locked `Table` already draws the sticky header and numeric cells; the library would add weight to a precached chunk for nothing it does here.
+
+**What I did instead:** no dependency added; the sort is `sortRankRows` (shared), the columns are written out in `RankingTable.tsx`. Rejected: the library for column visibility (the categories replace it) or pagination (there is none).
+
+**Risk:** none known.
+
+## Task 1.58 — Navigation: Ranking in the bar, Entries to the drawer
+
+**Plan said:** a `NAV_ITEMS` row `{ id: 'ranking', label: 'Ranking', icon: Trophy, group: 'competition', bottomBar: 3, visible: () => true }`; Entries' `bottomBar` → `null`.
+
+**What was wrong:** the shell's tests and `e2e/shell.spec.ts` pinned the bar as Home · Scout · Search · Entries and Entries' waiting badge on its tab, e.g.
+
+```
+FAIL src/features/shell/nav.test.ts > navigation (spec v1.15) > phone bar: Home · Scout · Search · Entries (task 1.51, 23-team-search final)
+```
+
+**What I did instead:** the row exactly as given, before Entries (so the sidebar's Competition group reads Home · Scout · Search · Ranking · Entries), `PATHS.ranking = '/ranking'`, the lazy route `ranking` (gated, waits for the event; handle title "Ranking"). Tests now pin Home · Scout · Search · Ranking for every role, Entries in the phone menu and the sidebar, Ranking raised on `/ranking`, nothing raised on `/entries`, and the waiting count in the top-bar pill (and the drawer) only; `routes.test.tsx` lists `ranking` among the gated routes; `e2e/shell.spec.ts` shoots `shell-bar-ranking` in place of `shell-bar-entries`. `BottomBar.tsx`'s Entries badge code is left in place, now unreachable.
+
+**Risk:** the waiting count is no longer on any bottom-bar tab (SPEC-FINAL 17.9 still says "Entries with the waiting-to-send count" for the 1.51 bar); it stays in the top bar's pill and the drawer.
+
+## Task 1.58 — Small calls the design left open
+
+**Plan said:** nothing on these.
+
+**What was wrong:** the design (27-ranking final, THEME "Ranking, 2026-10-28") leaves them open, or the app's data differs from the mock.
+
+**What I did instead:**
+- **Medal:** the design's ribbon-and-disc SVG with the number (`RankMedal`, one image "Medal, rank 1"), not the plan's `Trophy` icon nor the side `RankBadge` (team search's "#7" tag). No rank: "—".
+- **Percent:** "100%" (`formatPercent`, as the team page prints it), not the mock's "100 %".
+- **Consistency:** "±12.9"; under two counted matches "—". The study's strip runs 0 → the round multiple of 20 above every team's Total + SD; the band is Total ± SD (never below 0), "Typical match: 18–43 points".
+- **Place:** among the teams with a value, 1 + those strictly above ("1st · best" at 1); Share is the phase over Total, a whole percent. "Rank 4 of 23": of the teams holding a rank.
+- **Status spread:** Played = `matches_counted − breakdowns`; the scale is the table's most matches on the field (left) and most missed (right, at least one); the study's bar uses the team's own matches. A team with no data shows "No counted matches yet".
+- **Matches** is shown, never sorted (the design gives it no mark), and is not a tie-breaker.
+- **A fourth phase** (post-match) draws in `--control-border`.
+- **Study beside the list from 1360 px**, where the 728 px table still fits beside the 320 px panel; under 1360 px (1024–1359 computers) the study opens in the bottom sheet. The table's header sticks under the crumb bar from 1360 px; narrower, the table scrolls sideways in its card at its least width (728 px Scoring, 920 px Availability), where a sticky header would stick to the card's scroll box, so it does not stick. A second click on the selected row closes the study.
+- **Group headers:** the Availability view's group row reads "Scouted matches by status" + the legend over the spread and Availability, and "Counts of matches" over the three counts (the mock's "Availability · counts of matches" over a narrow span wrapped the legend onto two lines).
+- **Source:** on a computer the header's right reads "From the server · as of 11:43" or "Computed from the data on this device · Last synced 11:08 · 3 entries waiting to send" (Home's words; "Everything is sent" at 0, "Never synced" with none); the phone shows the device notice card (frame 2) or "Q1–Q40 · from the server · as of 11:40".
+- **Empty and failed states:** no roster or no event on the device → "No teams to rank yet" (Back to Home); an override offline → `offline-needs-server` with "Back to <default event>"; an override's server failure → Try again.
+- **Sort builder:** a popover under the control on a computer (Escape or a click outside closes it, focus back to the control), a bottom sheet on a phone; the last figure cannot be removed (its × is disabled); the direction switch is a radio group per figure ("Best first / Worst first", "Fewest first / Most first"); dragging uses `SortableGrip` (keyboard and pointer, with spoken announcements).
+
+**Risk:** the user may want the mock's "100 %", the panel at 1280 px with a narrower table, or Matches sortable; each is a small change.
+
+## Task 1.58 — Bundle
+
+**Plan said:** nothing (BUILD-CONTEXT §12.5: initial JS at most 230 KB gzip).
+
+**What was wrong:** nothing.
+
+**What I did instead:** `/ranking` is a lazy chunk (`RankingPage` 11.8 KB gzip; `deviceRanking` 0.3 KB, the engine shared with the team page's chunk). Measured initial JS **227.8 KB** gzip (the nav row, the route's lazy import and the wider `rankRow` / sort-key schemas in the `API` map). No raise.
+
+**Risk:** if 1.58b imports `useRanking` into Home (first chunk), the hook itself is small and the engine stays lazy (`deviceRanking.ts` is a dynamic import); measure again then.
+
+## Task 1.58b — "Our last match" is `last_counted_match` on `rankRow`
+
+**Plan said:** "our rank computed with `before_match_number` = the number of 2096's most recent counted match"; `rankRow` gains `recent_totals` only.
+
+**What was wrong:** `recent_totals` carries points, not match numbers, so neither source could say which match "our last match" was; computing it from the device's entries while the rows came from the server would mix two sources.
+
+**What I did instead:** `rankRow` gains `last_counted_match: z.number().int().positive().nullable()` — the qualification match number of the team's latest counted entry (`applyFilters` order, the same population as `average_points`), null with none — beside `recent_totals: z.array(z.number()).max(RANK_RECENT_MATCHES)` (`RANK_RECENT_MATCHES = 5`, `api/stats.ts`), the last five of those points, oldest first. Both are computed in `buildRankTable`, so the server's rows and the device's carry them alike. Rejected: a parallel `recent_matches: number[]` (five numbers where one is read), a separate "last match" query (a second source), and reading the device's entries (mixes sources).
+
+**Risk:** a deployed server older than this task answers rows without the two fields; the client's `call()` refuses that shape, so `useRanking` shows the device's table (as after 1.58) until the server is redeployed.
+
+## Task 1.58b — `before_match_number`: what "only qualification matches numbered below it count" filters
+
+**Plan said:** "`buildRankTable` takes an optional `before_match_number`: only qualification matches numbered below it count. `rankTeams` passes it through."
+
+**What was wrong:** nothing; the edge cases were open.
+
+**What I did instead:** `entriesBeforeMatch(entries, before)` (exported, `engine/teamStats.ts`) runs first in `buildRankTable`, so every figure — the rank (`rankByAveragePoints`), the average, the reliability counts, `recent_totals`, `last_counted_match` — is the table as it stood then. It keeps every non-qualification entry (no figure counts them anyway) and drops a qualification entry numbered at or above `before`, and one with no number (it cannot be placed). `rankTeamsInput` takes `before_match_number: z.number().int().positive().optional()` (0, −1, 2.5 and "36" are refused, tested); the server use case passes it straight to the builder. Tests: shared (`teamStats.test.ts`, "the trend line and before a match"), server (`stats.test.ts`, "ranks the event before a match through the same builder": `rankTeams` with `before_match_number` 1, 2, 3, 4, 99 equals `buildRankTable` over the same store rows, and 2096 goes from #2 before Q2 to #1), device (`deviceRanking.test.ts`: `loadDeviceRanking(event, n)` is the very `buildRankTable({ ...input, before_match_number: n })` call). Server bundle rebuilt (BUILD-CONTEXT §6). No migration.
+
+**Risk:** none known.
+
+## Task 1.58b — The "before" ranking comes from the source of "now": `useRankingBefore(now, n)`
+
+**Plan said:** (brief) extend `useRanking` with an optional before-match option, or a sibling hook on the same code path; online both reads are `rankTeams`, offline both the device's.
+
+**What was wrong:** two independent `useRanking` calls each choose their own source. Online, `useRanking` shows the device's table until the server answers, so the "now" and the "before" reads could stand on different sources for a moment.
+
+**What I did instead:** a sibling hook, `useRankingBefore(now: Ranking, beforeMatch: number | null, rpc?) → RankRow[] | null`, in `features/ranking/useRanking.ts`. It reads `now.source.kind`: `server` → `rankTeams { event_id: now.event.id, before_match_number }` only, asked again when `now.source.asOf` moves; `device` → the same lazily imported `loadDeviceRanking(eventId, beforeMatch)` only, tagged with the number it was computed for. So the two never mix by construction. `beforeMatch` is `moveMatchOf(our row of now)`: our `last_counted_match` once we have two counted matches, else null (no read at all). Tests (`OurTeamCard.test.tsx`): online, the calls are exactly `[{ event_id }, { event_id, before_match_number: 36 }]` and the device's loader is never called with a number (while the device holds a ranking of its own); offline, `rpc.call` is never called and the device's loader is called with our last match; the move equals `ourTeamOf` over `loadDeviceRanking(event, n)`. Rejected: an option on `useRanking` (each call would choose its own source); computing the move on the client from `recent_totals` (it cannot re-rank the other teams).
+
+**Risk:** online, while the server's "now" is still on its way the device's "now" and "before" show; when the server's "now" arrives the move line disappears until the server's "before" answers (one more `rankTeams`). It never shows a mixed move.
+
+## Task 1.58b — `useRanking` hardened for a first-chunk page
+
+**Plan said:** nothing.
+
+**What was wrong:** Home's existing tests inject `rpc = { call: vi.fn() }` (answers `undefined`) and `{ call: vi.fn().mockResolvedValue({ items: [], next_cursor: null }) }`. The first crashed Home:
+
+```
+TypeError: Cannot read properties of undefined (reading 'then')
+    at C:\dev\frc-scouting\apps\client\src\features\ranking\useRanking.ts:87:47
+```
+
+and the second handed the page `rows: undefined`. Neither can happen through the real `typedCall` (it validates), but Home must never fall over because of the ranking.
+
+**What I did instead:** both hooks call through `Promise.resolve().then(() => rpc.call(…)).then((out) => rankTeamsOutput.parse(out))`, so a call that throws or answers another shape is a failed read (the device's table stands in, or the move is left out). `useRanking(eventId: string | null, …)`: with no event (Home before the shell has one) it reads nothing from either side (tested: "asks for no ranking while there is no competition"). The schema is already in the first chunk (the API map).
+
+**Risk:** none known.
+
+## Task 1.58b — Home's existing "no RPC on load" tests now allow the ranking's `rankTeams`
+
+**Plan said:** (RB.10, `HomePage.test.tsx`) "renders from the device alone — no RPC on load"; "loads competitions only when Switch competition is opened" (`expect(rpc.call).not.toHaveBeenCalled()` before the click).
+
+**What was wrong:** online, Our team and Top teams read `rankTeams` on load (the task's own rule: the ranking page's source). Both tests failed: `AssertionError: expected "spy" to not be called at all, but actually been called 1 times`.
+
+**What I did instead:** the first test now expects the calls to be exactly `['rankTeams']`; the second expects no call but `rankTeams` before the sheet opens and another after. The `homeData.ts` header says the same ("no RPC; the one exception is the ranking").
+
+**Risk:** none known.
+
+## Task 1.58b — Bundle: two constants moved out of lazy modules; budget 230 → 232
+
+**Plan said:** nothing (BUILD-CONTEXT §12.5: initial JS at most 230 KB gzip; a build chat may raise it and log it).
+
+**What was wrong:** the first build measured `initial JS 239.5 KB gzip` / `initial JS over 230 KB gzip`: Home imported `OUR_TEAM_NUMBER` from `features/teams/teamSearch.ts` and `rankedCount` from `features/ranking/rankingView.ts`, which pulled both modules — and the engine functions their lazy pages use — into the first chunk. With those two moved it measured `initial JS 230.4 KB gzip` / `initial JS over 230 KB gzip`.
+
+**What I did instead:** `OUR_TEAM_NUMBER` lives in `lib/ourTeam.ts` (no imports; `teamSearch.ts` re-exports it, so the ranking and team search are unchanged) and `rankedCount` in `features/ranking/rankedCount.ts` (`rankingView.ts` re-exports it). The 2.6 KB over 1.58's 227.8 KB is `useRanking` (moved from the lazy ranking chunk, which fell from 11.8 to 11.0 KB), the two cards, the Home model and the sparkline; no engine string (`scoreBreakdown`, "Std dev of points") is in the first chunk. `BUDGET_KB` 230 → 232 (`scripts/check-bundle.mjs`, its header, and BUILD-CONTEXT §12.5). Rejected: lazy-loading the two cards (about 1 KB back, but a second chunk fetched on the page every scout opens first, for cards that already wait on the ranking).
+
+**Risk:** 1.6 KB of headroom left.
+
+## Task 1.58b — The team page's sparkline moves to `components/Sparkline.tsx`, with a faint tone
+
+**Plan said:** "each with its five-match trend line from `recent_totals` (the team page's sparkline)".
+
+**What was wrong:** the sparkline lived inside `features/teams/StatRows.tsx` (which imports the team page's view helpers), always `--accent`; the design draws the other teams' lines `--faint` with an `--ink-2` dot and ours `--accent`.
+
+**What I did instead:** `Sparkline({ values, tone = 'accent' | 'faint' })` in `components/Sparkline.tsx`, the same drawing (64 × 20, 1.5 px, end dot, a null left out, under two values nothing); `StatRows.tsx` imports it, so the team page is unchanged. Added to BUILD-CONTEXT §12.5.
+
+**Risk:** none known.
+
+## Task 1.58b — Small calls the design and the plan left open
+
+**Plan said:** the card shows "#N of M", the average and the move ("▲2 since Q36", "▼1 since Q36", "No change since Q36"); Top teams the top five with trend lines, 2096 highlighted, Full ranking.
+
+**What was wrong:** the design (03-home final) draws "avg 51.2 · ▲ 2 places" and leaves the rest open.
+
+**What I did instead:**
+- **Move text:** the plan's words win over the design's: "avg 45.2 · ▲3 since Q32". The arrow and number are `aria-hidden`; a screen reader hears "Up 3 places since Q32" / "Down 1 place since Q32"; "No change since Q32" is printed once. The rank is "#3 / 33" on screen and "Rank 3 of 33" spoken. M = the ranked teams (`rankedCount`, as the ranking's study panel).
+- **Desktop card:** the fourth tile at `1.35fr` (the design's grid), not stretched to the row's height (`self-start`, as the design draws it); with the longer move line, "Our team at this event" wraps rather than being cut off. On a phone, a full-width card under the tiles, before coverage (the README's phone order).
+- **Top teams:** rows are not links (the design gives them none); Full ranking (a 48 px hit area) opens `PATHS.ranking`. The figure is the average (one decimal, a whole number bare — "44"); the header reads "Average points · last 5" / "avg points · last 5" (design). Our row: `--accent-tint`, the name in `--accent-ink`, and "our team" for a screen reader, never the tint alone. Coverage 1.3fr beside Top teams 1fr (design `.g2`); coverage alone keeps the full width, and Top teams alone (under a session override, where coverage is hidden) takes it.
+- **Session override:** the cards show the override event's ranking (`useRanking` already reads the server for it, held by `cross_event_view`); offline under an override nothing shows. Rejected: hiding them like coverage (coverage is the default competition's device data; the ranking is the override's own).
+
+**Risk:** the user may want the design's "▲ 2 places" wording, the card stretched to the tiles' height, or Top teams rows that open team pages; each is a small change.
+
+## Task 1.58b — The ranking's e2e fixture is shared with Home's spec
+
+**Plan said:** (brief) Home's Playwright spec with realistic data, Our team with a move line and 2096 among the top five, every theme; one shot with 2096 unranked.
+
+**What was wrong:** the realistic ranking event lived inside `e2e/ranking.spec.ts`, and in it 2096 is #31 of 33 with no change.
+
+**What I did instead:** the fixture moved verbatim to `e2e/rankingFixture.ts` (`PULL`, `RANK_ENTRIES`, `rankTeamsAnswer(input)` — now passing `before_match_number` through — and `rankingEventWith(entries)` for a variant); `ranking.spec.ts` imports it and is otherwise unchanged. `home.spec.ts` gives 2096 nine teleop notes a match and 30 in its last counted one (Q32): #3 of 33, #6 before Q32, "▲3 since Q32"; a second variant drops 2096's entries (not ranked). The existing Home shots now also show the cards, from the device (the base mock has no `rankTeams`, so it fails and the device's table stands in: 2096 #20 of 22, "▼1 since Q32").
+
+**Risk:** none known.
+
+## Task 1.58b — A conflicts e2e locator matched the top bar's "Syncing…"
+
+**Plan said:** nothing (the full e2e run, BUILD-CONTEXT §12.3).
+
+**What was wrong:** the full run failed one test, 1 time in 3 when repeated:
+
+```
+e2e\conflicts.spec.ts:571:1 › conflicts: a scouter reads the queue, every action off, and has no nav row
+Error: strict mode violation: getByRole('link', { name: 'Sync' }) resolved to 2 elements:
+    1) <a href="/sync" … aka getByRole('link', { name: 'Sync', exact: true })
+    2) <a href="/sync" … aria-label="Syncing…" … aka getByRole('link', { name: 'Syncing…' })
+```
+
+The name match is a substring, so the sidebar's Sync row and the top bar's sync pill ("Syncing…") both match while the first sync is still running. Home now also computes the device's ranking on the pull's row changes, which plausibly keeps that window open a little longer after `networkidle`.
+
+**What I did instead:** the locator is `{ name: 'Sync', exact: true }` (the sidebar row the test means). Three repeats of the spec then passed (15 of 15).
+
+**Risk:** none known; other specs that name a link by a prefix of "Syncing…" would have the same latent race.
+
+## Task 1.59 — Only the ranking page's shading was left; the plan's "recharts" and `{ background, text }` stay superseded
+
+**Plan said:** (1.59) create `shading.ts`, `ShadedValue.tsx`, `ProgressionChart.tsx`; `shadeFor` returns `{ background, text }`; `ProgressionChart` is a Recharts `LineChart`; add `"recharts": "^2.13.3"`; modify `RankingPage.tsx` and `TeamPage.tsx`.
+
+**What was wrong:** task 1.53 already built `shadeFor` (numbers, never CSS), `ShadedValue` and a hand-written SVG `ProgressionChart` and wired the team page (see "Task 1.53 — Task 1.59's shading, `ShadedValue` and `ProgressionChart` pulled forward" and "Task 1.53 — No Recharts"); task 1.58 built the ranking page with every figure plain through `FigureValue` (see "Task 1.58 — Shading is task 1.59; the figures print plain, through one seam"). Nothing of 1.59 was left but the ranking page's shading.
+
+**What I did instead:** only the ranking page's shading. `FigureValue` (`features/ranking/parts.tsx`) now renders a figure that is `inSort` and has a `scale` as a `ShadedValue` chip (text from `figureText`, shade from `figureShade`), and every other figure plain as before. `rankingView.ts` gains `FigureScale`, `figureScale(rows, key)`, `sortScales(rows, sort)` and `figureShade(row, key, scale)`; `RankingTable` computes `sortScales(allRows, sort)` once per render (`useMemo`), `RankingList` `figureScale(allRows, first)` for the phone's first figure. `shading.ts`, `ShadedValue`, `ProgressionChart`, `TeamPage` and `package.json` are untouched; `recharts` is not added and `shadeFor` still returns `{ position, mix, flat, lightness }` — 1.53's entries stand.
+
+**Risk:** none known.
+
+## Task 1.59 — Scales: Matches counted more is better; the rate's raw value; the domain over every row
+
+**Plan said:** (README) "Total and the phases run over the observed min–max, Availability over a fixed 0–100 %, and the counts over a reversed min–max. Consistency is never shaded." Matches counted: not stated.
+
+**What was wrong:** the brief asked for a decision on Matches counted, and on which rows make the domain.
+
+**What I did instead:** `figureScale` gives Matches counted `higher_is_better` over the observed min–max (more scouted matches, more trustworthy figures). Rejected: `neutral` (flat `--line-2` on every cell says nothing, and a flat chip would imply a sort that is not there) and `lower_is_better` (fewer matches is not better). It is dead code on the page today: `matches_counted` is no figure of `sortFigures`, so no sort can hold it and the Matches column prints plain (a test holds it). The team number (a sort key, no figure) has no scale. Availability is `{ kind: 'rate' }` over the 0–1 fraction `rankRow` carries. Total, the phases and the counts take their domain from `allRows` (every row the page holds, not the sorted copy), reading each through `figureValue`, so a row with no data, or a null phase value, is not in it; with no value anywhere the domain is a point (flat, and no cell is shaded anyway). A no-data cell in a shaded figure is `ShadedValue`'s bare muted "—", given the chip's box (`min-w-[3.25rem] px-[7px] py-[3px]`) so a no-data row does not move. A figure with no scale is never shaded. `FigureValue`'s shaded branch wraps the chip in a `display: contents` span that carries `data-figure` / `data-in-sort`, so tests and e2e read them as before.
+
+**Risk:** a sort that gains Matches later shades it higher-is-better; change `figureScale` if that is not what is wanted.
+
+## Task 1.59 — Tests and e2e: counts asserted, mutation-checked
+
+**Plan said:** unit tests for the domain helper; page tests for the shading; e2e shots showing it.
+
+**What was wrong:** nothing.
+
+**What I did instead:** 8 unit tests in `rankingView.test.ts`, 8 in `RankingPage.test.tsx` (computer) and 1 phone test; the suite is 3631 (was 3614). Mutation check: flipping the counts' direction in `figureScale` fails 10 of them (the four unit tests on direction, best/worst Total, the header-click, Availability, count-sort and phone tests); restored. `e2e/ranking.spec.ts` asserts 33 chips (36 teams, three with no data) under Total, none on Teleop, Availability and Breakdowns shaded and No-shows plain, and 33 on the phone list; the existing shots now show the shading in both themes at 1440 and 375. One unrelated test, `QrSendPage.test.tsx` ("getTimerCount" = 1), failed once in a full run under load and passed in the two reruns (3631 of 3631 both times).
+
+**Risk:** the QR timer test looks load-sensitive; not touched.
+
+## Task 1.58 — merging develop's Phase 1 I side tasks 1–5 into the ranking branch (orchestrator merge, 2026-10-28)
+
+**Plan said:** task 1.58 feeds the ranking and the team page from one device loader, `loadDeviceEventStats` (`features/teams/teamStats.ts`), and `loadDeviceTeamStats` calls it. Side task 5 (develop, ec95b97) split the team page's loader into a cache read and a pure `deviceTeamStats(rows, teamId, eventId)` over `DeviceStatsRows` (so `teamStats.parity.test.ts` can hold the device to the server's `getTeamStats` on the same rows), and added `form_versions` to the tables read. Side task 2 put every sticky element on the shell's published `--top-bar` (`styles/classes.test.ts` fails on a copied bar height); side task 3 made every sheet and dialog action row `SurfaceActions`.
+
+**What was wrong:** the two loaders conflicted, and the ranking code written on the design branch predates both rules: the phone list's sticky block sat at `top-[calc(3.375rem+env(safe-area-inset-top))]`, the computer table's header at `min-[1360px]:top-[3.75rem]` and the study panel at `top-[4.75rem]` (the crumb bar plus 1rem, a copy the guard's regex does not catch), all copies of `TOP_BAR`; the phone's Team study sheet drew its one action, Open team page, as a hand-styled 48 px link.
+
+**What I did instead:**
+- `teamStats.ts` keeps both shapes, one function deep: `loadDeviceStatsRows()` reads `DEVICE_STATS_TABLES` into `DeviceStatsRows` (side task 5's read, `form_versions` included); the pure `deviceEventStats(rows, eventId)` is task 1.58's `DeviceEventStats` builder over those rows; `loadDeviceEventStats(eventId)` (the ranking's entry point, unchanged signature) is `deviceEventStats(await loadDeviceStatsRows(), eventId)`; side task 5's pure `deviceTeamStats(rows, teamId, eventId)` now builds from `deviceEventStats`, and `loadDeviceTeamStats` is `deviceTeamStats(await loadDeviceStatsRows(), …)`. So the ranking and the team page still read the device through one function, and the parity test exercises that same function. The match form's scoring now receives the cached `form_versions` (develop's change) where the ranking branch passed `[]`; `formScoring` does not read `versions`, so no figure changes.
+- The three sticky offsets read the shell: `top-[var(--top-bar,0px)]` on the phone's category / sort / labels block and on the 1360 px table header, `top-[calc(var(--top-bar,0px)+1rem)]` on the study panel. Each is still one sticky block.
+- The Team study sheet's Open team page sits in `SurfaceActions` with `actionButtonClass('secondary')`: 52 px full width below 1024 px (was 48 px), and at 1024–1359 px (the computer widths that still use the sheet) a right-aligned 44 px button, by side task 3's width rule.
+- The Sort builder sheet and popover have no action row (direction toggles, a remove ×, tie-breaker chips), so side task 3 does not apply; unchanged. Home's rank cards have no sticky element or sheet; unchanged.
+- `apps/server/api/index.js(.map)` regenerated by `pnpm --filter @frc/server build`, not hand-merged (BUILD-CONTEXT §6). BUILD-CONTEXT §12.5's component list carries both `category-switch` (1.58) and `surface-actions` (side task 3); the budget line stays 232 KB with both histories (develop never raised it). The merged initial JS measures 231.4 KB gzip, under 232; no raise.
+
+**Risk:** the 27-ranking final draws Open team page as a 48 px full-width link; it is now the rule's 52 px (phone) and right-aligned 44 px at 1024–1359 px, a departure from the final the user may want to look at in the `ranking` sheet shots.
+
+## Task 1.58 — review fix: a server answer is stamped when it was asked (review Minor 1)
+
+**Plan said:** `useRanking` asks the server again when a sync lands after its answer.
+
+**What was wrong:** the answer was stamped with its arrival time (`at: new Date().toISOString()` inside the success handler), so a server read made before this device's push committed, answering after `sync.last_success_at` was written, counted as newer than the sync and was never asked again ("From the server · as of 11:42" without the two pushed entries).
+
+**What I did instead:** the hook stamps each read with the time it was ASKED (`askedAt`, taken before `rpc.call`), and `stale` compares `sync.lastSyncAt` with the read's `askedAt` whatever its state: a sync that ends while the read is still under way asks again at once, and the overtaken read's answer is dropped when it lands (each read carries an `id`; only the current one may settle). The "as of" shown to the user is the ask time too (one `at`, no separate arrival `asOf`): the server read its entries after that moment, so the time never claims more than the answer holds; at HH:MM the two differ only for a read that straddles a minute. Rejected: keeping a separate arrival-time `asOf` for the header — it is the figure that overstated freshness in the first place.
+
+**Risk:** none known. `useRankingBefore` keys on this `asOf`, so it is re-asked exactly when `now` is.
+
+## Task 1.58 — review fix: a failed read retries after a sync; a held answer lapses offline (review Minor 2)
+
+**Plan said:** online, the server's `rankTeams`; until it answers and whenever it fails, the device's table.
+
+**What was wrong:** `stale` needed an answer, so a failed read (`navigator.onLine` true, the request dead) was never retried while online; and online → offline → online re-showed the answer from before the outage instead of the device's table, which may hold entries recorded offline.
+
+**What I did instead:** the same `stale` rule covers a failed read (its `askedAt`), so a later successful sync retries it. Going offline (or `cross_event_view` lost under an override) marks what is held `lapsed`; back online, a lapsed read is asked again and a lapsed answer is not shown as current — the device's table stands in until the new answer lands. Offline, when the device does not hold the event, the last answer still stands in with its own "as of" (unchanged). Reads are no longer cancelled by the effect's cleanup; a superseded read (newer ask, other event) is dropped by its `id` and `key`. `useRankingBefore` needed no code change: its server key includes `now`'s `asOf`, which now moves on every re-ask (after a sync, a failure retried after a sync, the return online), and while `now`'s answer has lapsed `now` is the device's, so `before` is too; its comment says so, and a hook test proves it is re-asked with `now` after a sync. Rejected: putting `sync.lastSyncAt` itself in the effect's dependencies — the meta read that fills it at mount would cancel and repeat the first request (two `rankTeams` calls on every mount); and keeping the cleanup's cancel with `stale` in the dependencies — a re-ask flips `stale` back to false and the cleanup would cancel the re-ask and ask a third time.
+
+**Risk:** a failed read is retried only after a successful sync, a reconnect, a remount or a change of event — not on a timer — by design (no polling).
+
+## Task 1.58 — review fix: hook tests for the refresh rules (review Minor 3)
+
+**Plan said:** (no hook test; the page and Home tests cover the hook.)
+
+**What was wrong:** nothing exercised a sync landing after an answer, a failure, or online → offline → online; deleting the `stale` check left every test green.
+
+**What I did instead:** new `apps/client/src/features/ranking/useRanking.test.tsx` (`renderHook`, an rpc whose calls the test settles one by one, `setMeta('sync.last_success_at')` + `notifyChanged('meta')` as `sync.ts` does): a sync after an answer asks again and shows the new rows; a sync ending while a read is under way makes it stale (Minor 1's race; the overtaken answer is never shown); a failure retries after a later sync while the device's table stands in; offline → online shows the device's table until the re-ask lands; Minor 9's guard; `useRankingBefore` re-asked with `now`. Mutation-checked: `stale` forced false, or the `stale` check removed from the effect, fails four tests; showing a lapsed answer online, or not re-asking it, fails the offline → online test; removing the event guard fails the Minor 9 test.
+
+**Risk:** none.
+
+## Task 1.58 — review fix: device ↔ server parity of the ranking table (review Minor 5)
+
+**Plan said:** the device's table equals the server's for the same entries (proved by transitivity through `buildRankTable`).
+
+**What was wrong:** no test compared `phase_averages`, `recent_totals`, `last_counted_match` or the `before_match_number` path between the device and the server.
+
+**What I did instead:** a `describe` added to `apps/client/src/features/teams/teamStats.parity.test.ts`, on side task 5's fixture (the outbox entry on the device's own Q6 match): the cache is written to IndexedDB and read by `loadDeviceRanking` itself, the server side is its own `rankTeams` over the Store, compared with `toEqual` row for row and whole, without and with `before_match_number` 6, 4 and 2, plus a check that the figures compared are real (8014's last counted match is the outbox's Q6, three recent totals, every phase a number; before Q6, Q2 and two). Mutation-checked: ignoring `beforeMatch` on the device fails 4 tests; dropping the device's locally created match fails 6. Rejected: a pure `deviceEventStats` → `buildRankTable` call in the test — it would restate `deviceRankInput` rather than test it.
+
+**Risk:** none.
+
+## Task 1.58 — review fix: the Sort builder's direction pair follows the radio pattern (review Minor 7)
+
+**Plan said:** the Sort builder's direction toggle (27-ranking final).
+
+**What was wrong:** `role="radiogroup"` with two `role="radio"` buttons, both in the Tab order, no arrow keys.
+
+**What I did instead:** the key handling `Segmented` and `CategorySwitch` each held a copy of is now one function, `onRadioGroupKey(e, choose)` in `apps/client/src/components/ui/radio-keys.ts` (arrows wrap, Left / Right flip right-to-left, Home / End; focus and choose); `Segmented`, `CategorySwitch` and the direction pair use it, and the direction pair gets the roving tabIndex (only the checked radio is 0). `CategorySwitch` gains `Segmented`'s right-to-left test (a `dir` ancestor as well as the computed direction). `AllianceButtons` keeps its own equivalent copy (ref-based, outside this branch's pages). Mutation-checked: removing the key handler or the roving tabIndex fails the new page test. BUILD-CONTEXT §12.5 lists `radio-keys`.
+
+**Risk:** `Segmented` and `CategorySwitch` behaviour is unchanged by intent; their existing tests pass.
+
+## Task 1.58 — review fix: a phone row's spoken name names its figures (review Minor 8)
+
+**Plan said:** a phone row is one button opening the summary sheet; the labels above the list are `aria-hidden`.
+
+**What was wrong:** the row's name read "… 45.2 ±6.1 100%" with no word for which figure 45.2 is.
+
+**What I did instead:** an `sr-only` figure label ("Total", "Availability", a phase …, from `figureOf`) before the end figure and "consistency" before the ±, inside the row; nothing visible changes (absolutely positioned, outside the flex flow).
+
+**Risk:** none.
+
+## Task 1.58 — review fix: the device table belongs to the requested event (review Minor 9)
+
+**Plan said:** (no rule.)
+
+**What was wrong:** `useDeviceQuery` resets only in its effect, so the first render after the event changed returned the previous event's device table as `ready`.
+
+**What I did instead:** `useRanking` treats a device table whose `event.id` is not the requested event as not yet read (`undefined`: loading), mirroring `useRankingBefore`'s guard — not as `null`, which would show "unknown" for one frame.
+
+**Risk:** none.
+
+## Task 1.58 — review fix: stale comment and the Scoring segment's line from the season's phases (review Minor 11)
+
+**Plan said:** the 27-ranking final draws Scoring's line as "Total · Auto · Teleop · Endgame · Consistency".
+
+**What was wrong:** the line was fixed text, wrong for a form scoring Post-match or no Endgame; `RankingPage.tsx`'s header comment still said value shading was a later task.
+
+**What I did instead:** `categoryOptions(phases)` in `rankingView.ts` builds both segments, Scoring's line from the table's phases (`PHASE_NAME`) between "Total" and "Consistency"; for the usual three phases the text is the final's. The comment now says the figures in the sort are shaded. Tested in `rankingView.test.ts` and on the page (a post-match, no-endgame form).
+
+**Risk:** none.
+
+## Task 1.58 — review findings left as they are (review Minors 4, 6, 10)
+
+**Plan said:** (as built.)
+
+**What was wrong:** the review raised the team page's "Rank N of M" counting the roster while Home and the ranking count ranked teams (4), a whole standard deviation printing bare "±9" (6), and Home re-reading the device ranking on every row change (10).
+
+**What I did instead:** nothing, by the user's decision (4 and 6 are the user's calls; 10 needs no change until a phone profile shows jank).
+
+**Risk:** "Rank 3 of 44" on the team page beside "#3 / 42" on Home remains until the user picks one count.
+
+## Task 1.60 — the deletes stay beside their objects; `deletes.ts` re-exports them and adds `deleteEntry`
+
+**Plan said:** create `apps/server/src/core/commands/deletes.ts` producing `deleteSeason`, `deleteEvent`, `deleteForm`, `deleteFormVersion`, `deleteMatch` and `deleteEntry`, with store methods that delete the entries first by hand (`db.from('scouting_entries').delete()` then the parent).
+
+**What was wrong:** RB.20 already built `deleteSeason` / `deleteEvent` (`deleteCompetition.ts`) on the SQL functions `delete_event_cascade` / `delete_season_cascade` (one transaction each, which the plan's two-statement store code is not); task 1.27 built `deleteForm` / `deleteFormVersion` (`forms.ts`); `deleteMatch` lives in `matches.ts` (UF.1 tombstone by trigger).
+
+**What I did instead:** extended each where it is. `deletes.ts` re-exports the five and holds the new `deleteEntry` plus `softDeletedRow`, the one soft-delete rule now shared with syncPush's `delete` operation. The registry imports from the original modules (unchanged lines) and `deleteEntry` from `deletes.js`. The helpers `assertConfirmed`, `seasonName`, `seasonIsActive`, `eventIsDefault` (deleteCompetition.ts) and `versionDeleteBlock`, `versionName` (forms.ts) are exported so `getDeleteImpact` predicts the exact refusals the deletes make. Rejected: moving every delete into `deletes.ts` — churn across three reviewed modules and their tests for no behaviour.
+
+**Risk:** none; the bundle is regenerated.
+
+## Task 1.60 — a typed confirmation on every cascade, checked by the server
+
+**Plan said:** "require `confirm_name` to equal the object's name exactly" for every delete.
+
+**What was wrong:** `deleteForm` and `deleteFormVersion` took no `confirm_name` (the form's typed text, "delete match form", was the client's alone), and `deleteMatch` had no cascade at all.
+
+**What I did instead:** `confirm_name: z.string().optional()` on `deleteFormInput`, `deleteFormVersionInput` and `deleteMatchInput` (optional in the schema, so the current client still compiles; the server refuses a missing or different one with `invalid` / `TYPE_NAME_EXACTLY` "Type the name exactly to delete.", now exported from `@frc/shared` and re-exported by `deleteCompetition.ts`). The names: season = its year ("1999", as RB.20), event = its name, form = `forms.name` (the stored name, not the client's "Match form 2026" display), form version = "v{version_no}", match with entries = `matchLabel` ("Q41", "P3", "PO1"). No trimming and no case folding anywhere. `deleteForm`'s `dry_run` still answers counts without a name. A season's year has no case, so its wrong-name test types " 1999", "1999 " and "" instead. The active-season and default-event texts were already exactly "Switch the active season first." / "Switch the default event first." (`SWITCH_SEASON_FIRST` / `SWITCH_EVENT_FIRST`); unchanged.
+
+**Risk:** **the existing client breaks at runtime until task 1.61 lands**: `DeleteFormDialog` calls `deleteForm({ form_id })` with no `confirm_name` and is now refused `invalid`. Nothing in the client calls `deleteFormVersion` yet. 1.61 must pass the typed name.
+
+## Task 1.60 — `delete_objects` for every hard delete
+
+**Plan said:** every delete starts with `assertCan(caller, 'delete_objects')`.
+
+**What was wrong:** `deleteForm` / `deleteFormVersion` checked `manage_forms`, `deleteMatch` `manage_events` (all admin-only).
+
+**What I did instead:** `deleteForm` and `deleteFormVersion` now check `delete_objects` (SPEC-FINAL 7.2's "Delete a season, an event or a form — admin"). `deleteMatch` keeps `manage_events` for the plain delete (a match with no entries is match management, unchanged) and adds `delete_objects` on the `with_entries` path. The roles are identical, so only the refusal's message changes (`not permitted: delete_objects`). A mutation removing the `with_entries` `delete_objects` check survives the tests for that reason: `manage_events` refuses the same callers first.
+
+**Risk:** none while the two capabilities hold the same roles.
+
+## Task 1.60 — a published form version stays undeletable on its own (design 28 vs Phase 1 D review #2)
+
+**Plan said:** (design `28-delete/final/README.md`) a form version with no entries opens Bill + type ("v1"), and the trash button sits on every "older version row (the ones with View and Restore)".
+
+**What was wrong:** older version rows are PUBLISHED versions, and Phase 1 D review #2 refuses every published version on its own (a device may still hold queued entries for it; deleting it would turn them into `parent-deleted` discards). The brief did not lift that rule.
+
+**What I did instead:** kept it. The refusal order is has-entries → published → active-version, all before the name is read. `getDeleteImpact` reports them as `blocked_reason` `version_has_entries`, `version_published`, `version_active` with the server's own sentence in `blocked_message`. Only a DRAFT with no entries offers `confirm_name` "vN". Rejected: deleting a published, inactive version with no server entries — it would reverse a reviewed safety decision silently.
+
+**Risk:** **the design's trash button on an older (published) version row will always open Blocked** ("published"), never the bill. The user must either accept that (Blocked, with "Delete the whole form…" as the way forward) or lift review #2 explicitly; 1.61 needs the answer.
+
+## Task 1.60 — `deleteMatch({ with_entries: true })` is one SQL function, `delete_match_cascade`
+
+**Plan said:** in one transaction, hard-delete every entry naming the match (soft-deleted ones included), then the match, recording the tombstone as today.
+
+**What was wrong:** nothing; the store has no transactions, so it needs a function, like RB.20's.
+
+**What I did instead:** migration `20261028090000_delete_match_cascade.sql`: `delete_match_cascade(p_match_id uuid) returns integer` — entries (every row with that `match_id`), then the match; returns the entry rows deleted. `security invoker`, `set search_path = ''`, execute revoked from public/anon/authenticated and granted to `service_role` (as `20261007120000_delete_cascade.sql`). The match_deletions tombstone comes from the existing trigger; the slots cascade. Applied to dev with `pnpm db:push`; types regenerated (one line). Store: `deleteMatchCascade(id): Promise<number>`. An entry racing in between the two statements fails the match delete with 23503, which rolls back the whole call; the use case answers `conflict` "an entry for Q41 arrived while it was being deleted, so nothing was deleted; try again". `deleteMatchOutput` gains `entries` (optional; present on the cascade only), so the plain delete's answer `{ id, deleted: true }` is unchanged. The plain refusal text is unchanged ("…so it cannot be deleted; correct the match number instead"); no server message ever said "delete the entries first" (only a client test fixture in `MatchesPanel.test.tsx` does — 1.61's).
+
+**Risk:** production needs the migration before this server deploys (release note added to IMPLEMENTATION-PLAN.md).
+
+## Task 1.60 — `getDeleteImpact`: one flat shape, and entries counted as rows that go
+
+**Plan said:** `getDeleteImpact(caller, { kind, id })` with the exact counts; the test's `toMatchObject({ events, matches, entries, forms, form_versions, metrics, dashboards, weight_presets })`; "each affected table with `select(..., { head: true, count: 'exact' })`".
+
+**What was wrong:** RB.20's `countDeleteImpact` (and so `deleteSeason`/`deleteEvent`'s `dry_run`) counts LIVE entries only; the brief says a match's count includes soft-deleted ones "since they block".
+
+**What I did instead:** one object for every kind (every count present, 0 where it does not apply), plus `name`, `confirm_name` (null = nothing to type, or blocked), `blocked_reason`/`blocked_message`, `event_names`, `match_entries`/`super_entries` (the design's "1,804 match · 108 super"), `stations` (a match's six, red 1–3 then blue 1–3, with team number and entry count) and `last_saved_at` (a match's newest `client_updated_at`). `entries` counts every row the delete removes — soft-deleted ones included, for every kind — and `deleted_entries` says how many of those are already soft-deleted, so the dialog can show either. RB.20's `countDeleteImpact` and its `dry_run` answers are left exactly as they were (live entries). Five new Store methods (`tallyEntries`, `countMatchesOfEvents`, `countAnalysisRows`, `listMatchEntries`, `deleteMatchCascade`) rather than one per-kind store method, so the counting logic is written once, in the use case. Admin only (`delete_objects`), except `kind: 'entry'`, which a lead may ask too (a lead soft-deletes entries); a scouter and a service caller are refused for every kind although it is a `query` — it is the first step of a command (set against permissions.ts's note that queries normally let a service caller read). An entry already soft-deleted is `not-found`. The metrics, dashboards and weight_presets tables exist (migration 20260903093000), so they are counted (0 today: nothing writes them). Rejected: a discriminated union per kind (the client branches on `kind` either way), and changing RB.20's live count (its client and tests read it).
+
+**Risk:** a season's bill (all rows) can read higher than the Entries page (live rows) by `deleted_entries`. Entries for a team on no slot of the match ("not in line-up") are in `entries` but in no station tile: `entries − Σ stations` is that number.
+
+## Task 1.60 — the fake context: entries counted from the rows, no analysis maps
+
+**Plan said:** `ctx.seedSmallSeason()` ("se-1 with ev-1, ev-2, one form, two versions, 12 entries"), `ctx.rows.scouting_entries`, `ctx.formVersions`, `ctx.scoringRules`.
+
+**What was wrong:** the small-season fixture's ids are not uuids, and every delete schema is strict uuid; it also has six matches and fourteen entries, not four and twelve. The fake's `countEntriesByMatch` / `deleteMatch` read only the declared `entryCountsByMatch`, never the rows, so a soft-deleted entry ROW could not block a match.
+
+**What I did instead:** `deletes.test.ts` builds its own uuid fixture with the plan's shape (season 1999 "SEED GAME", events "Seed District Event" (default) and "Second Event", four matches, twelve entries — eleven match entries on "Seed match form" v1/v2 and one super). The fake's `countEntriesByMatch` and `deleteMatch` now count `rows.scouting_entries` naming the match (soft-deleted included) plus `entryCountsByMatch`, as `countEntriesByFormVersion` already did; the whole server suite stayed green with it. The fake holds no metrics/dashboards/presets maps (FakeContext adds no fields), so its `countAnalysisRows` answers zeros; the Supabase store's head counts are tested in `store.test.ts`. Three existing `forms.test.ts` calls now pass `confirm_name` ('v2', 'Match', 'v1'). Mutation-checked: a case-folded confirm, a scouter allowed `deleteEntry`, the name read before the version block, the cascade skipping soft-deleted rows, and a lead given every impact kind each fail the suite.
+
+**Risk:** none.
+
+## Task 1.60 — `deleteEntry` reuses the push's soft delete; idempotent
+
+**Plan said:** `deleteEntry` is a lead/admin soft delete; the test asserts `deleted_at` set and `version` 2.
+
+**What was wrong:** the push path already soft-deletes (`syncPush` `delete` op, `manage_entries` against the author).
+
+**What I did instead:** `softDeletedRow(existing, deletedAt, clientUpdatedAt)` is that rule, used by both. `deleteEntry({ entry_id })` → `{ id, deleted: true, version }`, `manage_entries` (lead/admin; a scouter is refused, own entry included; a service caller too), `not-found` for an unknown id. With no device clock, `client_updated_at` is the server's `now` (a push uses the op's). An entry already soft-deleted answers deleted with its version and is not written again. Tested: the online delete and a lead's pushed delete write the same `deleted_at`/`version`/`client_updated_at`.
+
+**Risk:** the design says the entry soft delete "goes through the outbox like any other change"; 1.61 may use the outbox (works offline) or `deleteEntry` (online only). Both apply the same rule.
+
+## Task 1.60 — the integration test calls the SQL functions, not the server's store
+
+**Plan said:** `packages/db/test/deletes.itest.ts` "calls the real `deleteEvent` and then the real `deleteSeason`".
+
+**What was wrong:** `packages/db` cannot import `apps/server`; the server's store methods are one `rpc` call each, already unit-tested for the function name and arguments.
+
+**What I did instead:** the itest calls the three SQL functions with the service client, as `deleteCascade.itest.ts` does: a season (year 1911) with two events, four matches and twelve entries; a fifth match held only by a soft-deleted entry, which a plain delete refuses with 23503 and `delete_match_cascade` removes (answering 1, its slot gone, its tombstone written); then the event, then the season; no orphan by any key (events, matches, match_teams, entries by event, id and version, forms, versions), five match tombstones, the teams and the user untouched. Random ids, cleaned in `afterAll` (rows, plus the tombstones in `match_deletions` and `form_deletions`). Run twice to prove the clean-up: team numbers 999981–999986 and username `itest_deletes` are unique, so a leftover would fail the second run's inserts.
+
+**Risk:** none.
+
+## Task 1.60 — client bundle
+
+**Plan said:** (BUILD-CONTEXT §12.5) initial JS at most 232 KB gzip.
+
+**What was wrong:** nothing yet: the two new API-map rows and their schemas ship in the client's first chunk.
+
+**What I did instead:** measured after `pnpm --filter @frc/client build`: `initial JS 231.7 KB gzip` (was 230.4), under the budget; not raised.
+
+**Risk:** 0.3 KB of headroom; task 1.61's DeleteDialog will likely need the budget raised, or the dialog lazy.
+
+## Task 1.60 — orchestrator: the published-version rule stays; the trash button opens Blocked
+
+**Plan said:** (1.61, v1.36, and design 28's table) older version rows on the forms list get a trash button, and "a form version with no entries" opens the bill + type.
+
+**What was wrong:** older rows are published versions, and Phase 1 D review #2 refuses deleting any published version on its own: a device that has been offline since that version was active may still hold queued entries for it, and deleting it turns them into `parent-deleted` discards. Offline is the normal mode at a venue, and those entries cannot be recovered.
+
+**What I did instead:** kept review #2 on the server (`version_published`). The trash button stays where the user placed it (older rows only), and for a published version it opens Blocked, with "Delete the whole form…" as the way forward. Only a draft can be deleted alone. Rejected: lifting review #2 to match the design's "bill for a version with no entries" — the user's brief named who sees the button, not a change to that rule, and a wrong call here loses scouting data silently and irreversibly.
+
+**Risk:** the bill + type face for a lone form version is reachable only for a draft. If the user wants older published versions deletable, it is a one-rule change on the server plus a release note; raised in the build report.
+
+## Task 1.61 — the files: no `SeasonsPanel` / `EventsPanel`; the triggers are where Manage, the forms list and the builder already keep them
+
+**Plan said:** modify `features/admin/SeasonsPanel.tsx`, `EventsPanel.tsx`, `MatchesPanel.tsx`, `features/builder/BuilderPage.tsx`, `features/entries/EntryPreviewPage.tsx`.
+
+**What was wrong:** `SeasonsPanel.tsx` and `EventsPanel.tsx` do not exist: since the redesign (RB.20) seasons and events are one Competitions tab (`CompetitionsPanel.tsx`), and their Delete sits in `SeasonFormDialog` / `EventFormDialog` (`DeleteCompetition`). The phone's match delete is `PhoneMatchList.tsx`; the forms list's trash buttons need `FormsPage.tsx`, `FormCard.tsx` and `VersionTimeline.tsx`; the whole-form delete is opened from both `BuilderPage` and `FormsPage` (`DeleteFormDialog`).
+
+**What I did instead:** created `features/admin/DeleteDialog.tsx` (+ test), `DeleteFlow.tsx` (+ test), `LazyDeleteFlow.tsx`, `DeleteAction.tsx`, `deleteFixtures.ts` (test answers, like `matchFixtures.ts`), `features/entry/softDeleteEntry.ts` (+ test), `components/ui/band.test.tsx`; modified the files above plus `CompetitionsPanel`, `ManagePage` (the event's name for the match bill), `useMatchEditing` (`remove` → `removed`), `matchOps` (`DELETE_MATCH_BODY` gone), `components/ui/dialog.tsx`, `sheet.tsx`, `responsive-dialog.tsx`, `data/offlineCapability.ts`. Deleted `DeleteCompetition.tsx` + its test and `builder/DeleteFormDialog.tsx`: one dialog replaces both (the brief). DeleteCompetition's cases moved to `DeleteDialog.test`, `DeleteFlow.test` and `CompetitionsPanel.test`.
+
+**Risk:** none.
+
+## Task 1.61 — the plan's test, adapted only where the real API forces it
+
+**Plan said:** `<DeleteDialog kind name impact blocked? onConfirm onCancel />`, the field found by `getByLabelText(/type the name to confirm/i)`, and "the one dialog is `ConfirmDialog`, already restyled, and `getDeleteImpact`'s counts fill its `loss` line".
+
+**What was wrong:** there is no `ConfirmDialog`; the design (28 final) is three faces with a band, not a `loss` line on `DestructiveConfirm`. The design's visible step heading is "Type the season's name" / "Type Q41", which the plan's regex does not match. The server is the gate too, so the confirm must carry what was typed.
+
+**What I did instead:** the plan's eight cases are in `DeleteDialog.test.tsx` word for word (only reflowed by Prettier). `DeleteDialog` keeps exactly the plan's props and adds optional ones (`confirmName`, `blockedReason`, `ways`, `context`, `subject`, `facts`, `held`, `busy`, `error`, `onCorrectMatch`); `onConfirm(typed?)` receives exactly what was typed (nothing for "Are you sure?"). The name field's accessible name is "Type the name to confirm" (`aria-label`, described by the hint and the "No match yet" / "Matches" state); the visible heading stays the design's. The confirm button is really `disabled` (the plan asserts `toBeDisabled`), not `aria-disabled` as `DestructiveConfirm` does; Cancel keeps first focus. Rejected: renaming the visible heading to the plan's phrase — it would contradict the locked design for a test's sake.
+
+**Risk:** none.
+
+## Task 1.61 — three pieces: `DeleteDialog` draws, `DeleteFlow` counts and deletes, `LazyDeleteFlow` loads it
+
+**Plan said:** "one dialog used by every cascade delete, driven by `getDeleteImpact`".
+
+**What was wrong:** the plan's tests render the dialog with counts as props, and the brief asks for the dialog to load lazily and for the server's answer to pick the face.
+
+**What I did instead:** `DeleteDialog` is pure (counts in, `onConfirm(typed)` out). `DeleteFlow` takes a `DeleteRequest` (kind, id, a label to show while counting, and per kind: the form's name and id for a version, the event's name and the page's "correct it" callback for a match, the card and `onDevice` for an entry), calls `getDeleteImpact`, picks the face exactly as task 1.60's report says (`blocked_reason` → Blocked; `confirm_name` → Bill + type, a match's Choice first; neither → Are you sure?), types against `confirm_name` (the server's: the stored `forms.name`, "v4", "Q41"), sends the typed text (`deleteSeason` / `deleteEvent` / `deleteForm` / `deleteFormVersion` with `confirm_name`; `deleteMatch` plain or `with_entries: true, confirm_name`), and shows the server's refusal in the dialog (sentence-cased, never a code). While counting it shows a "Counting what goes with …" dialog with a skeleton; a failed count says so with Try again and offers no delete. Every page opens it through `LazyDeleteFlow` (`React.lazy`, its own 7.2 KB chunk, precached by the service worker like every chunk). Rejected: one component that fetches — the plan's tests could not render it with counts.
+
+**Risk:** a page that imports `DeleteFlow` directly would pull it into its chunk; BUILD-CONTEXT §12.5 now says to open it through `LazyDeleteFlow`.
+
+## Task 1.61 — Manage: the Edit dialog closes and the delete opens alone; the active season and default event open Blocked
+
+**Plan said:** (RB.20, unchanged by the plan) the Delete inside the Edit season / ✎ event dialog; the brief: the active season / default event are Blocked ("Switch the active season first." / "Switch the default event first.").
+
+**What was wrong:** RB.20 stacked its confirm over the Edit dialog (two scrims, a key-event guard), and showed the active season's / default event's Delete as off with the line. The design draws the bill alone over Manage, and the brief's Blocked face needs the button to open.
+
+**What I did instead:** `DeleteAction` ("Delete 2025", held offline with Manage's line) asks the page to delete; `CompetitionsPanel` closes the Edit dialog and opens `LazyDeleteFlow` (one dialog; focus goes back to Edit season / ✎ on close). The active season and default event's Delete is enabled and opens Blocked with the server's reason mapped to the exact `SWITCH_SEASON_FIRST` / `SWITCH_EVENT_FIRST` text, a "Keep …" way, no delete button and no field. Rejected: keeping the button off — the brief names Blocked as the face.
+
+**Risk:** none; the server refuses them whatever is sent.
+
+## Task 1.61 — a match: the Choice, Correct the match number opens the match's own editor
+
+**Plan said:** a match with entries opens a choice (Correct the match number · Delete Q41 and its 6 entries… · Close) before its bill.
+
+**What was wrong:** nothing; "Correct the match number" needed a target.
+
+**What I did instead:** it closes the delete and opens that match's existing edit dialog (Manage, computer) or edit sheet (phone matches view). The tiles read `stations` ("saved", "2 saved", or "no entry" for an empty station); "Last saved HH:MM" from `last_saved_at`. On a phone the three are full-width 52 px buttons in the design's order (Correct, primary, first; Close last and focused — THEME "Blocked tag and ways forward"); on a computer they are the one action row, right-aligned, Close · Delete… · Correct (primary last, `SurfaceActions`' rule), with Close focused. A match with no entries is "Are you sure?" with "This deletes Q41. No entries are saved to it, so nothing else goes. There is no restore." (the design draws only the entry's line). Rejected: a phone-style column on the computer — §12.5's action-row rule.
+
+**Risk:** none.
+
+## Task 1.61 — the entry's soft delete: the outbox when the device holds it, `deleteEntry` when it does not
+
+**Plan said:** (brief) follow 1.60's report on `deleteEntry` (online) vs a `delete` outbox operation; the README: "the soft delete of an entry goes through the outbox like any other change".
+
+**What was wrong:** the preview shows an entry the device holds, or one `getEntry` read from the server; `getEntryOutput` carries no row revision, so an outbox operation for a server-only entry would have no honest `base_version`.
+
+**What I did instead:** held on the device → `softDeleteEntry` (`features/entry/softDeleteEntry.ts`): a `delete` operation (empty payload, the row's `version` as `base_version`, the lead or admin as author) through `enqueue` — which already refuses a scouter's delete (`DeleteNotAllowedError`) and folds a delete of a still-pending create away — and the device's row marked `deleted_at` at once, so it leaves every list here before it syncs; works offline. Not held → `deleteEntry({ entry_id })` on the server (1.60), held offline. Both apply the server's one rule (`softDeletedRow`), so the two paths agree. The preview then goes back to Entries. New capability rows: `delete_entry: true` (the outbox path), `delete_objects: false` (every hard delete, every count, and the server-only entry delete). Rejected: `deleteEntry` only — a lead at a venue (offline is normal) could not delete; the outbox only — impossible without the revision.
+
+**Risk:** none for the scouting path: no gate was added under `features/entry/` or `features/entries/` (the offline-gates test); the server path's gate is in `DeleteFlow` (`features/admin/`).
+
+## Task 1.61 — counts print without a thousands separator ("1912", not "1,912")
+
+**Plan said:** (design `delete-desktop.png`) "1,912 entries go".
+
+**What was wrong:** SPEC-FINAL 17.8: integer counts print with no decimals and no separator (`formatCount`), on every surface, so two views never disagree.
+
+**What I did instead:** `formatCount` everywhere ("1912", "1804 match · 108 super"). Rejected: the design's comma — it would be the only count in the app with one.
+
+**Risk:** none.
+
+## Task 1.61 — the faces' copy where the design drew none
+
+**Plan said:** the README draws Season 2025's bill, version 1's Blocked face (entries bound), Q41's Choice and bill, and one entry's "Are you sure?".
+
+**What was wrong:** event, form and draft-version bills, and the Blocked faces for a published version, the active version, the active season and the default event, are not drawn.
+
+**What I did instead:** the same pieces with these words. Kicker: "Delete {Season 2025 | event | form | version N of Form} · hard delete · cannot be undone" ("Delete Q41 and its entries · cannot be undone" for a match). Biggest count: the entries that go, else the versions (a form, a version), else the matches (a season, an event). Sentence: season as designed; event "with N matches, and everything else {event} holds: its roster, pick lists and alliance bracket."; form "with N versions of {form}, their fields and their scoring."; version "with the fields and the scoring of version N of {form}." Items: season — events (names), matches, entries (match · super), forms (versions in all), then dashboards, weight presets and metrics when not 0; event — matches, entries; form — versions, entries, metrics when not 0; a version and a match — none. Blocked band per reason: has-entries "N entries are bound to it" / "Deleting the version would leave them with no form to read them by." (design); published "vN is published" / "A device that was offline while it was in use may still hold entries for it that have not reached the server."; active "vN is the active version"; active season / default event "N entries are scouted in it" / "It is the active season (default event): every device scouts in it.". Title "{Version 1 | Season 2026 | event} can't be deleted"; the line: has-entries the design's "It still holds collected data, so there is nothing to confirm here. Pick a way forward."; published "Only a draft can be deleted on its own. A published version goes with its whole form, so nothing scouted on it is left without one."; active "Scouts would be left with nothing to open. Restore another version first, or delete the whole form."; season / event the exact SWITCH texts. Ways: "Keep …" (focused) on every Blocked face, plus "Delete the whole form…" on every version reason (it opens the form's own bill, typed from empty). A blocked version's right column is the forms list's dates (vN · form, published DD/MM, replaced by vN+1). Buttons: "Delete season 2025", "Delete event {name}", "Delete form {name}", "Delete version N", "Delete Q41", "Delete entry".
+
+**Risk:** words only; the user reviews them on dev.
+
+## Task 1.61 — the phone bill follows phone frame 3: no line, hint or note on show; the title stays
+
+**Plan said:** (design phone 3) the band, 1 · Back up first, 2 · Type Q41, Cancel + Delete Q41; no title, no "rows are removed" line, no hint, no footer note; "Counted on the server just now" at the end of the band's sentence.
+
+**What was wrong:** the sheet needs an accessible name (its title), and the line, hint and note describe the field and the button.
+
+**What I did instead:** below 1024 px the line, the hint and the note are `sr-only` (read, not drawn; the offline line still shows when held), the kicker has no ⚠ and no aside, and "Counted on the server just now." ends the band's sentence. The title ("Delete Q41 and its 6 entries?") stays visible under the band, as on the computer. Rejected: hiding the title — a sheet whose name is invisible reads as a different surface from the computer's dialog.
+
+**Risk:** none.
+
+## Task 1.61 — the builder's Delete form: the stored name is typed, Export it first is gone
+
+**Plan said:** one dialog replaces `DeleteFormDialog`.
+
+**What was wrong:** the old dialog asked for the phrase "delete match form" and named the form "Match form 2026" (its display name), and the server now requires `confirm_name` = the stored `forms.name` (task 1.60); it also had an "Export it first" link.
+
+**What I did instead:** the form's bill types `getDeleteImpact.confirm_name` ("Match form"); "Delete form Match form" sends it. The "Export it first" link is gone: the bill's step 1 (the two-file backup) is the design's way to keep a copy; Export stays on the builder's More menu and the card. Unit and e2e tests that pinned the old phrase, button and link were rewritten to the new face.
+
+**Risk:** an admin who used Export it first from the dialog now opens Export from the menu.
+
+## Task 1.61 — the forms list's trash buttons
+
+**Plan said:** a 36 px filled-ink trash button, `aria-label="Delete version vN"`, on each older version row, none on the draft or the active version; it opens Blocked for a published version (orchestrator's decision).
+
+**What was wrong:** nothing.
+
+**What I did instead:** `VersionTimeline` draws it after Restore on `older` rows only (a `destructive` `icon-sm` button sized to 36 px, its ::after keeping the 48 px target), held offline through `delete_objects`. Measured 36 × 36 in the e2e. Every published version opens Blocked (has-entries first, else published), whose ways are Keep and Delete the whole form…; a draft has no trash button, so the draft's Bill + type ("v4") is reachable only by the API today (tested in `DeleteFlow.test`).
+
+**Risk:** as logged by 1.60: if the user wants older versions deletable alone, it is a server rule change.
+
+## Task 1.61 — `Dialog` / `Sheet` / `ResponsiveDialog` take a `band`
+
+**Plan said:** (§12.1, §12.5) build on the shared dialog and sheet.
+
+**What was wrong:** neither could draw an edge-to-edge band above its title, and the bill must open on it (and a phone sheet's grab handle sits on the dark band).
+
+**What I did instead:** a `band` prop: a dialog draws it first, edge to edge (`bg-ink text-surface`, 32 px sides, the bill's), then the title and body with 32 px sides; a bottom sheet draws it as its drag handle with a `--rail-muted` grab bar, then the title at 18 px. Without `band` both draw exactly as before (`band.test.tsx`). Not combined with `foot`. Rejected: a delete-only surface of its own — §12.5's "never invent your own".
+
+**Risk:** none seen; every dialog and sheet test is green.
+
+## Task 1.61 — client bundle: 231.9 KB, the budget not raised
+
+**Plan said:** (brief) load `DeleteDialog` lazily so the initial chunk does not grow; raise `BUDGET_KB` only if impossible.
+
+**What was wrong:** the first chunk grew 0.2 KB anyway: `dialog.tsx` and `sheet.tsx` (the `band` slot) and `offlineCapability.ts` (two rows) are in it.
+
+**What I did instead:** measured `initial JS 231.9 KB gzip` (was 231.7) under the 232 KB budget, so `BUDGET_KB` and §12.5's guard line are unchanged. `DeleteFlow` (the dialog, its faces and the flow) is a 7.2 KB lazy chunk.
+
+**Risk:** 0.1 KB of headroom left for Phase 1 K.
+
+## Task 1.61 — unit tests wait up to 5 s for the dialog's chunk
+
+**Plan said:** nothing.
+
+**What was wrong:** the entry preview's "queues the soft delete" case failed intermittently (2 of 13 runs, then once in the full suite, at its Cancel-focus check): the dialog opens from a lazy chunk, whose first transform under load can pass `findBy*`'s 1 s default.
+
+**What I did instead:** the first wait for a lazily opened delete in each suite takes `{ timeout: 5000 }` (`LAZY`, as `ManageRoute.test` already does for its lazy phone view), and the first-focus checks right after a lazy open (Cancel, Close, Keep version 2) wait for the focus with `waitFor` — the full suite once found the dialog a moment before its mount effect had moved focus. Six back-to-back runs of the three suites were then green.
+
+**Risk:** none.
+
+## Task 1.61 — e2e fixtures and the browser-pane check
+
+**Plan said:** realistic fixture data; the flow checked in the browser pane against dev seed data (§12.3).
+
+**What was wrong:** the brief: skip the browser-pane check; the orchestrator does it. The e2e fixture has no Q41 (40 matches) and v1 holds 12 entries (design: 312).
+
+**What I did instead:** `e2e/delete.spec.ts` (8 tests) renumbers three fixture line-ups as Q40–Q42 for the phone frames, counts Season 2025 with the design's numbers through a mocked `getDeleteImpact`, and uses the forms fixture's own v1 (12 entries). `manage.spec`'s event delete and `forms.spec`'s builder delete were rewritten to the new face (their shot names kept). `FORMS_RPC` answers `getDeleteImpact` and `deleteFormVersion`.
+
+**Risk:** the server-side flow (real counts, the outbox delete reaching the server) is the orchestrator's browser-pane check.

@@ -1,5 +1,6 @@
-import { useRef, type AriaAttributes, type KeyboardEvent, type ReactNode } from 'react';
+import type { AriaAttributes, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { onRadioGroupKey } from './radio-keys';
 
 /**
  * A few exclusive choices in one track (THEME "Segmented control": a `--line-2` track with a
@@ -25,41 +26,20 @@ export function Segmented<K extends string>({
   value: K | null;
   onChange: (key: K) => void;
 } & Pick<AriaAttributes, 'aria-required' | 'aria-invalid' | 'aria-describedby'>) {
-  const group = useRef<HTMLDivElement>(null);
   const chosenIndex = options.findIndex((o) => o.key === value);
   const tabbable = chosenIndex >= 0 ? chosenIndex : 0;
 
-  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    const el = group.current;
-    if (!el || options.length === 0) return;
-    const items = [...el.querySelectorAll<HTMLElement>('[role="radio"]')];
-    const current = items.indexOf(document.activeElement as HTMLElement);
-    if (current < 0) return;
-    const rtl =
-      (el.closest('[dir]')?.getAttribute('dir') ?? '') === 'rtl' ||
-      getComputedStyle(el).direction === 'rtl';
-    const forward = rtl ? 'ArrowLeft' : 'ArrowRight';
-    const backward = rtl ? 'ArrowRight' : 'ArrowLeft';
-    let next: number;
-    if (e.key === forward || e.key === 'ArrowDown') next = (current + 1) % options.length;
-    else if (e.key === backward || e.key === 'ArrowUp')
-      next = (current - 1 + options.length) % options.length;
-    else if (e.key === 'Home') next = 0;
-    else if (e.key === 'End') next = options.length - 1;
-    else return;
-    e.preventDefault();
-    const target = options[next];
-    items[next]?.focus();
-    if (target) onChange(target.key);
-  }
-
   return (
     <div
-      ref={group}
       role="radiogroup"
       aria-label={label}
       {...aria}
-      onKeyDown={onKeyDown}
+      onKeyDown={(e) =>
+        onRadioGroupKey(e, (i) => {
+          const target = options[i];
+          if (target) onChange(target.key);
+        })
+      }
       className="flex flex-wrap gap-y-[3px] rounded-control bg-line-2 p-[3px]"
     >
       {options.map((option, index) => {

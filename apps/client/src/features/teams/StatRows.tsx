@@ -1,5 +1,6 @@
 import { domainPosition, type StatsMetric } from '@frc/shared';
 import { ShadedValue } from '@/components/ShadedValue';
+import { Sparkline } from '@/components/Sparkline';
 import { cn } from '@/lib/utils';
 import {
   GROUP_NAME,
@@ -19,36 +20,6 @@ import {
 
 const GRID =
   'grid grid-cols-[minmax(0,1fr)_3.375rem_3.25rem_3.625rem] items-center gap-2 px-3.5 lg:grid-cols-[minmax(0,1fr)_4rem_4.375rem_4rem] lg:gap-2.5';
-
-/**
- * A 58–64 px sparkline: 1.5 px `--accent`, ending in a dot. A trend line, so a match with no value
- * (a no-show) is left out rather than drawn as a gap; the Progress chart shows the gap.
- */
-export function Sparkline({ values }: { values: readonly (number | null)[] }) {
-  const xs = values.flatMap((v) => (v === null ? [] : [v]));
-  if (xs.length < 2) return <span aria-hidden="true" />;
-  const w = 64;
-  const h = 20;
-  const lo = Math.min(...xs);
-  const span = Math.max(...xs) - lo || 1;
-  const points = xs.map((v, i): [number, number] => [
-    (i / (xs.length - 1)) * (w - 4) + 2,
-    h - 3 - ((v - lo) / span) * (h - 6),
-  ]);
-  const d = points.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ');
-  const last = points[points.length - 1]!;
-  return (
-    <svg
-      aria-hidden="true"
-      focusable="false"
-      viewBox={`0 0 ${w} ${h}`}
-      className="block h-5 w-full max-w-16"
-    >
-      <path d={d} className="fill-none stroke-accent" strokeWidth={1.5} strokeLinejoin="round" />
-      <circle cx={last[0]} cy={last[1]} r={2.2} className="fill-accent" />
-    </svg>
-  );
-}
 
 /** The 6 px `--line` bar (`role="meter"`): the value between the worst and best at the event. */
 function Bar({ metric, label }: { metric: StatsMetric; label: string }) {

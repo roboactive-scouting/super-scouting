@@ -97,6 +97,11 @@ const TeamSearchPage = lazy(() =>
 const TeamPage = lazy(() =>
   import('@/features/teams/TeamPage').then((m) => ({ default: m.TeamPage })),
 );
+// The ranking table (task 1.58): a lazy chunk, precached, so it opens offline — where it ranks the
+// event's teams from the device's own entries with the server's builder.
+const RankingPage = lazy(() =>
+  import('@/features/ranking/RankingPage').then((m) => ({ default: m.RankingPage })),
+);
 // Entries — the entry search — and one entry's preview (task 1.52): lazy chunks, precached, so
 // they open offline; the 5-minute mark lands on the preview offline.
 const EntriesPage = lazy(() =>
@@ -280,6 +285,18 @@ function TeamRoute() {
   );
 }
 
+/**
+ * SPEC-FINAL 13.5 (task 1.58): the fixed ranking table of the active competition. It reads the
+ * event's roster, entries and forms, so it waits for the event like the team page.
+ */
+function RankingRoute() {
+  return (
+    <Loading>
+      <RankingPage eventId={useActiveEventId()} />
+    </Loading>
+  );
+}
+
 function EntriesRoute() {
   return (
     <Loading>
@@ -378,6 +395,8 @@ export function routeTree(): RouteObject[] {
           element: <TeamRoute />,
           handle: named({ title: 'Team', crumb: ['Search'] }),
         },
+        // SPEC-FINAL 13.5 (task 1.58): the ranking, the bottom bar's fourth tab.
+        { path: 'ranking', element: <RankingRoute />, handle: named({ title: 'Ranking' }) },
         { path: 'entries', element: <EntriesRoute />, handle: named({ title: 'Entries' }) },
         // SPEC-FINAL 13.4 (task 1.52): the entry preview names itself ("Q37 · 1690"; the desktop
         // crumb "Entries / Q37 · 1690 Orbit"); the sidebar marks Entries (no `end`).

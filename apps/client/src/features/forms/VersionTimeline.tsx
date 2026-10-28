@@ -1,4 +1,4 @@
-import { Eye, RotateCcw } from 'lucide-react';
+import { Eye, RotateCcw, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { FormListItem, VersionSummary } from '@frc/shared';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -17,18 +17,27 @@ const OPEN_LABEL = { draft: 'Continue', active: 'Open', older: 'View' } as const
  * 18 px dot (draft dashed, active filled `--accent` with a 4 px `--accent-tint` halo, older
  * hollow), the title over a `--muted` dates line, then the entries in mono and the buttons:
  * Continue (draft) · Open (active) · View + Restore (older). Each opens the builder on it.
+ * Task 1.61 (28-delete final, `delete-triggers-forms-desktop.png`): an older row ends with a
+ * 36 px filled-ink trash button, "Delete version v2", which opens the one DeleteDialog; the
+ * draft and the active version have none.
  */
 export function VersionTimeline({
   form,
   restoring,
   canRestore,
   onRestore,
+  canDelete = false,
+  onDelete,
 }: {
   form: FormListItem;
   /** The version a Restore is in flight for. */
   restoring: string | null;
   canRestore: boolean;
   onRestore: (version: VersionSummary) => void;
+  /** False while every delete is held offline: `useCapability('delete_objects')`. */
+  canDelete?: boolean;
+  /** An older version's trash button; none is drawn without it. */
+  onDelete?: (version: VersionSummary) => void;
 }) {
   const rows = timelineOf(form);
   return (
@@ -88,6 +97,19 @@ export function VersionTimeline({
                   >
                     <RotateCcw aria-hidden="true" />
                     Restore
+                  </Button>
+                )}
+                {kind === 'older' && onDelete && (
+                  <Button
+                    variant="destructive"
+                    size="icon-sm"
+                    className="size-9 min-h-9 min-w-9 after:-inset-1.5 [&_svg]:size-[15px]"
+                    aria-label={`Delete version v${version.version_no}`}
+                    title={`Delete version v${version.version_no}`}
+                    disabled={!canDelete}
+                    onClick={() => onDelete(version)}
+                  >
+                    <Trash2 aria-hidden="true" />
                   </Button>
                 )}
               </div>

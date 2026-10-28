@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { API } from './index';
+import {
+  deleteEntryInput,
+  deleteEntryOutput,
+  getDeleteImpactInput,
+  getDeleteImpactOutput,
+} from './deletes';
 import { loginInput, loginOutput, refreshTokenInput } from './auth';
 import {
   listConflictsInput,
@@ -111,6 +117,7 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
       'createSeason',
       'createTeam',
       'createUser',
+      'deleteEntry',
       'deleteEvent',
       'deleteForm',
       'deleteFormVersion',
@@ -121,6 +128,7 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
       'ensureMatch',
       'exportForm',
       'getActiveContext',
+      'getDeleteImpact',
       'getEntry',
       'getForm',
       'getFormDictionary',
@@ -249,5 +257,10 @@ describe('the shared API map (SPEC-FINAL 16.1)', () => {
       input: resolveConflictInput,
       output: resolveConflictOutput,
     });
+    expect(API.getDeleteImpact).toEqual({
+      input: getDeleteImpactInput,
+      output: getDeleteImpactOutput,
+    });
+    expect(API.deleteEntry).toEqual({ input: deleteEntryInput, output: deleteEntryOutput });
   });
 });

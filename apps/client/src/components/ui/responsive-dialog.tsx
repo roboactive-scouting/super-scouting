@@ -32,6 +32,7 @@ export function ResponsiveDialog({ sheetClose, dragToClose, ...props }: Responsi
     describedBy,
     icon,
     foot,
+    band,
   } = props;
   return (
     <Sheet
@@ -46,6 +47,7 @@ export function ResponsiveDialog({ sheetClose, dragToClose, ...props }: Responsi
       dragToClose={dragToClose}
       icon={icon}
       foot={foot}
+      band={band}
     >
       {/* With a pinned foot, the foot carries the room below (its own top padding meets this). */}
       <div className={cn('flex flex-col gap-3', foot ? 'pb-3' : 'pb-4')}>

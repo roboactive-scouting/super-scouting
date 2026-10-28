@@ -253,7 +253,14 @@ export type RestoreFormVersionInput = z.input<typeof restoreFormVersionInput>;
 export const restoreFormVersionOutput = z.object({ active_version_id: uuid });
 export type RestoreFormVersionOutput = z.infer<typeof restoreFormVersionOutput>;
 
-export const deleteFormVersionInput = z.object({ form_version_id: uuid }).strict();
+/**
+ * Task 1.60 (SPEC-FINAL 3.9, 17.8): the real delete needs `confirm_name` equal to the
+ * version's label ("v1") exactly. A version with entries bound to it is refused before the
+ * name is read, whatever is typed. `getDeleteImpact` answers what the dialog shows.
+ */
+export const deleteFormVersionInput = z
+  .object({ form_version_id: uuid, confirm_name: z.string().optional() })
+  .strict();
 export type DeleteFormVersionInput = z.input<typeof deleteFormVersionInput>;
 
 export const deleteFormVersionOutput = z.object({ deleted: z.literal(true) });
@@ -261,11 +268,16 @@ export type DeleteFormVersionOutput = z.infer<typeof deleteFormVersionOutput>;
 
 /**
  * SPEC-FINAL 5.1 (v1.22): a cascade, behind a warning naming the versions and the entries
- * it removes. `dry_run: true` answers those counts and deletes nothing. The typed
- * confirmation ("delete match form") is the client's.
+ * it removes. `dry_run: true` answers those counts and deletes nothing. Task 1.60 (SPEC-FINAL
+ * 3.9): the real delete needs `confirm_name` equal to the form's name exactly, case included;
+ * the server refuses anything else.
  */
 export const deleteFormInput = z
-  .object({ form_id: uuid, dry_run: z.boolean().default(false) })
+  .object({
+    form_id: uuid,
+    dry_run: z.boolean().default(false),
+    confirm_name: z.string().optional(),
+  })
   .strict();
 export type DeleteFormInput = z.input<typeof deleteFormInput>;
 

@@ -14,7 +14,7 @@ export type TeamItem = TeamSearchItem;
 export type TeamFilter = 'all' | 'at_event' | 'other';
 
 /** Our own team (ROBACTIVE): its row is tinted and marked "· us" (23-team-search final). */
-export const OUR_TEAM_NUMBER = 2096;
+export { OUR_TEAM_NUMBER } from '@/lib/ourTeam';
 
 /**
  * Whether a team matches what was typed, exactly as the server's `searchTeams` decides: the

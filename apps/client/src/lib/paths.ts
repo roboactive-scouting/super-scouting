@@ -16,6 +16,8 @@ export const PATHS = {
   entries: '/entries',
   /** Season-wide team search (SPEC-FINAL 13.2, task 1.51): the bottom bar's Search. */
   teams: '/teams',
+  /** The fixed ranking table of the active competition (SPEC-FINAL 13.5, task 1.58). */
+  ranking: '/ranking',
   switchScouter: '/switch-scouter',
   changePassword: '/change-password',
   login: '/login',

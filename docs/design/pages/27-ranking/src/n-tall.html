@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ranking — N · Score beside presence</title>
+    <link rel="stylesheet" href="../../../theme.css" />
+    <link rel="stylesheet" href="../../shell.css" />
+    <link rel="stylesheet" href="n/n.css" />
+  </head>
+  <body>
+    <div class="canvas n-canvas">
+      <div class="canvas-head">
+        <b>Ranking — N · Score beside presence</b>
+        <span>Every row carries its points bar and its missed-match marks side by side; the Availability view draws each team's matches on one axis, on the field to the left, missed to the right.</span>
+      </div>
+      <div class="frames">
+        <figure class="frame">
+          <div class="desk">
+            <div data-desk-shell="ranking" data-nav="stats" data-crumb="Ranking">
+              <div class="n-d" id="n-desk1"></div>
+            </div>
+          </div>
+          <figcaption>Desktop 1440 · online · Scoring, Total best first · every row shows its availability · BumbleB open in the study panel</figcaption>
+        </figure>
+        <figure class="frame">
+          <div class="phone">
+            <div data-phone-shell data-title="Ranking" data-bbar="ranking" data-time="11:43">
+              <div class="n-p" id="n-p1"></div>
+            </div>
+          </div>
+          <figcaption>Phone 1 · online · Scoring, default view</figcaption>
+        </figure>
+        <figure class="frame">
+          <div class="phone">
+            <div data-phone-shell data-title="Ranking" data-bbar="ranking" data-time="11:43">
+              <div class="n-p" id="n-p3"></div>
+            </div>
+          </div>
+          <figcaption>Phone 3 · online · BumbleB's summary after a tap</figcaption>
+        </figure>
+      </div>
+      <div class="frames">
+        <figure class="frame">
+          <div class="desk">
+            <div data-desk-shell="ranking" data-nav="stats" data-crumb="Ranking">
+              <div class="n-d" id="n-desk2"></div>
+            </div>
+          </div>
+          <figcaption>Desktop 1440 · online · Availability, sorted by Availability then Breakdowns · the sort builder open</figcaption>
+        </figure>
+        <figure class="frame">
+          <div class="phone">
+            <div
+              data-phone-shell
+              data-title="Ranking"
+              data-bbar="ranking"
+              data-time="11:43"
+              data-sync='<span class="dot" style="background:var(--muted)"></span>Offline'
+            >
+              <div class="n-p" id="n-p2"></div>
+            </div>
+          </div>
+          <figcaption>Phone 2 · offline · Availability, sorted by Availability then Breakdowns</figcaption>
+        </figure>
+      </div>
+    </div>
+    <script src="n/n.js"></script>
+    <script src="../../shell.js"></script>
+  </body>
+</html>

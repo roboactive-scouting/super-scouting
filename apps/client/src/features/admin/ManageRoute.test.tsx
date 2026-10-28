@@ -4,6 +4,7 @@ import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Role } from '@frc/shared';
 import { RpcError } from '@/data/rpc';
+import { deleteImpact } from './deleteFixtures';
 import { ManageRoute } from './ManageRoute';
 import {
   Q10_PARTIAL,
@@ -47,6 +48,19 @@ async function answer(name: string, input?: unknown): Promise<unknown> {
   if (name === 'createMatch') return { created: 3, items: [] };
   if (name === 'setMatchTeams') return undefined;
   if (name === 'updateMatch') return { ...Q10_PARTIAL, ...(input as object) };
+  // Q10 holds six entries (task 1.60's count): the one DeleteDialog opens its Choice.
+  if (name === 'getDeleteImpact') {
+    return deleteImpact({
+      kind: 'match',
+      id: Q10_PARTIAL.id,
+      name: 'Q10',
+      confirm_name: 'Q10',
+      matches: 1,
+      entries: 6,
+      match_entries: 6,
+    });
+  }
+  if (name === 'deleteMatch') return { id: Q10_PARTIAL.id, deleted: true, entries: 6 };
   return undefined;
 }
 
@@ -165,15 +179,33 @@ describe('ManageRoute', () => {
     );
   });
 
-  it("Delete match in the sheet opens today's confirmation", async () => {
+  it('Delete match in the sheet opens the Choice as a sheet: correct it, or delete it typed Q10', async () => {
     setWidth(375);
-    renderManageRoute({ role: 'admin' });
+    const call = renderManageRoute({ role: 'admin' });
     await userEvent.click(await screen.findByRole('button', { name: /^Q10/ }, LAZY));
     await userEvent.click(screen.getByRole('button', { name: 'Delete match' }));
-    const confirm = screen.getByRole('dialog', { name: 'Delete this match?' });
-    expect(confirm).toHaveTextContent('Q10');
-    expect(within(confirm).getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
-    expect(within(confirm).getByRole('button', { name: 'Delete' })).toBeInTheDocument();
+    const choice = await screen.findByRole('dialog', { name: 'Q10 has entries' }, LAZY);
+    expect(choice).toHaveAttribute('data-surface', 'sheet');
+    // First focus lands as the lazily loaded dialog mounts.
+    await waitFor(() =>
+      expect(within(choice).getByRole('button', { name: 'Close' })).toHaveFocus(),
+    );
+    await userEvent.click(within(choice).getByRole('button', { name: 'Correct the match number' }));
+    expect(screen.getByRole('dialog', { name: 'Edit Q10' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Delete match' }));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Delete Q10 and its 6 entries…' }, LAZY),
+    );
+    const bill = screen.getByRole('dialog', { name: 'Delete Q10 and its 6 entries?' });
+    expect(bill).toHaveAttribute('data-surface', 'sheet');
+    await userEvent.type(within(bill).getByLabelText(/type the name to confirm/i), 'Q10');
+    await userEvent.click(within(bill).getByRole('button', { name: 'Delete Q10' }));
+    expect(call).toHaveBeenCalledWith('deleteMatch', {
+      match_id: Q10_PARTIAL.id,
+      with_entries: true,
+      confirm_name: 'Q10',
+    });
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Q10/ })).toBeNull());
   });
 
   it('adds matches from the sheet: how many, then Create N matches', async () => {

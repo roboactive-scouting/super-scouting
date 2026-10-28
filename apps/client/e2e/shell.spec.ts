@@ -40,7 +40,10 @@ test('phone shell: bars, menu, and no Users on a phone', async ({ page }) => {
   await signIn(page, 'admin', HOLD_PUSH);
   await page.setViewportSize({ width: 375, height: 812 });
   await seedWaiting(page, 3);
-  await expect(page.getByRole('link', { name: 'Entries, 3 waiting to send' })).toBeVisible();
+  // Task 1.58: Entries left the bar for the drawer; the top bar keeps the waiting count.
+  await expect(
+    page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Ranking' }),
+  ).toBeVisible();
   await expect(page.getByRole('banner').getByText('3 waiting')).toBeVisible();
   await shoot(page, 'shell-home', 'phone');
   await page.getByRole('button', { name: 'Open the menu' }).click();
@@ -48,6 +51,7 @@ test('phone shell: bars, menu, and no Users on a phone', async ({ page }) => {
   await expect(menu.getByRole('link', { name: 'Matches' })).toBeVisible();
   await expect(menu.getByRole('link', { name: 'Users' })).toHaveCount(0);
   await expect(menu.getByText('3 waiting to send')).toBeVisible();
+  await expect(menu.getByRole('link', { name: 'Entries' })).toBeVisible();
   const box = await menu.boundingBox();
   expect(box!.width).toBeLessThanOrEqual(252.5);
   await shoot(page, 'shell-menu', 'phone');
@@ -67,9 +71,9 @@ test('phone bar: the current page is the raised button; elsewhere nothing is (UF
   for (const [name, link, shot] of [
     ['Home', 'Home', 'shell-bar-home'],
     ['Scout', 'Scout', 'shell-bar-scout'],
-    // Task 1.51: Home · Scout · Search · Entries; Search is raised on team search.
+    // Task 1.51: Search is raised on team search. Task 1.58: Home · Scout · Search · Ranking.
     ['Search', 'Search', 'shell-bar-search'],
-    ['Entries', 'Entries, 3 waiting to send', 'shell-bar-entries'],
+    ['Ranking', 'Ranking', 'shell-bar-ranking'],
   ] as const) {
     await bar.getByRole('link', { name: link }).click();
     if (name === 'Scout') {
@@ -89,7 +93,7 @@ test('phone bar: the current page is the raised button; elsewhere nothing is (UF
   await expect(page.getByRole('banner').getByText('Switch scouter')).toBeVisible();
   await expect(raised).toHaveCount(0);
   await expect(current).toHaveCount(0);
-  await expect(bar.getByRole('link')).toHaveText(['Home', 'Scout', 'Search', /^Entries/]);
+  await expect(bar.getByRole('link')).toHaveText(['Home', 'Scout', 'Search', 'Ranking']);
   await shoot(page, 'shell-bar-other', 'phone');
 });
 

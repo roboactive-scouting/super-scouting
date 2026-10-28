@@ -117,7 +117,8 @@ async function loadEvent(ctx: UseCaseContext, eventId: string): Promise<EventRow
  * its canonical basic rank, average scouted points, matches counted and the four reliability
  * figures, sorted by any of those columns (never by standard deviation; `invalid` otherwise),
  * nulls last. No weighting, no contributions: those are phase 2. Not paginated (a 50-team
- * event). An unknown event is `not-found`.
+ * event). An unknown event is `not-found`. `before_match_number` (task 1.58b) ranks the event as it
+ * stood before that qualification match, through the same builder (Home's "places moved").
  */
 export async function rankTeams(
   caller: Caller,
@@ -135,6 +136,7 @@ export async function rankTeams(
       scoring,
       sort_by: parsed.sort_by,
       direction: parsed.direction,
+      before_match_number: parsed.before_match_number,
     }),
   };
 }

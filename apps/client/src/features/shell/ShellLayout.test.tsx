@@ -63,14 +63,16 @@ afterEach(() => {
 });
 
 describe('the phone shell (redesign R.7)', () => {
-  it('shows the menu button, a bottom bar with Home, Scout and Entries, and no sidebar', () => {
-    renderAt('/entries');
+  it('shows the menu button, a bottom bar with Home, Scout, Search and Ranking, and no sidebar', () => {
+    renderAt('/ranking');
     expect(screen.getByRole('button', { name: 'Open the menu' })).toBeInTheDocument();
     const quick = screen.getByRole('navigation', { name: 'Main' });
-    for (const name of ['Home', 'Scout', 'Entries']) {
+    for (const name of ['Home', 'Scout', 'Search', 'Ranking']) {
       expect(within(quick).getByRole('link', { name })).toBeInTheDocument();
     }
-    expect(within(quick).getByRole('link', { name: 'Entries' })).toHaveAttribute(
+    // Task 1.58: Entries moved to the drawer.
+    expect(within(quick).queryByRole('link', { name: 'Entries' })).toBeNull();
+    expect(within(quick).getByRole('link', { name: 'Ranking' })).toHaveAttribute(
       'aria-current',
       'page',
     );

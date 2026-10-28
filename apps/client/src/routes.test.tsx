@@ -270,7 +270,7 @@ describe('which routes wait for the event to load (task 1.17b)', () => {
     ]);
   });
 
-  it('leaves Scout, the entry screen, super scouting, practice, Entries, the entry preview, Conflicts, team search and the team page gated', () => {
+  it('leaves Scout, the entry screen, super scouting, practice, Entries, the entry preview, Conflicts, team search, the team page and the ranking gated', () => {
     const shell = routeTree().find((r) => r.path === '/');
     const gated = (shell?.children ?? [])
       .filter((r) => !needsNoHydration(r.handle))
@@ -285,6 +285,8 @@ describe('which routes wait for the event to load (task 1.17b)', () => {
       'entries/:id',
       'entry/:matchId/:teamId',
       'practice',
+      // The ranking (task 1.58) ranks the event's teams from its roster, entries and forms.
+      'ranking',
       'scout',
       'super',
       'super/:teamId',

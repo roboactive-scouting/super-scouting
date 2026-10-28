@@ -1,15 +1,13 @@
 import { useState } from 'react';
 import type { Alliance, MatchRow, MatchType } from '@frc/shared';
-import { OFFLINE_GATE_LINE, useCapability } from '@/components/OfflineGate';
-import { DestructiveConfirm } from '@/components/ui/destructive-confirm';
 import { Segmented } from '@/components/ui/segmented';
 import { matchLabel } from '@/lib/matchLabel';
 import { EditMatchDialog } from './EditMatchDialog';
+import { LazyDeleteFlow } from './LazyDeleteFlow';
 import { LineupGrid } from './LineupGrid';
 import { MatchErrors } from './MatchErrors';
 import { MatchesToolbar } from './MatchesToolbar';
 import {
-  DELETE_MATCH_BODY,
   MATCH_TYPE_OPTIONS,
   matchesShown,
   notOnRosterLine,
@@ -28,18 +26,15 @@ import { useOffRosterTeams } from './useOffRosterTeams';
  * the tab counts stay right); every change is reported through `onMatchesChange` /
  * `onRosterChange`.
  */
-export function MatchesPanel(props: MatchEditingProps) {
+export function MatchesPanel(props: MatchEditingProps & { eventName?: string }) {
   const { rpc, matches, roster } = props;
   const editing = useMatchEditing(props);
   const { rosterIds, byId } = useOffRosterTeams(rpc, matches, roster, editing.savedCount);
   const [type, setType] = useState<MatchType>('qualification');
   const shown = matchesShown(matches, type, editing.unsaved);
   const [editingMatch, setEditingMatch] = useState<MatchRow | null>(null);
-  const [confirming, setConfirming] = useState<MatchRow | null>(null);
-  const [deleteBusy, setDeleteBusy] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  /** SPEC-FINAL 9.6: season, event, match and roster management is held while offline. */
-  const can = useCapability('manage_events');
+  /** The match whose 🗑 opened the one DeleteDialog (task 1.61). */
+  const [deleting, setDeleting] = useState<MatchRow | null>(null);
 
   function onSlot(match: MatchRow, alliance: Alliance, station: Station, typed: Typed) {
     if (typed.kind === 'unknown') {
@@ -47,20 +42,6 @@ export function MatchesPanel(props: MatchEditingProps) {
       return;
     }
     void editing.saveSlot(match.id, alliance, station, typed.kind === 'team' ? typed.teamId : null);
-  }
-
-  async function confirmDelete() {
-    if (!confirming) return;
-    setDeleteBusy(true);
-    setDeleteError(null);
-    try {
-      await editing.remove(confirming);
-      setConfirming(null);
-    } catch (e) {
-      setDeleteError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setDeleteBusy(false);
-    }
   }
 
   return (
@@ -101,10 +82,7 @@ export function MatchesPanel(props: MatchEditingProps) {
             editing.setError(null);
             setEditingMatch(m);
           }}
-          onDelete={(m) => {
-            setDeleteError(null);
-            setConfirming(m);
-          }}
+          onDelete={(m) => setDeleting(m)}
         />
       )}
       {editingMatch && (
@@ -115,18 +93,29 @@ export function MatchesPanel(props: MatchEditingProps) {
           onClose={() => setEditingMatch(null)}
         />
       )}
-      <DestructiveConfirm
-        open={confirming !== null}
-        title="Delete this match?"
-        objectName={confirming ? matchLabel(confirming) : ''}
-        body={DELETE_MATCH_BODY}
-        confirmLabel="Delete"
-        busy={deleteBusy}
-        held={can ? null : OFFLINE_GATE_LINE}
-        error={deleteError}
-        onConfirm={() => void confirmDelete()}
-        onCancel={() => setConfirming(null)}
-      />
+      {deleting && (
+        <LazyDeleteFlow
+          request={{
+            kind: 'match',
+            id: deleting.id,
+            label: matchLabel(deleting),
+            eventName: props.eventName,
+            onCorrect: () => {
+              // "Correct the match number": the match's own edit dialog, in place of the delete.
+              const match = deleting;
+              setDeleting(null);
+              editing.setError(null);
+              setEditingMatch(match);
+            },
+          }}
+          rpc={rpc}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            editing.removed(deleting);
+            setDeleting(null);
+          }}
+        />
+      )}
     </section>
   );
 }

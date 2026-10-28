@@ -414,6 +414,32 @@ export type Store = {
    * season's forms (0 for an event). The form delete widens `kind` when it lands.
    */
   countDeleteImpact(kind: 'season' | 'event', id: string): Promise<DeleteImpact>;
+  /**
+   * Task 1.60 (SPEC-FINAL 3.9, v1.47): ONE SQL function (migration 20261028090000): every
+   * entry naming the match — soft-deleted ones included — then the match, all or nothing.
+   * The slots cascade and the match_deletions tombstone is the delete trigger's. Answers how
+   * many entry rows went. '23503' if an entry arrived in between (nothing is deleted).
+   */
+  deleteMatchCascade(id: string): Promise<number>;
+  /**
+   * Task 1.60: the entry rows in scope — every row a hard delete removes, soft-deleted ones
+   * included — with how many are already soft-deleted and how many are super entries. Head
+   * counts only, batched. An empty id list is all zeros. THROWS on a database error.
+   */
+  tallyEntries(scope: EntryScope): Promise<EntryTally>;
+  /** Task 1.60: how many matches the events hold. Head counts, batched. THROWS. */
+  countMatchesOfEvents(eventIds: string[]): Promise<number>;
+  /**
+   * Task 1.60: the analysis rows that go with a season (its metrics, dashboards and weight
+   * presets, each `on delete cascade` from seasons), or with a form (its metrics:
+   * `metrics.form_id` is `on delete cascade`; dashboards and presets are 0). THROWS.
+   */
+  countAnalysisRows(scope: { seasonId: string } | { formId: string }): Promise<AnalysisCounts>;
+  /**
+   * Task 1.60: every entry naming the match, soft-deleted ones included (the foreign key
+   * counts them), as the four columns the delete dialog's station tiles need. THROWS.
+   */
+  listMatchEntries(matchId: string): Promise<MatchEntryRef[]>;
 };
 
 /** A `forms` row (migration 20260903091000_forms.sql). Not synced by push; no `version`. */
@@ -544,6 +570,23 @@ export type TeamEventEntries = {
 
 /** The counts `countDeleteImpact` answers. */
 export type DeleteImpact = { events: number; matches: number; entries: number; forms: number };
+
+/** Task 1.60: the entries a delete of these events, or of these form versions, removes. */
+export type EntryScope = { eventIds: string[] } | { formVersionIds: string[] };
+
+/** Task 1.60: `entries` counts soft-deleted rows too; `deleted_entries` is how many those are. */
+export type EntryTally = { entries: number; deleted_entries: number; super_entries: number };
+
+/** Task 1.60: what `countAnalysisRows` answers. */
+export type AnalysisCounts = { metrics: number; dashboards: number; weight_presets: number };
+
+/** Task 1.60: one entry naming a match, as `listMatchEntries` reads it. */
+export type MatchEntryRef = {
+  team_id: string;
+  form_kind: 'match' | 'super';
+  client_updated_at: string;
+  deleted_at: string | null;
+};
 
 export type UseCaseContext = {
   store: Store;

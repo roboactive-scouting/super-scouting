@@ -1,12 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { getTeamStatsOutput, rankRow } from '../api/stats';
+import { FIELD_PHASES } from '../api/forms';
+import {
+  getTeamStatsOutput,
+  PHASE_SORT_KEYS,
+  RANK_SORT_KEYS,
+  rankRow,
+  rankTeamsInput,
+  SORT_DIRECTIONS,
+  type RankSortKey,
+} from '../api/stats';
+import { aggregate } from './aggregate';
 import type { FormFieldDefinition } from '../forms/types';
 import { averagePoints, rankByAveragePoints } from './breakdown';
 import { shadeFor } from './shading';
 import {
   buildRankTable,
   buildTeamStats,
+  compareRankRows,
   fieldMetricKey,
+  phaseOfSortKey,
+  RANK_SORT_DEFAULT_DIRECTION,
+  rankRowHasData,
+  scoringPhases,
+  sortRankRows,
   type StatsTeam,
   type TeamStatsInput,
 } from './teamStats';
@@ -503,5 +519,249 @@ describe('buildRankTable (task 1.57)', () => {
     });
     expect(rows.map((r) => r.team_id)).toEqual(['a', 'b']);
     expect(rows.every((r) => r.rank === null && r.average_points === null)).toBe(true);
+  });
+});
+
+describe('buildRankTable — Consistency and the phase averages (task 1.58)', () => {
+  // a: cycles 5 / reached high (10) and cycles 9 / low (11); b: one match, cycles 3, then a
+  // no-show; c: a practice match only (no data at all).
+  const TEAMS3: StatsTeam[] = [...TEAMS, { id: 'c', number: 50, name: 'Charlie' }];
+  const entries = [
+    entry({ team_id: 'a', data: { cycles: 5, reached: ['high'] } }),
+    entry({ team_id: 'a', data: { cycles: 9, reached: ['low'] } }),
+    entry({ team_id: 'b', data: { cycles: 3 } }),
+    entry({ team_id: 'b', robot_status: 'no_show', data: { cycles: 40 } }),
+    entry({ team_id: 'c', match_type: 'practice', data: { cycles: 30 } }),
+  ];
+  const table = () =>
+    buildRankTable({ teams: TEAMS3, entries, scoring: { fields: FIELDS, rules: RULES } });
+
+  it('lists the phases that carry points in the form, in FIELD_PHASES order, on every row', () => {
+    expect(scoringPhases({ fields: FIELDS, rules: RULES })).toEqual(['teleop', 'endgame']);
+    for (const row of table()) {
+      expect(row.phase_averages.map((p) => p.phase)).toEqual(['teleop', 'endgame']);
+      expect(rankRow.strict().safeParse(row).success).toBe(true);
+    }
+  });
+
+  it('averages each phase over the counted entries, so the phases add up to Total', () => {
+    const a = table().find((r) => r.team_id === 'a')!;
+    expect(a.average_points).toBe(10.5);
+    expect(a.phase_averages).toEqual([
+      { phase: 'teleop', average: 7 },
+      { phase: 'endgame', average: 3.5 },
+    ]);
+    // b's no-show is left out of every figure, never a zero (11.3).
+    const b = table().find((r) => r.team_id === 'b')!;
+    expect(b.phase_averages).toEqual([
+      { phase: 'teleop', average: 3 },
+      { phase: 'endgame', average: 0 },
+    ]);
+    for (const row of table()) {
+      if (row.average_points === null) continue;
+      const sum = row.phase_averages.reduce((s, p) => s + (p.average ?? 0), 0);
+      expect(sum).toBeCloseTo(row.average_points, 9);
+    }
+  });
+
+  it('gives Consistency as the std dev of the same points, null under two matches', () => {
+    const rows = table();
+    expect(rows.find((r) => r.team_id === 'a')!.stddev).toBe(aggregate([10, 11], 'stddev'));
+    expect(rows.find((r) => r.team_id === 'b')!.stddev).toBeNull();
+  });
+
+  it('agrees with the team page on every row: rank, Total and std dev', () => {
+    for (const row of table()) {
+      const stats = buildTeamStats(
+        input(entries, { team: TEAMS3.find((t) => t.id === row.team_id)!, teams: TEAMS3 }),
+      );
+      expect(stats.rank.rank, row.team_id).toBe(row.rank);
+      expect(stats.headline.value, row.team_id).toBe(row.average_points);
+      expect(stats.metrics.find((m) => m.key === 'stddev_points')!.value, row.team_id).toBe(
+        row.stddev,
+      );
+    }
+  });
+
+  it('gives a team with no data nulls — never zeros — and sorts it last under every key', () => {
+    const c = table().find((r) => r.team_id === 'c')!;
+    expect(c).toMatchObject({
+      rank: null,
+      average_points: null,
+      stddev: null,
+      availability_rate: null,
+      matches_counted: 0,
+    });
+    expect(c.phase_averages.every((p) => p.average === null)).toBe(true);
+    expect(rankRowHasData(c)).toBe(false);
+    for (const key of RANK_SORT_KEYS) {
+      for (const direction of SORT_DIRECTIONS) {
+        const rows = buildRankTable({
+          teams: TEAMS3,
+          entries,
+          scoring: { fields: FIELDS, rules: RULES },
+          sort_by: key,
+          direction,
+        });
+        expect(rows.at(-1)!.team_id, `${key} ${direction}`).toBe('c');
+      }
+    }
+  });
+
+  it('sorts by a phase, best first by default; a phase the form does not score ties to rank', () => {
+    const order = (sort_by: RankSortKey) =>
+      buildRankTable({
+        teams: TEAMS3,
+        entries,
+        scoring: { fields: FIELDS, rules: RULES },
+        sort_by,
+      }).map((r) => r.team_id);
+    expect(order('teleop_points')).toEqual(['a', 'b', 'c']);
+    expect(RANK_SORT_DEFAULT_DIRECTION.endgame_points).toBe('desc');
+    expect(order('auto_points')).toEqual(['a', 'b', 'c']); // null everywhere: rank order
+  });
+
+  it('keeps the phase keys in step with the phases, and never takes Consistency as a key', () => {
+    const phaseKeys = RANK_SORT_KEYS.filter((k) => phaseOfSortKey(k) !== null);
+    expect(phaseKeys).toEqual(FIELD_PHASES.map((p) => PHASE_SORT_KEYS[p]));
+    expect(RANK_SORT_KEYS).not.toContain('stddev' as never);
+    expect(rankTeamsInput.safeParse({ event_id: 'ev', sort_by: 'stddev' }).success).toBe(false);
+    expect(rankTeamsInput.safeParse({ event_id: 'ev', sort_by: 'teleop_points' }).success).toBe(
+      true,
+    );
+  });
+
+  it('settles ties with each later figure, then rank; the rank itself never moves', () => {
+    const base = table();
+    const tied = base.map((r) => ({ ...r, breakdowns: 0 }));
+    const sorted = sortRankRows(tied, [
+      { key: 'breakdowns', direction: 'asc' },
+      { key: 'teleop_points', direction: 'asc' },
+    ]);
+    expect(sorted.map((r) => r.team_id)).toEqual(['b', 'a', 'c']);
+    for (const row of sorted) {
+      expect(row.rank).toBe(base.find((r) => r.team_id === row.team_id)!.rank);
+    }
+    // Still tied after every figure: rank order.
+    expect(
+      sortRankRows(tied, [{ key: 'breakdowns', direction: 'desc' }]).map((r) => r.team_id),
+    ).toEqual(['a', 'b', 'c']);
+    expect(compareRankRows(tied[0]!, tied[0]!, [])).toBe(0);
+  });
+
+  it('counts a retired field a scoring rule still names in its phase, so the sum holds', () => {
+    const rules: ScoringRule[] = [...RULES, { field_key: 'old', points: 3, option_points: null }];
+    // The second match holds no `old`: its retired Auto row is not there at all, and it still
+    // counts 0 in Auto (not "no data"), so the phases add up to Total.
+    const withOld = [
+      entry({ team_id: 'a', data: { cycles: 2, old: 2 } }),
+      entry({ team_id: 'a', data: { cycles: 4 } }),
+    ];
+    const [a] = buildRankTable({
+      teams: [TEAMS[0]!],
+      entries: withOld,
+      scoring: { fields: FIELDS, rules },
+    });
+    expect(a!.phase_averages.map((p) => p.phase)).toEqual(['auto', 'teleop', 'endgame']);
+    expect(a!.average_points).toBe(6);
+    expect(a!.phase_averages).toEqual([
+      { phase: 'auto', average: 3 },
+      { phase: 'teleop', average: 3 },
+      { phase: 'endgame', average: 0 },
+    ]);
+  });
+});
+
+describe('buildRankTable — the trend line and "before a match" (task 1.58b)', () => {
+  const scoring = { fields: FIELDS, rules: RULES };
+  // a: Q1..Q7 scoring 1..7 (cycles), with a no-show at Q4 and a disabled robot at Q6 in between;
+  // b: Q2 8, Q5 2. Numbers fixed, so "before" reads real match numbers.
+  const at = (team_id: string, n: number, cycles: number, over: Partial<EngineEntry> = {}) =>
+    entry({ team_id, match_number: n, match_id: `m-${team_id}-${n}`, data: { cycles }, ...over });
+  const entries = [
+    at('a', 1, 1),
+    at('a', 2, 2),
+    at('a', 3, 3),
+    at('a', 4, 40, { robot_status: 'no_show' }),
+    at('a', 5, 5),
+    at('a', 6, 60, { robot_status: 'disabled' }),
+    at('a', 7, 7),
+    at('a', 8, 8),
+    at('a', 9, 9),
+    at('b', 2, 8),
+    at('b', 5, 2),
+    at('a', 1, 99, { match_type: 'practice', match_id: 'm-p1' }),
+  ];
+  const table = (over: Partial<Parameters<typeof buildRankTable>[0]> = {}) =>
+    buildRankTable({ teams: TEAMS, entries, scoring, ...over });
+  const row = (rows: ReturnType<typeof table>, id: string) => rows.find((r) => r.team_id === id)!;
+
+  it('gives the last five counted totals, oldest first, no-show and disabled left out', () => {
+    const a = row(table(), 'a');
+    expect(a.recent_totals).toEqual([3, 5, 7, 8, 9]);
+    expect(a.last_counted_match).toBe(9);
+    // The same population as the average: the totals ARE the points the average reads.
+    expect(a.matches_counted).toBe(7);
+    expect(row(table(), 'b').recent_totals).toEqual([8, 2]);
+    expect(row(table(), 'b').last_counted_match).toBe(5);
+    for (const r of table()) expect(rankRow.strict().safeParse(r).success).toBe(true);
+  });
+
+  it('leaves the trend line empty and the last match null with no counted match', () => {
+    const [c] = buildRankTable({
+      teams: [{ id: 'c', number: 50, name: 'Charlie' }],
+      entries: [
+        entry({ team_id: 'c', match_type: 'practice', data: { cycles: 4 } }),
+        entry({ team_id: 'c', robot_status: 'no_show', data: { cycles: 4 } }),
+      ],
+      scoring,
+    });
+    expect(c!.recent_totals).toEqual([]);
+    expect(c!.last_counted_match).toBeNull();
+  });
+
+  it('counts only the qualification matches numbered below before_match_number', () => {
+    const before = table({ before_match_number: 5 });
+    const a = row(before, 'a');
+    // Q1–Q3 (Q4 a no-show): 1, 2, 3; b only Q2 (8).
+    expect(a.recent_totals).toEqual([1, 2, 3]);
+    expect(a.average_points).toBe(2);
+    expect(a.matches_counted).toBe(3);
+    expect(a.no_shows).toBe(1);
+    expect(a.last_counted_match).toBe(3);
+    const b = row(before, 'b');
+    expect(b.average_points).toBe(8);
+    expect(b.last_counted_match).toBe(2);
+    // The rank is recomputed over the earlier matches: b led then, a leads now.
+    expect(before.map((r) => [r.team_id, r.rank])).toEqual([
+      ['b', 1],
+      ['a', 2],
+    ]);
+    expect(table().map((r) => [r.team_id, r.rank])).toEqual([
+      ['a', 1],
+      ['b', 2],
+    ]);
+  });
+
+  it('is the same table as the entries before that match, and nothing at all before Q1', () => {
+    const earlier = entries.filter(
+      (e) => e.match_type !== 'qualification' || (e.match_number ?? 0) < 7,
+    );
+    expect(table({ before_match_number: 7 })).toEqual(table({ entries: earlier }));
+    const none = table({ before_match_number: 1 });
+    expect(none.every((r) => r.rank === null && r.recent_totals.length === 0)).toBe(true);
+    // Unset, every match counts; past the last match, the same.
+    expect(table({ before_match_number: 100 })).toEqual(table());
+  });
+
+  it('takes before_match_number through rankTeamsInput, a positive whole number only', () => {
+    expect(rankTeamsInput.safeParse({ event_id: 'ev', before_match_number: 36 }).success).toBe(
+      true,
+    );
+    for (const bad of [0, -1, 2.5, '36']) {
+      expect(rankTeamsInput.safeParse({ event_id: 'ev', before_match_number: bad }).success).toBe(
+        false,
+      );
+    }
   });
 });

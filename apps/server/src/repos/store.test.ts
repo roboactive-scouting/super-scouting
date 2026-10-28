@@ -888,6 +888,131 @@ describe('supabaseStore hard deletes (RB.20, SPEC-FINAL 3.9)', () => {
   });
 });
 
+describe('supabaseStore task 1.60 deletes (SPEC-FINAL 3.9, v1.47)', () => {
+  const SEASON = '11111111-1111-4111-8111-111111111111';
+  const FORM = '22222222-2222-4222-8222-222222222222';
+  const MATCH = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const EVENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const V = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+
+  function rpcDb(data: unknown, error: { message: string; code?: string } | null) {
+    const calls: Call[] = [];
+    const db = {
+      rpc: (name: string, args: unknown) => {
+        calls.push(['rpc', name, args]);
+        return Promise.resolve({ data, error });
+      },
+    } as unknown as Db;
+    return { db, calls };
+  }
+
+  it('deleteMatchCascade calls its one function and answers how many entries went', async () => {
+    const { db, calls } = rpcDb(4, null);
+    expect(await supabaseStore(db).deleteMatchCascade(MATCH)).toBe(4);
+    expect(calls).toEqual([['rpc', 'delete_match_cascade', { p_match_id: MATCH }]]);
+  });
+
+  it('deleteMatchCascade throws with the Postgres code, never reads as deleted', async () => {
+    const { db } = rpcDb(null, { message: 'fk', code: '23503' });
+    await expect(supabaseStore(db).deleteMatchCascade(MATCH)).rejects.toMatchObject({
+      code: '23503',
+    });
+  });
+
+  it('tallyEntries head-counts every row, then the soft-deleted and the super ones', async () => {
+    const { db, chains } = scriptedDb([
+      { error: null, count: 12 },
+      { error: null, count: 2 },
+      { error: null, count: 1 },
+    ]);
+    expect(await supabaseStore(db).tallyEntries({ eventIds: [EVENT] })).toEqual({
+      entries: 12,
+      deleted_entries: 2,
+      super_entries: 1,
+    });
+    for (const chain of chains) {
+      expect(chain).toContainEqual(['from', 'scouting_entries']);
+      expect(chain).toContainEqual(['select', 'id', { count: 'exact', head: true }]);
+      expect(chain).toContainEqual(['in', 'event_id', [EVENT]]);
+    }
+    // every row counts: no deleted_at filter on the total
+    expect(chains[0]!.some((c) => c[0] === 'is' || c[0] === 'not')).toBe(false);
+    expect(chains[1]).toContainEqual(['not', 'deleted_at', 'is', null]);
+    expect(chains[2]).toContainEqual(['eq', 'form_kind', 'super']);
+  });
+
+  it('tallyEntries reads form versions by form_version_id, and an empty list reads nothing', async () => {
+    const { db, chains } = scriptedDb([
+      { error: null, count: 3 },
+      { error: null, count: 0 },
+      { error: null, count: 0 },
+    ]);
+    await supabaseStore(db).tallyEntries({ formVersionIds: [V] });
+    expect(chains[0]).toContainEqual(['in', 'form_version_id', [V]]);
+    const none = scriptedDb([]);
+    expect(await supabaseStore(none.db).tallyEntries({ eventIds: [] })).toEqual({
+      entries: 0,
+      deleted_entries: 0,
+      super_entries: 0,
+    });
+    expect(none.chains).toHaveLength(0);
+  });
+
+  it('tallyEntries throws on a database error instead of reading as "nothing to lose"', async () => {
+    const { db } = scriptedDb([{ error: { message: 'connection refused' } }]);
+    await expect(supabaseStore(db).tallyEntries({ eventIds: [EVENT] })).rejects.toThrow(
+      'connection refused',
+    );
+  });
+
+  it("countAnalysisRows counts a season's metrics, dashboards and presets", async () => {
+    const { db, chains } = scriptedDb([
+      { error: null, count: 5 },
+      { error: null, count: 4 },
+      { error: null, count: 2 },
+    ]);
+    expect(await supabaseStore(db).countAnalysisRows({ seasonId: SEASON })).toEqual({
+      metrics: 5,
+      dashboards: 4,
+      weight_presets: 2,
+    });
+    expect(chains.map((c) => c[0])).toEqual([
+      ['from', 'metrics'],
+      ['from', 'dashboards'],
+      ['from', 'weight_presets'],
+    ]);
+    for (const chain of chains) expect(chain).toContainEqual(['eq', 'season_id', SEASON]);
+  });
+
+  it("countAnalysisRows counts a form's metrics only (metrics.form_id cascades)", async () => {
+    const { db, chains } = scriptedDb([{ error: null, count: 3 }]);
+    expect(await supabaseStore(db).countAnalysisRows({ formId: FORM })).toEqual({
+      metrics: 3,
+      dashboards: 0,
+      weight_presets: 0,
+    });
+    expect(chains).toHaveLength(1);
+    expect(chains[0]).toContainEqual(['eq', 'form_id', FORM]);
+  });
+
+  it('countMatchesOfEvents head-counts the matches of the events', async () => {
+    const { db, chains } = scriptedDb([{ error: null, count: 4 }]);
+    expect(await supabaseStore(db).countMatchesOfEvents([EVENT])).toBe(4);
+    expect(chains[0]).toContainEqual(['from', 'matches']);
+    expect(chains[0]).toContainEqual(['in', 'event_id', [EVENT]]);
+  });
+
+  it('listMatchEntries reads every entry naming the match, soft-deleted ones included', async () => {
+    const rows = [
+      { team_id: 't', form_kind: 'match', client_updated_at: 'x', deleted_at: '2026-11-01' },
+    ];
+    const { db, chains } = scriptedDb([{ data: rows, error: null }]);
+    expect(await supabaseStore(db).listMatchEntries(MATCH)).toEqual(rows);
+    expect(chains[0]).toContainEqual(['eq', 'match_id', MATCH]);
+    expect(chains[0]!.some((c) => c[0] === 'is')).toBe(false);
+  });
+});
+
 describe('supabaseStore missing parents and match deletions (UF.1, SPEC-FINAL 9.3, 9.3.1)', () => {
   const EVENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const MATCH = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';

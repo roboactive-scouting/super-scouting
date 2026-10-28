@@ -1,6 +1,10 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.33 · **Date:** 2026-10-27 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.37 · **Date:** 2026-10-28 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.37 (2026-10-28): task 1.58b, Home's our-team rank card and top teams (round 03's "wanted, after ranking", in no task until now); "places moved" is counted since our last match (user; spec v1.00 / SPEC-FINAL v1.48).*
+*v1.36 (2026-10-28): where the delete dialogs open is drawn (`docs/design/pages/28-delete/final/delete-triggers-*`): Delete on the entry preview for a lead or admin, a trash button on older form-version rows; task 1.61 points at them.*
+*v1.35 (2026-10-28): the delete confirmation is designed (`docs/design/pages/28-delete/final/`, spec v0.99 / SPEC-FINAL v1.47 §3.9, §17.8); task 1.60 adds deleting a match with its entries and the two-file backup text, task 1.61 points at the final.*
+*v1.34 (2026-10-28): the ranking page is designed (`docs/design/pages/27-ranking/final/`, spec v0.98 / SPEC-FINAL v1.46 §13.5, §17.9, D18); task 1.58 points at it and adds the per-phase averages and the standard deviation to `rankRow`; §17.8 now prints one decimal, so 1.58 also changes `formatMetric`.*
 *v1.33 (2026-10-27): a fifth side task at the top of Phase 1 I: the team page's field charts show "—" for every match, even where the field was answered (user).*
 *v1.32 (2026-10-27): a fourth side task at the top of Phase 1 I: a wipe made offline says first that the phone cannot sign in again until it has a connection (user).*
 *v1.31 (2026-10-27): a third side task at the top of Phase 1 I: the Wipe sheet's buttons line up, and every sheet and dialog lays out its actions by one rule (user).*
@@ -111,7 +115,7 @@ Every task's requirements implicitly include this section. Values are copied ver
 - **Motion respects `prefers-reduced-motion`**: with it set, nothing moves. On the data-entry path, motion only informs (SPEC-FINAL §17.9).
 - **Touch targets ≥ 48 × 48 px with ≥ 8 px between adjacent targets. WCAG AA: 4.5:1 for text, 3:1 for UI boundaries and chart strokes, in every theme** (§17.7).
 - **`dir="auto"` on every text node that can hold Hebrew** — form labels, notes, chart axis labels, table cells (§17.1).
-- **Formatting is identical on every surface** (§17.8): computed metrics and standard deviations to **2 decimal places**; integer counts and team numbers with **no decimals and no thousands separator**; percentages as **whole numbers**; dates **`DD/MM/YYYY`**; times **24-hour**; the **device's local timezone**.
+- **Formatting is identical on every surface** (§17.8): computed metrics and standard deviations to **1 decimal place, a whole number bare** *(v1.34; was 2 — task 1.58 makes the change)*; integer counts and team numbers with **no decimals and no thousands separator**; percentages as **whole numbers**; dates **`DD/MM/YYYY`**; times **24-hour**; the **device's local timezone**.
 - **Builder routes require a viewport ≥ 1024 px** and otherwise render one clear "this needs a computer" panel. Alliance selection and conflict review work at any width (§17.2).
 - **Device baseline: Android Chrome from the last ~2 years, iOS Safari 16+** (§18.1). That is the browserslist and the Vite build target; older devices are unsupported rather than broken-for.
 - **No secret value is ever written into the repository, a commit message, or a chat message** (Appendix B). Only non-secret identifiers — project refs and deployment URLs — are ever spoken aloud.
@@ -182,6 +186,8 @@ So the execution order is: … 1.49, **1.54, 1.55, 1.56**, 1.50, 1.51, 1.52, **1
 **Release note — match deletions (UF.1).** Migration `20261008090000_match_deletions` must be pushed to **production before the server containing UF.1 is deployed**, the same way (by hand, BUILD-CONTEXT §4). That server's delta pull reads `match_deletions`; without the table every delta pull fails, so no device can sync.
 
 **Release note — form versions and exports (1.27).** Migrations `20261008100000_form_versions_updated_by` and `20261008101000_form_exports` must be pushed to **production before the server containing task 1.27 is deployed**, the same way (by hand, BUILD-CONTEXT §4). That server stamps `form_versions.updated_by` on every form write and reads and writes `form_exports`; without them every form save and every export fails.
+
+**Release note — match with its entries (1.60).** Migration `20261028090000_delete_match_cascade` must be pushed to **production before the server containing task 1.60 is deployed**, the same way (by hand, BUILD-CONTEXT §4). That server's `deleteMatch({ with_entries: true })` calls the new `delete_match_cascade` function; without it every delete of a match together with its entries fails (the plain delete of a match with no entries, and every other delete, are unaffected).
 
 If you would rather the file read in execution order, renumber it once before the first build chat and never again — but do not renumber halfway through, because the commit messages and the branch names will stop matching.
 
@@ -17226,6 +17232,14 @@ git add -A && git commit -m "feat(server): add getTeamStats and the fixed phase 
 - `/ranking` → `PATHS.ranking`, plus a `NAV_ITEMS` row `{ id: 'ranking', label: 'Ranking', icon: Trophy, group: 'competition', bottomBar: 3, visible: () => true }`. **Set Entries' `bottomBar` to `null`**, which moves it to the drawer and sidebar only (spec v0.49).
 - The bottom bar becomes Home · Scout · Search · Ranking.
 - The table is `Table` with `TableHeader sticky` and `numeric` cells. The top-3 medals are a `Trophy` icon plus the rank number.
+- *(v1.34)* **Design: `docs/design/pages/27-ranking/final/` (variant N).** Build it and compare screenshots at 1440 and 375 px; its README is the behaviour. In short:
+  - **Two categories** (the locked Category switch) replace column visibility: **Scoring** = By-phase bar · Total · one column per scoring phase · Consistency · Availability (Status marks) · Matches; **Availability** = Status spread bar · Availability · Breakdowns · No-shows · Disabled · Matches.
+  - **Data.** `rankRow` (`packages/shared/src/api/stats.ts`) gains `stddev` and `phase_averages` (one per phase in `FIELD_PHASES` that carries points in the season's form, from `scoreBreakdown` in `engine/breakdown.ts`), both computed in `buildRankTable` (`engine/teamStats.ts`) over the same counted entries as `average_points`, so the offline table equals the server's. Played = `matches_counted − breakdowns`. The spread counts scouted entries only, never the schedule.
+  - **Sort** runs in the client over every row (no pagination): a list of `{ key, direction }` per category, each category keeping its own. A header click replaces the list with that one key (a second click reverses it, so the tests below still hold); the Sort control states the list in words and opens the Sort builder (popover on a computer, `Sheet` on a phone) to reorder, flip and add tie-breakers from the open category's keys. Still tied → rank order; no data last. Consistency is never a key. `RANK_SORT_KEYS` gains the phase keys; `rank` never changes.
+  - **Team study:** a row selects the team and fills the panel beside the table (computer) or opens the bottom sheet (phone): points by phase with share and place, Consistency with the typical-match range (Total ± SD), the Status spread and the four counts, **Open team page** (`/teams/:teamId`).
+  - **Shading** reuses `shadeFor` / `ShadedValue` (1.53's deviation): the figures in the current sort are shaded, the rest plain.
+  - **One decimal (SPEC-FINAL §17.8, v1.46).** Change `formatMetric` (`packages/shared/src/format.ts`) to one place with a whole number bare (`12.3456` → `"12.3"`, `12` → `"12"`) and its test to match; `teamView.formatStat` then delegates to it instead of keeping its own copy. `ComputedValue` and `conflictsView` keep calling `formatMetric`. This task's test below expects `'50'` (was `'50.00'`).
+  - Components (THEME "Locked components", Ranking): Category switch, Sort control, Sort builder, Numbered sort badge, By-phase bar, Status marks, Status spread bar, Team study panel / summary sheet.
 
 **Files:**
 - Create: `apps/client/src/features/ranking/RankingPage.tsx`, `apps/client/src/features/ranking/RankingPage.test.tsx`
@@ -17263,7 +17277,7 @@ describe('RankingPage — the fixed phase 1 table (SPEC-FINAL 13.5)', () => {
   it('lists every team with rank, average points and the reliability figures', async () => {
     render(<RankingPage eventId="ev-1" rpc={rpcFor()} />);
     const first = await screen.findByRole('row', { name: /Team 1000/ });
-    expect(first).toHaveTextContent('50.00');
+    expect(first).toHaveTextContent('50'); // v1.34: one decimal, a whole number bare (SPEC-FINAL 17.8)
     expect(within(first).getByLabelText(/breakdowns/i)).toBeInTheDocument();
     expect(within(first).getByLabelText(/availability/i)).toHaveTextContent('100%');
   });
@@ -17330,6 +17344,37 @@ Expected: every suite green, including the new file(s) from this task.
 
 ```bash
 git add -A && git commit -m "feat(client): add the fixed phase 1 ranking table"
+```
+
+---
+
+## Task 1.58b: Client — Home's our-team rank card and top teams
+
+*(v1.37, user 2026-10-28; [RAISED BY ME]: designed with Home in round 03 as "wanted, after ranking" (`docs/design/pages/03-home/final/README.md`, "Our team" and "Top teams") but in no task until now. Runs right after 1.58, on the same data.)*
+
+**Design.** `docs/design/pages/03-home/final/` — compare `home-desktop.png` and `home-phone.png` at 1440 and 375 px. Today's Home hides both; this task shows them once the event has a ranking.
+
+**Files:**
+- Create: `apps/client/src/features/home/OurTeamCard.tsx`, `apps/client/src/features/home/TopTeamsCard.tsx` and a test for each
+- Modify: `apps/client/src/features/home/HomePage.tsx`, `StatTiles.tsx` (the desktop row gains the fourth tile), `homeData.ts`; `packages/shared/src/engine/teamStats.ts` and `packages/shared/src/api/stats.ts` (below)
+
+**Data — the same source as the ranking page** (`rankTeams` online, `buildRankTable` over the device's entries offline), so Home and `/ranking` can never disagree:
+- `rankRow` gains `recent_totals: number[]` — the team's last **five** counted match totals, oldest first (no-show and disabled left out, as for the average).
+- `buildRankTable` takes an optional `before_match_number`: only qualification matches numbered **below** it count. `rankTeams` passes it through. That is the whole of "places moved".
+
+**Our team** (2096, the configured team): rank **#N of M** (M = the ranked teams), the average (one decimal, §17.8), and **places moved since our last match**: our rank now against our rank computed with `before_match_number` = the number of 2096's most recent counted match — "▲2 since Q36", "▼1 since Q36", "No change since Q36" (an arrow and a word, never colour alone). Fewer than two counted matches for 2096: the move line is left out. 2096 not ranked yet: the card stays hidden, as today.
+
+**Top teams:** the top five by the canonical rank, each with its five-match trend line from `recent_totals` (the team page's sparkline), 2096 highlighted when it is among them, and a **Full ranking** link to `/ranking`. No ranking yet: hidden, and coverage keeps the full width, as today.
+
+- [ ] **Step 1: Write the failing tests** — the move reads ▲/▼/No change against a ranking computed before our last match; hidden with fewer than two matches; Top teams lists exactly five in rank order with 2096 marked; offline, both cards read the device's ranking and agree with `/ranking`.
+- [ ] **Step 2: Implement, run, commit**
+
+```bash
+pnpm --filter @frc/shared exec vitest run src/engine && pnpm --filter @frc/client exec vitest run src/features/home && pnpm typecheck
+```
+
+```bash
+git add -A && git commit -m "feat(client): add the our-team rank card and top teams to Home"
 ```
 
 ---
@@ -17446,10 +17491,10 @@ git add -A && git commit -m "feat: add value shading and the per-match progressi
 **Rules, verbatim (SPEC-FINAL §3.9).**
 - **Hard cascade delete** applies to `seasons`, `events` and `forms`, is **admin-only and irreversible**. Deleting a season deletes its events, their matches and entries, its forms, all their versions, its metrics, dashboards and presets. Deleting an event deletes its matches, entries, pick lists, do-not-pick rows and alliance bracket. Deleting a form deletes its versions, its fields, its scoring rules and **every entry bound to it**.
 - **Deleting a single form version that has entries bound to it is blocked**, and **no confirmation text overrides it**. Deleting the parent is a cascade, not an orphaning, which is why one is allowed and the other is not.
-- **Deleting a match that has entries is blocked.** Correct the match number instead, or delete the entries first.
+- **Deleting a match that has entries is blocked on its own.** Correct the match number instead, or delete the match **with its entries** *(v1.35)*: `deleteMatch({ match_id, with_entries: true, confirm_name })`, admin only, `confirm_name` = the match label ("Q41"); in one transaction it hard-deletes every `scouting_entries` row naming the match — **soft-deleted ones included**, since their rows still hold the `on delete restrict` key — then the match, recording the match tombstone as today (UF.1). `getDeleteImpact` covers `{ kind: 'match' }` (entries, by station). A device that later pushes an entry for it gets the existing `parent-deleted` refusal. "Delete the entries first" is gone: it never worked.
 - **The active season and the active event cannot be deleted.** Switch the active context first.
 - **Confirmation names the damage** — exact counts, and the admin types the object's name to proceed.
-- **Back up first**: the delete screen instructs the admin to run `supabase db dump` before proceeding.
+- **Back up first**: the delete screen shows the **two-file backup** from `docs/ops/SETUP.md` › Backup (schema, then `--data-only --use-copy`), never the bare `supabase db dump`, which saves no rows *(v1.35)*.
 - `deleteEntry` is a **lead/admin soft delete**. Scouters never hard-delete entries.
 
 - [ ] **Step 1: Write the failing test**
@@ -17586,6 +17631,8 @@ git add -A && git commit -m "feat(server): add the admin cascade deletes with an
 ## Task 1.61: Client — the destructive-action surface
 
 **Design (redesign system).** The one dialog is `ConfirmDialog`, already restyled, and `getDeleteImpact`'s counts fill its `loss` line.
+- *(v1.35)* **Design: `docs/design/pages/28-delete/final/` (variant A).** Compare screenshots at 1440 and 375 px; its README's table says which face each kind gets. `DeleteDialog` has three faces: **Bill + type** (the `--ink` band with the biggest count and the itemised counts, then 1 · Back up first with the two SETUP.md lines and Copy both, 2 · Type the name, Cancel focused + the filled-ink delete) for season, event, form, form version and a match with its entries; **Are you sure?** (a small pop-up, no band, nothing typed) for one entry and a match with no entries; **Blocked** (the band with the Blocked tag, the ways forward as cards, no delete) for a form version with entries, the active season or default event — and a match with entries opens a choice (Correct the match number · Delete Q41 and its 6 entries… · Close) before its bill. Components (THEME, Delete): Delete bill, Are-you-sure pop-up, Blocked tag and ways forward, Station tiles, Backup command box. The tests below hold: the commands contain `supabase db dump`; `kind="entry"` has no typing. Add `kind="match"` with entries (typing "Q41") and without (Are you sure?).
+- *(v1.36)* **The triggers** (`28-delete/final/delete-triggers-*.png`): `EntryPreviewPage` gets a filled-ink **Delete** after Edit, rendered only for a lead or admin (a third equal button on a computer, a full-width row on a phone), opening Are you sure?; the forms list (`FormsPage`, page 13) gets a 36 px filled-ink trash button with `aria-label="Delete version vN"` on each older version row (none on the draft or the active version). Test: a scouter sees no Delete on the preview, even on their own entry.
 
 **Files:**
 - Create: `apps/client/src/features/admin/DeleteDialog.tsx`, `apps/client/src/features/admin/DeleteDialog.test.tsx`

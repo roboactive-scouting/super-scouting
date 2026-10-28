@@ -3,9 +3,14 @@ import type {
   Caller,
   GetTeamStatsInput,
   GetTeamStatsOutput,
+  PullEntityKey,
+  RankTeamsInput,
+  RankTeamsOutput,
   StatsMetric,
   TeamStats,
 } from '@frc/shared';
+import { db, type CachedRow } from '@/data/db';
+import { loadDeviceRanking } from '@/features/ranking/deviceRanking';
 import { deviceTeamStats, type DeviceStatsRows } from './teamStats';
 
 /**
@@ -20,6 +25,7 @@ type ServerStats = {
     input: GetTeamStatsInput,
     ctx: unknown,
   ) => Promise<GetTeamStatsOutput>;
+  rankTeams: (caller: Caller, input: RankTeamsInput, ctx: unknown) => Promise<RankTeamsOutput>;
 };
 const SERVER = import.meta.glob<ServerStats>('../../../../server/src/core/queries/stats.ts');
 async function serverStats(): Promise<ServerStats> {
@@ -358,5 +364,64 @@ describe('the team page on the device and on the server (Phase 1 I side task 5)'
     expect(values(metric(b, 'cycle_time'))).toEqual(['not asked', 'not asked', 'not asked', 8.4]);
     expect(values(metric(b, 'cycle_estimate'))).toEqual(['not asked', 'not asked', 'not asked', 9]);
     expect(values(metric(b, 'climb_seconds'))).toEqual(['not asked', 'not asked', 'not asked', 7]);
+  });
+});
+
+/*
+ * Review of PR #42, Minor 5: the ranking table on the device equals the server's `rankTeams` on
+ * the same rows — every field, including the ones the team page never reads (`phase_averages`,
+ * `recent_totals`, `last_counted_match`), and with `before_match_number` (Home's "places
+ * moved"). The device side is `loadDeviceRanking` itself, over the cache in IndexedDB holding the
+ * pulled rows plus the entry still in the outbox on the match the device created (Q6).
+ */
+describe('the ranking on the device and on the server (review Minor 5)', () => {
+  async function holdCache(rows: DeviceStatsRows) {
+    await db.delete();
+    await db.open();
+    const cached = Object.entries(rows).flatMap(([entity, list]) =>
+      (list as Row[]).map((r) => ({ ...r, entity: entity as PullEntityKey }) as CachedRow),
+    );
+    await db.rows.bulkPut(cached);
+  }
+
+  async function bothTables(before?: number): Promise<[RankTeamsOutput, RankTeamsOutput]> {
+    await holdCache(cache([...ENTRIES, outboxRow], [...MATCHES.slice(0, 5), localMatch]));
+    const device = await loadDeviceRanking(EVENT, before);
+    if (!device) throw new Error('the device does not hold the event');
+    const { rankTeams } = await serverStats();
+    const input =
+      before === undefined ? { event_id: EVENT } : { event_id: EVENT, before_match_number: before };
+    const server = await rankTeams(lead, input, serverContext([...ENTRIES, pushedRow]));
+    return [device, server];
+  }
+
+  for (const before of [undefined, 6, 4, 2]) {
+    it(`gives the same table, row for row${before === undefined ? '' : `, before Q${before}`}`, async () => {
+      const [device, server] = await bothTables(before);
+      expect(device.event).toEqual(server.event);
+      expect(device.rows.map((r) => r.number)).toEqual(server.rows.map((r) => r.number));
+      for (const row of server.rows) {
+        expect(
+          device.rows.find((r) => r.team_id === row.team_id),
+          String(row.number),
+        ).toEqual(row);
+      }
+      expect(device.rows).toEqual(server.rows);
+    });
+  }
+
+  it('compares real figures: phases, recent totals and the outbox match as the last counted', async () => {
+    const [now] = await bothTables();
+    const bravo = now.rows.find((r) => r.team_id === 't-b')!;
+    // 8014: Q1, Q2 pulled, Q3 a no-show, Q6 still in the outbox on the device's own match.
+    expect(bravo.last_counted_match).toBe(6);
+    expect(bravo.recent_totals).toHaveLength(3);
+    expect(bravo.phase_averages.map((p) => p.phase)).toEqual(['auto', 'teleop', 'endgame']);
+    expect(bravo.phase_averages.every((p) => typeof p.average === 'number')).toBe(true);
+    // Before Q6 the outbox entry is out: Q2 is the last counted match.
+    const [earlier] = await bothTables(6);
+    const bravoBefore = earlier.rows.find((r) => r.team_id === 't-b')!;
+    expect(bravoBefore.last_counted_match).toBe(2);
+    expect(bravoBefore.recent_totals).toHaveLength(2);
   });
 });

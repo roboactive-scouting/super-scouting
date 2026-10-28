@@ -53,3 +53,5 @@ Forms needs a computer. Opened by its address, a phone shows the locked "This ne
 | "Draft in progress · Continue" line (A) | Not needed: the timeline's Continue covers it |
 | Table with versions (B) | Not chosen |
 | "Ready to scout" checklist (D) | Not chosen |
+
+**Delete (2026-10-28):** an older version row also ends with a filled-ink trash button that opens the delete dialog; see `../../28-delete/final/README.md` › Where each delete opens.

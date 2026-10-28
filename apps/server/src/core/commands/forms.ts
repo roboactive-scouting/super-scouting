@@ -60,6 +60,7 @@ import type {
   UseCaseContext,
 } from '../context.js';
 import { pgCode, seasonOrNotFound } from '../seasonRows.js';
+import { assertConfirmed } from './deleteCompetition.js';
 import { parseInput } from './users.js';
 
 // The wire schemas live in packages/shared (SPEC-FINAL 16.1); re-exported for callers here.
@@ -892,64 +893,105 @@ export async function restoreFormVersion(
   return { active_version_id: version.id };
 }
 
+/** Why one form version cannot be deleted on its own, whatever is typed. */
+export type VersionDeleteBlock = {
+  reason: 'has-entries' | 'published' | 'active-version';
+  message: string;
+  entries: number;
+};
+
+/** What a form version's delete must have typed back (task 1.60): "v1". */
+export const versionName = (version: StoredFormVersion): string => `v${version.version_no}`;
+
+/**
+ * SPEC-FINAL 3.3, 3.9: the reasons a single version is refused, in the order they are
+ * named — entries bound to it (soft-deleted ones too) → published → the active version.
+ * Null when only a typed confirmation stands between it and the delete. Task 1.60: shared
+ * with getDeleteImpact, so the dialog's Blocked face and the refusal are the same rule.
+ */
+export async function versionDeleteBlock(
+  ctx: UseCaseContext,
+  version: StoredFormVersion,
+  form: StoredForm,
+): Promise<VersionDeleteBlock | null> {
+  const entries = await ctx.store.countEntriesByFormVersion(version.id);
+  if (entries > 0) {
+    return {
+      reason: 'has-entries',
+      message: `this version has ${entries} ${entries === 1 ? 'entry' : 'entries'} bound to it and cannot be deleted; delete the form to remove them, or leave it`,
+      entries,
+    };
+  }
+  if (version.published_at !== null) {
+    return {
+      reason: 'published',
+      message: `v${version.version_no} is published, and a device may still hold entries for it that have not reached the server; only a draft can be deleted on its own. Delete the whole form to remove it`,
+      entries,
+    };
+  }
+  if (form.active_version_id === version.id) {
+    return {
+      reason: 'active-version',
+      message:
+        'this is the active version; deleting it would leave the form with nothing to scout. Restore another version first',
+      entries,
+    };
+  }
+  return null;
+}
+
 /**
  * Deletes one DRAFT. Blocked while any entry is bound to it, whatever the confirmation
  * (SPEC-FINAL 3.3). A published version is refused whatever the server's entry count: a
  * device may still hold queued entries for any published version it has (3.3; review #2),
  * so the whole form, through deleteForm, is the only way one goes. `active-version` is kept
- * as a backstop for a form row pointing at a draft, which no use case writes.
+ * as a backstop for a form row pointing at a draft, which no use case writes. Task 1.60
+ * (SPEC-FINAL 3.9, 17.8): admin only (`delete_objects`), and once nothing blocks it the
+ * label ("v3") must be typed back exactly — every block is named BEFORE the name is read.
  */
 export async function deleteFormVersion(
   caller: Caller,
   input: DeleteFormVersionInput,
   ctx: UseCaseContext,
 ): Promise<DeleteFormVersionOutput> {
-  assertCan(caller, 'manage_forms');
+  assertCan(caller, 'delete_objects');
   const parsed = parseInput(deleteFormVersionInput, input);
   const version = await versionOrNotFound(ctx, parsed.form_version_id);
   const form = await formOrNotFound(ctx, version.form_id);
-  const entries = await ctx.store.countEntriesByFormVersion(version.id);
-  if (entries > 0) {
+  const block = await versionDeleteBlock(ctx, version, form);
+  if (block !== null) {
     throw new AppError(
       'invalid',
-      `this version has ${entries} ${entries === 1 ? 'entry' : 'entries'} bound to it and cannot be deleted; delete the form to remove them, or leave it`,
-      { reason: 'has-entries', entries },
+      block.message,
+      block.reason === 'has-entries'
+        ? { reason: block.reason, entries: block.entries }
+        : { reason: block.reason },
     );
   }
-  if (version.published_at !== null) {
-    throw new AppError(
-      'invalid',
-      `v${version.version_no} is published, and a device may still hold entries for it that have not reached the server; only a draft can be deleted on its own. Delete the whole form to remove it`,
-      { reason: 'published' },
-    );
-  }
-  if (form.active_version_id === version.id) {
-    throw new AppError(
-      'invalid',
-      'this is the active version; deleting it would leave the form with nothing to scout. Restore another version first',
-      { reason: 'active-version' },
-    );
-  }
+  assertConfirmed(parsed.confirm_name, versionName(version));
   await ctx.store.deleteFormVersion(version.id);
   return { deleted: true };
 }
 
 /**
  * SPEC-FINAL 5.1 (v1.22): the whole form with its versions, fields, scoring and entries, in
- * one statement. `dry_run` answers the counts the warning names and deletes nothing.
+ * one statement. `dry_run` answers the counts the warning names and deletes nothing. Task
+ * 1.60 (SPEC-FINAL 3.9): admin only (`delete_objects`), and the real delete needs the
+ * form's name typed back exactly.
  */
 export async function deleteForm(
   caller: Caller,
   input: DeleteFormInput,
   ctx: UseCaseContext,
 ): Promise<DeleteFormOutput> {
-  assertCan(caller, 'manage_forms');
+  assertCan(caller, 'delete_objects');
   const parsed = parseInput(deleteFormInput, input);
   const form = await formOrNotFound(ctx, parsed.form_id);
   const versions = await ctx.store.listFormVersions(form.id);
   let entries = 0;
   for (const version of versions) entries += await ctx.store.countEntriesByFormVersion(version.id);
   if (parsed.dry_run) return { versions: versions.length, entries, deleted: false };
+  assertConfirmed(parsed.confirm_name, form.name);
   await ctx.store.deleteFormCascade(form.id);
   return { versions: versions.length, entries, deleted: true };
 }

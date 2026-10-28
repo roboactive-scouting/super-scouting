@@ -15,7 +15,11 @@ The visual identity is being redesigned from scratch, page by page (living spec 
 
 Pages go **one at a time**. At this stage that means only the pages that exist today; planned pages come later. Each round:
 
-1. **Four variants** of the page in the D1 theme, reusing every locked component in `THEME.md` for details. *(User, 2026-10-23, from round 27 on:)* first name the **three nearest outside references** for this kind of page (how well-known apps do it) and draw the variants from them, so they **differ in structure** — layout, navigation, what leads the page — not only in where one control sits. Say which references at the top of the round. Each image shows **desktop and phone**. Variants are not limited to today's features: design what looks and works best, and tag every feature the app doesn't have yet with a black **NEW** tag.
+1. **Four variants, each drawn by its own subagent** *(user, 2026-10-26; replaces the 2026-10-23 "three nearest references" rule)*. The chat running the round does not draw variants:
+   - It writes **one brief** for the page from `VARIANT-BRIEF.md`: what the page is for, who uses it and where, everything it must show and do (from the spec and the plan), the states to draw, the mock data, the theme tokens, the fixed shell and how to render. The brief contains **no design**: no layout, no other variant, no earlier final, no locked component beyond the shell, and no preference.
+   - It starts **four subagents at once, A to D, with that same brief** and nothing else from the conversation. Each designs the page alone and renders **one image**, `pages/<nn>-<page>/out/<letter>.png`, showing **desktop and phone**.
+   - Each subagent tags every feature the app doesn't have yet with a black **NEW** tag, and returns a list of them with one line each.
+   - The chat then only **checks** each image (it renders, nothing is cut off, the theme tokens are used). It fixes a broken render, never the design, and shows the user the four images.
 2. **The user decides** on the variant and on each NEW feature, one of three ways:
    - **now**: it goes into the page's final design
    - **not now, but wanted**: add it to the living spec where it belongs, or wherever it fits best if the spec has no place for it
@@ -26,7 +30,7 @@ Pages go **one at a time**. At this stage that means only the pages that exist t
    - write `final/README.md` with the behaviour and the feature-decision table
    - add each newly picked component treatment to "Locked components" in `THEME.md`
    - update the spec if a rule changed
-   - **delete the unchosen variant pages and images.** Keep only `final/` and the shared CSS and JS in `src/` that the finals load.
+   - **delete the unchosen variant pages and images.** Keep only `final/` and the shared CSS and JS in `src/` that the finals load. The closing chat (not a subagent) builds the final from the chosen variant's files, with the user's changes.
 5. **When the page is coded, it must look the same as its final images.** Compare screenshots at 1440 px and 375 px against them.
 
 ## Page order (most important first)
@@ -58,6 +62,8 @@ Pages go **one at a time**. At this stage that means only the pages that exist t
 | 24 | Team page (Phase 1 H) | `/teams/:teamId` | **Closed** 2026-10-23, variant D2 (D + B's match list with the scouter + C's strip on Matches only) | 1.53 |
 | 25 | Entry preview (Phase 1 H) | `/entries/:id` | **Closed** 2026-10-23, variant B + D's Team page and Edit buttons | 1.52 |
 | 26 | Entry search (Phase 1 H) | `/entries` (replaces 05's list) | **Closed** 2026-10-23, variant A (05 + Both · Match · Super; no station tag in the list) | 1.52 |
+| 27 | Ranking (Phase 1 I) | `/ranking` | **Closed** 2026-10-28, variant N (L, the third draw, + availability on every row, the status spread, a phone summary sheet, a sort of several figures) | 1.58, 1.59 |
+| 28 | Delete (Phase 1 J) | every delete (dialog) | **Closed** 2026-10-28, variant A (the bill first) without the squares, + an "Are you sure?" pop-up where nothing is typed, + a match deleted with its entries | 1.60, 1.61 |
 
 The phone shell (`pages/11-phone-shell/final/`, not a numbered route) is coded in RB.6. All were built in the redesign build (`docs/plans/REDESIGN-BUILD-PLAN.md`, RB.1–RB.20), and RB.19 reviewed each against its final images. `/context` is only a redirect to `/`. Update this table when a page closes.
 

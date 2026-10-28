@@ -95,7 +95,7 @@ describe('entry phases', () => {
     expect(displayValue(f('r', 'teleop', { type: 'rating', config: { max: 7 } }), 4)).toBe(
       '4 of 7',
     );
-    expect(displayValue(f('c', 'auto', { type: 'computed' }), 12.5)).toBe('12.50');
+    expect(displayValue(f('c', 'auto', { type: 'computed' }), 12.5)).toBe('12.5'); // one place (17.8 v1.46)
     expect(displayValue(f('c', 'auto', { type: 'computed' }), undefined)).toBe('—');
     expect(displayValue(f('h', 'auto', { type: 'timer' }), null)).toBe('Unsure');
     const multi = f('m', 'teleop', {

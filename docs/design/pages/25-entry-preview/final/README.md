@@ -47,3 +47,5 @@ Chosen: **variant B, "Score breakdown"**, plus D's **Team page** and **Edit** bu
 | The other five robots of the match (D, NEW) | Not taken |
 | Details card (A) | No: the header carries the details |
 | Phase tabs with read-only cards (C) | No |
+
+**Delete (2026-10-28):** a lead or admin also gets a filled-ink **Delete** after Edit (a full-width row on a phone), opening "Are you sure?"; see `../../28-delete/final/README.md` › Where each delete opens.

@@ -184,11 +184,29 @@ export const getTeamStatsOutput = z.object({
 export type GetTeamStatsOutput = z.infer<typeof getTeamStatsOutput>;
 
 /**
- * The fixed phase 1 ranking table's sortable columns (SPEC-FINAL 13.5, D18). Standard
- * deviation is never one (11.3), and there is no weighting of any kind in phase 1.
+ * One scoring phase's sort key (task 1.58): `auto_points`, `teleop_points`, … — the team's average
+ * points in that phase (`phase_averages`). A phase the season's form does not score is null on
+ * every row, so sorting by it falls through to the tie-breaks.
+ */
+export const PHASE_SORT_KEYS = {
+  auto: 'auto_points',
+  teleop: 'teleop_points',
+  endgame: 'endgame_points',
+  post_match: 'post_match_points',
+} as const satisfies Record<(typeof FIELD_PHASES)[number], string>;
+
+/**
+ * The fixed phase 1 ranking table's sortable columns (SPEC-FINAL 13.5, D18), and since task 1.58
+ * one per scoring phase. Standard deviation (`stddev`, "Consistency") is never one (11.3), and
+ * there is no weighting of any kind in phase 1.
  */
 export const RANK_SORT_KEYS = [
   'average_points',
+  // PHASE_SORT_KEYS, in FIELD_PHASES order (a test holds the two together).
+  'auto_points',
+  'teleop_points',
+  'endgame_points',
+  'post_match_points',
   'availability_rate',
   'breakdowns',
   'no_shows',
@@ -200,28 +218,63 @@ export type RankSortKey = (typeof RANK_SORT_KEYS)[number];
 export const SORT_DIRECTIONS = ['asc', 'desc'] as const;
 export type SortDirection = (typeof SORT_DIRECTIONS)[number];
 
-/** `sort_by` defaults to `average_points` (the canonical basic rank, 11.5). */
+/**
+ * `sort_by` defaults to `average_points` (the canonical basic rank, 11.5). `before_match_number`
+ * (task 1.58b) ranks the event as it stood before that qualification match: only qualification
+ * matches numbered below it count — Home's "places moved since our last match".
+ */
 export const rankTeamsInput = z
   .object({
     event_id: rowId,
     sort_by: z.enum(RANK_SORT_KEYS).optional(),
     direction: z.enum(SORT_DIRECTIONS).optional(),
+    before_match_number: z.number().int().positive().optional(),
   })
   .strict();
 export type RankTeamsInput = z.input<typeof rankTeamsInput>;
 
-/** One roster team's row. `rank` is the canonical basic rank, whatever the sort. */
+/**
+ * One phase's average points for a team (task 1.58): the mean over the SAME counted entries as
+ * `average_points` of each entry's subtotal in that phase (`scoreBreakdown`), so the phases of a
+ * row add up to its Total. Null with no counted entry, never 0.
+ */
+export const rankPhaseAverage = z.object({
+  phase: z.enum(FIELD_PHASES),
+  average: z.number().nullable(),
+});
+export type RankPhaseAverage = z.infer<typeof rankPhaseAverage>;
+
+/** How many recent counted matches a ranking row's trend line holds (Home's Top teams, 1.58b). */
+export const RANK_RECENT_MATCHES = 5;
+
+/**
+ * One roster team's row. `rank` is the canonical basic rank, whatever the sort. `stddev` is the
+ * standard deviation of the counted entries' points (Consistency: shown, never a sort key; null
+ * under two counted entries). `phase_averages` holds one item per phase that carries points in
+ * the season's match form (a scorable field with a scoring rule), in `FIELD_PHASES` order — the
+ * same phases, in the same order, on every row of a table.
+ *
+ * Task 1.58b (Home): `recent_totals` is the team's last five counted match totals, oldest first,
+ * over the SAME counted entries as `average_points` (no-show and disabled left out; empty with no
+ * counted match) — the Top teams trend line. `last_counted_match` is the qualification match
+ * number of the team's most recent counted match (null with none) — the match Our team's
+ * "places moved since Q36" is measured from, read from the very rows the rank came from.
+ */
 export const rankRow = z.object({
   team_id: z.string(),
   number: z.number().int(),
   name: z.string(),
   rank: z.number().int().positive().nullable(),
   average_points: z.number().nullable(),
+  stddev: z.number().nullable(),
+  phase_averages: z.array(rankPhaseAverage),
   matches_counted: z.number().int().nonnegative(),
   breakdowns: z.number().int().nonnegative(),
   no_shows: z.number().int().nonnegative(),
   disabled: z.number().int().nonnegative(),
   availability_rate: z.number().nullable(),
+  recent_totals: z.array(z.number()).max(RANK_RECENT_MATCHES),
+  last_counted_match: z.number().int().positive().nullable(),
 });
 export type RankRow = z.infer<typeof rankRow>;
 

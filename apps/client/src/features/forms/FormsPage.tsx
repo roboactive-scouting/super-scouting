@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   FORM_KINDS,
+  formatDate,
   type CreateFormOutput,
   type FormKind,
   type FormListItem,
@@ -15,7 +16,8 @@ import { SeasonChips } from '@/components/ui/season-chips';
 import { adminRpc, type Rpc } from '@/data/rpc';
 import { AdminOnly } from '@/features/admin/AdminOnly';
 import { FORMS_GATE } from '@/features/forms/formsGate';
-import { DeleteFormDialog } from '@/features/builder/DeleteFormDialog';
+import type { DeleteFact } from '@/features/admin/DeleteDialog';
+import { LazyDeleteFlow, type DeleteRequest } from '@/features/admin/LazyDeleteFlow';
 import { formErrorLine } from '@/features/builder/formErrors';
 import { ExportDialog, ImportDialog } from '@/features/builder/ImportExport';
 import { formBuilderPath, PATHS } from '@/lib/paths';
@@ -94,6 +96,8 @@ function Seasons({
 }) {
   /** SPEC-FINAL 9.6: form definition editing is held while offline; the list stays readable. */
   const canEdit = useCapability('edit_form');
+  /** Every delete and its count are server commands, held while offline (task 1.61). */
+  const canDelete = useCapability('delete_objects');
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   // `?season=2026` (after Delete form in the builder, final review D3), else the active season.
@@ -110,11 +114,13 @@ function Seasons({
   const [errors, setErrors] = useState<Partial<Record<FormKind, string>>>({});
   /** A card whose restore went through but whose list did not read again: offer Try again. */
   const [stale, setStale] = useState<FormKind | null>(null);
-  /** A card's dialog (task 1.31): Export or Delete form on a form, Import on a missing one. */
+  /** A card's dialog (task 1.31): Export on a form, Import on a missing one. */
   const [dialog, setDialog] = useState<{
-    what: 'export' | 'delete' | 'import';
+    what: 'export' | 'import';
     kind: FormKind;
   } | null>(null);
+  /** The one DeleteDialog (task 1.61): a whole form (the card's ⋯) or an older version's trash. */
+  const [deleting, setDeleting] = useState<{ request: DeleteRequest; kind: FormKind } | null>(null);
 
   const season = load.seasons.find((s) => s.id === chosen) ?? null;
   if (!season) {
@@ -229,7 +235,26 @@ function Seasons({
               onRetry={stale === kind ? () => void refresh(kind, '') : undefined}
               onRestore={(version) => void restore(form, version)}
               onExport={() => setDialog({ what: 'export', kind })}
-              onDelete={() => setDialog({ what: 'delete', kind })}
+              onDelete={() =>
+                setDeleting({
+                  kind,
+                  request: { kind: 'form', id: form.id, label: `${form.name} ${season.year}` },
+                })
+              }
+              canDelete={canDelete}
+              onDeleteVersion={(version) =>
+                setDeleting({
+                  kind,
+                  request: {
+                    kind: 'form_version',
+                    id: version.id,
+                    label: `v${version.version_no}`,
+                    formName: `${form.name} ${season.year}`,
+                    formId: form.id,
+                    facts: versionFacts(form, version),
+                  },
+                })
+              }
             />
           ) : (
             <MissingFormCard
@@ -247,6 +272,23 @@ function Seasons({
         })}
       </div>
       {cardDialog()}
+      {deleting && (
+        <LazyDeleteFlow
+          request={deleting.request}
+          rpc={rpc}
+          onClose={() => setDeleting(null)}
+          onDeleted={({ kind }) => {
+            const { kind: formKind, request } = deleting;
+            setDeleting(null);
+            void refresh(
+              formKind,
+              kind === 'form'
+                ? `${KIND_NAME[formKind]} ${season!.year} is deleted. `
+                : `${request.label} is deleted. `,
+            );
+          }}
+        />
+      )}
     </>
   );
 
@@ -268,24 +310,36 @@ function Seasons({
       );
     }
     if (!form) return null;
-    if (dialog.what === 'export') {
-      return (
-        <ExportDialog form={form} year={season!.year} rpc={rpc} online={canEdit} onClose={close} />
-      );
-    }
     return (
-      <DeleteFormDialog
-        form={form}
-        year={season!.year}
-        rpc={rpc}
-        online={canEdit}
-        onClose={close}
-        onExportFirst={() => setDialog({ what: 'export', kind: form.kind })}
-        onDeleted={() => {
-          close();
-          void refresh(form.kind, `${KIND_NAME[form.kind]} ${season!.year} is deleted. `);
-        }}
-      />
+      <ExportDialog form={form} year={season!.year} rpc={rpc} online={canEdit} onClose={close} />
     );
   }
+}
+
+/**
+ * A version's dates for the Blocked band (28-delete final): "v1 · Match form 2026", when it was
+ * published, and when the next published version replaced it.
+ */
+function versionFacts(form: FormListItem, version: VersionSummary): DeleteFact[] {
+  const facts: DeleteFact[] = [{ num: `v${version.version_no}`, label: `${form.name}` }];
+  const day = (iso: string) => formatDate(iso).slice(0, 5);
+  const year = (iso: string) => formatDate(iso).slice(6);
+  if (version.published_at) {
+    facts.push({
+      num: day(version.published_at),
+      label: 'published',
+      note: year(version.published_at),
+    });
+  }
+  const next = form.versions
+    .filter((v) => v.published_at !== null && v.version_no > version.version_no)
+    .sort((a, b) => a.version_no - b.version_no)[0];
+  if (next?.published_at) {
+    facts.push({
+      num: day(next.published_at),
+      label: `replaced by v${next.version_no}`,
+      note: year(next.published_at),
+    });
+  }
+  return facts;
 }

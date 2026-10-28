@@ -87,6 +87,12 @@ import {
 } from './search';
 import { getTeamStatsInput, getTeamStatsOutput, rankTeamsInput, rankTeamsOutput } from './stats';
 import {
+  deleteEntryInput,
+  deleteEntryOutput,
+  getDeleteImpactInput,
+  getDeleteImpactOutput,
+} from './deletes';
+import {
   createTeamInput,
   eventRosterOutput,
   listEventRosterInput,
@@ -180,6 +186,8 @@ export const API = {
   getEntry: { input: getEntryInput, output: getEntryOutput },
   getTeamStats: { input: getTeamStatsInput, output: getTeamStatsOutput },
   rankTeams: { input: rankTeamsInput, output: rankTeamsOutput },
+  getDeleteImpact: { input: getDeleteImpactInput, output: getDeleteImpactOutput },
+  deleteEntry: { input: deleteEntryInput, output: deleteEntryOutput },
 } as const;
 
 export type Api = typeof API;

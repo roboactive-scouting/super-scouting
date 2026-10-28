@@ -23,6 +23,7 @@ import { createHash } from 'node:crypto';
 import type { ZodIssue } from 'zod';
 import type { StoredUser, UseCaseContext } from '../context.js';
 import { pgCode } from '../seasonRows.js';
+import { softDeletedRow } from './deletes.js';
 import { ensureMatch } from './matches.js';
 
 const rejected = (opId: string, reason: RejectionReason, detail?: string): PushResult =>
@@ -319,12 +320,12 @@ async function applyEntry(
       return rejected(op.op_id, 'forbidden', 'only a lead or admin may delete an entry');
     }
     if (!existing) return rejected(op.op_id, 'invalid', 'no such entry');
-    await ctx.store.putRow('scouting_entry', op.row_id, {
-      ...existing,
-      deleted_at: ctx.now().toISOString(),
-      version: existing.version + 1,
-      client_updated_at: op.client_updated_at,
-    });
+    // Task 1.60: the one soft-delete rule, shared with the online deleteEntry.
+    await ctx.store.putRow(
+      'scouting_entry',
+      op.row_id,
+      softDeletedRow(existing, ctx.now().toISOString(), op.client_updated_at),
+    );
     await ctx.store.markApplied(op.op_id);
     return {
       op_id: op.op_id,

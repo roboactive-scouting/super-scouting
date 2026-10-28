@@ -151,14 +151,15 @@ afterEach(() => {
 });
 
 describe('HomePage (Home README, RB.10)', () => {
-  it('renders from the device alone — no RPC on load', async () => {
+  it('renders from the device alone — no RPC on load but the ranking’s (task 1.58b)', async () => {
     const rpc = { call: vi.fn() };
     await seedHomeDevice();
     renderHome({ role: 'lead', rpc });
     expect(await screen.findByText('District #3 · Tel Aviv')).toBeInTheDocument();
     expect(await screen.findByText('Blue 2')).toBeInTheDocument();
     expect(await screen.findByText(/3 entries waiting to send/)).toBeInTheDocument();
-    expect(rpc.call).not.toHaveBeenCalled();
+    // Online, Our team and Top teams read /ranking's own source, `rankTeams`; nothing else.
+    expect(rpc.call.mock.calls.map(([name]) => name)).toEqual(['rankTeams']);
   });
 
   it('names the matches missing a robot', async () => {
@@ -211,9 +212,11 @@ describe('HomePage (Home README, RB.10)', () => {
     const rpc = { call: vi.fn().mockResolvedValue({ items: [], next_cursor: null }) };
     await seedHomeDevice();
     renderHome({ role: 'lead', rpc });
-    expect(rpc.call).not.toHaveBeenCalled();
+    // The ranking's `rankTeams` (task 1.58b) is the only call before the sheet opens.
+    const others = () => rpc.call.mock.calls.filter(([name]) => name !== 'rankTeams');
+    expect(others()).toEqual([]);
     await userEvent.click(await screen.findByRole('button', { name: 'Switch competition' }));
-    expect(rpc.call).toHaveBeenCalled();
+    expect(others().length).toBeGreaterThan(0);
   });
 
   it('shows the desktop tiles: station, waiting to send, your newest entry with Open', async () => {
@@ -298,6 +301,17 @@ describe('HomePage before the event is on the device (task 1.17b)', () => {
       'href',
       '/admin/manage',
     );
+  });
+
+  it('asks for no ranking while there is no competition (task 1.58b)', async () => {
+    const rpc = { call: vi.fn() };
+    renderHome({ eventId: null, gate: 'no-event', rpc });
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'No competition yet' }),
+    ).toBeInTheDocument();
+    await new Promise((done) => setTimeout(done, 50));
+    expect(rpc.call).not.toHaveBeenCalled();
+    expect(screen.queryByRole('region', { name: 'Our team' })).toBeNull();
   });
 
   it('offers a scouter nothing to do when there is no competition yet', () => {
