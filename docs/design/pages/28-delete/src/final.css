@@ -205,3 +205,25 @@
   margin-top: 14px;
   padding-top: 14px;
 }
+
+/* the triggers that open the delete dialogs (drawn onto pages 25 and 13) */
+.btn.dt-del {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--surface);
+}
+.btn.dt-x {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--surface);
+}
+/* on a phone, Delete takes its own full-width row under Team page · Edit */
+.phone .ep-act {
+  flex-wrap: wrap;
+}
+.phone .ep-act .dt-del {
+  flex-basis: 100%;
+}

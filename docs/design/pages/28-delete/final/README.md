@@ -2,6 +2,7 @@
 
 - desktop: `delete-desktop.png` (Season 2025: the bill, the two-line backup, "202" typed, the button off) and `delete-desktop-blocked.png` (version 1 of Match form 2026, blocked, two ways forward)
 - phone: `delete-phone.png`: one entry ("Are you sure?") · Q41 has entries (correct it, or delete it with them) · Q41 with its entries (backup, "Q4" typed)
+- where the dialogs open (added 2026-10-28, no variant round): `delete-triggers-desktop.png` and `delete-triggers-phone.png` (the entry preview, page 25) and `delete-triggers-forms-desktop.png` (the forms list, page 13). They load those pages' own sources plus `../src/triggers.js`, which adds the buttons. The phone frames keep page 25's bottom bar as it was drawn (Home · Scout · Search · Entries); with task 1.58 it reads Home · Scout · Search · Ranking.
 
 The `.html` files are the source, and `bash docs/design/pages/render.sh 28-delete final` re-renders them. They load `../src/a/a.css` and `../src/final.css`. Spec: SPEC-FINAL v1.47 §3.9, §17.8; living spec v0.99. Tasks 1.60 (server) and 1.61 (client).
 
@@ -58,6 +59,21 @@ There is one `DeleteDialog`, and it has three faces. The kind of delete decides 
   - On a phone, the bill and the choice are bottom sheets, and **Are you sure?** is a centred pop-up.
 - **Online only:** the counts and every hard delete come from the server. The soft delete of an entry goes through the outbox like any other change.
 
+## Where each delete opens
+
+- **Entry, on the entry preview:**
+  - A lead or admin gets a filled-ink **Delete** (trash icon) after **Team page** and **Edit**. On a computer it is the third equal button beside the score band; on a phone it is a full-width row under the other two.
+  - It opens **Are you sure?**.
+  - A scouter never sees it, even on their own entry: deleting an entry is lead/admin only (§3.9).
+- **Form version, on the forms list:**
+  - Each older version row (the ones with View and Restore) ends with a 36 px filled-ink trash button, `aria-label` "Delete version v2".
+  - The draft and the active version have none.
+  - It opens the bill + type for a version with no entries, or **Blocked** for one with entries.
+- **Already in place:**
+  - Season and event: the Manage page (RB.20).
+  - Match: Manage's 🗑 (page 07).
+  - Whole form: the builder's More menu (page 12).
+
 ## Feature decisions
 
 | Feature | Decision |
@@ -68,6 +84,7 @@ There is one `DeleteDialog`, and it has three faces. The kind of delete decides 
 | A plain "Are you sure?" pop-up where nothing is typed (user) | Now |
 | Delete a match together with its entries, typed and backed up (user) | Now |
 | The two-line backup with Copy both (D's catch: the bare command saves no rows) | Now |
+| Delete on the entry preview (lead/admin) and on older version rows (user, 2026-10-28) | Now |
 | One square per entry (A, NEW) | No (user) |
 | "Delete its 6 entries first" as a way forward | No: soft-deleted entries still hold the match, so it never worked |
 | Level markers and the ladder legend (B) | No |

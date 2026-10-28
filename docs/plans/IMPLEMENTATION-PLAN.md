@@ -1,6 +1,7 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.35 · **Date:** 2026-10-28 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.36 · **Date:** 2026-10-28 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.36 (2026-10-28): where the delete dialogs open is drawn (`docs/design/pages/28-delete/final/delete-triggers-*`): Delete on the entry preview for a lead or admin, a trash button on older form-version rows; task 1.61 points at them.*
 *v1.35 (2026-10-28): the delete confirmation is designed (`docs/design/pages/28-delete/final/`, spec v0.99 / SPEC-FINAL v1.47 §3.9, §17.8); task 1.60 adds deleting a match with its entries and the two-file backup text, task 1.61 points at the final.*
 *v1.34 (2026-10-28): the ranking page is designed (`docs/design/pages/27-ranking/final/`, spec v0.98 / SPEC-FINAL v1.46 §13.5, §17.9, D18); task 1.58 points at it and adds the per-phase averages and the standard deviation to `rankRow`; §17.8 now prints one decimal, so 1.58 also changes `formatMetric`.*
 *v1.33 (2026-10-27): a fifth side task at the top of Phase 1 I: the team page's field charts show "—" for every match, even where the field was answered (user).*
@@ -17597,6 +17598,7 @@ git add -A && git commit -m "feat(server): add the admin cascade deletes with an
 
 **Design (redesign system).** The one dialog is `ConfirmDialog`, already restyled, and `getDeleteImpact`'s counts fill its `loss` line.
 - *(v1.35)* **Design: `docs/design/pages/28-delete/final/` (variant A).** Compare screenshots at 1440 and 375 px; its README's table says which face each kind gets. `DeleteDialog` has three faces: **Bill + type** (the `--ink` band with the biggest count and the itemised counts, then 1 · Back up first with the two SETUP.md lines and Copy both, 2 · Type the name, Cancel focused + the filled-ink delete) for season, event, form, form version and a match with its entries; **Are you sure?** (a small pop-up, no band, nothing typed) for one entry and a match with no entries; **Blocked** (the band with the Blocked tag, the ways forward as cards, no delete) for a form version with entries, the active season or default event — and a match with entries opens a choice (Correct the match number · Delete Q41 and its 6 entries… · Close) before its bill. Components (THEME, Delete): Delete bill, Are-you-sure pop-up, Blocked tag and ways forward, Station tiles, Backup command box. The tests below hold: the commands contain `supabase db dump`; `kind="entry"` has no typing. Add `kind="match"` with entries (typing "Q41") and without (Are you sure?).
+- *(v1.36)* **The triggers** (`28-delete/final/delete-triggers-*.png`): `EntryPreviewPage` gets a filled-ink **Delete** after Edit, rendered only for a lead or admin (a third equal button on a computer, a full-width row on a phone), opening Are you sure?; the forms list (`FormsPage`, page 13) gets a 36 px filled-ink trash button with `aria-label="Delete version vN"` on each older version row (none on the draft or the active version). Test: a scouter sees no Delete on the preview, even on their own entry.
 
 **Files:**
 - Create: `apps/client/src/features/admin/DeleteDialog.tsx`, `apps/client/src/features/admin/DeleteDialog.test.tsx`
