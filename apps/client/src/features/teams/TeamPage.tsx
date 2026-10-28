@@ -18,9 +18,15 @@ import { useIsDesktop } from '@/lib/useMediaQuery';
 import { cn } from '@/lib/utils';
 import { MatchByMatchTable, MatchList, MatchStrip } from './MatchByMatchTable';
 import { NotesList } from './NotesList';
-import { ChartLegend, MetricPicker, ProgressionChart, ProgressPanel } from './ProgressionChart';
+import {
+  ChartLegend,
+  chartHasValues,
+  MetricPicker,
+  ProgressionChart,
+  ProgressPanel,
+} from './ProgressionChart';
 import { StatRows } from './StatRows';
-import { HEADER_TOP, TeamHeader } from './TeamHeader';
+import { TeamHeader } from './TeamHeader';
 import { loadDeviceTeamStats, useServerTeamStats } from './teamStats';
 import { chartMetrics, formatStat, formatTrend, POINTS_METRIC_KEY } from './teamView';
 
@@ -259,39 +265,49 @@ function TeamView({ stats }: { stats: TeamStats }) {
     return () => window.removeEventListener('scroll', onScroll);
   }, [desktop]);
 
-  // The tabs stay with the header: they stick right under it, whatever its height.
-  const header = useRef<HTMLElement>(null);
-  const [headerHeight, setHeaderHeight] = useState<number | null>(null);
-  useEffect(() => {
-    const el = header.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-    const measure = () => setHeaderHeight(Math.round(el.getBoundingClientRect().height));
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
+  /*
+   * ONE sticky block (Phase 1 I side task 2: nothing pinned floats): the header and the tabs are
+   * in one wrapper that sticks, so the tabs sit right under the header by layout — no measured
+   * offset between them, whatever the header's height or its compact transition. On a phone the
+   * stat tiles sit between the two and scroll away under the header: the block sticks the tiles'
+   * height above the top bar (`--team-tiles`, read from the tiles' own box; they never animate),
+   * while the header's own `sticky` keeps it on the bar.
+   */
+  const root = useRef<HTMLDivElement>(null);
+  const tilesBox = useRef<HTMLDivElement>(null);
+  const block = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const host = root.current;
+    const tiles = tilesBox.current;
+    if (!host) return;
+    if (!tiles) {
+      host.style.removeProperty('--team-tiles');
+      return;
+    }
+    const publish = () =>
+      host.style.setProperty('--team-tiles', `${tiles.getBoundingClientRect().height}px`);
+    publish();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(publish);
+    observer.observe(tiles, { box: 'border-box' });
     return () => observer.disconnect();
-  }, [desktop, compact, stats.entry_count === 0]);
-  const top = desktop ? HEADER_TOP.desktop : HEADER_TOP.phone;
-  const tabsTop = headerHeight === null ? top : `calc(${top} + ${headerHeight}px)`;
+  }, [desktop, stats.entry_count === 0]);
 
-  // A tab chosen while the tabs are stuck keeps them stuck, with the new panel from its top.
+  // A tab chosen while the block is stuck keeps it stuck, with the new panel from its top.
   const sentinel = useRef<HTMLDivElement>(null);
-  const tabsBar = useRef<HTMLDivElement>(null);
-  const keepStuck = useRef(false);
+  const keepStuckAt = useRef<number | null>(null);
   const choose = (next: TabKey) => {
     const s = sentinel.current?.getBoundingClientRect().top;
-    const t = tabsBar.current?.getBoundingClientRect().top;
-    keepStuck.current = s !== undefined && t !== undefined && s < t - 0.5;
+    const b = block.current?.getBoundingClientRect().bottom;
+    keepStuckAt.current = s !== undefined && b !== undefined && s < b - 0.5 ? b : null;
     setTab(next);
   };
   useLayoutEffect(() => {
-    if (!keepStuck.current) return;
-    keepStuck.current = false;
+    const at = keepStuckAt.current;
+    keepStuckAt.current = null;
     const s = sentinel.current;
-    const t = tabsBar.current;
-    if (!s || !t) return;
-    const stuckAt = parseFloat(getComputedStyle(t).top) || 0;
-    window.scrollTo({ top: window.scrollY + s.getBoundingClientRect().top - stuckAt });
+    if (at === null || !s) return;
+    window.scrollTo({ top: window.scrollY + s.getBoundingClientRect().top - at });
   }, [tab]);
 
   const back = () => {
@@ -301,7 +317,6 @@ function TeamView({ stats }: { stats: TeamStats }) {
 
   const headerEl = (
     <TeamHeader
-      ref={header}
       stats={stats}
       desktop={desktop}
       compact={!desktop && compact && stats.entry_count > 0}
@@ -374,7 +389,7 @@ function TeamView({ stats }: { stats: TeamStats }) {
               <div className="mt-2 mb-1.5">
                 <ProgressionChart metric={first} statusOf={statusOf} height={150} />
               </div>
-              <ChartLegend metric={first} />
+              {chartHasValues(first) && <ChartLegend metric={first} />}
             </section>
           )}
         </div>
@@ -437,20 +452,25 @@ function TeamView({ stats }: { stats: TeamStats }) {
   }
 
   return (
-    <div className="flex flex-1 flex-col">
-      {headerEl}
-      <main className="flex flex-1 flex-col">
+    <div
+      ref={root}
+      className="flex flex-1 flex-col"
+      // At least a screen tall once the tiles have scrolled away, so a short panel can still be
+      // read with the block stuck (a tab chosen while it is stuck keeps it there).
+      style={{ minHeight: 'calc(100dvh - var(--top-bar, 0px) + var(--team-tiles, 0px))' }}
+    >
+      <div
+        ref={block}
+        data-team-head=""
+        className="sticky top-[calc(var(--top-bar,0px)-var(--team-tiles,0px))] z-20"
+      >
+        {headerEl}
         {!desktop && (
-          <div className="border-b border-line bg-surface px-3.5 py-2.5">
+          <div ref={tilesBox} className="border-b border-line bg-surface px-3.5 py-2.5">
             <Tiles stats={stats} />
           </div>
         )}
-        <div ref={sentinel} aria-hidden="true" />
-        <div
-          ref={tabsBar}
-          style={{ top: tabsTop }}
-          className={cn('sticky z-[15] border-b border-line bg-surface', desktop && 'px-8')}
-        >
+        <div className={cn('border-b border-line bg-surface', desktop && 'px-8')}>
           <Tabs
             label="Team page"
             tabs={tabs}
@@ -461,14 +481,10 @@ function TeamView({ stats }: { stats: TeamStats }) {
             tight={!desktop}
           />
         </div>
-        {/* At least a screen tall under the tabs, so a short panel can still be read with the tabs
-            stuck under the header (a tab chosen while they are stuck keeps them there). */}
-        <div
-          role="tabpanel"
-          aria-label={TAB_NAME[tab]}
-          data-tab-panel={tab}
-          style={{ minHeight: `calc(100dvh - ${tabsTop} - 3rem)` }}
-        >
+      </div>
+      <main className="flex flex-1 flex-col">
+        <div ref={sentinel} aria-hidden="true" />
+        <div role="tabpanel" aria-label={TAB_NAME[tab]} data-tab-panel={tab}>
           {panel}
         </div>
       </main>

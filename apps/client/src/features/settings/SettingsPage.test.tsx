@@ -194,15 +194,13 @@ describe('Settings (SPEC-FINAL 8.6, 17.9)', () => {
     await userEvent.click(row);
     // The confirmation is its own chunk (task 1.49), loaded as it opens.
     const confirm = await screen.findByRole('dialog', { name: 'Wipe this device?' });
-    const buttons = within(confirm).getAllByRole('button');
-    expect(buttons.map((b) => b.textContent)).toEqual(['Keep this device', 'Wipe this device']);
     expect(await within(confirm).findByRole('status')).toHaveTextContent(
       '3 entries are still waiting to send. Wipe is held until they are sent, so nothing is lost.',
     );
-    expect(within(confirm).getByRole('button', { name: 'Wipe this device' })).toHaveAttribute(
-      'aria-disabled',
-      'true',
-    );
+    // Held, the plain wipe is not drawn (Phase 1 I side task 3): Wipe anyway… is the one wipe.
+    const buttons = within(confirm).getAllByRole('button');
+    expect(buttons.map((b) => b.textContent)).toEqual(['Wipe anyway…', 'Keep this device']);
+    expect(within(confirm).queryByRole('button', { name: 'Wipe this device' })).toBeNull();
     await userEvent.click(within(confirm).getByRole('button', { name: 'Keep this device' }));
     expect(screen.queryByRole('dialog')).toBeNull();
   });

@@ -426,6 +426,107 @@ describe('TeamPage (SPEC-FINAL 13.1; 24-team final)', () => {
   });
 });
 
+/*
+ * Phase 1 I side task 2 (plan v1.30): nothing pinned floats. The header and the tabs are ONE
+ * sticky block, so the tabs sit under the header by layout, never at a measured offset. jsdom lays
+ * nothing out: the structure is checked here, the boxes touching in e2e/team.spec.ts.
+ */
+describe('TeamPage: the header and the tabs are one sticky block', () => {
+  const blockOf = () => {
+    const header = screen.getByRole('banner');
+    const block = header.parentElement!;
+    return { header, block, tabBar: screen.getByRole('tablist').parentElement! };
+  };
+  /** Every element with an inline `top`, or sticky other than the block and the header. */
+  const strays = (header: HTMLElement, block: HTMLElement) =>
+    [...document.body.querySelectorAll<HTMLElement>('*')].filter(
+      (el) =>
+        el.style.top !== '' || (el.classList.contains('sticky') && el !== header && el !== block),
+    );
+
+  it('computer: one wrapper sticks on --top-bar, the tabs right under the header inside it', async () => {
+    open();
+    await screen.findByRole('banner');
+    const { header, block, tabBar } = blockOf();
+    expect(block).toHaveAttribute('data-team-head');
+    expect(block).toHaveClass('sticky', 'top-[calc(var(--top-bar,0px)-var(--team-tiles,0px))]');
+    expect([...block.children]).toEqual([header, tabBar]);
+    expect(header).toHaveClass('sticky', 'top-[var(--top-bar,0px)]');
+    // No measured offset anywhere, and no second sticky element.
+    expect(strays(header, block)).toEqual([]);
+    expect(tabBar).not.toHaveClass('sticky');
+    // The panel scrolls under the block: it is not in it.
+    expect(block).not.toContainElement(screen.getByRole('tabpanel'));
+    // Every tab keeps the same block.
+    await eachTab(() => expect(blockOf().block).toBe(block));
+  });
+
+  it('phone: header, tiles, tabs in the block; it sticks the tiles’ own height (unrounded) above the bar', async () => {
+    phone();
+    const rect = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue({ height: 217.25, top: 0, bottom: 0 } as DOMRect);
+    open();
+    await screen.findByRole('banner');
+    const { header, block, tabBar } = blockOf();
+    const tiles = block.children[1] as HTMLElement;
+    expect([...block.children]).toEqual([header, tiles, tabBar]);
+    expect(tiles).toHaveTextContent('Median points');
+    const root = block.parentElement!;
+    expect(root.style.getPropertyValue('--team-tiles')).toBe('217.25px');
+    expect(strays(header, block)).toEqual([]);
+
+    // Compact (scrolled), the one-line header is still the block's top, the tabs still in it.
+    act(() => {
+      Object.defineProperty(window, 'scrollY', { configurable: true, value: 300 });
+      window.dispatchEvent(new Event('scroll'));
+    });
+    await waitFor(() => expect(screen.getByRole('banner')).toHaveAttribute('data-compact'));
+    const compact = blockOf();
+    expect(compact.block).toBe(block);
+    expect([...block.children]).toEqual([compact.header, tiles, compact.tabBar]);
+    expect(strays(compact.header, block)).toEqual([]);
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 0 });
+    rect.mockRestore();
+  });
+
+  /** Lays out the block's bottom at 160 and the panel's top at `panelTop`, scrolled 500 down. */
+  function layOut(panelTop: number) {
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 500 });
+    return vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      if (this.hasAttribute('data-team-head')) return { top: 0, bottom: 160 } as DOMRect;
+      const sentinel = this.parentElement?.tagName === 'MAIN' && !this.previousElementSibling;
+      return { top: sentinel ? panelTop : 0, bottom: 0, height: 0 } as DOMRect;
+    });
+  }
+
+  it('a tab chosen while the block is stuck keeps it stuck, the new panel from its top', async () => {
+    open();
+    await screen.findByRole('banner');
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    const rect = layOut(100); // the panel has slid 60 px under the block
+    await choose(/^Notes/);
+    expect(scrollTo).toHaveBeenCalledWith({ top: 500 + 100 - 160 });
+    rect.mockRestore();
+    scrollTo.mockRestore();
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 0 });
+  });
+
+  it('a tab chosen while the block is not stuck does not scroll', async () => {
+    open();
+    await screen.findByRole('banner');
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    const rect = layOut(160); // the panel starts right under the block
+    await choose(/^Notes/);
+    expect(scrollTo).not.toHaveBeenCalled();
+    rect.mockRestore();
+    scrollTo.mockRestore();
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 0 });
+  });
+});
+
 describe('TeamPage on a phone', () => {
   beforeEach(() => phone());
 

@@ -97,8 +97,8 @@ export function BuilderPage({ rpc = adminRpc }: { rpc?: Rpc }) {
   );
 }
 
-/** The builder fills the window under the 60 px top bar; its panes scroll on their own. */
-const PAGE = 'flex h-[calc(100dvh-3.75rem)] min-h-[40rem] w-full flex-col';
+/** The builder fills the window under the shell's top bar (`--top-bar`); its panes scroll on their own. */
+const PAGE = 'flex h-[calc(100dvh-var(--top-bar,0px))] min-h-[40rem] w-full flex-col';
 
 function BuilderScreen({ rpc }: { rpc: Rpc }) {
   const { formId = '' } = useParams();

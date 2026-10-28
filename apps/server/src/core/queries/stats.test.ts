@@ -150,6 +150,8 @@ describe('getTeamStats — what the team page reads (task 1.57)', () => {
         entry_id: noShow.entry_id,
         match_label: 'Q3',
         value: null,
+        // Phase 1 I side task 5: its version had every field, so it is a gap ("—").
+        asked: true,
       });
     }
     const points = stats.metrics.find((m) => m.key === 'average_points')!;

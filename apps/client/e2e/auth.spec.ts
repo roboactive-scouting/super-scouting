@@ -53,6 +53,45 @@ test('login: offline says so and uses the cached accounts', async ({ page }) => 
   await shoot(page, 'login-offline', 'phone');
 });
 
+/**
+ * After a wipe (Phase 1 I side task 4): the wipe leaves its mark in `meta` and takes the cached
+ * accounts, so an offline sign-in says the device was wiped rather than that it never loaded them.
+ */
+test('login: after a wipe, offline, says the device was wiped', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/login');
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((done, fail) => {
+      const open = indexedDB.open('robactive-scouting');
+      open.onsuccess = () => done(open.result);
+      open.onerror = () => fail(open.error);
+    });
+    const tx = db.transaction('meta', 'readwrite');
+    tx.objectStore('meta').put({ key: 'device.just_wiped', value: true });
+    await new Promise((done) => (tx.oncomplete = done));
+    db.close();
+  });
+  await page.reload(); // the page reads the mark as it loads
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+  // Online, the mark adds nothing: signing in works and clears it.
+  await expect(page.getByRole('status')).toHaveCount(0);
+  await goOffline(page);
+  // Offline, the wiped line up front, in place of the note about cached credentials.
+  const line = page.getByRole('status');
+  await expect(line).toHaveText('This device was wiped. Connect to the internet to sign in.');
+  await expect(line.locator('b')).toHaveText('This device was wiped.');
+  await expect(page.getByText('No connection. Signing in will use the credentials')).toHaveCount(0);
+  // Pressing Sign in is refused on the device, and the line is not said twice.
+  await page.getByLabel('Username').fill(SCOUTER);
+  await page.getByLabel('Password', { exact: true }).fill(TEST_PASSWORD);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeEnabled();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByText('This device was wiped.')).toHaveCount(1);
+  await shoot(page, 'login-wiped');
+});
+
 test('change password: forced after sign-in, no way back', async ({ page }) => {
   await mockApi(page, { role: 'scouter', mustChange: true });
   await page.goto('/login');

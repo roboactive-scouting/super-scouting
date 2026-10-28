@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { signIn, type Role } from './api-mock';
+import { showsThrough } from './pinned';
 import { setTextScale, shoot } from './shoot';
 
 /**
@@ -143,6 +144,18 @@ test('scout: choose a station, the line-up, and a team not in it', async ({ page
   await scrollToEnd(page);
   expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   await expectClearOfBar(page, page.getByText(/isn't in Q39's line-up/));
+  // Phase 1 I side task 2: scrolled, nothing shows between the action bar and the bottom bar, or
+  // under them (the raised Scout button, the safe-area foot): that band is all bar.
+  const actions = (await page
+    .getByRole('button', { name: /^Start entry/ })
+    .locator('..')
+    .boundingBox())!;
+  expect(
+    await showsThrough(page, { top: actions.y, bottom: 812, left: 0, right: 375 }, [
+      '[class*="bottom-[var(--bottom-bar"]',
+      'nav[aria-label="Main"]',
+    ]),
+  ).toEqual([]);
   await shoot(page, 'scout-roster-end', 'phone');
 
   // Desktop: with the whole roster listed, Start entry stays pinned at the window's foot.

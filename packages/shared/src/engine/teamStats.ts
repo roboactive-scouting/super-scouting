@@ -215,6 +215,21 @@ function seriesValue(kind: MetricKind, field: FormFieldDefinition, raw: unknown)
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
 
+/**
+ * Whether `entry`'s form asked `key` (Phase 1 I side task 5): its version holds a live field of
+ * that key, or the entry holds a value of it (null included: an "unsure" timer was asked). A
+ * version not in `versions` (a device whose cache lacks it) reads as a version without the field,
+ * as the server reads a version whose fields it cannot find.
+ */
+function wasAsked(
+  entry: Pick<EngineEntry, 'form_version_id' | 'data'>,
+  key: string,
+  versions: ReadonlyMap<string, readonly FormFieldDefinition[]>,
+): boolean {
+  if (entry.data[key] !== undefined) return true;
+  return versions.get(entry.form_version_id)?.some((f) => f.key === key && !f.deprecated) ?? false;
+}
+
 /** One field metric's value for one team: the NEXT-CHAT pipeline, from `counted`. */
 function fieldValue(
   field: FormFieldDefinition,
@@ -362,8 +377,9 @@ export function buildRankTable(input: RankTableInput): RankRow[] {
  *   order, each through `resolveFieldAcrossVersions` → `applyFilters` → `aggregationValue` →
  *   `aggregate`. A rating's domain is its declared 1..max; a timer's is its `expected_range`,
  *   else the observed range, and with no declared direction it is `lower_is_better`; an "unsure" timer
- *   (null) is a gap in the series, never 0. A field whose type changed between the versions in
- *   scope is `type-changed`, value null.
+ *   (null) is a gap in the series, never 0. A match whose entry's form version had no such
+ *   field is `asked: false` in that field's series (value null): not a gap, nothing to miss.
+ *   A field whose type changed between the versions in scope is `type-changed`, value null.
  * - `columns` / `matches` — every canonical match entry of the team (practice and playoff too),
  *   in match order, with its points and the scored fields' values (never a rating or a timer:
  *   they score nothing); a dead robot shows nulls.
@@ -390,6 +406,7 @@ export function buildTeamStats(input: TeamStatsInput): TeamStats {
     entry_id: e.id,
     match_label: ownLabel(e),
     value: isDead(e) ? null : scoreEntry(e, fields, scoring.rules),
+    asked: true,
   }));
   const pointsOf = (teamId: string) => populations.get(teamId)?.points ?? [];
   const average = averagePoints(ownEntries, fields, scoring.rules).avg;
@@ -480,11 +497,15 @@ export function buildTeamStats(input: TeamStatsInput): TeamStats {
         series:
           shape.kind === 'nominal'
             ? []
-            : own.series.map((e) => ({
-                entry_id: e.id,
-                match_label: ownLabel(e),
-                value: isDead(e) ? null : seriesValue(shape.kind, f, e.data[f.key]),
-              })),
+            : own.series.map((e) => {
+                const asked = wasAsked(e, f.key, versionFields);
+                return {
+                  entry_id: e.id,
+                  match_label: ownLabel(e),
+                  value: !asked || isDead(e) ? null : seriesValue(shape.kind, f, e.data[f.key]),
+                  asked,
+                };
+              }),
         unavailable_reason: null,
       };
     }

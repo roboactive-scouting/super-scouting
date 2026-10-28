@@ -57,10 +57,20 @@ function axisOf(metric: StatsMetric, values: number[]): { ticks: number[]; max: 
   return { ticks: [0, step, 2 * step], max: Math.max(2 * step, top) * 1.1 };
 }
 
-type Point = { label: string; value: number | null; status: RobotStatus | null };
+/** `asked` false: the entry's form had no such field — not a gap, so nothing is drawn there. */
+type Point = { label: string; value: number | null; status: RobotStatus | null; asked: boolean };
+
+/**
+ * Whether a chart has anything to draw (Phase 1 I side task 5): a field chart with no value at all
+ * says so in one line instead of an empty plot. Points per match always draws its plot.
+ */
+export function chartHasValues(metric: StatsMetric): boolean {
+  return metric.field_key === null || metric.series.some((s) => s.value !== null);
+}
 
 /** What a missing point says in the text alternative. */
-function missing(status: RobotStatus | null): string {
+function missing(status: RobotStatus | null, asked: boolean): string {
+  if (!asked) return 'not on the form for this match';
   if (status === 'no_show') return 'no show, not counted';
   if (status === 'disabled') return 'disabled, not counted';
   return 'no value';
@@ -70,7 +80,9 @@ function missing(status: RobotStatus | null): string {
  * One chart: the metric over the team's matches, oldest → newest. A null is a GAP — a no-show or
  * a disabled robot is never drawn as 0 — bridged by a dotted `--faint` line with "—" over it; a
  * broke-down match is a `--warn` diamond; the dashed `--faint` line is the team's value (its
- * average).
+ * average). A match whose form did not have the field (`asked: false`) keeps its place on the
+ * x-axis and draws nothing: no point, no "—", no bridge across it. A field chart with no value at
+ * all is one line instead ("No Driver skill answers for this team yet").
  */
 export function ProgressionChart({
   metric,
@@ -87,6 +99,7 @@ export function ProgressionChart({
     label: s.match_label,
     value: s.value,
     status: statusOf(s.entry_id),
+    asked: s.asked,
   }));
   const name = chartLabel(metric);
   const values = points.flatMap((p) => (p.value === null ? [] : [p.value]));
@@ -115,11 +128,12 @@ export function ProgressionChart({
   const bridges: ReactNode[] = [];
   const dashes: ReactNode[] = [];
   points.forEach((p, i) => {
-    if (p.value !== null) return;
+    if (p.value !== null || !p.asked) return;
+    // A match the form did not ask bounds the gap: nothing is bridged across it.
     let a = i - 1;
-    while (a >= 0 && points[a]!.value === null) a -= 1;
+    while (a >= 0 && points[a]!.value === null && points[a]!.asked) a -= 1;
     let b = i + 1;
-    while (b < n && points[b]!.value === null) b += 1;
+    while (b < n && points[b]!.value === null && points[b]!.asked) b += 1;
     const left = a >= 0 ? points[a]!.value : null;
     const right = b < n ? points[b]!.value : null;
     let at = average !== null ? y(average) : y(ticks[1]!);
@@ -150,110 +164,124 @@ export function ProgressionChart({
     );
   });
 
+  // One measured box around either, so a picker switching between them keeps its width.
   return (
-    <figure aria-label={`${name}, match by match`} className="m-0">
-      <div ref={box} className="w-full">
-        <svg
-          aria-hidden="true"
-          focusable="false"
-          width={W}
-          height={H}
-          viewBox={`0 0 ${W} ${H}`}
-          className="block max-w-full"
+    <div ref={box} className="w-full">
+      {chartHasValues(metric) ? (
+        <figure aria-label={`${name}, match by match`} className="m-0">
+          <div className="w-full">
+            <svg
+              aria-hidden="true"
+              focusable="false"
+              width={W}
+              height={H}
+              viewBox={`0 0 ${W} ${H}`}
+              className="block max-w-full"
+            >
+              {ticks.map((t) => (
+                <g key={t}>
+                  <line
+                    x1={L}
+                    x2={W - R}
+                    y1={y(t)}
+                    y2={y(t)}
+                    className="stroke-line-2"
+                    strokeWidth={1}
+                  />
+                  <text
+                    x={L - 6}
+                    y={y(t) + 3}
+                    textAnchor="end"
+                    className="num fill-muted text-[0.625rem]"
+                  >
+                    {metric.kind === 'rate' ? `${Math.round(t * 100)}%` : formatStat(t)}
+                  </text>
+                </g>
+              ))}
+              {points.map((p, i) =>
+                i % every === 0 || i === n - 1 ? (
+                  <text
+                    key={`x${i}`}
+                    x={x(i)}
+                    y={H - 6}
+                    textAnchor="middle"
+                    className="num fill-muted text-[0.625rem]"
+                  >
+                    {p.label.replace(/^[A-Z]+/, '')}
+                  </text>
+                ) : null,
+              )}
+              {average !== null && (
+                <line
+                  x1={L}
+                  x2={W - R}
+                  y1={y(average)}
+                  y2={y(average)}
+                  className="stroke-faint"
+                  strokeWidth={1}
+                  strokeDasharray="3 3"
+                />
+              )}
+              {bridges}
+              {dashes}
+              <path
+                d={line.join(' ')}
+                className="fill-none stroke-accent"
+                strokeWidth={2.2}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+              {points.map((p, i) => {
+                if (p.value === null) return null;
+                const cx = x(i);
+                const cy = y(p.value);
+                return p.status === 'broke_down' ? (
+                  <rect
+                    key={`p${i}`}
+                    data-mark="broke-down"
+                    x={cx - 4}
+                    y={cy - 4}
+                    width={8}
+                    height={8}
+                    transform={`rotate(45 ${cx} ${cy})`}
+                    className="fill-warn stroke-surface"
+                    strokeWidth={1.5}
+                  />
+                ) : (
+                  <circle
+                    key={`p${i}`}
+                    data-mark="point"
+                    cx={cx}
+                    cy={cy}
+                    r={3}
+                    className="fill-surface stroke-accent"
+                    strokeWidth={2}
+                  />
+                );
+              })}
+            </svg>
+          </div>
+          <ul className="sr-only">
+            {points.map((p, i) => (
+              <li key={i}>
+                {p.label}:{' '}
+                {p.value === null ? missing(p.status, p.asked) : valueText(metric, p.value)}
+                {p.status === 'broke_down' ? ', broke down' : ''}
+              </li>
+            ))}
+            {average !== null && <li>Team value: {valueText(metric, average)}</li>}
+          </ul>
+        </figure>
+      ) : (
+        <p
+          data-chart-empty=""
+          style={{ minHeight: H }}
+          className="m-0 flex items-center justify-center px-2 text-center text-[0.8125rem] text-muted"
         >
-          {ticks.map((t) => (
-            <g key={t}>
-              <line
-                x1={L}
-                x2={W - R}
-                y1={y(t)}
-                y2={y(t)}
-                className="stroke-line-2"
-                strokeWidth={1}
-              />
-              <text
-                x={L - 6}
-                y={y(t) + 3}
-                textAnchor="end"
-                className="num fill-muted text-[0.625rem]"
-              >
-                {metric.kind === 'rate' ? `${Math.round(t * 100)}%` : formatStat(t)}
-              </text>
-            </g>
-          ))}
-          {points.map((p, i) =>
-            i % every === 0 || i === n - 1 ? (
-              <text
-                key={`x${i}`}
-                x={x(i)}
-                y={H - 6}
-                textAnchor="middle"
-                className="num fill-muted text-[0.625rem]"
-              >
-                {p.label.replace(/^[A-Z]+/, '')}
-              </text>
-            ) : null,
-          )}
-          {average !== null && (
-            <line
-              x1={L}
-              x2={W - R}
-              y1={y(average)}
-              y2={y(average)}
-              className="stroke-faint"
-              strokeWidth={1}
-              strokeDasharray="3 3"
-            />
-          )}
-          {bridges}
-          {dashes}
-          <path
-            d={line.join(' ')}
-            className="fill-none stroke-accent"
-            strokeWidth={2.2}
-            strokeLinejoin="round"
-            strokeLinecap="round"
-          />
-          {points.map((p, i) => {
-            if (p.value === null) return null;
-            const cx = x(i);
-            const cy = y(p.value);
-            return p.status === 'broke_down' ? (
-              <rect
-                key={`p${i}`}
-                data-mark="broke-down"
-                x={cx - 4}
-                y={cy - 4}
-                width={8}
-                height={8}
-                transform={`rotate(45 ${cx} ${cy})`}
-                className="fill-warn stroke-surface"
-                strokeWidth={1.5}
-              />
-            ) : (
-              <circle
-                key={`p${i}`}
-                data-mark="point"
-                cx={cx}
-                cy={cy}
-                r={3}
-                className="fill-surface stroke-accent"
-                strokeWidth={2}
-              />
-            );
-          })}
-        </svg>
-      </div>
-      <ul className="sr-only">
-        {points.map((p, i) => (
-          <li key={i}>
-            {p.label}: {p.value === null ? missing(p.status) : valueText(metric, p.value)}
-            {p.status === 'broke_down' ? ', broke down' : ''}
-          </li>
-        ))}
-        {average !== null && <li>Team value: {valueText(metric, average)}</li>}
-      </ul>
-    </figure>
+          No {metric.label} answers for this team yet
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -370,7 +398,7 @@ export function ProgressPanel({
             <div className={cn('mt-2', i === 0 && 'mb-1.5')}>
               <ProgressionChart metric={metric} statusOf={statusOf} height={i === 0 ? 150 : 120} />
             </div>
-            {i === 0 && <ChartLegend metric={metric} />}
+            {i === 0 && chartHasValues(metric) && <ChartLegend metric={metric} />}
           </section>
         );
       })}

@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { ResponsiveDialog } from '@/components/ui/responsive-dialog';
 import { StationPill } from '@/components/ui/station-pill';
 import { stationLabel } from '@/components/ui/tag';
+import { SurfaceActions } from '@/components/ui/surface-actions';
 import { STATIONS, type Station } from '@/data/station';
 import { cn } from '@/lib/utils';
 
@@ -71,20 +72,12 @@ function StationChoice({
           );
         })}
       </div>
-      <div className="mt-2 flex gap-2.5">
-        <Button size="lg" className="flex-1 px-3" onClick={onClose}>
-          Not now
-        </Button>
-        <Button
-          variant="primary"
-          size="lg"
-          className="flex-1 px-3"
-          disabled={!chosen}
-          onClick={() => chosen && onUse(chosen)}
-        >
+      <SurfaceActions className="mt-2">
+        <Button onClick={onClose}>Not now</Button>
+        <Button variant="primary" disabled={!chosen} onClick={() => chosen && onUse(chosen)}>
           {chosen ? `Use ${stationLabel(chosen)}` : 'Choose your station'}
         </Button>
-      </div>
+      </SurfaceActions>
     </>
   );
 }

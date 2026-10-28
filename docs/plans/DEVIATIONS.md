@@ -9499,3 +9499,338 @@ AssertionError: features/entries/serverEntries.ts: expected 'import { useEffect,
 **What I did instead:** `packages/shared/src/engine/teamStats.ts` — `scorableFields` is now `metricFields` (scorable, `rating` or `timer`); both are `kind: 'number'`, `aggregation: 'avg'`, through the same `resolveFieldAcrossVersions` → `applyFilters` → `aggregationValue` → `aggregate` pipeline, in their phase's group in form order (a rating with no phase lands in Post-match, which then appears). A rating's domain is its declared 1..`config.max` (5 when unset, as `validateEntryData`); a timer's is its `expected_range`, else the observed range across the event's teams. Sparkline series: a no-show or disabled match and an "unsure" timer (null) are null, never 0. Neither is a match-table column (`columns` stays the scored fields). A timer metric carries `display` "12.4 s" (whole bare, else one place), and the client's `metricText` prints a number metric's `display` when the engine set one. Default directions when the form declares none: a rating is `higher_is_better` (a higher rating is a better rating by construction); a timer is `lower_is_better` (user, 2026-10-27: a faster time is the common case — climb, cycle, auto routine). A declared `direction` always wins, so a timer where longer is better (a defence hold) sets it in the builder. Rejected: `neutral` for an undirected timer (my first cut — it never shades, which hides the spread); the user chose `lower_is_better`. Fixtures: `src/test/teamPageFixtures.ts` gains Climb time (timer, no direction, one "unsure" answer) and Driver skill (rating 1–5); `e2e/team.spec.ts` adds the same two fields to its own pull only, so the other specs' entry and builder screens keep their form.
 
 **Risk:** a form whose timers measure something where longer is better and that left `direction` blank will shade those timers backwards until an admin sets the direction. A rating's `expected_range`, if one is ever declared, is ignored in favour of 1..max.
+
+## Phase 1 I side task 1 — the Review sheet's buttons sit on a solid foot (plan v1.29)
+
+**Plan said:** make the Review sheet's foot (`features/entry/ConfirmEntry.tsx`) opaque from its top edge to the sheet's bottom edge, buttons never over a row, the last answer able to scroll fully above the foot, the failed-submit line still a direct child of the foot; fix it in the shared surface so every sticky foot in a `Sheet` or `Dialog` behaves the same; a `--line` hairline top edge while content scrolls under it. Tests: the foot's box reaches the scroller's bottom edge with no padding below; an e2e shot of a long entry's Review sheet scrolled halfway, 375 and 1440, every theme.
+
+**What was wrong:** the cause was as the plan read it, reproduced before the fix with the new spec (30 counters, scrolled halfway). On the computer the foot stopped 22 px above the dialog's edge (`Error: desktop: foot to the edge … Expected: < 0.5 Received: 22`) — the `Dialog`'s `py-[1.375rem]` — and "Endgame count 4" showed in that strip under Keep editing / Submit entry. On the phone at the end of the list the foot sat 15.75 px above the edge (`ResponsiveDialog`'s `pb-4`); halfway down the Playwright phone shows no strip only because Chrome's `env(safe-area-inset-bottom)` is 0 there — on an iPhone that inset is the strip the user saw. The foot was also content-width (inside the sheet's `px-4`), so it could not read as a bar.
+
+**What I did instead:** a new shared `components/ui/surface-foot.tsx` (`SurfaceFoot`), drawn by the surface itself: `Sheet` and `Dialog` take a `foot` prop (and `ResponsiveDialog` passes it to whichever shape it renders) and draw the foot as the scroller's LAST child, `sticky bottom-0 z-10 bg-surface`, a `flex-col gap-3` column (so a failed-submit line and the action row are its direct children). While a foot is pinned the scroller keeps NO bottom padding (`pb-0`), and the foot carries that room inside its own painted box: on a bottom sheet `pt-2 pb-[calc(1rem+env(safe-area-inset-bottom))]`, on the dialog `pt-2 pb-[1.375rem]`; edge to edge (`-mx-4 px-4` / `-mx-6 px-6`). The content wrapper of the phone `ResponsiveDialog` drops to `pb-3` with a foot, so the room between the last answer and the buttons stays 20 px as before (12 + 8; the dialog's `gap-3` + 8). The hairline is `data-[stuck=true]:shadow-[0_-1px_0_var(--line)]` (the builder's sticky phase header draws its rule the same way, a shadow, so the foot never changes height); `data-stuck` is true while the scroller has more than 1 px left to scroll (a scroll listener plus a `ResizeObserver` on the scroller and its children, guarded where there is none). `Dialog`'s first focus falls to a foot's first control when the body has none. Without a `foot` both surfaces are unchanged (`Dialog` writes `pt-[1.375rem] pb-[1.375rem]` for `py-[1.375rem]`, the same box). `ConfirmEntry` (both the match entry's and the super entry's Review, and practice) now passes its error line and buttons as `foot`; its own `sticky` div is gone. BUILD-CONTEXT §12.5 gains a "Pinned foot in a sheet or dialog" line, so a later sheet uses `foot`. The audit for other sticky feet inside a `Sheet` or `Dialog`: `grep sticky` over `src/` finds none besides `ConfirmEntry`'s (the other sticky elements are page bars — side task 2's list).
+
+Tests: `components/ui/surface-foot.test.tsx` (9): a bottom sheet and a dialog with a foot draw it as the scroller's last child with `pb-0` on the scroller and the room in the foot, edge to edge; without a foot each keeps its padding and draws none (the negative); `ResponsiveDialog` on a phone hands the foot to the sheet; the hairline is off for a list that fits, on mid-list, off at the end; a dialog with no control in its body focuses the foot's action; `ConfirmEntry` on phone and computer has Keep editing, Submit entry and the failed-submit `alert` as direct children of the one `.sticky` foot. A mutation (the dialog keeping `pb-[1.375rem]` with a foot) fails the dialog test. `e2e/review-foot.spec.ts`: at 375 and 1440, halfway down, `data-stuck` is true, the foot's bottom, left and right are within 0.5 px of the scroller's inner edges, its background is painted, and every probe point from the foot's top to the edge (three columns, every 2 px) that lands inside the surface lands on the foot; at the end, `data-stuck` is false, the last answer's row ends above the foot and the foot still reaches the edge; shots `review-foot-scrolled-{phone,desktop}` and `-outdoor-` scrolled halfway.
+
+Rejected: (1) moving the foot outside the scroller (a non-scrolling body + a fixed foot row) — it would also pin the title and handle, change what `useDragDismiss` reads as "scrolled", and move the scroller off the `role="dialog"` element that specs and tests scroll; (2) a CSS `:has([data-…])` rule on the surface to drop its padding — it hides the coupling in a selector and cannot be read in jsdom; (3) keeping the surface's padding and giving the foot a negative bottom margin — a sticky box's margins enter its constraint rectangle, which is exactly what went wrong; (4) a `border-t` for the hairline — it would add a pixel to the foot only while stuck, so the buttons would jump. The name `data-pinned-foot` was not reused: it already marks a page's `<main>` for `ActionBar` (BUILD-CONTEXT §12.5), and `ShellLayout` selects on it.
+
+**Risk:** `foot` and `footer` now sit side by side on `Dialog`/`ResponsiveDialog` (pinned vs unpinned action row); side task 3's one action-row rule may want to fold them into one. The `ConfirmEntry` action row keeps its equal-width buttons at both widths, as before (side task 3 decides the computer's alignment). The safe-area part is proven by structure (no scroller padding, the inset inside the foot's box), not by a picture: Chrome's inset is 0 in Playwright.
+
+Bundle: initial JS **227.7 KB** gzip (227.3 before: `SurfaceFoot` and the `foot` plumbing ride in the shared `Dialog`/`Sheet`). No raise.
+
+## Phase 1 I side task 2 — nothing pinned floats (plan v1.30)
+
+**Plan said:** on the team page (`/teams/:teamId`) the tab strip floats: it is not flush under the team header. Reproduce it at 375 and 1440, scrolling slowly through the compact switch both ways. Then make the header and the tabs ONE sticky block: one wrapper that sticks, the tabs inside it, no measured offset, no gap, and "a tab chosen while stuck keeps them stuck" kept. Then audit the same pattern elsewhere and fix what floats: hard-coded bar heights (`MatchTimer`, `HEADER_TOP`) → the shell publishes the top bar's height once as a CSS variable; the bottom-pinned bars (Save bars, `ActionBar`); sticky inside a scroller (the Review foot, the builder's phase headers, `TableHeader sticky`); every pinned surface opaque edge to edge with the right z-order. Tests: tabs' top = header's bottom at every scroll position (unit + step-by-step e2e), a source test that no `top-[…]` holds a bar height, and e2e shots of the team page scrolled and of the entry form scrolled under the timer, at 375 and 1440, every theme.
+
+**What was wrong:** reproduced before the fix with the new test in `e2e/team.spec.ts`. It scrolls 4 px at a time from 0 to 480 and back, with motion on, reads the boxes on 4 frames per step, and treats the tabs as stuck once the panel has slid under them. Phone, before: `phone: 964 samples, 540 stuck; header off its bar 0; tabs over the header 0; stuck with a gap 540`. Every stuck sample was `{"bar":54,"headerTop":54,"header":121,"tabs":129,…}`, an **8 px gap** with the rules showing through it. Computer, before: `desktop: … stuck with a gap 0`; there was no gap at 1440. The 8 px is exactly the vertical padding the compact header gives back (`pt-3.5 pb-3` = 26 px → `py-[9px]` = 18 px). By inference, not instrumented: the `ResizeObserver` watched the header's content box (its default), and the padding transition does not change that box. So the height measured at the switch (new content + old padding) was never measured again. It was a steady 8 px, not the one-frame lag the plan suspected.
+
+The stalled agent's uncommitted test was **replaced, not kept.** Its "parted" filter counted every sample where the tabs were < 60 px below the header, which included the tabs scrolling up toward the header (gaps 57, 53, … 9). It would have failed with a correct fix. It also wrote files through `SEAMS_DIR`/`writeFileSync`.
+
+**What I did instead:**
+- **One sticky block** (`TeamPage.tsx`, `div[data-team-head]`, `sticky top-[calc(var(--top-bar,0px)-var(--team-tiles,0px))] z-20`):
+  - The block holds the header, the phone's stat tiles, and the tab bar.
+  - The header keeps its own `sticky top-[var(--top-bar,0px)]` inside the block.
+  - The tabs follow the header **in flow** in the same box. Whatever the header's height, or its padding transition, they touch it by layout. There is no offset between them, measured or not.
+  - The computer has no tiles, so `--team-tiles` is unset (0) and the block simply sticks on the bar.
+  - On the phone, the design puts the four stat tiles **between** the header and the tabs (24-team final, frame 1). They must scroll away under the header. So the block sticks the tiles' height *above* the bar while the header's own sticky keeps it on the bar.
+  - That height is the one value read from layout: `--team-tiles`, the tiles' border-box height. It is unrounded, published on the page root by a `ResizeObserver` (`box: 'border-box'`), and written straight to the style, so there is no React render in between. It is the tiles' height, never the header's: the tiles never animate, and nothing about the header (its compact switch, its transition) enters it.
+  - **This is a deviation from "no measured offset"**, logged as such. With the tiles between the two, CSS has no way to say "stop when the tabs reach the header" without knowing the tiles' height. The alternatives are under Rejected.
+  - The panel's minimum height moved to the page root: `calc(100dvh - var(--top-bar) + var(--team-tiles))`. This is the same room as before (a screen under the stuck block) without the header's height in it.
+  - The "keeps them stuck" rule now reads the block. If the panel's top is under the block's bottom when a tab is chosen, the new panel is scrolled to start at that bottom.
+  - The header's `ref` prop and `HEADER_TOP` are gone.
+- **`--top-bar`** (`features/shell/barHeights.ts`, `TOP_BAR`):
+  - The two heights are written once: phone `calc(3.375rem + env(safe-area-inset-top))`, computer `3.75rem`. `ShellLayout` publishes the current one on every page as `--top-bar`, next to `--bottom-bar`.
+  - `TopBar` and `CrumbBar` take their own height from the same `TOP_BAR` (inline `height`; the TopBar's row is `h-full` under its safe-area padding). So the bar and every sticky element under it cannot disagree.
+  - Moved onto `top-[var(--top-bar,0px)]`: `MatchTimer` (both layouts), `TeamHeader`, and `TableHeader sticky` (it was `top-0`, behind the bar).
+  - `BuilderPage`'s `h-[calc(100dvh-3.75rem)]` is now `h-[calc(100dvh-var(--top-bar,0px))]`. That is the same copy of the height, though not a `top-[…]`.
+- **Audit:** what was checked and what was found.
+
+  | Pinned element | Finding | Change |
+  |---|---|---|
+  | Team page tabs (phone) | **Floated** by 8 px. | Fixed above. |
+  | Team page tabs (computer) | Flush before and after. | Now in the one block. |
+  | `MatchTimer` (phone `top-[calc(3.375rem+env(safe-area-inset-top))]`, computer `top-[3.75rem]`) | Did not float: the values matched the bars. A copy of the bars' heights. | → `--top-bar`. e2e: the timer sits within 0.5 px of the bar at 375 and 1440, and every probe point (every 2 px down, every 12 px across) from the screen top to the timer's bottom lands on the bar or the timer. |
+  | `HEADER_TOP` (`TeamHeader.tsx`) | A copy of the bars' heights. | Removed. |
+  | `TopBar` (sticky `z-30` `bg-rail`, safe-area inside its padding) | Opaque edge to edge. | Its height now comes from `TOP_BAR`. |
+  | `CrumbBar` (sticky `z-20` `bg-surface`) | Opaque edge to edge. | Its height now comes from `TOP_BAR`. |
+  | Entry Save bar (`EntryPage.tsx`: wrapper `sticky bottom-[var(--bottom-bar,0px)]` + `ActionBar`) | Phone e2e, scrolled: every probe point from the bar's top to the screen's bottom edge lands on the bar. The entry route hides the bottom bar. The computer has no pinned Save bar: Review entry sits in the side panel. | No change. |
+  | Super entry Save bar (`SuperForm.tsx`) | Same wrapper and classes as the entry's, so checked by code. `super.spec` passes. Not probed on its own. | No change. |
+  | `ActionBar` above `BottomBar` (Scout page) | `scout.spec`, the long roster scrolled to its end: every probe point from the action bar's top to the screen's bottom lands on the action bar or the bottom bar, including the raised Scout button and the safe-area foot. The existing flush check (≤ 1 px) still holds. | No change. |
+  | `PhoneMatchList`'s `ActionBar` | The same component. | Not probed. |
+  | Review sheet foot (`SurfaceFoot`, side task 1) | Checked: `sticky bottom-0 z-10 bg-surface`, edge to edge, the scroller has no bottom padding. `review-foot.spec` passes. | No change. |
+  | Builder phase header (`BuilderCanvas.tsx`, `sticky top-0 z-[3] bg-line-2`) | Its scroller (`overflow-y-auto bg-line-2`) has no top padding, so `top-0` is its edge. The header is opaque, the same colour as the scroller, and spans the 410 px column the items live in. Its own rule shows once scrolled. `forms.spec` passes. | No change. |
+  | `TableHeader sticky` | Was `top-0`, behind the bar. Unused. | → `top-[var(--top-bar,0px)]`. Its doc comment notes that it only sticks where `Table`'s own `overflow-x-auto` box is made `overflow-visible`: that box is a scroll container. |
+  | `Sidebar` (`sticky top-0 h-dvh z-30 bg-rail`) | Opaque. | No change. |
+  | `BottomBar` (`fixed bottom-0 z-30 bg-rail`, safe area in its own padding) | Opaque to the bottom edge. | No change. |
+  | Z-order | The team block `z-20` sits under `TopBar` `z-30`, so the part of the block above the bar (the tiles, on the phone) is covered by the bar. On the computer, the block and `CrumbBar` (`z-20`) never overlap. | — |
+- **Tests:**
+  - `TeamPage.test.tsx` (+4):
+    - On the computer, the block holds exactly [header, tab bar]. Nothing on the page has an inline `top`, and nothing else is sticky. The panel is outside the block. Every tab keeps the same block.
+    - On the phone, the block holds [header, tiles, tab bar], and `--team-tiles` is the tiles' unrounded height (`217.25px`). Compact, the block holds the same three in the same order.
+    - A tab chosen while stuck scrolls the new panel to the block's bottom. The negative: a tab chosen while not stuck does not scroll.
+  - `styles/classes.test.ts` (+3): `BAR_COPY` finds no bar height (3.375rem, 3.75rem, 54px, 60px, `safe-area-inset-top`) in a `top-[…]` class and no `100dvh-<bar>`. The phone bar's `3.375rem + env(safe-area-inset-top)` appears in `features/shell/barHeights.ts` only. The rule's own catch and accept cases are tested too.
+  - `ShellLayout.test.tsx` (+1): `--top-bar` is published on the entry route (no bottom bar) and on the computer, and each bar is exactly that tall.
+  - `MatchTimer.test.tsx`: both layouts read `--top-bar`, and no `top-[…rem]` remains.
+  - `ui.test.tsx` (+1): `TableHeader sticky` sits on `--top-bar` and is not `top-0`. Without `sticky`, it is not sticky.
+  - e2e:
+    - `team.spec.ts`: the step-by-step walk at 375 and 1440, waiting first until the header sits on the bar. Then, stuck, every probe point from the screen top to the tab bar's bottom lands on the bar or the block. Then the keep-stuck check after choosing Notes. Shot: `team-scrolled-desktop`. The phone's `team-scrolled` is shot by the phone-frames test.
+    - `entry-timer.spec.ts`: a new test with a long Teleop (12 extra counters, so the form scrolls at 1440 × 900). Shots: `entry-timer-scrolled-{phone,desktop}`.
+    - `scout.spec.ts`: the bottom-band probe.
+    - The probe helper is `e2e/pinned.ts` (`showsThrough`).
+  - **Mutations:** each change fails its test.
+    - The block's top `+8px` fails the walk: `desktop: … header off its bar 964` and `phone: … stuck with a gap 540`.
+    - The phone timer's top `+6px` fails the timer test: `Error: phone: timer on the bar … Received: 6`.
+
+Rejected:
+1. **Two sticky elements, the tabs' `top` from one CSS variable that the header's height also reads.** The header would need a fixed height, and the phone header's sub-line can wrap. It is also still two sticky elements, which the plan rules out.
+2. **Swapping the tabs into the header's sticky box once they reach it (a JS "stuck" boolean).** It is structurally exact while stuck. But the tab strip would remount at the swap and lose keyboard focus, and the swap must render in the same frame as the scroll (`flushSync` in a scroll listener).
+3. **Moving the phone's tiles under the tabs**, so the block needs no measure. This is a design change: the final puts them between the header and the tabs.
+4. **Fixing the tiles' height in CSS** (each `StatTile` line `truncate`d, a computed rem height). This is fragile: notes like "9 of 10 matches" wrap at 320 px. It is also a second copy of `StatTile`'s box.
+5. **CSS anchor positioning** (`anchor()` on the tabs). It does not work with `position: sticky`, and support on the venue phones is not there.
+
+**Risk:**
+- **Landmarks.** The tiles and the tab strip are now outside `<main>`. The block has to hold the header (the page's `banner`, which must stay outside `main`) and the tabs together. `<main>` now holds the panel. axe (wcag2a/aa) is clean, and the `region` rule is best-practice only.
+- **The tiles' height.** If it were ever stale, the phone block would stick early or late by that much. It is published before paint and on every resize of the tiles, and the e2e walk proves it at 375.
+- **The opening transient.** At the very first frame after the team page opens, the e2e saw the header 61.5 px below the bar once (`headerTop 115.5`), as the stalled agent's data also shows. The test now waits for the header to sit on the bar before walking. This looks like a shell notice that shows for a moment; I did not identify it.
+- **`TableHeader sticky`** still won't stick to the page inside `Table`'s `overflow-x-auto` box. See its doc comment.
+
+Bundle: initial JS **227.7 KB** gzip, unchanged. No raise.
+
+## Phase 1 I side task 3 — the Wipe sheet's buttons line up; one action rule for every sheet and dialog (plan v1.31)
+
+**Plan said:** one size and one edge for every button in the held Wipe sheet; one rule for every sheet and dialog, built into the shared surface: on a phone, a full-width row of equal-width buttons (secondary first, primary or destructive last); on a computer, right-aligned, equal height. *[RAISED BY ME]* while held, drop the disabled **Wipe this device**, so the footer is **Keep this device** alone. Audit every `ResponsiveDialog`, `Dialog`, `Sheet` and `DestructiveConfirm` footer and log each.
+
+**What was wrong:** the held row (`flex flex-wrap gap-2`, 44 px `md` buttons, content width, left) and the footer (`DestructiveConfirm`'s own hand-styled buttons, 48 px from `tap-target`, `justify-end`) were two layouts. Across the app the "action row" was rebuilt per page in six different ways: `flex flex-wrap justify-end gap-2` (Dialog/ResponsiveDialog footer, EventForm, SeasonForm), `flex gap-2.5` + `size="lg" flex-1` (Review, LineupTiles, StationSheet), `flex-1 lg:flex-none` (CrossEventJump), `w-full lg:w-auto` (SwitchCompetition, Problems), `max-lg:w-full` (Settings Done), stacked `size="block"` (PracticeFinished, the map's failed-to-load sheet).
+
+**What I did instead:** the rule is one component, `components/ui/surface-actions.tsx`:
+- `SurfaceActions` draws the row: `flex gap-2.5 max-lg:w-full lg:flex-wrap lg:justify-end lg:gap-2`. Below 1024 px it is full width; at 1024 px and above it is right-aligned. It decides by **width** (Tailwind's `lg`, SPEC-FINAL 17.3's breakpoint), not by which surface it is in, so a `Dialog` below 1024 px and a sheet agree, and the rule reads exactly as the plan states it.
+- `Button` reads `InActionRow`: inside the row it takes `md` (44 px) plus `ACTION_BUTTON` (`max-lg:min-h-[52px] max-lg:min-w-0 max-lg:flex-1 max-lg:px-3 max-lg:text-base max-lg:whitespace-normal`). So on a phone every action is 52 px and equal width (a long label wraps inside its half instead of overflowing); on a computer every action is the 44 px `md` button. **A `size` passed to a Button inside the row is set aside**: the row decides, so no caller can make one action taller again. `actionButtonClass(variant)` gives a `Link` drawn as a button (Send by QR first) the same classes.
+- `Dialog`'s and `ResponsiveDialog`'s `footer` render inside `SurfaceActions` (it replaced their `mt-2 flex flex-wrap justify-end gap-2` div). A pinned `foot` (side task 1) or a row in the content uses `SurfaceActions` directly. **`footer` vs `foot`:** both kept. `footer` is the unpinned row, `foot` the pinned column (an error line above the row); one rule now governs the buttons in both, which was the point. Folding `footer` into `foot` would pin every confirmation's buttons and give short dialogs that never scroll a sticky foot for nothing; rejected.
+- `DestructiveConfirm` now draws its two actions with `Button` (`secondary`, then `destructive`) instead of its own `BUTTON` string, keeping `aria-disabled` (focusable while held or busy). New prop `hideConfirm`: no confirm button at all. `DeviceWipe` passes `hideConfirm={held}`: while held the footer is **Keep this device** alone, and the held line's **Send by QR first · Wipe anyway…** is the sheet's action row, the same `SurfaceActions`. While the hold is still being read ("Checking what is waiting to send.") the disabled wipe stays, because nothing else is offered yet.
+- **Sizes chosen:** phone 52 px, the established phone action size (THEME "Primary action bar", the Review sheet, the station and lineup sheets). Computer 44 px `md`, the default every admin and builder dialog already used. `DestructiveConfirm` was 48 px on both; it is now 52 / 44. Its icon is now the Button's 17 px (it was 20 px).
+- **Review on a computer** (side task 1's note): the rule wins. The Review dialog's Keep editing · Submit entry are now right-aligned 44 px buttons, not two equal 52 px halves. Practice finished, the station sheet and "Scout … instead?" also go right-aligned on a computer. Practice finished on a phone goes from two stacked 52 px buttons (Practice another match first) to one row, **Exit practice · Practice another match** (secondary first, primary last); first focus stays on Practice another match.
+
+**The audit** (every `features/**/*.tsx` that renders `ResponsiveDialog`, `Dialog`, `Sheet` or `DestructiveConfirm`; 32 files):
+
+| File | Surface | Before | Now |
+|---|---|---|---|
+| admin/AddMatchesSheet.tsx | Sheet (phone) | a form's full-width 52 px submit, then "or one match" with an inline input + button | **Unchanged, exempt:** no action row. These are form submits, already full width or an input's own button (07-manage final) |
+| admin/AddUserDialog.tsx | Dialog ×2 | `footer`: Cancel · Add user; Add another · Done | Shared row through `footer`, no page change |
+| admin/DeleteCompetition.tsx | DestructiveConfirm | its own 48 px buttons | Shared row (through DestructiveConfirm) |
+| admin/DisableSection.tsx | DestructiveConfirm | as above | Shared row |
+| admin/DisableUserConfirm.tsx | DestructiveConfirm | as above | Shared row |
+| admin/EditMatchDialog.tsx | Dialog | `footer`: Cancel · Save changes | Shared row through `footer` |
+| admin/EditMatchSheet.tsx | Sheet (phone) | full-width 52 px Save changes, then a ghost full-width Delete match | **Unchanged, judgement call:** one action (Save) already full width. Delete is a low-emphasis ghost that *starts* a separate destructive flow (07-manage final); a row would give a destructive start the weight of Save |
+| admin/EventFormDialog.tsx | Dialog | own `mt-5 flex flex-wrap justify-end gap-2` row in the form | `SurfaceActions className="mt-5"` (kept inside the `<form>` for submit) |
+| admin/MatchesPanel.tsx | DestructiveConfirm | own buttons | Shared row |
+| admin/PhoneMatchList.tsx | DestructiveConfirm | own buttons | Shared row (the page's `ActionBar` is not a sheet; unchanged) |
+| admin/ResetPasswordDialog.tsx | Dialog ×2 | `footer`: Cancel · Reset password; Done | Shared row through `footer` |
+| admin/SeasonFormDialog.tsx | Dialog | own `justify-end` row | `SurfaceActions className="mt-5"` |
+| admin/UnsavedConfirm.tsx | DestructiveConfirm | own buttons | Shared row |
+| builder/BuilderLeaveGuard.tsx | DestructiveConfirm | own buttons | Shared row |
+| builder/BuilderPage.tsx | DestructiveConfirm | own buttons | Shared row |
+| builder/DeleteFormDialog.tsx | DestructiveConfirm | own buttons | Shared row (the in-body `size="sm"` export button is not an action row) |
+| builder/ImportExport.tsx | Dialog ×2 | `footer` with a `me-auto` ghost "Also download a copy" and an offline line | Shared row through `footer`; `me-auto` and the line still work in the `lg:` row (a desktop-only page) |
+| builder/RawJsonEditor.tsx | Dialog | `footer`: `me-auto` Copy all, offline line, Cancel · Apply | Shared row, otherwise unchanged |
+| builder/TimerConfigEditor.tsx | Dialog | `footer`: `me-auto` ghost Remove the timer, line, Cancel · Save | Shared row, otherwise unchanged |
+| context/SwitchCompetitionSheet.tsx | ResponsiveDialog | `footer` Close with `w-full lg:w-auto` | Class removed; the row does it |
+| entry/ConfirmEntry.tsx | ResponsiveDialog `foot` | `flex gap-2.5`, `size="lg" flex-1` at both widths | `SurfaceActions` in the foot; the error line stays a direct child of the foot. Computer: right-aligned 44 px |
+| entry/LineupTiles.tsx | ResponsiveDialog | own `flex gap-2.5` row, `size="lg" flex-1 px-3` | `SurfaceActions className="mt-1"` |
+| entry/PracticeFinished.tsx | ResponsiveDialog | stacked `size="block"`, primary first | `SurfaceActions`: Exit practice · Practice another match |
+| entry/ProblemsDialog.tsx | ResponsiveDialog | Keep editing `size="lg" w-full lg:w-auto lg:self-end` | `SurfaceActions className="mt-1"` |
+| entry/StationSheet.tsx | ResponsiveDialog | own `flex gap-2.5` row, `size="lg" flex-1 px-3` | `SurfaceActions className="mt-2"` (the station bar's `max-lg:w-full` button is on the page, not in the sheet) |
+| entry/lazyParts.tsx | ResponsiveDialog (map not loaded) | Close `size="block"` | `SurfaceActions` |
+| entry/map/MapSheet.tsx | Dialog (computer) + own full-screen pop-up (phone) | a tool bar: tools, count, Close/Done | **Unchanged, exempt:** THEME "Map dialog (computer)" is one 40 px tool row with Done at its end, and "Map pop-up (phone)" a full-screen bar with tools and a full-width Done. A tool bar, not a footer; the phone pop-up is not a `Sheet` |
+| settings/DeviceWipe.tsx | DestructiveConfirm ×2 | held row `flex flex-wrap gap-2` (44 px, left) + footer (48 px, right, with a disabled wipe) | Held: the held row is `SurfaceActions`; the footer is Keep this device alone (`hideConfirm`). Wipe anyway: shared row |
+| settings/SettingsPage.tsx | ResponsiveDialog ×2 | Done `max-lg:w-full` | Class removed; the row does it |
+| shell/NavDrawer.tsx | Sheet `start` | the menu | **Unchanged, exempt:** no actions |
+| sync/SyncPage.tsx | Sheet "More" + DestructiveConfirm | menu rows; own confirm buttons | More: **unchanged, exempt** (a menu). Discard confirm: shared row |
+| teams/CrossEventJump.tsx | ResponsiveDialog ×2 | `footer`, `flex-1 lg:flex-none` on each | Classes removed; the row does it |
+
+A source test (`surface-actions.test.tsx`) fails if any feature file brings back `flex flex-wrap justify-end gap-2`, `flex-1 lg:flex-none`, `w-full lg:w-auto` or a closing `max-lg:w-full"`.
+
+**Rejected:**
+- **Deciding by surface shape** (a context from `Sheet` = phone layout, `Dialog` = computer layout). It would leave a plain `Dialog` below 1024 px right-aligned, and a test could check only the shape, not the width the plan names.
+- **`*:` child selectors on the row** to size the buttons. Their order against the button's own `px-…`/`min-h-…` would hang on Tailwind's output order; classes on the button go through `tailwind-merge`.
+- **A new `Button` size** (`action`): one more locked size where a context-bound class does it.
+- **The held row as the pinned `foot`** (side task 1's suggestion). The wipe sheet is short and does not scroll; a foot adds nothing there.
+- **Keeping the disabled wipe while held:** the plan's decided *[RAISED BY ME]*.
+
+**Risk:**
+- The 16-settings final draws the held wipe with two stacked full-width buttons (Keep this device, the disabled Wipe this device). The plan's rule replaces it: the phone sheet is now [Send by QR first | Wipe anyway…] over [Keep this device], both rows edge to edge (e2e-measured: same left and right, every action 52 px; on a computer every action 44 px and both rows end at the same right edge).
+- Two-line labels on a phone ("Practice another match" in half of 343 px) wrap inside the 52 px button and the row's other button stretches to match. A label of three lines would grow the row; none does today.
+- The 14-entry-parts final and side task 1's Review shots drew the Review dialog's buttons as two equal halves on a computer. They are now right-aligned (the plan's rule).
+- `EditMatchSheet` is the one sheet left with two buttons of different heights (Save 52 px over a ghost Delete 44 px), logged above as a judgement call, not moved.
+
+Bundle: initial JS **227.8 KB** gzip (from 227.7), under the 230 budget. No raise.
+
+**Follow-up (orchestrator, before commit): a button label never wraps.**
+
+**What was wrong:** the first cut let a long label wrap inside its half (`max-lg:whitespace-normal`): "Practice another match" took two lines in a 52 px button (`practice-finished-phone.png`).
+
+**What I did instead:**
+- `ACTION_BUTTON` no longer has `max-lg:whitespace-normal`, so the button keeps its own `whitespace-nowrap`.
+- `SurfaceActions` measures, as `OptionButtons` does for its column drop. Each button's one-line width is read on the button itself: inline `width: max-content; flex: none` for the read, put back before paint. That width is checked against its equal share of the row (`fitsInRow(need, count, width, gap)`, with half a pixel of slack).
+- When any label does not fit, the row gets `data-stacked="true"` and `ACTIONS_STACKED` (`max-lg:flex-col`). Below 1024 px that is full width, one per line, in the caller's order, so the primary or destructive button is at the bottom. At 1024 px and up nothing changes (the class is `max-lg:` only).
+- A ResizeObserver on the row and its buttons re-measures. The one-line width does not depend on the row's layout, so stacking cannot feed back into the measure. A row with no width keeps its answer.
+- The copy is unchanged.
+- Practice finished on a phone is now Exit practice over Practice another match, each full width and 52 px. The held wipe's rows and Wipe anyway's row still fit side by side at 375 px.
+
+**Rejected:**
+- A hidden probe element, which is what `OptionButtons` uses. Here the buttons themselves can be read at `max-content`, so a probe would be a second copy of every label.
+- Guessing from character counts.
+- `truncate`.
+
+**Risk:**
+- A single label wider than the full row would still overflow its one line. No current label comes close: the longest is "Practice another match", about 204 px of a 343 px row.
+- The measure forces a layout read on each render of a row. Rows are few and small.
+
+Tests: 6 new in `surface-actions.test.tsx`:
+- the `fitsInRow` rule
+- a long label stacks, with the primary last and the styles put back
+- short labels stay one row
+- re-measure on a resize, both ways
+- a zero-width row keeps its answer
+- no row button may wrap
+
+Mutation: measuring the laid-out width instead of the one-line width fails 3 of them. e2e `drafts-practice.spec.ts`: Practice finished at 375 is stacked, both buttons 52 px, equal width, the primary below. At 1440 the two buttons sit on one line at 44 px.
+
+Bundle: initial JS **228.2 KB** gzip, under 230.
+
+## Phase 1 I side task 4 — an offline wipe warns that the phone cannot sign in again (plan v1.32)
+
+**Plan said:** while offline, both wipe confirmations show a warning Notice above the confirm ("**You're offline.** After the wipe, this phone can't sign in again until it has a connection."); online it is not shown; the confirm stays enabled. *[RAISED BY ME]* after a wipe the sign-in page's no-accounts line reads "**This device was wiped.** Connect to the internet to sign in.", from a marker that survives the wipe and is cleared by the first successful sign-in. The connection is read through the existing state, never a new `navigator.onLine` check.
+
+**What was wrong:** nothing in the plan. Five choices it left open:
+1. *Which "warning Notice".* `WarningNotice` (THEME "Warning notice", `--warn-tint`) with `lead="You're offline."` and the `WifiOff` icon. That is the shape the builder already uses for its "You're offline." line, and THEME's "Something to know before going on". Rejected: the legacy `Notice tone="warning"` (the held line's edge). Here the warning sits under the type-to-confirm field, and a second edge-only box read as part of the form.
+2. *Where it goes.* There was no slot "above the confirm" in `DestructiveConfirm`: `children` sit before the typed phrase, and `held` disables the confirm. I added a `notice` prop, drawn after the type-to-confirm field and `held`, before the error line. It holds nothing. Rejected: passing it as `held` (that disables the confirm), or as `children` (it would sit between the code and the phrase).
+3. *Which states of the normal wipe show it.* Only the open one (nothing waiting, confirm drawn). Since side task 3 the held sheet has no confirm, and its own way out is Wipe anyway…, whose confirmation shows the warning. While the hold is still being read it is not shown, so it does not flash and then go when the sheet turns held.
+4. *The marker.* A new `meta` key, `JUST_WIPED_KEY = 'device.just_wiped'` (`data/db.ts`). The wipe writes it in its own transaction, after it deletes `meta`, and lists it in `KEPT_META`. Rejected: reusing `WIPED_AT_KEY`. A sync reads that at the start of its pull and again when it marks hydration, so a sign-in clearing it would cost the first pull after sign-in its hydration mark. Rejected: `localStorage`. The wipe's `clearDevicePrefs` and the session live in IndexedDB, and the discarded log (the precedent the plan names) is there too.
+5. *Who clears it.* `session.signIn`, inside the same `meta` transaction as the session write (`update`'s new `alsoInMeta`). Every successful sign-in goes through it: online, offline, and the reconnect exchange. Rejected: clearing it after the session write, outside the transaction. The first cut did that, and two existing tests failed (`AppShell.test.tsx` "exchanges the held password…" and `offlineLogin.integration.test.ts` "on reconnect, mints a token…"). They read `pendingCredential` the moment the token appears, and the extra await after the notify moved `pendingCredential.clear()` later:
+   `AssertionError: expected { username: 'seed_scouter', …(1) } to be null`
+
+**What I did instead:**
+- `offlineLogin` reads the mark only when no accounts are cached. With the mark it throws `OfflineLoginError('wiped')` (`WIPED_DEVICE_LINE`); without it, `'no-accounts'` as before. `signInWithFallback` treats `'wiped'` exactly as `'no-accounts'`. So an online device with no answer still gets the server-unreachable line, and a 5xx still gets the server line.
+- `LoginPage` draws `WIPED_LEAD` in bold inside the error line. `AuthError` takes a `ReactNode`.
+- `DeviceWipe` reads `useOnline()` (settings is not one of the folders `offlineGates.test.ts` restricts) and passes the warning as `notice` to both confirmations.
+- The wipe itself is unchanged.
+
+**Risk:**
+- The error line is already semibold, so the bold lead is only a little heavier than the rest of the line (`login-wiped-*.png`).
+- `SwitchScouter` still shows `NO_CACHED_ACCOUNTS_LINE` when nothing is cached. It cannot be reached after a wipe, because the wipe signs out, so it was left alone.
+- *[RAISED BY ME]* On `/login` after an offline wipe, the offline note above the form still says "Signing in will use the credentials cached on this device", and none are cached. The wiped line only appears after a submit. Not changed here: the plan names only the no-accounts line.
+
+Tests:
+- `DeviceWipe.test.tsx`, 7 new:
+  - the wording
+  - normal wipe, offline: the warning, placed after the typed phrase, with the lead in `<b>`, and the confirm still enables
+  - normal wipe, online: none
+  - it comes and goes with the `offline`/`online` events
+  - held and offline: none
+  - Wipe anyway, offline: the warning, and the confirm still enables
+  - Wipe anyway, online: none
+- `offlineLogin.test.ts`, 5 new:
+  - the wiped line
+  - the offline fallback says it and keeps the mark
+  - online with no answer, the server line still wins
+  - no mark gives the old line
+  - an online sign-in clears the mark and the old line comes back
+- `LoginPage.test.tsx`, 2 new: the wiped line with its bold lead, not the old line; an online sign-in clears the mark.
+- `wipe.test.ts`: the wipe leaves `JUST_WIPED_KEY: true` in `meta`, plus 1 new test: after a real wipe of a device with a cached account, offline sign-in gives the wiped line.
+- Mutation: dropping the clear from `session.signIn` fails 2.
+- e2e:
+  - `settings.spec.ts`, new test: online, neither confirmation has the line. Offline, both do, and the confirm enables. Wipe anyway offline lands on `/login`, and an offline sign-in there says the device was wiped. Shots: `settings-wipe-offline`, `settings-wipe-anyway-offline`.
+  - `auth.spec.ts`, new test: the mark set and offline, the sign-in shows the wiped line with `<b>` on the lead. Shot: `login-wiped`.
+  - Both specs ran, every theme, at 375 and 1440.
+
+Bundle: initial JS **228.3 KB** gzip, under 230.
+
+**Follow-up (orchestrator, same task): the wiped line up front on `/login`.** The *[RAISED BY ME]* risk above is fixed. While the wipe's mark is set and the device is offline, `/login` shows "**This device was wiped.** Connect to the internet to sign in." as soon as it opens, in the offline note's style (`Note icon="offline"`, `role="status"`), in place of the note that offers cached credentials. Online with the mark set, nothing extra is shown. Offline without the mark, the old note is unchanged.
+- The page reads the mark through `useDeviceQuery(readJustWiped, [], ['meta'])`. `readJustWiped` is the new helper in `auth/offlineLogin.ts`, and `offlineLogin` uses it too.
+- Neither offline line is drawn until the mark has been read, so the cached-credentials note never flashes before the wiped line.
+- Pressing Sign in while the line is up gets the same refusal. That refusal is not drawn a second time as an error line, because the same line twice reads as two problems. If the page still thought it was online (the connection dropped with no event), the refusal shows as the error line, as before.
+
+Rejected: keeping both the note and the error line.
+
+Tests:
+- `LoginPage.test.tsx`, now 4 in the wipe group:
+  - offline with the mark: the wiped line up front with a bold lead, no cached-credentials note, and no second copy after a refused submit
+  - offline without the mark: the old note
+  - online with the mark: neither; going offline then brings the wiped line, which proves the mark was read
+  - the error-line case
+- e2e `auth.spec.ts`: the mark set and the page reloaded. Online, no status line. Offline, the wiped line up front with a bold lead and no cached-credentials note. A refused Sign in adds no alert. The `login-wiped` shot is taken again.
+- e2e `settings.spec.ts`: after the offline Wipe anyway, `/login` shows the wiped line up front, with no cached-credentials note.
+- Bundle: still 228.3 KB.
+
+## Phase 1 I side task 5 — a field's chart shows the answers it has (plan v1.33)
+
+**Plan said:** find why picking Driver skill, Climb time, Cycle time or Cycle estimate draws "—" over every match, ruling the four suspects in or out (the device's `formScoring(…, { versions: [] })`; a version the cache lacks; an outbox row without `form_version_id`, `match_type` or `match_number`; the chart reading a different metric object). Fix the cause on the device path or in the shared input, never a second formula, and add a test that device and server agree. *[RAISED BY ME]* A match whose form version did not have the field is not drawn at all (no point, no dash, no dotted bridge; the x-axis keeps the match). A field chart with no value says so in one line ("No Driver skill answers for this team yet"). One value shows its dot and the team value line.
+
+**What was wrong:** none of the four suspects. On the dev event the device path agrees with the server metric for metric and match for match. The "—" was the engine's correct null, drawn as a gap. Evidence, from the local server against dev on 2026-10-28:
+
+- I logged in as `seed_lead` and pulled event `…0002` the way the device does: 1 page, 103 entries, 5 form versions, 32 form fields.
+- I fed those rows through `loadDeviceTeamStats` (cache mocked with the pulled rows) and compared with `getTeamStats` for 8009, 8014, 8020 and 8000. All 40 metrics were `SAME`: value, `unavailable_reason` and every series point. For example 8009's Driver skill was `[null,null,null,4]` on both sides, and its Cycle estimate `[null,null,null,10]` on both.
+- Of the event's 100 match entries, 90 are on versions `…0004` and `…0005`. Those versions hold only `auto_left_zone, auto_notes, notes, teleop_notes, endgame_climb`. The new fields exist only on the active version `…98e3f5` (10 entries).
+  - So every team with one new-version match shows three "—" and one lone dot. A single point draws no line segment, only a 3 px dot at the right edge.
+  - 8014 (three seed entries, all on `…0005`) shows "—" over every match.
+  - Cycle time and Climb time have no number on the new version either: 8009's Q17 timer is `null` ("unsure"), and Climb time (`climb_seconds`, shown only when the climb is `high`) is unanswered. So they are dashes throughout.
+- Suspect 3, tested directly: an outbox-shaped 8014 row (the exact keys `submitEntry` writes, a client `.000Z` stamp) on Q20, added to the dump, shows on the device as `[null,null,null,3]` with value 3. The row shape is fine.
+- Suspect 4: `ProgressPanel` and the Stats card both take their metric from `chartMetrics(stats.metrics)` by key. That is the same object the Stats row reads.
+- Suspect 1: `versions: []` only feeds `formScoring`'s fallback when a form has no active version, and `scoringOf` returns before that. Harmless, but it now gets the cached `form_versions` anyway.
+- Suspect 2: a version missing from the cache only touched the type-changed guard and the note labels. With the new reading rule it would also touch "asked", so it is handled there (below).
+- The 8014 entry the user scouted on the phone was not on the server. If it was in the phone's cache, the device would have drawn it, as the probe shows. I cannot see the phone. Likely causes are practice mode (which writes nothing) or a push still waiting. **Not verified.**
+
+**What I did instead:**
+
+- **Shared engine (one implementation).**
+  - `statsSeriesPoint` gains `asked: boolean`, as `z.boolean().default(true)`, so a server that predates it parses as the old reading.
+  - `buildTeamStats` sets `asked` on every field series point through the new `wasAsked`. A point is asked when the entry holds a value of the key (`null` included, so an "unsure" timer was asked) or when its version holds a live field of that key. A not-asked point is `value: null, asked: false`. Points-per-match points are always `asked: true`.
+  - A version the caller does not hold reads as a version without the field. The server reads a version whose fields it cannot find the same way, so a device with a stale cache never shows a dash the server would not.
+  - Rejected: inferring "asked" from `data` alone. A field left empty is absent from `data` (8020's Q19 has no `cycle_time` key), so it would vanish instead of showing "—".
+  - Rejected: reading an unknown version as asked. That is the old dash, the very one this task removes.
+  - Server bundle rebuilt (`apps/server/api/index.js`).
+- **Device path.** `loadDeviceTeamStats` now reads the cache and calls the new pure `deviceTeamStats(rows, teamId, eventId)`. It also reads `form_versions` and passes them to `formScoring`. Nothing else changed, because the device was already right.
+- **Chart (`ProgressionChart`).**
+  - A not-asked point keeps its x position and label, and draws no point and no "—".
+  - A gap's dotted bridge stops at a not-asked match, and so does the solid line.
+  - The text alternative says "Qn: not on the form for this match". A broke-down suffix is kept, because it is still true.
+  - A field chart with no value is one `--muted` line, "No {label} answers for this team yet", at the chart's height. It sits inside the same measured box, so switching metrics keeps the width.
+  - Its legend is dropped (`chartHasValues`, in `ProgressPanel` and on the computer's Stats card).
+  - Points per match always keeps its plot.
+- **Small calls.**
+  - The empty line uses the field's own label ("Climb time"), not the picker's phase-prefixed one ("Endgame climb time"), as in the plan's example.
+  - A conditional field hidden by its condition is still "—", because it is on the version. Example: Climb time when the climb was not `high`. The rule is about the version, not the condition.
+  - A no-show on a version without the field is not drawn: "not asked" wins over "dead".
+  - The match table's cells are unchanged (out of scope).
+- **The device-equals-server test** is `apps/client/src/features/teams/teamStats.parity.test.ts`.
+  - It runs the server's own `getTeamStats`, through a Store stub over the same rows, against `deviceTeamStats`.
+  - The fixture has an entry still in the outbox: a client-stamped row on a match the device made itself (`ensureMatchLocally`'s bare row). It also has two versions where v1 lacks the four fields, a no-show, a disabled robot, an "unsure" timer, a field left empty, and the super form's own `driver_skill` select.
+  - It compares the whole `TeamStats`, with note stamps compared as instants.
+  - The server module is loaded with `import.meta.glob`, not imported. A static import fails the client's composite `tsc -b` with `error TS6307: File 'C:/dev/frc-scouting/apps/server/src/core/queries/stats.ts' is not listed within the file list of project 'C:/dev/frc-scouting/apps/client/tsconfig.app.json'`. Its signature is restated in the test.
+  - Rejected: putting the test in `apps/server`, importing the client. The server's `tsc --noEmit` is its Vercel build, and it would then reach into `apps/client`, which is not a server input (`SERVER_INPUTS`).
+
+**Risk:**
+
+- The restated `getTeamStats` type in the parity test is not checked against the server's. A changed signature fails the test at run time, not at `tsc`.
+- A phone with a stale cache (missing a version's fields) now draws nothing where the server draws "—" for a field left empty on that version. The reverse cannot happen.
+- The phone's missing 8014 entry is unexplained; see "What was wrong".
+- Bundle: 228.3 KB, unchanged against the 230 budget.
+
+Tests:
+
+- `packages/shared/src/engine/teamStats.test.ts`, 2 new:
+  - On v1 (no Driver skill or Climb time) the points are not asked, a no-show included. On v2 an answer, a no-show, a field left empty and an unsure timer are all asked. An unknown version is read from the entry. Points are always asked. The wire schema passes.
+  - A series point without `asked` parses as asked.
+- `apps/server/src/core/queries/stats.test.ts`: the no-show point now carries `asked: true`.
+- `teamStats.parity.test.ts`, 4 new: 8009, 8014 (with the outbox entry) and 8020 are equal on both sides, and the four cases read as the plan names them. Mutation: the device passing `versions: []` fails all 4.
+- `ProgressionChart.test.tsx`, 7 new:
+  - one answer is one dot plus the team value line
+  - not-asked matches draw no dash, point or bridge, and the axis keeps them
+  - nothing is bridged across a not-asked match
+  - a gap still draws "—"
+  - the empty line when there is no value (all not asked, or asked but empty)
+  - points per match keeps its plot
+  - the Progress tab drops the legend under an empty chart
+- e2e `team.spec.ts`, 1 new:
+  - Setup: Orbit's first five matches are on an older version without Climb time and Driver skill, and nobody timed a climb.
+  - Driver skill shows the five not-asked matches, the one no-show as the only "—", and a mark on every other match.
+  - Climb time shows its empty line.
+  - Shot `team-progress-field` at 1440 and 375, Light and Outdoor.

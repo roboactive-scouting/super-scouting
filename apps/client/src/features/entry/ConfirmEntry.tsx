@@ -3,6 +3,7 @@ import { SELF_EDIT_WINDOW_MS, type RobotStatus } from '@frc/shared';
 import { Button } from '@/components/ui/button';
 import { ErrorLine } from '@/components/ui/notice';
 import { ResponsiveDialog } from '@/components/ui/responsive-dialog';
+import { SurfaceActions } from '@/components/ui/surface-actions';
 import { EntryAnswers, useMapView } from './EntryAnswers';
 import { MapFieldView } from './lazyParts';
 import type { Phase } from './phases';
@@ -13,7 +14,9 @@ const MINUTES = Math.round(SELF_EDIT_WINDOW_MS / 60_000);
  * The confirmation summary of the whole entry (SPEC-FINAL 8.2): a bottom sheet on a phone,
  * a dialog on desktop (Entry README). Every field is listed by phase; first focus is Keep
  * editing, Escape keeps editing. A failed submit keeps the sheet open and shows the reason
- * beside the buttons, in the same sticky footer, so it is in view however long the list.
+ * beside the buttons, in the same pinned foot, so it is in view however long the list. The foot
+ * is the surface's own (`foot`, `SurfaceFoot`; Phase 1 I side task 1): opaque from its top edge
+ * to the sheet's bottom edge, so no answer shows under the buttons.
  *
  * A map field (position, cycle path, an event log that asks where) is one compact row like the
  * others (UF.24; SPEC-FINAL 8.2 v1.30): its name, what it holds in the map button's words
@@ -69,6 +72,27 @@ export function ConfirmEntry(props: {
         onClose={props.onBack}
         initialFocus={back}
         showClose={false}
+        // The surface's pinned foot (Phase 1 I side task 1): opaque to the bottom edge, a hairline
+        // while answers pass under it. The failed-submit reason is a DIRECT child of the foot
+        // (its `.sticky` box): in view, beside the button just pressed (EntryPage.test.tsx
+        // asserts the parent).
+        foot={
+          <>
+            {props.error && (
+              <ErrorLine ref={props.errorRef} focusable>
+                Not saved. {props.error}
+              </ErrorLine>
+            )}
+            <SurfaceActions>
+              <Button ref={back} variant="secondary" onClick={props.onBack}>
+                Keep editing
+              </Button>
+              <Button variant="primary" busy={props.submitting} onClick={props.onSubmit}>
+                {props.practice ? 'Finish practice' : 'Submit entry'}
+              </Button>
+            </SurfaceActions>
+          </>
+        }
       >
         <div className="-mt-2 text-[0.8125rem] text-muted">
           {props.summary ?? (
@@ -93,35 +117,6 @@ export function ConfirmEntry(props: {
           status={showStatus ? props.status : undefined}
           map={map}
         />
-        {/* The failed-submit reason is a DIRECT child of this .sticky footer: in view, beside
-          the button just pressed (EntryPage.test.tsx asserts the parent). */}
-        <div className="sticky bottom-0 flex flex-col gap-3 bg-surface pt-2">
-          {props.error && (
-            <ErrorLine ref={props.errorRef} focusable>
-              Not saved. {props.error}
-            </ErrorLine>
-          )}
-          <div className="flex gap-2.5">
-            <Button
-              ref={back}
-              variant="secondary"
-              size="lg"
-              className="flex-1"
-              onClick={props.onBack}
-            >
-              Keep editing
-            </Button>
-            <Button
-              variant="primary"
-              size="lg"
-              className="flex-1"
-              busy={props.submitting}
-              onClick={props.onSubmit}
-            >
-              {props.practice ? 'Finish practice' : 'Submit entry'}
-            </Button>
-          </div>
-        </div>
       </ResponsiveDialog>
       {/* Beside the sheet, not in it: its keys, taps and drags stay the map's own. */}
       {props.open && map.viewing && (
