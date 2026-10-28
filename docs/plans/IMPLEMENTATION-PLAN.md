@@ -1,6 +1,7 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.33 · **Date:** 2026-10-27 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.34 · **Date:** 2026-10-28 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.34 (2026-10-28): the ranking page is designed (`docs/design/pages/27-ranking/final/`, spec v0.98 / SPEC-FINAL v1.46 §13.5, §17.9, D18); task 1.58 points at it and adds the per-phase averages and the standard deviation to `rankRow`; §17.8 now prints one decimal, so 1.58 also changes `formatMetric`.*
 *v1.33 (2026-10-27): a fifth side task at the top of Phase 1 I: the team page's field charts show "—" for every match, even where the field was answered (user).*
 *v1.32 (2026-10-27): a fourth side task at the top of Phase 1 I: a wipe made offline says first that the phone cannot sign in again until it has a connection (user).*
 *v1.31 (2026-10-27): a third side task at the top of Phase 1 I: the Wipe sheet's buttons line up, and every sheet and dialog lays out its actions by one rule (user).*
@@ -111,7 +112,7 @@ Every task's requirements implicitly include this section. Values are copied ver
 - **Motion respects `prefers-reduced-motion`**: with it set, nothing moves. On the data-entry path, motion only informs (SPEC-FINAL §17.9).
 - **Touch targets ≥ 48 × 48 px with ≥ 8 px between adjacent targets. WCAG AA: 4.5:1 for text, 3:1 for UI boundaries and chart strokes, in every theme** (§17.7).
 - **`dir="auto"` on every text node that can hold Hebrew** — form labels, notes, chart axis labels, table cells (§17.1).
-- **Formatting is identical on every surface** (§17.8): computed metrics and standard deviations to **2 decimal places**; integer counts and team numbers with **no decimals and no thousands separator**; percentages as **whole numbers**; dates **`DD/MM/YYYY`**; times **24-hour**; the **device's local timezone**.
+- **Formatting is identical on every surface** (§17.8): computed metrics and standard deviations to **1 decimal place, a whole number bare** *(v1.34; was 2 — task 1.58 makes the change)*; integer counts and team numbers with **no decimals and no thousands separator**; percentages as **whole numbers**; dates **`DD/MM/YYYY`**; times **24-hour**; the **device's local timezone**.
 - **Builder routes require a viewport ≥ 1024 px** and otherwise render one clear "this needs a computer" panel. Alliance selection and conflict review work at any width (§17.2).
 - **Device baseline: Android Chrome from the last ~2 years, iOS Safari 16+** (§18.1). That is the browserslist and the Vite build target; older devices are unsupported rather than broken-for.
 - **No secret value is ever written into the repository, a commit message, or a chat message** (Appendix B). Only non-secret identifiers — project refs and deployment URLs — are ever spoken aloud.
@@ -17226,6 +17227,14 @@ git add -A && git commit -m "feat(server): add getTeamStats and the fixed phase 
 - `/ranking` → `PATHS.ranking`, plus a `NAV_ITEMS` row `{ id: 'ranking', label: 'Ranking', icon: Trophy, group: 'competition', bottomBar: 3, visible: () => true }`. **Set Entries' `bottomBar` to `null`**, which moves it to the drawer and sidebar only (spec v0.49).
 - The bottom bar becomes Home · Scout · Search · Ranking.
 - The table is `Table` with `TableHeader sticky` and `numeric` cells. The top-3 medals are a `Trophy` icon plus the rank number.
+- *(v1.34)* **Design: `docs/design/pages/27-ranking/final/` (variant N).** Build it and compare screenshots at 1440 and 375 px; its README is the behaviour. In short:
+  - **Two categories** (the locked Category switch) replace column visibility: **Scoring** = By-phase bar · Total · one column per scoring phase · Consistency · Availability (Status marks) · Matches; **Availability** = Status spread bar · Availability · Breakdowns · No-shows · Disabled · Matches.
+  - **Data.** `rankRow` (`packages/shared/src/api/stats.ts`) gains `stddev` and `phase_averages` (one per phase in `FIELD_PHASES` that carries points in the season's form, from `scoreBreakdown` in `engine/breakdown.ts`), both computed in `buildRankTable` (`engine/teamStats.ts`) over the same counted entries as `average_points`, so the offline table equals the server's. Played = `matches_counted − breakdowns`. The spread counts scouted entries only, never the schedule.
+  - **Sort** runs in the client over every row (no pagination): a list of `{ key, direction }` per category, each category keeping its own. A header click replaces the list with that one key (a second click reverses it, so the tests below still hold); the Sort control states the list in words and opens the Sort builder (popover on a computer, `Sheet` on a phone) to reorder, flip and add tie-breakers from the open category's keys. Still tied → rank order; no data last. Consistency is never a key. `RANK_SORT_KEYS` gains the phase keys; `rank` never changes.
+  - **Team study:** a row selects the team and fills the panel beside the table (computer) or opens the bottom sheet (phone): points by phase with share and place, Consistency with the typical-match range (Total ± SD), the Status spread and the four counts, **Open team page** (`/teams/:teamId`).
+  - **Shading** reuses `shadeFor` / `ShadedValue` (1.53's deviation): the figures in the current sort are shaded, the rest plain.
+  - **One decimal (SPEC-FINAL §17.8, v1.46).** Change `formatMetric` (`packages/shared/src/format.ts`) to one place with a whole number bare (`12.3456` → `"12.3"`, `12` → `"12"`) and its test to match; `teamView.formatStat` then delegates to it instead of keeping its own copy. `ComputedValue` and `conflictsView` keep calling `formatMetric`. This task's test below expects `'50'` (was `'50.00'`).
+  - Components (THEME "Locked components", Ranking): Category switch, Sort control, Sort builder, Numbered sort badge, By-phase bar, Status marks, Status spread bar, Team study panel / summary sheet.
 
 **Files:**
 - Create: `apps/client/src/features/ranking/RankingPage.tsx`, `apps/client/src/features/ranking/RankingPage.test.tsx`
@@ -17263,7 +17272,7 @@ describe('RankingPage — the fixed phase 1 table (SPEC-FINAL 13.5)', () => {
   it('lists every team with rank, average points and the reliability figures', async () => {
     render(<RankingPage eventId="ev-1" rpc={rpcFor()} />);
     const first = await screen.findByRole('row', { name: /Team 1000/ });
-    expect(first).toHaveTextContent('50.00');
+    expect(first).toHaveTextContent('50'); // v1.34: one decimal, a whole number bare (SPEC-FINAL 17.8)
     expect(within(first).getByLabelText(/breakdowns/i)).toBeInTheDocument();
     expect(within(first).getByLabelText(/availability/i)).toHaveTextContent('100%');
   });

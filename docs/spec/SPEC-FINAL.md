@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.45 · **Date:** 2026-10-23 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.46 · **Date:** 2026-10-28 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.46: the ranking page is designed (§13.5, D18): phase 1's table gains the Auto, Teleop and Endgame averages and Consistency, two categories (Scoring, Availability) replace column visibility, availability shows on every row, a status spread over the scouted matches, a team study panel, and a sort of several figures; the phone bottom bar is Home · Scout · Search · Ranking (§17.9); averages and standard deviations print **one** decimal, a whole number bare (§17.8). See the living spec's §21, v0.98.*
 
 *v1.45: no edit is possible after the 5 minutes (§7.6): an open form counts down its last minute, saves what is typed at 5:00 and locks. See the living spec's §21, v0.97.*
 
@@ -1701,7 +1703,23 @@ Layout: the **metrics table first**, then charts and other metrics below.
 
 **Weight presets:** an admin can save **named weight presets** (these seed the pick list, §14.3). A lead can adjust weights live but **session-only**. **Offline, weights can be changed but not saved.**
 
-**Phase 1 ships a fixed ranking table**, not this one: the canonical basic rank, the average scouted score, and the four reliability figures, with column sort and no weighting. The admin-built columns, the weighting mode and the presets arrive in phase 2 with the metric builder they depend on (§20.2).
+**Phase 1 ships a fixed ranking table**, not this one: the canonical basic rank, the average scouted score **and its per-phase averages**, its **consistency** (standard deviation), and the four reliability figures, with a **sort of one or several figures** and no weighting *(v1.46; was "the average scouted score, and the four reliability figures, with column sort")*. The admin-built columns, the weighting mode and the presets arrive in phase 2 with the metric builder they depend on (§20.2).
+
+*(v1.46, user 2026-10-28)* **Phase 1's table as designed** (`docs/design/pages/27-ranking/final/`, variant N):
+
+- **Two categories**, switched by a category switch; they replace column visibility. Each keeps its own sort.
+  - **Scoring:** a by-phase bar · **Total** (the average scouted points) · one average per phase that carries points in the season's form (normally Auto · Teleop · Endgame; together they add up to Total) · **Consistency** (± the standard deviation, never a sort) · the team's availability · Matches.
+  - **Availability:** a **status spread** · **Availability** · Breakdowns · No-shows · Disabled · Matches.
+- **Availability on every Scoring row:** the % (bold under 100 %) with one robot-status shape per problem match (◆ broke down, □ disabled, – no show), so a strong team that is not dependable shows without a click.
+- **Status spread:** one bar of the team's **scouted** matches, Played and Broke down on the "on the field" side of a line, Disabled and No show on the "missed" side, every block with its shape and count. **[RAISED BY ME]** The denominator is the matches scouted, never the schedule: a match nobody scouted is in none of the four statuses and is not drawn as missed.
+- **Sort:** one figure or several, in order, each with its own direction (best/worst first; fewest/most first for counts), from the open category's figures only.
+  - A header click makes that figure the whole sort; a second click reverses it. The sort control states the whole sort in words and opens a builder that adds tie-breakers.
+  - Each later figure settles ties in the one before it. Teams still tied keep rank order, and a team with no data sorts last whatever the sort.
+  - **Rank never changes** with the sort: it is the canonical basic rank (§11.5), with medals on the top 3.
+- **Team study:** a row opens one team's record beside the list on a computer and in a bottom sheet on a phone: rank, **Open team page**, points by phase with each phase's share of Total and the team's place in it, consistency with the typical-match range (Total ± SD), and availability with the status spread and the four counts.
+- **Phases are the form's, not fixed** **[RAISED BY ME]**: the bar and the per-phase figures follow the phases that score in the season's form, so a year that scores a post-match field gets that segment too and the parts still add up to Total.
+- Shading (§12.6) marks the figures in the current sort; the others print plain.
+- Offline, the phone computes the same table from the entries on the device and says so ("Computed from the data on this device", with the last sync time).
 
 ### 13.6 Compare page
 
@@ -2022,8 +2040,8 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 
 | Value | Format |
 |---|---|
-| Computed metrics and averages | **2 decimal places** |
-| Standard deviation | 2 decimal places |
+| Computed metrics and averages | **1 decimal place**; a whole number prints bare ("41", "38.4") *(v1.46; was 2)* |
+| Standard deviation | 1 decimal place, as "±6.1" |
 | Integer counts (game pieces, match numbers, team numbers) | **No decimals**; team numbers carry **no thousands separator** |
 | Percentages | **Whole numbers** |
 | Dates | **`DD/MM/YYYY`** |
@@ -2075,7 +2093,7 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 
 **Navigation (v1.3).**
 - **≥ 1024 px:** a collapsible **sidebar**, remembered per device.
-- **Below 1024 px:** a top bar whose menu opens the same destinations as a **drawer** (with the sync line and the account: Switch scouter · Change password · Sign out), plus a **bottom bar**: Home · **Scout, a raised button in the middle** · Entries (with the waiting-to-send count). Team search and Ranking join it with their pages as **Home · Teams · Scout · Ranking · Entries** — four tabs plus the raised Scout; Entries stays in the bar. *(Amended 2026-10-07, v1.15; was "at most four, Ranking returns Entries to the drawer".)*
+- **Below 1024 px:** a top bar whose menu opens the same destinations as a **drawer** (with the sync line and the account: Switch scouter · Change password · Sign out), plus a **bottom bar**: Home · Scout · Search · Entries (Entries with the waiting-to-send count) from task 1.51; with the Ranking page (task 1.58) it becomes **Home · Scout · Search · Ranking**, and **Entries moves to the drawer** and the sidebar. *(v1.46, user 2026-10-28; returns to the original "at most four, Ranking returns Entries to the drawer", which v1.15 had replaced with Home · Teams · Scout · Ranking · Entries.)*
 - **The bottom bar is hidden on the entry route.**
 - The context switcher is still never in the nav: the nav links to Home, which holds it.
 
@@ -2532,7 +2550,7 @@ Every one of these is a decision that was **made** during consolidation because 
 | D15 | Parent-deleted records | Client hard-deletes, but raises a notice naming exactly what was discarded and logs it locally | §9.7 |
 | D16 | User deletion | Implemented as `disabled_at`, so authorship survives | §3.2, §7.3 |
 | D17 | Super-scouting coverage denominator | Teams with a recorded entry, not matches — follows from (team, event) cardinality | §12.7 |
-| D18 | Ranking table phasing | Phase 1 ships a **fixed** ranking table; the configurable, weighted one arrives in phase 2 with the metric builder it depends on | §13.5, §20.2, §20.6 |
+| D18 | Ranking table phasing | Phase 1 ships a **fixed** ranking table — the basic rank, Total and its per-phase averages, consistency and the four reliability figures, in two categories, with a sort of several figures *(v1.46)* — and the configurable, weighted one arrives in phase 2 with the metric builder it depends on | §13.5, §20.2, §20.6 |
 | D19 | Event roster | A first-class `event_teams` table with an admin surface. Nothing previously modelled "which teams are at this event", which the rank badges, the robot picker and the coverage metric all need | §3.1, §6.4 |
 | D20 | Match membership | Normalized into `match_teams` rather than six nullable columns, so "which matches contain team X" is one indexed lookup | §3.1 |
 | D21 | Active context storage | An `app_settings` singleton, not a flag on `events` — the only shape that can express "a season is active but has no events yet" | §3.1, §6.3 |

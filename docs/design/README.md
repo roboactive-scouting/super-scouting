@@ -62,6 +62,7 @@ Pages go **one at a time**. At this stage that means only the pages that exist t
 | 24 | Team page (Phase 1 H) | `/teams/:teamId` | **Closed** 2026-10-23, variant D2 (D + B's match list with the scouter + C's strip on Matches only) | 1.53 |
 | 25 | Entry preview (Phase 1 H) | `/entries/:id` | **Closed** 2026-10-23, variant B + D's Team page and Edit buttons | 1.52 |
 | 26 | Entry search (Phase 1 H) | `/entries` (replaces 05's list) | **Closed** 2026-10-23, variant A (05 + Both · Match · Super; no station tag in the list) | 1.52 |
+| 27 | Ranking (Phase 1 I) | `/ranking` | **Closed** 2026-10-28, variant N (L, the third draw, + availability on every row, the status spread, a phone summary sheet, a sort of several figures) | 1.58, 1.59 |
 
 The phone shell (`pages/11-phone-shell/final/`, not a numbered route) is coded in RB.6. All were built in the redesign build (`docs/plans/REDESIGN-BUILD-PLAN.md`, RB.1–RB.20), and RB.19 reviewed each against its final images. `/context` is only a redirect to `/`. Update this table when a page closes.
 
