@@ -1,5 +1,5 @@
-import { useRef, type KeyboardEvent } from 'react';
 import { cn } from '@/lib/utils';
+import { onRadioGroupKey } from './radio-keys';
 
 /**
  * THEME "Category switch (two views of one list)" (Ranking, 2026-10-28): a `--line-2` track with
@@ -27,35 +27,16 @@ export function CategorySwitch<K extends string>({
   compact?: boolean;
   className?: string;
 }) {
-  const group = useRef<HTMLDivElement>(null);
-
-  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    const el = group.current;
-    if (!el) return;
-    const items = [...el.querySelectorAll<HTMLElement>('[role="radio"]')];
-    const current = items.indexOf(document.activeElement as HTMLElement);
-    if (current < 0) return;
-    const rtl = getComputedStyle(el).direction === 'rtl';
-    let next: number;
-    if (e.key === (rtl ? 'ArrowLeft' : 'ArrowRight') || e.key === 'ArrowDown') {
-      next = (current + 1) % options.length;
-    } else if (e.key === (rtl ? 'ArrowRight' : 'ArrowLeft') || e.key === 'ArrowUp') {
-      next = (current - 1 + options.length) % options.length;
-    } else if (e.key === 'Home') next = 0;
-    else if (e.key === 'End') next = options.length - 1;
-    else return;
-    e.preventDefault();
-    items[next]?.focus();
-    const target = options[next];
-    if (target) onChange(target.key);
-  }
-
   return (
     <div
-      ref={group}
       role="radiogroup"
       aria-label={label}
-      onKeyDown={onKeyDown}
+      onKeyDown={(e) =>
+        onRadioGroupKey(e, (i) => {
+          const target = options[i];
+          if (target) onChange(target.key);
+        })
+      }
       className={cn(
         'flex gap-1 rounded-[10px] border border-line bg-line-2 p-1',
         compact && 'gap-[3px] p-[3px]',

@@ -104,6 +104,21 @@ describe('RankingPage — the fixed phase 1 table (SPEC-FINAL 13.5)', () => {
     expect(within(first).getByLabelText(/availability/i)).toHaveTextContent('100%');
   });
 
+  it('names the Scoring segment’s columns from the season’s phases: a form scoring post_match, no endgame (review Minor 11)', async () => {
+    const postMatch: RankRow[] = rows.map((r) => ({
+      ...r,
+      phase_averages: r.phase_averages.map((p) =>
+        p.phase === 'endgame' ? { ...p, phase: 'post_match' as const } : p,
+      ),
+    }));
+    open({ call: vi.fn(async () => ({ event: { id: 'ev-1', name: 'ISR' }, rows: postMatch })) });
+    await screen.findByRole('row', { name: /Team 1000/ });
+    const scoring = screen.getByRole('radio', { name: /^Scoring/ });
+    expect(scoring).toHaveTextContent('Total · Auto · Teleop · Post-match · Consistency');
+    expect(scoring).not.toHaveTextContent('Endgame');
+    expect(screen.getByRole('columnheader', { name: /Post-match/ })).toBeInTheDocument();
+  });
+
   it('puts a medal on the top three and on nobody else', async () => {
     open();
     expect(await screen.findAllByLabelText(/medal/i)).toHaveLength(3);
@@ -249,6 +264,36 @@ describe('RankingPage — the rank never moves, no data sorts last (task 1.58)',
       expect(a.breakdowns <= b.breakdowns).toBe(true);
       if (a.breakdowns === b.breakdowns) expect(a.no_shows >= b.no_shows).toBe(true);
     }
+  });
+
+  it('the builder’s direction pair is a WAI-ARIA radio group: one Tab stop, the arrows, Home and End move and choose (review Minor 7)', async () => {
+    open();
+    await screen.findByRole('row', { name: /Team 1049/ });
+    const builder = await openBuilder();
+    const group = within(builder).getByRole('radiogroup', { name: 'Total direction' });
+    const [best, worst] = within(group).getAllByRole('radio');
+    const control = () => screen.getByRole('button', { name: /^Sort Scoring:/ });
+    // Only the chosen radio is in the Tab order.
+    expect(best).toHaveAttribute('aria-checked', 'true');
+    expect(best).toHaveAttribute('tabindex', '0');
+    expect(worst).toHaveAttribute('tabindex', '-1');
+    best!.focus();
+    await user().keyboard('{ArrowRight}');
+    expect(worst).toHaveFocus();
+    expect(worst).toHaveAttribute('aria-checked', 'true');
+    expect(worst).toHaveAttribute('tabindex', '0');
+    expect(best).toHaveAttribute('tabindex', '-1');
+    expect(control()).toHaveAccessibleName('Sort Scoring: Total, worst first');
+    await user().keyboard('{ArrowRight}'); // wraps
+    expect(best).toHaveFocus();
+    expect(control()).toHaveAccessibleName('Sort Scoring: Total, best first');
+    await user().keyboard('{End}');
+    expect(worst).toHaveAttribute('aria-checked', 'true');
+    await user().keyboard('{Home}');
+    expect(best).toHaveAttribute('aria-checked', 'true');
+    await user().keyboard('{ArrowUp}');
+    expect(worst).toHaveFocus();
+    expect(worst).toHaveAttribute('aria-checked', 'true');
   });
 
   it('a header click makes that figure the whole sort, best first', async () => {
@@ -584,6 +629,20 @@ describe('RankingPage — on a phone (task 1.58)', () => {
     expect(within(sheet).getByRole('link', { name: /Open team page/ })).toHaveAttribute(
       'href',
       '/teams/t-3',
+    );
+  });
+
+  it('names the figure in a row’s spoken name: the sort’s first figure, then “consistency” before the ± (review Minor 8)', async () => {
+    open();
+    const list = await screen.findByRole('list', { name: 'Teams, Scoring' });
+    const first = () => within(list).getAllByRole('button')[0]!;
+    // Team 1000: Total 50, standard deviation 2.
+    expect(first().getAttribute('aria-label')).toBeNull(); // the name is the row's own text
+    expect(first()).toHaveAccessibleName(/1000 Team 1000 .*Total 50 consistency ±2$/);
+    await category('Availability');
+    const availability = await screen.findByRole('list', { name: 'Teams, Availability' });
+    expect(within(availability).getAllByRole('button')[0]!).toHaveAccessibleName(
+      /Availability 100\s?%/,
     );
   });
 

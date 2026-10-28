@@ -66,6 +66,28 @@ export function phasesOf(rows: readonly RankRow[]): FieldPhase[] {
   return FIELD_PHASES.filter((phase) => held.has(phase));
 }
 
+/**
+ * The Category switch's two segments, each with the line naming what it holds. Scoring's is built
+ * from the season's scoring phases (review Minor 11): a form scoring Post-match, or no Endgame,
+ * names its own columns, never a fixed "Auto · Teleop · Endgame".
+ */
+export function categoryOptions(
+  phases: readonly FieldPhase[],
+): { key: Category; name: string; holds: string }[] {
+  return [
+    {
+      key: 'scoring',
+      name: CATEGORY_NAME.scoring,
+      holds: ['Total', ...phases.map((p) => PHASE_NAME[p]), 'Consistency'].join(' · '),
+    },
+    {
+      key: 'availability',
+      name: CATEGORY_NAME.availability,
+      holds: 'Availability · Breakdowns · No-shows · Disabled',
+    },
+  ];
+}
+
 /** A sort key's figure: its header word and kind. */
 export function figureOf(key: RankSortKey): SortFigure {
   const phase = phaseOfSortKey(key);

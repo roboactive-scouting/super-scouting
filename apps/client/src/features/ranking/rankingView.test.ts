@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { RankRow, RankSortStep } from '@frc/shared';
+import type { FieldPhase, RankRow, RankSortStep } from '@frc/shared';
 import {
   addStep,
   availabilityLabel,
+  categoryOptions,
   DEFAULT_SORT,
   figureScale,
   figureShade,
@@ -118,6 +119,19 @@ describe('the ranking’s words and sort (task 1.58)', () => {
       expect(keys).not.toContain('stddev');
       expect(keys).not.toContain('matches_counted');
     }
+  });
+  it('names the Scoring segment’s columns from the season’s scoring phases (review Minor 11)', () => {
+    const holds = (phases: readonly FieldPhase[]) =>
+      categoryOptions(phases).map((c) => `${c.name}: ${c.holds}`);
+    expect(holds(['auto', 'teleop', 'endgame'])).toEqual([
+      'Scoring: Total · Auto · Teleop · Endgame · Consistency',
+      'Availability: Availability · Breakdowns · No-shows · Disabled',
+    ]);
+    // A form that scores post_match and has no endgame names its own columns.
+    expect(holds(['auto', 'teleop', 'post_match'])[0]).toBe(
+      'Scoring: Total · Auto · Teleop · Post-match · Consistency',
+    );
+    expect(holds(['teleop'])[0]).toBe('Scoring: Total · Teleop · Consistency');
   });
 });
 

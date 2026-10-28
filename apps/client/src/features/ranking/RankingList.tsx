@@ -148,6 +148,9 @@ export function RankingList({
               </span>
             )}
             <span className="flex flex-col items-end gap-[3px]">
+              {/* The labels above the list are hidden from assistive technology: the row's
+                  spoken name says which figure the value is (review Minor 8). */}
+              <span className="sr-only">{figureOf(first).label} </span>
               <FigureValue
                 row={row}
                 figure={first}
@@ -156,7 +159,10 @@ export function RankingList({
                 className="min-w-[58px] text-[0.9375rem]"
               />
               {scoring && (
-                <small className="num text-[0.71875rem] text-muted">{consistencyText(row)}</small>
+                <small className="num text-[0.71875rem] text-muted">
+                  <span className="sr-only">consistency </span>
+                  {consistencyText(row)}
+                </small>
               )}
             </span>
             {!scoring && (

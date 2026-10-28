@@ -13,7 +13,14 @@ import { useIsDesktop, useMediaQuery } from '@/lib/useMediaQuery';
 import { cn } from '@/lib/utils';
 import { ListLabels, RankingList } from './RankingList';
 import { RankingTable } from './RankingTable';
-import { DEFAULT_SORT, headerClick, phasesOf, sortedRows, type Category } from './rankingView';
+import {
+  categoryOptions,
+  DEFAULT_SORT,
+  headerClick,
+  phasesOf,
+  sortedRows,
+  type Category,
+} from './rankingView';
 import { SortControl, SortPopover, SortSheet } from './SortControls';
 import { TeamStudyPanel, TeamStudySheet } from './TeamStudy';
 import { useQualRange, useRanking, type RankingSource } from './useRanking';
@@ -25,21 +32,9 @@ import { useQualRange, useRanking, type RankingSource } from './useRanking';
  * moves with the sort; a team with no data sorts last; a row opens the team study (a panel beside
  * the list on a wide computer, a bottom sheet otherwise). No pagination, no weighting (D18).
  * The rows are `useRanking`'s: the server's `rankTeams` online, the device's own `buildRankTable`
- * offline. Value shading (12.6) is task 1.59: every figure prints plain here.
+ * offline. The figures in the sort carry value shading (12.6, task 1.59: `FigureValue`), the
+ * number always printed.
  */
-
-const CATEGORIES: { key: Category; name: string; holds: string }[] = [
-  {
-    key: 'scoring',
-    name: 'Scoring',
-    holds: 'Total · Auto · Teleop · Endgame · Consistency',
-  },
-  {
-    key: 'availability',
-    name: 'Availability',
-    holds: 'Availability · Breakdowns · No-shows · Disabled',
-  },
-];
 
 /**
  * The study sits beside the list from 1360 px, where the table still fits beside it (the sidebar,
@@ -137,6 +132,7 @@ export function RankingPage({
   const rows = ranking.status === 'ready' ? ranking.rows : null;
   const sort = sorts[category];
   const phases = useMemo(() => (rows ? phasesOf(rows) : []), [rows]);
+  const categories = useMemo(() => categoryOptions(phases), [phases]);
   const ordered = useMemo(() => (rows ? sortedRows(rows, sort) : []), [rows, sort]);
   const setSort = (next: RankSortStep[]) => setSorts((was) => ({ ...was, [category]: next }));
   const onHeader = (key: RankSortKey) => setSort(headerClick(sort, key));
@@ -218,7 +214,7 @@ export function RankingPage({
         <div className="relative flex flex-wrap items-center gap-2.5">
           <CategorySwitch
             label="Category"
-            options={CATEGORIES}
+            options={categories}
             value={category}
             onChange={(key) => {
               setCategory(key);
@@ -303,7 +299,7 @@ export function RankingPage({
         <CategorySwitch
           compact
           label="Category"
-          options={CATEGORIES}
+          options={categories}
           value={category}
           onChange={setCategory}
         />

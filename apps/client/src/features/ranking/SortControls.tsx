@@ -17,6 +17,7 @@ import {
 import { ArrowDownWideNarrow, ChevronDown, X } from 'lucide-react';
 import { forwardRef, useEffect, useId, useRef, useState, type RefObject } from 'react';
 import type { FieldPhase, RankSortKey, RankSortStep } from '@frc/shared';
+import { onRadioGroupKey } from '@/components/ui/radio-keys';
 import { Sheet } from '@/components/ui/sheet';
 import { SortableGrip } from '@/components/ui/sortable-grip';
 import { prefersReducedMotion } from '@/lib/animate';
@@ -248,6 +249,7 @@ function StepRow({
       <span
         role="radiogroup"
         aria-label={`${label} direction`}
+        onKeyDown={(e) => onRadioGroupKey(e, (i) => onBest(i === 0))}
         className="flex gap-[3px] rounded-control border border-line bg-line-2 p-[3px]"
       >
         {[true, false].map((side) => (
@@ -256,6 +258,7 @@ function StepRow({
             type="button"
             role="radio"
             aria-checked={best === side}
+            tabIndex={best === side ? 0 : -1}
             onClick={() => onBest(side)}
             className={cn(
               'hover-veil motion-safe:transition inline-flex h-[34px] min-w-[82px] items-center justify-center rounded-[6px] px-2.5 text-[0.8125rem] font-[650]',
