@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import {
   PHASE_SORT_KEYS,
   type FieldPhase,
@@ -35,6 +36,7 @@ import {
   highestTotal,
   matchesText,
   sortIndex,
+  sortScales,
   spreadScale,
   type Category,
   type StatusKey,
@@ -127,6 +129,8 @@ export function RankingTable({
   const inSort = (key: RankSortKey) => sortIndex(sort, key) >= 0;
   const max = highestTotal(allRows);
   const scale = spreadScale(allRows);
+  // Each shaded column's domain, once per render, over every row (no-data rows are not in it).
+  const scales = useMemo(() => sortScales(allRows, sort), [allRows, sort]);
   const scoring = category === 'scoring';
   return (
     <Table
@@ -277,6 +281,7 @@ export function RankingTable({
                       row={row}
                       figure="average_points"
                       inSort={inSort('average_points')}
+                      scale={scales.average_points}
                     />
                   </TableCell>
                   {phases.map((phase) => (
@@ -285,6 +290,7 @@ export function RankingTable({
                         row={row}
                         figure={PHASE_SORT_KEYS[phase]}
                         inSort={inSort(PHASE_SORT_KEYS[phase])}
+                        scale={scales[PHASE_SORT_KEYS[phase]]}
                       />
                     </TableCell>
                   ))}
@@ -303,7 +309,12 @@ export function RankingTable({
                   {(['availability_rate', 'breakdowns', 'no_shows', 'disabled'] as const).map(
                     (key) => (
                       <TableCell key={key} className="px-2 text-end">
-                        <FigureValue row={row} figure={key} inSort={inSort(key)} />
+                        <FigureValue
+                          row={row}
+                          figure={key}
+                          inSort={inSort(key)}
+                          scale={scales[key]}
+                        />
                       </TableCell>
                     ),
                   )}

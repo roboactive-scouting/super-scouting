@@ -5,8 +5,10 @@ import {
   type RankRow,
   type RankSortKey,
 } from '@frc/shared';
+import { ShadedValue } from '@/components/ShadedValue';
 import { cn } from '@/lib/utils';
 import {
+  figureShade,
   figureText,
   hasData,
   phaseAverage,
@@ -14,13 +16,14 @@ import {
   STATUS_WORD,
   statusMarks,
   statusSpread,
+  type FigureScale,
   type StatusKey,
 } from './rankingView';
 
 /*
  * The ranking's locked pieces (THEME "Locked components", Ranking, 2026-10-28): the medal, the
  * Numbered sort badge, the By-phase bar, the Robot status shapes, Status marks and the Status
- * spread bar, and the one figure cell that task 1.59 shades.
+ * spread bar, and the one figure cell (shaded when it is in the sort, task 1.59).
  */
 
 /** No counted matches: the words in place of a bar (THEME "By-phase bar"). */
@@ -355,35 +358,47 @@ export function SpreadHead({
 }
 
 /**
- * One figure of a row: "81.2", "100%", "3", "—" — the cell task 1.59 shades. `inSort` marks the
- * figures in the current sort (the ones 1.59 wraps in `ShadedValue`); this task prints them all
- * plain, in the chip's box so the shading lands without moving anything.
+ * One figure of a row: "81.2", "100%", "3", "—" (task 1.59; THEME "Value shading"). A figure in
+ * the current sort (`inSort`, with its `scale` from `sortScales`) is a `ShadedValue` chip, the
+ * number always printed; a no-data cell is the bare muted "—" in the chip's box, so nothing moves.
+ * Every other figure prints plain (`--ink-2`). A figure with no scale is never shaded.
  */
 export function FigureValue({
   row,
   figure,
   inSort,
+  scale,
   className,
 }: {
   row: RankRow;
   figure: RankSortKey;
   inSort: boolean;
+  scale?: FigureScale | null;
   className?: string;
 }) {
   const text = figureText(row, figure);
+  if (inSort && scale) {
+    return (
+      <span data-figure={figure} data-in-sort="" className="contents">
+        <ShadedValue
+          text={text}
+          shade={figureShade(row, figure, scale)}
+          className={cn(
+            // The chip's box, also for the bare dash, so a no-data row does not move.
+            'inline-block min-w-[3.25rem] px-[7px] py-[3px] text-end',
+            className,
+          )}
+        />
+      </span>
+    );
+  }
   return (
     <span
       data-figure={figure}
       data-in-sort={inSort ? '' : undefined}
       className={cn(
         'num inline-block text-end',
-        // The chip's box, so 1.59's shading lands without moving anything.
-        inSort && 'min-w-[3.25rem] px-[7px] py-[3px]',
-        text === NO_VALUE
-          ? 'font-medium text-muted'
-          : inSort
-            ? 'font-semibold text-ink'
-            : 'text-ink-2',
+        text === NO_VALUE ? 'font-medium text-muted' : 'text-ink-2',
         className,
       )}
     >

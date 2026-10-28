@@ -37,6 +37,13 @@ test('ranking: Scoring with a team in the study panel, Availability with the Sor
   await expect(table.getByRole('img', { name: /^Medal/ })).toHaveCount(3);
   // The no-data teams sort last, "—" in every figure.
   await expect(table.locator('tbody tr').last()).toContainText('No counted matches yet');
+  // Value shading (task 1.59): Total, the figure in the sort, is a shaded chip on every team with
+  // data; the phases and the rest print plain; a no-data cell is a bare dash.
+  const shaded = table.locator('tbody [data-figure] [data-shade]');
+  await expect(shaded).toHaveCount(33);
+  await expect(shaded.first()).toHaveText(/\d/);
+  await expect(table.locator('tbody [data-figure="average_points"] [data-shade]')).toHaveCount(33);
+  await expect(table.locator('tbody [data-figure="teleop_points"] [data-shade]')).toHaveCount(0);
   // The sidebar marks Ranking; the bar order is the phone's.
   await expect(page.getByRole('link', { name: 'Ranking' }).first()).toHaveAttribute(
     'aria-current',
@@ -63,6 +70,12 @@ test('ranking: Scoring with a team in the study panel, Availability with the Sor
     '+ No-shows',
     '+ Disabled',
   ]);
+  // Availability and Breakdowns are shaded, No-shows and Disabled print plain.
+  await expect(table.locator('tbody [data-figure="availability_rate"] [data-shade]')).toHaveCount(
+    33,
+  );
+  await expect(table.locator('tbody [data-figure="breakdowns"] [data-shade]')).toHaveCount(33);
+  await expect(table.locator('tbody [data-figure="no_shows"] [data-shade]')).toHaveCount(0);
   await shoot(page, 'ranking-availability', 'desktop');
 
   // The narrowest computer (1024 px): no sideways page scroll; the study opens in the sheet.
@@ -90,6 +103,8 @@ test('ranking: the phone — Scoring, offline Availability then Breakdowns, the 
     'Search',
     'Ranking',
   ]);
+  // The first figure of the sort, shaded, on every team with data (task 1.59).
+  await expect(list.locator('[data-shade]')).toHaveCount(33);
   await shoot(page, 'ranking', 'phone');
 
   // BumbleB's summary after a tap.

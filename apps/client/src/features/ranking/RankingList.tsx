@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import type { FieldPhase, RankRow, RankSortStep } from '@frc/shared';
 import { OUR_TEAM_NUMBER } from '@/features/teams/teamSearch';
 import { cn } from '@/lib/utils';
@@ -17,6 +18,7 @@ import {
   CATEGORY_NAME,
   consistencyText,
   figureOf,
+  figureScale,
   highestTotal,
   spreadScale,
   type Category,
@@ -98,6 +100,8 @@ export function RankingList({
   onSelect: (teamId: string) => void;
 }) {
   const first = sort[0]!.key;
+  // The first figure's domain, once per render, over every row.
+  const firstScale = useMemo(() => figureScale(allRows, first), [allRows, first]);
   const max = highestTotal(allRows);
   const scale = spreadScale(allRows);
   const scoring = category === 'scoring';
@@ -148,6 +152,7 @@ export function RankingList({
                 row={row}
                 figure={first}
                 inSort
+                scale={firstScale}
                 className="min-w-[58px] text-[0.9375rem]"
               />
               {scoring && (

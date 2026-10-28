@@ -10,11 +10,15 @@ import {
   RANK_SORT_DEFAULT_DIRECTION,
   rankRowHasData,
   rankSortValue,
+  shadeFor,
   sortRankRows,
+  type FieldDirection,
   type FieldPhase,
   type RankRow,
   type RankSortKey,
   type RankSortStep,
+  type Shade,
+  type ShadeDomain,
 } from '@frc/shared';
 
 /*
@@ -213,6 +217,65 @@ export function figureText(row: RankRow, key: RankSortKey): string {
 /** A figure's raw value (null for no data): what 1.59's shading reads. */
 export function figureValue(row: RankRow, key: RankSortKey): number | null {
   return rankRowHasData(row) ? rankSortValue(row, key) : null;
+}
+
+// ---------------------------------------------------------------------------------------
+// Value shading (task 1.59; SPEC-FINAL 12.6; 27-ranking README "Value shading"). The figures IN
+// THE SORT are shaded and the rest print plain; the ramp is @frc/shared's `shadeFor`. Each shaded
+// column's scale is computed once per render from the rows, never per cell.
+
+/** One column's scale: its domain and which end is best. */
+export type FigureScale = { domain: ShadeDomain; direction: FieldDirection };
+
+/**
+ * A figure's shading scale over `rows` (every row shown), or null when it is never shaded.
+ * Total and each phase: higher is better over the observed min–max (a row with no data, or no
+ * value, is not in the domain). Availability: higher is better over the fixed 0–100 %. Breakdowns,
+ * No-shows and Disabled: `lower_is_better` over the observed min–max, so fewest is the darkest.
+ * Matches counted: higher is better over the observed min–max (more scouted matches, more
+ * trustworthy figures); no page sort holds it today, so it prints plain. The team number (a sort
+ * key that is no figure) is never shaded, and Consistency is not a sort key at all.
+ */
+export function figureScale(rows: readonly RankRow[], key: RankSortKey): FigureScale | null {
+  if (key === 'number') return null;
+  if (key === 'availability_rate') {
+    return { domain: { kind: 'rate' }, direction: 'higher_is_better' };
+  }
+  let min = Infinity;
+  let max = -Infinity;
+  for (const row of rows) {
+    const value = figureValue(row, key);
+    if (value === null || !Number.isFinite(value)) continue;
+    if (value < min) min = value;
+    if (value > max) max = value;
+  }
+  // No value anywhere: no cell is shaded, so any domain will do; a point domain reads as flat.
+  if (min > max) {
+    min = 0;
+    max = 0;
+  }
+  return {
+    domain: { kind: 'range', min, max },
+    direction: COUNT_KEYS.has(key) ? 'lower_is_better' : 'higher_is_better',
+  };
+}
+
+/** The scales of a sort's figures, one pass over the rows per figure; computed once per render. */
+export function sortScales(
+  rows: readonly RankRow[],
+  sort: readonly RankSortStep[],
+): Partial<Record<RankSortKey, FigureScale>> {
+  const scales: Partial<Record<RankSortKey, FigureScale>> = {};
+  for (const { key } of sort) {
+    const scale = figureScale(rows, key);
+    if (scale !== null) scales[key] = scale;
+  }
+  return scales;
+}
+
+/** A row's shade for a figure: null for no data / no value (a bare "—"), flat for one value. */
+export function figureShade(row: RankRow, key: RankSortKey, scale: FigureScale): Shade | null {
+  return shadeFor(figureValue(row, key), scale.domain, scale.direction);
 }
 
 /** Consistency: "±6.1"; "—" with fewer than two counted matches or no data. */

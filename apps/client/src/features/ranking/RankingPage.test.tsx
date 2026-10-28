@@ -349,6 +349,156 @@ describe('RankingPage — Consistency never sorts, nothing weights (task 1.58)',
   });
 });
 
+// ---------------------------------------------------------------------------------------
+// Task 1.59: value shading (SPEC-FINAL 12.6; 27-ranking README "Value shading").
+
+/** The shaded chip of a team's figure, or null when that cell is plain. */
+const chip = (team: number, figure: string): HTMLElement | null =>
+  document.querySelector<HTMLElement>(
+    `[data-team="${team}"] [data-figure="${figure}"] [style*="--shade-bg"]`,
+  );
+
+/** The mix (percent of accent) of a chip, read from its `--shade-bg` as ShadedValue.test does. */
+function mixOf(el: HTMLElement | null): number {
+  const match = /var\(--accent\) (\d+)%/.exec(el?.getAttribute('style') ?? '');
+  return match ? Number(match[1]) : NaN;
+}
+
+/** Every figure with at least one shaded chip on the page. */
+const shadedFigures = (): string[] =>
+  [
+    ...new Set(
+      [...document.querySelectorAll<HTMLElement>('[style*="--shade-bg"]')].map(
+        (el) => el.closest('[data-figure]')?.getAttribute('data-figure') ?? '(none)',
+      ),
+    ),
+  ].sort();
+
+/** Whether anything in the body column under the header named `name` is shaded. */
+function columnShaded(name: RegExp): boolean {
+  const heads = [...document.querySelectorAll<HTMLTableCellElement>('thead tr:last-child th')];
+  const at = heads.findIndex((th) => name.test(th.textContent ?? ''));
+  expect(at, String(name)).toBeGreaterThanOrEqual(0);
+  return [...document.querySelectorAll<HTMLTableRowElement>('tbody tr')].some(
+    (tr) => tr.cells[at]!.querySelector('[style*="--shade-bg"]') !== null,
+  );
+}
+
+describe('RankingPage — value shading (task 1.59)', () => {
+  it('in Scoring by default shades the Total cells only; the phases and the rest print plain', async () => {
+    open();
+    await screen.findByRole('row', { name: /Team 1049/ });
+    expect(shadedFigures()).toEqual(['average_points']);
+    // 49 teams have data; the 50th is a bare dash, not a chip.
+    expect(document.querySelectorAll('[data-figure="average_points"] [data-shade]')).toHaveLength(
+      49,
+    );
+    for (const figure of ['auto_points', 'teleop_points', 'endgame_points']) {
+      expect(document.querySelector(`[data-figure="${figure}"] [data-shade]`), figure).toBeNull();
+    }
+    expect(columnShaded(/Consistency/)).toBe(false);
+    expect(columnShaded(/Availability/)).toBe(false);
+    expect(columnShaded(/Matches/)).toBe(false);
+  });
+
+  it('gives the best Total the darkest mix and the worst the palest, always with the number', async () => {
+    open();
+    await screen.findByRole('row', { name: /Team 1049/ });
+    expect(mixOf(chip(1000, 'average_points'))).toBe(52);
+    expect(mixOf(chip(1048, 'average_points'))).toBe(6);
+    expect(chip(1000, 'average_points')).toHaveTextContent('50');
+    expect(chip(1048, 'average_points')).toHaveTextContent('2');
+    // Monotonic: a better Total is never paler than a worse one, down the sorted list.
+    const mixes = [
+      ...document.querySelectorAll<HTMLElement>('[data-figure="average_points"] [data-shade]'),
+    ].map(mixOf);
+    expect(mixes).toEqual([...mixes].sort((a, b) => b - a));
+    // Every shaded cell still prints its value.
+    for (const el of document.querySelectorAll('[style*="--shade-bg"]')) {
+      expect(el.textContent).toMatch(/^\d+(\.\d)?%?$/);
+    }
+  });
+
+  it('moves the shading with a header click: the phase is shaded, Total is not', async () => {
+    open();
+    await user().click(await screen.findByRole('columnheader', { name: /teleop/i }));
+    expect(shadedFigures()).toEqual(['teleop_points']);
+    expect(chip(1000, 'average_points')).toBeNull();
+    // Team 1003's Teleop is the event's highest (47 × 0.9), Team 1048's the lowest.
+    expect(mixOf(chip(1003, 'teleop_points'))).toBe(52);
+    expect(mixOf(chip(1048, 'teleop_points'))).toBe(6);
+    expect(columnShaded(/Consistency/)).toBe(false);
+    // Back to Total.
+    await user().click(screen.getByRole('columnheader', { name: /total/i }));
+    expect(shadedFigures()).toEqual(['average_points']);
+  });
+
+  it('shades a reversed sort the same way: the colour follows the value, not the order', async () => {
+    open();
+    await user().click(await screen.findByRole('columnheader', { name: /total/i }));
+    expect(mixOf(chip(1000, 'average_points'))).toBe(52);
+    expect(mixOf(chip(1048, 'average_points'))).toBe(6);
+  });
+
+  it('in Availability shades Availability over 0–100 % and the counts reversed, per the sort', async () => {
+    open();
+    await category('Availability');
+    await screen.findByRole('row', { name: /Team 1049/ });
+    expect(shadedFigures()).toEqual(['availability_rate']);
+    // A 100 % team is the darkest; 60 % is 6 + 0.6 × 46, a fixed scale, not min–max.
+    expect(mixOf(chip(1000, 'availability_rate'))).toBe(52);
+    expect(mixOf(chip(1004, 'availability_rate'))).toBe(34);
+    expect(chip(1000, 'availability_rate')).toHaveTextContent('100%');
+
+    const builder = await openBuilder();
+    await user().click(within(builder).getByRole('button', { name: '+ Breakdowns' }));
+    expect(shadedFigures()).toEqual(['availability_rate', 'breakdowns']);
+    // Breakdowns run 0–3 and the fewest is the darkest (lower is better, reversed).
+    expect(mixOf(chip(1000, 'breakdowns'))).toBe(52);
+    expect(mixOf(chip(1003, 'breakdowns'))).toBe(6);
+    expect(chip(1003, 'breakdowns')).toHaveTextContent('3');
+    // No-shows and Disabled are not in the sort: plain.
+    expect(document.querySelector('[data-figure="no_shows"] [data-shade]')).toBeNull();
+    expect(document.querySelector('[data-figure="disabled"] [data-shade]')).toBeNull();
+  });
+
+  it('shades a count by its own scale when a header click makes it the sort', async () => {
+    open();
+    await category('Availability');
+    await user().click(await screen.findByRole('columnheader', { name: /no-shows/i }));
+    expect(shadedFigures()).toEqual(['no_shows']);
+    expect(mixOf(chip(1000, 'no_shows'))).toBe(52); // 0 no-shows, the fewest
+    expect(mixOf(chip(1004, 'no_shows'))).toBe(6); // 4, the most
+  });
+
+  it('never shades Consistency, under any sort', async () => {
+    open();
+    await screen.findByRole('row', { name: /Team 1049/ });
+    for (const name of [/total/i, /auto/i, /teleop/i, /endgame/i]) {
+      await user().click(screen.getByRole('columnheader', { name }));
+      expect(columnShaded(/Consistency/), String(name)).toBe(false);
+    }
+  });
+
+  it('prints the no-data team as a bare muted "—", unshaded, never "0", under every sort', async () => {
+    open();
+    await screen.findByRole('row', { name: /Team 1049/ });
+    for (const name of ['Scoring', 'Availability'] as const) {
+      await category(name);
+      for (const header of SORTABLE[name]) {
+        await user().click(screen.getByRole('columnheader', { name: header }));
+        const cells = document.querySelectorAll<HTMLElement>('[data-team="1049"] [data-figure]');
+        expect(cells.length).toBeGreaterThan(0);
+        for (const cell of cells) {
+          expect(cell.textContent, `${name} ${header}`).toBe('—');
+          expect(cell.querySelector('[style*="--shade-bg"]')).toBeNull();
+        }
+        expect(document.querySelector('[data-team="1049"]')).not.toHaveTextContent(/\b0\b/);
+      }
+    }
+  });
+});
+
 describe('RankingPage — the team study and where the figures came from (task 1.58)', () => {
   it('says the figures are the server’s, with the time, while online', async () => {
     open();
@@ -435,6 +585,28 @@ describe('RankingPage — on a phone (task 1.58)', () => {
       'href',
       '/teams/t-3',
     );
+  });
+
+  it('shades the first figure of the sort on every phone row, and nothing else', async () => {
+    open();
+    const list = await screen.findByRole('list', { name: 'Teams, Scoring' });
+    const chips = list.querySelectorAll<HTMLElement>('[style*="--shade-bg"]');
+    expect(chips).toHaveLength(49);
+    for (const el of chips) {
+      expect(el.closest('[data-figure]')).toHaveAttribute('data-figure', 'average_points');
+    }
+    expect(mixOf(chip(1000, 'average_points'))).toBe(52);
+    expect(mixOf(chip(1048, 'average_points'))).toBe(6);
+    expect(chip(1000, 'average_points')).toHaveTextContent('50');
+    // The no-data row's figure is a bare dash.
+    const none = list.querySelector('[data-team="1049"] [data-figure]')!;
+    expect(none.textContent).toBe('—');
+    expect(none.querySelector('[style*="--shade-bg"]')).toBeNull();
+    // Availability: the first figure is Availability, on its fixed scale.
+    await user().click(screen.getByRole('radio', { name: 'Availability' }));
+    const availability = await screen.findByRole('list', { name: 'Teams, Availability' });
+    expect(availability.querySelectorAll('[style*="--shade-bg"]')).toHaveLength(49);
+    expect(mixOf(chip(1004, 'availability_rate'))).toBe(34);
   });
 
   it('shows the device notice offline, and the Sort builder in a sheet', async () => {

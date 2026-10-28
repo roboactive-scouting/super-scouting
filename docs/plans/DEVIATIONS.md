@@ -9748,3 +9748,33 @@ The name match is a substring, so the sidebar's Sync row and the top bar's sync 
 **What I did instead:** the locator is `{ name: 'Sync', exact: true }` (the sidebar row the test means). Three repeats of the spec then passed (15 of 15).
 
 **Risk:** none known; other specs that name a link by a prefix of "Syncing…" would have the same latent race.
+
+## Task 1.59 — Only the ranking page's shading was left; the plan's "recharts" and `{ background, text }` stay superseded
+
+**Plan said:** (1.59) create `shading.ts`, `ShadedValue.tsx`, `ProgressionChart.tsx`; `shadeFor` returns `{ background, text }`; `ProgressionChart` is a Recharts `LineChart`; add `"recharts": "^2.13.3"`; modify `RankingPage.tsx` and `TeamPage.tsx`.
+
+**What was wrong:** task 1.53 already built `shadeFor` (numbers, never CSS), `ShadedValue` and a hand-written SVG `ProgressionChart` and wired the team page (see "Task 1.53 — Task 1.59's shading, `ShadedValue` and `ProgressionChart` pulled forward" and "Task 1.53 — No Recharts"); task 1.58 built the ranking page with every figure plain through `FigureValue` (see "Task 1.58 — Shading is task 1.59; the figures print plain, through one seam"). Nothing of 1.59 was left but the ranking page's shading.
+
+**What I did instead:** only the ranking page's shading. `FigureValue` (`features/ranking/parts.tsx`) now renders a figure that is `inSort` and has a `scale` as a `ShadedValue` chip (text from `figureText`, shade from `figureShade`), and every other figure plain as before. `rankingView.ts` gains `FigureScale`, `figureScale(rows, key)`, `sortScales(rows, sort)` and `figureShade(row, key, scale)`; `RankingTable` computes `sortScales(allRows, sort)` once per render (`useMemo`), `RankingList` `figureScale(allRows, first)` for the phone's first figure. `shading.ts`, `ShadedValue`, `ProgressionChart`, `TeamPage` and `package.json` are untouched; `recharts` is not added and `shadeFor` still returns `{ position, mix, flat, lightness }` — 1.53's entries stand.
+
+**Risk:** none known.
+
+## Task 1.59 — Scales: Matches counted more is better; the rate's raw value; the domain over every row
+
+**Plan said:** (README) "Total and the phases run over the observed min–max, Availability over a fixed 0–100 %, and the counts over a reversed min–max. Consistency is never shaded." Matches counted: not stated.
+
+**What was wrong:** the brief asked for a decision on Matches counted, and on which rows make the domain.
+
+**What I did instead:** `figureScale` gives Matches counted `higher_is_better` over the observed min–max (more scouted matches, more trustworthy figures). Rejected: `neutral` (flat `--line-2` on every cell says nothing, and a flat chip would imply a sort that is not there) and `lower_is_better` (fewer matches is not better). It is dead code on the page today: `matches_counted` is no figure of `sortFigures`, so no sort can hold it and the Matches column prints plain (a test holds it). The team number (a sort key, no figure) has no scale. Availability is `{ kind: 'rate' }` over the 0–1 fraction `rankRow` carries. Total, the phases and the counts take their domain from `allRows` (every row the page holds, not the sorted copy), reading each through `figureValue`, so a row with no data, or a null phase value, is not in it; with no value anywhere the domain is a point (flat, and no cell is shaded anyway). A no-data cell in a shaded figure is `ShadedValue`'s bare muted "—", given the chip's box (`min-w-[3.25rem] px-[7px] py-[3px]`) so a no-data row does not move. A figure with no scale is never shaded. `FigureValue`'s shaded branch wraps the chip in a `display: contents` span that carries `data-figure` / `data-in-sort`, so tests and e2e read them as before.
+
+**Risk:** a sort that gains Matches later shades it higher-is-better; change `figureScale` if that is not what is wanted.
+
+## Task 1.59 — Tests and e2e: counts asserted, mutation-checked
+
+**Plan said:** unit tests for the domain helper; page tests for the shading; e2e shots showing it.
+
+**What was wrong:** nothing.
+
+**What I did instead:** 8 unit tests in `rankingView.test.ts`, 8 in `RankingPage.test.tsx` (computer) and 1 phone test; the suite is 3631 (was 3614). Mutation check: flipping the counts' direction in `figureScale` fails 10 of them (the four unit tests on direction, best/worst Total, the header-click, Availability, count-sort and phone tests); restored. `e2e/ranking.spec.ts` asserts 33 chips (36 teams, three with no data) under Total, none on Teleop, Availability and Breakdowns shaded and No-shows plain, and 33 on the phone list; the existing shots now show the shading in both themes at 1440 and 375. One unrelated test, `QrSendPage.test.tsx` ("getTimerCount" = 1), failed once in a full run under load and passed in the two reruns (3631 of 3631 both times).
+
+**Risk:** the QR timer test looks load-sensitive; not touched.

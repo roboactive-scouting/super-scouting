@@ -4,6 +4,8 @@ import {
   addStep,
   availabilityLabel,
   DEFAULT_SORT,
+  figureScale,
+  figureShade,
   figureText,
   headerClick,
   moveStep,
@@ -12,6 +14,7 @@ import {
   phaseShare,
   removeStep,
   setStepBest,
+  sortScales,
   sortFigures,
   sortSentence,
   spreadScale,
@@ -189,5 +192,119 @@ describe('a row in words (task 1.58)', () => {
       '23rd',
       '101st',
     ]);
+  });
+});
+
+describe('value shading scales (task 1.59; SPEC-FINAL 12.6)', () => {
+  const lo = row({
+    team_id: 'lo',
+    average_points: 20,
+    phase_averages: [
+      { phase: 'auto', average: 2 },
+      { phase: 'teleop', average: 10 },
+      { phase: 'endgame', average: 8 },
+    ],
+    breakdowns: 0,
+    no_shows: 0,
+    disabled: 4,
+    availability_rate: 0.5,
+  });
+  const hi = row({
+    team_id: 'hi',
+    average_points: 60,
+    phase_averages: [
+      { phase: 'auto', average: 6 },
+      { phase: 'teleop', average: 40 },
+      { phase: 'endgame', average: 14 },
+    ],
+    breakdowns: 5,
+    no_shows: 2,
+    disabled: 0,
+    availability_rate: 0.9,
+  });
+  const rows = [lo, hi, empty];
+
+  it('runs Total and each phase over the observed min–max, higher is better', () => {
+    expect(figureScale(rows, 'average_points')).toEqual({
+      domain: { kind: 'range', min: 20, max: 60 },
+      direction: 'higher_is_better',
+    });
+    expect(figureScale(rows, 'teleop_points')).toEqual({
+      domain: { kind: 'range', min: 10, max: 40 },
+      direction: 'higher_is_better',
+    });
+  });
+
+  it('leaves a row with no data, or no value, out of the domain', () => {
+    // `empty` holds null everywhere: it would drag a min of 0 in if it counted.
+    expect(figureScale(rows, 'auto_points')!.domain).toEqual({ kind: 'range', min: 2, max: 6 });
+    // A counted row whose phase is null does not count either.
+    const noPhase = row({
+      team_id: 'np',
+      phase_averages: [
+        { phase: 'auto', average: null },
+        { phase: 'teleop', average: 99 },
+        { phase: 'endgame', average: 1 },
+      ],
+    });
+    expect(figureScale([lo, hi, noPhase], 'auto_points')!.domain).toEqual({
+      kind: 'range',
+      min: 2,
+      max: 6,
+    });
+  });
+
+  it('fixes Availability at 0–100 %, whatever the rows hold', () => {
+    const scale = figureScale([lo, hi], 'availability_rate')!;
+    expect(scale).toEqual({ domain: { kind: 'rate' }, direction: 'higher_is_better' });
+    expect(figureShade(lo, 'availability_rate', scale)!.position).toBeCloseTo(0.5, 6);
+    expect(figureShade(hi, 'availability_rate', scale)!.position).toBeCloseTo(0.9, 6);
+  });
+
+  it('reverses the problem counts over their observed min–max: the fewest is the darkest', () => {
+    for (const key of ['breakdowns', 'no_shows', 'disabled'] as const) {
+      expect(figureScale(rows, key)!.direction, key).toBe('lower_is_better');
+    }
+    const scale = figureScale(rows, 'breakdowns')!;
+    expect(scale.domain).toEqual({ kind: 'range', min: 0, max: 5 });
+    expect(figureShade(lo, 'breakdowns', scale)!.mix).toBe(52);
+    expect(figureShade(hi, 'breakdowns', scale)!.mix).toBe(6);
+  });
+
+  it('reads Matches counted as more is better; the team number has no scale', () => {
+    expect(figureScale(rows, 'matches_counted')!.direction).toBe('higher_is_better');
+    expect(figureScale(rows, 'number')).toBeNull();
+  });
+
+  it('shades the best Total darkest and the worst palest, and a no-data row not at all', () => {
+    const scale = figureScale(rows, 'average_points')!;
+    expect(figureShade(hi, 'average_points', scale)!.mix).toBe(52);
+    expect(figureShade(lo, 'average_points', scale)!.mix).toBe(6);
+    expect(figureShade(empty, 'average_points', scale)).toBeNull();
+    expect(figureShade(empty, 'breakdowns', figureScale(rows, 'breakdowns')!)).toBeNull();
+  });
+
+  it('is flat when every value is equal or there is a single one', () => {
+    expect(figureShade(lo, 'average_points', figureScale([lo], 'average_points')!)!.flat).toBe(
+      true,
+    );
+    const twin = row({ team_id: 'twin', breakdowns: lo.breakdowns });
+    const scale = figureScale([lo, twin], 'breakdowns')!;
+    expect(figureShade(lo, 'breakdowns', scale)!.flat).toBe(true);
+    // Every row without data: no cell is shaded, the scale is a point.
+    expect(figureScale([empty], 'average_points')!.domain).toEqual({
+      kind: 'range',
+      min: 0,
+      max: 0,
+    });
+  });
+
+  it('builds the scales of a whole sort, one per figure in it, never Consistency', () => {
+    const scales = sortScales(rows, [
+      { key: 'availability_rate', direction: 'desc' },
+      { key: 'breakdowns', direction: 'asc' },
+    ]);
+    expect(Object.keys(scales).sort()).toEqual(['availability_rate', 'breakdowns']);
+    expect(Object.keys(sortScales(rows, DEFAULT_SORT.scoring))).toEqual(['average_points']);
   });
 });
