@@ -38,6 +38,11 @@ export type DialogProps = {
    * edge. Its children are laid out as a column. `footer` is the unpinned action row.
    */
   foot?: ReactNode;
+  /**
+   * THEME "Delete bill" (task 1.61): a dark `--ink` band drawn edge to edge above the title, the
+   * damage before anything else. The dialog then has the bill's 32 px sides. Not with `foot`.
+   */
+  band?: ReactNode;
 };
 
 const FOCUSABLE =
@@ -66,6 +71,7 @@ function OpenDialog({
   describedBy,
   icon,
   foot,
+  band,
 }: DialogProps) {
   const heading = useId();
   const body = useRef<HTMLDivElement>(null);
@@ -84,6 +90,35 @@ function OpenDialog({
     if (dismissible) onClose();
   }, first);
 
+  const head = (
+    <div
+      className={icon ? 'flex flex-col items-center gap-2 text-center' : 'flex items-center gap-3'}
+    >
+      {icon}
+      <h2 id={heading} className="min-w-0 flex-1 text-xl font-[750]" dir="auto">
+        {title}
+      </h2>
+      {showClose && !icon && (
+        <button
+          ref={close}
+          type="button"
+          aria-label="Close"
+          onClick={dismissible ? onClose : undefined}
+          aria-disabled={!dismissible || undefined}
+          className="tap-target hover-veil motion-safe:transition motion-safe:active:not-disabled:scale-[0.97] -me-2 flex shrink-0 items-center justify-center rounded-control text-muted aria-disabled:opacity-50"
+        >
+          <X aria-hidden="true" className="size-5" />
+        </button>
+      )}
+    </div>
+  );
+  const content = (
+    <div ref={body} className="flex flex-col gap-3">
+      {children}
+      {footer && <SurfaceActions className="mt-2">{footer}</SurfaceActions>}
+    </div>
+  );
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[var(--scrim)] p-4">
       <div
@@ -97,42 +132,34 @@ function OpenDialog({
         onKeyDown={onKeyDown}
         style={{ width }}
         className={cn(
-          'motion-safe:animate-scale-in flex max-h-full max-w-full flex-col gap-3 overflow-y-auto rounded-2xl bg-surface px-6 pt-[1.375rem] text-ink shadow-[var(--shadow-float)]',
-          // A pinned foot carries the bottom room itself: padding here would be a strip under
-          // it that the scroller does not paint over, where scrolled content shows through.
-          foot ? 'pb-0' : 'pb-[1.375rem]',
+          'motion-safe:animate-scale-in flex max-h-full max-w-full flex-col overflow-y-auto rounded-2xl bg-surface text-ink shadow-[var(--shadow-float)]',
+          band
+            ? 'gap-0'
+            : // A pinned foot carries the bottom room itself: padding here would be a strip under
+              // it that the scroller does not paint over, where scrolled content shows through.
+              cn('gap-3 px-6 pt-[1.375rem]', foot ? 'pb-0' : 'pb-[1.375rem]'),
         )}
       >
-        <div
-          className={
-            icon ? 'flex flex-col items-center gap-2 text-center' : 'flex items-center gap-3'
-          }
-        >
-          {icon}
-          <h2 id={heading} className="min-w-0 flex-1 text-xl font-[750]" dir="auto">
-            {title}
-          </h2>
-          {showClose && !icon && (
-            <button
-              ref={close}
-              type="button"
-              aria-label="Close"
-              onClick={dismissible ? onClose : undefined}
-              aria-disabled={!dismissible || undefined}
-              className="tap-target hover-veil motion-safe:transition motion-safe:active:not-disabled:scale-[0.97] -me-2 flex shrink-0 items-center justify-center rounded-control text-muted aria-disabled:opacity-50"
-            >
-              <X aria-hidden="true" className="size-5" />
-            </button>
-          )}
-        </div>
-        <div ref={body} className="flex flex-col gap-3">
-          {children}
-          {footer && <SurfaceActions className="mt-2">{footer}</SurfaceActions>}
-        </div>
-        {foot && (
-          <SurfaceFoot scroller={panel} className="-mx-6 px-6 pt-2 pb-[1.375rem]">
-            {foot}
-          </SurfaceFoot>
+        {band ? (
+          <>
+            <div data-band="" className="shrink-0 bg-ink px-8 pt-[1.375rem] pb-6 text-surface">
+              {band}
+            </div>
+            <div className="flex flex-col gap-3 px-8 pt-5 pb-[1.375rem]">
+              {head}
+              {content}
+            </div>
+          </>
+        ) : (
+          <>
+            {head}
+            {content}
+            {foot && (
+              <SurfaceFoot scroller={panel} className="-mx-6 px-6 pt-2 pb-[1.375rem]">
+                {foot}
+              </SurfaceFoot>
+            )}
+          </>
         )}
       </div>
     </div>

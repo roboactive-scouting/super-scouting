@@ -42,6 +42,11 @@ export type SheetProps = {
    * safe-area inset inside it. Its children are laid out as a column.
    */
   foot?: ReactNode;
+  /**
+   * A bottom sheet's THEME "Delete bill" (task 1.61): a dark `--ink` band edge to edge at the top,
+   * the grab handle inside it, then the title on white. The band is the drag handle.
+   */
+  band?: ReactNode;
 };
 
 /**
@@ -70,6 +75,7 @@ function OpenSheet({
   dragToClose = true,
   icon,
   foot,
+  band,
 }: SheetProps) {
   const heading = useId();
   const close = () => {
@@ -108,7 +114,10 @@ function OpenSheet({
           // it that the scroller does not paint over, where scrolled content shows through.
           bottom && (foot ? 'pb-0' : 'pb-[env(safe-area-inset-bottom)]'),
           bottom
-            ? 'motion-safe:animate-sheet-up inset-x-0 bottom-0 max-h-[86dvh] rounded-t-[20px] bg-surface px-4 pt-2.5 text-ink shadow-[var(--shadow-sheet)]'
+            ? cn(
+                'motion-safe:animate-sheet-up inset-x-0 bottom-0 max-h-[86dvh] rounded-t-[20px] bg-surface px-4 text-ink shadow-[var(--shadow-sheet)]',
+                band ? 'pt-0' : 'pt-2.5',
+              )
             : cn(
                 'motion-safe:animate-drawer-in inset-y-0 start-0 touch-pan-y border-e',
                 tone === 'dark'
@@ -117,7 +126,26 @@ function OpenSheet({
               ),
         )}
       >
-        {bottom && (
+        {bottom && band && (
+          <>
+            {/* The band is the handle: a drag on it pulls the sheet down even when scrolled. */}
+            <div
+              data-drag-handle=""
+              data-band=""
+              className="-mx-4 shrink-0 touch-none bg-ink px-5 pt-2.5 pb-5 text-surface"
+            >
+              <div
+                aria-hidden="true"
+                className="mx-auto mb-3.5 h-1 w-10 rounded-sm bg-rail-muted"
+              />
+              {band}
+            </div>
+            <h2 id={heading} className="mt-[1.125rem] mb-1.5 text-lg font-[750]" dir="auto">
+              {title}
+            </h2>
+          </>
+        )}
+        {bottom && !band && (
           // The handle and the title: a drag here pulls the sheet down even when scrolled.
           <div data-drag-handle="" className="touch-none">
             <div aria-hidden="true" className="mx-auto mb-3 h-[5px] w-10 rounded-sm bg-line" />

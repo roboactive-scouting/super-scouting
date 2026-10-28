@@ -6,14 +6,15 @@ import { Dialog } from '@/components/ui/dialog';
 import { ErrorLine } from '@/components/ui/notice';
 import { SurfaceActions } from '@/components/ui/surface-actions';
 import type { Rpc } from '@/data/rpc';
-import { DeleteCompetition } from './DeleteCompetition';
+import { DeleteAction } from './DeleteAction';
 import { TextField } from './fields';
 import { panelErrorLine } from './adminMessages';
 
 /**
  * Today's event form (a name only), in a dialog: "+ New event" creates it last in its
  * season (SPEC-FINAL 6.2), ✎ renames. The answer is the saved row, put in place by the page.
- * Renaming also offers "Delete …" (RB.20) when the page passes `onDeleted`.
+ * Renaming also offers "Delete …" (RB.20) when the page passes `onDelete`: the page closes
+ * this dialog and opens the one DeleteDialog (task 1.61).
  */
 export function EventFormDialog({
   open,
@@ -22,8 +23,7 @@ export function EventFormDialog({
   rpc,
   onSaved,
   onClose,
-  isDefault = false,
-  onDeleted,
+  onDelete,
 }: {
   open: boolean;
   /** `null` creates an event. */
@@ -32,9 +32,8 @@ export function EventFormDialog({
   rpc: Rpc;
   onSaved: (row: EventRow) => void;
   onClose: () => void;
-  /** The event being renamed is the default one: it cannot be deleted. */
-  isDefault?: boolean;
-  onDeleted?: (eventId: string) => void;
+  /** "Delete …": the page opens the delete for this event. */
+  onDelete?: (event: EventRow) => void;
 }) {
   return (
     <Dialog open={open} title={event ? `Rename ${event.name}` : 'New event'} onClose={onClose}>
@@ -46,20 +45,7 @@ export function EventFormDialog({
         onSaved={onSaved}
         onClose={onClose}
       />
-      {event && onDeleted && (
-        <DeleteCompetition
-          key={event.id}
-          target={{
-            kind: 'event',
-            id: event.id,
-            name: event.name,
-            label: event.name,
-            active: isDefault,
-          }}
-          rpc={rpc}
-          onDeleted={onDeleted}
-        />
-      )}
+      {event && onDelete && <DeleteAction name={event.name} onDelete={() => onDelete(event)} />}
     </Dialog>
   );
 }

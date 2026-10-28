@@ -10328,3 +10328,153 @@ The name match is a substring, so the sidebar's Sync row and the top bar's sync 
 **What I did instead:** kept review #2 on the server (`version_published`). The trash button stays where the user placed it (older rows only), and for a published version it opens Blocked, with "Delete the whole form…" as the way forward. Only a draft can be deleted alone. Rejected: lifting review #2 to match the design's "bill for a version with no entries" — the user's brief named who sees the button, not a change to that rule, and a wrong call here loses scouting data silently and irreversibly.
 
 **Risk:** the bill + type face for a lone form version is reachable only for a draft. If the user wants older published versions deletable, it is a one-rule change on the server plus a release note; raised in the build report.
+
+## Task 1.61 — the files: no `SeasonsPanel` / `EventsPanel`; the triggers are where Manage, the forms list and the builder already keep them
+
+**Plan said:** modify `features/admin/SeasonsPanel.tsx`, `EventsPanel.tsx`, `MatchesPanel.tsx`, `features/builder/BuilderPage.tsx`, `features/entries/EntryPreviewPage.tsx`.
+
+**What was wrong:** `SeasonsPanel.tsx` and `EventsPanel.tsx` do not exist: since the redesign (RB.20) seasons and events are one Competitions tab (`CompetitionsPanel.tsx`), and their Delete sits in `SeasonFormDialog` / `EventFormDialog` (`DeleteCompetition`). The phone's match delete is `PhoneMatchList.tsx`; the forms list's trash buttons need `FormsPage.tsx`, `FormCard.tsx` and `VersionTimeline.tsx`; the whole-form delete is opened from both `BuilderPage` and `FormsPage` (`DeleteFormDialog`).
+
+**What I did instead:** created `features/admin/DeleteDialog.tsx` (+ test), `DeleteFlow.tsx` (+ test), `LazyDeleteFlow.tsx`, `DeleteAction.tsx`, `deleteFixtures.ts` (test answers, like `matchFixtures.ts`), `features/entry/softDeleteEntry.ts` (+ test), `components/ui/band.test.tsx`; modified the files above plus `CompetitionsPanel`, `ManagePage` (the event's name for the match bill), `useMatchEditing` (`remove` → `removed`), `matchOps` (`DELETE_MATCH_BODY` gone), `components/ui/dialog.tsx`, `sheet.tsx`, `responsive-dialog.tsx`, `data/offlineCapability.ts`. Deleted `DeleteCompetition.tsx` + its test and `builder/DeleteFormDialog.tsx`: one dialog replaces both (the brief). DeleteCompetition's cases moved to `DeleteDialog.test`, `DeleteFlow.test` and `CompetitionsPanel.test`.
+
+**Risk:** none.
+
+## Task 1.61 — the plan's test, adapted only where the real API forces it
+
+**Plan said:** `<DeleteDialog kind name impact blocked? onConfirm onCancel />`, the field found by `getByLabelText(/type the name to confirm/i)`, and "the one dialog is `ConfirmDialog`, already restyled, and `getDeleteImpact`'s counts fill its `loss` line".
+
+**What was wrong:** there is no `ConfirmDialog`; the design (28 final) is three faces with a band, not a `loss` line on `DestructiveConfirm`. The design's visible step heading is "Type the season's name" / "Type Q41", which the plan's regex does not match. The server is the gate too, so the confirm must carry what was typed.
+
+**What I did instead:** the plan's eight cases are in `DeleteDialog.test.tsx` word for word (only reflowed by Prettier). `DeleteDialog` keeps exactly the plan's props and adds optional ones (`confirmName`, `blockedReason`, `ways`, `context`, `subject`, `facts`, `held`, `busy`, `error`, `onCorrectMatch`); `onConfirm(typed?)` receives exactly what was typed (nothing for "Are you sure?"). The name field's accessible name is "Type the name to confirm" (`aria-label`, described by the hint and the "No match yet" / "Matches" state); the visible heading stays the design's. The confirm button is really `disabled` (the plan asserts `toBeDisabled`), not `aria-disabled` as `DestructiveConfirm` does; Cancel keeps first focus. Rejected: renaming the visible heading to the plan's phrase — it would contradict the locked design for a test's sake.
+
+**Risk:** none.
+
+## Task 1.61 — three pieces: `DeleteDialog` draws, `DeleteFlow` counts and deletes, `LazyDeleteFlow` loads it
+
+**Plan said:** "one dialog used by every cascade delete, driven by `getDeleteImpact`".
+
+**What was wrong:** the plan's tests render the dialog with counts as props, and the brief asks for the dialog to load lazily and for the server's answer to pick the face.
+
+**What I did instead:** `DeleteDialog` is pure (counts in, `onConfirm(typed)` out). `DeleteFlow` takes a `DeleteRequest` (kind, id, a label to show while counting, and per kind: the form's name and id for a version, the event's name and the page's "correct it" callback for a match, the card and `onDevice` for an entry), calls `getDeleteImpact`, picks the face exactly as task 1.60's report says (`blocked_reason` → Blocked; `confirm_name` → Bill + type, a match's Choice first; neither → Are you sure?), types against `confirm_name` (the server's: the stored `forms.name`, "v4", "Q41"), sends the typed text (`deleteSeason` / `deleteEvent` / `deleteForm` / `deleteFormVersion` with `confirm_name`; `deleteMatch` plain or `with_entries: true, confirm_name`), and shows the server's refusal in the dialog (sentence-cased, never a code). While counting it shows a "Counting what goes with …" dialog with a skeleton; a failed count says so with Try again and offers no delete. Every page opens it through `LazyDeleteFlow` (`React.lazy`, its own 7.2 KB chunk, precached by the service worker like every chunk). Rejected: one component that fetches — the plan's tests could not render it with counts.
+
+**Risk:** a page that imports `DeleteFlow` directly would pull it into its chunk; BUILD-CONTEXT §12.5 now says to open it through `LazyDeleteFlow`.
+
+## Task 1.61 — Manage: the Edit dialog closes and the delete opens alone; the active season and default event open Blocked
+
+**Plan said:** (RB.20, unchanged by the plan) the Delete inside the Edit season / ✎ event dialog; the brief: the active season / default event are Blocked ("Switch the active season first." / "Switch the default event first.").
+
+**What was wrong:** RB.20 stacked its confirm over the Edit dialog (two scrims, a key-event guard), and showed the active season's / default event's Delete as off with the line. The design draws the bill alone over Manage, and the brief's Blocked face needs the button to open.
+
+**What I did instead:** `DeleteAction` ("Delete 2025", held offline with Manage's line) asks the page to delete; `CompetitionsPanel` closes the Edit dialog and opens `LazyDeleteFlow` (one dialog; focus goes back to Edit season / ✎ on close). The active season and default event's Delete is enabled and opens Blocked with the server's reason mapped to the exact `SWITCH_SEASON_FIRST` / `SWITCH_EVENT_FIRST` text, a "Keep …" way, no delete button and no field. Rejected: keeping the button off — the brief names Blocked as the face.
+
+**Risk:** none; the server refuses them whatever is sent.
+
+## Task 1.61 — a match: the Choice, Correct the match number opens the match's own editor
+
+**Plan said:** a match with entries opens a choice (Correct the match number · Delete Q41 and its 6 entries… · Close) before its bill.
+
+**What was wrong:** nothing; "Correct the match number" needed a target.
+
+**What I did instead:** it closes the delete and opens that match's existing edit dialog (Manage, computer) or edit sheet (phone matches view). The tiles read `stations` ("saved", "2 saved", or "no entry" for an empty station); "Last saved HH:MM" from `last_saved_at`. On a phone the three are full-width 52 px buttons in the design's order (Correct, primary, first; Close last and focused — THEME "Blocked tag and ways forward"); on a computer they are the one action row, right-aligned, Close · Delete… · Correct (primary last, `SurfaceActions`' rule), with Close focused. A match with no entries is "Are you sure?" with "This deletes Q41. No entries are saved to it, so nothing else goes. There is no restore." (the design draws only the entry's line). Rejected: a phone-style column on the computer — §12.5's action-row rule.
+
+**Risk:** none.
+
+## Task 1.61 — the entry's soft delete: the outbox when the device holds it, `deleteEntry` when it does not
+
+**Plan said:** (brief) follow 1.60's report on `deleteEntry` (online) vs a `delete` outbox operation; the README: "the soft delete of an entry goes through the outbox like any other change".
+
+**What was wrong:** the preview shows an entry the device holds, or one `getEntry` read from the server; `getEntryOutput` carries no row revision, so an outbox operation for a server-only entry would have no honest `base_version`.
+
+**What I did instead:** held on the device → `softDeleteEntry` (`features/entry/softDeleteEntry.ts`): a `delete` operation (empty payload, the row's `version` as `base_version`, the lead or admin as author) through `enqueue` — which already refuses a scouter's delete (`DeleteNotAllowedError`) and folds a delete of a still-pending create away — and the device's row marked `deleted_at` at once, so it leaves every list here before it syncs; works offline. Not held → `deleteEntry({ entry_id })` on the server (1.60), held offline. Both apply the server's one rule (`softDeletedRow`), so the two paths agree. The preview then goes back to Entries. New capability rows: `delete_entry: true` (the outbox path), `delete_objects: false` (every hard delete, every count, and the server-only entry delete). Rejected: `deleteEntry` only — a lead at a venue (offline is normal) could not delete; the outbox only — impossible without the revision.
+
+**Risk:** none for the scouting path: no gate was added under `features/entry/` or `features/entries/` (the offline-gates test); the server path's gate is in `DeleteFlow` (`features/admin/`).
+
+## Task 1.61 — counts print without a thousands separator ("1912", not "1,912")
+
+**Plan said:** (design `delete-desktop.png`) "1,912 entries go".
+
+**What was wrong:** SPEC-FINAL 17.8: integer counts print with no decimals and no separator (`formatCount`), on every surface, so two views never disagree.
+
+**What I did instead:** `formatCount` everywhere ("1912", "1804 match · 108 super"). Rejected: the design's comma — it would be the only count in the app with one.
+
+**Risk:** none.
+
+## Task 1.61 — the faces' copy where the design drew none
+
+**Plan said:** the README draws Season 2025's bill, version 1's Blocked face (entries bound), Q41's Choice and bill, and one entry's "Are you sure?".
+
+**What was wrong:** event, form and draft-version bills, and the Blocked faces for a published version, the active version, the active season and the default event, are not drawn.
+
+**What I did instead:** the same pieces with these words. Kicker: "Delete {Season 2025 | event | form | version N of Form} · hard delete · cannot be undone" ("Delete Q41 and its entries · cannot be undone" for a match). Biggest count: the entries that go, else the versions (a form, a version), else the matches (a season, an event). Sentence: season as designed; event "with N matches, and everything else {event} holds: its roster, pick lists and alliance bracket."; form "with N versions of {form}, their fields and their scoring."; version "with the fields and the scoring of version N of {form}." Items: season — events (names), matches, entries (match · super), forms (versions in all), then dashboards, weight presets and metrics when not 0; event — matches, entries; form — versions, entries, metrics when not 0; a version and a match — none. Blocked band per reason: has-entries "N entries are bound to it" / "Deleting the version would leave them with no form to read them by." (design); published "vN is published" / "A device that was offline while it was in use may still hold entries for it that have not reached the server."; active "vN is the active version"; active season / default event "N entries are scouted in it" / "It is the active season (default event): every device scouts in it.". Title "{Version 1 | Season 2026 | event} can't be deleted"; the line: has-entries the design's "It still holds collected data, so there is nothing to confirm here. Pick a way forward."; published "Only a draft can be deleted on its own. A published version goes with its whole form, so nothing scouted on it is left without one."; active "Scouts would be left with nothing to open. Restore another version first, or delete the whole form."; season / event the exact SWITCH texts. Ways: "Keep …" (focused) on every Blocked face, plus "Delete the whole form…" on every version reason (it opens the form's own bill, typed from empty). A blocked version's right column is the forms list's dates (vN · form, published DD/MM, replaced by vN+1). Buttons: "Delete season 2025", "Delete event {name}", "Delete form {name}", "Delete version N", "Delete Q41", "Delete entry".
+
+**Risk:** words only; the user reviews them on dev.
+
+## Task 1.61 — the phone bill follows phone frame 3: no line, hint or note on show; the title stays
+
+**Plan said:** (design phone 3) the band, 1 · Back up first, 2 · Type Q41, Cancel + Delete Q41; no title, no "rows are removed" line, no hint, no footer note; "Counted on the server just now" at the end of the band's sentence.
+
+**What was wrong:** the sheet needs an accessible name (its title), and the line, hint and note describe the field and the button.
+
+**What I did instead:** below 1024 px the line, the hint and the note are `sr-only` (read, not drawn; the offline line still shows when held), the kicker has no ⚠ and no aside, and "Counted on the server just now." ends the band's sentence. The title ("Delete Q41 and its 6 entries?") stays visible under the band, as on the computer. Rejected: hiding the title — a sheet whose name is invisible reads as a different surface from the computer's dialog.
+
+**Risk:** none.
+
+## Task 1.61 — the builder's Delete form: the stored name is typed, Export it first is gone
+
+**Plan said:** one dialog replaces `DeleteFormDialog`.
+
+**What was wrong:** the old dialog asked for the phrase "delete match form" and named the form "Match form 2026" (its display name), and the server now requires `confirm_name` = the stored `forms.name` (task 1.60); it also had an "Export it first" link.
+
+**What I did instead:** the form's bill types `getDeleteImpact.confirm_name` ("Match form"); "Delete form Match form" sends it. The "Export it first" link is gone: the bill's step 1 (the two-file backup) is the design's way to keep a copy; Export stays on the builder's More menu and the card. Unit and e2e tests that pinned the old phrase, button and link were rewritten to the new face.
+
+**Risk:** an admin who used Export it first from the dialog now opens Export from the menu.
+
+## Task 1.61 — the forms list's trash buttons
+
+**Plan said:** a 36 px filled-ink trash button, `aria-label="Delete version vN"`, on each older version row, none on the draft or the active version; it opens Blocked for a published version (orchestrator's decision).
+
+**What was wrong:** nothing.
+
+**What I did instead:** `VersionTimeline` draws it after Restore on `older` rows only (a `destructive` `icon-sm` button sized to 36 px, its ::after keeping the 48 px target), held offline through `delete_objects`. Measured 36 × 36 in the e2e. Every published version opens Blocked (has-entries first, else published), whose ways are Keep and Delete the whole form…; a draft has no trash button, so the draft's Bill + type ("v4") is reachable only by the API today (tested in `DeleteFlow.test`).
+
+**Risk:** as logged by 1.60: if the user wants older versions deletable alone, it is a server rule change.
+
+## Task 1.61 — `Dialog` / `Sheet` / `ResponsiveDialog` take a `band`
+
+**Plan said:** (§12.1, §12.5) build on the shared dialog and sheet.
+
+**What was wrong:** neither could draw an edge-to-edge band above its title, and the bill must open on it (and a phone sheet's grab handle sits on the dark band).
+
+**What I did instead:** a `band` prop: a dialog draws it first, edge to edge (`bg-ink text-surface`, 32 px sides, the bill's), then the title and body with 32 px sides; a bottom sheet draws it as its drag handle with a `--rail-muted` grab bar, then the title at 18 px. Without `band` both draw exactly as before (`band.test.tsx`). Not combined with `foot`. Rejected: a delete-only surface of its own — §12.5's "never invent your own".
+
+**Risk:** none seen; every dialog and sheet test is green.
+
+## Task 1.61 — client bundle: 231.9 KB, the budget not raised
+
+**Plan said:** (brief) load `DeleteDialog` lazily so the initial chunk does not grow; raise `BUDGET_KB` only if impossible.
+
+**What was wrong:** the first chunk grew 0.2 KB anyway: `dialog.tsx` and `sheet.tsx` (the `band` slot) and `offlineCapability.ts` (two rows) are in it.
+
+**What I did instead:** measured `initial JS 231.9 KB gzip` (was 231.7) under the 232 KB budget, so `BUDGET_KB` and §12.5's guard line are unchanged. `DeleteFlow` (the dialog, its faces and the flow) is a 7.2 KB lazy chunk.
+
+**Risk:** 0.1 KB of headroom left for Phase 1 K.
+
+## Task 1.61 — unit tests wait up to 5 s for the dialog's chunk
+
+**Plan said:** nothing.
+
+**What was wrong:** the entry preview's "queues the soft delete" case failed intermittently (2 of 13 runs, then once in the full suite, at its Cancel-focus check): the dialog opens from a lazy chunk, whose first transform under load can pass `findBy*`'s 1 s default.
+
+**What I did instead:** the first wait for a lazily opened delete in each suite takes `{ timeout: 5000 }` (`LAZY`, as `ManageRoute.test` already does for its lazy phone view), and the first-focus checks right after a lazy open (Cancel, Close, Keep version 2) wait for the focus with `waitFor` — the full suite once found the dialog a moment before its mount effect had moved focus. Six back-to-back runs of the three suites were then green.
+
+**Risk:** none.
+
+## Task 1.61 — e2e fixtures and the browser-pane check
+
+**Plan said:** realistic fixture data; the flow checked in the browser pane against dev seed data (§12.3).
+
+**What was wrong:** the brief: skip the browser-pane check; the orchestrator does it. The e2e fixture has no Q41 (40 matches) and v1 holds 12 entries (design: 312).
+
+**What I did instead:** `e2e/delete.spec.ts` (8 tests) renumbers three fixture line-ups as Q40–Q42 for the phone frames, counts Season 2025 with the design's numbers through a mocked `getDeleteImpact`, and uses the forms fixture's own v1 (12 entries). `manage.spec`'s event delete and `forms.spec`'s builder delete were rewritten to the new face (their shot names kept). `FORMS_RPC` answers `getDeleteImpact` and `deleteFormVersion`.
+
+**Risk:** the server-side flow (real counts, the outbox delete reaching the server) is the orchestrator's browser-pane check.

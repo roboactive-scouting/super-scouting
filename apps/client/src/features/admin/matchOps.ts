@@ -162,10 +162,6 @@ export function resolveTyped(
   return hit ? { kind: 'team', teamId: hit.team_id } : { kind: 'unknown', text };
 }
 
-/** Today's delete confirmation, unchanged (SPEC-FINAL 17.8). */
-export const DELETE_MATCH_BODY =
-  'This removes the match. It is refused when the match already has entries recorded — correct the match instead.';
-
 /** The phone view's one line about the rest of Manage (README "Phone"). */
 export const COMPUTER_LINE = 'Seasons, events and the roster need a computer.';
 

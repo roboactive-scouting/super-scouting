@@ -3,6 +3,7 @@ import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom';
 import { vi } from 'vitest';
 import type { Role, ScoredFieldRow, VersionSummary } from '@frc/shared';
 import { RpcError, type Rpc } from '@/data/rpc';
+import { deleteImpact } from '@/features/admin/deleteFixtures';
 import { BuilderPage } from '@/features/builder/BuilderPage';
 import { FormsPage } from '@/features/forms/FormsPage';
 import {
@@ -131,6 +132,42 @@ export function server(
               },
             ],
     }),
+    // The one DeleteDialog's count (task 1.60's shape): the form is typed back by its stored
+    // name; a published version is blocked on its own, one with entries first.
+    getDeleteImpact: (input) => {
+      const entries = versions.reduce((sum, v) => sum + v.entry_count, 0);
+      if (input.kind === 'form') {
+        return deleteImpact({
+          kind: 'form',
+          id: input.id as string,
+          name: 'Match form',
+          forms: 1,
+          form_versions: versions.length,
+          entries,
+          match_entries: entries,
+        });
+      }
+      const v = versions.find((x) => x.id === input.id)!;
+      const reason =
+        v.entry_count > 0
+          ? 'version_has_entries'
+          : v.published_at !== null
+            ? 'version_published'
+            : null;
+      return deleteImpact({
+        kind: 'form_version',
+        id: v.id,
+        name: `v${v.version_no}`,
+        confirm_name: reason ? null : `v${v.version_no}`,
+        blocked_reason: reason,
+        blocked_message: reason ? 'refused' : null,
+        form_versions: 1,
+        entries: v.entry_count,
+        match_entries: v.entry_count,
+      });
+    },
+    deleteForm: () => ({ versions: versions.length, entries: 264, deleted: true }),
+    deleteFormVersion: () => ({ deleted: true }),
     ...over,
   };
   const rpc: Rpc = {

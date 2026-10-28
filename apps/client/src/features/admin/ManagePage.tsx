@@ -217,6 +217,7 @@ export function ManagePage({ rpc = adminRpc }: { rpc?: Rpc }) {
                 eventId={eventId}
                 roster={roster}
                 matches={matches}
+                eventName={event?.name}
                 onMatchesChange={setMatches}
                 onRosterChange={setRoster}
                 saves={saves}

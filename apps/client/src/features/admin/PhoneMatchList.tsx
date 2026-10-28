@@ -1,25 +1,19 @@
 import { useState } from 'react';
 import type { MatchRow, MatchSlot, MatchType } from '@frc/shared';
-import { OFFLINE_GATE_LINE, useCapability } from '@/components/OfflineGate';
+import { useCapability } from '@/components/OfflineGate';
 import { SAFE_ON_DEVICE } from '@/components/StateMessage';
 import { ActionBar } from '@/components/ui/action-bar';
 import { Button } from '@/components/ui/button';
-import { DestructiveConfirm } from '@/components/ui/destructive-confirm';
 import { Segmented } from '@/components/ui/segmented';
 import type { Rpc } from '@/data/rpc';
 import { matchLabel } from '@/lib/matchLabel';
 import { AddMatchesSheet } from './AddMatchesSheet';
 import { EditMatchSheet } from './EditMatchSheet';
+import { LazyDeleteFlow } from './LazyDeleteFlow';
 import { LeaveGuard } from './LeaveGuard';
 import { MatchCard } from './MatchCard';
 import { MatchErrors } from './MatchErrors';
-import {
-  COMPUTER_LINE,
-  DELETE_MATCH_BODY,
-  MATCH_TYPE_OPTIONS,
-  matchesShown,
-  type MatchPatch,
-} from './matchOps';
+import { COMPUTER_LINE, MATCH_TYPE_OPTIONS, matchesShown, type MatchPatch } from './matchOps';
 import { useMatchEditing } from './useMatchEditing';
 import { useOffRosterTeams } from './useOffRosterTeams';
 import type { usePhoneMatches } from './usePhoneMatches';
@@ -56,9 +50,8 @@ export function PhoneMatchList({
   const [type, setType] = useState<MatchType>('qualification');
   const [open, setOpen] = useState<MatchRow | null>(null);
   const [adding, setAdding] = useState(false);
-  const [confirming, setConfirming] = useState<MatchRow | null>(null);
-  const [deleteBusy, setDeleteBusy] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  /** The match whose Delete opened the one DeleteDialog (task 1.61). */
+  const [deleting, setDeleting] = useState<MatchRow | null>(null);
   const shown = matchesShown(matches, type, editing.unsaved);
   const sheetOpen = open !== null || adding;
 
@@ -66,20 +59,6 @@ export function PhoneMatchList({
     if (Object.keys(patch).length > 0 && !(await editing.update(match, patch))) return false;
     void editing.saveSlots(match.id, slots);
     return true;
-  }
-
-  async function confirmDelete() {
-    if (!confirming) return;
-    setDeleteBusy(true);
-    setDeleteError(null);
-    try {
-      await editing.remove(confirming);
-      setConfirming(null);
-    } catch (e) {
-      setDeleteError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setDeleteBusy(false);
-    }
   }
 
   return (
@@ -150,8 +129,7 @@ export function PhoneMatchList({
           onSave={(slots, patch) => save(open, slots, patch)}
           onDelete={() => {
             setOpen(null);
-            setDeleteError(null);
-            setConfirming(open);
+            setDeleting(open);
           }}
           onClose={() => setOpen(null)}
         />
@@ -166,18 +144,29 @@ export function PhoneMatchList({
           onClose={() => setAdding(false)}
         />
       )}
-      <DestructiveConfirm
-        open={confirming !== null}
-        title="Delete this match?"
-        objectName={confirming ? matchLabel(confirming) : ''}
-        body={DELETE_MATCH_BODY}
-        confirmLabel="Delete"
-        busy={deleteBusy}
-        held={canManage ? null : OFFLINE_GATE_LINE}
-        error={deleteError}
-        onConfirm={() => void confirmDelete()}
-        onCancel={() => setConfirming(null)}
-      />
+      {deleting && (
+        <LazyDeleteFlow
+          request={{
+            kind: 'match',
+            id: deleting.id,
+            label: matchLabel(deleting),
+            eventName,
+            onCorrect: () => {
+              // "Correct the match number": the match's own edit sheet, in place of the delete.
+              const match = deleting;
+              setDeleting(null);
+              editing.setError(null);
+              setOpen(match);
+            },
+          }}
+          rpc={rpc}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            editing.removed(deleting);
+            setDeleting(null);
+          }}
+        />
+      )}
       <LeaveGuard matches={matches} unsaved={data.saves.held} />
     </main>
   );

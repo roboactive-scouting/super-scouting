@@ -105,6 +105,8 @@ export function FormCard({
   onRestore,
   onExport,
   onDelete,
+  canDelete = false,
+  onDeleteVersion,
 }: {
   form: FormListItem;
   restoring: string | null;
@@ -116,6 +118,10 @@ export function FormCard({
   onRestore: (version: VersionSummary) => void;
   onExport: () => void;
   onDelete: () => void;
+  /** False while every delete is held offline: `useCapability('delete_objects')`. */
+  canDelete?: boolean;
+  /** An older version's trash button (task 1.61). */
+  onDeleteVersion?: (version: VersionSummary) => void;
 }) {
   const status = statusOf(form);
   const stats = statsOf(form);
@@ -182,6 +188,8 @@ export function FormCard({
         restoring={restoring}
         canRestore={online}
         onRestore={onRestore}
+        canDelete={canDelete}
+        onDelete={onDeleteVersion}
       />
       <div className="flex flex-wrap items-center gap-2">
         <Link

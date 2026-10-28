@@ -51,9 +51,9 @@ import { plural } from '@/lib/plural';
 import { cn } from '@/lib/utils';
 import { EntryContext } from '@/features/entry/entryContext';
 import { BuilderCanvas, CANVAS_DROP, phasePages, type CanvasMode } from './BuilderCanvas';
+import { LazyDeleteFlow } from '@/features/admin/LazyDeleteFlow';
 import { BuilderLeaveGuard } from './BuilderLeaveGuard';
 import { BuilderTopBar, heldLine, RESTORE_HELD } from './BuilderTopBar';
-import { DeleteFormDialog } from './DeleteFormDialog';
 import { FieldPalette, PaletteGhost, paletteTypeOf } from './FieldPalette';
 import { formErrorLine, offersReload } from './formErrors';
 import { typeName } from './fieldTypes';
@@ -1114,13 +1114,14 @@ function BuilderEditor({
         />
       )}
       {dialog === 'delete' && (
-        <DeleteFormDialog
-          form={formRef}
-          year={year}
+        <LazyDeleteFlow
+          request={{
+            kind: 'form',
+            id: form.id,
+            label: year !== null ? `${form.name} ${year}` : form.name,
+          }}
           rpc={rpc}
-          online={canEdit}
           onClose={() => setDialog(null)}
-          onExportFirst={() => setDialog('export')}
           onDeleted={() => {
             leaving.current = true;
             // Back to the list on the deleted form's season (final review, D3).

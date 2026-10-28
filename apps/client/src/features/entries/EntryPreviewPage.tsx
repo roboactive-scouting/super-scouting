@@ -1,7 +1,8 @@
-import { ChevronLeft, Pencil, User } from 'lucide-react';
+import { ChevronLeft, Pencil, Trash2, User } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
+  can,
   formatDate,
   formatTime,
   mayEditEntryNow,
@@ -11,12 +12,13 @@ import {
 } from '@frc/shared';
 import { Skeleton } from '@/components/Skeleton';
 import { StateMessage } from '@/components/StateMessage';
-import { buttonVariants } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Initials } from '@/components/ui/initials';
 import { ErrorLine, SuccessBanner } from '@/components/ui/notice';
 import { AllianceTag, FormKindTag, RobotStatusTag, StationTag } from '@/components/ui/tag';
 import { typedCall, RpcError, type Rpc } from '@/data/rpc';
 import { useDeviceQuery } from '@/data/useDeviceQuery';
+import { LazyDeleteFlow } from '@/features/admin/LazyDeleteFlow';
 import { useMapView } from '@/features/entry/EntryAnswers';
 import type { WindowOutcome } from '@/features/entry/EntryPage';
 import { EntryContext } from '@/features/entry/entryContext';
@@ -152,7 +154,16 @@ export function EntryPreviewPage({
     );
   }
   return (
-    <Preview entry={entry} viewer={viewer} outcome={outcome} desktop={desktop} onBack={back} />
+    <Preview
+      entry={entry}
+      viewer={viewer}
+      outcome={outcome}
+      desktop={desktop}
+      onBack={back}
+      onDevice={device?.state === 'held'}
+      rpc={rpc}
+      onDeleted={() => void navigate(PATHS.entries, { replace: true })}
+    />
   );
 }
 
@@ -162,14 +173,27 @@ function Preview({
   outcome,
   desktop,
   onBack,
+  onDevice,
+  rpc,
+  onDeleted,
 }: {
   entry: EntryPreview;
   viewer: Editor;
   outcome: WindowOutcome | null;
   desktop: boolean;
   onBack: () => void;
+  /** The device holds it: its delete rides the outbox; else `deleteEntry` on the server. */
+  onDevice: boolean;
+  rpc: Rpc;
+  onDeleted: () => void;
 }) {
   const map = useMapView();
+  const [deleting, setDeleting] = useState(false);
+  /**
+   * SPEC-FINAL 3.9, 7.6 (task 1.61): deleting an entry is a lead's or admin's, never a
+   * scouter's — not even their own entry, inside its five minutes.
+   */
+  const mayDelete = can({ kind: 'user', userId: viewer.id, role: viewer.role }, 'manage_entries');
   const bannerRef = useRef<HTMLDivElement>(null);
   const [now, setNow] = useState(() => Date.now());
   // The mark that ends a scouter's five minutes passes while the page is open: Edit goes then.
@@ -205,26 +229,54 @@ function Preview({
       : entry.matchId
         ? entryPath(entry.matchId, entry.teamId, entry.alliance ?? 'red')
         : null;
-  const actions = (
-    <div className="flex gap-2">
+  const teamPage = (
+    <Link
+      to={teamPath(entry.teamId)}
+      className={cn(buttonVariants({ size: 'sm' }), 'min-h-10 flex-1 text-[0.84375rem]')}
+    >
+      <User aria-hidden="true" />
+      Team page
+    </Link>
+  );
+  const edit =
+    canEdit && editTo ? (
       <Link
-        to={teamPath(entry.teamId)}
+        to={editTo}
         className={cn(buttonVariants({ size: 'sm' }), 'min-h-10 flex-1 text-[0.84375rem]')}
       >
-        <User aria-hidden="true" />
-        Team page
+        <Pencil aria-hidden="true" />
+        Edit
       </Link>
-      {canEdit && editTo ? (
-        <Link
-          to={editTo}
-          className={cn(buttonVariants({ size: 'sm' }), 'min-h-10 flex-1 text-[0.84375rem]')}
-        >
-          <Pencil aria-hidden="true" />
-          Edit
-        </Link>
-      ) : null}
+    ) : null;
+  // 28-delete final (`delete-triggers-*.png`): the filled-ink Delete after Team page and Edit —
+  // the third equal button on a computer, its own full-width row on a phone.
+  const remove = mayDelete ? (
+    <Button
+      variant="destructive"
+      size="sm"
+      className="min-h-10 flex-1 text-[0.84375rem]"
+      onClick={() => setDeleting(true)}
+    >
+      <Trash2 aria-hidden="true" />
+      Delete
+    </Button>
+  ) : null;
+  const actions = desktop ? (
+    <div className="flex gap-2">
+      {teamPage}
+      {edit}
+      {remove}
+    </div>
+  ) : (
+    <div className="flex flex-col gap-2">
+      <div className="flex gap-2">
+        {teamPage}
+        {edit}
+      </div>
+      {remove}
     </div>
   );
+  const short = `${entry.matchLabel ?? 'Super'} · ${entry.teamNumber ?? ''}`;
   const banner = outcome ? (
     <div ref={bannerRef} tabIndex={-1} className="outline-none">
       <Outcome {...outcome} />
@@ -290,6 +342,30 @@ function Preview({
       <main className="flex flex-1 flex-col">
         <Header entry={entry} desktop={desktop} onBack={onBack} />
         {body}
+        {deleting && (
+          <LazyDeleteFlow
+            request={{
+              kind: 'entry',
+              id: entry.id,
+              label: short,
+              onDevice,
+              authorUserId: viewer.id,
+              subject: {
+                title: short,
+                tag: entry.station ? <StationTag station={entry.station} /> : undefined,
+                meta: [entry.teamName, entry.scouterName].filter(Boolean).join(' · '),
+                time: entry.clientCreatedAt ? formatTime(entry.clientCreatedAt) : null,
+                points: entry.total !== null ? formatPoints(entry.total) : null,
+              },
+            }}
+            rpc={rpc}
+            onClose={() => setDeleting(false)}
+            onDeleted={() => {
+              setDeleting(false);
+              onDeleted();
+            }}
+          />
+        )}
         {map.viewing && (
           <MapFieldView
             field={map.viewing}

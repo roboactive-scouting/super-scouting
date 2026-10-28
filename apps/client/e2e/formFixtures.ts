@@ -1,4 +1,5 @@
 import type { ScoredFieldRow, VersionSummary } from '@frc/shared';
+import { deleteImpact } from './deleteFixtures';
 import { SEASON_ID, SEASONS, userByName } from './fixtures';
 
 /*
@@ -429,6 +430,41 @@ export const FORMS_RPC: Record<string, (input: Record<string, unknown>) => unkno
   }),
   // 214 + 38 + 12 entries over four versions (13-forms).
   deleteForm: (input) => ({ versions: 4, entries: 264, deleted: input.dry_run !== true }),
+  deleteFormVersion: () => ({ deleted: true }),
+  // The one DeleteDialog's count (task 1.61): the form is typed back by its stored name; an older
+  // version is published, so it is blocked on its own — first by the entries bound to it.
+  getDeleteImpact: (input) => {
+    if (input.kind === 'form') {
+      return deleteImpact({
+        kind: 'form',
+        id: MATCH_FORM_ID,
+        name: FORM_ROW.name,
+        forms: 1,
+        form_versions: 4,
+        entries: 264,
+        match_entries: 264,
+        metrics: 3,
+      });
+    }
+    const v = VERSIONS.find((x) => x.id === input.id) ?? VERSIONS[2]!;
+    const reason =
+      v.entry_count > 0
+        ? 'version_has_entries'
+        : v.published_at !== null
+          ? 'version_published'
+          : null;
+    return deleteImpact({
+      kind: 'form_version',
+      id: v.id,
+      name: `v${v.version_no}`,
+      confirm_name: reason ? null : `v${v.version_no}`,
+      blocked_reason: reason,
+      blocked_message: reason ? 'refused' : null,
+      form_versions: 1,
+      entries: v.entry_count,
+      match_entries: v.entry_count,
+    });
+  },
   getFormVersion: (input) => {
     const version = VERSIONS.find((v) => v.id === input.form_version_id) ?? VERSIONS[1]!;
     const fields = version.version_no === 4 ? FIELDS[4] : FIELDS[3];

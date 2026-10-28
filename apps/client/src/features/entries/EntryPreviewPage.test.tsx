@@ -1,12 +1,23 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  cleanup as cleanupRender,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { scoreBreakdown, type GetEntryOutput, type Role } from '@frc/shared';
 import type * as Shared from '@frc/shared';
 import { db } from '@/data/db';
+import { pending } from '@/data/outbox';
 import { RpcError, type Rpc } from '@/data/rpc';
 import { CREATED, IDS, NOW, PREVIEW_ROWS } from '@/test/entryPreviewFixtures';
 import { EntryPreviewPage } from './EntryPreviewPage';
+
+/** The one DeleteDialog is a lazy chunk (task 1.61): its first load can pass a second. */
+const LAZY = { timeout: 5000 };
 
 // The real shared breakdown, watched: the preview never scores on its own (task 1.52).
 vi.mock('@frc/shared', async (original) => {
@@ -18,6 +29,7 @@ const LEAD = { id: 'u-noa', role: 'lead' as Role };
 const OMER = { id: 'u-omer', role: 'scouter' as Role };
 const YAEL = { id: 'u-yael', role: 'scouter' as Role };
 const DANA = { id: 'u-dana', role: 'scouter' as Role };
+const ADMIN = { id: 'u-tamar', role: 'admin' as Role };
 
 const noRpc = (): Rpc => ({
   call: vi.fn(async () => {
@@ -290,6 +302,112 @@ describe('what is never shown, and where the entry comes from', () => {
     };
     open('e-missing', LEAD, rpc);
     expect(await screen.findByRole('heading', { name: 'This entry is not here' })).toBeVisible();
+  });
+});
+
+describe('Delete only for a lead or admin (SPEC-FINAL 3.9, 7.6; task 1.61)', () => {
+  /** The preview with Entries behind it, where a delete lands. */
+  function openWithList(id: string, viewer: { id: string; role: Role }, rpc: Rpc = noRpc()) {
+    render(
+      <MemoryRouter initialEntries={[`/entries/${id}`]}>
+        <Routes>
+          <Route path="/entries" element={<h1>Entries list</h1>} />
+          <Route path="/entries/:id" element={<Page viewer={viewer} rpc={rpc} />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  it('a scouter never sees Delete, even on their own entry inside its 5 minutes', async () => {
+    vi.useRealTimers();
+    clockAt(Date.parse(CREATED) + 60_000);
+    open(IDS.played, OMER);
+    // Their own entry, still editable: Edit is there, Delete is not.
+    expect(await screen.findByRole('link', { name: 'Edit' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument();
+  });
+
+  it('a scouter never sees Delete on their own super entry either', async () => {
+    open(IDS.super, DANA);
+    expect(await screen.findByRole('link', { name: 'Edit' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument();
+  });
+
+  it('a lead and an admin get Delete after Team page and Edit', async () => {
+    open(IDS.played, LEAD);
+    await screen.findByRole('link', { name: 'Edit' });
+    const actions = screen.getByRole('button', { name: 'Delete' }).parentElement!;
+    expect([...actions.children].map((c) => c.textContent)).toEqual([
+      'Team page',
+      'Edit',
+      'Delete',
+    ]);
+    cleanupRender();
+    open(IDS.played, ADMIN);
+    expect(await screen.findByRole('button', { name: 'Delete' })).toBeInTheDocument();
+  });
+
+  it('a lead’s Delete asks "Are you sure?", then queues the soft delete and goes back to Entries', async () => {
+    await db.rows.put({ entity: 'users', id: LEAD.id, role: 'lead', full_name: 'Noa Levi' });
+    openWithList(IDS.played, LEAD);
+    const remove = await screen.findByRole('button', { name: 'Delete' });
+    act(() => remove.click());
+    const sure = await screen.findByRole('dialog', { name: 'Are you sure?' }, LAZY);
+    expect(sure).toHaveTextContent('Q37 · 1690');
+    expect(sure).toHaveTextContent('Orbit · Omer Katz');
+    expect(sure).toHaveTextContent('This deletes 1 entry.');
+    expect(within(sure).queryByRole('textbox')).toBeNull();
+    // First focus lands as the lazily loaded dialog mounts.
+    await waitFor(() => expect(within(sure).getByRole('button', { name: 'Cancel' })).toHaveFocus());
+    act(() => within(sure).getByRole('button', { name: 'Delete entry' }).click());
+    expect(await screen.findByRole('heading', { name: 'Entries list' }, LAZY)).toBeInTheDocument();
+    const [op] = await pending(10);
+    expect(op).toMatchObject({
+      row_id: IDS.played,
+      action: 'delete',
+      author_user_id: LEAD.id,
+      payload: {},
+    });
+    expect((await db.rows.get(['scouting_entries', IDS.played]))?.deleted_at).not.toBeNull();
+  });
+
+  it('an entry read from the server is deleted on the server, by deleteEntry', async () => {
+    const wire = {
+      id: 'e-srv',
+      event_id: 'ev-1',
+      form_kind: 'match',
+      match_id: 'm-9',
+      match_type: 'qualification',
+      match_number: 9,
+      match_label: 'Q9',
+      team_id: 't-1690',
+      team_number: 1690,
+      team_name: 'Orbit',
+      alliance: 'red',
+      scouter_id: 'u-yael',
+      scouter_name: 'Yael Shapira',
+      robot_status: 'played',
+      scouted_points: 6,
+      client_created_at: CREATED,
+      client_updated_at: CREATED,
+      form_id: 'f-match',
+      form_version_id: 'fv-2',
+      form_version: 2,
+      phases: [],
+      team_average: null,
+      can_edit: true,
+    };
+    const call = vi.fn(async (name: string) =>
+      name === 'getEntry' ? wire : { id: 'e-srv', deleted: true, version: 2 },
+    );
+    openWithList('e-srv', ADMIN, { call });
+    const remove = await screen.findByRole('button', { name: 'Delete' });
+    act(() => remove.click());
+    const sure = await screen.findByRole('dialog', { name: 'Are you sure?' }, LAZY);
+    act(() => within(sure).getByRole('button', { name: 'Delete entry' }).click());
+    expect(await screen.findByRole('heading', { name: 'Entries list' }, LAZY)).toBeInTheDocument();
+    expect(call).toHaveBeenLastCalledWith('deleteEntry', { entry_id: 'e-srv' });
+    expect(await pending(10)).toHaveLength(0);
   });
 });
 
