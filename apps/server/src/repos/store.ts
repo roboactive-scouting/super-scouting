@@ -6,7 +6,11 @@ import {
   type SyncEntity,
 } from '@frc/shared';
 import type {
+  AnalysisCounts,
   EntryKeyset,
+  EntryScope,
+  EntryTally,
+  MatchEntryRef,
   MatchKeyset,
   PullScope,
   FormDeletion,
@@ -1278,6 +1282,90 @@ export function supabaseStore(db: Db): Store {
         entries += e.count ?? 0;
       }
       return { events: eventIds.length, matches, entries, forms };
+    },
+    // Task 1.60: the match with its entries, one SQL function (migration
+    // 20261028090000_delete_match_cascade.sql): entries (soft-deleted too), then the match.
+    async deleteMatchCascade(id: string): Promise<number> {
+      const { data, error } = await db.rpc('delete_match_cascade', { p_match_id: id });
+      if (error) throw dbError(error);
+      return typeof data === 'number' ? data : 0;
+    },
+    // Task 1.60: head counts only, no rows read. Every row counts (soft-deleted ones still
+    // hold the keys and go with the delete); two more counts split them. Batched like every
+    // `in` filter here.
+    async tallyEntries(scope: EntryScope): Promise<EntryTally> {
+      const [column, ids] =
+        'eventIds' in scope
+          ? (['event_id', scope.eventIds] as const)
+          : (['form_version_id', scope.formVersionIds] as const);
+      const tally: EntryTally = { entries: 0, deleted_entries: 0, super_entries: 0 };
+      for (const chunk of chunks(ids)) {
+        const all = await db
+          .from('scouting_entries')
+          .select('id', { count: 'exact', head: true })
+          .in(column, chunk);
+        if (all.error) throw dbError(all.error);
+        const deleted = await db
+          .from('scouting_entries')
+          .select('id', { count: 'exact', head: true })
+          .in(column, chunk)
+          .not('deleted_at', 'is', null);
+        if (deleted.error) throw dbError(deleted.error);
+        const superRows = await db
+          .from('scouting_entries')
+          .select('id', { count: 'exact', head: true })
+          .in(column, chunk)
+          .eq('form_kind', 'super');
+        if (superRows.error) throw dbError(superRows.error);
+        tally.entries += all.count ?? 0;
+        tally.deleted_entries += deleted.count ?? 0;
+        tally.super_entries += superRows.count ?? 0;
+      }
+      return tally;
+    },
+    async countMatchesOfEvents(eventIds: string[]): Promise<number> {
+      let total = 0;
+      for (const chunk of chunks(eventIds)) {
+        const { count, error } = await db
+          .from('matches')
+          .select('id', { count: 'exact', head: true })
+          .in('event_id', chunk);
+        if (error) throw dbError(error);
+        total += count ?? 0;
+      }
+      return total;
+    },
+    async countAnalysisRows(
+      scope: { seasonId: string } | { formId: string },
+    ): Promise<AnalysisCounts> {
+      if ('formId' in scope) {
+        const { count, error } = await db
+          .from('metrics')
+          .select('id', { count: 'exact', head: true })
+          .eq('form_id', scope.formId);
+        if (error) throw dbError(error);
+        return { metrics: count ?? 0, dashboards: 0, weight_presets: 0 };
+      }
+      const out: AnalysisCounts = { metrics: 0, dashboards: 0, weight_presets: 0 };
+      for (const table of ['metrics', 'dashboards', 'weight_presets'] as const) {
+        const { count, error } = await db
+          .from(table)
+          .select('id', { count: 'exact', head: true })
+          .eq('season_id', scope.seasonId);
+        if (error) throw dbError(error);
+        out[table] = count ?? 0;
+      }
+      return out;
+    },
+    // A match holds a handful of entries (six stations, plus the odd duplicate), far under
+    // PostgREST's 1000-row cap.
+    async listMatchEntries(matchId: string): Promise<MatchEntryRef[]> {
+      const { data, error } = await db
+        .from('scouting_entries')
+        .select('team_id, form_kind, client_updated_at, deleted_at')
+        .eq('match_id', matchId);
+      if (error) throw dbError(error);
+      return (data ?? []) as MatchEntryRef[];
     },
     // Task 1.50: the browse and search reads. SQL fetches rows over typed columns; the shared
     // engine scores them in the use case. Nothing here reads into the JSONB.

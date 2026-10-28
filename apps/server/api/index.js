@@ -160,8 +160,16 @@ var setMatchTeamsInput = z3.object({ match_id: uuid, slots: z3.array(matchSlot).
     });
   }
 });
-var deleteMatchInput = z3.object({ match_id: uuid }).strict();
-var deleteMatchOutput = z3.object({ id: uuid, deleted: z3.literal(true) });
+var deleteMatchInput = z3.object({
+  match_id: uuid,
+  with_entries: z3.boolean().default(false),
+  confirm_name: z3.string().optional()
+}).strict();
+var deleteMatchOutput = z3.object({
+  id: uuid,
+  deleted: z3.literal(true),
+  entries: z3.number().int().optional()
+});
 var listMatchesInput = z3.object({
   event_id: uuid,
   limit: z3.number().int().min(1).optional(),
@@ -647,9 +655,13 @@ var publishFormVersionOutput = z8.object({
 });
 var restoreFormVersionInput = z8.object({ form_version_id: uuid4 }).strict();
 var restoreFormVersionOutput = z8.object({ active_version_id: uuid4 });
-var deleteFormVersionInput = z8.object({ form_version_id: uuid4 }).strict();
+var deleteFormVersionInput = z8.object({ form_version_id: uuid4, confirm_name: z8.string().optional() }).strict();
 var deleteFormVersionOutput = z8.object({ deleted: z8.literal(true) });
-var deleteFormInput = z8.object({ form_id: uuid4, dry_run: z8.boolean().default(false) }).strict();
+var deleteFormInput = z8.object({
+  form_id: uuid4,
+  dry_run: z8.boolean().default(false),
+  confirm_name: z8.string().optional()
+}).strict();
 var deleteFormOutput = z8.object({
   versions: z8.number().int(),
   entries: z8.number().int(),
@@ -1074,6 +1086,59 @@ var rankRow = z11.object({
 });
 var rankTeamsOutput = z11.object({ event: eventRef2, rows: z11.array(rankRow) });
 
+// ../../packages/shared/src/api/deletes.ts
+import { z as z12 } from "zod";
+var uuid6 = z12.string().uuid();
+var count = z12.number().int().min(0);
+var TYPE_NAME_EXACTLY = "Type the name exactly to delete.";
+var DELETE_KINDS = ["season", "event", "form", "form_version", "match", "entry"];
+var deleteKind = z12.enum(DELETE_KINDS);
+var DELETE_BLOCKED_REASONS = [
+  "active_season",
+  "default_event",
+  "version_has_entries",
+  "version_published",
+  "version_active"
+];
+var getDeleteImpactInput = z12.object({ kind: deleteKind, id: uuid6 }).strict();
+var deleteImpactStation = z12.object({
+  alliance: z12.enum(["red", "blue"]),
+  station: z12.number().int().min(1).max(3),
+  /** The team in the slot; null for an empty slot. */
+  team_number: z12.number().int().nullable(),
+  /** Entry rows naming the match for that team, soft-deleted ones included. */
+  entries: count
+});
+var getDeleteImpactOutput = z12.object({
+  kind: deleteKind,
+  id: uuid6,
+  name: z12.string(),
+  confirm_name: z12.string().nullable(),
+  blocked_reason: z12.enum(DELETE_BLOCKED_REASONS).nullable(),
+  blocked_message: z12.string().nullable(),
+  events: count,
+  /** The deleted events' names, in event order (a season's, or the one event). */
+  event_names: z12.array(z12.string()),
+  matches: count,
+  entries: count,
+  match_entries: count,
+  super_entries: count,
+  deleted_entries: count,
+  forms: count,
+  form_versions: count,
+  metrics: count,
+  dashboards: count,
+  weight_presets: count,
+  stations: z12.array(deleteImpactStation).nullable(),
+  last_saved_at: z12.string().nullable()
+});
+var deleteEntryInput = z12.object({ entry_id: uuid6 }).strict();
+var deleteEntryOutput = z12.object({
+  id: uuid6,
+  deleted: z12.literal(true),
+  version: z12.number().int()
+});
+
 // ../../packages/shared/src/api/index.ts
 var API = {
   login: { input: loginInput, output: loginOutput },
@@ -1134,7 +1199,9 @@ var API = {
   queryEntries: { input: queryEntriesInput, output: queryEntriesOutput },
   getEntry: { input: getEntryInput, output: getEntryOutput },
   getTeamStats: { input: getTeamStatsInput, output: getTeamStatsOutput },
-  rankTeams: { input: rankTeamsInput, output: rankTeamsOutput }
+  rankTeams: { input: rankTeamsInput, output: rankTeamsOutput },
+  getDeleteImpact: { input: getDeleteImpactInput, output: getDeleteImpactOutput },
+  deleteEntry: { input: deleteEntryInput, output: deleteEntryOutput }
 };
 
 // ../../packages/shared/src/errors.ts
@@ -1830,7 +1897,7 @@ function stripServerColumns(row) {
 }
 
 // ../../packages/shared/src/sync/operation.ts
-import { z as z12 } from "zod";
+import { z as z13 } from "zod";
 var SYNC_ENTITIES = [
   "scouting_entry",
   "match",
@@ -1840,26 +1907,26 @@ var SYNC_ENTITIES = [
   "alliance_slot",
   "alliance_decline"
 ];
-var isoDateTime = z12.string().datetime({ offset: true }).transform((value, ctx) => {
+var isoDateTime = z13.string().datetime({ offset: true }).transform((value, ctx) => {
   const ms = Date.parse(value);
   if (Number.isNaN(ms)) {
     ctx.addIssue({ code: "custom", message: "Invalid datetime" });
-    return z12.NEVER;
+    return z13.NEVER;
   }
   return new Date(ms).toISOString();
 });
-var operationSchema = z12.object({
-  op_id: z12.string().min(1),
-  entity: z12.enum(SYNC_ENTITIES),
-  row_id: z12.string().uuid(),
-  action: z12.enum(["create", "update", "delete"]),
-  base_version: z12.number().int().positive().nullable(),
+var operationSchema = z13.object({
+  op_id: z13.string().min(1),
+  entity: z13.enum(SYNC_ENTITIES),
+  row_id: z13.string().uuid(),
+  action: z13.enum(["create", "update", "delete"]),
+  base_version: z13.number().int().positive().nullable(),
   /** Always the whole row, never a patch. Field-level merging does not exist. */
-  payload: z12.record(z12.unknown()),
-  author_user_id: z12.string().uuid(),
+  payload: z13.record(z13.unknown()),
+  author_user_id: z13.string().uuid(),
   client_created_at: isoDateTime,
   client_updated_at: isoDateTime,
-  seq: z12.number().int().nonnegative()
+  seq: z13.number().int().nonnegative()
 }).superRefine((op, ctx) => {
   if (op.action === "create" && op.base_version !== null) {
     ctx.addIssue({
@@ -1885,16 +1952,16 @@ var operationSchema = z12.object({
 });
 
 // ../../packages/shared/src/sync/protocol.ts
-import { z as z13 } from "zod";
+import { z as z14 } from "zod";
 var MAX_OPERATIONS_PER_PUSH = 200;
 var WATERMARK_OVERLAP_MS = 5e3;
-var pushRequestSchema = z13.object({
-  device_id: z13.string().uuid(),
-  operations: z13.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
+var pushRequestSchema = z14.object({
+  device_id: z14.string().uuid(),
+  operations: z14.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
 });
-var pushEnvelopeSchema = z13.object({
-  device_id: z13.string().uuid(),
-  operations: z13.array(z13.unknown()).max(MAX_OPERATIONS_PER_PUSH)
+var pushEnvelopeSchema = z14.object({
+  device_id: z14.string().uuid(),
+  operations: z14.array(z14.unknown()).max(MAX_OPERATIONS_PER_PUSH)
 });
 var PARENT_DELETED_DETAIL = {
   event: "the event no longer exists",
@@ -1929,10 +1996,10 @@ var PULL_ENTITY_KEYS = [
   "dashboard_charts",
   "weight_presets"
 ];
-var pullRequestSchema = z13.object({
-  event_id: z13.string().uuid(),
-  since: z13.string().datetime({ offset: false }).optional(),
-  cursor: z13.string().optional()
+var pullRequestSchema = z14.object({
+  event_id: z14.string().uuid(),
+  since: z14.string().datetime({ offset: false }).optional(),
+  cursor: z14.string().optional()
 });
 var FORM_DELETION_ENTITIES = [
   "forms",
@@ -2111,7 +2178,7 @@ function bucketsOf(values, optionOrder) {
     }
   }
   const order = valueOrder(optionOrder);
-  return [...counts.entries()].map(([value, count]) => ({ value, count })).sort((a, b) => order(a.value, b.value));
+  return [...counts.entries()].map(([value, count2]) => ({ value, count: count2 })).sort((a, b) => order(a.value, b.value));
 }
 function rateHit(value, condition) {
   if (condition) return conditionHolds(value, condition.op, condition.value);
@@ -2195,9 +2262,9 @@ function lastNPerTeam(sorted, n) {
   const kept = [];
   for (let i = sorted.length - 1; i >= 0; i -= 1) {
     const entry = sorted[i];
-    const count = seen.get(entry.team_id) ?? 0;
-    if (count >= keep) continue;
-    seen.set(entry.team_id, count + 1);
+    const count2 = seen.get(entry.team_id) ?? 0;
+    if (count2 >= keep) continue;
+    seen.set(entry.team_id, count2 + 1);
     kept.push(entry);
   }
   return kept.reverse();
@@ -2933,13 +3000,13 @@ function createApp(deps) {
 
 // src/auth/token.ts
 import { jwtVerify, SignJWT } from "jose";
-import { z as z14 } from "zod";
-var sessionClaims = z14.object({
-  sub: z14.string().min(1),
-  role: z14.enum(["scouter", "lead", "admin"]),
-  username: z14.string().min(1),
-  iat: z14.number().int(),
-  exp: z14.number().int()
+import { z as z15 } from "zod";
+var sessionClaims = z15.object({
+  sub: z15.string().min(1),
+  role: z15.enum(["scouter", "lead", "admin"]),
+  username: z15.string().min(1),
+  iat: z15.number().int(),
+  exp: z15.number().int()
 });
 var key = (config2) => new TextEncoder().encode(config2.authJwtSecret);
 async function issueToken(user, config2) {
@@ -2979,18 +3046,18 @@ async function callerFor(request, config2, store, options = {}) {
 }
 
 // src/config.ts
-import { z as z15 } from "zod";
-var schema = z15.object({
-  SUPABASE_URL: z15.string().url(),
-  SUPABASE_SERVICE_ROLE_KEY: z15.string().min(1),
-  AUTH_JWT_SECRET: z15.string().min(32, "must be at least 32 characters"),
-  AUTH_TOKEN_TTL_DAYS: z15.coerce.number().int().positive().default(30),
-  AUTH_TOKEN_REFRESH_AFTER_DAYS: z15.coerce.number().int().positive().default(7),
-  ALLOWED_ORIGIN: z15.string().url(),
-  NODE_ENV: z15.enum(["development", "production", "test"]).default("development"),
+import { z as z16 } from "zod";
+var schema = z16.object({
+  SUPABASE_URL: z16.string().url(),
+  SUPABASE_SERVICE_ROLE_KEY: z16.string().min(1),
+  AUTH_JWT_SECRET: z16.string().min(32, "must be at least 32 characters"),
+  AUTH_TOKEN_TTL_DAYS: z16.coerce.number().int().positive().default(30),
+  AUTH_TOKEN_REFRESH_AFTER_DAYS: z16.coerce.number().int().positive().default(7),
+  ALLOWED_ORIGIN: z16.string().url(),
+  NODE_ENV: z16.enum(["development", "production", "test"]).default("development"),
   // Vercel's own system env var (https://vercel.com/docs/environment-variables/system-environment-variables),
   // not something anyone sets by hand. Absent locally and in tests.
-  VERCEL_GIT_COMMIT_SHA: z15.string().min(1).optional()
+  VERCEL_GIT_COMMIT_SHA: z16.string().min(1).optional()
 });
 function loadServerConfig(env) {
   const parsed = schema.safeParse(env);
@@ -3287,9 +3354,9 @@ function supabaseStore(db) {
       return data ?? [];
     },
     async countEnabledAdmins() {
-      const { count, error } = await db.from("users").select("id", { count: "exact", head: true }).eq("role", "admin").is("disabled_at", null);
+      const { count: count2, error } = await db.from("users").select("id", { count: "exact", head: true }).eq("role", "admin").is("disabled_at", null);
       if (error) throw dbError(error);
-      return count ?? 0;
+      return count2 ?? 0;
     },
     // The four methods below feed syncPush's idempotency and authorization decisions (and
     // eventExists, syncPull's 404). Each THROWS on a database error: swallowed, a blip
@@ -3473,9 +3540,9 @@ function supabaseStore(db) {
     },
     // Soft-deleted entries count: they are bound to the version all the same.
     async countEntriesByFormVersion(formVersionId) {
-      const { count, error } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).eq("form_version_id", formVersionId);
+      const { count: count2, error } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).eq("form_version_id", formVersionId);
       if (error) throw dbError(error);
-      return count ?? 0;
+      return count2 ?? 0;
     },
     // Ids survive a save: deletes first, then ONE upsert on (form_version_id, key), so a
     // key already saved is updated in place (keeping its id) and a new one is inserted.
@@ -3518,9 +3585,9 @@ function supabaseStore(db) {
       return data;
     },
     async purgeFormExports(olderThan) {
-      const { count, error } = await db.from("form_exports").delete({ count: "exact" }).lt("created_at", olderThan.toISOString());
+      const { count: count2, error } = await db.from("form_exports").delete({ count: "exact" }).lt("created_at", olderThan.toISOString());
       if (error) throw dbError(error);
-      return count ?? 0;
+      return count2 ?? 0;
     },
     // Task 1.28: the Exports picker. Bounded: exports live 24 hours, so 200 is far beyond use.
     async listFormExports() {
@@ -3538,9 +3605,9 @@ function supabaseStore(db) {
     async countLiveEntriesByFormVersions(versionIds) {
       const counted = await Promise.all(
         versionIds.map(async (id) => {
-          const { count, error } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).eq("form_version_id", id).is("deleted_at", null);
+          const { count: count2, error } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).eq("form_version_id", id).is("deleted_at", null);
           if (error) throw dbError(error);
-          return [id, count ?? 0];
+          return [id, count2 ?? 0];
         })
       );
       return new Map(counted);
@@ -3698,9 +3765,9 @@ function supabaseStore(db) {
       if (error) throw dbError(error);
       const eventIds = (events ?? []).map((e) => e.id);
       if (eventIds.length === 0) return 0;
-      const { count, error: countError } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).in("event_id", eventIds);
+      const { count: count2, error: countError } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).in("event_id", eventIds);
       if (countError) throw dbError(countError);
-      return count ?? 0;
+      return count2 ?? 0;
     },
     // RB.13: live entries per scouter across the season, for the Users page. Two reads, no
     // join, like countEntriesBySeason. PostgREST caps a read at max_rows = 1000
@@ -3720,7 +3787,7 @@ function supabaseStore(db) {
           if ((data ?? []).length < PAGE) break;
         }
       }
-      return [...counts].map(([scouter_id, count]) => ({ scouter_id, count }));
+      return [...counts].map(([scouter_id, count2]) => ({ scouter_id, count: count2 }));
     },
     // Task 1.19: teams, the roster, matches and their slots. Every method THROWS on a
     // database error, keeping Postgres's code (dbError), as the season and event methods
@@ -3908,9 +3975,9 @@ function supabaseStore(db) {
     },
     // Soft-deleted entries count: the `on delete restrict` foreign key counts them too.
     async countEntriesByMatch(matchId) {
-      const { count, error } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).eq("match_id", matchId);
+      const { count: count2, error } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).eq("match_id", matchId);
       if (error) throw dbError(error);
-      return count ?? 0;
+      return count2 ?? 0;
     },
     // A hard delete. The match's match_teams cascade (tombstones too: the match_deletions
     // tombstone covers them); an entry refuses it with 23503.
@@ -3952,6 +4019,62 @@ function supabaseStore(db) {
         entries += e.count ?? 0;
       }
       return { events: eventIds.length, matches, entries, forms };
+    },
+    // Task 1.60: the match with its entries, one SQL function (migration
+    // 20261028090000_delete_match_cascade.sql): entries (soft-deleted too), then the match.
+    async deleteMatchCascade(id) {
+      const { data, error } = await db.rpc("delete_match_cascade", { p_match_id: id });
+      if (error) throw dbError(error);
+      return typeof data === "number" ? data : 0;
+    },
+    // Task 1.60: head counts only, no rows read. Every row counts (soft-deleted ones still
+    // hold the keys and go with the delete); two more counts split them. Batched like every
+    // `in` filter here.
+    async tallyEntries(scope) {
+      const [column, ids] = "eventIds" in scope ? ["event_id", scope.eventIds] : ["form_version_id", scope.formVersionIds];
+      const tally = { entries: 0, deleted_entries: 0, super_entries: 0 };
+      for (const chunk of chunks(ids)) {
+        const all = await db.from("scouting_entries").select("id", { count: "exact", head: true }).in(column, chunk);
+        if (all.error) throw dbError(all.error);
+        const deleted = await db.from("scouting_entries").select("id", { count: "exact", head: true }).in(column, chunk).not("deleted_at", "is", null);
+        if (deleted.error) throw dbError(deleted.error);
+        const superRows = await db.from("scouting_entries").select("id", { count: "exact", head: true }).in(column, chunk).eq("form_kind", "super");
+        if (superRows.error) throw dbError(superRows.error);
+        tally.entries += all.count ?? 0;
+        tally.deleted_entries += deleted.count ?? 0;
+        tally.super_entries += superRows.count ?? 0;
+      }
+      return tally;
+    },
+    async countMatchesOfEvents(eventIds) {
+      let total = 0;
+      for (const chunk of chunks(eventIds)) {
+        const { count: count2, error } = await db.from("matches").select("id", { count: "exact", head: true }).in("event_id", chunk);
+        if (error) throw dbError(error);
+        total += count2 ?? 0;
+      }
+      return total;
+    },
+    async countAnalysisRows(scope) {
+      if ("formId" in scope) {
+        const { count: count2, error } = await db.from("metrics").select("id", { count: "exact", head: true }).eq("form_id", scope.formId);
+        if (error) throw dbError(error);
+        return { metrics: count2 ?? 0, dashboards: 0, weight_presets: 0 };
+      }
+      const out = { metrics: 0, dashboards: 0, weight_presets: 0 };
+      for (const table of ["metrics", "dashboards", "weight_presets"]) {
+        const { count: count2, error } = await db.from(table).select("id", { count: "exact", head: true }).eq("season_id", scope.seasonId);
+        if (error) throw dbError(error);
+        out[table] = count2 ?? 0;
+      }
+      return out;
+    },
+    // A match holds a handful of entries (six stations, plus the odd duplicate), far under
+    // PostgREST's 1000-row cap.
+    async listMatchEntries(matchId) {
+      const { data, error } = await db.from("scouting_entries").select("team_id, form_kind, client_updated_at, deleted_at").eq("match_id", matchId);
+      if (error) throw dbError(error);
+      return data ?? [];
     },
     // Task 1.50: the browse and search reads. SQL fetches rows over typed columns; the shared
     // engine scores them in the use case. Nothing here reads into the JSONB.
@@ -4369,7 +4492,7 @@ function pgCode(e) {
 }
 
 // src/core/queries/listEvents.ts
-import { z as z16 } from "zod";
+import { z as z17 } from "zod";
 
 // src/core/cursor.ts
 function encodeCursor(value) {
@@ -4390,7 +4513,7 @@ function decodeCursor(schema2, raw) {
 }
 
 // src/core/queries/listEvents.ts
-var eventCursor = z16.object({ s: z16.number().int(), i: z16.string().uuid() }).strict();
+var eventCursor = z17.object({ s: z17.number().int(), i: z17.string().uuid() }).strict();
 async function listEvents(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listEventsInput, input);
@@ -4497,8 +4620,8 @@ async function setActiveEvent(caller, input, ctx) {
 }
 
 // src/core/queries/listSeasons.ts
-import { z as z17 } from "zod";
-var seasonCursor = z17.object({ y: z17.number().int() }).strict();
+import { z as z18 } from "zod";
+var seasonCursor = z18.object({ y: z18.number().int() }).strict();
 async function listSeasons(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listSeasonsInput, input);
@@ -4657,9 +4780,54 @@ async function inWaves(items, fn) {
   return results;
 }
 
+// src/core/commands/deleteCompetition.ts
+function refuseActive(message, details) {
+  return new AppError("conflict", message, details);
+}
+function assertConfirmed(typed, name) {
+  if (typed !== name) throw new AppError("invalid", TYPE_NAME_EXACTLY);
+}
+var seasonName = (season) => String(season.year);
+async function seasonIsActive(ctx, season) {
+  const active = await ctx.store.getActiveContext();
+  if (active.active_season_id === season.id) return true;
+  if (active.active_event_id === null) return false;
+  const event = await ctx.store.getEvent(active.active_event_id);
+  return event?.season_id === season.id;
+}
+async function eventIsDefault(ctx, event) {
+  return (await ctx.store.getActiveContext()).active_event_id === event.id;
+}
+async function deleteSeason(caller, input, ctx) {
+  assertCan(caller, "delete_objects");
+  const parsed = parseInput(deleteSeasonInput, input);
+  const season = await seasonOrNotFound(ctx, parsed.season_id);
+  if (await seasonIsActive(ctx, season)) {
+    throw refuseActive(SWITCH_SEASON_FIRST, { season_id: season.id });
+  }
+  const impact = await ctx.store.countDeleteImpact("season", season.id);
+  if (parsed.dry_run) return { deleted: false, ...impact };
+  assertConfirmed(parsed.confirm_name, seasonName(season));
+  await ctx.store.deleteSeason(season.id);
+  return { deleted: true, ...impact };
+}
+async function deleteEvent(caller, input, ctx) {
+  assertCan(caller, "delete_objects");
+  const parsed = parseInput(deleteEventInput, input);
+  const event = await eventOrNotFound(ctx, parsed.event_id);
+  if (await eventIsDefault(ctx, event)) {
+    throw refuseActive(SWITCH_EVENT_FIRST, { event_id: event.id });
+  }
+  const impact = await ctx.store.countDeleteImpact("event", event.id);
+  if (parsed.dry_run) return { deleted: false, ...impact };
+  assertConfirmed(parsed.confirm_name, event.name);
+  await ctx.store.deleteEvent(event.id);
+  return { deleted: true, ...impact };
+}
+
 // src/core/queries/listMatches.ts
-import { z as z18 } from "zod";
-var matchCursor = z18.object({ t: matchType, n: z18.number().int() }).strict();
+import { z as z19 } from "zod";
+var matchCursor = z19.object({ t: matchType, n: z19.number().int() }).strict();
 async function listMatches(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listMatchesInput, input);
@@ -4756,17 +4924,18 @@ async function updateMatch(caller, input, ctx) {
   const stored = await writeMatch(key2, () => ctx.store.updateMatch(current.id, patch));
   return (await withSlots(ctx, [stored]))[0];
 }
-function hasEntries(match, count) {
-  const entries = count === 1 ? "1 entry" : count > 1 ? `${count} entries` : "entries";
+function hasEntries(match, count2) {
+  const entries = count2 === 1 ? "1 entry" : count2 > 1 ? `${count2} entries` : "entries";
   return new AppError(
     "conflict",
     `${describeMatch(match)} has ${entries}, so it cannot be deleted; correct the match number instead`,
-    { match_id: match.id, entries: count }
+    { match_id: match.id, entries: count2 }
   );
 }
 async function deleteMatch(caller, input, ctx) {
   assertCan(caller, "manage_events");
   const parsed = parseInput(deleteMatchInput, input);
+  if (parsed.with_entries) return deleteMatchWithEntries(caller, parsed, ctx);
   const match = await matchOrNotFound(ctx, parsed.match_id);
   const entries = await ctx.store.countEntriesByMatch(match.id);
   if (entries > 0) throw hasEntries(match, entries);
@@ -4779,6 +4948,25 @@ async function deleteMatch(caller, input, ctx) {
     throw e;
   }
   return { id: match.id, deleted: true };
+}
+async function deleteMatchWithEntries(caller, parsed, ctx) {
+  assertCan(caller, "delete_objects");
+  const match = await matchOrNotFound(ctx, parsed.match_id);
+  assertConfirmed(parsed.confirm_name, matchLabel(match));
+  let entries;
+  try {
+    entries = await ctx.store.deleteMatchCascade(match.id);
+  } catch (e) {
+    if (pgCode(e) === "23503") {
+      throw new AppError(
+        "conflict",
+        `an entry for ${matchLabel(match)} arrived while it was being deleted, so nothing was deleted; try again`,
+        { match_id: match.id }
+      );
+    }
+    throw e;
+  }
+  return { id: match.id, deleted: true, entries };
 }
 function notOnRoster(team) {
   return new AppError(
@@ -4890,8 +5078,8 @@ async function teamOrNotFound(ctx, id) {
 }
 
 // src/core/queries/listTeams.ts
-import { z as z19 } from "zod";
-var teamCursor = z19.object({ n: z19.number().int() }).strict();
+import { z as z20 } from "zod";
+var teamCursor = z20.object({ n: z20.number().int() }).strict();
 async function listTeams(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listTeamsInput, input);
@@ -4972,48 +5160,6 @@ async function setEventRoster(caller, input, ctx) {
     throw e;
   }
   return { items: (await ctx.store.getRoster(event.id)).map(toRosterRow) };
-}
-
-// src/core/commands/deleteCompetition.ts
-var TYPE_NAME_EXACTLY = "Type the name exactly to delete.";
-function refuseActive(message, details) {
-  return new AppError("conflict", message, details);
-}
-function assertConfirmed(typed, name) {
-  if (typed !== name) throw new AppError("invalid", TYPE_NAME_EXACTLY);
-}
-async function deleteSeason(caller, input, ctx) {
-  assertCan(caller, "delete_objects");
-  const parsed = parseInput(deleteSeasonInput, input);
-  const season = await seasonOrNotFound(ctx, parsed.season_id);
-  const active = await ctx.store.getActiveContext();
-  let holdsDefault = false;
-  if (active.active_event_id !== null) {
-    const event = await ctx.store.getEvent(active.active_event_id);
-    holdsDefault = event?.season_id === season.id;
-  }
-  if (active.active_season_id === season.id || holdsDefault) {
-    throw refuseActive(SWITCH_SEASON_FIRST, { season_id: season.id });
-  }
-  const impact = await ctx.store.countDeleteImpact("season", season.id);
-  if (parsed.dry_run) return { deleted: false, ...impact };
-  assertConfirmed(parsed.confirm_name, String(season.year));
-  await ctx.store.deleteSeason(season.id);
-  return { deleted: true, ...impact };
-}
-async function deleteEvent(caller, input, ctx) {
-  assertCan(caller, "delete_objects");
-  const parsed = parseInput(deleteEventInput, input);
-  const event = await eventOrNotFound(ctx, parsed.event_id);
-  const active = await ctx.store.getActiveContext();
-  if (active.active_event_id === event.id) {
-    throw refuseActive(SWITCH_EVENT_FIRST, { event_id: event.id });
-  }
-  const impact = await ctx.store.countDeleteImpact("event", event.id);
-  if (parsed.dry_run) return { deleted: false, ...impact };
-  assertConfirmed(parsed.confirm_name, event.name);
-  await ctx.store.deleteEvent(event.id);
-  return { deleted: true, ...impact };
 }
 
 // src/core/commands/forms.ts
@@ -5586,44 +5732,58 @@ async function restoreFormVersion(caller, input, ctx) {
   await stamp(ctx, version.id, userId2);
   return { active_version_id: version.id };
 }
+var versionName = (version) => `v${version.version_no}`;
+async function versionDeleteBlock(ctx, version, form) {
+  const entries = await ctx.store.countEntriesByFormVersion(version.id);
+  if (entries > 0) {
+    return {
+      reason: "has-entries",
+      message: `this version has ${entries} ${entries === 1 ? "entry" : "entries"} bound to it and cannot be deleted; delete the form to remove them, or leave it`,
+      entries
+    };
+  }
+  if (version.published_at !== null) {
+    return {
+      reason: "published",
+      message: `v${version.version_no} is published, and a device may still hold entries for it that have not reached the server; only a draft can be deleted on its own. Delete the whole form to remove it`,
+      entries
+    };
+  }
+  if (form.active_version_id === version.id) {
+    return {
+      reason: "active-version",
+      message: "this is the active version; deleting it would leave the form with nothing to scout. Restore another version first",
+      entries
+    };
+  }
+  return null;
+}
 async function deleteFormVersion(caller, input, ctx) {
-  assertCan(caller, "manage_forms");
+  assertCan(caller, "delete_objects");
   const parsed = parseInput(deleteFormVersionInput, input);
   const version = await versionOrNotFound(ctx, parsed.form_version_id);
   const form = await formOrNotFound(ctx, version.form_id);
-  const entries = await ctx.store.countEntriesByFormVersion(version.id);
-  if (entries > 0) {
+  const block = await versionDeleteBlock(ctx, version, form);
+  if (block !== null) {
     throw new AppError(
       "invalid",
-      `this version has ${entries} ${entries === 1 ? "entry" : "entries"} bound to it and cannot be deleted; delete the form to remove them, or leave it`,
-      { reason: "has-entries", entries }
+      block.message,
+      block.reason === "has-entries" ? { reason: block.reason, entries: block.entries } : { reason: block.reason }
     );
   }
-  if (version.published_at !== null) {
-    throw new AppError(
-      "invalid",
-      `v${version.version_no} is published, and a device may still hold entries for it that have not reached the server; only a draft can be deleted on its own. Delete the whole form to remove it`,
-      { reason: "published" }
-    );
-  }
-  if (form.active_version_id === version.id) {
-    throw new AppError(
-      "invalid",
-      "this is the active version; deleting it would leave the form with nothing to scout. Restore another version first",
-      { reason: "active-version" }
-    );
-  }
+  assertConfirmed(parsed.confirm_name, versionName(version));
   await ctx.store.deleteFormVersion(version.id);
   return { deleted: true };
 }
 async function deleteForm(caller, input, ctx) {
-  assertCan(caller, "manage_forms");
+  assertCan(caller, "delete_objects");
   const parsed = parseInput(deleteFormInput, input);
   const form = await formOrNotFound(ctx, parsed.form_id);
   const versions = await ctx.store.listFormVersions(form.id);
   let entries = 0;
   for (const version of versions) entries += await ctx.store.countEntriesByFormVersion(version.id);
   if (parsed.dry_run) return { versions: versions.length, entries, deleted: false };
+  assertConfirmed(parsed.confirm_name, form.name);
   await ctx.store.deleteFormCascade(form.id);
   return { versions: versions.length, entries, deleted: true };
 }
@@ -5821,6 +5981,31 @@ async function importForm(caller, input, ctx) {
     await ctx.store.deleteFormCascade(form.id).catch(() => void 0);
     throw e;
   }
+}
+
+// src/core/commands/deletes.ts
+function softDeletedRow(existing, deletedAt, clientUpdatedAt) {
+  return {
+    ...existing,
+    deleted_at: deletedAt,
+    version: existing.version + 1,
+    client_updated_at: clientUpdatedAt
+  };
+}
+async function deleteEntry(caller, input, ctx) {
+  assertCan(caller, "manage_entries");
+  const parsed = parseInput(deleteEntryInput, input);
+  const existing = await ctx.store.getRow("scouting_entry", parsed.entry_id);
+  if (!existing) {
+    throw new AppError("not-found", "that entry does not exist", { entry_id: parsed.entry_id });
+  }
+  if (existing.deleted_at != null) {
+    return { id: existing.id, deleted: true, version: existing.version };
+  }
+  const at = ctx.now().toISOString();
+  const row = softDeletedRow(existing, at, at);
+  await ctx.store.putRow("scouting_entry", existing.id, row);
+  return { id: existing.id, deleted: true, version: row.version };
 }
 
 // src/core/commands/resolveConflict.ts
@@ -6203,10 +6388,10 @@ async function getFormExport(caller, input, ctx) {
 
 // src/core/queries/conflicts.ts
 import { isDeepStrictEqual } from "node:util";
-import { z as z20 } from "zod";
-var conflictCursor = z20.object({
-  c: z20.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/),
-  i: z20.string().uuid()
+import { z as z21 } from "zod";
+var conflictCursor = z21.object({
+  c: z21.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/),
+  i: z21.string().uuid()
 }).strict();
 var STATUS_FIELDS = ["robot_status", "breakdown_seconds"];
 var str = (value) => typeof value === "string" ? value : null;
@@ -6439,15 +6624,15 @@ async function listUsers(caller, input, ctx) {
 }
 
 // src/core/queries/search.ts
-import { z as z21 } from "zod";
+import { z as z22 } from "zod";
 var SEASON_EVENTS_READ_LIMIT = 200;
 var EVENT_ENTRIES_PAGE = 1e3;
 var EVENT_ENTRIES_MAX = 2e4;
-var entryCursor = z21.object({
-  c: z21.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/),
-  i: z21.string().min(1).max(64)
+var entryCursor = z22.object({
+  c: z22.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/),
+  i: z22.string().min(1).max(64)
 }).strict();
-var offsetCursor = z21.object({ o: z21.number().int().nonnegative() }).strict();
+var offsetCursor = z22.object({ o: z22.number().int().nonnegative() }).strict();
 var str2 = (value) => typeof value === "string" ? value : null;
 var record2 = (value) => typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
 var unique2 = (values) => [
@@ -6805,8 +6990,8 @@ async function getEntry(caller, input, ctx) {
 }
 
 // src/core/queries/stats.ts
-import { z as z22 } from "zod";
-var offsetCursor2 = z22.object({ o: z22.number().int().nonnegative() }).strict();
+import { z as z23 } from "zod";
+var offsetCursor2 = z23.object({ o: z23.number().int().nonnegative() }).strict();
 var noSuchEvent2 = (eventId) => new AppError("not-found", "that event does not exist; it may have been deleted", {
   event_id: eventId
 });
@@ -6901,6 +7086,198 @@ async function getTeamStats(caller, input, ctx) {
     matches: stats.matches.slice(offset, offset + limit2),
     notes: stats.notes.slice(0, TEAM_NOTES_MAX),
     next_cursor: offset + limit2 < stats.matches.length ? encodeCursor({ o: offset + limit2 }) : null
+  };
+}
+
+// src/core/queries/deleteImpact.ts
+var NO_ENTRIES = { entries: 0, deleted_entries: 0, super_entries: 0 };
+function blank2(kind, id, name) {
+  return {
+    kind,
+    id,
+    name,
+    confirm_name: null,
+    blocked_reason: null,
+    blocked_message: null,
+    events: 0,
+    event_names: [],
+    matches: 0,
+    entries: 0,
+    match_entries: 0,
+    super_entries: 0,
+    deleted_entries: 0,
+    forms: 0,
+    form_versions: 0,
+    metrics: 0,
+    dashboards: 0,
+    weight_presets: 0,
+    stations: null,
+    last_saved_at: null
+  };
+}
+var tallied = (t) => ({
+  entries: t.entries,
+  match_entries: t.entries - t.super_entries,
+  super_entries: t.super_entries,
+  deleted_entries: t.deleted_entries
+});
+var VERSION_REASON = {
+  "has-entries": "version_has_entries",
+  published: "version_published",
+  "active-version": "version_active"
+};
+function gate(name, blocked) {
+  return blocked ? { confirm_name: null, blocked_reason: blocked.reason, blocked_message: blocked.message } : { confirm_name: name, blocked_reason: null, blocked_message: null };
+}
+async function getDeleteImpact(caller, input, ctx) {
+  assertCan(caller, "manage_entries");
+  const { kind, id } = parseInput(getDeleteImpactInput, input);
+  if (kind !== "entry") assertCan(caller, "delete_objects");
+  switch (kind) {
+    case "season":
+      return seasonImpact(ctx, id);
+    case "event":
+      return eventImpact(ctx, id);
+    case "form":
+      return formImpact(ctx, id);
+    case "form_version":
+      return versionImpact(ctx, id);
+    case "match":
+      return matchImpact(ctx, id);
+    case "entry":
+      return entryImpact(ctx, id);
+  }
+}
+async function seasonImpact(ctx, id) {
+  const season = await seasonOrNotFound(ctx, id);
+  const name = seasonName(season);
+  const events = await allEventsOf(ctx, season.id);
+  const eventIds = events.map((e) => e.id);
+  const forms = (await Promise.all([
+    ctx.store.getFormByKind(season.id, "match"),
+    ctx.store.getFormByKind(season.id, "super")
+  ])).filter((f) => f !== null);
+  let formVersions = 0;
+  for (const form of forms) formVersions += (await ctx.store.listFormVersions(form.id)).length;
+  const blocked = await seasonIsActive(ctx, season) ? { reason: "active_season", message: SWITCH_SEASON_FIRST } : null;
+  return {
+    ...blank2("season", season.id, name),
+    ...gate(name, blocked),
+    events: events.length,
+    event_names: events.map((e) => e.name),
+    matches: await ctx.store.countMatchesOfEvents(eventIds),
+    ...tallied(eventIds.length > 0 ? await ctx.store.tallyEntries({ eventIds }) : NO_ENTRIES),
+    forms: forms.length,
+    form_versions: formVersions,
+    ...await ctx.store.countAnalysisRows({ seasonId: season.id })
+  };
+}
+async function eventImpact(ctx, id) {
+  const event = await eventOrNotFound(ctx, id);
+  const blocked = await eventIsDefault(ctx, event) ? { reason: "default_event", message: SWITCH_EVENT_FIRST } : null;
+  return {
+    ...blank2("event", event.id, event.name),
+    ...gate(event.name, blocked),
+    events: 1,
+    event_names: [event.name],
+    matches: await ctx.store.countMatchesOfEvents([event.id]),
+    ...tallied(await ctx.store.tallyEntries({ eventIds: [event.id] }))
+  };
+}
+async function formImpact(ctx, id) {
+  const form = await formOrNotFound(ctx, id);
+  const versions = await ctx.store.listFormVersions(form.id);
+  const formVersionIds = versions.map((v) => v.id);
+  const analysis = await ctx.store.countAnalysisRows({ formId: form.id });
+  return {
+    ...blank2("form", form.id, form.name),
+    ...gate(form.name, null),
+    ...tallied(
+      formVersionIds.length > 0 ? await ctx.store.tallyEntries({ formVersionIds }) : NO_ENTRIES
+    ),
+    forms: 1,
+    form_versions: versions.length,
+    metrics: analysis.metrics
+  };
+}
+async function versionImpact(ctx, id) {
+  const version = await versionOrNotFound(ctx, id);
+  const form = await formOrNotFound(ctx, version.form_id);
+  const name = versionName(version);
+  const block = await versionDeleteBlock(ctx, version, form);
+  return {
+    ...blank2("form_version", version.id, name),
+    ...gate(name, block ? { reason: VERSION_REASON[block.reason], message: block.message } : null),
+    ...tallied(await ctx.store.tallyEntries({ formVersionIds: [version.id] })),
+    form_versions: 1
+  };
+}
+var STATIONS = [
+  ["red", 1],
+  ["red", 2],
+  ["red", 3],
+  ["blue", 1],
+  ["blue", 2],
+  ["blue", 3]
+];
+async function matchImpact(ctx, id) {
+  const match = await matchOrNotFound(ctx, id);
+  const name = matchLabel(match);
+  const [entries, slots] = await Promise.all([
+    ctx.store.listMatchEntries(match.id),
+    ctx.store.listMatchSlots([match.id])
+  ]);
+  const teams = new Map(
+    (await ctx.store.getTeamsByIds([...new Set(slots.map((s) => s.team_id))])).map((t) => [
+      t.id,
+      t.number
+    ])
+  );
+  const stations = STATIONS.map(([alliance, station]) => {
+    const slot = slots.find((s) => s.alliance === alliance && s.station === station);
+    return {
+      alliance,
+      station,
+      team_number: slot ? teams.get(slot.team_id) ?? null : null,
+      entries: slot ? entries.filter((e) => e.team_id === slot.team_id).length : 0
+    };
+  });
+  const superEntries = entries.filter((e) => e.form_kind === "super").length;
+  const newest = entries.map((e) => e.client_updated_at).reduce(
+    (latest, at) => latest === null || Date.parse(at) > Date.parse(latest) ? at : latest,
+    null
+  );
+  return {
+    ...blank2("match", match.id, name),
+    confirm_name: entries.length > 0 ? name : null,
+    matches: 1,
+    entries: entries.length,
+    match_entries: entries.length - superEntries,
+    super_entries: superEntries,
+    deleted_entries: entries.filter((e) => e.deleted_at !== null).length,
+    stations,
+    last_saved_at: newest
+  };
+}
+async function entryImpact(ctx, id) {
+  const entry = await ctx.store.getEntry(id);
+  if (!entry || entry.deleted_at != null) {
+    throw new AppError("not-found", "that entry does not exist; it may have been deleted", {
+      entry_id: id
+    });
+  }
+  const [match, team] = await Promise.all([
+    typeof entry.match_id === "string" ? ctx.store.getMatch(entry.match_id) : null,
+    ctx.store.getTeam(String(entry.team_id))
+  ]);
+  const teamNumber2 = team ? String(team.number) : "";
+  const name = match ? `${matchLabel(match)} \xB7 ${teamNumber2}` : teamNumber2;
+  const isSuper = entry.form_kind === "super";
+  return {
+    ...blank2("entry", entry.id, name),
+    entries: 1,
+    match_entries: isSuper ? 0 : 1,
+    super_entries: isSuper ? 1 : 0
   };
 }
 
@@ -7113,7 +7490,7 @@ var REGISTRY = {
   },
   deleteMatch: {
     kind: "command",
-    description: "Admin only: delete a match and its slots. Refused while any entry names it; correct the match number instead.",
+    description: 'Admin only: delete a match and its slots. Refused while any entry names it (soft-deleted ones too); correct the match number instead, or pass with_entries with confirm_name equal to the match label ("Q41") to hard-delete every entry naming it with the match, in one transaction.',
     input: API.deleteMatch.input,
     output: API.deleteMatch.output,
     handler: deleteMatch
@@ -7183,14 +7560,14 @@ var REGISTRY = {
   },
   deleteFormVersion: {
     kind: "command",
-    description: "Admin only: delete one form version. Blocked while any entry is bound to it, and for the active version.",
+    description: 'Admin only: delete one draft form version; the real delete needs confirm_name equal to its label ("v3"). Blocked, whatever is typed, while any entry is bound to it, and for a published or the active version.',
     input: API.deleteFormVersion.input,
     output: API.deleteFormVersion.output,
     handler: deleteFormVersion
   },
   deleteForm: {
     kind: "command",
-    description: "Admin only: hard-delete a form with all its versions, fields, scoring and entries, irreversibly. dry_run answers how many versions and entries go, and deletes nothing.",
+    description: "Admin only: hard-delete a form with all its versions, fields, scoring and entries, irreversibly. dry_run answers how many versions and entries go, and deletes nothing; the real delete needs confirm_name equal to the form name exactly.",
     input: API.deleteForm.input,
     output: API.deleteForm.output,
     handler: deleteForm
@@ -7320,6 +7697,20 @@ var REGISTRY = {
     input: API.rankTeams.input,
     output: API.rankTeams.output,
     handler: rankTeams
+  },
+  getDeleteImpact: {
+    kind: "query",
+    description: "Admin only (a lead too, for an entry): the exact damage a delete of a season, event, form, form version, match or entry would do, counted just now, deleting nothing \u2014 events, matches, entries (soft-deleted ones included, and how many those are), forms, versions, metrics, dashboards and presets, a match's six stations \u2014 with the name to type back, or why it is blocked whatever is typed.",
+    input: API.getDeleteImpact.input,
+    output: API.getDeleteImpact.output,
+    handler: getDeleteImpact
+  },
+  deleteEntry: {
+    kind: "command",
+    description: "Lead or admin only: soft-delete one entry. The row stays with deleted_at set and a new revision, and the tombstone reaches every device through the delta pull. Scouters never delete an entry, their own included.",
+    input: API.deleteEntry.input,
+    output: API.deleteEntry.output,
+    handler: deleteEntry
   }
 };
 
@@ -7531,12 +7922,11 @@ async function applyEntry(op, author, ctx) {
       return rejected(op.op_id, "forbidden", "only a lead or admin may delete an entry");
     }
     if (!existing) return rejected(op.op_id, "invalid", "no such entry");
-    await ctx.store.putRow("scouting_entry", op.row_id, {
-      ...existing,
-      deleted_at: ctx.now().toISOString(),
-      version: existing.version + 1,
-      client_updated_at: op.client_updated_at
-    });
+    await ctx.store.putRow(
+      "scouting_entry",
+      op.row_id,
+      softDeletedRow(existing, ctx.now().toISOString(), op.client_updated_at)
+    );
     await ctx.store.markApplied(op.op_id);
     return {
       op_id: op.op_id,

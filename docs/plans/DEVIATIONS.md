@@ -10218,3 +10218,113 @@ The name match is a substring, so the sidebar's Sync row and the top bar's sync 
 **What I did instead:** nothing, by the user's decision (4 and 6 are the user's calls; 10 needs no change until a phone profile shows jank).
 
 **Risk:** "Rank 3 of 44" on the team page beside "#3 / 42" on Home remains until the user picks one count.
+
+## Task 1.60 — the deletes stay beside their objects; `deletes.ts` re-exports them and adds `deleteEntry`
+
+**Plan said:** create `apps/server/src/core/commands/deletes.ts` producing `deleteSeason`, `deleteEvent`, `deleteForm`, `deleteFormVersion`, `deleteMatch` and `deleteEntry`, with store methods that delete the entries first by hand (`db.from('scouting_entries').delete()` then the parent).
+
+**What was wrong:** RB.20 already built `deleteSeason` / `deleteEvent` (`deleteCompetition.ts`) on the SQL functions `delete_event_cascade` / `delete_season_cascade` (one transaction each, which the plan's two-statement store code is not); task 1.27 built `deleteForm` / `deleteFormVersion` (`forms.ts`); `deleteMatch` lives in `matches.ts` (UF.1 tombstone by trigger).
+
+**What I did instead:** extended each where it is. `deletes.ts` re-exports the five and holds the new `deleteEntry` plus `softDeletedRow`, the one soft-delete rule now shared with syncPush's `delete` operation. The registry imports from the original modules (unchanged lines) and `deleteEntry` from `deletes.js`. The helpers `assertConfirmed`, `seasonName`, `seasonIsActive`, `eventIsDefault` (deleteCompetition.ts) and `versionDeleteBlock`, `versionName` (forms.ts) are exported so `getDeleteImpact` predicts the exact refusals the deletes make. Rejected: moving every delete into `deletes.ts` — churn across three reviewed modules and their tests for no behaviour.
+
+**Risk:** none; the bundle is regenerated.
+
+## Task 1.60 — a typed confirmation on every cascade, checked by the server
+
+**Plan said:** "require `confirm_name` to equal the object's name exactly" for every delete.
+
+**What was wrong:** `deleteForm` and `deleteFormVersion` took no `confirm_name` (the form's typed text, "delete match form", was the client's alone), and `deleteMatch` had no cascade at all.
+
+**What I did instead:** `confirm_name: z.string().optional()` on `deleteFormInput`, `deleteFormVersionInput` and `deleteMatchInput` (optional in the schema, so the current client still compiles; the server refuses a missing or different one with `invalid` / `TYPE_NAME_EXACTLY` "Type the name exactly to delete.", now exported from `@frc/shared` and re-exported by `deleteCompetition.ts`). The names: season = its year ("1999", as RB.20), event = its name, form = `forms.name` (the stored name, not the client's "Match form 2026" display), form version = "v{version_no}", match with entries = `matchLabel` ("Q41", "P3", "PO1"). No trimming and no case folding anywhere. `deleteForm`'s `dry_run` still answers counts without a name. A season's year has no case, so its wrong-name test types " 1999", "1999 " and "" instead. The active-season and default-event texts were already exactly "Switch the active season first." / "Switch the default event first." (`SWITCH_SEASON_FIRST` / `SWITCH_EVENT_FIRST`); unchanged.
+
+**Risk:** **the existing client breaks at runtime until task 1.61 lands**: `DeleteFormDialog` calls `deleteForm({ form_id })` with no `confirm_name` and is now refused `invalid`. Nothing in the client calls `deleteFormVersion` yet. 1.61 must pass the typed name.
+
+## Task 1.60 — `delete_objects` for every hard delete
+
+**Plan said:** every delete starts with `assertCan(caller, 'delete_objects')`.
+
+**What was wrong:** `deleteForm` / `deleteFormVersion` checked `manage_forms`, `deleteMatch` `manage_events` (all admin-only).
+
+**What I did instead:** `deleteForm` and `deleteFormVersion` now check `delete_objects` (SPEC-FINAL 7.2's "Delete a season, an event or a form — admin"). `deleteMatch` keeps `manage_events` for the plain delete (a match with no entries is match management, unchanged) and adds `delete_objects` on the `with_entries` path. The roles are identical, so only the refusal's message changes (`not permitted: delete_objects`). A mutation removing the `with_entries` `delete_objects` check survives the tests for that reason: `manage_events` refuses the same callers first.
+
+**Risk:** none while the two capabilities hold the same roles.
+
+## Task 1.60 — a published form version stays undeletable on its own (design 28 vs Phase 1 D review #2)
+
+**Plan said:** (design `28-delete/final/README.md`) a form version with no entries opens Bill + type ("v1"), and the trash button sits on every "older version row (the ones with View and Restore)".
+
+**What was wrong:** older version rows are PUBLISHED versions, and Phase 1 D review #2 refuses every published version on its own (a device may still hold queued entries for it; deleting it would turn them into `parent-deleted` discards). The brief did not lift that rule.
+
+**What I did instead:** kept it. The refusal order is has-entries → published → active-version, all before the name is read. `getDeleteImpact` reports them as `blocked_reason` `version_has_entries`, `version_published`, `version_active` with the server's own sentence in `blocked_message`. Only a DRAFT with no entries offers `confirm_name` "vN". Rejected: deleting a published, inactive version with no server entries — it would reverse a reviewed safety decision silently.
+
+**Risk:** **the design's trash button on an older (published) version row will always open Blocked** ("published"), never the bill. The user must either accept that (Blocked, with "Delete the whole form…" as the way forward) or lift review #2 explicitly; 1.61 needs the answer.
+
+## Task 1.60 — `deleteMatch({ with_entries: true })` is one SQL function, `delete_match_cascade`
+
+**Plan said:** in one transaction, hard-delete every entry naming the match (soft-deleted ones included), then the match, recording the tombstone as today.
+
+**What was wrong:** nothing; the store has no transactions, so it needs a function, like RB.20's.
+
+**What I did instead:** migration `20261028090000_delete_match_cascade.sql`: `delete_match_cascade(p_match_id uuid) returns integer` — entries (every row with that `match_id`), then the match; returns the entry rows deleted. `security invoker`, `set search_path = ''`, execute revoked from public/anon/authenticated and granted to `service_role` (as `20261007120000_delete_cascade.sql`). The match_deletions tombstone comes from the existing trigger; the slots cascade. Applied to dev with `pnpm db:push`; types regenerated (one line). Store: `deleteMatchCascade(id): Promise<number>`. An entry racing in between the two statements fails the match delete with 23503, which rolls back the whole call; the use case answers `conflict` "an entry for Q41 arrived while it was being deleted, so nothing was deleted; try again". `deleteMatchOutput` gains `entries` (optional; present on the cascade only), so the plain delete's answer `{ id, deleted: true }` is unchanged. The plain refusal text is unchanged ("…so it cannot be deleted; correct the match number instead"); no server message ever said "delete the entries first" (only a client test fixture in `MatchesPanel.test.tsx` does — 1.61's).
+
+**Risk:** production needs the migration before this server deploys (release note added to IMPLEMENTATION-PLAN.md).
+
+## Task 1.60 — `getDeleteImpact`: one flat shape, and entries counted as rows that go
+
+**Plan said:** `getDeleteImpact(caller, { kind, id })` with the exact counts; the test's `toMatchObject({ events, matches, entries, forms, form_versions, metrics, dashboards, weight_presets })`; "each affected table with `select(..., { head: true, count: 'exact' })`".
+
+**What was wrong:** RB.20's `countDeleteImpact` (and so `deleteSeason`/`deleteEvent`'s `dry_run`) counts LIVE entries only; the brief says a match's count includes soft-deleted ones "since they block".
+
+**What I did instead:** one object for every kind (every count present, 0 where it does not apply), plus `name`, `confirm_name` (null = nothing to type, or blocked), `blocked_reason`/`blocked_message`, `event_names`, `match_entries`/`super_entries` (the design's "1,804 match · 108 super"), `stations` (a match's six, red 1–3 then blue 1–3, with team number and entry count) and `last_saved_at` (a match's newest `client_updated_at`). `entries` counts every row the delete removes — soft-deleted ones included, for every kind — and `deleted_entries` says how many of those are already soft-deleted, so the dialog can show either. RB.20's `countDeleteImpact` and its `dry_run` answers are left exactly as they were (live entries). Five new Store methods (`tallyEntries`, `countMatchesOfEvents`, `countAnalysisRows`, `listMatchEntries`, `deleteMatchCascade`) rather than one per-kind store method, so the counting logic is written once, in the use case. Admin only (`delete_objects`), except `kind: 'entry'`, which a lead may ask too (a lead soft-deletes entries); a scouter and a service caller are refused for every kind although it is a `query` — it is the first step of a command (set against permissions.ts's note that queries normally let a service caller read). An entry already soft-deleted is `not-found`. The metrics, dashboards and weight_presets tables exist (migration 20260903093000), so they are counted (0 today: nothing writes them). Rejected: a discriminated union per kind (the client branches on `kind` either way), and changing RB.20's live count (its client and tests read it).
+
+**Risk:** a season's bill (all rows) can read higher than the Entries page (live rows) by `deleted_entries`. Entries for a team on no slot of the match ("not in line-up") are in `entries` but in no station tile: `entries − Σ stations` is that number.
+
+## Task 1.60 — the fake context: entries counted from the rows, no analysis maps
+
+**Plan said:** `ctx.seedSmallSeason()` ("se-1 with ev-1, ev-2, one form, two versions, 12 entries"), `ctx.rows.scouting_entries`, `ctx.formVersions`, `ctx.scoringRules`.
+
+**What was wrong:** the small-season fixture's ids are not uuids, and every delete schema is strict uuid; it also has six matches and fourteen entries, not four and twelve. The fake's `countEntriesByMatch` / `deleteMatch` read only the declared `entryCountsByMatch`, never the rows, so a soft-deleted entry ROW could not block a match.
+
+**What I did instead:** `deletes.test.ts` builds its own uuid fixture with the plan's shape (season 1999 "SEED GAME", events "Seed District Event" (default) and "Second Event", four matches, twelve entries — eleven match entries on "Seed match form" v1/v2 and one super). The fake's `countEntriesByMatch` and `deleteMatch` now count `rows.scouting_entries` naming the match (soft-deleted included) plus `entryCountsByMatch`, as `countEntriesByFormVersion` already did; the whole server suite stayed green with it. The fake holds no metrics/dashboards/presets maps (FakeContext adds no fields), so its `countAnalysisRows` answers zeros; the Supabase store's head counts are tested in `store.test.ts`. Three existing `forms.test.ts` calls now pass `confirm_name` ('v2', 'Match', 'v1'). Mutation-checked: a case-folded confirm, a scouter allowed `deleteEntry`, the name read before the version block, the cascade skipping soft-deleted rows, and a lead given every impact kind each fail the suite.
+
+**Risk:** none.
+
+## Task 1.60 — `deleteEntry` reuses the push's soft delete; idempotent
+
+**Plan said:** `deleteEntry` is a lead/admin soft delete; the test asserts `deleted_at` set and `version` 2.
+
+**What was wrong:** the push path already soft-deletes (`syncPush` `delete` op, `manage_entries` against the author).
+
+**What I did instead:** `softDeletedRow(existing, deletedAt, clientUpdatedAt)` is that rule, used by both. `deleteEntry({ entry_id })` → `{ id, deleted: true, version }`, `manage_entries` (lead/admin; a scouter is refused, own entry included; a service caller too), `not-found` for an unknown id. With no device clock, `client_updated_at` is the server's `now` (a push uses the op's). An entry already soft-deleted answers deleted with its version and is not written again. Tested: the online delete and a lead's pushed delete write the same `deleted_at`/`version`/`client_updated_at`.
+
+**Risk:** the design says the entry soft delete "goes through the outbox like any other change"; 1.61 may use the outbox (works offline) or `deleteEntry` (online only). Both apply the same rule.
+
+## Task 1.60 — the integration test calls the SQL functions, not the server's store
+
+**Plan said:** `packages/db/test/deletes.itest.ts` "calls the real `deleteEvent` and then the real `deleteSeason`".
+
+**What was wrong:** `packages/db` cannot import `apps/server`; the server's store methods are one `rpc` call each, already unit-tested for the function name and arguments.
+
+**What I did instead:** the itest calls the three SQL functions with the service client, as `deleteCascade.itest.ts` does: a season (year 1911) with two events, four matches and twelve entries; a fifth match held only by a soft-deleted entry, which a plain delete refuses with 23503 and `delete_match_cascade` removes (answering 1, its slot gone, its tombstone written); then the event, then the season; no orphan by any key (events, matches, match_teams, entries by event, id and version, forms, versions), five match tombstones, the teams and the user untouched. Random ids, cleaned in `afterAll` (rows, plus the tombstones in `match_deletions` and `form_deletions`). Run twice to prove the clean-up: team numbers 999981–999986 and username `itest_deletes` are unique, so a leftover would fail the second run's inserts.
+
+**Risk:** none.
+
+## Task 1.60 — client bundle
+
+**Plan said:** (BUILD-CONTEXT §12.5) initial JS at most 232 KB gzip.
+
+**What was wrong:** nothing yet: the two new API-map rows and their schemas ship in the client's first chunk.
+
+**What I did instead:** measured after `pnpm --filter @frc/client build`: `initial JS 231.7 KB gzip` (was 230.4), under the budget; not raised.
+
+**Risk:** 0.3 KB of headroom; task 1.61's DeleteDialog will likely need the budget raised, or the dialog lazy.
+
+## Task 1.60 — orchestrator: the published-version rule stays; the trash button opens Blocked
+
+**Plan said:** (1.61, v1.36, and design 28's table) older version rows on the forms list get a trash button, and "a form version with no entries" opens the bill + type.
+
+**What was wrong:** older rows are published versions, and Phase 1 D review #2 refuses deleting any published version on its own: a device that has been offline since that version was active may still hold queued entries for it, and deleting it turns them into `parent-deleted` discards. Offline is the normal mode at a venue, and those entries cannot be recovered.
+
+**What I did instead:** kept review #2 on the server (`version_published`). The trash button stays where the user placed it (older rows only), and for a published version it opens Blocked, with "Delete the whole form…" as the way forward. Only a draft can be deleted alone. Rejected: lifting review #2 to match the design's "bill for a version with no entries" — the user's brief named who sees the button, not a change to that rule, and a wrong call here loses scouting data silently and irreversibly.
+
+**Risk:** the bill + type face for a lone form version is reachable only for a draft. If the user wants older published versions deletable, it is a one-rule change on the server plus a release note; raised in the build report.

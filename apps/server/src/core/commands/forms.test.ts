@@ -713,7 +713,9 @@ describe('deleteFormVersion and deleteForm', () => {
       ctx,
     );
     const v2 = forked.new_version_id!;
-    await expect(deleteFormVersion(ADMIN, { form_version_id: v2 }, ctx)).resolves.toEqual({
+    await expect(
+      deleteFormVersion(ADMIN, { form_version_id: v2, confirm_name: 'v2' }, ctx),
+    ).resolves.toEqual({
       deleted: true,
     });
     expect(ctx.formVersions.has(v2)).toBe(false);
@@ -748,7 +750,9 @@ describe('deleteFormVersion and deleteForm', () => {
     ctx.rows.scouting_entries.set('x-1', { id: 'x-1', version: 1, form_version_id: draftId });
     const saved = await saveFormExport(ADMIN, { form_id: formId, form_version_id: draftId }, ctx);
 
-    await expect(deleteForm(ADMIN, { form_id: formId }, ctx)).resolves.toEqual({
+    await expect(
+      deleteForm(ADMIN, { form_id: formId, confirm_name: 'Match' }, ctx),
+    ).resolves.toEqual({
       versions: 1,
       entries: 1,
       deleted: true,
@@ -850,7 +854,11 @@ describe('updated_by (SPEC-FINAL 3.3, v1.21)', () => {
     expect(version(draftId).updated_by).toBe('u-admin-2');
     // a form with neither: its only version deleted
     const empty = await createForm(ADMIN, { season_id: SEASON_2, kind: 'super', name: 'S' }, ctx);
-    await deleteFormVersion(ADMIN, { form_version_id: empty.draft_version_id }, ctx);
+    await deleteFormVersion(
+      ADMIN,
+      { form_version_id: empty.draft_version_id, confirm_name: 'v1' },
+      ctx,
+    );
     await expect(
       updateForm(ADMIN_2, { form_id: empty.id, name: 'S2' }, ctx),
     ).resolves.toMatchObject({

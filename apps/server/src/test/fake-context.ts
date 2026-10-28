@@ -850,6 +850,9 @@ export function makeFakeContext(): FakeContext {
     }
   };
   const userExists = (id: unknown): boolean => typeof id === 'string' && usersById.has(id);
+  /** Entry rows naming the match, soft-deleted ones included: the foreign key counts them. */
+  const entriesNaming = (matchId: string): number =>
+    [...rows.scouting_entries.values()].filter((row) => row.match_id === matchId).length;
   const fieldRowsOf = (versionId: string): FormFieldDefinition[] =>
     [...fake.formFields.entries()]
       .filter(([k]) => k.startsWith(`${versionId}:`))
@@ -1614,13 +1617,15 @@ export function makeFakeContext(): FakeContext {
         );
       }
     },
+    // Task 1.60: the rows in `rows.scouting_entries` naming the match (soft-deleted ones
+    // too), plus whatever a test declared in `entryCountsByMatch`.
     async countEntriesByMatch(matchId) {
-      return fake.entryCountsByMatch.get(matchId) ?? 0;
+      return entriesNaming(matchId) + (fake.entryCountsByMatch.get(matchId) ?? 0);
     },
-    // `entryCountsByMatch` stands for the entries: scouting_entries.match_id is
-    // `on delete restrict`, so any of them refuses the delete (23503). The slots cascade.
+    // The entries refuse it: scouting_entries.match_id is `on delete restrict`, so any of
+    // them (a row, or a declared count) refuses the delete (23503). The slots cascade.
     async deleteMatch(id) {
-      if ((fake.entryCountsByMatch.get(id) ?? 0) > 0) {
+      if (entriesNaming(id) + (fake.entryCountsByMatch.get(id) ?? 0) > 0) {
         throw pgError('23503', 'scouting_entries_match_id_fkey');
       }
       const gone = rows.matches.get(id);
@@ -1660,6 +1665,53 @@ export function makeFakeContext(): FakeContext {
         forms:
           kind === 'season' ? [...fake.forms.values()].filter((f) => f.season_id === id).length : 0,
       };
+    },
+    // Task 1.60: what delete_match_cascade leaves behind. Every entry row naming the match
+    // goes (soft-deleted ones too; a declared `entryCountsByMatch` is cleared with them),
+    // then the match through deleteMatch — its slots and its tombstone.
+    async deleteMatchCascade(id) {
+      let gone = fake.entryCountsByMatch.get(id) ?? 0;
+      fake.entryCountsByMatch.delete(id);
+      for (const [k, row] of rows.scouting_entries) {
+        if (row.match_id !== id) continue;
+        rows.scouting_entries.delete(k);
+        gone += 1;
+      }
+      await fake.store.deleteMatch(id);
+      return gone;
+    },
+    async tallyEntries(scope) {
+      const [column, ids] =
+        'eventIds' in scope
+          ? ['event_id', new Set(scope.eventIds)]
+          : ['form_version_id', new Set(scope.formVersionIds)];
+      const inScope = [...rows.scouting_entries.values()].filter((row) =>
+        ids.has(row[column] as string),
+      );
+      return {
+        entries: inScope.length,
+        deleted_entries: inScope.filter((row) => row.deleted_at != null).length,
+        super_entries: inScope.filter((row) => row.form_kind === 'super').length,
+      };
+    },
+    async countMatchesOfEvents(eventIds) {
+      const ids = new Set(eventIds);
+      return [...rows.matches.values()].filter((m) => ids.has(m.event_id as string)).length;
+    },
+    // The fake holds no metrics, dashboards or weight presets (no use case writes them in
+    // phase 1), so there is nothing to count; the Supabase store's head counts are tested.
+    async countAnalysisRows() {
+      return { metrics: 0, dashboards: 0, weight_presets: 0 };
+    },
+    async listMatchEntries(matchId) {
+      return [...rows.scouting_entries.values()]
+        .filter((row) => row.match_id === matchId)
+        .map((row) => ({
+          team_id: String(row.team_id),
+          form_kind: row.form_kind === 'super' ? ('super' as const) : ('match' as const),
+          client_updated_at: String(row.client_updated_at),
+          deleted_at: (row.deleted_at as string | null | undefined) ?? null,
+        }));
     },
     // Task 1.50: the browse and search reads, over `rows.scouting_entries`, with the same
     // matching rules as the Supabase store (core/entrySearch.ts).

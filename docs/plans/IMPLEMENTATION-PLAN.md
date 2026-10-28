@@ -187,6 +187,8 @@ So the execution order is: … 1.49, **1.54, 1.55, 1.56**, 1.50, 1.51, 1.52, **1
 
 **Release note — form versions and exports (1.27).** Migrations `20261008100000_form_versions_updated_by` and `20261008101000_form_exports` must be pushed to **production before the server containing task 1.27 is deployed**, the same way (by hand, BUILD-CONTEXT §4). That server stamps `form_versions.updated_by` on every form write and reads and writes `form_exports`; without them every form save and every export fails.
 
+**Release note — match with its entries (1.60).** Migration `20261028090000_delete_match_cascade` must be pushed to **production before the server containing task 1.60 is deployed**, the same way (by hand, BUILD-CONTEXT §4). That server's `deleteMatch({ with_entries: true })` calls the new `delete_match_cascade` function; without it every delete of a match together with its entries fails (the plain delete of a match with no entries, and every other delete, are unaffected).
+
 If you would rather the file read in execution order, renumber it once before the first build chat and never again — but do not renumber halfway through, because the commit messages and the branch names will stop matching.
 
 ---

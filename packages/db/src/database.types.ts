@@ -1283,6 +1283,7 @@ export type Database = {
     }
     Functions: {
       delete_event_cascade: { Args: { p_event_id: string }; Returns: undefined }
+      delete_match_cascade: { Args: { p_match_id: string }; Returns: number }
       delete_season_cascade: {
         Args: { p_season_id: string }
         Returns: undefined

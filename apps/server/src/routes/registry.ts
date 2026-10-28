@@ -42,6 +42,7 @@ import {
   updateTeam,
 } from '../core/commands/teams.js';
 import { deleteEvent, deleteSeason } from '../core/commands/deleteCompetition.js';
+import { deleteEntry } from '../core/commands/deletes.js';
 import {
   createForm,
   deleteForm,
@@ -70,6 +71,7 @@ import { countEntriesByScouter } from '../core/queries/countEntriesByScouter.js'
 import { listUsers } from '../core/queries/listUsers.js';
 import { getEntry, listTeamEvents, queryEntries, searchTeams } from '../core/queries/search.js';
 import { getTeamStats, rankTeams } from '../core/queries/stats.js';
+import { getDeleteImpact } from '../core/queries/deleteImpact.js';
 
 type EntryMeta = {
   kind: 'query' | 'command';
@@ -342,7 +344,7 @@ export const REGISTRY: Record<string, RegistryEntry> = {
   deleteMatch: {
     kind: 'command',
     description:
-      'Admin only: delete a match and its slots. Refused while any entry names it; correct the match number instead.',
+      'Admin only: delete a match and its slots. Refused while any entry names it (soft-deleted ones too); correct the match number instead, or pass with_entries with confirm_name equal to the match label ("Q41") to hard-delete every entry naming it with the match, in one transaction.',
     input: API.deleteMatch.input,
     output: API.deleteMatch.output,
     handler: deleteMatch,
@@ -422,7 +424,7 @@ export const REGISTRY: Record<string, RegistryEntry> = {
   deleteFormVersion: {
     kind: 'command',
     description:
-      'Admin only: delete one form version. Blocked while any entry is bound to it, and for the active version.',
+      'Admin only: delete one draft form version; the real delete needs confirm_name equal to its label ("v3"). Blocked, whatever is typed, while any entry is bound to it, and for a published or the active version.',
     input: API.deleteFormVersion.input,
     output: API.deleteFormVersion.output,
     handler: deleteFormVersion,
@@ -430,7 +432,7 @@ export const REGISTRY: Record<string, RegistryEntry> = {
   deleteForm: {
     kind: 'command',
     description:
-      'Admin only: hard-delete a form with all its versions, fields, scoring and entries, irreversibly. dry_run answers how many versions and entries go, and deletes nothing.',
+      'Admin only: hard-delete a form with all its versions, fields, scoring and entries, irreversibly. dry_run answers how many versions and entries go, and deletes nothing; the real delete needs confirm_name equal to the form name exactly.',
     input: API.deleteForm.input,
     output: API.deleteForm.output,
     handler: deleteForm,
@@ -578,5 +580,21 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     input: API.rankTeams.input,
     output: API.rankTeams.output,
     handler: rankTeams,
+  },
+  getDeleteImpact: {
+    kind: 'query',
+    description:
+      "Admin only (a lead too, for an entry): the exact damage a delete of a season, event, form, form version, match or entry would do, counted just now, deleting nothing — events, matches, entries (soft-deleted ones included, and how many those are), forms, versions, metrics, dashboards and presets, a match's six stations — with the name to type back, or why it is blocked whatever is typed.",
+    input: API.getDeleteImpact.input,
+    output: API.getDeleteImpact.output,
+    handler: getDeleteImpact,
+  },
+  deleteEntry: {
+    kind: 'command',
+    description:
+      'Lead or admin only: soft-delete one entry. The row stays with deleted_at set and a new revision, and the tombstone reaches every device through the delta pull. Scouters never delete an entry, their own included.',
+    input: API.deleteEntry.input,
+    output: API.deleteEntry.output,
+    handler: deleteEntry,
   },
 };
