@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.47 · **Date:** 2026-10-28 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.48 · **Date:** 2026-10-28 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.48: Home's our-team card counts "places moved" since our last match: our rank now against the ranking computed from the matches before it (§13.5). See the living spec's §21, v1.00.*
 
 *v1.47: the delete confirmation is designed (§3.9, §17.8): the bill first; a plain "Are you sure?" where nothing is typed; a match with entries can be deleted together with them; the backup step is the two-file dump. See the living spec's §21, v0.99.*
 
@@ -1722,6 +1724,7 @@ Layout: the **metrics table first**, then charts and other metrics below.
 - **Phases are the form's, not fixed** **[RAISED BY ME]**: the bar and the per-phase figures follow the phases that score in the season's form, so a year that scores a post-match field gets that segment too and the parts still add up to Total.
 - Shading (§12.6) marks the figures in the current sort; the others print plain.
 - Offline, the phone computes the same table from the entries on the device and says so ("Computed from the data on this device", with the last sync time).
+- *(v1.48, user 2026-10-28)* **Home reads the same ranking**: the our-team card shows rank #N of M, the average, and **places moved since our last match** — our rank now against our rank computed from the qualification matches numbered below our most recent counted one ("▲2 since Q36"); the top-teams list is the top five with a five-match trend line.
 
 ### 13.6 Compare page
 

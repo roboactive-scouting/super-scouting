@@ -1,6 +1,7 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.36 · **Date:** 2026-10-28 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.37 · **Date:** 2026-10-28 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.37 (2026-10-28): task 1.58b, Home's our-team rank card and top teams (round 03's "wanted, after ranking", in no task until now); "places moved" is counted since our last match (user; spec v1.00 / SPEC-FINAL v1.48).*
 *v1.36 (2026-10-28): where the delete dialogs open is drawn (`docs/design/pages/28-delete/final/delete-triggers-*`): Delete on the entry preview for a lead or admin, a trash button on older form-version rows; task 1.61 points at them.*
 *v1.35 (2026-10-28): the delete confirmation is designed (`docs/design/pages/28-delete/final/`, spec v0.99 / SPEC-FINAL v1.47 §3.9, §17.8); task 1.60 adds deleting a match with its entries and the two-file backup text, task 1.61 points at the final.*
 *v1.34 (2026-10-28): the ranking page is designed (`docs/design/pages/27-ranking/final/`, spec v0.98 / SPEC-FINAL v1.46 §13.5, §17.9, D18); task 1.58 points at it and adds the per-phase averages and the standard deviation to `rankRow`; §17.8 now prints one decimal, so 1.58 also changes `formatMetric`.*
@@ -17341,6 +17342,37 @@ Expected: every suite green, including the new file(s) from this task.
 
 ```bash
 git add -A && git commit -m "feat(client): add the fixed phase 1 ranking table"
+```
+
+---
+
+## Task 1.58b: Client — Home's our-team rank card and top teams
+
+*(v1.37, user 2026-10-28; [RAISED BY ME]: designed with Home in round 03 as "wanted, after ranking" (`docs/design/pages/03-home/final/README.md`, "Our team" and "Top teams") but in no task until now. Runs right after 1.58, on the same data.)*
+
+**Design.** `docs/design/pages/03-home/final/` — compare `home-desktop.png` and `home-phone.png` at 1440 and 375 px. Today's Home hides both; this task shows them once the event has a ranking.
+
+**Files:**
+- Create: `apps/client/src/features/home/OurTeamCard.tsx`, `apps/client/src/features/home/TopTeamsCard.tsx` and a test for each
+- Modify: `apps/client/src/features/home/HomePage.tsx`, `StatTiles.tsx` (the desktop row gains the fourth tile), `homeData.ts`; `packages/shared/src/engine/teamStats.ts` and `packages/shared/src/api/stats.ts` (below)
+
+**Data — the same source as the ranking page** (`rankTeams` online, `buildRankTable` over the device's entries offline), so Home and `/ranking` can never disagree:
+- `rankRow` gains `recent_totals: number[]` — the team's last **five** counted match totals, oldest first (no-show and disabled left out, as for the average).
+- `buildRankTable` takes an optional `before_match_number`: only qualification matches numbered **below** it count. `rankTeams` passes it through. That is the whole of "places moved".
+
+**Our team** (2096, the configured team): rank **#N of M** (M = the ranked teams), the average (one decimal, §17.8), and **places moved since our last match**: our rank now against our rank computed with `before_match_number` = the number of 2096's most recent counted match — "▲2 since Q36", "▼1 since Q36", "No change since Q36" (an arrow and a word, never colour alone). Fewer than two counted matches for 2096: the move line is left out. 2096 not ranked yet: the card stays hidden, as today.
+
+**Top teams:** the top five by the canonical rank, each with its five-match trend line from `recent_totals` (the team page's sparkline), 2096 highlighted when it is among them, and a **Full ranking** link to `/ranking`. No ranking yet: hidden, and coverage keeps the full width, as today.
+
+- [ ] **Step 1: Write the failing tests** — the move reads ▲/▼/No change against a ranking computed before our last match; hidden with fewer than two matches; Top teams lists exactly five in rank order with 2096 marked; offline, both cards read the device's ranking and agree with `/ranking`.
+- [ ] **Step 2: Implement, run, commit**
+
+```bash
+pnpm --filter @frc/shared exec vitest run src/engine && pnpm --filter @frc/client exec vitest run src/features/home && pnpm typecheck
+```
+
+```bash
+git add -A && git commit -m "feat(client): add the our-team rank card and top teams to Home"
 ```
 
 ---
