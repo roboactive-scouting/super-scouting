@@ -210,12 +210,17 @@ export type RankSortKey = (typeof RANK_SORT_KEYS)[number];
 export const SORT_DIRECTIONS = ['asc', 'desc'] as const;
 export type SortDirection = (typeof SORT_DIRECTIONS)[number];
 
-/** `sort_by` defaults to `average_points` (the canonical basic rank, 11.5). */
+/**
+ * `sort_by` defaults to `average_points` (the canonical basic rank, 11.5). `before_match_number`
+ * (task 1.58b) ranks the event as it stood before that qualification match: only qualification
+ * matches numbered below it count — Home's "places moved since our last match".
+ */
 export const rankTeamsInput = z
   .object({
     event_id: rowId,
     sort_by: z.enum(RANK_SORT_KEYS).optional(),
     direction: z.enum(SORT_DIRECTIONS).optional(),
+    before_match_number: z.number().int().positive().optional(),
   })
   .strict();
 export type RankTeamsInput = z.input<typeof rankTeamsInput>;
@@ -231,12 +236,21 @@ export const rankPhaseAverage = z.object({
 });
 export type RankPhaseAverage = z.infer<typeof rankPhaseAverage>;
 
+/** How many recent counted matches a ranking row's trend line holds (Home's Top teams, 1.58b). */
+export const RANK_RECENT_MATCHES = 5;
+
 /**
  * One roster team's row. `rank` is the canonical basic rank, whatever the sort. `stddev` is the
  * standard deviation of the counted entries' points (Consistency: shown, never a sort key; null
  * under two counted entries). `phase_averages` holds one item per phase that carries points in
  * the season's match form (a scorable field with a scoring rule), in `FIELD_PHASES` order — the
  * same phases, in the same order, on every row of a table.
+ *
+ * Task 1.58b (Home): `recent_totals` is the team's last five counted match totals, oldest first,
+ * over the SAME counted entries as `average_points` (no-show and disabled left out; empty with no
+ * counted match) — the Top teams trend line. `last_counted_match` is the qualification match
+ * number of the team's most recent counted match (null with none) — the match Our team's
+ * "places moved since Q36" is measured from, read from the very rows the rank came from.
  */
 export const rankRow = z.object({
   team_id: z.string(),
@@ -251,6 +265,8 @@ export const rankRow = z.object({
   no_shows: z.number().int().nonnegative(),
   disabled: z.number().int().nonnegative(),
   availability_rate: z.number().nullable(),
+  recent_totals: z.array(z.number()).max(RANK_RECENT_MATCHES),
+  last_counted_match: z.number().int().positive().nullable(),
 });
 export type RankRow = z.infer<typeof rankRow>;
 

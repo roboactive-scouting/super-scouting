@@ -23,11 +23,18 @@ export async function deviceRankInput(
   };
 }
 
-/** This device's ranking table of `eventId`, in the canonical order; null without the event. */
+/**
+ * This device's ranking table of `eventId`, in the canonical order; null without the event.
+ * `beforeMatch` (task 1.58b) is `buildRankTable`'s `before_match_number`: the table as it stood
+ * before that qualification match, exactly as `rankTeams` answers it with the same number.
+ */
 export async function loadDeviceRanking(
   eventId: string,
+  beforeMatch?: number,
 ): Promise<{ event: { id: string; name: string }; rows: RankRow[] } | null> {
   const held = await deviceRankInput(eventId);
   if (!held) return null;
-  return { event: held.event, rows: buildRankTable(held.input) };
+  const input =
+    beforeMatch === undefined ? held.input : { ...held.input, before_match_number: beforeMatch };
+  return { event: held.event, rows: buildRankTable(input) };
 }

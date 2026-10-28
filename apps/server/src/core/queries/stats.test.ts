@@ -453,6 +453,42 @@ describe('rankTeams — Consistency, the phases and one table everywhere (task 1
     }
   });
 
+  it('ranks the event before a match through the same builder (task 1.58b)', async () => {
+    const input = await sameRows();
+    for (const before_match_number of [1, 2, 3, 4, 99]) {
+      expect(
+        (await rankTeams(lead, { event_id: 'ev-1', before_match_number }, ctx)).rows,
+        `before Q${before_match_number}`,
+      ).toEqual(buildRankTable({ ...input, before_match_number }));
+    }
+    // t-1 (2096) scored 10 at Q1 and 20 at Q2 (Q3 a no-show); t-2 12 and 12. Now t-1 leads;
+    // before its last counted match (Q2) t-2 did: "▲1 since Q2" on Home.
+    const now = (await rankTeams(lead, { event_id: 'ev-1' }, ctx)).rows;
+    const t1now = now.find((r) => r.team_id === 't-1')!;
+    expect(t1now).toMatchObject({ rank: 1, recent_totals: [10, 20], last_counted_match: 2 });
+    const before = (
+      await rankTeams(
+        lead,
+        { event_id: 'ev-1', before_match_number: t1now.last_counted_match! },
+        ctx,
+      )
+    ).rows;
+    expect(before.find((r) => r.team_id === 't-1')).toMatchObject({
+      rank: 2,
+      recent_totals: [10],
+      last_counted_match: 1,
+    });
+    expect(before.find((r) => r.team_id === 't-2')).toMatchObject({ rank: 1, recent_totals: [12] });
+    expect(
+      rankTeamsOutput.safeParse({ event: { id: 'ev-1', name: 'x' }, rows: before }).success,
+    ).toBe(true);
+    for (const bad of [0, 1.5, 'Q2']) {
+      await expect(
+        rankTeams(lead, { event_id: 'ev-1', before_match_number: bad } as never, ctx),
+      ).rejects.toMatchObject({ code: 'invalid' });
+    }
+  });
+
   it('carries Consistency and the phase averages, which add up to Total', async () => {
     const table = await rankTeams(lead, { event_id: 'ev-1' }, ctx);
     for (const row of table.rows) {

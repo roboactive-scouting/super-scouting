@@ -1047,12 +1047,14 @@ var SORT_DIRECTIONS = ["asc", "desc"];
 var rankTeamsInput = z11.object({
   event_id: rowId3,
   sort_by: z11.enum(RANK_SORT_KEYS).optional(),
-  direction: z11.enum(SORT_DIRECTIONS).optional()
+  direction: z11.enum(SORT_DIRECTIONS).optional(),
+  before_match_number: z11.number().int().positive().optional()
 }).strict();
 var rankPhaseAverage = z11.object({
   phase: z11.enum(FIELD_PHASES),
   average: z11.number().nullable()
 });
+var RANK_RECENT_MATCHES = 5;
 var rankRow = z11.object({
   team_id: z11.string(),
   number: z11.number().int(),
@@ -1065,7 +1067,9 @@ var rankRow = z11.object({
   breakdowns: z11.number().int().nonnegative(),
   no_shows: z11.number().int().nonnegative(),
   disabled: z11.number().int().nonnegative(),
-  availability_rate: z11.number().nullable()
+  availability_rate: z11.number().nullable(),
+  recent_totals: z11.array(z11.number()).max(RANK_RECENT_MATCHES),
+  last_counted_match: z11.number().int().positive().nullable()
 });
 var rankTeamsOutput = z11.object({ event: eventRef2, rows: z11.array(rankRow) });
 
@@ -2400,6 +2404,12 @@ function rankByAveragePoints(entries, teams, fields, rules) {
 }
 
 // ../../packages/shared/src/engine/teamStats.ts
+function entriesBeforeMatch(entries, before) {
+  if (before === void 0) return entries;
+  return entries.filter(
+    (e) => e.match_type !== "qualification" || e.match_number !== null && e.match_number < before
+  );
+}
 var RANK_SORT_DEFAULT_DIRECTION = {
   average_points: "desc",
   auto_points: "desc",
@@ -2595,13 +2605,11 @@ function sortRankRows(rows, sort) {
 }
 function buildRankTable(input) {
   const { scoring } = input;
+  const entries = entriesBeforeMatch(input.entries, input.before_match_number);
   const teams = [...new Map(input.teams.map((t) => [t.id, t])).values()];
-  const grouped = byTeam(input.entries);
+  const grouped = byTeam(entries);
   const ranks = new Map(
-    rankByAveragePoints(input.entries, teams, scoring.fields, scoring.rules).map((r) => [
-      r.team_id,
-      r
-    ])
+    rankByAveragePoints(entries, teams, scoring.fields, scoring.rules).map((r) => [r.team_id, r])
   );
   const phases = scoringPhases(scoring);
   const rows = teams.map((team) => {
@@ -2614,6 +2622,7 @@ function buildRankTable(input) {
       scoring.fields
     );
     const points = counted.map((e) => scoreEntry(e, scoring.fields, scoring.rules));
+    const totals = points.filter((p) => p !== null);
     const subtotals = counted.map(
       (e) => new Map(
         scoreBreakdown(e, scoring.fields, scoring.rules).phases.map((p) => [p.phase, p.subtotal])
@@ -2638,7 +2647,9 @@ function buildRankTable(input) {
       breakdowns: reliability.breakdowns,
       no_shows: reliability.no_shows,
       disabled: reliability.disabled,
-      availability_rate: reliability.availability_rate
+      availability_rate: reliability.availability_rate,
+      recent_totals: totals.slice(-RANK_RECENT_MATCHES),
+      last_counted_match: counted.at(-1)?.match_number ?? null
     };
   });
   const key2 = input.sort_by ?? "average_points";
@@ -6838,7 +6849,8 @@ async function rankTeams(caller, input, ctx) {
       entries,
       scoring,
       sort_by: parsed.sort_by,
-      direction: parsed.direction
+      direction: parsed.direction,
+      before_match_number: parsed.before_match_number
     })
   };
 }

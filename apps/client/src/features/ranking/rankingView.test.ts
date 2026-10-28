@@ -38,6 +38,8 @@ const row = (over: Partial<RankRow>): RankRow => ({
   no_shows: 1,
   disabled: 2,
   availability_rate: 10 / 13,
+  recent_totals: [70, 80, 90],
+  last_counted_match: 30,
   ...over,
 });
 const empty = row({

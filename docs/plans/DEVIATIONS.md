@@ -9628,3 +9628,123 @@ FAIL src/features/shell/nav.test.ts > navigation (spec v1.15) > phone bar: Home 
 **What I did instead:** `/ranking` is a lazy chunk (`RankingPage` 11.8 KB gzip; `deviceRanking` 0.3 KB, the engine shared with the team page's chunk). Measured initial JS **227.8 KB** gzip (the nav row, the route's lazy import and the wider `rankRow` / sort-key schemas in the `API` map). No raise.
 
 **Risk:** if 1.58b imports `useRanking` into Home (first chunk), the hook itself is small and the engine stays lazy (`deviceRanking.ts` is a dynamic import); measure again then.
+
+## Task 1.58b — "Our last match" is `last_counted_match` on `rankRow`
+
+**Plan said:** "our rank computed with `before_match_number` = the number of 2096's most recent counted match"; `rankRow` gains `recent_totals` only.
+
+**What was wrong:** `recent_totals` carries points, not match numbers, so neither source could say which match "our last match" was; computing it from the device's entries while the rows came from the server would mix two sources.
+
+**What I did instead:** `rankRow` gains `last_counted_match: z.number().int().positive().nullable()` — the qualification match number of the team's latest counted entry (`applyFilters` order, the same population as `average_points`), null with none — beside `recent_totals: z.array(z.number()).max(RANK_RECENT_MATCHES)` (`RANK_RECENT_MATCHES = 5`, `api/stats.ts`), the last five of those points, oldest first. Both are computed in `buildRankTable`, so the server's rows and the device's carry them alike. Rejected: a parallel `recent_matches: number[]` (five numbers where one is read), a separate "last match" query (a second source), and reading the device's entries (mixes sources).
+
+**Risk:** a deployed server older than this task answers rows without the two fields; the client's `call()` refuses that shape, so `useRanking` shows the device's table (as after 1.58) until the server is redeployed.
+
+## Task 1.58b — `before_match_number`: what "only qualification matches numbered below it count" filters
+
+**Plan said:** "`buildRankTable` takes an optional `before_match_number`: only qualification matches numbered below it count. `rankTeams` passes it through."
+
+**What was wrong:** nothing; the edge cases were open.
+
+**What I did instead:** `entriesBeforeMatch(entries, before)` (exported, `engine/teamStats.ts`) runs first in `buildRankTable`, so every figure — the rank (`rankByAveragePoints`), the average, the reliability counts, `recent_totals`, `last_counted_match` — is the table as it stood then. It keeps every non-qualification entry (no figure counts them anyway) and drops a qualification entry numbered at or above `before`, and one with no number (it cannot be placed). `rankTeamsInput` takes `before_match_number: z.number().int().positive().optional()` (0, −1, 2.5 and "36" are refused, tested); the server use case passes it straight to the builder. Tests: shared (`teamStats.test.ts`, "the trend line and before a match"), server (`stats.test.ts`, "ranks the event before a match through the same builder": `rankTeams` with `before_match_number` 1, 2, 3, 4, 99 equals `buildRankTable` over the same store rows, and 2096 goes from #2 before Q2 to #1), device (`deviceRanking.test.ts`: `loadDeviceRanking(event, n)` is the very `buildRankTable({ ...input, before_match_number: n })` call). Server bundle rebuilt (BUILD-CONTEXT §6). No migration.
+
+**Risk:** none known.
+
+## Task 1.58b — The "before" ranking comes from the source of "now": `useRankingBefore(now, n)`
+
+**Plan said:** (brief) extend `useRanking` with an optional before-match option, or a sibling hook on the same code path; online both reads are `rankTeams`, offline both the device's.
+
+**What was wrong:** two independent `useRanking` calls each choose their own source. Online, `useRanking` shows the device's table until the server answers, so the "now" and the "before" reads could stand on different sources for a moment.
+
+**What I did instead:** a sibling hook, `useRankingBefore(now: Ranking, beforeMatch: number | null, rpc?) → RankRow[] | null`, in `features/ranking/useRanking.ts`. It reads `now.source.kind`: `server` → `rankTeams { event_id: now.event.id, before_match_number }` only, asked again when `now.source.asOf` moves; `device` → the same lazily imported `loadDeviceRanking(eventId, beforeMatch)` only, tagged with the number it was computed for. So the two never mix by construction. `beforeMatch` is `moveMatchOf(our row of now)`: our `last_counted_match` once we have two counted matches, else null (no read at all). Tests (`OurTeamCard.test.tsx`): online, the calls are exactly `[{ event_id }, { event_id, before_match_number: 36 }]` and the device's loader is never called with a number (while the device holds a ranking of its own); offline, `rpc.call` is never called and the device's loader is called with our last match; the move equals `ourTeamOf` over `loadDeviceRanking(event, n)`. Rejected: an option on `useRanking` (each call would choose its own source); computing the move on the client from `recent_totals` (it cannot re-rank the other teams).
+
+**Risk:** online, while the server's "now" is still on its way the device's "now" and "before" show; when the server's "now" arrives the move line disappears until the server's "before" answers (one more `rankTeams`). It never shows a mixed move.
+
+## Task 1.58b — `useRanking` hardened for a first-chunk page
+
+**Plan said:** nothing.
+
+**What was wrong:** Home's existing tests inject `rpc = { call: vi.fn() }` (answers `undefined`) and `{ call: vi.fn().mockResolvedValue({ items: [], next_cursor: null }) }`. The first crashed Home:
+
+```
+TypeError: Cannot read properties of undefined (reading 'then')
+    at C:\dev\frc-scouting\apps\client\src\features\ranking\useRanking.ts:87:47
+```
+
+and the second handed the page `rows: undefined`. Neither can happen through the real `typedCall` (it validates), but Home must never fall over because of the ranking.
+
+**What I did instead:** both hooks call through `Promise.resolve().then(() => rpc.call(…)).then((out) => rankTeamsOutput.parse(out))`, so a call that throws or answers another shape is a failed read (the device's table stands in, or the move is left out). `useRanking(eventId: string | null, …)`: with no event (Home before the shell has one) it reads nothing from either side (tested: "asks for no ranking while there is no competition"). The schema is already in the first chunk (the API map).
+
+**Risk:** none known.
+
+## Task 1.58b — Home's existing "no RPC on load" tests now allow the ranking's `rankTeams`
+
+**Plan said:** (RB.10, `HomePage.test.tsx`) "renders from the device alone — no RPC on load"; "loads competitions only when Switch competition is opened" (`expect(rpc.call).not.toHaveBeenCalled()` before the click).
+
+**What was wrong:** online, Our team and Top teams read `rankTeams` on load (the task's own rule: the ranking page's source). Both tests failed: `AssertionError: expected "spy" to not be called at all, but actually been called 1 times`.
+
+**What I did instead:** the first test now expects the calls to be exactly `['rankTeams']`; the second expects no call but `rankTeams` before the sheet opens and another after. The `homeData.ts` header says the same ("no RPC; the one exception is the ranking").
+
+**Risk:** none known.
+
+## Task 1.58b — Bundle: two constants moved out of lazy modules; budget 230 → 232
+
+**Plan said:** nothing (BUILD-CONTEXT §12.5: initial JS at most 230 KB gzip; a build chat may raise it and log it).
+
+**What was wrong:** the first build measured `initial JS 239.5 KB gzip` / `initial JS over 230 KB gzip`: Home imported `OUR_TEAM_NUMBER` from `features/teams/teamSearch.ts` and `rankedCount` from `features/ranking/rankingView.ts`, which pulled both modules — and the engine functions their lazy pages use — into the first chunk. With those two moved it measured `initial JS 230.4 KB gzip` / `initial JS over 230 KB gzip`.
+
+**What I did instead:** `OUR_TEAM_NUMBER` lives in `lib/ourTeam.ts` (no imports; `teamSearch.ts` re-exports it, so the ranking and team search are unchanged) and `rankedCount` in `features/ranking/rankedCount.ts` (`rankingView.ts` re-exports it). The 2.6 KB over 1.58's 227.8 KB is `useRanking` (moved from the lazy ranking chunk, which fell from 11.8 to 11.0 KB), the two cards, the Home model and the sparkline; no engine string (`scoreBreakdown`, "Std dev of points") is in the first chunk. `BUDGET_KB` 230 → 232 (`scripts/check-bundle.mjs`, its header, and BUILD-CONTEXT §12.5). Rejected: lazy-loading the two cards (about 1 KB back, but a second chunk fetched on the page every scout opens first, for cards that already wait on the ranking).
+
+**Risk:** 1.6 KB of headroom left.
+
+## Task 1.58b — The team page's sparkline moves to `components/Sparkline.tsx`, with a faint tone
+
+**Plan said:** "each with its five-match trend line from `recent_totals` (the team page's sparkline)".
+
+**What was wrong:** the sparkline lived inside `features/teams/StatRows.tsx` (which imports the team page's view helpers), always `--accent`; the design draws the other teams' lines `--faint` with an `--ink-2` dot and ours `--accent`.
+
+**What I did instead:** `Sparkline({ values, tone = 'accent' | 'faint' })` in `components/Sparkline.tsx`, the same drawing (64 × 20, 1.5 px, end dot, a null left out, under two values nothing); `StatRows.tsx` imports it, so the team page is unchanged. Added to BUILD-CONTEXT §12.5.
+
+**Risk:** none known.
+
+## Task 1.58b — Small calls the design and the plan left open
+
+**Plan said:** the card shows "#N of M", the average and the move ("▲2 since Q36", "▼1 since Q36", "No change since Q36"); Top teams the top five with trend lines, 2096 highlighted, Full ranking.
+
+**What was wrong:** the design (03-home final) draws "avg 51.2 · ▲ 2 places" and leaves the rest open.
+
+**What I did instead:**
+- **Move text:** the plan's words win over the design's: "avg 45.2 · ▲3 since Q32". The arrow and number are `aria-hidden`; a screen reader hears "Up 3 places since Q32" / "Down 1 place since Q32"; "No change since Q32" is printed once. The rank is "#3 / 33" on screen and "Rank 3 of 33" spoken. M = the ranked teams (`rankedCount`, as the ranking's study panel).
+- **Desktop card:** the fourth tile at `1.35fr` (the design's grid), not stretched to the row's height (`self-start`, as the design draws it); with the longer move line, "Our team at this event" wraps rather than being cut off. On a phone, a full-width card under the tiles, before coverage (the README's phone order).
+- **Top teams:** rows are not links (the design gives them none); Full ranking (a 48 px hit area) opens `PATHS.ranking`. The figure is the average (one decimal, a whole number bare — "44"); the header reads "Average points · last 5" / "avg points · last 5" (design). Our row: `--accent-tint`, the name in `--accent-ink`, and "our team" for a screen reader, never the tint alone. Coverage 1.3fr beside Top teams 1fr (design `.g2`); coverage alone keeps the full width, and Top teams alone (under a session override, where coverage is hidden) takes it.
+- **Session override:** the cards show the override event's ranking (`useRanking` already reads the server for it, held by `cross_event_view`); offline under an override nothing shows. Rejected: hiding them like coverage (coverage is the default competition's device data; the ranking is the override's own).
+
+**Risk:** the user may want the design's "▲ 2 places" wording, the card stretched to the tiles' height, or Top teams rows that open team pages; each is a small change.
+
+## Task 1.58b — The ranking's e2e fixture is shared with Home's spec
+
+**Plan said:** (brief) Home's Playwright spec with realistic data, Our team with a move line and 2096 among the top five, every theme; one shot with 2096 unranked.
+
+**What was wrong:** the realistic ranking event lived inside `e2e/ranking.spec.ts`, and in it 2096 is #31 of 33 with no change.
+
+**What I did instead:** the fixture moved verbatim to `e2e/rankingFixture.ts` (`PULL`, `RANK_ENTRIES`, `rankTeamsAnswer(input)` — now passing `before_match_number` through — and `rankingEventWith(entries)` for a variant); `ranking.spec.ts` imports it and is otherwise unchanged. `home.spec.ts` gives 2096 nine teleop notes a match and 30 in its last counted one (Q32): #3 of 33, #6 before Q32, "▲3 since Q32"; a second variant drops 2096's entries (not ranked). The existing Home shots now also show the cards, from the device (the base mock has no `rankTeams`, so it fails and the device's table stands in: 2096 #20 of 22, "▼1 since Q32").
+
+**Risk:** none known.
+
+## Task 1.58b — A conflicts e2e locator matched the top bar's "Syncing…"
+
+**Plan said:** nothing (the full e2e run, BUILD-CONTEXT §12.3).
+
+**What was wrong:** the full run failed one test, 1 time in 3 when repeated:
+
+```
+e2e\conflicts.spec.ts:571:1 › conflicts: a scouter reads the queue, every action off, and has no nav row
+Error: strict mode violation: getByRole('link', { name: 'Sync' }) resolved to 2 elements:
+    1) <a href="/sync" … aka getByRole('link', { name: 'Sync', exact: true })
+    2) <a href="/sync" … aria-label="Syncing…" … aka getByRole('link', { name: 'Syncing…' })
+```
+
+The name match is a substring, so the sidebar's Sync row and the top bar's sync pill ("Syncing…") both match while the first sync is still running. Home now also computes the device's ranking on the pull's row changes, which plausibly keeps that window open a little longer after `networkidle`.
+
+**What I did instead:** the locator is `{ name: 'Sync', exact: true }` (the sidebar row the test means). Three repeats of the spec then passed (15 of 15).
+
+**Risk:** none known; other specs that name a link by a prefix of "Syncing…" would have the same latent race.

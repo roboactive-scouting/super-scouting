@@ -593,3 +593,97 @@ describe('buildRankTable — Consistency and the phase averages (task 1.58)', ()
     ]);
   });
 });
+
+describe('buildRankTable — the trend line and "before a match" (task 1.58b)', () => {
+  const scoring = { fields: FIELDS, rules: RULES };
+  // a: Q1..Q7 scoring 1..7 (cycles), with a no-show at Q4 and a disabled robot at Q6 in between;
+  // b: Q2 8, Q5 2. Numbers fixed, so "before" reads real match numbers.
+  const at = (team_id: string, n: number, cycles: number, over: Partial<EngineEntry> = {}) =>
+    entry({ team_id, match_number: n, match_id: `m-${team_id}-${n}`, data: { cycles }, ...over });
+  const entries = [
+    at('a', 1, 1),
+    at('a', 2, 2),
+    at('a', 3, 3),
+    at('a', 4, 40, { robot_status: 'no_show' }),
+    at('a', 5, 5),
+    at('a', 6, 60, { robot_status: 'disabled' }),
+    at('a', 7, 7),
+    at('a', 8, 8),
+    at('a', 9, 9),
+    at('b', 2, 8),
+    at('b', 5, 2),
+    at('a', 1, 99, { match_type: 'practice', match_id: 'm-p1' }),
+  ];
+  const table = (over: Partial<Parameters<typeof buildRankTable>[0]> = {}) =>
+    buildRankTable({ teams: TEAMS, entries, scoring, ...over });
+  const row = (rows: ReturnType<typeof table>, id: string) => rows.find((r) => r.team_id === id)!;
+
+  it('gives the last five counted totals, oldest first, no-show and disabled left out', () => {
+    const a = row(table(), 'a');
+    expect(a.recent_totals).toEqual([3, 5, 7, 8, 9]);
+    expect(a.last_counted_match).toBe(9);
+    // The same population as the average: the totals ARE the points the average reads.
+    expect(a.matches_counted).toBe(7);
+    expect(row(table(), 'b').recent_totals).toEqual([8, 2]);
+    expect(row(table(), 'b').last_counted_match).toBe(5);
+    for (const r of table()) expect(rankRow.strict().safeParse(r).success).toBe(true);
+  });
+
+  it('leaves the trend line empty and the last match null with no counted match', () => {
+    const [c] = buildRankTable({
+      teams: [{ id: 'c', number: 50, name: 'Charlie' }],
+      entries: [
+        entry({ team_id: 'c', match_type: 'practice', data: { cycles: 4 } }),
+        entry({ team_id: 'c', robot_status: 'no_show', data: { cycles: 4 } }),
+      ],
+      scoring,
+    });
+    expect(c!.recent_totals).toEqual([]);
+    expect(c!.last_counted_match).toBeNull();
+  });
+
+  it('counts only the qualification matches numbered below before_match_number', () => {
+    const before = table({ before_match_number: 5 });
+    const a = row(before, 'a');
+    // Q1–Q3 (Q4 a no-show): 1, 2, 3; b only Q2 (8).
+    expect(a.recent_totals).toEqual([1, 2, 3]);
+    expect(a.average_points).toBe(2);
+    expect(a.matches_counted).toBe(3);
+    expect(a.no_shows).toBe(1);
+    expect(a.last_counted_match).toBe(3);
+    const b = row(before, 'b');
+    expect(b.average_points).toBe(8);
+    expect(b.last_counted_match).toBe(2);
+    // The rank is recomputed over the earlier matches: b led then, a leads now.
+    expect(before.map((r) => [r.team_id, r.rank])).toEqual([
+      ['b', 1],
+      ['a', 2],
+    ]);
+    expect(table().map((r) => [r.team_id, r.rank])).toEqual([
+      ['a', 1],
+      ['b', 2],
+    ]);
+  });
+
+  it('is the same table as the entries before that match, and nothing at all before Q1', () => {
+    const earlier = entries.filter(
+      (e) => e.match_type !== 'qualification' || (e.match_number ?? 0) < 7,
+    );
+    expect(table({ before_match_number: 7 })).toEqual(table({ entries: earlier }));
+    const none = table({ before_match_number: 1 });
+    expect(none.every((r) => r.rank === null && r.recent_totals.length === 0)).toBe(true);
+    // Unset, every match counts; past the last match, the same.
+    expect(table({ before_match_number: 100 })).toEqual(table());
+  });
+
+  it('takes before_match_number through rankTeamsInput, a positive whole number only', () => {
+    expect(rankTeamsInput.safeParse({ event_id: 'ev', before_match_number: 36 }).success).toBe(
+      true,
+    );
+    for (const bad of [0, -1, 2.5, '36']) {
+      expect(rankTeamsInput.safeParse({ event_id: 'ev', before_match_number: bad }).success).toBe(
+        false,
+      );
+    }
+  });
+});

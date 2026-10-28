@@ -72,4 +72,28 @@ describe('the device ranking (task 1.58)', () => {
   it('holds nothing for an event the device does not have', async () => {
     expect(await loadDeviceRanking('ev-nowhere')).toBeNull();
   });
+
+  it('ranks before a match through the same builder, as rankTeams does (task 1.58b)', async () => {
+    const { input } = (await deviceRankInput(EVENT_ID))!;
+    for (const before of [1, 10, 20, 32, 38, 99]) {
+      vi.mocked(buildRankTable).mockClear();
+      const out = (await loadDeviceRanking(EVENT_ID, before))!;
+      // The very call the server's rankTeams makes with { before_match_number } (stats.test.ts,
+      // "ranks the event before a match through the same builder").
+      expect(buildRankTable).toHaveBeenCalledWith({ ...input, before_match_number: before });
+      expect(out.rows, `before Q${before}`).toEqual(
+        buildRankTable({ ...input, before_match_number: before }),
+      );
+    }
+    // 1690 played Q3, Q9, Q14 (broke down), Q20, Q26 (no-show), Q31, Q37: before Q20 it counts
+    // three, and its trend line and last match are the earlier ones.
+    const early = (await loadDeviceRanking(EVENT_ID, 20))!.rows.find((r) => r.team_id === TEAM_ID)!;
+    expect(early).toMatchObject({
+      matches_counted: 3,
+      last_counted_match: 14,
+      recent_totals: [29, 36, 11],
+    });
+    const now = (await loadDeviceRanking(EVENT_ID))!.rows.find((r) => r.team_id === TEAM_ID)!;
+    expect(now).toMatchObject({ last_counted_match: 37, recent_totals: [36, 11, 40, 36, 42] });
+  });
 });

@@ -1,6 +1,7 @@
 import type { MatchType } from '../api/matches';
 import {
   PHASE_SORT_KEYS,
+  RANK_RECENT_MATCHES,
   type GetTeamStatsOutput,
   type MetricKind,
   type RankPhaseAverage,
@@ -62,7 +63,30 @@ export type StatsInput = {
   scoring: StatsScoring;
 };
 
-export type RankTableInput = StatsInput & { sort_by?: RankSortKey; direction?: SortDirection };
+export type RankTableInput = StatsInput & {
+  sort_by?: RankSortKey;
+  direction?: SortDirection;
+  /**
+   * The table as it stood before this qualification match (task 1.58b): only qualification
+   * matches numbered below it count. Unset, every match counts.
+   */
+  before_match_number?: number;
+};
+
+/**
+ * The entries a table counts before qualification match `before` (task 1.58b): every entry of a
+ * qualification match numbered below it, and every non-qualification entry (which no figure
+ * counts anyway). A qualification entry with no number cannot be placed, so it is left out.
+ */
+export function entriesBeforeMatch(
+  entries: readonly EngineEntry[],
+  before: number | undefined,
+): readonly EngineEntry[] {
+  if (before === undefined) return entries;
+  return entries.filter(
+    (e) => e.match_type !== 'qualification' || (e.match_number !== null && e.match_number < before),
+  );
+}
 
 export type TeamStatsInput = StatsInput & {
   team: StatsTeam;
@@ -386,20 +410,21 @@ export function sortRankRows(rows: readonly RankRow[], sort: readonly RankSortSt
  * entries). Task 1.58 adds, over the SAME counted entries as the average: `stddev`
  * (Consistency, `aggregate(points, 'stddev')`, the team page's "Std dev of points") and
  * `phase_averages` (`scoringPhases`, each the mean of `scoreBreakdown`'s phase subtotal, 0 for a
- * phase an entry scored nothing in). Sorted by `sort_by` (default `average_points`) in
+ * phase an entry scored nothing in). Task 1.58b adds `recent_totals` (the last five of those
+ * points, oldest first) and `last_counted_match` (the latest counted match's number), and
+ * `before_match_number`: the table as it stood before that qualification match
+ * (`entriesBeforeMatch`), every figure, the rank included, over the earlier matches only. Sorted by `sort_by` (default `average_points`) in
  * `direction` (default: the column's best-first, `RANK_SORT_DEFAULT_DIRECTION`) through
  * `compareRankRows`: no data last, a null last whatever the direction, ties to the canonical rank
  * then the lower team number. No weighting, no normalisation, no contributions: those are phase 2.
  */
 export function buildRankTable(input: RankTableInput): RankRow[] {
   const { scoring } = input;
+  const entries = entriesBeforeMatch(input.entries, input.before_match_number);
   const teams = [...new Map(input.teams.map((t) => [t.id, t])).values()];
-  const grouped = byTeam(input.entries);
+  const grouped = byTeam(entries);
   const ranks = new Map(
-    rankByAveragePoints(input.entries, teams, scoring.fields, scoring.rules).map((r) => [
-      r.team_id,
-      r,
-    ]),
+    rankByAveragePoints(entries, teams, scoring.fields, scoring.rules).map((r) => [r.team_id, r]),
   );
   const phases = scoringPhases(scoring);
   const rows: RankRow[] = teams.map((team) => {
@@ -413,6 +438,8 @@ export function buildRankTable(input: RankTableInput): RankRow[] {
       scoring.fields,
     );
     const points = counted.map((e) => scoreEntry(e, scoring.fields, scoring.rules));
+    // `counted` is in sequence order (`applyFilters`), so the last ones are the latest matches.
+    const totals = points.filter((p): p is number => p !== null);
     const subtotals = counted.map(
       (e) =>
         new Map(
@@ -439,6 +466,8 @@ export function buildRankTable(input: RankTableInput): RankRow[] {
       no_shows: reliability.no_shows,
       disabled: reliability.disabled,
       availability_rate: reliability.availability_rate,
+      recent_totals: totals.slice(-RANK_RECENT_MATCHES),
+      last_counted_match: counted.at(-1)?.match_number ?? null,
     };
   });
 

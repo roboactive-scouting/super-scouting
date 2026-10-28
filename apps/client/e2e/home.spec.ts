@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './api-mock';
+import { FIXTURE } from './fixtures';
+import { RANK_ENTRIES, rankingEventWith } from './rankingFixture';
 import { shoot } from './shoot';
 import { touchDrag } from './touch';
 
@@ -271,4 +273,70 @@ test('home: on a computer a coverage square names its match on hover and on focu
   await page.keyboard.press('ArrowRight');
   await expect(coverage.getByRole('button', { name: 'Q2 · 6 scouted' })).toBeFocused();
   await expect(tip).toHaveText('Q2 · 6 scouted');
+});
+
+/*
+ * Task 1.58b: Our team and Top teams read the ranking page's own source. The ranking's event
+ * (rankingFixture.ts, 36 teams), with 2096 a stronger robot than there — 9 teleop notes a match,
+ * 30 in its last counted one (Q32) — so it is #3 of the 33 ranked teams and was #6 before Q32;
+ * `rankTeams` is the shared builder over the same rows, `before_match_number` passed through.
+ */
+const US = (FIXTURE.pull.entities.teams as { id: string; number: number }[]).find(
+  (t) => t.number === 2096,
+)!.id;
+const counted = (e: (typeof RANK_ENTRIES)[number]) =>
+  e.robot_status === 'played' || e.robot_status === 'broke_down';
+const LAST = RANK_ENTRIES.filter((e) => e.team_id === US && counted(e)).at(-1)!.id;
+const STRONG = rankingEventWith(
+  RANK_ENTRIES.map((e) =>
+    e.team_id === US && counted(e)
+      ? { ...e, data: { ...e.data, teleop_notes: e.id === LAST ? 30 : 9 } }
+      : e,
+  ),
+);
+/** The same event with 2096 not scouted at all: not ranked yet. */
+const UNRANKED = rankingEventWith(RANK_ENTRIES.filter((e) => e.team_id !== US));
+
+test('home: Our team and Top teams from the ranking, at both widths (task 1.58b)', async ({
+  page,
+}) => {
+  await setClock(page);
+  await signIn(page, 'lead', {
+    overrides: { ...HOLD_PUSH.overrides, 'sync/pull': STRONG.pull, rankTeams: STRONG.rankTeams },
+  });
+  await seedDevice(page, 'B2');
+  const ours = page.getByRole('region', { name: 'Our team' });
+  await expect(ours).toContainText('#3 / 33');
+  await expect(ours.getByText('Up 3 places since Q32')).toBeAttached();
+  await expect(ours).toContainText('▲3 since Q32');
+  const top = page.getByRole('region', { name: 'Top teams' });
+  await expect(top.getByRole('listitem')).toHaveCount(5);
+  await expect(top.locator('li[data-us]')).toHaveAttribute('data-team', '2096');
+  await expect(top.getByRole('link', { name: 'Full ranking' })).toHaveAttribute('href', '/ranking');
+  await shoot(page, 'home-ranking', undefined, { long: true });
+
+  // Full ranking opens /ranking, where 2096 holds the same rank.
+  await top.getByRole('link', { name: 'Full ranking' }).click();
+  await page.waitForURL('/ranking');
+  await expect(page.getByText(/from the server · as of/i).first()).toBeVisible();
+  await expect(page.locator('[data-team="2096"]').first()).toContainText('3');
+});
+
+test('home: our team not ranked yet — no Our team card, three tiles; Top teams stays (task 1.58b)', async ({
+  page,
+}) => {
+  await setClock(page);
+  await signIn(page, 'lead', {
+    overrides: {
+      ...HOLD_PUSH.overrides,
+      'sync/pull': UNRANKED.pull,
+      rankTeams: UNRANKED.rankTeams,
+    },
+  });
+  await seedDevice(page, 'B2');
+  const top = page.getByRole('region', { name: 'Top teams' });
+  await expect(top.getByRole('listitem')).toHaveCount(5);
+  await expect(top.locator('li[data-us]')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Our team' })).toHaveCount(0);
+  await shoot(page, 'home-ranking-unranked');
 });

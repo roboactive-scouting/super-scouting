@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { RankRow, RankTeamsOutput } from '@frc/shared';
+import { rankTeamsOutput, type RankRow } from '@frc/shared';
 import { cachedRows } from '@/data/cache';
 import { typedCall, type Rpc } from '@/data/rpc';
 import { useSyncStatus } from '@/data/syncStatus';
@@ -50,23 +50,24 @@ type Remote =
   | { key: string; status: 'failed'; last: Answer | null };
 
 /** The device's table, from a chunk of its own (the engine stays out of the initial JS). */
-const loadDevice = (eventId: string) =>
-  import('./deviceRanking').then((m) => m.loadDeviceRanking(eventId));
+const loadDevice = (eventId: string, beforeMatch?: number) =>
+  import('./deviceRanking').then((m) => m.loadDeviceRanking(eventId, beforeMatch));
 
 /**
  * The ranking of `eventId` (the shell's active event), or of a session override's event when one
  * is set. `rpc` is injectable for tests.
  */
-export function useRanking(eventId: string, rpc: Rpc = { call: typedCall }): Ranking {
+export function useRanking(eventId: string | null, rpc: Rpc = { call: typedCall }): Ranking {
   const override = useSessionOverride();
   const target = override?.eventId ?? eventId;
   const online = useOnline();
   const crossEvent = useCapability('cross_event_view');
-  const askServer = override ? crossEvent : online;
+  // No event yet (Home before the shell has one, task 1.58b): nothing is read, from either side.
+  const askServer = target !== null && (override ? crossEvent : online);
   const sync = useSyncStatus();
 
   const device = useDeviceQuery(
-    () => (override ? Promise.resolve(null) : loadDevice(eventId)),
+    () => (override || eventId === null ? Promise.resolve(null) : loadDevice(eventId)),
     [eventId, override?.eventId ?? null],
     ['rows'],
   );
@@ -79,19 +80,24 @@ export function useRanking(eventId: string, rpc: Rpc = { call: typedCall }): Ran
   // The answer predates the last sync (new entries reached the server): ask again.
   const stale = answer !== null && sync.lastSyncAt !== null && sync.lastSyncAt > answer.at;
   useEffect(() => {
-    if (!askServer) return;
+    if (!askServer || target === null) return;
     if (mine?.status === 'ok' && !stale) return;
     let on = true;
     const last = mine?.last ?? null;
     setRemote({ key, status: 'loading', last });
-    rpc.call('rankTeams', { event_id: target }).then(
-      (out) => {
-        if (!on) return;
-        const { event, rows } = out as RankTeamsOutput;
-        setRemote({ key, status: 'ok', last: { event, rows, at: new Date().toISOString() } });
-      },
-      () => on && setRemote({ key, status: 'failed', last }),
-    );
+    // Through a promise and the wire schema, so a call that throws or answers something else is a
+    // failed read, never a crash of the page holding the hook (Home, task 1.58b).
+    Promise.resolve()
+      .then(() => rpc.call('rankTeams', { event_id: target }))
+      .then((out) => rankTeamsOutput.parse(out))
+      .then(
+        (out) => {
+          if (!on) return;
+          const { event, rows } = out;
+          setRemote({ key, status: 'ok', last: { event, rows, at: new Date().toISOString() } });
+        },
+        () => on && setRemote({ key, status: 'failed', last }),
+      );
     return () => {
       // A read cut short (offline, another event) is asked again when this runs next.
       if (on)
@@ -155,4 +161,69 @@ export function useQualRange(eventId: string): string | null | undefined {
     [eventId],
     ['rows'],
   );
+}
+
+/**
+ * The ranking as it stood before qualification match `beforeMatch` (task 1.58b, Home's "places
+ * moved since our last match"), read from the SAME source as `now` — never a server "now" against
+ * a device "before":
+ *
+ * - `now` from the server: `rankTeams` with `before_match_number`, asked again whenever `now`
+ *   is (its `asOf` moves), and nothing from the device;
+ * - `now` from the device: the very same `buildRankTable` on this device's entries with
+ *   `before_match_number`, and no server call.
+ *
+ * `beforeMatch` comes from `now`'s own rows (a row's `last_counted_match`). Null while
+ * `now` is not ready, while `beforeMatch` is null, while the read is under way, and when it
+ * fails (the caller then leaves the move out). `rpc` is injectable for tests.
+ */
+export function useRankingBefore(
+  now: Ranking,
+  beforeMatch: number | null,
+  rpc: Rpc = { call: typedCall },
+): RankRow[] | null {
+  const ready = now.status === 'ready' && beforeMatch !== null ? now : null;
+  const kind = ready?.source.kind ?? null;
+  const eventId = ready?.event.id ?? null;
+  const asOf = ready?.source.kind === 'server' ? ready.source.asOf : null;
+
+  const device = useDeviceQuery(
+    () =>
+      kind === 'device' && eventId !== null && beforeMatch !== null
+        ? loadDevice(eventId, beforeMatch).then((held) =>
+            held ? { eventId, beforeMatch, rows: held.rows } : null,
+          )
+        : Promise.resolve(null),
+    [kind, eventId, beforeMatch],
+    ['rows'],
+  );
+
+  const key = kind === 'server' ? `${eventId}|${beforeMatch}|${asOf}` : null;
+  const [remote, setRemote] = useState<{ key: string; rows: RankRow[] | null } | null>(null);
+  useEffect(() => {
+    if (key === null || eventId === null || beforeMatch === null) return;
+    let on = true;
+    Promise.resolve()
+      .then(() => rpc.call('rankTeams', { event_id: eventId, before_match_number: beforeMatch }))
+      .then((out) => rankTeamsOutput.parse(out))
+      .then(
+        (out) => on && setRemote({ key, rows: out.rows }),
+        () => on && setRemote({ key, rows: null }),
+      );
+    return () => {
+      on = false;
+    };
+    // rpc is an injected dependency held stable by the caller; `key` names every input.
+  }, [key]);
+
+  if (kind === 'server') return remote?.key === key ? remote.rows : null;
+  if (
+    kind === 'device' &&
+    device &&
+    device.eventId === eventId &&
+    device.beforeMatch === beforeMatch
+  ) {
+    return device.rows;
+  }
+  return null;
 }

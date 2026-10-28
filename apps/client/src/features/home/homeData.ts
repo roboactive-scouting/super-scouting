@@ -1,13 +1,17 @@
-import { formatDate, formatTime } from '@frc/shared';
+import { formatDate, formatMetric, formatTime, type RankRow } from '@frc/shared';
 import { cachedLiveSlots, cachedRows } from '@/data/cache';
 import { db } from '@/data/db';
 import { coverage, type CoverageState } from '@/lib/derive/coverage';
 import { newestFirst, type LineupSlot } from '@/lib/derive/entries';
 import { matchLabel } from '@/lib/matchLabel';
+import { rankedCount } from '@/features/ranking/rankedCount';
 
 /*
- * What Home shows, read from the device alone (redesign RB.10): no RPC, ever. The plain
- * functions below are the derivations, tested without React.
+ * What Home shows, read from the device alone (redesign RB.10): no RPC. The one exception is the
+ * ranking (task 1.58b): Our team and Top teams read the ranking page's own source, `useRanking`
+ * (`rankTeams` online, the device's `buildRankTable` offline), so Home and /ranking never
+ * disagree; `ourTeamOf` and `topTeamsOf` below only pick from its rows. The plain functions are
+ * the derivations, tested without React.
  */
 
 type MatchRow = { id: string; event_id: string; match_type: string; number: number };
@@ -170,4 +174,79 @@ export async function loadHome(eventId: string, userId: string): Promise<HomeDat
     cells: coverageCells(matches, slots, entries, eventId),
     seasonYear: await cachedSeasonYear(eventId),
   };
+}
+
+/** How many teams Top teams lists (03-home final). */
+export const TOP_TEAMS = 5;
+
+/** Places moved since our last match: `places` > 0 is up, < 0 down, 0 no change. */
+export type RankMove = { places: number; since: string };
+
+/** The Our-team card (03-home final; task 1.58b): "#3 / 42", the average and the move. */
+export type OurTeam = {
+  row: RankRow;
+  rank: number;
+  /** The ranked teams (`rankedCount`, as the ranking page's "Rank 4 of 23"). */
+  of: number;
+  average: string;
+  /** Null with fewer than two counted matches, or while the earlier ranking is not in. */
+  move: RankMove | null;
+};
+
+/**
+ * The qualification match our places-moved is measured from: our latest counted match, once we
+ * have two (with one there is no earlier ranking to move from). Read from the same rows as the
+ * rank, so the two come from one source.
+ */
+export function moveMatchOf(row: RankRow | undefined): number | null {
+  if (!row || row.rank === null || row.matches_counted < 2) return null;
+  return row.last_counted_match;
+}
+
+/**
+ * Our team in a ranking (`rows`: `useRanking`'s), or null when it is not ranked yet (the card
+ * then stays hidden). `before` is the same source's ranking before our last counted match
+ * (`useRankingBefore`); the move is our rank then minus our rank now.
+ */
+export function ourTeamOf(
+  rows: readonly RankRow[],
+  teamNumber: number,
+  before: readonly RankRow[] | null,
+): OurTeam | null {
+  const row = rows.find((r) => r.number === teamNumber);
+  if (!row || row.rank === null) return null;
+  const at = moveMatchOf(row);
+  const then = before?.find((r) => r.team_id === row.team_id)?.rank ?? null;
+  return {
+    row,
+    rank: row.rank,
+    of: rankedCount(rows),
+    average: formatMetric(row.average_points),
+    move:
+      at !== null && then !== null
+        ? {
+            places: then - row.rank,
+            since: matchLabel({ match_type: 'qualification', number: at }),
+          }
+        : null,
+  };
+}
+
+/** The move as drawn — "▲2 since Q36", "▼1 since Q36", "No change since Q36" — and as spoken. */
+export function moveText(move: RankMove): { shown: string; spoken: string } {
+  const n = Math.abs(move.places);
+  const places = `${n} ${n === 1 ? 'place' : 'places'}`;
+  if (move.places > 0)
+    return { shown: `▲${n} since ${move.since}`, spoken: `Up ${places} since ${move.since}` };
+  if (move.places < 0)
+    return { shown: `▼${n} since ${move.since}`, spoken: `Down ${places} since ${move.since}` };
+  return { shown: `No change since ${move.since}`, spoken: `No change since ${move.since}` };
+}
+
+/** Top teams: the first five by the canonical rank (whatever any page's sort), ranked teams only. */
+export function topTeamsOf(rows: readonly RankRow[]): RankRow[] {
+  return rows
+    .filter((r): r is RankRow & { rank: number } => r.rank !== null)
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, TOP_TEAMS);
 }

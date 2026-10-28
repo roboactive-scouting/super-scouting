@@ -49,6 +49,8 @@ const rows: RankRow[] = Array.from({ length: 50 }, (_, i) => {
     no_shows: none ? 0 : i % 5,
     disabled: none ? 0 : i % 6 === 5 ? 1 : 0,
     availability_rate: none ? null : 1 - (i % 5) / 10,
+    recent_totals: avg === null ? [] : [avg - 2, avg, avg + 1],
+    last_counted_match: none ? null : 30,
   };
 });
 
