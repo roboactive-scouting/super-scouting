@@ -2,6 +2,7 @@ import { ChevronRight, TriangleAlert } from 'lucide-react';
 import { useId } from 'react';
 import { Button } from '@/components/ui/button';
 import { ResponsiveDialog } from '@/components/ui/responsive-dialog';
+import { SurfaceActions } from '@/components/ui/surface-actions';
 import type { Problem } from './entryRules';
 import { PHASE_NAME } from './phases';
 
@@ -79,14 +80,11 @@ export function ProblemsDialog({
           </li>
         ))}
       </ul>
-      <Button
-        variant="secondary"
-        size="lg"
-        className="w-full lg:w-auto lg:self-end"
-        onClick={onClose}
-      >
-        Keep editing
-      </Button>
+      <SurfaceActions className="mt-1">
+        <Button variant="secondary" onClick={onClose}>
+          Keep editing
+        </Button>
+      </SurfaceActions>
     </ResponsiveDialog>
   );
 }

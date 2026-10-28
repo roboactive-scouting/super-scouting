@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { db } from '@/data/db';
+import { db, getMeta, JUST_WIPED_KEY, setMeta } from '@/data/db';
 import { session } from './session';
 import {
   isDefinitive,
@@ -11,6 +11,7 @@ import {
   OfflineLoginError,
   signInErrorLine,
   signInWithFallback,
+  WIPED_DEVICE_LINE,
 } from './offlineLogin';
 import { SERVER_UNREACHABLE_LINE } from './messages';
 import { pendingCredential } from './pendingCredential';
@@ -422,5 +423,55 @@ describe('an online device that cannot reach the server (task 1.17b)', () => {
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
     const result = await signInWithFallback('alice', 'correct horse');
     expect(result.offline).toBe(true);
+  });
+});
+
+describe('a device a wipe emptied (Phase 1 I side task 4)', () => {
+  let online = false;
+  beforeEach(async () => {
+    online = false;
+    vi.spyOn(navigator, 'onLine', 'get').mockImplementation(() => online);
+    await db.rows.clear(); // the wipe took the cached accounts
+    await setMeta(JUST_WIPED_KEY, true);
+  });
+
+  it('says the device was wiped, not that it has not loaded the accounts yet', async () => {
+    expect(WIPED_DEVICE_LINE).toBe('This device was wiped. Connect to the internet to sign in.');
+    const error = await offlineLogin('alice', 'correct horse').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(OfflineLoginError);
+    expect((error as OfflineLoginError).reason).toBe('wiped');
+    expect(signInErrorLine(error)).toBe(WIPED_DEVICE_LINE);
+  });
+
+  it('offline, the sign-in falls back and says it', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const error = await signInWithFallback('alice', 'correct horse').catch((e: unknown) => e);
+    expect(signInErrorLine(error)).toBe(WIPED_DEVICE_LINE);
+    expect(await getMeta(JUST_WIPED_KEY, false)).toBe(true);
+  });
+
+  it('online with no answer, the server line still wins (task 1.17b)', async () => {
+    online = true;
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    const error = await signInWithFallback('alice', 'correct horse').catch((e: unknown) => e);
+    expect(signInErrorLine(error)).toBe(SERVER_UNREACHABLE_LINE);
+  });
+
+  it('without the mark, the first-install line stays', async () => {
+    await db.meta.delete(JUST_WIPED_KEY);
+    const error = await offlineLogin('alice', 'correct horse').catch((e: unknown) => e);
+    expect(signInErrorLine(error)).toBe(NO_CACHED_ACCOUNTS_LINE);
+  });
+
+  it('the first successful sign-in clears the mark, and the old line is back', async () => {
+    online = true;
+    fetchMock.mockResolvedValueOnce(json(200, { token: 'tok', user: aliceOnline }));
+    await signInWithFallback('alice', 'correct horse');
+    expect(await getMeta(JUST_WIPED_KEY, null)).toBeNull();
+    // Signed out again with nothing cached: no longer "wiped".
+    await session.signOut();
+    online = false;
+    const error = await offlineLogin('alice', 'correct horse').catch((e: unknown) => e);
+    expect(signInErrorLine(error)).toBe(NO_CACHED_ACCOUNTS_LINE);
   });
 });

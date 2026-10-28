@@ -4,6 +4,7 @@ import { useCapability } from '@/components/OfflineGate';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { ErrorLine } from '@/components/ui/notice';
+import { SurfaceActions } from '@/components/ui/surface-actions';
 import type { Rpc } from '@/data/rpc';
 import { DeleteCompetition } from './DeleteCompetition';
 import { TextField } from './fields';
@@ -116,14 +117,14 @@ function EventForm({
           {error}
         </ErrorLine>
       )}
-      <div className="mt-5 flex flex-wrap justify-end gap-2">
+      <SurfaceActions className="mt-5">
         <Button variant="secondary" disabled={busy} onClick={onClose}>
           Cancel
         </Button>
         <Button type="submit" variant="primary" disabled={!can} busy={busy} busyLabel="Saving…">
           {event ? 'Save name' : 'Create event'}
         </Button>
-      </div>
+      </SurfaceActions>
     </form>
   );
 }

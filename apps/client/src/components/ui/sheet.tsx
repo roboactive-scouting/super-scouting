@@ -3,6 +3,7 @@ import { useId, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { useDragDismiss } from './drag-dismiss';
+import { SurfaceFoot } from './surface-foot';
 import { useModalFocus, type InitialFocus } from './useModalFocus';
 
 export type SheetProps = {
@@ -35,6 +36,12 @@ export type SheetProps = {
   dragToClose?: boolean;
   /** A bottom sheet's round icon, centred above a centred title (as Dialog's `icon`). */
   icon?: ReactNode;
+  /**
+   * A foot pinned to the sheet's bottom edge while the rest scrolls (the Review sheet's buttons;
+   * Phase 1 I side task 1): `SurfaceFoot`, edge to edge, opaque down to the bottom edge, the
+   * safe-area inset inside it. Its children are laid out as a column.
+   */
+  foot?: ReactNode;
 };
 
 /**
@@ -62,6 +69,7 @@ function OpenSheet({
   showClose = false,
   dragToClose = true,
   icon,
+  foot,
 }: SheetProps) {
   const heading = useId();
   const close = () => {
@@ -96,8 +104,11 @@ function OpenSheet({
         style={bottom ? undefined : { width: `min(${width / 16}rem, 85vw)` }}
         className={cn(
           'absolute flex flex-col overflow-y-auto overscroll-contain',
+          // A pinned foot carries the bottom room itself: padding here would be a strip under
+          // it that the scroller does not paint over, where scrolled content shows through.
+          bottom && (foot ? 'pb-0' : 'pb-[env(safe-area-inset-bottom)]'),
           bottom
-            ? 'motion-safe:animate-sheet-up inset-x-0 bottom-0 max-h-[86dvh] rounded-t-[20px] bg-surface px-4 pt-2.5 pb-[env(safe-area-inset-bottom)] text-ink shadow-[var(--shadow-sheet)]'
+            ? 'motion-safe:animate-sheet-up inset-x-0 bottom-0 max-h-[86dvh] rounded-t-[20px] bg-surface px-4 pt-2.5 text-ink shadow-[var(--shadow-sheet)]'
             : cn(
                 'motion-safe:animate-drawer-in inset-y-0 start-0 touch-pan-y border-e',
                 tone === 'dark'
@@ -135,6 +146,17 @@ function OpenSheet({
           </div>
         )}
         {children}
+        {foot && (
+          <SurfaceFoot
+            scroller={panel}
+            className={cn(
+              'pt-2 pb-[calc(1rem+env(safe-area-inset-bottom))]',
+              bottom ? '-mx-4 px-4' : 'px-4',
+            )}
+          >
+            {foot}
+          </SurfaceFoot>
+        )}
       </div>
     </div>
   );

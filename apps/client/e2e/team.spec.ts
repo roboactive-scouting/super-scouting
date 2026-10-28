@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './api-mock';
 import { ENTRIES, FORM, matchId, pullWithSupers, teamId, TEAMS } from './fixtures';
 import type { PullResponse } from '@frc/shared';
+import { showsThrough } from './pinned';
 import { shoot } from './shoot';
 
 /*
@@ -230,9 +231,250 @@ test('team page: the phone frames — scrolled, Matches, Progress with two chart
   await expect(page.getByRole('img')).toHaveCount(0);
 });
 
+/*
+ * Phase 1 I side task 5 (plan v1.33): a field's chart shows the answers it has. The form grew:
+ * Orbit's first five matches were scouted on version 1, which had no Climb time and no Driver
+ * skill, and the rest on version 2. Nobody timed a climb (every Climb time "unsure"). Driver
+ * skill draws nothing over the version 1 matches (the axis keeps them) and "—" only over the
+ * no-show; Climb time has no value at all, so its chart is the one line.
+ */
+const OLD_VERSION_ID = '0000000b-0000-4000-8000-000000000001';
+
+function grownForm(): PullResponse {
+  const pull = withTimerAndRatingFields(pullWithSupers(TEAM_ENTRIES));
+  const orbitMatches = TEAM_ENTRIES.filter((e) => e.team_id === ORBIT)
+    .map((e) => matchNumber(e.match_id))
+    .sort((a, b) => a - b);
+  const firstNew = orbitMatches[5]!;
+  const fields = pull.entities.form_fields as Record<string, unknown>[];
+  const oldFields = fields
+    .filter((f) => f.form_version_id === FORM.version_id)
+    .filter((f) => f.key !== 'climb_time' && f.key !== 'driver')
+    .map((f) => ({
+      ...f,
+      id: `0000000b-${String(f.id).slice(9)}`,
+      form_version_id: OLD_VERSION_ID,
+    }));
+  const versions = pull.entities.form_versions as Record<string, unknown>[];
+  const current = versions.find((v) => v.id === FORM.version_id)!;
+  const entries = (pull.entities.scouting_entries as (typeof TEAM_ENTRIES)[number][]).map((e) => {
+    if (e.form_kind !== 'match') return e;
+    const { climb_time: _climb, driver, ...rest } = e.data;
+    if (e.team_id === ORBIT && matchNumber(e.match_id) < firstNew) {
+      return { ...e, form_version_id: OLD_VERSION_ID, data: rest };
+    }
+    return { ...e, data: driver === undefined ? rest : { ...rest, climb_time: null, driver } };
+  });
+  return {
+    ...pull,
+    entities: {
+      ...pull.entities,
+      form_versions: [
+        { ...current, id: OLD_VERSION_ID, version_no: 1 },
+        { ...current, version_no: 2 },
+        ...versions.filter((v) => v.id !== FORM.version_id),
+      ],
+      form_fields: [...oldFields, ...fields],
+      scouting_entries: entries,
+    },
+  } as PullResponse;
+}
+
+test("team page: a field's chart shows the answers it has (Driver skill, Climb time)", async ({
+  page,
+}) => {
+  test.slow();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openTeam(page, ORBIT, grownForm());
+  const main = page.getByRole('main');
+  await page.getByRole('tab', { name: /^Progress/ }).click();
+  await main
+    .getByRole('region', { name: /^Chart 1/ })
+    .getByRole('combobox', { name: 'Chart metric' })
+    .selectOption({ label: 'Post-match driver skill' });
+  const driver = main.getByRole('figure', { name: /driver skill, match by match/ });
+  await expect(driver).toBeVisible();
+  // Every match on the axis; the five on version 1 not asked (no mark at all), a dead robot on
+  // version 2 the only "—", every other match a mark.
+  const newer = TEAM_ENTRIES.filter((e) => e.team_id === ORBIT)
+    .sort((x, y) => matchNumber(x.match_id) - matchNumber(y.match_id))
+    .slice(5);
+  const dead = newer.filter((e) => e.robot_status === 'no_show' || e.robot_status === 'disabled');
+  const said = await driver.locator('li').allTextContents();
+  expect(said.filter((s) => s.includes('not on the form for this match'))).toHaveLength(5);
+  expect(said.filter((s) => s.startsWith('Q'))).toHaveLength(5 + newer.length);
+  expect(await driver.locator('svg text').filter({ hasText: '—' }).count()).toBe(dead.length);
+  expect(await driver.locator('[data-mark="point"], [data-mark="broke-down"]').count()).toBe(
+    newer.length - dead.length,
+  );
+
+  await main.getByRole('button', { name: /Add a chart under it/ }).click();
+  await main
+    .getByRole('region', { name: /^Chart 2/ })
+    .getByRole('combobox', { name: 'Chart metric' })
+    .selectOption({ label: 'Endgame climb time' });
+  await expect(main.getByText('No Climb time answers for this team yet')).toBeVisible();
+  await expect(main.getByRole('figure')).toHaveCount(1);
+  await shoot(page, 'team-progress-field');
+});
+
 test('team page: a team with no entries yet', async ({ page }) => {
   await openTeam(page, GALAXIA, EMPTY_PULL);
   await expect(page.getByText('No entries for this team yet')).toBeVisible();
   await expect(page.getByRole('link', { name: 'Scout a match' })).toBeVisible();
   await shoot(page, 'team-empty');
 });
+
+/*
+ * Phase 1 I side task 2 (plan v1.30): nothing pinned floats. The page is scrolled 4 px at a time,
+ * down through the phone header's compact switch until the tabs stick and on, then back up, with
+ * motion ON so the header's padding transition runs, and the boxes are read on every frame:
+ * - the team header sits on the shell's top bar (nothing shows between them);
+ * - the tabs never ride over the header;
+ * - once the tabs stick (the panel slides under them), they touch the header: no gap.
+ */
+type Seam = {
+  y: number;
+  frame: number;
+  bar: number;
+  headerTop: number;
+  header: number;
+  tabs: number;
+  tabsBottom: number;
+  panel: number;
+};
+
+async function walk(page: Page, to: number, step: number): Promise<Seam[]> {
+  return page.evaluate(
+    async ({ to, step }) => {
+      const frame = () => new Promise((done) => requestAnimationFrame(done));
+      const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+      const out: Seam[] = [];
+      const ys: number[] = [];
+      for (let y = 0; y <= to; y += step) ys.push(y);
+      for (const y of [...ys, ...ys.slice(0, -1).reverse()]) {
+        window.scrollTo(0, y);
+        for (let f = 0; f < 4; f++) {
+          await frame();
+          // The shell's bar: the phone's top bar or the computer's crumb bar (the header with no h1).
+          const bar = [...document.querySelectorAll('header')].find((h) => !h.querySelector('h1'))!;
+          out.push({
+            y: window.scrollY,
+            frame: f,
+            bar: bar.getBoundingClientRect().bottom,
+            headerTop: box('header:has(h1)').top,
+            header: box('header:has(h1)').bottom,
+            tabs: box('[role="tablist"]').top,
+            // The tab bar's bottom: the tablist's bar, with its 1 px rule.
+            tabsBottom: document
+              .querySelector('[role="tablist"]')!
+              .parentElement!.getBoundingClientRect().bottom,
+            panel: box('[role="tabpanel"]').top,
+          });
+        }
+      }
+      return out;
+    },
+    { to, step },
+  );
+}
+
+for (const [layout, size] of [
+  ['phone', { width: 375, height: 812 }],
+  ['desktop', { width: 1440, height: 900 }],
+] as const) {
+  test.describe(() => {
+    test.use({ reducedMotion: 'no-preference' });
+    test(`team page: the tabs stay flush under the header while scrolling (${layout})`, async ({
+      page,
+    }) => {
+      test.slow();
+      await page.setViewportSize(size);
+      await openTeam(page, ORBIT);
+      // Settled first: a shell notice can sit over the page for a moment after it opens.
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const bar = [...document.querySelectorAll('header')].find(
+              (h) => !h.querySelector('h1'),
+            )!;
+            const head = document.querySelector('header:has(h1)')!;
+            return head.getBoundingClientRect().top - bar.getBoundingClientRect().bottom;
+          }),
+        )
+        .toBe(0);
+      const seams = await walk(page, 480, 4);
+      // The header sits on the shell's bar wherever the page is scrolled.
+      const off = seams.filter((s) => Math.abs(s.headerTop - s.bar) > 0.5);
+      // The tabs never ride over the header.
+      const over = seams.filter((s) => s.tabs < s.header - 0.5);
+      // Stuck (the panel has slid under the tabs): they touch the header.
+      const stuck = seams.filter((s) => s.panel < s.tabsBottom - 0.5);
+      const parted = stuck.filter((s) => Math.abs(s.tabs - s.header) > 0.5);
+      console.log(
+        `${layout}: ${seams.length} samples, ${stuck.length} stuck; header off its bar ${off.length}; ` +
+          `tabs over the header ${over.length}; stuck with a gap ${parted.length}`,
+        JSON.stringify(parted.slice(0, 4)),
+      );
+      expect(stuck.length).toBeGreaterThan(0);
+      expect(off).toEqual([]);
+      expect(over).toEqual([]);
+      expect(parted).toEqual([]);
+
+      // Stuck, nothing shows between the shell's bar, the header and the tabs: that band is all bar.
+      const scrolled = async () => {
+        await page.evaluate(() => window.scrollTo(0, 400));
+        await expect(page.locator('[data-team-head]')).toBeVisible();
+        // Settled: the phone header's shrink is a padding transition, and a box read mid-way is
+        // taller than the block ends up (a loaded full e2e run probed content under that edge).
+        await expect
+          .poll(
+            () =>
+              page.evaluate(
+                () =>
+                  new Promise<boolean>((resolve) => {
+                    const el = document.querySelector('[data-team-head]')!;
+                    const before = el.getBoundingClientRect().height;
+                    setTimeout(() => resolve(el.getBoundingClientRect().height === before), 150);
+                  }),
+              ),
+            { timeout: 5000 },
+          )
+          .toBe(true);
+      };
+      await scrolled();
+      const head = (await page.locator('[data-team-head]').boundingBox())!;
+      const tabsBar = (await page.getByRole('tablist').locator('..').boundingBox())!;
+      expect(
+        await showsThrough(
+          page,
+          { top: 0, bottom: tabsBar.y + tabsBar.height, left: head.x, right: head.x + head.width },
+          ['header:not(:has(h1))', '[data-team-head]'],
+        ),
+      ).toEqual([]);
+      // The phone's scrolled frame is shot by the phone frames test.
+      if (layout === 'desktop') await shoot(page, 'team-scrolled', 'desktop', { before: scrolled });
+
+      // A tab chosen while the block is stuck keeps it stuck, the new panel from its top.
+      await page.evaluate(() => window.scrollTo(0, 600));
+      await page.getByRole('tab', { name: /^Notes/ }).click();
+      await expect(page.getByRole('tabpanel', { name: 'Notes' })).toBeVisible();
+      // Measured once the new panel has settled (the scroll back and the header's padding
+      // transition): under a loaded full e2e run one read taken mid-render saw 54 px.
+      const gaps = () =>
+        page.evaluate(() => {
+          const box = (selector: string) =>
+            document.querySelector(selector)!.getBoundingClientRect();
+          const header = box('header:has(h1)').bottom;
+          const tabs = box('[role="tablist"]').top;
+          // The tab bar's bottom: the tablist's bar, with its 1 px rule.
+          const tabsBottom = document
+            .querySelector('[role="tablist"]')!
+            .parentElement!.getBoundingClientRect().bottom;
+          const panel = box('[role="tabpanel"]').top;
+          return Math.max(Math.abs(tabs - header), Math.abs(panel - tabsBottom));
+        });
+      await expect.poll(gaps, { timeout: 5000 }).toBeLessThanOrEqual(0.5);
+    });
+  });
+}

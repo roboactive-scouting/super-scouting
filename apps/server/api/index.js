@@ -938,7 +938,8 @@ var STAT_AGGREGATIONS = ["avg", "median", "stddev", "rate", "mode"];
 var statsSeriesPoint = z11.object({
   entry_id: z11.string(),
   match_label: z11.string(),
-  value: z11.number().nullable()
+  value: z11.number().nullable(),
+  asked: z11.boolean().default(true)
 });
 var statsMetric = z11.object({
   key: z11.string(),
@@ -2499,6 +2500,10 @@ function seriesValue(kind, field, raw) {
   const v = aggregationValue(field, raw);
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
+function wasAsked(entry, key2, versions) {
+  if (entry.data[key2] !== void 0) return true;
+  return versions.get(entry.form_version_id)?.some((f) => f.key === key2 && !f.deprecated) ?? false;
+}
 function fieldValue(field, shape, direction2, counted) {
   if (shape.kind === "nominal") {
     const mode = aggregate(
@@ -2671,7 +2676,8 @@ function buildTeamStats(input) {
   const pointsSeries = own.series.map((e) => ({
     entry_id: e.id,
     match_label: ownLabel(e),
-    value: isDead(e) ? null : scoreEntry(e, fields, scoring.rules)
+    value: isDead(e) ? null : scoreEntry(e, fields, scoring.rules),
+    asked: true
   }));
   const pointsOf = (teamId) => populations.get(teamId)?.points ?? [];
   const average = averagePoints(ownEntries, fields, scoring.rules).avg;
@@ -2750,11 +2756,15 @@ function buildTeamStats(input) {
         value,
         display,
         domain,
-        series: shape.kind === "nominal" ? [] : own.series.map((e) => ({
-          entry_id: e.id,
-          match_label: ownLabel(e),
-          value: isDead(e) ? null : seriesValue(shape.kind, f, e.data[f.key])
-        })),
+        series: shape.kind === "nominal" ? [] : own.series.map((e) => {
+          const asked = wasAsked(e, f.key, versionFields);
+          return {
+            entry_id: e.id,
+            match_label: ownLabel(e),
+            value: !asked || isDead(e) ? null : seriesValue(shape.kind, f, e.data[f.key]),
+            asked
+          };
+        }),
         unavailable_reason: null
       };
     }

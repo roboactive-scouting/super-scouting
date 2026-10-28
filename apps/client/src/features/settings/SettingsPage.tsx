@@ -369,7 +369,7 @@ export function SettingsPage() {
   const version = clientConfig().appVersion;
 
   const done = (
-    <Button variant="primary" onClick={close} className="max-lg:w-full">
+    <Button variant="primary" onClick={close}>
       Done
     </Button>
   );

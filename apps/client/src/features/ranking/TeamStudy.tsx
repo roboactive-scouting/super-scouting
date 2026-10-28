@@ -9,7 +9,9 @@ import {
   type FieldPhase,
   type RankRow,
 } from '@frc/shared';
+import { actionButtonClass } from '@/components/ui/button';
 import { Sheet } from '@/components/ui/sheet';
+import { SurfaceActions } from '@/components/ui/surface-actions';
 import { teamPath } from '@/lib/paths';
 import { cn } from '@/lib/utils';
 import { NO_MATCHES, PHASE_FILL, PhaseBar, StatusShape, StatusSpread, SpreadHead } from './parts';
@@ -254,7 +256,7 @@ export function TeamStudyPanel({
     <aside
       id={id}
       aria-label={`Team study, ${teamName(row)}`}
-      className="flex flex-col gap-2.5 self-start rounded-card border border-line bg-surface px-[18px] py-4 sticky top-[4.75rem]"
+      className="flex flex-col gap-2.5 self-start rounded-card border border-line bg-surface px-[18px] py-4 sticky top-[calc(var(--top-bar,0px)+1rem)]"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -310,13 +312,13 @@ export function TeamStudySheet({
           </div>
           <ScoringSection row={row} rows={rows} phases={phases} />
           <AvailabilitySection row={row} />
-          <Link
-            to={teamPath(row.team_id)}
-            className="hover-veil motion-safe:transition mt-2 flex h-12 items-center justify-center gap-2 rounded-control border border-control-border text-[0.9375rem] font-[650] text-ink"
-          >
-            Open team page
-            <ArrowRight aria-hidden="true" className="size-4" />
-          </Link>
+          {/* The sheet's one action, in the shared action row (Phase 1 I side task 3). */}
+          <SurfaceActions className="mt-2">
+            <Link to={teamPath(row.team_id)} className={actionButtonClass('secondary')}>
+              Open team page
+              <ArrowRight aria-hidden="true" className="size-4" />
+            </Link>
+          </SurfaceActions>
         </div>
       )}
     </Sheet>

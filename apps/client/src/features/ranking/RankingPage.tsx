@@ -299,7 +299,7 @@ export function RankingPage({
         </span>
       </div>
       {source.kind === 'device' && <DeviceNotice source={source} />}
-      <div className="sticky top-[calc(3.375rem+env(safe-area-inset-top))] z-10 flex flex-col gap-2 bg-bg px-3 pt-0.5">
+      <div className="sticky top-[var(--top-bar,0px)] z-10 flex flex-col gap-2 bg-bg px-3 pt-0.5">
         <CategorySwitch
           compact
           label="Category"

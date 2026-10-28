@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { ErrorLine } from '@/components/ui/notice';
+import { SurfaceActions } from '@/components/ui/surface-actions';
 import type { Rpc } from '@/data/rpc';
 import { FieldImage } from '@/season/FieldImage';
 import { DeleteCompetition } from './DeleteCompetition';
@@ -225,14 +226,14 @@ function SeasonForm({
           {error}
         </ErrorLine>
       )}
-      <div className="mt-5 flex flex-wrap justify-end gap-2">
+      <SurfaceActions className="mt-5">
         <Button variant="secondary" disabled={busy} onClick={onClose}>
           Cancel
         </Button>
         <Button type="submit" variant="primary" disabled={!can} busy={busy} busyLabel="Saving…">
           {season ? 'Save changes' : 'Create season'}
         </Button>
-      </div>
+      </SurfaceActions>
     </form>
   );
 }

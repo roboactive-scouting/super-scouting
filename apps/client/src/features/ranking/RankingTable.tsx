@@ -175,7 +175,7 @@ export function RankingTable({
           ? 'Ranking, Scoring: average points per match, by phase, with consistency and availability'
           : 'Ranking, Availability: the scouted matches by status'}
       </caption>
-      <TableHeader className="z-10 bg-surface min-[1360px]:sticky min-[1360px]:top-[3.75rem] [&_tr]:border-b-0">
+      <TableHeader className="z-10 bg-surface min-[1360px]:sticky min-[1360px]:top-[var(--top-bar,0px)] [&_tr]:border-b-0">
         <tr aria-hidden="true">
           <th colSpan={2} />
           {scoring ? (

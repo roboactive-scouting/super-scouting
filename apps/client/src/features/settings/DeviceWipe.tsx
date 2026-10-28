@@ -1,13 +1,16 @@
+import { WifiOff } from 'lucide-react';
 import { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { actionButtonClass, Button } from '@/components/ui/button';
 import { DestructiveConfirm } from '@/components/ui/destructive-confirm';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ErrorLine, Notice } from '@/components/ui/notice';
+import { ErrorLine, Notice, WarningNotice } from '@/components/ui/notice';
+import { SurfaceActions } from '@/components/ui/surface-actions';
 import { useDeviceQuery } from '@/data/useDeviceQuery';
 import { wipeDevice, type WipeAnyway } from '@/data/wipe';
 import { PATHS } from '@/lib/paths';
+import { useOnline } from '@/lib/useOnline';
 import { heldCount, heldLines, isHeld, readWipeHold, type WipeHold } from './wipeHold';
 
 /** What the lead types back to confirm (SPEC-FINAL 17.8: a multi-record irreversible). */
@@ -25,6 +28,11 @@ export function lostLine(n: number): string {
     : `${n} records have not reached the cloud. Wiping now deletes them for good.`;
 }
 
+/** The offline warning's bold lead and its line (Phase 1 I side task 4). */
+export const OFFLINE_WIPE_LEAD = "You're offline.";
+export const OFFLINE_WIPE_LINE =
+  "After the wipe, this phone can't sign in again until it has a connection.";
+
 /** Wipe anyway refused because a record was saved after the count was read. */
 export function countChangedLine(n: number): string {
   return `The count changed: ${n} ${n === 1 ? 'record has' : 'records have'} not reached the cloud now. Nothing was wiped.`;
@@ -33,7 +41,9 @@ export function countChangedLine(n: number): string {
 /**
  * Wipe this device (SPEC-FINAL 9.9, 17.8; 16-settings final; task 1.49), opened from Settings
  * only. The one destructive pattern with **Keep this device** first. While anything would be lost
- * (`readWipeHold`, read live) it is held: the final's warning line, and the wipe button off. With
+ * (`readWipeHold`, read live) it is held: the final's warning line, and no wipe button at all
+ * (Phase 1 I side task 3: a greyed wipe beside a live Wipe anyway… read as two wipes), so the
+ * footer is Keep this device alone and the held line's two ways out are the actions. With
  * nothing waiting it asks for the lead's code and the typed phrase before the filled-ink button
  * enables; a wrong code says so here and wipes nothing. A wipe signs out, so the app leaves for
  * sign-in on its own.
@@ -43,9 +53,14 @@ export function countChangedLine(n: number): string {
  * destructive **Wipe anyway…** turns this same confirmation into the second, harder one: the loss
  * as a count, the lead's code, and that count typed before the filled-ink **Wipe anyway**
  * enables. The count is read live; the wipe itself checks it again in its own transaction.
+ *
+ * **Offline** (Phase 1 I side task 4): a wipe removes the cached accounts an offline sign-in
+ * needs (9.9), so both confirmations say, above the confirm, that the phone cannot sign in again
+ * until it has a connection. It informs; the confirm stays as it was. Read through `useOnline`.
  */
 export function DeviceWipe({ onClose }: { onClose: () => void }) {
   const id = useId();
+  const online = useOnline();
   const hold = useDeviceQuery<WipeHold>(readWipeHold, [], ['outbox']);
   const [anyway, setAnyway] = useState(false);
   const [code, setCode] = useState('');
@@ -96,6 +111,15 @@ export function DeviceWipe({ onClose }: { onClose: () => void }) {
     }
   }
 
+  // Above the confirm, while offline: after the wipe nobody can sign in here until it connects.
+  const offlineWarning = online ? null : (
+    <div role="status">
+      <WarningNotice icon={WifiOff} lead={OFFLINE_WIPE_LEAD}>
+        {OFFLINE_WIPE_LINE}
+      </WarningNotice>
+    </div>
+  );
+
   const codeField = (
     <div>
       <Label htmlFor={`${id}-code`} className="font-semibold">
@@ -140,6 +164,7 @@ export function DeviceWipe({ onClose }: { onClose: () => void }) {
         typeToConfirm={String(lost)}
         ready={code.trim() !== ''}
         busy={busy}
+        notice={offlineWarning}
         error={error}
         onConfirm={() => void confirm()}
         onCancel={onClose}
@@ -161,6 +186,7 @@ export function DeviceWipe({ onClose }: { onClose: () => void }) {
       icon={null}
       typeToConfirm={open ? WIPE_PHRASE : undefined}
       ready={code.trim() !== ''}
+      hideConfirm={held}
       held={
         hold === undefined ? (
           'Checking what is waiting to send.'
@@ -169,6 +195,7 @@ export function DeviceWipe({ onClose }: { onClose: () => void }) {
         )
       }
       busy={busy}
+      notice={open ? offlineWarning : null}
       error={error}
       onConfirm={() => void confirm()}
       onCancel={onClose}
@@ -180,7 +207,8 @@ export function DeviceWipe({ onClose }: { onClose: () => void }) {
 
 /**
  * The final's held line: a warning edge, what holds it in bold, then what lets it go. Under it
- * (v1.39) the two ways out: Send by QR first, and the destructive Wipe anyway….
+ * (v1.39) the two ways out: Send by QR first, and the destructive Wipe anyway…, in the shared
+ * action row (`SurfaceActions`), so they share the footer's size and edges (side task 3).
  */
 function Held({ hold, onAnyway }: { hold: WipeHold; onAnyway: () => void }) {
   const { what, until } = heldLines(hold);
@@ -189,14 +217,14 @@ function Held({ hold, onAnyway }: { hold: WipeHold; onAnyway: () => void }) {
       <Notice tone="warning" still role="status">
         <b className="font-bold">{what}</b> {until}
       </Notice>
-      <div className="flex flex-wrap gap-2">
-        <Link to={PATHS.syncQrSend} className={buttonVariants({ variant: 'secondary' })}>
+      <SurfaceActions>
+        <Link to={PATHS.syncQrSend} className={actionButtonClass('secondary')}>
           Send by QR first
         </Link>
         <Button variant="destructive" onClick={onAnyway}>
           Wipe anyway…
         </Button>
-      </div>
+      </SurfaceActions>
     </div>
   );
 }

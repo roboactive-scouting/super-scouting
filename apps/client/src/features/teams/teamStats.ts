@@ -45,6 +45,33 @@ function versionFields(fields: Row[], versionId: string): FormFieldDefinition[] 
 
 const NO_SCORING: StatsScoring = { fields: [], rules: [] };
 
+/** The cached tables the team page is computed from, as `cachedRows` returns them. */
+export type DeviceStatsRows = {
+  events: Row[];
+  teams: Row[];
+  event_teams: Row[];
+  scouting_entries: Row[];
+  matches: Row[];
+  forms: Row[];
+  form_versions: Row[];
+  form_fields: Row[];
+  scoring_rules: Row[];
+  users: Row[];
+};
+
+const DEVICE_STATS_TABLES = [
+  'events',
+  'teams',
+  'event_teams',
+  'scouting_entries',
+  'matches',
+  'forms',
+  'form_versions',
+  'form_fields',
+  'scoring_rules',
+  'users',
+] as const satisfies readonly (keyof DeviceStatsRows)[];
+
 /**
  * What every statistic computed on the device starts from (task 1.53's pattern; task 1.58's
  * ranking reads it too, so the two pages can never be fed differently): exactly what
@@ -76,18 +103,26 @@ const toTeam = (t: Row): StatsTeam => ({
   name: String(t.name ?? ''),
 });
 
+/** Every table `deviceEventStats` reads, from this device's cache. */
+export async function loadDeviceStatsRows(): Promise<DeviceStatsRows> {
+  const tables = await Promise.all(DEVICE_STATS_TABLES.map((t) => cachedRows<Row>(t)));
+  return Object.fromEntries(DEVICE_STATS_TABLES.map((t, i) => [t, tables[i]!])) as DeviceStatsRows;
+}
+
+/** `deviceEventStats` over this device's cache. */
 export async function loadDeviceEventStats(eventId: string): Promise<DeviceEventStats | null> {
-  const [events, teams, roster, entries, matches, forms, fields, rules, users] = await Promise.all([
-    cachedRows<Row>('events'),
-    cachedRows<Row>('teams'),
-    cachedRows<Row>('event_teams'),
-    cachedRows<Row>('scouting_entries'),
-    cachedRows<Row>('matches'),
-    cachedRows<Row>('forms'),
-    cachedRows<Row>('form_fields'),
-    cachedRows<Row>('scoring_rules'),
-    cachedRows<Row>('users'),
-  ]);
+  return deviceEventStats(await loadDeviceStatsRows(), eventId);
+}
+
+/**
+ * `loadDeviceEventStats` over rows already read: the cached rows as they are, a pulled row and
+ * a row still in the outbox alike (Phase 1 I side task 5: `teamStats.parity.test.ts` holds the
+ * team page fed from it to the server's `getTeamStats` on the same rows).
+ */
+export function deviceEventStats(cache: DeviceStatsRows, eventId: string): DeviceEventStats | null {
+  const { events, teams, scouting_entries: entries, matches, forms, users } = cache;
+  const { event_teams: roster, form_versions: versions, form_fields: fields } = cache;
+  const rules = cache.scoring_rules;
   const event = events.find((e) => e.id === eventId);
   if (!event) return null;
 
@@ -108,7 +143,7 @@ export async function loadDeviceEventStats(eventId: string): Promise<DeviceEvent
   const scoringOf = (kind: 'match' | 'super'): StatsScoring => {
     const form = forms.find((f) => f.season_id === seasonId && f.kind === kind && live(f));
     if (!form || !str(form.active_version_id)) return NO_SCORING;
-    return formScoring(String(form.id), { forms, versions: [], fields, rules }) ?? NO_SCORING;
+    return formScoring(String(form.id), { forms, versions, fields, rules }) ?? NO_SCORING;
   };
   const versionIds = [...new Set(rows.map((r) => String(r.form_version_id)))];
   return {
@@ -131,7 +166,20 @@ export async function loadDeviceTeamStats(
   teamId: string,
   eventId: string,
 ): Promise<DeviceTeamStats> {
-  const base = await loadDeviceEventStats(eventId);
+  return deviceTeamStats(await loadDeviceStatsRows(), teamId, eventId);
+}
+
+/**
+ * `loadDeviceTeamStats` over rows already read (Phase 1 I side task 5: `teamStats.parity.test.ts`
+ * holds it to the server's `getTeamStats` on the same rows). Fed by `deviceEventStats`, as the
+ * ranking is (task 1.58).
+ */
+export function deviceTeamStats(
+  cache: DeviceStatsRows,
+  teamId: string,
+  eventId: string,
+): DeviceTeamStats {
+  const base = deviceEventStats(cache, eventId);
   const team = base?.teams.find((t) => t.id === teamId);
   if (!base || !team) return { state: 'unknown' };
   const stats = buildTeamStats({

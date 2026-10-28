@@ -25,7 +25,7 @@ const metric = (over: Partial<StatsMetric>): StatsMetric => ({
   value: 3,
   display: null,
   domain: { min: 0, max: 6 },
-  series: [{ entry_id: 'e-1', match_label: 'Q1', value: 3 }],
+  series: [{ entry_id: 'e-1', match_label: 'Q1', value: 3, asked: true }],
   unavailable_reason: null,
   ...over,
 });

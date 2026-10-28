@@ -5,6 +5,7 @@ import { createMemoryRouter, RouterProvider, useLocation } from 'react-router-do
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Account } from './account';
 import type { NavAudience } from './nav';
+import { TOP_BAR } from './barHeights';
 import { ShellLayout } from './ShellLayout';
 
 const who: NavAudience = { user: { id: 'u-1', role: 'scouter' }, expired: false, override: false };
@@ -82,6 +83,19 @@ describe('the phone shell (redesign R.7)', () => {
     renderAt('/scout');
     const column = screen.getByText('the page').parentElement!.parentElement as HTMLElement;
     expect(column.style.getPropertyValue('--bottom-bar')).not.toBe('');
+  });
+
+  it('publishes the top bar’s height once (--top-bar), and the bar is exactly that tall (Phase 1 I side task 2)', async () => {
+    renderAt('/entry/m-1/t-1');
+    const column = screen.getByText('the page').parentElement!.parentElement as HTMLElement;
+    // Every page, the entry route (no bottom bar) included.
+    expect(column.style.getPropertyValue('--top-bar')).toBe(TOP_BAR.phone);
+    const bar = screen.getByRole('button', { name: 'Open the menu' }).closest('header')!;
+    expect(bar.style.height).toBe(TOP_BAR.phone);
+    // The computer's crumb bar: the same variable, its own height.
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Resize' }));
+    expect(column.style.getPropertyValue('--top-bar')).toBe(TOP_BAR.desktop);
+    expect(column.querySelector('header')!.style.height).toBe(TOP_BAR.desktop);
   });
 
   it('hides the bottom bar on the entry route', () => {

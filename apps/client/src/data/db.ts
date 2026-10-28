@@ -125,6 +125,14 @@ export const db = new ScoutingDb();
 export const WIPED_AT_KEY = 'device.wiped_at';
 
 /**
+ * Set by a wipe, cleared by the next successful sign-in (Phase 1 I side task 4). While it is set,
+ * a sign-in with no cached accounts says the device was wiped rather than that it has not loaded
+ * them yet (`auth/offlineLogin.ts`). Its own key, not `WIPED_AT_KEY`: a sync compares that one
+ * across its pull, and a sign-in clearing it would cost the first pull its hydration mark.
+ */
+export const JUST_WIPED_KEY = 'device.just_wiped';
+
+/**
  * The delta watermark of the last completed pull (`data/sync.ts`). Cleared, the next sync pulls
  * its event in full. "Discard received QR data" clears it (`data/qrReceive.ts`): the rows it
  * removes are cloud rows that a delta pull would never send again.

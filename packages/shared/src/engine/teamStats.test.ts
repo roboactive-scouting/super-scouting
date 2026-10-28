@@ -307,6 +307,84 @@ describe('buildTeamStats (task 1.57)', () => {
     expect(by('driver').series.map((p) => p.value)).toEqual([6, 4, null, 5]);
   });
 
+  it('tells a field its form version did not have from a gap: asked false, never a "—" (side task 5)', () => {
+    const before = FIELDS.filter((f) => f.key !== 'driver' && f.key !== 'climb_time');
+    const stats = buildTeamStats(
+      input(
+        [
+          // Scouted on v1, before Driver skill and Climb time existed.
+          entry({ team_id: 'a', match_number: 1, form_version_id: 'v1', data: { cycles: 2 } }),
+          entry({ team_id: 'a', match_number: 2, form_version_id: 'v1', robot_status: 'no_show' }),
+          // On v2: an answer with an "unsure" timer, a no-show, a field left empty.
+          entry({
+            team_id: 'a',
+            match_number: 3,
+            data: { cycles: 5, driver: 7, climb_time: null },
+          }),
+          entry({ team_id: 'a', match_number: 4, robot_status: 'no_show' }),
+          entry({ team_id: 'a', match_number: 5, data: { cycles: 1 } }),
+          // A version the caller does not hold: read from the entry alone.
+          entry({ team_id: 'a', match_number: 6, form_version_id: 'v9', data: { driver: 3 } }),
+          entry({ team_id: 'a', match_number: 7, form_version_id: 'v9', data: { cycles: 4 } }),
+        ],
+        {
+          versions: [
+            { id: 'v1', fields: before },
+            { id: 'v2', fields: FIELDS },
+          ],
+        },
+      ),
+    );
+    const by = (key: string) => stats.metrics.find((m) => m.field_key === key)!;
+    const points = (key: string) => by(key).series.map((p) => [p.value, p.asked]);
+    expect(points('driver')).toEqual([
+      [null, false],
+      [null, false],
+      [7, true],
+      [null, true],
+      [null, true],
+      [3, true],
+      [null, false],
+    ]);
+    expect(points('climb_time')).toEqual([
+      [null, false],
+      [null, false],
+      [null, true],
+      [null, true],
+      [null, true],
+      [null, false],
+      [null, false],
+    ]);
+    // A field every version held has every match asked, the no-shows its only gaps; on the
+    // unknown version only the entry that holds a value of it is.
+    expect(points('cycles')).toEqual([
+      [2, true],
+      [null, true],
+      [5, true],
+      [null, true],
+      [1, true],
+      [null, false],
+      [4, true],
+    ]);
+    expect(by('driver').value).toBe(5);
+    expect(stats.metrics[0]!.series.every((p) => p.asked)).toBe(true);
+    expect(getTeamStatsOutput.safeParse({ ...stats, next_cursor: null }).success).toBe(true);
+  });
+
+  it('reads a series point from a server that predates `asked` as asked', () => {
+    const stats = buildTeamStats(input([entry({ team_id: 'a', data: { driver: 4 } })]));
+    const old = {
+      ...stats,
+      next_cursor: null,
+      metrics: stats.metrics.map((m) => ({
+        ...m,
+        series: m.series.map(({ asked: _asked, ...p }) => p),
+      })),
+    };
+    const parsed = getTeamStatsOutput.parse(old);
+    expect(parsed.metrics.every((m) => m.series.every((p) => p.asked === true))).toBe(true);
+  });
+
   it('refuses a field whose type changed in a version a counted entry names, and only then', () => {
     const older = [field('cycles', 'number', 'teleop'), ...FIELDS.slice(1)];
     const entries = [entry({ team_id: 'a', data: { cycles: 4 } })];
