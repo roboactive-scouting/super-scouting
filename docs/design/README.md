@@ -15,7 +15,11 @@ The visual identity is being redesigned from scratch, page by page (living spec 
 
 Pages go **one at a time**. At this stage that means only the pages that exist today; planned pages come later. Each round:
 
-1. **Four variants** of the page in the D1 theme, reusing every locked component in `THEME.md` for details. *(User, 2026-10-23, from round 27 on:)* first name the **three nearest outside references** for this kind of page (how well-known apps do it) and draw the variants from them, so they **differ in structure** — layout, navigation, what leads the page — not only in where one control sits. Say which references at the top of the round. Each image shows **desktop and phone**. Variants are not limited to today's features: design what looks and works best, and tag every feature the app doesn't have yet with a black **NEW** tag.
+1. **Four variants, each drawn by its own subagent** *(user, 2026-10-26; replaces the 2026-10-23 "three nearest references" rule)*. The chat running the round does not draw variants:
+   - It writes **one brief** for the page from `VARIANT-BRIEF.md`: what the page is for, who uses it and where, everything it must show and do (from the spec and the plan), the states to draw, the mock data, the theme tokens, the fixed shell and how to render. The brief contains **no design**: no layout, no other variant, no earlier final, no locked component beyond the shell, and no preference.
+   - It starts **four subagents at once, A to D, with that same brief** and nothing else from the conversation. Each designs the page alone and renders **one image**, `pages/<nn>-<page>/out/<letter>.png`, showing **desktop and phone**.
+   - Each subagent tags every feature the app doesn't have yet with a black **NEW** tag, and returns a list of them with one line each.
+   - The chat then only **checks** each image (it renders, nothing is cut off, the theme tokens are used). It fixes a broken render, never the design, and shows the user the four images.
 2. **The user decides** on the variant and on each NEW feature, one of three ways:
    - **now**: it goes into the page's final design
    - **not now, but wanted**: add it to the living spec where it belongs, or wherever it fits best if the spec has no place for it
@@ -26,7 +30,7 @@ Pages go **one at a time**. At this stage that means only the pages that exist t
    - write `final/README.md` with the behaviour and the feature-decision table
    - add each newly picked component treatment to "Locked components" in `THEME.md`
    - update the spec if a rule changed
-   - **delete the unchosen variant pages and images.** Keep only `final/` and the shared CSS and JS in `src/` that the finals load.
+   - **delete the unchosen variant pages and images.** Keep only `final/` and the shared CSS and JS in `src/` that the finals load. The closing chat (not a subagent) builds the final from the chosen variant's files, with the user's changes.
 5. **When the page is coded, it must look the same as its final images.** Compare screenshots at 1440 px and 375 px against them.
 
 ## Page order (most important first)
