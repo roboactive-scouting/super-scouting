@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.48 · **Date:** 2026-10-28 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.49 · **Date:** 2026-10-29 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.49: a form version can be deleted on its own when it is a draft or a newer version has been published, still never with entries bound to it (§3.9); every "of N" rank counts the event's roster (§13.5); a standard deviation always prints one decimal (§17.8). See the living spec's §21, v1.01.*
 
 *v1.48: Home's our-team card counts "places moved" since our last match: our rank now against the ranking computed from the matches before it (§13.5). See the living spec's §21, v1.00.*
 
@@ -619,6 +621,7 @@ Two distinct mechanisms, and they do not overlap:
 Additional rules:
 
 - **Deleting a whole form is an admin cascade** and takes its entries with it. **Deleting a single form version that has entries bound to it is blocked** with an explanation, and no confirmation text overrides it. Deleting the parent is a cascade, not an orphaning, which is why one is allowed and the other is not.
+- **A single form version is deleted on its own only when it is a draft, or a newer version of the same form has been published** — never the active version, never the newest published one, never with entries bound to it; the label ("v2") is typed. Otherwise it goes only with its form or its season. A device's queued entry for a deleted version is refused as `parent-deleted` (§9.3.1) and shows in the conflicts list. *(v1.49, user 2026-10-29. Was: only a draft, because a device may hold queued entries for any published version (Phase 1 D review #2).)*
 - **Deleting a match that has entries is blocked on its own** (`scouting_entries.match_id` is `on delete restrict`). The admin either **corrects the match number**, or **deletes the match together with its entries** — a hard cascade like an event's: the counts, the backup step, the match label typed ("Q41"); the entries, soft-deleted ones included, and the match go in one transaction. *(v1.47, user 2026-10-28. Was "or delete the entries first", which never worked: a soft-deleted entry keeps its row and so still holds the match **[RAISED BY ME]**.)*
 - **The active season and the active event cannot be deleted.** Switch the active context first.
 - **Confirmation names the damage** — exact counts, and the admin types the object's name to proceed (§17.8).
@@ -1724,7 +1727,7 @@ Layout: the **metrics table first**, then charts and other metrics below.
 - **Phases are the form's, not fixed** **[RAISED BY ME]**: the bar and the per-phase figures follow the phases that score in the season's form, so a year that scores a post-match field gets that segment too and the parts still add up to Total.
 - Shading (§12.6) marks the figures in the current sort; the others print plain.
 - Offline, the phone computes the same table from the entries on the device and says so ("Computed from the data on this device", with the last sync time).
-- *(v1.48, user 2026-10-28)* **Home reads the same ranking**: the our-team card shows rank #N of M, the average, and **places moved since our last match** — our rank now against our rank computed from the qualification matches numbered below our most recent counted one ("▲2 since Q36"); the top-teams list is the top five with a five-match trend line.
+- *(v1.48, user 2026-10-28)* **Home reads the same ranking**: the our-team card shows rank #N of M (M is the event's roster, ranked or not, as on the ranking page and the team page *(v1.49, user 2026-10-29)*), the average, and **places moved since our last match** — our rank now against our rank computed from the qualification matches numbered below our most recent counted one ("▲2 since Q36"); the top-teams list is the top five with a five-match trend line.
 
 ### 13.6 Compare page
 
@@ -2046,7 +2049,7 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 | Value | Format |
 |---|---|
 | Computed metrics and averages | **1 decimal place**; a whole number prints bare ("41", "38.4") *(v1.46; was 2)* |
-| Standard deviation | 1 decimal place, as "±6.1" |
+| Standard deviation | **Always** 1 decimal place, as "±6.1", "±9.0" *(v1.49)* |
 | Integer counts (game pieces, match numbers, team numbers) | **No decimals**; team numbers carry **no thousands separator** |
 | Percentages | **Whole numbers** |
 | Dates | **`DD/MM/YYYY`** |

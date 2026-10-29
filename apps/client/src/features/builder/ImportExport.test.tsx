@@ -539,16 +539,37 @@ describe('Delete form (task 1.31; the one DeleteDialog since task 1.61)', () => 
 });
 
 describe('Delete version on the forms list (task 1.61)', () => {
-  it('only the older rows have a trash button: none on the draft or the active version', async () => {
+  it('every row but the active version has a trash button, the draft included (the user, 2026-10-29)', async () => {
     renderPages('/admin/forms', server().rpc);
     const card = await screen.findByRole('region', { name: 'Match form' });
     const trash = within(card).getAllByRole('button', { name: /^Delete version/ });
     expect(trash.map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Delete version v4',
       'Delete version v2',
       'Delete version v1',
     ]);
-    expect(within(card).queryByRole('button', { name: 'Delete version v4' })).toBeNull();
     expect(within(card).queryByRole('button', { name: 'Delete version v3' })).toBeNull();
+  });
+
+  it("the draft's trash opens the bill, typed v4", async () => {
+    const { rpc, calls } = server();
+    renderPages('/admin/forms', rpc);
+    const card = await screen.findByRole('region', { name: 'Match form' });
+    const u = userEvent.setup();
+    await u.click(within(card).getByRole('button', { name: 'Delete version v4' }));
+    const bill = await screen.findByRole(
+      'dialog',
+      { name: 'Delete version 4 of Match form 2026?' },
+      LAZY,
+    );
+    await u.type(within(bill).getByLabelText(/type the name to confirm/i), 'v4');
+    await u.click(within(bill).getByRole('button', { name: 'Delete version 4' }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.name === 'deleteFormVersion')?.input).toEqual({
+        form_version_id: V.v4,
+        confirm_name: 'v4',
+      }),
+    );
   });
 
   it("a published older version's trash opens Blocked; the whole form is the way forward", async () => {
@@ -577,18 +598,47 @@ describe('Delete version on the forms list (task 1.61)', () => {
     expect(calls.some((c) => c.name === 'deleteFormVersion')).toBe(false);
   });
 
-  it('a published version with no entries is Blocked too (Phase 1 D review #2)', async () => {
+  // The user's rule (2026-10-29), replacing Phase 1 D review #2's "a draft only".
+  it('a superseded published version with no entries opens the bill, typed v1', async () => {
     const versions = VERSIONS.map((v) => (v.version_no === 1 ? { ...v, entry_count: 0 } : v));
     renderPages('/admin/forms', server({}, { versions }).rpc);
     const card = await screen.findByRole('region', { name: 'Match form' });
     await userEvent.click(within(card).getByRole('button', { name: 'Delete version v1' }));
-    const blocked = await screen.findByRole('dialog', {
-      name: "Version 1 can't be deleted",
-    });
-    expect(blocked).toHaveTextContent('v1 is published');
-    expect(blocked).toHaveTextContent('replaced by v2');
-    expect(within(blocked).queryByRole('button', { name: /^Delete version/ })).toBeNull();
+    const bill = await screen.findByRole(
+      'dialog',
+      { name: 'Delete version 1 of Match form 2026?' },
+      LAZY,
+    );
+    expect(within(bill).getByLabelText(/type the name to confirm/i)).toHaveValue('');
+    expect(within(bill).getByRole('button', { name: 'Delete version 1' })).toBeDisabled();
+  });
+
+  it('the newest published version (an older one restored) is Blocked: publish a newer one first', async () => {
+    // v2 restored as active; v3, published after it, has no entries and nothing newer published
+    const versions = VERSIONS.map((v) =>
+      v.version_no === 3
+        ? { ...v, is_active: false, entry_count: 0 }
+        : v.version_no === 2
+          ? { ...v, is_active: true }
+          : v,
+    );
+    const router = renderPages('/admin/forms', server({}, { versions }).rpc);
+    const card = await screen.findByRole('region', { name: 'Match form' });
+    expect(within(card).queryByRole('button', { name: 'Delete version v2' })).toBeNull();
+    const u = userEvent.setup();
+    await u.click(within(card).getByRole('button', { name: 'Delete version v3' }));
+    const blocked = await screen.findByRole('dialog', { name: "Version 3 can't be deleted" }, LAZY);
+    expect(blocked).toHaveTextContent('v3 is the newest published version');
+    expect(blocked).toHaveTextContent(
+      'Publish a newer version first, then this one can be deleted. Or delete the whole form.',
+    );
     expect(within(blocked).queryByRole('textbox')).toBeNull();
+    expect(within(blocked).queryByRole('button', { name: /^Delete version/ })).toBeNull();
+    expect(within(blocked).getByRole('button', { name: 'Delete the whole form…' })).toBeVisible();
+    // "Publish a newer version" opens the builder on the draft
+    await u.click(within(blocked).getByRole('button', { name: 'Open the builder' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/admin/forms/${FORM_ID}`));
+    expect(router.state.location.search).toBe('?version=4');
   });
 });
 

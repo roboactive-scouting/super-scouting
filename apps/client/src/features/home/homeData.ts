@@ -4,7 +4,7 @@ import { db } from '@/data/db';
 import { coverage, type CoverageState } from '@/lib/derive/coverage';
 import { newestFirst, type LineupSlot } from '@/lib/derive/entries';
 import { matchLabel } from '@/lib/matchLabel';
-import { rankedCount } from '@/features/ranking/rankedCount';
+import { rosterCount } from '@/features/ranking/rosterCount';
 
 /*
  * What Home shows, read from the device alone (redesign RB.10): no RPC. The one exception is the
@@ -186,7 +186,7 @@ export type RankMove = { places: number; since: string };
 export type OurTeam = {
   row: RankRow;
   rank: number;
-  /** The ranked teams (`rankedCount`, as the ranking page's "Rank 4 of 23"). */
+  /** The event's roster (`rosterCount`, as the ranking page's "Rank 4 of 30"; user, 2026-10-29). */
   of: number;
   average: string;
   /** Null with fewer than two counted matches, or while the earlier ranking is not in. */
@@ -220,7 +220,7 @@ export function ourTeamOf(
   return {
     row,
     rank: row.rank,
-    of: rankedCount(rows),
+    of: rosterCount(rows),
     average: formatMetric(row.average_points),
     move:
       at !== null && then !== null

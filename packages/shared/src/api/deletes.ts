@@ -23,9 +23,11 @@ export const deleteKind = z.enum(DELETE_KINDS);
  * Why a delete is refused whatever is typed (the dialog's Blocked face):
  * - `active_season` / `default_event`: switch the active context first (SPEC-FINAL 3.9);
  * - `version_has_entries`: entries are bound to the version (no text overrides it);
- * - `version_published`: a published version, since a device may still hold queued entries
- *   for it (Phase 1 D review #2); only a draft is deleted on its own;
- * - `version_active`: the form's active version (a backstop no use case reaches).
+ * - `version_active`: the form's active version (restore another version first);
+ * - `version_published`: the newest published version of its form — a published version is
+ *   deleted on its own only once a newer one is published (the user, 2026-10-29, replacing
+ *   Phase 1 D review #2's "a draft only"); a draft and a superseded version delete once their
+ *   label is typed.
  */
 export const DELETE_BLOCKED_REASONS = [
   'active_season',

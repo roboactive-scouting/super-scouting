@@ -883,10 +883,12 @@ function bigOfBlocked(
         sub: 'Deleting the version would leave them with no form to read them by.',
       };
     case 'version_published':
+      // The user's rule (2026-10-29): a published version goes on its own once a newer
+      // published version replaces it.
       return {
         num: name,
-        label: 'is published',
-        sub: 'A device that was offline while it was in use may still hold entries for it that have not reached the server.',
+        label: 'is the newest published version',
+        sub: 'A published version can be deleted on its own once a newer one replaces it.',
       };
     case 'version_active':
       return {
@@ -980,7 +982,11 @@ function BlockedFace({
       <ul
         className={cn(
           'mt-1 grid gap-4',
-          desktop && allWays.length > 1 ? 'grid-cols-2' : 'grid-cols-1',
+          !desktop || allWays.length < 2
+            ? 'grid-cols-1'
+            : allWays.length > 2
+              ? 'grid-cols-3'
+              : 'grid-cols-2',
         )}
       >
         {allWays.map((way) => (

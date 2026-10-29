@@ -10478,3 +10478,33 @@ The name match is a substring, so the sidebar's Sync row and the top bar's sync 
 **What I did instead:** `e2e/delete.spec.ts` (8 tests) renumbers three fixture line-ups as Q40–Q42 for the phone frames, counts Season 2025 with the design's numbers through a mocked `getDeleteImpact`, and uses the forms fixture's own v1 (12 entries). `manage.spec`'s event delete and `forms.spec`'s builder delete were rewritten to the new face (their shot names kept). `FORMS_RPC` answers `getDeleteImpact` and `deleteFormVersion`.
 
 **Risk:** the server-side flow (real counts, the outbox delete reaching the server) is the orchestrator's browser-pane check.
+
+## Fix (2026-10-29) — the form-version delete rule
+
+**Plan said:** (task 1.60, Phase 1 D review #2) a published version is never deleted on its own; only a draft is, and the whole form is the only way a published one goes. Task 1.61's forms list had no trash on the draft row.
+
+**What was wrong:** the user replaced the rule on 2026-10-29: "Published versions — form versions can be deleted only where there is a newer version published (or if the season is deleted). Draft versions — change it. Also draft version can be deleted."
+
+**What I did instead:** `versionDeleteBlock` (`apps/server/src/core/commands/forms.ts`) checks, in order: entries bound to it, soft-deleted included → `has-entries` / `version_has_entries` (unchanged, SPEC-FINAL 17.8); the form's active version → `active-version` / `version_active` (moved ahead of the published check, so the active version is named for being active); a published version with no newer published version of the same form (`version_no` higher, `published_at` set; a newer draft does not count) → `published` / `version_published`, message "v3 is the newest published version; publish a newer version first, or delete the whole form". Otherwise a draft or a superseded published version deletes once "vN" is typed exactly. `getDeleteImpact` shares the function, so the dialog's face follows. Doc comments on `versionDeleteBlock`, `deleteFormVersion` and `DELETE_BLOCKED_REASONS` now state the user's rule. Client: the 36 px trash is on every row but the active version, the draft row included, in the same place; `version_published`'s Blocked face reads "v3 is the newest published version" / "Publish a newer version first, then this one can be deleted. Or delete the whole form." and offers a third card, "Publish a newer version" (Open the builder, on the draft when there is one), before "Delete the whole form instead"; three ways forward sit in three columns on a computer. `DeleteRequest` (form_version) takes `onPublishNewer`, the page's own navigation, as a match takes `onCorrect`. Rejected: dropping "Delete the whole form instead" for this reason to keep two cards — the user's rule names the whole-form (and season) delete as the other way a published version goes.
+
+**Risk:** a device may still hold queued entries for a superseded version that was deleted (the user accepted it). The push refuses each as `parent-deleted`, "the form version no longer exists" (`syncPush.ts`), proven by `deletes.test.ts` › "a device that later pushes an entry for the deleted version is refused parent-deleted". The entries rule still blocks any version the server already has entries for. SPEC-FINAL 3.3 / 3.9 and the spec's decision log are not edited here (the orchestrator's files).
+
+## Fix (2026-10-29) — e2e fixtures over a given version list
+
+**Plan said:** (brief) a superseded version with no entries opens the bill; the newest published opens Blocked.
+
+**What was wrong:** the e2e forms fixture holds entries on every published version, and its `getDeleteImpact` blocked every published version.
+
+**What I did instead:** `e2e/formFixtures.ts` exports `listFormsOf(versions)` and `deleteImpactOf(versions)` (the server's order: entries → active → newest published), and `FORMS_RPC` uses them over `VERSIONS`. `delete.spec.ts` overrides both with v2 at 0 entries (the bill, `delete-version-bill-desktop`) and with v2 restored as active and v3 at 0 entries (the Blocked face, `delete-version-newest-blocked-desktop`, a shot the brief did not ask for: the face's copy and its three cards changed). `src/test/builderHarness.tsx` follows the same rule.
+
+**Risk:** none.
+
+## Fix (2026-10-29) — orchestrator: the user's decisions after Phase 1 J
+
+**Plan said:** bundle budget 232 KB; "of N" = the ranked teams on Home and the ranking page; "±" printed by `formatMetric` (a whole number bare); the dev seed's teams are 8000–8029.
+
+**What was wrong:** nothing in the plan — the user decided otherwise (2026-10-29): expand the bundle space, every rank counts the roster, "±" carries one decimal, add 2096 to the seed so Home's Our team card shows on dev. Recorded in spec v1.01 / SPEC-FINAL v1.49 / plan v1.38.
+
+**What I did instead:** `BUDGET_KB` 232 → 240 at a measured 231.9 KB (BUILD-CONTEXT §12 guard line updated). `rankedCount` → `rosterCount` (`rows.length`: the table holds one row per roster team). `formatStdDev` always prints one decimal ("±9.0"). The seed's first team (`SEED.team(0)`) is 2096 RoboActive (was 8000 Iron Falcons; same id), and the seeded roster rows are upserted with `deleted_at: null` so a re-seed brings a removed roster row back (dev had one: 29 of 30). Dev re-seeded; 2096 ranks 30 of 30 there. Rejected: a 2096 with flattering seed data — the seed's figures stay deterministic. The smoke suite already runs against dev (CI on `e9b8186`: `/health` + 8 slice tests green); Phase 1 K's delete smoke tests will too.
+
+**Risk:** a test or spec that referred to team 8000 in the dev seed by number (none found: e2e mocks the API).

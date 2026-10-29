@@ -415,8 +415,8 @@ export function phaseShare(row: RankRow, phase: FieldPhase): string {
   return formatPercent(avg / total);
 }
 
-/** How many teams hold a rank (the "of N" of "Rank 4 of 23"); its own module since task 1.58b. */
-export { rankedCount } from './rankedCount';
+/** The roster (the "of N" of "Rank 4 of 30"); its own module since task 1.58b. */
+export { rosterCount } from './rosterCount';
 
 /**
  * The Consistency strip (THEME "Team study panel"): an axis from 0 to a round ceiling over every

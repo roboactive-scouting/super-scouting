@@ -21,6 +21,9 @@ const iso = (dayOffset: number, minute: number): string =>
  * so "Seed Team 8000" made every option read "8000 Seed Team 8000" — the repetition
  * was the fixture's, not the UI's.
  */
+/** Our team (the client's `OUR_TEAM_NUMBER`, apps/client/src/lib/ourTeam.ts). */
+const OUR_TEAM = { number: 2096, name: 'RoboActive' };
+
 const TEAM_NAMES = [
   'Iron Falcons',
   'Circuit Breakers',
@@ -108,14 +111,22 @@ export async function seedDevDatabase(
     },
   ]);
 
+  // The first seeded team is ours, 2096 RoboActive (`OUR_TEAM_NUMBER`), so Home's Our team card
+  // and the ranking's own-team row show on dev (user, 2026-10-29); the rest stay 8001–8029.
   const teams = Array.from({ length: 30 }, (_, i) => ({
     id: SEED.team(i),
-    number: 8000 + i,
-    name: TEAM_NAMES[i] ?? `Team ${8000 + i}`,
+    number: i === 0 ? OUR_TEAM.number : 8000 + i,
+    name: i === 0 ? OUR_TEAM.name : (TEAM_NAMES[i] ?? `Team ${8000 + i}`),
   }));
   await db.from('teams').upsert(teams);
   await db.from('event_teams').upsert(
-    teams.map((t, i) => ({ id: SEED.team(500 + i), event_id: SEED.event, team_id: t.id })),
+    // A roster row an admin removed is a tombstone; a re-seed brings the seeded roster back whole.
+    teams.map((t, i) => ({
+      id: SEED.team(500 + i),
+      event_id: SEED.event,
+      team_id: t.id,
+      deleted_at: null,
+    })),
     { onConflict: 'id' },
   );
 

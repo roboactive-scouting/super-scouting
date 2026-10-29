@@ -4,7 +4,7 @@ import { moveText, type OurTeam } from './homeData';
 
 /**
  * The Our-team card (03-home final, "Our team"; task 1.58b): the dark `--rail` card with the
- * mark, our number and name, "Our team at this event", the rank "#3 / 42" (of the ranked teams)
+ * mark, our number and name, "Our team at this event", the rank "#3 / 42" (of the roster)
  * and "avg 51.2 · ▲2 since Q36". The move is an arrow and words, never colour alone, and is spoken
  * as "Up 2 places since Q36". With fewer than two counted matches the move is left out. The
  * caller hides the card while our team is not ranked. On a computer it is the fourth tile of

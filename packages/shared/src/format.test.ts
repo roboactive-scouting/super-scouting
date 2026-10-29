@@ -19,6 +19,9 @@ describe('formatting (SPEC-FINAL 17.8)', () => {
     expect(formatMetric(-0.04)).toBe('0');
     expect(formatMetric(0)).toBe('0');
     expect(formatStdDev(6.14)).toBe('±6.1');
+    expect(formatStdDev(9)).toBe('±9.0');
+    expect(formatStdDev(8.96)).toBe('±9.0');
+    expect(formatStdDev(0)).toBe('±0.0');
     expect(formatStdDev(null)).toBe('—');
   });
 

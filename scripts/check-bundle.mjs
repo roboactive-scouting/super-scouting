@@ -1,5 +1,6 @@
 // The initial-JS budget (RB.18): the entry chunk and its static imports, gzipped, must stay
-// at or under BUDGET_KB. 232 KB = measured 230.4 KB after task 1.58b (Home's Our team card and Top teams: the
+// at or under BUDGET_KB. 240 KB = raised by the user for Phase 1 K (2026-10-29) at a measured
+// 231.9 KB after task 1.61. 232 KB was measured 230.4 KB after task 1.58b (Home's Our team card and Top teams: the
 // ranking's one data source `useRanking` moves from the lazy ranking chunk into the first one, plus the two cards and
 // the shared sparkline; the engine stays lazy in `deviceRanking`; 1.58 had left it at 227.8 KB) + headroom, raised by the
 // build chat as the user allows (2026-10-28); was 230 KB = measured 229.4 KB after task 1.50 (the four browse-and-search rows of the shared API
@@ -26,7 +27,7 @@ import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
-const BUDGET_KB = 232;
+const BUDGET_KB = 240;
 
 const dist = 'apps/client/dist';
 const manifestPath = join(dist, '.vite/manifest.json');

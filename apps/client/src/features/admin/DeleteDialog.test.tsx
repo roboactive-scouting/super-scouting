@@ -417,7 +417,7 @@ describe('DeleteDialog — the faces (28-delete final)', () => {
         name="v2"
         context="Match form 2026"
         impact={{ form_versions: 1, entries: 0 }}
-        blocked="Only a draft can be deleted on its own."
+        blocked="Publish a newer version first, then this one can be deleted. Or delete the whole form."
         blockedReason="version_published"
         ways={[
           {
@@ -435,7 +435,7 @@ describe('DeleteDialog — the faces (28-delete final)', () => {
         onCancel={onCancel}
       />,
     );
-    expect(screen.getByRole('dialog')).toHaveTextContent('v2 is published');
+    expect(screen.getByRole('dialog')).toHaveTextContent('v2 is the newest published version');
     expect(screen.getByRole('dialog')).toHaveTextContent('20/09 published2026');
     await user.click(screen.getByRole('button', { name: 'Delete the whole form…' }));
     expect(whole).toHaveBeenCalledOnce();

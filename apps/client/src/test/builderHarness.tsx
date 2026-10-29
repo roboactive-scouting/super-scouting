@@ -133,7 +133,8 @@ export function server(
             ],
     }),
     // The one DeleteDialog's count (task 1.60's shape): the form is typed back by its stored
-    // name; a published version is blocked on its own, one with entries first.
+    // name; a version is blocked for its entries, then for being active, then for being the
+    // newest published one (the user, 2026-10-29); a draft or a superseded version is typed.
     getDeleteImpact: (input) => {
       const entries = versions.reduce((sum, v) => sum + v.entry_count, 0);
       if (input.kind === 'form') {
@@ -148,12 +149,15 @@ export function server(
         });
       }
       const v = versions.find((x) => x.id === input.id)!;
+      const newer = versions.some((o) => o.version_no > v.version_no && o.published_at !== null);
       const reason =
         v.entry_count > 0
           ? 'version_has_entries'
-          : v.published_at !== null
-            ? 'version_published'
-            : null;
+          : v.is_active
+            ? 'version_active'
+            : v.published_at !== null && !newer
+              ? 'version_published'
+              : null;
       return deleteImpact({
         kind: 'form_version',
         id: v.id,

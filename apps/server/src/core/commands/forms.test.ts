@@ -669,25 +669,33 @@ describe('deleteFormVersion and deleteForm', () => {
     );
   });
 
-  it('refuses every published version, active or not, even with no entries on the server', async () => {
+  // The user's rule (2026-10-29), replacing Phase 1 D review #2's "a draft only".
+  it('deletes a published version only once a newer one is published; never the active one', async () => {
     await publishWith([counter('a')]);
     // v1 is active
-    await expect(deleteFormVersion(ADMIN, { form_version_id: draftId }, ctx)).rejects.toMatchObject(
-      { code: 'invalid', details: { reason: 'published' } },
-    );
-    // v2 published and active, so v1 is published, inactive and has no server entries — but
-    // a device may still hold queued entries for it (SPEC-FINAL 3.3)
+    await expect(
+      deleteFormVersion(ADMIN, { form_version_id: draftId, confirm_name: 'v1' }, ctx),
+    ).rejects.toMatchObject({ code: 'invalid', details: { reason: 'active-version' } });
+    // v2 published and active, so v1 is superseded with no entries on the server
     const forked = await saveDraftFields(
       ADMIN,
       { form_version_id: draftId, fields: [counter('a'), counter('b')] },
       ctx,
     );
-    await publishFormVersion(ADMIN, { form_version_id: forked.new_version_id! }, ctx);
-    expect(form(formId).active_version_id).toBe(forked.new_version_id);
-    await expect(deleteFormVersion(ADMIN, { form_version_id: draftId }, ctx)).rejects.toMatchObject(
-      { code: 'invalid', details: { reason: 'published' } },
-    );
-    expect(ctx.formVersions.has(draftId)).toBe(true);
+    const v2 = forked.new_version_id!;
+    await publishFormVersion(ADMIN, { form_version_id: v2 }, ctx);
+    expect(form(formId).active_version_id).toBe(v2);
+    // restoring v1 leaves v2 the newest published version, not active
+    await restoreFormVersion(ADMIN, { form_version_id: draftId }, ctx);
+    await expect(
+      deleteFormVersion(ADMIN, { form_version_id: v2, confirm_name: 'v2' }, ctx),
+    ).rejects.toMatchObject({ code: 'invalid', details: { reason: 'published' } });
+    await restoreFormVersion(ADMIN, { form_version_id: v2 }, ctx);
+    await expect(
+      deleteFormVersion(ADMIN, { form_version_id: draftId, confirm_name: 'v1' }, ctx),
+    ).resolves.toEqual({ deleted: true });
+    expect(ctx.formVersions.has(draftId)).toBe(false);
+    expect(ctx.formVersions.has(v2)).toBe(true);
   });
 
   it('names entries first: a published version with entries is has-entries', async () => {

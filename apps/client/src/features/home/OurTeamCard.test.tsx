@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as DeviceRanking from '@/features/ranking/deviceRanking';
 import { db, type CachedRow } from '@/data/db';
 import { loadDeviceRanking } from '@/features/ranking/deviceRanking';
-import { rankedCount } from '@/features/ranking/rankingView';
+import { rosterCount } from '@/features/ranking/rankingView';
 import { useRanking } from '@/features/ranking/useRanking';
 import { HOME_EVENT, rankingRows, rankingRpc, renderHomeWith, setWidth } from '@/test/homeRanking';
 import { EVENT_ID, TEAM_ROWS } from '@/test/teamPageFixtures';
@@ -47,16 +47,16 @@ const beforeWith = (rank: number) => () => rankingRows({ usRank: rank, usMatches
 const card = () => screen.findByRole('region', { name: 'Our team' });
 
 describe('the Our-team card (task 1.58b)', () => {
-  it('shows the rank of the ranked teams, the average and ▲2 since Q36, spoken in words', async () => {
+  it('shows the rank of the roster, the average and ▲2 since Q36, spoken in words', async () => {
     const rpc = rankingRpc(rankingRows(), beforeWith(5));
     renderHomeWith(rpc);
     const ours = await card();
     expect(ours).toHaveTextContent('2096');
     expect(ours).toHaveTextContent('RobActive');
     expect(ours).toHaveTextContent('Our team at this event');
-    // 44 roster teams, 42 ranked: "#3 / 42", as the ranking page's "Rank 3 of 42".
-    expect(within(ours).getByText('Rank 3 of 42')).toBeInTheDocument();
-    expect(ours).toHaveTextContent('#3 / 42');
+    // 44 roster teams, 42 ranked: "#3 / 44" — every "of" counts the roster (user, 2026-10-29).
+    expect(within(ours).getByText('Rank 3 of 44')).toBeInTheDocument();
+    expect(ours).toHaveTextContent('#3 / 44');
     expect(ours).toHaveTextContent('avg 56.1'); // one decimal (SPEC-FINAL 17.8)
     expect(await within(ours).findByText('Up 2 places since Q36')).toBeInTheDocument();
     expect(ours).toHaveTextContent('▲2 since Q36');
@@ -92,7 +92,7 @@ describe('the Our-team card (task 1.58b)', () => {
     const rpc = rankingRpc(rankingRows({ usMatches: 1 }), beforeWith(5));
     renderHomeWith(rpc);
     const ours = await card();
-    expect(ours).toHaveTextContent('#3 / 42');
+    expect(ours).toHaveTextContent('#3 / 44');
     await waitFor(() => expect(rpc.call).toHaveBeenCalledTimes(1));
     expect(ours).not.toHaveTextContent(/since Q|▲|▼|No change/);
   });
@@ -141,7 +141,7 @@ describe('the Our-team card (task 1.58b)', () => {
     renderHomeWith(rpc);
     const ours = await card();
     expect(
-      within(ours).getByText(`Rank ${us.rank} of ${rankedCount(ranking.rows)}`),
+      within(ours).getByText(`Rank ${us.rank} of ${rosterCount(ranking.rows)}`),
     ).toBeInTheDocument();
     // The move: our rank in the device's own table before our last counted match.
     const before = (await loadDeviceRanking(EVENT_ID, us.last_counted_match!))!.rows;
@@ -157,9 +157,9 @@ describe('the Our-team card (task 1.58b)', () => {
 
 describe('ourTeamOf and moveText (task 1.58b)', () => {
   const rows = rankingRows();
-  it('measures the move from our latest counted match, ranked teams only in "of"', () => {
+  it('measures the move from our latest counted match, the roster in "of"', () => {
     const us = ourTeamOf(rows, 2096, rankingRows({ usRank: 6 }))!;
-    expect(us).toMatchObject({ rank: 3, of: 42, average: '56.1' });
+    expect(us).toMatchObject({ rank: 3, of: 44, average: '56.1' });
     expect(us.move).toEqual({ places: 3, since: 'Q36' });
     expect(moveText(us.move!)).toEqual({
       shown: '▲3 since Q36',

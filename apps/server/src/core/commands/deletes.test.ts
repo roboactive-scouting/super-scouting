@@ -195,6 +195,25 @@ const sizes = () => ({
   slots: ctx.matchTeams.size,
 });
 
+const P3 = id(43); // "Seed match form" v3: published, superseded by v4, no entries
+const P4 = id(44); // v4: published, the newest published, not active (v2 was restored)
+const D5 = id(45); // v5: the draft
+
+/** Adds v3 and v4 (published, no entries) and the draft v5 to "Seed match form"; v2 stays active. */
+function addVersions(): void {
+  const add = (vid: string, version_no: number, published: boolean) =>
+    ctx.formVersions.set(vid, {
+      ...ctx.formVersions.get(V2)!,
+      id: vid,
+      version_no,
+      published_at: published ? AT : null,
+      is_locked: published,
+    });
+  add(P3, 3, true);
+  add(P4, 4, true);
+  add(D5, 5, false);
+}
+
 describe('getDeleteImpact (SPEC-FINAL 3.9, 17.8): the exact damage, counted on the server', () => {
   it('reports the exact damage of a season before anything is deleted, blocked while active', async () => {
     const impact = await getDeleteImpact(admin, { kind: 'season', id: S }, ctx);
@@ -304,13 +323,39 @@ describe('getDeleteImpact (SPEC-FINAL 3.9, 17.8): the exact damage, counted on t
     });
   });
 
-  it('blocks a published version with no entries on the server (Phase 1 D review #2)', async () => {
-    const old = id(41);
-    ctx.formVersions.set(old, { ...ctx.formVersions.get(V1)!, id: old, version_no: 4 });
-    expect(await getDeleteImpact(admin, { kind: 'form_version', id: old }, ctx)).toMatchObject({
+  // The user's rule (2026-10-29), replacing Phase 1 D review #2's "a draft only": a
+  // published version goes on its own once a newer version is published.
+  it('offers a superseded published version for typing, blocks the newest published and the active one', async () => {
+    addVersions();
+    expect(await getDeleteImpact(admin, { kind: 'form_version', id: P3 }, ctx)).toMatchObject({
+      name: 'v3',
+      confirm_name: 'v3',
+      blocked_reason: null,
+      blocked_message: null,
+      entries: 0,
+    });
+    // v4 is published and not active (v2 was restored), and nothing newer is published —
+    // the draft v5 does not count
+    expect(await getDeleteImpact(admin, { kind: 'form_version', id: P4 }, ctx)).toMatchObject({
+      name: 'v4',
       confirm_name: null,
       blocked_reason: 'version_published',
+      blocked_message:
+        'v4 is the newest published version; publish a newer version first, or delete the whole form',
       entries: 0,
+    });
+    expect(await getDeleteImpact(admin, { kind: 'form_version', id: D5 }, ctx)).toMatchObject({
+      name: 'v5',
+      confirm_name: 'v5',
+      blocked_reason: null,
+    });
+    // the active version is named for being active, ahead of the published rule
+    ctx.forms.get(F)!.active_version_id = P3;
+    expect(await getDeleteImpact(admin, { kind: 'form_version', id: P3 }, ctx)).toMatchObject({
+      confirm_name: null,
+      blocked_reason: 'version_active',
+      blocked_message:
+        'this is the active version; deleting it would leave the form with nothing to scout. Restore another version first',
     });
   });
 
@@ -558,6 +603,7 @@ describe('admin delete (SPEC-FINAL 3.9)', () => {
 
 describe('a form version with entries is never deleted on its own (SPEC-FINAL 3.9, 17.8)', () => {
   it('refuses it under every confirm_name, the exact one included', async () => {
+    // v1 is superseded by the published v2, so only its entries hold it
     for (const typed of ['v1', 'V1', '', 'Seed match form', 'v2', undefined]) {
       await expect(
         deleteFormVersion(admin, { form_version_id: V1, confirm_name: typed }, ctx),
@@ -586,6 +632,100 @@ describe('a form version with entries is never deleted on its own (SPEC-FINAL 3.
       deleteFormVersion(admin, { form_version_id: draft, confirm_name: 'v3' }, ctx),
     ).resolves.toEqual({ deleted: true });
     expect(ctx.formVersions.has(draft)).toBe(false);
+  });
+});
+
+describe('a published version goes on its own only once a newer one is published (the user, 2026-10-29)', () => {
+  it('deletes a superseded published version with no entries once "vN" is typed exactly', async () => {
+    addVersions();
+    for (const typed of ['V3', 'v3 ', '3', '', undefined]) {
+      await expect(
+        deleteFormVersion(admin, { form_version_id: P3, confirm_name: typed }, ctx),
+      ).rejects.toMatchObject({ code: 'invalid', message: TYPE_NAME_EXACTLY });
+    }
+    expect(ctx.formVersions.has(P3)).toBe(true);
+    await expect(
+      deleteFormVersion(admin, { form_version_id: P3, confirm_name: 'v3' }, ctx),
+    ).resolves.toEqual({ deleted: true });
+    expect(ctx.formVersions.has(P3)).toBe(false);
+    // nothing else went
+    expect(ctx.formVersions.has(P4)).toBe(true);
+    expect(ctx.formVersions.has(D5)).toBe(true);
+    expect(ctx.forms.get(F)!.active_version_id).toBe(V2);
+    expect(ctx.rows.scouting_entries.size).toBe(12);
+  });
+
+  it('refuses the newest published version (not active) under every name, a newer draft notwithstanding', async () => {
+    addVersions();
+    for (const typed of ['v4', 'V4', '', 'Seed match form', undefined]) {
+      await expect(
+        deleteFormVersion(admin, { form_version_id: P4, confirm_name: typed }, ctx),
+      ).rejects.toMatchObject({
+        code: 'invalid',
+        message:
+          'v4 is the newest published version; publish a newer version first, or delete the whole form',
+        details: { reason: 'published' },
+      });
+    }
+    expect(ctx.formVersions.has(P4)).toBe(true);
+  });
+
+  it('refuses the active version under every name, even when a newer one is published', async () => {
+    addVersions();
+    ctx.forms.get(F)!.active_version_id = P3;
+    for (const typed of ['v3', 'V3', '', undefined]) {
+      await expect(
+        deleteFormVersion(admin, { form_version_id: P3, confirm_name: typed }, ctx),
+      ).rejects.toMatchObject({ code: 'invalid', details: { reason: 'active-version' } });
+    }
+    expect(ctx.formVersions.has(P3)).toBe(true);
+  });
+
+  it('refuses a superseded version the server has entries for, under every name', async () => {
+    addVersions();
+    // v3 is superseded by v4, but an entry is bound to it (soft-deleted, still bound)
+    ctx.rows.scouting_entries.get(E(1))!.form_version_id = P3;
+    ctx.softDelete(E(1));
+    for (const typed of ['v3', 'V3', '', undefined]) {
+      await expect(
+        deleteFormVersion(admin, { form_version_id: P3, confirm_name: typed }, ctx),
+      ).rejects.toMatchObject({ code: 'invalid', details: { reason: 'has-entries', entries: 1 } });
+    }
+    expect(ctx.formVersions.has(P3)).toBe(true);
+  });
+
+  it('a device that later pushes an entry for the deleted version is refused parent-deleted', async () => {
+    addVersions();
+    await deleteFormVersion(admin, { form_version_id: P3, confirm_name: 'v3' }, ctx);
+    const op: Operation = {
+      op_id: 'op-late-version',
+      entity: 'scouting_entry',
+      row_id: entryId(51),
+      action: 'create',
+      base_version: null,
+      payload: {
+        form_version_id: P3,
+        form_kind: 'match',
+        event_id: E1,
+        match_id: M1,
+        team_id: T[0],
+        alliance: 'red',
+        scouter_id: 'u-scouter',
+        robot_status: 'played',
+        data: {},
+      },
+      author_user_id: 'u-scouter',
+      client_created_at: at(31),
+      client_updated_at: at(31),
+      seq: 1,
+    };
+    const res = await syncPush(scouter, { device_id: 'd-1', operations: [op] }, ctx);
+    expect(res.results[0]).toMatchObject({
+      status: 'rejected',
+      reason: 'parent-deleted',
+      detail: PARENT_DELETED_DETAIL.form_version,
+    });
+    expect(ctx.rows.scouting_entries.has(entryId(51))).toBe(false);
   });
 });
 

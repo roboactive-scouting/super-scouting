@@ -905,9 +905,17 @@ export const versionName = (version: StoredFormVersion): string => `v${version.v
 
 /**
  * SPEC-FINAL 3.3, 3.9: the reasons a single version is refused, in the order they are
- * named — entries bound to it (soft-deleted ones too) → published → the active version.
- * Null when only a typed confirmation stands between it and the delete. Task 1.60: shared
- * with getDeleteImpact, so the dialog's Blocked face and the refusal are the same rule.
+ * named — entries bound to it (soft-deleted ones too) → the form's active version → a
+ * published version that no newer published version has replaced. Null when only a typed
+ * confirmation stands between it and the delete: a draft, or a published version superseded
+ * by a newer published one. Task 1.60: shared with getDeleteImpact, so the dialog's Blocked
+ * face and the refusal are the same rule.
+ *
+ * The published rule is the user's (2026-10-29), replacing Phase 1 D review #2's "only a
+ * draft is deleted on its own": a published version goes only once a newer one is published
+ * (or with the whole form or season). A device may still hold queued entries for a
+ * superseded version it deleted; the push refuses each as `parent-deleted`, naming it
+ * (syncPush), and the entries rule above still blocks any version the server has entries for.
  */
 export async function versionDeleteBlock(
   ctx: UseCaseContext,
@@ -922,13 +930,6 @@ export async function versionDeleteBlock(
       entries,
     };
   }
-  if (version.published_at !== null) {
-    return {
-      reason: 'published',
-      message: `v${version.version_no} is published, and a device may still hold entries for it that have not reached the server; only a draft can be deleted on its own. Delete the whole form to remove it`,
-      entries,
-    };
-  }
   if (form.active_version_id === version.id) {
     return {
       reason: 'active-version',
@@ -937,17 +938,31 @@ export async function versionDeleteBlock(
       entries,
     };
   }
+  if (version.published_at !== null) {
+    const versions = await ctx.store.listFormVersions(form.id);
+    const superseded = versions.some(
+      (v) => v.version_no > version.version_no && v.published_at !== null,
+    );
+    if (!superseded) {
+      return {
+        reason: 'published',
+        message: `v${version.version_no} is the newest published version; publish a newer version first, or delete the whole form`,
+        entries,
+      };
+    }
+  }
   return null;
 }
 
 /**
- * Deletes one DRAFT. Blocked while any entry is bound to it, whatever the confirmation
- * (SPEC-FINAL 3.3). A published version is refused whatever the server's entry count: a
- * device may still hold queued entries for any published version it has (3.3; review #2),
- * so the whole form, through deleteForm, is the only way one goes. `active-version` is kept
- * as a backstop for a form row pointing at a draft, which no use case writes. Task 1.60
- * (SPEC-FINAL 3.9, 17.8): admin only (`delete_objects`), and once nothing blocks it the
- * label ("v3") must be typed back exactly — every block is named BEFORE the name is read.
+ * Deletes one version: a draft, or a published version a newer published one has replaced
+ * (the user's rule, 2026-10-29, replacing Phase 1 D review #2's "a draft only"). Blocked
+ * while any entry is bound to it, whatever the confirmation (SPEC-FINAL 3.3, 17.8), and for
+ * the form's active version and the newest published one (versionDeleteBlock). A device may
+ * still hold queued entries for a superseded version deleted here; the push refuses them as
+ * `parent-deleted` with the version named (syncPush). Task 1.60 (SPEC-FINAL 3.9, 17.8):
+ * admin only (`delete_objects`), and once nothing blocks it the label ("v3") must be typed
+ * back exactly — every block is named BEFORE the name is read.
  */
 export async function deleteFormVersion(
   caller: Caller,
