@@ -1,6 +1,7 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.37 · **Date:** 2026-10-28 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.38 · **Date:** 2026-10-29 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.38 (2026-10-29): user decisions after Phase 1 J, built on `fix/phase-1j-decisions` (spec v1.01 / SPEC-FINAL v1.49): a form version is deleted on its own when it is a draft or superseded by a newer published version (the forms list's trash now also on the draft row); every "of N" rank counts the roster; "±" always one decimal; the bundle budget is 240 KB; the dev seed's first team is 2096. **Phase 1 K's smoke tests run against the dev project** (§19.3, as 1.9's) — the delete flows included, which need migration `20261028090000_delete_match_cascade`, already on dev.*
 *v1.37 (2026-10-28): task 1.58b, Home's our-team rank card and top teams (round 03's "wanted, after ranking", in no task until now); "places moved" is counted since our last match (user; spec v1.00 / SPEC-FINAL v1.48).*
 *v1.36 (2026-10-28): where the delete dialogs open is drawn (`docs/design/pages/28-delete/final/delete-triggers-*`): Delete on the entry preview for a lead or admin, a trash button on older form-version rows; task 1.61 points at them.*
 *v1.35 (2026-10-28): the delete confirmation is designed (`docs/design/pages/28-delete/final/`, spec v0.99 / SPEC-FINAL v1.47 §3.9, §17.8); task 1.60 adds deleting a match with its entries and the two-file backup text, task 1.61 points at the final.*

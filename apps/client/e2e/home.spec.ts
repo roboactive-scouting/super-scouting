@@ -306,7 +306,7 @@ test('home: Our team and Top teams from the ranking, at both widths (task 1.58b)
   });
   await seedDevice(page, 'B2');
   const ours = page.getByRole('region', { name: 'Our team' });
-  await expect(ours).toContainText('#3 / 33');
+  await expect(ours).toContainText('#3 / 36');
   await expect(ours.getByText('Up 3 places since Q32')).toBeAttached();
   await expect(ours).toContainText('▲3 since Q32');
   const top = page.getByRole('region', { name: 'Top teams' });

@@ -119,7 +119,7 @@ function Seasons({
     what: 'export' | 'import';
     kind: FormKind;
   } | null>(null);
-  /** The one DeleteDialog (task 1.61): a whole form (the card's ⋯) or an older version's trash. */
+  /** The one DeleteDialog (task 1.61): a whole form (the card's ⋯) or a version's trash. */
   const [deleting, setDeleting] = useState<{ request: DeleteRequest; kind: FormKind } | null>(null);
 
   const season = load.seasons.find((s) => s.id === chosen) ?? null;
@@ -252,6 +252,14 @@ function Seasons({
                     formName: `${form.name} ${season.year}`,
                     formId: form.id,
                     facts: versionFacts(form, version),
+                    // The newest published version goes once a newer one is published.
+                    onPublishNewer: () =>
+                      navigate(
+                        formBuilderPath(
+                          form.id,
+                          form.versions.find((v) => v.status === 'draft')?.version_no,
+                        ),
+                      ),
                   },
                 })
               }

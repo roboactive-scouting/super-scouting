@@ -31,6 +31,8 @@ export type DeleteRequest =
       formId: string;
       /** The version's dates, for the Blocked band. */
       facts?: DeleteFact[];
+      /** "Publish a newer version": the page opens the form in the builder. */
+      onPublishNewer?: () => void;
     }
   | {
       kind: 'match';
@@ -75,7 +77,7 @@ export function blockedLine(reason: DeleteBlockedReason): string {
     case 'version_has_entries':
       return 'It still holds collected data, so there is nothing to confirm here. Pick a way forward.';
     case 'version_published':
-      return 'Only a draft can be deleted on its own. A published version goes with its whole form, so nothing scouted on it is left without one.';
+      return 'Publish a newer version first, then this one can be deleted. Or delete the whole form.';
     case 'version_active':
       return 'Scouts would be left with nothing to open. Restore another version first, or delete the whole form.';
   }
@@ -95,7 +97,9 @@ const ENTRY_IMPACT = { entries: 1 };
  * face opens: `blocked_reason` set → Blocked; `confirm_name` set → Bill + type (a match: the
  * Choice first); neither → Are you sure?. The confirm sends what was typed, so the server is
  * the gate too, and its refusal is said in the dialog. A form version blocked for a reason a
- * whole-form delete removes offers "Delete the whole form…", which opens the form's own bill.
+ * whole-form delete removes offers "Delete the whole form…", which opens the form's own bill;
+ * the newest published version (the user, 2026-10-29) also offers "Publish a newer version".
+ * A draft and a version a newer published one replaced open the bill, typed "v2".
  *
  * One entry is not counted: Are you sure? opens at once. An entry the device holds is
  * soft-deleted through the outbox (works offline, like any change); one it does not hold (the
@@ -240,6 +244,18 @@ export function DeleteFlow({
 
   const impact = load.impact;
   const ways: BlockedWay[] = [];
+  if (
+    req.kind === 'form_version' &&
+    impact.blocked_reason === 'version_published' &&
+    req.onPublishNewer
+  ) {
+    ways.push({
+      title: 'Publish a newer version',
+      body: `Publish one from the builder. ${impact.name} can then be deleted on its own.`,
+      label: 'Open the builder',
+      onSelect: req.onPublishNewer,
+    });
+  }
   if (req.kind === 'form_version' && impact.blocked_reason?.startsWith('version_')) {
     ways.push({
       title: 'Delete the whole form instead',

@@ -5742,19 +5742,25 @@ async function versionDeleteBlock(ctx, version, form) {
       entries
     };
   }
-  if (version.published_at !== null) {
-    return {
-      reason: "published",
-      message: `v${version.version_no} is published, and a device may still hold entries for it that have not reached the server; only a draft can be deleted on its own. Delete the whole form to remove it`,
-      entries
-    };
-  }
   if (form.active_version_id === version.id) {
     return {
       reason: "active-version",
       message: "this is the active version; deleting it would leave the form with nothing to scout. Restore another version first",
       entries
     };
+  }
+  if (version.published_at !== null) {
+    const versions = await ctx.store.listFormVersions(form.id);
+    const superseded = versions.some(
+      (v) => v.version_no > version.version_no && v.published_at !== null
+    );
+    if (!superseded) {
+      return {
+        reason: "published",
+        message: `v${version.version_no} is the newest published version; publish a newer version first, or delete the whole form`,
+        entries
+      };
+    }
   }
   return null;
 }

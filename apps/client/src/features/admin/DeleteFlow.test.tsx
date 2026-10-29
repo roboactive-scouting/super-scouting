@@ -108,8 +108,9 @@ describe('DeleteFlow (task 1.61): the server counts, picks the face, and is the 
     expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument();
   });
 
-  it("a published older version is Blocked; its way forward opens the whole form's own bill", async () => {
+  it("the newest published version is Blocked; publish a newer one, or the whole form's own bill", async () => {
     const user = userEvent.setup();
+    const onPublishNewer = vi.fn();
     const { call, onDeleted } = flow(
       {
         kind: 'form_version',
@@ -117,6 +118,7 @@ describe('DeleteFlow (task 1.61): the server counts, picks the face, and is the 
         label: 'v2',
         formName: 'Match form 2026',
         formId: FORM,
+        onPublishNewer,
       },
       {
         getDeleteImpact: (input: Record<string, unknown>) =>
@@ -135,16 +137,24 @@ describe('DeleteFlow (task 1.61): the server counts, picks the face, and is the 
                 name: 'v2',
                 confirm_name: null,
                 blocked_reason: 'version_published',
-                blocked_message: 'v2 is published…',
+                blocked_message: 'v2 is the newest published version…',
                 form_versions: 1,
-                entries: 38,
+                entries: 0,
               }),
         deleteForm: { versions: 3, entries: 264, deleted: true },
       },
     );
     await screen.findByRole('dialog', { name: "Version 2 can't be deleted" });
+    expect(
+      screen.getByText(
+        'Publish a newer version first, then this one can be deleted. Or delete the whole form.',
+      ),
+    ).toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Keep version 2' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Open the builder' }));
+    expect(onPublishNewer).toHaveBeenCalledTimes(1);
+    expect(call).not.toHaveBeenCalledWith('deleteFormVersion', expect.anything());
     await user.click(screen.getByRole('button', { name: 'Delete the whole form…' }));
     expect(call).toHaveBeenLastCalledWith('getDeleteImpact', { kind: 'form', id: FORM });
     await screen.findByRole('dialog', { name: 'Delete Match form?' });
@@ -157,6 +167,60 @@ describe('DeleteFlow (task 1.61): the server counts, picks the face, and is the 
       confirm_name: 'Match form',
     });
     await waitFor(() => expect(onDeleted).toHaveBeenCalledWith({ kind: 'form', id: FORM }));
+  });
+
+  it('a version with entries offers no "Publish a newer version", only the whole form', async () => {
+    flow(
+      {
+        kind: 'form_version',
+        id: ID,
+        label: 'v1',
+        formName: 'Match form 2026',
+        formId: FORM,
+        onPublishNewer: vi.fn(),
+      },
+      {
+        getDeleteImpact: impact({
+          kind: 'form_version',
+          name: 'v1',
+          confirm_name: null,
+          blocked_reason: 'version_has_entries',
+          blocked_message: 'this version has 12 entries…',
+          form_versions: 1,
+          entries: 12,
+        }),
+      },
+    );
+    await screen.findByRole('dialog', { name: "Version 1 can't be deleted" });
+    expect(screen.queryByRole('button', { name: 'Open the builder' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete the whole form…' })).toBeInTheDocument();
+  });
+
+  it('a superseded published version with no entries is the bill, typed "v2" (the user, 2026-10-29)', async () => {
+    const user = userEvent.setup();
+    const { call } = flow(
+      { kind: 'form_version', id: ID, label: 'v2', formName: 'Match form 2026', formId: FORM },
+      {
+        getDeleteImpact: impact({
+          kind: 'form_version',
+          name: 'v2',
+          confirm_name: 'v2',
+          form_versions: 1,
+        }),
+        deleteFormVersion: { deleted: true },
+      },
+    );
+    await screen.findByRole('dialog', { name: 'Delete version 2 of Match form 2026?' });
+    const go = screen.getByRole('button', { name: 'Delete version 2' });
+    await user.type(screen.getByLabelText(/type the name to confirm/i), 'V2');
+    expect(go).toBeDisabled();
+    await user.clear(screen.getByLabelText(/type the name to confirm/i));
+    await user.type(screen.getByLabelText(/type the name to confirm/i), 'v2');
+    await user.click(go);
+    expect(call).toHaveBeenLastCalledWith('deleteFormVersion', {
+      form_version_id: ID,
+      confirm_name: 'v2',
+    });
   });
 
   it('a draft version with no entries is the bill, typed "v4"', async () => {

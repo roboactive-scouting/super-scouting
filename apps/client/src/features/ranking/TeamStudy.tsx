@@ -22,7 +22,7 @@ import {
   phaseAverage,
   phasePlace,
   phaseShare,
-  rankedCount,
+  rosterCount,
   STATUS_WORD,
   statusSpread,
   typicalRange,
@@ -36,7 +36,7 @@ import {
 
 type StudyProps = { row: RankRow; rows: readonly RankRow[]; phases: readonly FieldPhase[] };
 
-/** "Rank 4 of 23 · 10 matches counted". */
+/** "Rank 4 of 30 · 10 matches counted" (of the roster). */
 function RankLine({ row, rows }: { row: RankRow; rows: readonly RankRow[] }) {
   return (
     <p className="mt-[3px] text-[0.8125rem] text-muted">
@@ -45,7 +45,7 @@ function RankLine({ row, rows }: { row: RankRow; rows: readonly RankRow[] }) {
       ) : (
         <>
           Rank <b className="num font-semibold text-ink-2">{row.rank}</b> of{' '}
-          <span className="num">{rankedCount(rows)}</span>
+          <span className="num">{rosterCount(rows)}</span>
         </>
       )}{' '}
       · <span className="num">{row.matches_counted}</span>{' '}

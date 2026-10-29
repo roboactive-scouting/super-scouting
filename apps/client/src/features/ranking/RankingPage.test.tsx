@@ -566,7 +566,7 @@ describe('RankingPage — the team study and where the figures came from (task 1
     open();
     await user().click(await screen.findByRole('row', { name: /Team 1003/ }));
     const panel = screen.getByRole('complementary', { name: 'Team study, 1003 Team 1003' });
-    expect(panel).toHaveTextContent('Rank 4 of 49 · 10 matches counted');
+    expect(panel).toHaveTextContent('Rank 4 of 50 · 10 matches counted');
     expect(within(panel).getByRole('link', { name: /Open team page/ })).toHaveAttribute(
       'href',
       '/teams/t-3',
@@ -625,7 +625,7 @@ describe('RankingPage — on a phone (task 1.58)', () => {
     expect(within(list).getAllByLabelText(/medal/i)).toHaveLength(3);
     await user().click(within(list).getAllByRole('button')[3]!);
     const sheet = screen.getByRole('dialog', { name: '1003 Team 1003' });
-    expect(sheet).toHaveTextContent('Rank 4 of 49');
+    expect(sheet).toHaveTextContent('Rank 4 of 50');
     expect(within(sheet).getByRole('link', { name: /Open team page/ })).toHaveAttribute(
       'href',
       '/teams/t-3',
@@ -638,7 +638,7 @@ describe('RankingPage — on a phone (task 1.58)', () => {
     const first = () => within(list).getAllByRole('button')[0]!;
     // Team 1000: Total 50, standard deviation 2.
     expect(first().getAttribute('aria-label')).toBeNull(); // the name is the row's own text
-    expect(first()).toHaveAccessibleName(/1000 Team 1000 .*Total 50 consistency ±2$/);
+    expect(first()).toHaveAccessibleName(/1000 Team 1000 .*Total 50 consistency ±2\.0$/);
     await category('Availability');
     const availability = await screen.findByRole('list', { name: 'Teams, Availability' });
     expect(within(availability).getAllByRole('button')[0]!).toHaveAccessibleName(

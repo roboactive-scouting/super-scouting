@@ -120,7 +120,7 @@ export function FormCard({
   onDelete: () => void;
   /** False while every delete is held offline: `useCapability('delete_objects')`. */
   canDelete?: boolean;
-  /** An older version's trash button (task 1.61). */
+  /** A version's trash button, on every row but the active one (task 1.61; the user, 2026-10-29). */
   onDeleteVersion?: (version: VersionSummary) => void;
 }) {
   const status = statusOf(form);

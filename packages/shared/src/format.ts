@@ -11,10 +11,14 @@ export function formatMetric(value: number | null | undefined): string {
   return Number.isInteger(one) ? String(one || 0) : one.toFixed(1);
 }
 
-/** A standard deviation as the ranking prints it: "±6.1" (SPEC-FINAL 17.8); none is "—". */
+/**
+ * A standard deviation as the ranking prints it: always one decimal, "±6.1", "±9.0"
+ * (SPEC-FINAL 17.8; user, 2026-10-29 — a whole number is not printed bare here); none is "—".
+ */
 export function formatStdDev(value: number | null | undefined): string {
-  const text = formatMetric(value);
-  return text === NO_VALUE ? NO_VALUE : `±${text}`;
+  if (value === null || value === undefined || !Number.isFinite(value)) return NO_VALUE;
+  // `|| 0` turns a rounded −0 into 0, as `formatMetric` does.
+  return `±${(Math.round(value * 10) / 10 || 0).toFixed(1)}`;
 }
 
 /** Integer counts, match numbers, team numbers: no decimals, no thousands separator. */

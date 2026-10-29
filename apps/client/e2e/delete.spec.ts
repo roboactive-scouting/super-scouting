@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { signIn, type Role } from './api-mock';
 import { deleteImpact } from './deleteFixtures';
 import { ENTRIES, EVENT, MATCHES, SEASONS } from './fixtures';
+import { deleteImpactOf, listFormsOf, MATCH_FORM_ID, VERSIONS } from './formFixtures';
 import { shoot } from './shoot';
 
 /*
@@ -9,7 +10,9 @@ import { shoot } from './shoot';
  * A): Season 2025's bill with "202" typed and the button off; version 1's Blocked face; on a
  * phone, one entry's "Are you sure?", Q41's Choice and Q41's bill with "Q4" typed; and the
  * triggers — the entry preview's Delete (a lead's, never a scouter's) and the forms list's trash
- * buttons on the older versions. The counts are the server's (`getDeleteImpact`, mocked).
+ * buttons on every version but the active one. The user's rule (2026-10-29): a superseded
+ * version's bill, and the newest published version's Blocked face. The counts are the server's
+ * (`getDeleteImpact`, mocked).
  */
 
 const SEASON_2025 = SEASONS.find((s) => s.year === 2025)!;
@@ -131,19 +134,94 @@ test('delete: version 1 with entries is Blocked — two ways forward, nothing to
   );
 });
 
-test('delete: the forms list — a trash button on each older version, none on the draft or active', async ({
+test('delete: the forms list — a trash button on every version but the active one, the draft included', async ({
   page,
 }) => {
   await signIn(page, 'admin');
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/admin/forms');
   const card = page.getByRole('region', { name: 'Match form' });
-  await expect(card.getByRole('button', { name: /^Delete version/ })).toHaveCount(2);
+  await expect(card.getByRole('button', { name: /^Delete version/ })).toHaveCount(3);
+  await expect(card.getByRole('button', { name: 'Delete version v4' })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Delete version v3' })).toHaveCount(0);
   await expect(card.getByRole('button', { name: 'Delete version v2' })).toBeVisible();
   await expect(card.getByRole('button', { name: 'Delete version v1' })).toBeVisible();
-  const box = await card.getByRole('button', { name: 'Delete version v2' }).boundingBox();
-  expect([box?.width, box?.height]).toEqual([36, 36]);
+  for (const v of ['v4', 'v2']) {
+    const box = await card.getByRole('button', { name: `Delete version ${v}` }).boundingBox();
+    expect([box?.width, box?.height]).toEqual([36, 36]);
+  }
+  // The draft's trash sits where the older rows have theirs: the row's last button.
+  const draft = await card.getByRole('button', { name: 'Delete version v4' }).boundingBox();
+  const older = await card.getByRole('button', { name: 'Delete version v2' }).boundingBox();
+  expect(draft?.x).toBe(older?.x);
   await shoot(page, 'delete-triggers-forms', 'desktop');
+});
+
+// The user's rule (2026-10-29): a published version goes on its own once a newer one is
+// published. v2 with no entries is superseded by v3, so its trash opens the bill.
+test('delete: a superseded version with no entries — the bill, "v2" typed, then deleted', async ({
+  page,
+}) => {
+  const versions = VERSIONS.map((v) => (v.version_no === 2 ? { ...v, entry_count: 0 } : v));
+  const sent: unknown[] = [];
+  await signIn(page, 'admin', {
+    overrides: {
+      listForms: listFormsOf(versions),
+      getDeleteImpact: deleteImpactOf(versions),
+      deleteFormVersion: (input: Record<string, unknown>) => {
+        sent.push(input);
+        return { deleted: true };
+      },
+    },
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/admin/forms');
+  const card = page.getByRole('region', { name: 'Match form' });
+  await card.getByRole('button', { name: 'Delete version v2' }).click();
+  const bill = page.getByRole('dialog', { name: 'Delete version 2 of Match form 2026?' });
+  await expect(bill).toBeVisible();
+  const go = bill.getByRole('button', { name: 'Delete version 2' });
+  await expect(go).toBeDisabled();
+  await bill.getByLabel(/type the name to confirm/i).fill('v2');
+  await expect(go).toBeEnabled();
+  await shoot(page, 'delete-version-bill', 'desktop');
+  await go.click();
+  await expect(bill).toHaveCount(0);
+  expect(sent).toEqual([{ form_version_id: versions[2]!.id, confirm_name: 'v2' }]);
+});
+
+test('delete: the newest published version (an older one restored) is Blocked — publish a newer one', async ({
+  page,
+}) => {
+  // v2 restored as active; v3, published after it, has no entries and nothing newer published.
+  const versions = VERSIONS.map((v) =>
+    v.version_no === 3
+      ? { ...v, is_active: false, entry_count: 0 }
+      : v.version_no === 2
+        ? { ...v, is_active: true }
+        : v,
+  );
+  await signIn(page, 'admin', {
+    overrides: { listForms: listFormsOf(versions), getDeleteImpact: deleteImpactOf(versions) },
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/admin/forms');
+  const card = page.getByRole('region', { name: 'Match form' });
+  await expect(card.getByRole('button', { name: 'Delete version v2' })).toHaveCount(0);
+  await card.getByRole('button', { name: 'Delete version v3' }).click();
+  const blocked = page.getByRole('dialog', { name: "Version 3 can't be deleted" });
+  await expect(blocked).toContainText('v3 is the newest published version');
+  await expect(blocked).toContainText(
+    'Publish a newer version first, then this one can be deleted. Or delete the whole form.',
+  );
+  await expect(blocked.getByRole('textbox')).toHaveCount(0);
+  await expect(blocked.getByRole('button', { name: 'Keep version 3' })).toBeFocused();
+  await expect(blocked.getByRole('button', { name: 'Delete the whole form…' })).toBeVisible();
+  await shoot(page, 'delete-version-newest-blocked', 'desktop');
+  await blocked.getByRole('button', { name: 'Open the builder' }).click();
+  await expect(page).toHaveURL(
+    (url) => url.pathname === `/admin/forms/${MATCH_FORM_ID}` && url.search === '?version=4',
+  );
 });
 
 test('delete: the entry preview — a lead gets Delete after Team page and Edit', async ({

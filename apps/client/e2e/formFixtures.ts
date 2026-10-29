@@ -390,9 +390,12 @@ const EXPORT_DEFINITION: Record<string, unknown> = {
   [EXPORTS[2]!.id]: definitionOf(SUPER_ROWS, 'super'),
 };
 
-/** The forms use cases, by name; a function receives the call's input. */
-export const FORMS_RPC: Record<string, (input: Record<string, unknown>) => unknown> = {
-  listForms: (input) => ({
+type Handler = (input: Record<string, unknown>) => unknown;
+
+/** `listForms` over a given version list (a spec may change who is active or the counts). */
+export function listFormsOf(versions: VersionSummary[]): Handler {
+  const active = versions.find((v) => v.is_active)?.id ?? null;
+  return (input) => ({
     season_id: input.season_id,
     forms:
       input.season_id === SEASON_ID
@@ -401,13 +404,62 @@ export const FORMS_RPC: Record<string, (input: Record<string, unknown>) => unkno
               id: FORM_ROW.id,
               kind: FORM_ROW.kind,
               name: FORM_ROW.name,
-              active_version_id: FORM_ROW.active_version_id,
+              active_version_id: active,
               updated_at: FORM_ROW.updated_at,
-              versions: VERSIONS,
+              versions,
             },
           ]
         : [],
-  }),
+  });
+}
+
+/**
+ * The one DeleteDialog's count (task 1.61) over a given version list: the form is typed back by
+ * its stored name; a version is blocked for the entries bound to it, then for being active, then
+ * for being the newest published one (the user, 2026-10-29); a draft or a version a newer
+ * published one replaced is typed back ("v2").
+ */
+export function deleteImpactOf(versions: VersionSummary[]): Handler {
+  return (input) => {
+    if (input.kind === 'form') {
+      return deleteImpact({
+        kind: 'form',
+        id: MATCH_FORM_ID,
+        name: FORM_ROW.name,
+        forms: 1,
+        form_versions: 4,
+        entries: 264,
+        match_entries: 264,
+        metrics: 3,
+      });
+    }
+    const v = versions.find((x) => x.id === input.id) ?? versions[2]!;
+    const newer = versions.some((o) => o.version_no > v.version_no && o.published_at !== null);
+    const reason =
+      v.entry_count > 0
+        ? 'version_has_entries'
+        : v.is_active
+          ? 'version_active'
+          : v.published_at !== null && !newer
+            ? 'version_published'
+            : null;
+    return deleteImpact({
+      kind: 'form_version',
+      id: v.id,
+      name: `v${v.version_no}`,
+      confirm_name: reason ? null : `v${v.version_no}`,
+      blocked_reason: reason,
+      blocked_message: reason ? 'refused' : null,
+      form_versions: 1,
+      entries: v.entry_count,
+      match_entries: v.entry_count,
+    });
+  };
+}
+
+/** The forms use cases, by name; a function receives the call's input. */
+export const FORMS_RPC: Record<string, Handler> = {
+  listForms: listFormsOf(VERSIONS),
   getForm: () => ({ ...FORM_ROW, versions: VERSIONS }),
   listFormExports: () => ({ exports: EXPORTS }),
   getFormExport: (input) => {
@@ -431,40 +483,7 @@ export const FORMS_RPC: Record<string, (input: Record<string, unknown>) => unkno
   // 214 + 38 + 12 entries over four versions (13-forms).
   deleteForm: (input) => ({ versions: 4, entries: 264, deleted: input.dry_run !== true }),
   deleteFormVersion: () => ({ deleted: true }),
-  // The one DeleteDialog's count (task 1.61): the form is typed back by its stored name; an older
-  // version is published, so it is blocked on its own — first by the entries bound to it.
-  getDeleteImpact: (input) => {
-    if (input.kind === 'form') {
-      return deleteImpact({
-        kind: 'form',
-        id: MATCH_FORM_ID,
-        name: FORM_ROW.name,
-        forms: 1,
-        form_versions: 4,
-        entries: 264,
-        match_entries: 264,
-        metrics: 3,
-      });
-    }
-    const v = VERSIONS.find((x) => x.id === input.id) ?? VERSIONS[2]!;
-    const reason =
-      v.entry_count > 0
-        ? 'version_has_entries'
-        : v.published_at !== null
-          ? 'version_published'
-          : null;
-    return deleteImpact({
-      kind: 'form_version',
-      id: v.id,
-      name: `v${v.version_no}`,
-      confirm_name: reason ? null : `v${v.version_no}`,
-      blocked_reason: reason,
-      blocked_message: reason ? 'refused' : null,
-      form_versions: 1,
-      entries: v.entry_count,
-      match_entries: v.entry_count,
-    });
-  },
+  getDeleteImpact: deleteImpactOf(VERSIONS),
   getFormVersion: (input) => {
     const version = VERSIONS.find((v) => v.id === input.form_version_id) ?? VERSIONS[1]!;
     const fields = version.version_no === 4 ? FIELDS[4] : FIELDS[3];
