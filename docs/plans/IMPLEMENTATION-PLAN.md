@@ -17749,7 +17749,7 @@ git add -A && git commit -m "feat(client): add the single destructive-action pat
 
 **It covers exactly (§18.4):** authentication and session · load the active competition · load a form version · **submit an entry and read it back** · run one metric over it · the `/health` endpoint's database read. It runs against the **dev** Supabase project — never production — inside a **namespaced `CI` season that the suite creates and tears down**. It is **deliberately shallow**: it proves the wiring; behaviour is tier 1's job.
 
-- [ ] **Step 1: Write the tests**
+- [x] **Step 1: Write the tests**
 
 ```ts
   it('auth: login with the seeded CI account returns a usable token', async () => {
@@ -17798,7 +17798,7 @@ git add -A && git commit -m "feat(client): add the single destructive-action pat
 with `let token = '';` and `const CI_PASSWORD = 'ci-smoke-pass-1';` declared at module scope, and the `beforeAll` fixture creating the CI user with `bcryptjs.hashSync(CI_PASSWORD, 10)` and role `admin`.
 
 
-- [ ] **Step 2: Run against the preview deployment and in CI**
+- [x] **Step 2: Run against the preview deployment and in CI**
 
 ```bash
 SMOKE_API_BASE_URL=https://<preview-server-host> \
@@ -17809,7 +17809,7 @@ pnpm --filter @frc/server exec vitest run --config vitest.smoke.config.ts
 
 Expected: every suite green, with the new file(s) from this task among them. Then push and confirm the CI `Smoke suite` step prints the same.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add -A && git commit -m "test: grow the smoke suite to the full client-server-database wiring check"
@@ -17846,9 +17846,9 @@ git add -A && git commit -m "test: grow the smoke suite to the full client-serve
 
 Any step that fails is a release blocker. Record the date, the device and the result at the bottom of the file each time it is run.
 
-- [ ] **Step 1: Write both documents**
+- [x] **Step 1: Write both documents**
 - [ ] **Step 2: Run the procedure on a real phone and record the result**
-- [ ] **Step 3: Verify the heading check still passes**
+- [x] **Step 3: Verify the heading check still passes**
 
 ```bash
 pnpm docs:check && pnpm vitest run scripts/check-docs.test.ts
@@ -17856,7 +17856,7 @@ pnpm docs:check && pnpm vitest run scripts/check-docs.test.ts
 
 Expected: `ops documentation complete`; every suite green, including the new file(s) from this task.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add -A && git commit -m "docs(ops): finish the runbook and add the offline verification procedure"
