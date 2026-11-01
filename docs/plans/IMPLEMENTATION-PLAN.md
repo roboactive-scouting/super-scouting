@@ -17846,9 +17846,9 @@ git add -A && git commit -m "test: grow the smoke suite to the full client-serve
 
 Any step that fails is a release blocker. Record the date, the device and the result at the bottom of the file each time it is run.
 
-- [ ] **Step 1: Write both documents**
+- [x] **Step 1: Write both documents**
 - [ ] **Step 2: Run the procedure on a real phone and record the result**
-- [ ] **Step 3: Verify the heading check still passes**
+- [x] **Step 3: Verify the heading check still passes**
 
 ```bash
 pnpm docs:check && pnpm vitest run scripts/check-docs.test.ts
@@ -17856,7 +17856,7 @@ pnpm docs:check && pnpm vitest run scripts/check-docs.test.ts
 
 Expected: `ops documentation complete`; every suite green, including the new file(s) from this task.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add -A && git commit -m "docs(ops): finish the runbook and add the offline verification procedure"

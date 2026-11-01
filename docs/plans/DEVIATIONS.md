@@ -10619,3 +10619,53 @@ Rejected: the Status spread header "Missed · Broke down · Disabled · No show"
 **What I did instead:** a scratchpad wrapper reads `apps/server/.env` itself (refusing any URL without the dev ref `oqvoqddoizhhwvjwejtm`), puts the three `SMOKE_*` values into the child's environment only, and runs `pnpm smoke` against `https://frc-scouting-server-git-develop-roboactive.vercel.app` (live commit `32531ea`; 1.62 changes no server code). The CI confirmation is the user's approval test.
 
 **Risk:** none.
+
+## Task 1.63 — OFFLINE-CHECK.md's expected results come from the app as it is, not the plan
+
+**Plan said:** the 15 steps with their results: the trefoil named "Scouting"; "the indicator reads `online`; the context page names the active event"; cold start "says it is working from data on the device"; "`offline · 10 unsynced`"; the no-show's summary "lists the status and nothing else"; the builder shows "the 'this needs a computer' panel, or the offline panel"; switching "Disabled, saying only the default competition is available offline"; the ranking "says the figures are from this device"; the sync page's last sync "in `DD/MM/YYYY`"; step 12 "From a second device, send those entries by QR; scan them on the first. → 'batch complete'"; step 15 "submit an entry with the network on … within 2 seconds".
+
+**What was wrong:** the plan predates Phases 1 D–1 J. Read in the code: there is no context page (`/context` redirects to Home, `routes.tsx`); Home reads "This device is working on" over the event's name (`HomeHeader.tsx`). The phone's one indicator is a pill — "All sent", "N waiting", "Offline · N" (`SyncPill.tsx` `compactSync`), never "unsynced". The cold-start strip is "Working from data already on this device. Your entries are safe here and will sync when a connection returns." (`AppShell.tsx`). The phone menu has no Forms entry for any role (`nav.ts`, `desktopOnly`), and a phone at `/admin/forms` gets `DesktopOnly`'s "This needs a computer". The switch sheet says "Only the default competition is available offline. Your data is safe on this device." (`SwitchCompetitionSheet.tsx`). The ranking says "Computed from the data on this device" over "Last synced HH:MM · N entries waiting to send" (`RankingPage.tsx`). Sync's last sync is "HH:MM" today and "DD/MM/YYYY HH:MM" on another day (`lastSyncLabel`), followed offline by "· sends by itself". The QR receiver has no "batch complete": it turns green with "Got it, <name>!", the count, "records · N entries", **Scan the next phone** and **Done — back to Sync** (`QrReceivePage.tsx`); the sender says "Nothing is marked sent. These records wait for the cloud as before." (`QrSendPage.tsx`). Step 12 also had the devices reversed: the ten entries are on the first phone, so the first phone sends and the second receives. The plan's intro says "Fourteen numbered steps" over a list of fifteen.
+
+**What I did instead:** every expected result quotes the code's current text, with the screen and button names a person sees. Step 12: the test phone sends, the second device receives, and the test phone's Sync still shows Waiting 10 with "shown by QR HH:MM". Step 14 checks the entries appear once each (the received copies are the same records) and reads Ranking's **Matches** and **No-shows** columns (`rankingView.ts`), so the no-show is checked as not-a-zero. Step 15's sync measurement is the reconnect case (see the next entry). The results log is one copy-per-run block with a row per step plus the cold-start seconds, the tap time and the sync time, rather than one wide table row. The heading check (`scripts/check-docs.mjs`) now requires the document's four sections; removing "Results log" fails `pnpm docs:check` with "docs/ops/OFFLINE-CHECK.md is missing sections: Results log".
+
+**Risk:** the texts were read from the code, not from a phone; the user's run (1.63 step 2) is the proof, and a mismatch there is a document fix, not a release blocker, unless the behaviour differs.
+
+## Task 1.63 — [RAISED] an entry submitted while online is not pushed for up to 45 seconds
+
+**Plan said:** step 15: "submit an entry with the network on and watch the sync page: the entry must reach the server **within 2 seconds** of connectivity" (SPEC-FINAL 18.1: "A submitted entry reaches the server within 2 seconds of the device having connectivity").
+
+**What was wrong:** the client starts a sync only on the shell's 45-second tick (`AUTO_REFRESH_MS = 45_000`, `apps/client/src/features/shell/AppShell.tsx:55`), the browser's `online` event, a token arriving, and **Sync now** (`requestSync`). `submitEntry` writes the outbox and requests nothing. So an entry submitted on an online phone waits up to 45 s; the plan's step 15 would fail on every run. Coming back online does sync at once.
+
+**What I did instead:** nothing in the code (1.62 and 1.63 only; the fix is a client change for its own task). Step 15 measures the reconnect case — airplane mode on, submit, airplane mode off, time from the wifi icon to "All sent" — which is §18.1's wording and what the app does today. A "Known, not a step" note under step 15 states the 45-second behaviour. Raised to the user in the report as an open question: nudge a sync after every submit (and after a QR receive), or amend §18.1. Rejected: writing step 15 as the plan had it, a step that fails by design and blocks every event.
+
+**Risk:** until decided, a phone on venue wifi can hold a submitted entry for up to 45 s; another device sees it up to 45 s after that. Nothing is lost.
+
+## Task 1.63 — where the check's test entries go
+
+**Plan said:** step 1: "Install the PWA to the home screen from the production URL"; steps 5–14 then submit ten entries and sync them, so they would land in production.
+
+**What was wrong:** ten fake entries in production count in the real rankings (the user's open question).
+
+**What I did instead:** the document's "Where the test entries go": the full 15 steps run on the develop preview, whose data is the dev database, after checking that the `version …` line at the foot of Home is the same commit on the develop and production URLs; then a five-minute production check in Practice mode, which saves and sends nothing (SPEC-FINAL 8.5): install, sign in, load, airplane mode, cold start, practise one entry, "Practice finished — Nothing was saved or sent." `pnpm db:clean` afterwards frees dev's matches 16–20 (the seed leaves them unscouted for rehearsals, BUILD-CONTEXT §8). Rejected: a rehearsal event on production (offline, a device has only the default competition, so the admin would have to move every device's default right before the event, then delete the rehearsal event); scouting the real event and deleting the entries after (a soft-deleted row stays, one missed entry skews a real average, and the roster or schedule may not exist yet); a separate production-like project (cost, and it is not production either).
+
+**Risk:** the dev run proves the build, not production's environment variables, CORS origin or database; the Practice-mode check proves the production install and the offline path without a write, and `/health` plus the CI smoke suite cover the server. A sync to the production server is never exercised by the check.
+
+## Task 1.63 — RUNBOOK.md corrections to match the build
+
+**Plan said:** "the venue checklist filled in with what this build actually does".
+
+**What was wrong:** several existing lines described an older build: the wipe "refuses while any record on the device has not reached the cloud" (since v1.39 it is held, with **Send by QR first** and a harder **Wipe anyway…**, `DeviceWipe.tsx`); "Sync → Conflicts" (Conflicts is its own menu entry for leads and admins, with an "N conflicts to review" link on Sync, `nav.ts`); "Recover the dead device's entries by QR from the collector tablet (Sync → Receive by QR)" (a dead device cannot send; only what it already sent is on the collector); the not-loaded screens' "Not loaded yet" (now "This device has not loaded the competition yet", plus "Loading the competition onto this device"); "Sync → Send by QR" (it is under ⋯); "the same version string on the context page" (the `version …` line is at the foot of Home and in the phone menu); the offline-check line pointed at this task.
+
+**What I did instead:** corrected each line from the code; added to the pre-event checklist the green `main` CI run with its Smoke suite, the production `/health` URL and the daily keep-alive, `OFFLINE-CHECK.md` (both parts, then `pnpm db:clean`), the default competition with its roster and schedule, and Home's "This device is working on"; the daily line now names the pill's "All sent". Every required heading is unchanged.
+
+**Risk:** none.
+
+## Task 1.63 — step 2 left to the user
+
+**Plan said:** Step 2: run the procedure on a real phone and record the result.
+
+**What was wrong:** nothing; the prompt reserves it for the user and forbids simulating it.
+
+**What I did instead:** ticked steps 1, 3 and 4 in the plan; step 2 is unticked and the results log is empty.
+
+**Risk:** Phase 1's gate (SPEC-FINAL 20.4, "the offline path verified with the network actually off") is open until the user's run is recorded.
