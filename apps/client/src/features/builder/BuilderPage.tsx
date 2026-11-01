@@ -51,9 +51,9 @@ import { plural } from '@/lib/plural';
 import { cn } from '@/lib/utils';
 import { EntryContext } from '@/features/entry/entryContext';
 import { BuilderCanvas, CANVAS_DROP, phasePages, type CanvasMode } from './BuilderCanvas';
+import { LazyDeleteFlow } from '@/features/admin/LazyDeleteFlow';
 import { BuilderLeaveGuard } from './BuilderLeaveGuard';
 import { BuilderTopBar, heldLine, RESTORE_HELD } from './BuilderTopBar';
-import { DeleteFormDialog } from './DeleteFormDialog';
 import { FieldPalette, PaletteGhost, paletteTypeOf } from './FieldPalette';
 import { formErrorLine, offersReload } from './formErrors';
 import { typeName } from './fieldTypes';
@@ -97,8 +97,8 @@ export function BuilderPage({ rpc = adminRpc }: { rpc?: Rpc }) {
   );
 }
 
-/** The builder fills the window under the 60 px top bar; its panes scroll on their own. */
-const PAGE = 'flex h-[calc(100dvh-3.75rem)] min-h-[40rem] w-full flex-col';
+/** The builder fills the window under the shell's top bar (`--top-bar`); its panes scroll on their own. */
+const PAGE = 'flex h-[calc(100dvh-var(--top-bar,0px))] min-h-[40rem] w-full flex-col';
 
 function BuilderScreen({ rpc }: { rpc: Rpc }) {
   const { formId = '' } = useParams();
@@ -1114,13 +1114,14 @@ function BuilderEditor({
         />
       )}
       {dialog === 'delete' && (
-        <DeleteFormDialog
-          form={formRef}
-          year={year}
+        <LazyDeleteFlow
+          request={{
+            kind: 'form',
+            id: form.id,
+            label: year !== null ? `${form.name} ${year}` : form.name,
+          }}
           rpc={rpc}
-          online={canEdit}
           onClose={() => setDialog(null)}
-          onExportFirst={() => setDialog('export')}
           onDeleted={() => {
             leaving.current = true;
             // Back to the list on the deleted form's season (final review, D3).

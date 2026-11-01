@@ -19,7 +19,7 @@ Chosen: **variant A, simplified**: today's table, newest first, with points in p
    | Time | Time only (the date only when it isn't today); a small amber ↑ when the entry is waiting to send |
    | Points | The robot's scouted points, right-aligned mono; "—" for no show and disabled |
 
-4. A refused entry keeps its own line under the row: the error line, "Not synced: …" with today's text.
+4. A refused entry keeps its own line under the row: the error line, "Not synced: …" with today's text. *(2026-10-23, SPEC-FINAL v1.44 §7.6: for the edit window it reads "Not sent: changed after the 5-minute edit window. A lead can save it for you.")*
 5. A key under the table: "↑ waiting to send · — no points: the robot didn't play or was disabled".
 
 ## Phone
@@ -64,4 +64,4 @@ Above the cards: search, then the same four chips (scrolling sideways when they 
 | Preview beside the list, with lead Edit / Remove (C) | No: the preview is its own page |
 | "Mine" tab with an edit countdown (D) | No |
 
-**[RAISED BY ME]** With search and points, this page now covers most of the planned entry search page (§13.3, task 1.51). Missing: the match / super kind filter. Decide when Search is designed whether the two become one page.
+**[RAISED BY ME]** With search and points, this page now covers most of the planned entry search page (§13.3, task 1.51). Missing: the match / super kind filter. Decide when Search is designed whether the two become one page. **Decided 2026-10-23 (round 26): one page.** `/entries` is the entry search; see `../../26-entry-search/final/`, which also drops the station tag from the table and the phone cards.

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './api-mock';
 import { FIXTURE, FORM, matchId, teamId } from './fixtures';
+import { showsThrough } from './pinned';
 import { shoot } from './shoot';
 
 /**
@@ -147,6 +148,26 @@ const PULL = {
   },
 };
 
+/** PULL with a long Teleop (twelve more counters), so the form scrolls under the timer at 1440 x 900. */
+const LONG_PULL = {
+  ...PULL,
+  entities: {
+    ...PULL.entities,
+    form_fields: [
+      ...FIELDS,
+      ...Array.from({ length: 12 }, (_, i) => ({
+        ...FIELDS[2]!,
+        id: id(20 + i),
+        key: `tele_extra_${i + 1}`,
+        label: `Extra count ${i + 1}`,
+        help_text: null,
+        description: `Extra count ${i + 1} (fixture)`,
+        display_order: 20 + i,
+      })),
+    ],
+  },
+};
+
 /** Also the whole phone page: the field sits below the fold at 812 px. */
 const LONG = { long: true };
 
@@ -165,9 +186,9 @@ async function bothThemes(
 }
 
 /** Opens the entry as `alliance`'s scout with Played picked, the clock installed first. */
-async function openEntry(page: Page, team: number, alliance: 'red' | 'blue') {
+async function openEntry(page: Page, team: number, alliance: 'red' | 'blue', pull: object = PULL) {
   await page.clock.install();
-  await signIn(page, 'scouter', { overrides: { 'sync/pull': PULL } });
+  await signIn(page, 'scouter', { overrides: { 'sync/pull': pull } });
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto(`/entry/${matchId(39)}/${teamId(team)}?alliance=${alliance}`);
   await page.getByRole('radio', { name: 'Played' }).click();
@@ -230,6 +251,66 @@ test('sticky match timer: ready, running, last 10 s, over, and the desktop bar',
   await page.getByRole('tab', { name: 'Teleop' }).click();
   await expect(page.getByTestId('match-countdown')).toHaveText('1:42left in teleop');
   await bothThemes(page, 'entry-timer-desktop', 'desktop', at(48));
+});
+
+/*
+ * Phase 1 I side task 2 (plan v1.30): nothing pinned floats. The form scrolled under the timer, at
+ * 375 and 1440: the timer sits on the shell's bar (`--top-bar`, no copy of the bar's height), and
+ * nothing shows between the bar and the timer, or between the Save bar and the bottom of the screen.
+ */
+test('the form scrolled under the timer: nothing shows between the pinned bars', async ({
+  page,
+}) => {
+  test.slow();
+  await openEntry(page, 2630, 'red', LONG_PULL);
+  const timer = page.getByRole('region', { name: 'Match timer' });
+  await timer.getByRole('button', { name: 'Start match' }).click();
+  const t0 = await page.evaluate(() => Date.now());
+  const scrolled = async () => {
+    await page.clock.setSystemTime(t0 + 48_000);
+    await page.clock.runFor(300);
+    await page.evaluate(() => window.scrollTo(0, 600));
+  };
+  await page.getByRole('tab', { name: 'Teleop' }).click();
+  for (const [layout, size] of [
+    ['phone', { width: 375, height: 812 }],
+    ['desktop', { width: 1440, height: 900 }],
+  ] as const) {
+    await page.setViewportSize(size);
+    await scrolled();
+    expect(await page.evaluate(() => window.scrollY), `${layout}: scrolled`).toBeGreaterThan(0);
+    const bar = (await page.locator('header:not(:has(h1))').first().boundingBox())!;
+    const clock = (await timer.boundingBox())!;
+    expect(
+      Math.abs(clock.y - (bar.y + bar.height)),
+      `${layout}: timer on the bar`,
+    ).toBeLessThanOrEqual(0.5);
+    expect(
+      await showsThrough(
+        page,
+        { top: 0, bottom: clock.y + clock.height, left: clock.x, right: clock.x + clock.width },
+        ['header:not(:has(h1))', '[aria-label="Match timer"]'],
+      ),
+      `${layout}: under the top bar`,
+    ).toEqual([]);
+    // Phone: the Save bar down to the screen's bottom edge is all bar (then the bottom bar, if
+    // shown). A computer has no pinned Save bar: Review entry sits in the side panel.
+    if (layout === 'phone') {
+      const save = page
+        .getByRole('button', { name: /Review/ })
+        .locator('xpath=ancestor::div[contains(@class, "sticky")][1]');
+      const foot = (await save.boundingBox())!;
+      expect(
+        await showsThrough(
+          page,
+          { top: foot.y, bottom: size.height, left: foot.x, right: foot.x + foot.width },
+          ['[class*="bottom-[var(--bottom-bar"]', 'nav.on-rail'],
+        ),
+        `${layout}: under the Save bar`,
+      ).toEqual([]);
+    }
+    await bothThemes(page, 'entry-timer-scrolled', layout, scrolled);
+  }
 });
 
 test('timer field: ready, running, paused and unsure', async ({ page }) => {

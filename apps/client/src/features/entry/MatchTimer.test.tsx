@@ -51,7 +51,12 @@ describe('MatchTimer (SPEC-FINAL 8.4; entry parts "Sticky match timer")', () => 
     render(<MatchTimer config={CONFIG} layout="phone" />);
     const bar = screen.getByRole('region', { name: 'Match timer' });
     expect(bar.className).toMatch(/(^|\s)sticky(\s|$)/);
-    expect(bar.className).toContain('top-[calc(3.375rem+env(safe-area-inset-top))]');
+    expect(bar.className).toContain('top-[var(--top-bar,0px)]');
+    // Phase 1 I side task 2: the shell's --top-bar, never a copy of the bar's height.
+    expect(bar.className).not.toMatch(/top-\[[^\]]*rem/);
+    render(<MatchTimer config={CONFIG} layout="desktop" />);
+    const desk = screen.getAllByRole('region', { name: 'Match timer' })[1]!;
+    expect(desk.className).toContain('top-[var(--top-bar,0px)]');
   });
 
   it('starts ready: Start match and the match length; pressing it starts the clock', async () => {

@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { Role } from '@frc/shared';
 import { RpcError } from '@/data/rpc';
 import { ManagePage } from './ManagePage';
+import { deleteImpact } from './deleteFixtures';
+
+/** The one DeleteDialog is a lazy chunk (task 1.61): its first load can pass a second. */
+const LAZY = { timeout: 5000 };
 
 type Call = Mock<(name: string, input?: unknown) => Promise<unknown>>;
 
@@ -234,9 +238,14 @@ describe('ManagePage and a stale events answer', () => {
     const call = fullCall();
     const listed = call.getMockImplementation()!;
     call.mockImplementation(async (name, input) => {
+      if (name === 'getDeleteImpact') {
+        // The one DeleteDialog counts first (task 1.61); the name is what is typed back.
+        const { kind, id } = input as { kind: 'season' | 'event'; id: string };
+        const name = kind === 'season' ? '2025' : 'District #1 · Haifa';
+        return deleteImpact({ kind, id, name, events: 1 });
+      }
       if (name !== 'deleteEvent' && name !== 'deleteSeason') return listed(name, input);
-      const dryRun = (input as { dry_run?: boolean }).dry_run === true;
-      return { deleted: !dryRun, events: 1, matches: 0, entries: 0, forms: 0 };
+      return { deleted: true, events: 1, matches: 0, entries: 0, forms: 0 };
     });
     const user = userEvent.setup();
     renderWithCall('admin', call);
@@ -245,8 +254,11 @@ describe('ManagePage and a stale events answer', () => {
     await user.click(screen.getByRole('tab', { name: 'Competitions' }));
     await user.click(screen.getByRole('button', { name: 'Rename District #1 · Haifa' }));
     await user.click(screen.getByRole('button', { name: 'Delete District #1 · Haifa' }));
-    await user.type(await screen.findByLabelText(/Type District #1/), 'District #1 · Haifa');
-    await user.click(screen.getByRole('button', { name: 'Delete District #1 · Haifa for good' }));
+    await user.type(
+      await screen.findByLabelText(/type the name to confirm/i, undefined, LAZY),
+      'District #1 · Haifa',
+    );
+    await user.click(screen.getByRole('button', { name: 'Delete event District #1 · Haifa' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(screen.queryByRole('heading', { name: 'District #1 · Haifa' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: /Teams & roster/ }));
@@ -258,8 +270,11 @@ describe('ManagePage and a stale events answer', () => {
     await user.click(screen.getByRole('button', { name: /^2025/ }));
     await user.click(screen.getByRole('button', { name: 'Edit season' }));
     await user.click(screen.getByRole('button', { name: 'Delete 2025' }));
-    await user.type(await screen.findByLabelText(/Type 2025/), '2025');
-    await user.click(screen.getByRole('button', { name: 'Delete 2025 for good' }));
+    await user.type(
+      await screen.findByLabelText(/type the name to confirm/i, undefined, LAZY),
+      '2025',
+    );
+    await user.click(screen.getByRole('button', { name: 'Delete season 2025' }));
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: /^2025/ })).not.toBeInTheDocument(),
     );

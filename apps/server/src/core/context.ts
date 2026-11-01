@@ -360,16 +360,44 @@ export type Store = {
   listUserNames(ids: string[]): Promise<{ id: string; full_name: string }[]>;
 
   // reads for browse, search and statistics (tasks 1.50, 1.57)
+  /**
+   * Task 1.50: one scouting entry by id, a soft-deleted one included (the use case refuses it);
+   * null for an unknown id or one that is not a uuid. THROWS on a database error.
+   */
   getEntry(id: string): Promise<StoredRow | null>;
+  /**
+   * Task 1.50 (replaces the stub's opaque `cursor` with a keyset, and adds `teamId`): one
+   * event's LIVE entries (`deleted_at is null`), newest first by (client_created_at desc, id
+   * desc), at most `limit`; `after` is the last row of the previous page. `formKind` and
+   * `teamId` narrow it. `query` (trimmed, non-empty) keeps the entries whose team name holds it,
+   * whose team number starts with it, whose match number is it (or whose match label is it,
+   * "Q12"), or whose scouter's full name holds it — case-insensitive and literal
+   * (`core/entrySearch.ts`, one copy for both stores). Filtered and paged in SQL over typed
+   * columns; the JSONB is never read by SQL. THROWS on a database error.
+   */
   queryEntries(options: {
     eventId: string;
     formKind?: 'match' | 'super';
+    teamId?: string;
     query?: string;
     limit: number;
-    cursor?: string;
+    after?: EntryKeyset;
   }): Promise<StoredRow[]>;
+  /**
+   * Task 1.57 (the statistics read): every LIVE entry (`deleted_at is null`) of the events,
+   * both kinds, every team unless `teamId` narrows it, in no particular order, paged by id
+   * past Supabase's 1000-row cap and stopped at ENTRIES_FOR_SCOPE_MAX (20,000) rows. An id
+   * that is not a uuid names nothing. Typed columns only; the engine reads the JSONB. THROWS
+   * on a database error.
+   */
   entriesForScope(scope: { eventIds: string[]; teamId?: string }): Promise<StoredRow[]>;
-  listTeamEvents(teamId: string): Promise<StoredRow[]>;
+  /**
+   * Task 1.50 (replaces the stub's `(teamId)`): for each of `teamIds`, the events among
+   * `eventIds` where it has LIVE entries, with how many and the newest `client_created_at`.
+   * One row per (team, event) that has any; nothing for a pair with none. Batched; reads only
+   * the three typed columns it needs. THROWS on a database error.
+   */
+  listTeamEvents(teamIds: string[], eventIds: string[]): Promise<TeamEventEntries[]>;
 
   // deletes (task 1.60; the season and event ones landed with RB.20)
   /**
@@ -386,6 +414,32 @@ export type Store = {
    * season's forms (0 for an event). The form delete widens `kind` when it lands.
    */
   countDeleteImpact(kind: 'season' | 'event', id: string): Promise<DeleteImpact>;
+  /**
+   * Task 1.60 (SPEC-FINAL 3.9, v1.47): ONE SQL function (migration 20261028090000): every
+   * entry naming the match — soft-deleted ones included — then the match, all or nothing.
+   * The slots cascade and the match_deletions tombstone is the delete trigger's. Answers how
+   * many entry rows went. '23503' if an entry arrived in between (nothing is deleted).
+   */
+  deleteMatchCascade(id: string): Promise<number>;
+  /**
+   * Task 1.60: the entry rows in scope — every row a hard delete removes, soft-deleted ones
+   * included — with how many are already soft-deleted and how many are super entries. Head
+   * counts only, batched. An empty id list is all zeros. THROWS on a database error.
+   */
+  tallyEntries(scope: EntryScope): Promise<EntryTally>;
+  /** Task 1.60: how many matches the events hold. Head counts, batched. THROWS. */
+  countMatchesOfEvents(eventIds: string[]): Promise<number>;
+  /**
+   * Task 1.60: the analysis rows that go with a season (its metrics, dashboards and weight
+   * presets, each `on delete cascade` from seasons), or with a form (its metrics:
+   * `metrics.form_id` is `on delete cascade`; dashboards and presets are 0). THROWS.
+   */
+  countAnalysisRows(scope: { seasonId: string } | { formId: string }): Promise<AnalysisCounts>;
+  /**
+   * Task 1.60: every entry naming the match, soft-deleted ones included (the foreign key
+   * counts them), as the four columns the delete dialog's station tiles need. THROWS.
+   */
+  listMatchEntries(matchId: string): Promise<MatchEntryRef[]>;
 };
 
 /** A `forms` row (migration 20260903091000_forms.sql). Not synced by push; no `version`. */
@@ -503,8 +557,36 @@ export type ConflictResolutionWrite = {
   resolution: Record<string, unknown>;
 };
 
+/** The queryEntries keyset (task 1.50): client_created_at is not unique, so the id breaks ties. */
+export type EntryKeyset = { client_created_at: string; id: string };
+
+/** One (team, event) pair's live entries, as `listTeamEvents` answers it (task 1.50). */
+export type TeamEventEntries = {
+  team_id: string;
+  event_id: string;
+  entry_count: number;
+  last_entry_at: string;
+};
+
 /** The counts `countDeleteImpact` answers. */
 export type DeleteImpact = { events: number; matches: number; entries: number; forms: number };
+
+/** Task 1.60: the entries a delete of these events, or of these form versions, removes. */
+export type EntryScope = { eventIds: string[] } | { formVersionIds: string[] };
+
+/** Task 1.60: `entries` counts soft-deleted rows too; `deleted_entries` is how many those are. */
+export type EntryTally = { entries: number; deleted_entries: number; super_entries: number };
+
+/** Task 1.60: what `countAnalysisRows` answers. */
+export type AnalysisCounts = { metrics: number; dashboards: number; weight_presets: number };
+
+/** Task 1.60: one entry naming a match, as `listMatchEntries` reads it. */
+export type MatchEntryRef = {
+  team_id: string;
+  form_kind: 'match' | 'super';
+  client_updated_at: string;
+  deleted_at: string | null;
+};
 
 export type UseCaseContext = {
   store: Store;

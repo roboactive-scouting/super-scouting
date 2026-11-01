@@ -14,6 +14,10 @@ export const PATHS = {
    */
   practice: '/practice',
   entries: '/entries',
+  /** Season-wide team search (SPEC-FINAL 13.2, task 1.51): the bottom bar's Search. */
+  teams: '/teams',
+  /** The fixed ranking table of the active competition (SPEC-FINAL 13.5, task 1.58). */
+  ranking: '/ranking',
   switchScouter: '/switch-scouter',
   changePassword: '/change-password',
   login: '/login',
@@ -29,6 +33,16 @@ export const PATHS = {
    * "See the log" and More — never a nav row.
    */
   syncDiscarded: '/sync/discarded',
+  /**
+   * The QR sender (SPEC-FINAL 9.8, task 1.47): this device's outbox as a looping moving QR code
+   * for the collector tablet. Opened from Sync's More only, never a nav row.
+   */
+  syncQrSend: '/sync/qr/send',
+  /**
+   * The QR receiver (SPEC-FINAL 9.8, task 1.48): the collector tablet scans another phone's
+   * looping code. Opened from Sync's More only, never a nav row.
+   */
+  syncQrReceive: '/sync/qr/receive',
   /**
    * The conflict review worklist (SPEC-FINAL 9.5, 17.9): Sync's conflicts link opens it. Its page
    * and nav row are task 1.44.
@@ -51,6 +65,31 @@ export function formBuilderPath(formId: string, version?: number): string {
 /** The forms list on one season, by its year (`?season=2026`); the list honours it on arrival. */
 export function formsSeasonPath(year: number): string {
   return `${PATHS.forms}?season=${year}`;
+}
+
+/**
+ * One team's page (SPEC-FINAL 13.1). Team search's rows open it (task 1.51); the route itself is
+ * task 1.53's.
+ */
+export const TEAM_ROUTE = '/teams/:teamId';
+
+/** One team's page, by the team's id. */
+export function teamPath(teamId: string): string {
+  return `${PATHS.teams}/${encodeURIComponent(teamId)}`;
+}
+
+/**
+ * One entry, read only (SPEC-FINAL 13.4, task 1.52): a full page under Entries, never a drawer.
+ * Entries' rows, the 5-minute mark and an entry this user can no longer edit open it.
+ */
+export const ENTRY_PREVIEW_ROUTE = '/entries/:id';
+
+/**
+ * One entry's preview, by its row id. (The plan names it `entry(id)`; `entryPath` is the entry
+ * FORM's, below.)
+ */
+export function entryPreviewPath(id: string): string {
+  return `${PATHS.entries}/${encodeURIComponent(id)}`;
 }
 
 /** The entry route's pattern, for `matchPath` and the route tree. */

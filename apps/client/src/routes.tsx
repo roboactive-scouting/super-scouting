@@ -1,5 +1,12 @@
 import { lazy, Suspense, type ReactNode } from 'react';
-import { createBrowserRouter, Navigate, type RouteObject } from 'react-router-dom';
+import {
+  createBrowserRouter,
+  Navigate,
+  useLocation,
+  useNavigate,
+  useParams,
+  type RouteObject,
+} from 'react-router-dom';
 import { DesktopOnly } from '@/components/DesktopOnly';
 import { Skeleton } from '@/components/Skeleton';
 import { OverrideGuard } from '@/features/context/OverrideGuard';
@@ -10,17 +17,18 @@ import {
   useShellContext,
   useSignedInUser,
 } from '@/features/shell/shellContext';
-import { EntriesPage } from '@/features/entries/EntriesPage';
 import { HomePage } from '@/features/home/HomePage';
 import { SelectRobotPage } from '@/features/entry/SelectRobotPage';
 import { EntryRoute } from '@/features/entry/EntryRoute';
 import type { PageHandle } from '@/lib/pageTitle';
 import { PATHS } from '@/lib/paths';
+import { useIsDesktop } from '@/lib/useMediaQuery';
 
 /*
  * Sign-in and the admin pages load on first use (redesign P7); the PWA precaches their
- * chunks, so they still open offline. Home, Scout, Entry and Entries stay in the main
- * bundle: the competition path never waits on a chunk.
+ * chunks, so they still open offline. Home, Scout and Entry stay in the main bundle: the
+ * competition path never waits on a chunk. Entries left it with task 1.52 (the entry search and
+ * the preview: off the data-entry path, precached, so they open offline).
  */
 const LoginPage = lazy(() => import('@/auth/LoginPage').then((m) => ({ default: m.LoginPage })));
 const ChangePasswordPage = lazy(() =>
@@ -68,6 +76,39 @@ const ConflictsPage = lazy(() =>
 // The discarded-records log (task 1.42): a lazy chunk, precached, reached from Sync only.
 const DiscardedLogPage = lazy(() =>
   import('@/features/sync/DiscardedLogPage').then((m) => ({ default: m.DiscardedLogPage })),
+);
+// The QR sender (task 1.47): a lazy chunk, precached, so it opens offline — which is when it is
+// needed. It alone carries `qrcode` and the codec (fflate): neither reaches the initial chunk.
+const QrSendPage = lazy(() =>
+  import('@/features/qr/QrSendPage').then((m) => ({ default: m.QrSendPage })),
+);
+// The QR receiver (task 1.48): a lazy chunk, precached, so it opens offline — which is when it is
+// needed. It alone carries `@zxing/browser` and `@zxing/library`; neither reaches the initial chunk.
+const QrReceivePage = lazy(() =>
+  import('@/features/qr/QrReceivePage').then((m) => ({ default: m.QrReceivePage })),
+);
+// Season-wide team search (task 1.51): a lazy chunk, precached, so it opens offline — where it
+// ranks the event's teams from the device's own rows.
+const TeamSearchPage = lazy(() =>
+  import('@/features/teams/TeamSearchPage').then((m) => ({ default: m.TeamSearchPage })),
+);
+// The team page (task 1.53): a lazy chunk, precached, so it opens offline — where it computes the
+// team's statistics from the device's own rows with the shared engine (SPEC-FINAL 9.6).
+const TeamPage = lazy(() =>
+  import('@/features/teams/TeamPage').then((m) => ({ default: m.TeamPage })),
+);
+// The ranking table (task 1.58): a lazy chunk, precached, so it opens offline — where it ranks the
+// event's teams from the device's own entries with the server's builder.
+const RankingPage = lazy(() =>
+  import('@/features/ranking/RankingPage').then((m) => ({ default: m.RankingPage })),
+);
+// Entries — the entry search — and one entry's preview (task 1.52): lazy chunks, precached, so
+// they open offline; the 5-minute mark lands on the preview offline.
+const EntriesPage = lazy(() =>
+  import('@/features/entries/EntriesPage').then((m) => ({ default: m.EntriesPage })),
+);
+const EntryPreviewPage = lazy(() =>
+  import('@/features/entries/EntryPreviewPage').then((m) => ({ default: m.EntryPreviewPage })),
 );
 const ManageRoute = lazy(() =>
   import('@/features/admin/ManageRoute').then((m) => ({ default: m.ManageRoute })),
@@ -156,6 +197,48 @@ function SyncRoute() {
 }
 
 /**
+ * SPEC-FINAL 9.8 (task 1.47): the QR sender. On a computer a dialog over Sync, so Sync renders
+ * beneath it; on a phone a full-screen page, alone. Done goes back to Sync: back through history
+ * when Sync opened it (so Back does not return to the code), else to Sync in its place.
+ */
+function QrSendRoute() {
+  const desktop = useIsDesktop();
+  const navigate = useNavigate();
+  const fromSync = (useLocation().state as { fromSync?: boolean } | null)?.fromSync === true;
+  const back = () => {
+    if (fromSync) void navigate(-1);
+    else void navigate(PATHS.sync, { replace: true });
+  };
+  return (
+    <>
+      {desktop && <SyncRoute />}
+      <Loading>
+        <QrSendPage onDone={back} />
+      </Loading>
+    </>
+  );
+}
+
+/**
+ * SPEC-FINAL 9.8 (task 1.48): the QR receiver, a full-screen page at every width (on a computer
+ * the camera at the left and the status at the right), so nothing renders beneath it. Done goes
+ * back to Sync the way the sender's does.
+ */
+function QrReceiveRoute() {
+  const navigate = useNavigate();
+  const fromSync = (useLocation().state as { fromSync?: boolean } | null)?.fromSync === true;
+  const back = () => {
+    if (fromSync) void navigate(-1);
+    else void navigate(PATHS.sync, { replace: true });
+  };
+  return (
+    <Loading>
+      <QrReceivePage onDone={back} />
+    </Loading>
+  );
+}
+
+/**
  * SPEC-FINAL 9.5: the current event's conflicts. Every role may open it (a scouter reads, every
  * action off); the page checks the role itself, and the server again. It reads the event's data,
  * so it waits for the event like Scout.
@@ -175,8 +258,70 @@ function ConflictsRoute() {
   );
 }
 
+/**
+ * SPEC-FINAL 13.2 (task 1.51): every team in the season, ranked at the event. It reads the event's
+ * roster and entries, so it waits for the event like Entries.
+ */
+function TeamsRoute() {
+  const eventId = useActiveEventId();
+  return (
+    <Loading>
+      <TeamSearchPage eventId={eventId} />
+    </Loading>
+  );
+}
+
+/**
+ * SPEC-FINAL 13.1 (task 1.53): one team's statistics at the active competition. It reads the
+ * event's roster, entries and forms, so it waits for the event like team search; keyed by the
+ * team, so moving from one team to another starts afresh (tab, charts, scroll state).
+ */
+function TeamRoute() {
+  const teamId = useParams<{ teamId: string }>().teamId ?? '';
+  return (
+    <Loading>
+      <TeamPage key={teamId} teamId={teamId} eventId={useActiveEventId()} />
+    </Loading>
+  );
+}
+
+/**
+ * SPEC-FINAL 13.5 (task 1.58): the fixed ranking table of the active competition. It reads the
+ * event's roster, entries and forms, so it waits for the event like the team page.
+ */
+function RankingRoute() {
+  return (
+    <Loading>
+      <RankingPage eventId={useActiveEventId()} />
+    </Loading>
+  );
+}
+
 function EntriesRoute() {
-  return <EntriesPage eventId={useActiveEventId()} />;
+  return (
+    <Loading>
+      <EntriesPage eventId={useActiveEventId()} />
+    </Loading>
+  );
+}
+
+/**
+ * SPEC-FINAL 13.4 (task 1.52): one entry, read only, a full page under Entries. It reads the
+ * event's data, so it waits for the event like Entries; keyed by the id, so moving from one entry
+ * to another starts afresh.
+ */
+function EntryPreviewRoute() {
+  const id = useParams<{ id: string }>().id ?? '';
+  return (
+    <Loading>
+      <EntryPreviewPage
+        key={id}
+        entryId={id}
+        eventId={useActiveEventId()}
+        viewer={useSignedInUser()}
+      />
+    </Loading>
+  );
 }
 
 /**
@@ -240,7 +385,26 @@ export function routeTree(): RouteObject[] {
           element: <SignedInPracticeRoute />,
           handle: named({ title: 'Practice', crumb: ['Scout'] }),
         },
+        // SPEC-FINAL 13.2 (task 1.51): team search, the bottom bar's Search. Its rows open
+        // /teams/:teamId (task 1.53).
+        { path: 'teams', element: <TeamsRoute />, handle: named({ title: 'Search' }) },
+        // SPEC-FINAL 13.1 (task 1.53): the team page names itself ("Team 1690"; the desktop crumb
+        // "Search / 1690 Orbit"); the sidebar and the bar mark Search (no `end`).
+        {
+          path: 'teams/:teamId',
+          element: <TeamRoute />,
+          handle: named({ title: 'Team', crumb: ['Search'] }),
+        },
+        // SPEC-FINAL 13.5 (task 1.58): the ranking, the bottom bar's fourth tab.
+        { path: 'ranking', element: <RankingRoute />, handle: named({ title: 'Ranking' }) },
         { path: 'entries', element: <EntriesRoute />, handle: named({ title: 'Entries' }) },
+        // SPEC-FINAL 13.4 (task 1.52): the entry preview names itself ("Q37 · 1690"; the desktop
+        // crumb "Entries / Q37 · 1690 Orbit"); the sidebar marks Entries (no `end`).
+        {
+          path: 'entries/:id',
+          element: <EntryPreviewRoute />,
+          handle: named({ title: 'Entry', crumb: ['Entries'] }),
+        },
         // Inside the shell: it needs a signed-in device, and never leaves the outbox. It
         // reads only the cached accounts, so it works before any event is loaded.
         {
@@ -284,6 +448,21 @@ export function routeTree(): RouteObject[] {
             { title: 'Discarded records', phoneTitle: 'Discarded', crumb: ['This device', 'Sync'] },
             NO_HYDRATION,
           ),
+        },
+        // SPEC-FINAL 9.8 (task 1.47): the QR sender, opened from Sync's More, not a nav row. It
+        // reads only this device's outbox, never event data, so it opens with no competition.
+        {
+          path: 'sync/qr/send',
+          element: <QrSendRoute />,
+          // The dialog sits over Sync on a computer, so the crumb stays Sync's (20-qr-send final).
+          handle: named({ title: 'Sync', crumb: ['This device'] }, NO_HYDRATION),
+        },
+        // SPEC-FINAL 9.8 (task 1.48): the QR receiver, opened from Sync's More, not a nav row. It
+        // writes only to this device's dataset and outbox, so it opens with no competition.
+        {
+          path: 'sync/qr/receive',
+          element: <QrReceiveRoute />,
+          handle: named({ title: 'Receive by QR', crumb: ['This device', 'Sync'] }, NO_HYDRATION),
         },
         // SPEC-FINAL 9.5, 17.9 (task 1.44): the conflict review worklist, at any width — it cannot
         // wait for a laptop (17.2). Opened from Sync's conflicts link and the "This device" group.

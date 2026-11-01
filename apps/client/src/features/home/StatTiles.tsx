@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { formatCount } from '@frc/shared';
 import { Link } from 'react-router-dom';
 import { StatTile } from '@/components/ui/stat-tile';
@@ -45,20 +46,32 @@ function StationValue({ station, onChange }: { station: Station | null; onChange
   );
 }
 
-/** Desktop: Your station · Waiting to send · Your last entry (the Our-team card comes later). */
+/**
+ * Desktop: Your station · Waiting to send · Your last entry, then the Our-team card (task 1.58b)
+ * as a wider fourth tile once our team is ranked (03-home final: 1fr 1fr 1fr 1.35fr); three
+ * tiles until then.
+ */
 export function StatTiles({
   station,
   onStation,
   lastEntry,
   sync,
+  ourTeam,
 }: {
   station: Station | null;
   onStation: () => void;
   lastEntry: LastEntry | null;
   sync: Sync;
+  /** The Our-team card, or nothing while our team is not ranked. */
+  ourTeam?: ReactNode;
 }) {
   return (
-    <div className="mt-4 grid grid-cols-3 gap-2.5">
+    <div
+      className={cn(
+        'mt-4 grid gap-2.5',
+        ourTeam ? 'grid-cols-[1fr_1fr_1fr_1.35fr]' : 'grid-cols-3',
+      )}
+    >
       <StatTile
         label="Your station"
         value={<StationValue station={station} onChange={onStation} />}
@@ -91,6 +104,7 @@ export function StatTiles({
           )
         }
       />
+      {ourTeam}
     </div>
   );
 }

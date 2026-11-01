@@ -37,7 +37,7 @@ Chosen: **variant B ("Status strip and tabs")**, plus A's **conflicts link** and
 
 ## Problems
 
-- **Refused records** (§9.3.1, every reason except `parent-deleted`): the card with the error line "**Not sent:** This entry is locked — ask a lead." plus the reason in plain words ("It was changed after its 5 minutes were up.") and one action, **Open entry** (the entry preview, §13.4). **No discard here** (user, 2026-10-12): §9.7 stays the only path that destroys typed data. **A lead clears it** (Q7.8 A, SPEC-FINAL §9.3.1): signed in on this device, they open it, fix it if needed, and save it as their own change; it then sends normally and leaves the list.
+- **Refused records** (§9.3.1, every reason except `parent-deleted`): the card with the error line *(reworded 2026-10-23, SPEC-FINAL v1.44 §7.6)* "**Not sent:** Changed after the 5-minute edit window. A lead can save it for you." (one line, no separate reason sentence) and one action, **Open entry** (the entry preview, §13.4). **No discard here** (user, 2026-10-12): §9.7 stays the only path that destroys typed data. **A lead clears it** (Q7.8 A, SPEC-FINAL §9.3.1): signed in on this device, they open it, fix it if needed, and save it as their own change; it then sends normally and leaves the list.
 - **The discarded-records notice** (§9.7, task 1.42): an amber notice "2 entries were removed from this phone. An admin deleted the event they belonged to, so they can't be sent." listing each (match · team · scouter · time), with **Dismiss** and **See the log** (`/sync/discarded`).
 
 ## More (⋯)

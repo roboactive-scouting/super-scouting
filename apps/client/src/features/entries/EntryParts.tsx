@@ -1,24 +1,7 @@
 import { ArrowUp } from 'lucide-react';
-import { AllianceTag, StationTag } from '@/components/ui/tag';
+import { NO_VALUE } from '@frc/shared';
+import { cn } from '@/lib/utils';
 import type { EntryRow } from './useEntriesView';
-
-/** "Blue 2" from the line-up; just "Blue" when the team is not in it (the entry knows its side only). */
-export function EntryStation({
-  row,
-  compact = false,
-}: {
-  row: Pick<EntryRow, 'station' | 'alliance'>;
-  /** The phone card's 20 px tag. */
-  compact?: boolean;
-}) {
-  return row.station ? (
-    <StationTag station={row.station} compact={compact} />
-  ) : (
-    <AllianceTag alliance={row.alliance} compact={compact}>
-      {row.alliance === 'red' ? 'Red' : 'Blue'}
-    </AllianceTag>
-  );
-}
 
 /** The amber arrow beside the time of an entry still waiting to send. */
 export function WaitingMark() {
@@ -29,11 +12,39 @@ export function WaitingMark() {
   );
 }
 
-/** The "Not synced: …" line under a refused entry. */
+/** The "Not sent: …" line under a refused entry, labelled as on Sync (SPEC-FINAL 7.6, v1.44). */
 export function refusedText(reason: string) {
   return (
     <>
-      <b className="font-bold">Not synced:</b> {reason}
+      <b className="font-bold">Not sent:</b> {reason}
     </>
   );
+}
+
+/**
+ * A match entry's scouted points, mono: a `--muted` "—" for a no-show or disabled robot (never a
+ * zero, SPEC-FINAL 11.3) and when the device cannot score it.
+ */
+export function PointsText({ points, className }: { points: number | null; className?: string }) {
+  return points === null ? (
+    <span className={cn('num font-medium text-muted', className)}>{NO_VALUE}</span>
+  ) : (
+    <span className={cn('num font-semibold text-ink', className)}>{formatPoints(points)}</span>
+  );
+}
+
+/** Whole points bare ("47"); a fractional total to one place ("12.5"). */
+export function formatPoints(points: number): string {
+  return Number.isInteger(points) ? String(points) : points.toFixed(1);
+}
+
+/**
+ * What a row or card says it opens: "Q38 5951 Tiny Titans, Noa Levi, 11:41 — open the entry";
+ * a super entry "Super 1690 Orbit, …".
+ */
+export function entryLinkLabel(row: EntryRow): string {
+  const what = row.kind === 'super' ? 'Super' : row.matchLabel;
+  return `${what} ${row.teamNumber ?? ''} ${row.teamName}, ${row.scouter}, ${row.time}: open the entry`
+    .replace(/\s+/g, ' ')
+    .trim();
 }

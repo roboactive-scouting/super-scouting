@@ -263,6 +263,8 @@ test('review entry: map fields are compact rows that open the map view only', as
     const routes = page.getByRole('dialog', { name: 'Auto path' });
     await expect(routes.getByText('View only')).toBeVisible();
     await expect(routes.locator('[data-path="done"]')).toHaveCount(2);
+    await expect(routes.locator('[data-path-mark="start"]')).toHaveCount(2);
+    await expect(routes.locator('[data-path-mark="end"]')).toHaveCount(2);
     await expect(routes.getByTestId('map-status')).toHaveText('2 paths · 9 spots');
     await expect(routes.getByRole('button', { name: /New path|Undo|Finish|Done/ })).toHaveCount(0);
     await shoot(page, 'review-map-path', width);

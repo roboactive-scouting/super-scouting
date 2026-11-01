@@ -20,6 +20,7 @@ import { NavDrawer } from './NavDrawer';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { bottomBar, menuItemsFor, type NavAudience, type NavCounts } from './nav';
+import { TOP_BAR } from './barHeights';
 
 const COLLAPSED_KEY = 'shell.sidebar.collapsed';
 /** A new page fading in: opacity only — a transform would re-anchor every fixed descendant. */
@@ -134,20 +135,23 @@ export function ShellLayout({
           'flex min-w-0 flex-1 flex-col',
           showBottomBar && 'pb-[calc(var(--bottom-bar)+var(--below-content))]',
         )}
-        // Sticky page actions (ActionBar) sit on top of the fixed bottom bar, not under it.
+        // The bars' heights, published once. Every sticky element reads them: a page's own
+        // sticky header sits on --top-bar (the bar itself is that tall), and sticky page actions
+        // (ActionBar) sit on top of the fixed bottom bar, not under it (Phase 1 I side task 2).
         style={
-          showBottomBar
-            ? ({
-                // BottomBar's exact height: 6 px top, a 56 px row, max(8 px, safe area) foot.
-                '--bottom-bar': 'calc(3.875rem + max(0.5rem, env(safe-area-inset-bottom)))',
-                // How far the current page's raised button rises above the bar (BottomBar's -mt-[1.375rem]).
-                '--raised-overhang': '1.375rem',
-                // The room kept under the content for the raised button. Kept on every page, so
-                // the content doesn't jump when nothing is raised (UF.10). A page's ActionBar
-                // reaches down through it, so the bar sits flush on the bottom bar.
-                '--below-content': 'calc(var(--raised-overhang) + 1rem)',
-              } as CSSProperties)
-            : undefined
+          {
+            '--top-bar': desktop ? TOP_BAR.desktop : TOP_BAR.phone,
+            ...(showBottomBar && {
+              // BottomBar's exact height: 6 px top, a 56 px row, max(8 px, safe area) foot.
+              '--bottom-bar': 'calc(3.875rem + max(0.5rem, env(safe-area-inset-bottom)))',
+              // How far the current page's raised button rises above the bar (BottomBar's -mt-[1.375rem]).
+              '--raised-overhang': '1.375rem',
+              // The room kept under the content for the raised button. Kept on every page, so
+              // the content doesn't jump when nothing is raised (UF.10). A page's ActionBar
+              // reaches down through it, so the bar sits flush on the bottom bar.
+              '--below-content': 'calc(var(--raised-overhang) + 1rem)',
+            }),
+          } as CSSProperties
         }
       >
         {desktop ? (

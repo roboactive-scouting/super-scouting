@@ -9,6 +9,11 @@ import { db, type DiscardedRecord, type DiscardedSummary } from './db';
  * only in its detail, and the log speaks for every record the same way.
  */
 export const DISCARD_REASON = 'An admin deleted the competition, season or form it belonged to.';
+/**
+ * The cause for a record lost to **Wipe anyway** (SPEC-FINAL 9.9, v1.39): the lead wiped the
+ * device while the record had no cloud ack.
+ */
+export const WIPE_REASON = 'Wiped before it reached the cloud.';
 /** The competition's name when the device no longer holds its `events` row. */
 export const UNKNOWN_EVENT = 'an earlier competition';
 export const UNKNOWN_SCOUTER = 'unknown scouter';

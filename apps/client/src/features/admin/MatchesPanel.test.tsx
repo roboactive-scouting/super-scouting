@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MatchRow, RosterRow } from '@frc/shared';
 import { RpcError } from '@/data/rpc';
 import { MANAGE_UNREACHABLE } from './adminMessages';
+import { deleteImpact } from './deleteFixtures';
 import { MatchesPanel } from './MatchesPanel';
 import { useMatchSaves } from './useMatchSaves';
 import {
@@ -18,6 +19,9 @@ import {
   T7845,
   tid,
 } from './matchFixtures';
+
+/** The one DeleteDialog is a lazy chunk (task 1.61): its first load can pass a second. */
+const LAZY = { timeout: 5000 };
 
 type Call = (name: string, input?: unknown) => Promise<unknown>;
 
@@ -51,8 +55,38 @@ function Harness({
   );
 }
 
+/** `getDeleteImpact` for a match (task 1.60): Q-label, its entries spread over the stations. */
+function matchImpact(match: MatchRow, entries: number) {
+  return deleteImpact({
+    kind: 'match',
+    id: match.id,
+    name: `Q${match.number}`,
+    confirm_name: entries > 0 ? `Q${match.number}` : null,
+    matches: 1,
+    entries,
+    match_entries: entries,
+    stations: (['red', 'blue'] as const).flatMap((alliance) =>
+      ([1, 2, 3] as const).map((station) => ({
+        alliance,
+        station,
+        team_number: null,
+        entries: entries > 0 ? 1 : 0,
+      })),
+    ),
+  });
+}
+
 function renderPanel(call: Call, matches: MatchRow[] = [Q7_ONE_EMPTY], roster = ROSTER_22) {
-  const spy = vi.fn(call);
+  // The one DeleteDialog counts first (task 1.61): a match with no entries unless the test says.
+  const spy = vi.fn<Call>(async (name, input) => {
+    const answer = await call(name, input);
+    if (answer !== undefined || name !== 'getDeleteImpact') return answer;
+    const id = (input as { id: string }).id;
+    return matchImpact(
+      matches.find((m) => m.id === id)!,
+      0,
+    );
+  });
   render(<Harness call={spy} matches={matches} roster={roster} />);
   return spy;
 }
@@ -155,25 +189,65 @@ describe('MatchesPanel', () => {
     expect(screen.getByRole('group', { name: 'Q17' })).toBeInTheDocument();
   });
 
-  it('shows the server message when a match with entries cannot be deleted', async () => {
+  it('a match with entries opens the Choice: correct its number, or delete it typed Q7', async () => {
+    const call = renderPanel(
+      async (name, input) => {
+        if (name === 'getDeleteImpact') return matchImpact(Q7_ONE_EMPTY, 6);
+        if (name === 'deleteMatch')
+          return { id: (input as { match_id: string }).match_id, deleted: true, entries: 6 };
+        return undefined;
+      },
+      [Q7_ONE_EMPTY, Q10_PARTIAL],
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Delete match 7 (qualification)' }));
+    const choice = await screen.findByRole('dialog', { name: 'Q7 has entries' }, LAZY);
+    expect(call).toHaveBeenCalledWith('getDeleteImpact', { kind: 'match', id: Q7_ONE_EMPTY.id });
+    expect(choice).toHaveTextContent('6 entries are saved to Q7');
+    // Correct the match number: the match's own edit dialog, in place of the delete.
+    await userEvent.click(within(choice).getByRole('button', { name: 'Correct the match number' }));
+    expect(await screen.findByRole('dialog', { name: /Q7/ })).toHaveTextContent('Match number');
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Delete match 7 (qualification)' }));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Delete Q7 and its 6 entries…' }),
+    );
+    await userEvent.type(screen.getByLabelText(/type the name to confirm/i), 'Q7');
+    await userEvent.click(screen.getByRole('button', { name: 'Delete Q7' }));
+    expect(call).toHaveBeenCalledWith('deleteMatch', {
+      match_id: Q7_ONE_EMPTY.id,
+      with_entries: true,
+      confirm_name: 'Q7',
+    });
+    await waitFor(() => expect(seen.matches.map((m) => m.number)).toEqual([10]));
+  });
+
+  it("shows the server's refusal of a delete in the dialog", async () => {
     renderPanel(async (name) => {
       if (name === 'deleteMatch')
-        throw new Error(
-          'this match has 6 entries — correct the number or delete the entries first',
+        throw new RpcError(
+          'conflict',
+          'qualification match 7 has 6 entries, so it cannot be deleted; correct the match number instead',
+          409,
+          true,
         );
       return undefined;
     });
     await userEvent.click(screen.getByRole('button', { name: 'Delete match 7 (qualification)' }));
-    const dialog = screen.getByRole('dialog', { name: 'Delete this match?' });
+    const dialog = await screen.findByRole('dialog', { name: 'Are you sure?' }, LAZY);
     expect(dialog).toHaveTextContent('Q7');
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete Q7' }));
     expect(await within(dialog).findByRole('alert')).toHaveTextContent(/has 6 entries/);
   });
 
-  it('deletes a match and drops it from the list', async () => {
-    renderPanel(async () => ({ id: Q7_ONE_EMPTY.id, deleted: true }), [Q7_ONE_EMPTY, Q10_PARTIAL]);
+  it('deletes a match with no entries after "Are you sure?" and drops it from the list', async () => {
+    const call = renderPanel(
+      async (name) => (name === 'deleteMatch' ? { id: Q7_ONE_EMPTY.id, deleted: true } : undefined),
+      [Q7_ONE_EMPTY, Q10_PARTIAL],
+    );
     await userEvent.click(screen.getByRole('button', { name: 'Delete match 7 (qualification)' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Delete Q7' }, LAZY));
+    expect(call).toHaveBeenCalledWith('deleteMatch', { match_id: Q7_ONE_EMPTY.id });
     await waitFor(() => expect(seen.matches.map((m) => m.number)).toEqual([10]));
   });
 
@@ -298,7 +372,7 @@ describe('MatchesPanel', () => {
       await userEvent.click(
         screen.getByRole('button', { name: 'Delete match 10 (qualification)' }),
       );
-      await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+      await userEvent.click(await screen.findByRole('button', { name: 'Delete Q10' }, LAZY));
       await waitFor(() => expect(seen.matches.map((m) => m.number)).toEqual([7]));
       expect(screen.queryByText(MANAGE_UNREACHABLE)).toBeNull();
       expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();

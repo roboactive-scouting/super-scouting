@@ -3,6 +3,7 @@ import { useId } from 'react';
 import { Button } from '@/components/ui/button';
 import { ResponsiveDialog } from '@/components/ui/responsive-dialog';
 import { stationLabel } from '@/components/ui/tag';
+import { SurfaceActions } from '@/components/ui/surface-actions';
 import type { Station } from '@/data/station';
 import { stationOf, type LineupSlot } from '@/lib/derive/entries';
 import { cn } from '@/lib/utils';
@@ -228,19 +229,12 @@ export function OtherStationDialog({
             </b>{' '}
             on <b className={allianceText(target.station)}>{there}</b>. Your station stays {home}.
           </p>
-          <div className="mt-1 flex gap-2.5">
-            <Button size="lg" className="flex-1 px-3" onClick={onKeep}>
-              Keep {home}
-            </Button>
-            <Button
-              variant="primary"
-              size="lg"
-              className="flex-1 px-3"
-              onClick={() => onScout(target)}
-            >
+          <SurfaceActions className="mt-1">
+            <Button onClick={onKeep}>Keep {home}</Button>
+            <Button variant="primary" onClick={() => onScout(target)}>
               Scout {there}
             </Button>
-          </div>
+          </SurfaceActions>
         </>
       )}
     </ResponsiveDialog>

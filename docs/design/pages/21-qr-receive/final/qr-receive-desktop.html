@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>QR receive — final, desktop</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../20-qr-send/src/qrsend.css"><link rel="stylesheet" href="../src/qrrecv.css">
+<style>body{background:var(--bg)}.desk.final{zoom:1;border-radius:0;box-shadow:none}</style>
+</head><body>
+<div id="root"></div>
+<script src="../../20-qr-send/src/qrsend.js"></script><script src="../src/qrrecv.js"></script>
+<script>document.getElementById("root").innerHTML = `<div class="desk final">${QV.desk()}</div>`; QS.draw();</script>
+</body></html>

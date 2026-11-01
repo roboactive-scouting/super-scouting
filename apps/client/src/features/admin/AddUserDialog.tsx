@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { DescribedChoice } from '@/components/ui/described-choice';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { credentialClass, KeyboardHint, withKeyboardHint } from '@/components/ui/password-input';
 import { ErrorLine } from '@/components/ui/notice';
 import { adminRpc, type Rpc } from '@/data/rpc';
 import { adminErrorLine } from './adminMessages';
@@ -223,8 +224,12 @@ function OpenAddUser({
               dir="ltr"
               {...TEXT}
               aria-invalid={invalid('password')}
-              aria-describedby={describe('password', `${id}-pw-hint`)}
-              className="flex-1 tracking-[0.02em]"
+              aria-describedby={withKeyboardHint(
+                password,
+                `${id}-keyboard`,
+                describe('password', `${id}-pw-hint`),
+              )}
+              className={`flex-1 tracking-[0.02em] ${credentialClass}`}
               onChange={(e) => setPassword(e.target.value)}
             />
             <Button size="sm" onClick={() => setPassword(generatePassword())}>
@@ -232,6 +237,7 @@ function OpenAddUser({
               Generate
             </Button>
           </div>
+          <KeyboardHint value={password} id={`${id}-keyboard`} />
           <p id={`${id}-pw-hint`} className={HINT}>
             At least 8 characters. Shown in clear so you can hand it over.
           </p>

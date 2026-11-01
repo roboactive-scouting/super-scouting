@@ -6,7 +6,9 @@ import {
   House,
   List,
   RefreshCw,
+  Search,
   Settings,
+  Trophy,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -73,8 +75,10 @@ export const NAV_COUNT_WORDS: Record<NavCountKey, string> = {
 };
 
 /**
- * Tabs either side of Scout in the middle (spec v1.15). Task 1.51 (Teams) and 1.58 (Ranking)
- * make it Home · Teams · Scout · Ranking · Entries — Entries stays in the bar.
+ * Tabs either side of Scout in the middle (spec v1.15). Task 1.51 made the bar Home · Scout ·
+ * Search · Entries (23-team-search final); task 1.58 makes it Home · Scout · Search · Ranking
+ * (27-ranking final, spec v0.49 / SPEC-FINAL 17.9 v1.46): Search and Ranking both after Scout,
+ * and Entries moves to the drawer and the sidebar.
  */
 export const BOTTOM_BAR_SIDE_MAX = 2;
 
@@ -104,13 +108,34 @@ export const NAV_ITEMS: readonly NavItem[] = [
     visible: () => true,
     disabled: (who) => who.override,
   },
+  // SPEC-FINAL 13.2 (task 1.51): season-wide team search, for every role, after Scout.
+  {
+    id: 'teams',
+    label: 'Search',
+    to: PATHS.teams,
+    icon: Search,
+    group: 'competition',
+    bottomBar: 2,
+    visible: () => true,
+  },
+  // SPEC-FINAL 13.5 (task 1.58): the fixed ranking table, for every role; the bar's fourth tab.
+  {
+    id: 'ranking',
+    label: 'Ranking',
+    to: PATHS.ranking,
+    icon: Trophy,
+    group: 'competition',
+    bottomBar: 3,
+    visible: () => true,
+  },
+  // Since task 1.58 in the drawer and the sidebar only (spec v0.49): Ranking took its tab.
   {
     id: 'entries',
     label: 'Entries',
     to: PATHS.entries,
     icon: List,
     group: 'competition',
-    bottomBar: 2,
+    bottomBar: null,
     visible: () => true,
   },
   {

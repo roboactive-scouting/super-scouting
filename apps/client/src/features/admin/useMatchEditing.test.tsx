@@ -62,7 +62,10 @@ describe('useMatchEditing', () => {
     act(() => {
       save = result.current.saveSlots(Q7.id, RED1);
     });
-    await act(async () => result.current.remove(Q7));
+    // The save is out; then the one DeleteDialog deletes the match (task 1.61).
+    await act(async () => {});
+    expect(answers).toHaveLength(1);
+    act(() => result.current.removed(Q7));
     expect(reported).toHaveBeenCalledTimes(2);
     expect(reported).toHaveBeenLastCalledWith([Q8]);
 

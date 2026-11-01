@@ -68,8 +68,8 @@ window.E = (() => {
         ? `<span class="sy w">${svg('up')}${short ? '' : 'Waiting'}</span>`
         : `<span class="sy r">${svg('alert')}${short ? '' : 'Not synced'}</span>`;
   const flag = () => `<span class="flg">${svg('flag')}Not in line-up</span>`;
-  const REFUSED = 'This entry is locked — ask a lead';
-  const rej = () => `<div class="rejbox">${svg('alert')}<span><b>Not synced:</b> ${REFUSED}</span></div>`;
+  const REFUSED = 'Changed after the 5-minute edit window. A lead can save it for you.'; // v1.44 (2026-10-23)
+  const rej = () => `<div class="rejbox">${svg('alert')}<span><b>Not sent:</b> ${REFUSED}</span></div>`;
   // Fill <i data-i="x"></i> with icons.
   const icons = () =>
     document.querySelectorAll('i[data-i]').forEach((el) => (el.outerHTML = svg(el.dataset.i)));

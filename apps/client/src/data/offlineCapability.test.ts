@@ -3,7 +3,12 @@ import { isAvailableOffline, OFFLINE_CAPABILITY } from './offlineCapability';
 
 describe('the offline capability matrix (SPEC-FINAL 9.6)', () => {
   it('allows entry creation, the self-edit and bare match auto-creation', () => {
-    for (const capability of ['create_entry', 'self_edit_entry', 'ensure_match'] as const) {
+    for (const capability of [
+      'create_entry',
+      'self_edit_entry',
+      'ensure_match',
+      'delete_entry',
+    ] as const) {
       expect(isAvailableOffline(capability), capability).toBe(true);
     }
   });
@@ -38,6 +43,7 @@ describe('the offline capability matrix (SPEC-FINAL 9.6)', () => {
       'cross_event_view',
       'manage_events',
       'resolve_conflict',
+      'delete_objects',
     ] as const) {
       expect(isAvailableOffline(capability), capability).toBe(false);
     }

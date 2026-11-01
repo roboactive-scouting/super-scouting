@@ -1,5 +1,6 @@
 import type { Role } from '@frc/shared';
 import { cachedRows } from '@/data/cache';
+import { getMeta, JUST_WIPED_KEY } from '@/data/db';
 import { call, RpcError } from '@/data/rpc';
 import { DISABLED, loginErrorLine, MISMATCH, SERVER_UNREACHABLE_LINE } from './messages';
 import { pendingCredential } from './pendingCredential';
@@ -23,6 +24,21 @@ export const LOGIN_RETRY_TIMEOUT_MS = 12_000;
 export const NO_CACHED_ACCOUNTS_LINE =
   "This device has not loaded the team's accounts yet. Connect to the internet once to sign in.";
 
+/** The wiped line's bold lead (`LoginPage` draws it in bold). */
+export const WIPED_LEAD = 'This device was wiped.';
+
+/**
+ * The no-accounts line on a device wiped since anyone last signed in on it (Phase 1 I side task
+ * 4): "has not loaded the team's accounts yet" reads as a first install. The wipe's mark
+ * (`JUST_WIPED_KEY`) says which; the first successful sign-in clears it.
+ */
+export const WIPED_DEVICE_LINE = `${WIPED_LEAD} Connect to the internet to sign in.`;
+
+/** Has this device been wiped since anyone last signed in on it? (`JUST_WIPED_KEY`) */
+export function readJustWiped(): Promise<boolean> {
+  return getMeta<boolean>(JUST_WIPED_KEY, false);
+}
+
 /** The `users` row as the pull caches it (SPEC-FINAL 7.5: every user, hash included). */
 export type CachedUser = {
   id: string;
@@ -34,7 +50,8 @@ export type CachedUser = {
   must_change_password?: boolean;
 };
 
-type OfflineRefusal = 'no-accounts' | 'mismatch' | 'disabled';
+/** `wiped` is `no-accounts` on a device a wipe emptied: the same refusal, its own line. */
+type OfflineRefusal = 'no-accounts' | 'wiped' | 'mismatch' | 'disabled';
 
 /** An offline sign-in refused. `message` is the one line to show; it never holds input. */
 export class OfflineLoginError extends Error {
@@ -42,9 +59,11 @@ export class OfflineLoginError extends Error {
     super(
       reason === 'no-accounts'
         ? NO_CACHED_ACCOUNTS_LINE
-        : reason === 'disabled'
-          ? DISABLED
-          : MISMATCH,
+        : reason === 'wiped'
+          ? WIPED_DEVICE_LINE
+          : reason === 'disabled'
+            ? DISABLED
+            : MISMATCH,
     );
     this.name = 'OfflineLoginError';
   }
@@ -81,7 +100,10 @@ export async function cachedSignInUsers(): Promise<CachedUser[]> {
 export async function offlineLogin(username: string, password: string): Promise<SessionUser> {
   const wanted = username.trim().toLowerCase();
   const users = await cachedRows<CachedUser>('users');
-  if (users.length === 0) throw new OfflineLoginError('no-accounts');
+  if (users.length === 0) {
+    const wiped = await readJustWiped();
+    throw new OfflineLoginError(wiped ? 'wiped' : 'no-accounts');
+  }
   const user = users.find((u) => u.username.toLowerCase() === wanted);
   // An unknown username and a wrong password are refused with the same line.
   if (!user || typeof user.password_hash !== 'string') throw new OfflineLoginError('mismatch');
@@ -172,7 +194,10 @@ export async function signInWithFallback(
       if (navigator.onLine) await recordTokenLoss('offline-fallback', 'login');
       return { user, offline: true };
     } catch (offlineErr) {
-      if (offlineErr instanceof OfflineLoginError && offlineErr.reason === 'no-accounts') {
+      if (
+        offlineErr instanceof OfflineLoginError &&
+        (offlineErr.reason === 'no-accounts' || offlineErr.reason === 'wiped')
+      ) {
         // Our own server answered with a 5xx and there is nothing cached to fall back on:
         // "the server is having trouble" is the truer line than "connect to the internet".
         const answered = err instanceof RpcError && err.answered;

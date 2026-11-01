@@ -23,6 +23,7 @@ import type { Rpc } from '@/data/rpc';
 import { cn } from '@/lib/utils';
 import { EventCard } from './EventCard';
 import { EventFormDialog } from './EventFormDialog';
+import { LazyDeleteFlow, type DeleteRequest } from './LazyDeleteFlow';
 import { panelErrorLine } from './adminMessages';
 import { SeasonCard } from './SeasonCard';
 import { SeasonFormDialog } from './SeasonFormDialog';
@@ -32,7 +33,8 @@ export const ORDER_NOTE = 'Order is display order only — every event counts eq
 type Form =
   | { kind: 'none' }
   | { kind: 'season'; season: SeasonRow | null }
-  | { kind: 'event'; event: EventRow | null };
+  | { kind: 'event'; event: EventRow | null }
+  | { kind: 'delete'; request: DeleteRequest; seasonId: string };
 
 /** A 36 px pill with the 48 px target grown by its ::after. */
 const CHIP =
@@ -275,11 +277,14 @@ export function CompetitionsPanel({
           onSeasonSaved(row);
         }}
         onClose={close}
-        active={form.kind === 'season' && form.season?.id === active.active_season_id}
-        onDeleted={(id) => {
-          close();
-          onSeasonDeleted(id);
-        }}
+        onDelete={(row) =>
+          // The edit dialog closes; the delete opens alone (28-delete final: one scrim).
+          setForm({
+            kind: 'delete',
+            request: { kind: 'season', id: row.id, label: String(row.year) },
+            seasonId: row.id,
+          })
+        }
       />
       {season && (
         <EventFormDialog
@@ -292,10 +297,25 @@ export function CompetitionsPanel({
             onEventsChange(season.id, (prev) => [...prev.filter((e) => e.id !== row.id), row]);
           }}
           onClose={close}
-          isDefault={form.kind === 'event' && form.event?.id === active.active_event_id}
-          onDeleted={(id) => {
+          onDelete={(row) =>
+            setForm({
+              kind: 'delete',
+              request: { kind: 'event', id: row.id, label: row.name },
+              seasonId: season.id,
+            })
+          }
+        />
+      )}
+      {form.kind === 'delete' && (
+        <LazyDeleteFlow
+          request={form.request}
+          rpc={rpc}
+          onClose={close}
+          onDeleted={({ kind, id }) => {
+            const seasonOf = form.seasonId;
             close();
-            onEventDeleted(season.id, id);
+            if (kind === 'season') onSeasonDeleted(id);
+            else onEventDeleted(seasonOf, id);
           }}
         />
       )}

@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Entry search — final, phone</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../11-phone-shell/src/ps.css"><link rel="stylesheet" href="../../11-phone-shell/src/d.css"><link rel="stylesheet" href="../../05-entries/src/entries.css"><link rel="stylesheet" href="../../05-entries/src/a2.css"><link rel="stylesheet" href="../../24-team/src/team.css"><link rel="stylesheet" href="../src/es.css">
+<style>.canvas{height:940px}.frames{gap:14px}</style>
+</head><body>
+<div id="root"></div>
+<script src="../../05-entries/src/entries.js"></script><script src="../../05-entries/src/a2.js"></script><script src="../../24-team/src/team.js"></script><script src="../src/es.js"></script><script src="../src/final.js"></script>
+<script>
+const f = (h, c) => TP.fig(h, c);
+document.getElementById("root").innerHTML = `<div class="canvas"><div class="canvas-head"><b>Entry search — final · phone</b><span>Variant A: the Entries page (05) plus a Both · Match · Super switch; super entries in the list by time; every card opens the entry preview.</span></div>
+  <div class="frames">${f(FIN.p1(), "1 · Both (a card pressed)")}${f(FIN.p2(), "2 · Super only")}${f(FIN.p3(), "3 · Needs a look")}${f(FIN.p4(), "4 · Searching “orbit”")}</div></div>`;
+</script>
+</body></html>

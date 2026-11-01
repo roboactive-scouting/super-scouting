@@ -109,6 +109,26 @@ describe('useWakeLock (SPEC-FINAL 8.6: no dimming mid-match)', () => {
     expect(() => unmount()).not.toThrow();
   });
 
+  it('reads false once the system drops the lock, and true again when it is granted again', async () => {
+    const dropped = Object.assign(new EventTarget(), sentinel());
+    const locks = [dropped, sentinel()];
+    let n = 0;
+    installWakeLock(() => Promise.resolve(locks[n++]));
+    const { result } = renderHook(() => useWakeLock(true));
+    await flush();
+    expect(result.current).toBe(true);
+    // Low battery, say: the browser releases the lock and fires `release` on its sentinel.
+    await act(async () => {
+      dropped.released = true;
+      dropped.dispatchEvent(new Event('release'));
+    });
+    expect(result.current).toBe(false);
+    setVisibility('hidden');
+    setVisibility('visible');
+    await flush();
+    expect(result.current).toBe(true);
+  });
+
   it('releases a lock that arrives after the entry closed', async () => {
     const lock = sentinel();
     let grant: (s: Sentinel) => void = () => undefined;

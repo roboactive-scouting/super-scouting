@@ -3,6 +3,7 @@ import { useEffect, useState, type ComponentProps } from 'react';
 import { Button } from '@/components/ui/button';
 import { Notice } from '@/components/ui/notice';
 import { ResponsiveDialog } from '@/components/ui/responsive-dialog';
+import { SurfaceActions } from '@/components/ui/surface-actions';
 import type * as TimedParts from './timedParts';
 
 type Parts = typeof TimedParts;
@@ -151,9 +152,11 @@ export function MapFieldView(props: ComponentProps<Parts['MapFieldView']>) {
   return (
     <ResponsiveDialog open title={props.field.label} onClose={props.onClose} sheetClose>
       <NotLoaded what="The map" onRetry={retry} />
-      <Button variant="secondary" size="block" onClick={props.onClose}>
-        Close
-      </Button>
+      <SurfaceActions>
+        <Button variant="secondary" onClick={props.onClose}>
+          Close
+        </Button>
+      </SurfaceActions>
     </ResponsiveDialog>
   );
 }

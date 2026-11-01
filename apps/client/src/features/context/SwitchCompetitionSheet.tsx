@@ -130,11 +130,7 @@ export function SwitchCompetitionSheet({
       title="Switch competition"
       sheetClose
       onClose={onClose}
-      footer={
-        <Button className="w-full lg:w-auto" onClick={onClose}>
-          Close
-        </Button>
-      }
+      footer={<Button onClick={onClose}>Close</Button>}
     >
       <p dir="auto" className="-mt-2 text-[0.8125rem] text-muted">
         Only for this session. Reopening the app returns to {defaultName}.

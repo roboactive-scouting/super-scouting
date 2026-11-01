@@ -4,6 +4,7 @@ import {
   createMatchInput,
   deleteMatchInput,
   ensureMatchInput,
+  matchLabel,
   setMatchTeamsInput,
   updateMatchInput,
   type Caller,
@@ -29,6 +30,7 @@ import {
 } from '../matchRows.js';
 import { eventOrNotFound, noSuchEvent, pgCode } from '../seasonRows.js';
 import { inWaves } from '../waves.js';
+import { assertConfirmed } from './deleteCompetition.js';
 import { parseInput } from './users.js';
 
 // The wire schemas live in packages/shared (SPEC-FINAL 16.1); re-exported for callers here.
@@ -198,6 +200,12 @@ function hasEntries(match: StoredMatch, count: number): AppError {
  * included — names it: `scouting_entries.match_id` is `on delete restrict`, and deleting a
  * scouted match would orphan the scouting. The pre-check gives the count; the foreign key
  * is the real guard against an entry arriving meanwhile. Its slots go with it.
+ *
+ * Task 1.60 (SPEC-FINAL 3.9, v1.47): `with_entries: true` deletes the match TOGETHER with
+ * every entry naming it, soft-deleted ones included, in one transaction — a hard cascade
+ * like an event's: `delete_objects`, and the match label ("Q41") typed back exactly. The
+ * match_deletions tombstone is recorded as for any match delete (UF.1), so a device that
+ * later pushes an entry for it gets the existing `parent-deleted` refusal.
  */
 export async function deleteMatch(
   caller: Caller,
@@ -206,6 +214,7 @@ export async function deleteMatch(
 ): Promise<DeleteMatchOutput> {
   assertCan(caller, 'manage_events');
   const parsed = parseInput(deleteMatchInput, input);
+  if (parsed.with_entries) return deleteMatchWithEntries(caller, parsed, ctx);
   const match = await matchOrNotFound(ctx, parsed.match_id);
   const entries = await ctx.store.countEntriesByMatch(match.id);
   if (entries > 0) throw hasEntries(match, entries);
@@ -218,6 +227,31 @@ export async function deleteMatch(
     throw e;
   }
   return { id: match.id, deleted: true };
+}
+
+async function deleteMatchWithEntries(
+  caller: Caller,
+  parsed: { match_id: string; confirm_name?: string | undefined },
+  ctx: UseCaseContext,
+): Promise<DeleteMatchOutput> {
+  assertCan(caller, 'delete_objects');
+  const match = await matchOrNotFound(ctx, parsed.match_id);
+  assertConfirmed(parsed.confirm_name, matchLabel(match));
+  let entries: number;
+  try {
+    entries = await ctx.store.deleteMatchCascade(match.id);
+  } catch (e) {
+    // An entry arrived between the function's two statements: it rolled back whole.
+    if (pgCode(e) === '23503') {
+      throw new AppError(
+        'conflict',
+        `an entry for ${matchLabel(match)} arrived while it was being deleted, so nothing was deleted; try again`,
+        { match_id: match.id },
+      );
+    }
+    throw e;
+  }
+  return { id: match.id, deleted: true, entries };
 }
 
 function notOnRoster(team: string): AppError {

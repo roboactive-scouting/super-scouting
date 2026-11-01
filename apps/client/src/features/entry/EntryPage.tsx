@@ -10,14 +10,22 @@ import { stationOf, type LineupSlot } from '@/lib/derive/entries';
 import { usePageCrumb, usePageTitle } from '@/lib/pageTitle';
 import { useIsDesktop } from '@/lib/useMediaQuery';
 import { ConfirmEntry } from './ConfirmEntry';
+import { EditCountdown } from './EditCountdown';
+import type { Settled } from './editWindow';
 import { EntryContext, type EntryContextValue } from './entryContext';
 import { EntryHeader, EntryTag } from './EntryHeader';
 import { BREAKDOWN_KEY } from './entryRules';
 import { EntrySummary } from './EntrySummary';
 import { FieldInput } from './FieldInput';
-import { canSelfEdit, editsAnyTime, type Editor, type LocalEntry } from './localEntries';
+import {
+  canSelfEdit,
+  editableUntil,
+  editsAnyTime,
+  type Editor,
+  type LocalEntry,
+} from './localEntries';
 import { asClockOrigin, matchClock } from './matchClock';
-import { MatchTimer } from './lazyParts';
+import { loadTimedParts, MatchTimer } from './lazyParts';
 import { PHASE_NAME } from './phases';
 import { PhaseTabs } from './PhaseTabs';
 import { usePracticeMode } from './practice';
@@ -48,6 +56,11 @@ export type EntryPageProps = {
   teamLabel: string;
   matchLabel: string;
   onSubmitted?: (rowId: string) => void;
+  /**
+   * The 5-minute mark saved (or could not save) and the form is over (SPEC-FINAL 7.6 v1.45): the
+   * route opens the entry's preview with what the save did. The page draws nothing after it.
+   */
+  onWindowClosed?: (rowId: string, outcome: WindowOutcome) => void;
   /** This device's entry for the same match and robot: the page edits it (SPEC-FINAL 7.6). */
   existing?: LocalEntry;
   /**
@@ -66,6 +79,16 @@ export function matchDraftKey(formVersionId: string, matchId: string, teamId: st
 
 const isPhase = (value: unknown): value is FieldPhase =>
   typeof value === 'string' && Object.hasOwn(PHASE_NAME, value);
+
+/**
+ * What the save at the 5-minute mark did (SPEC-FINAL 7.6 v1.45), for the entry preview's banner:
+ * a "Not kept: …" line per change put back, or why nothing could be saved.
+ */
+export type WindowOutcome = {
+  notKept: string[];
+  /** Why nothing was saved; null when the save went through. */
+  failed: string | null;
+};
 
 /** The match clock and the stopwatches as one comparable string: did either move? */
 const timersKey = () =>
@@ -97,6 +120,28 @@ export function EntryPage(props: EntryPageProps) {
   const savedTimers = useRef('');
   /** Writes the draft from the page as it stands, plus `next`; set every render (below). */
   const persist = useRef<(next?: Record<string, unknown>) => void>(() => undefined);
+  /**
+   * SPEC-FINAL 7.6 v1.45: a scouter's own match entry runs down with its window — leads, admins
+   * and super entries never do (a super entry is never this page). The mark is `client_created_at`
+   * + 5:00, the same clock `canSelfEdit` reads.
+   */
+  const own = props.existing;
+  const deadline =
+    own &&
+    own.form_kind === 'match' &&
+    own.scouter_id === props.author.id &&
+    !editsAnyTime(props.author)
+      ? editableUntil(own).getTime()
+      : null;
+  /**
+   * The window was still open when the page opened: only then does the mark save. An entry
+   * opened after it closed is the route's redirect to the preview; here `commit()`'s lock is the guard.
+   */
+  const [armed] = useState(() => deadline !== null && deadline > Date.now());
+  const [closed, setClosed] = useState<WindowOutcome | null>(null);
+  /** The save at the mark: set every render (below), so its timer reads the form as it stands. */
+  const mark = useRef<() => Promise<void>>(async () => undefined);
+  const marked = useRef(false);
   // "Q38 · 5951": the team's number is the label's first word ("5951 Tiny Titans").
   usePageTitle(`${props.matchLabel} · ${props.teamLabel.split(' ')[0] ?? ''}`);
   // The desktop crumb keeps the team's name: "Scout / Q39 · 1690 Orbit" (Entry final).
@@ -137,6 +182,14 @@ export function EntryPage(props: EntryPageProps) {
   useEffect(() => {
     void cachedFormFields(props.formVersionId).then(setFields);
   }, [props.formVersionId]);
+
+  // At 5:00 the form saves what is typed and locks (SPEC-FINAL 7.6 v1.45). One timer for the
+  // mark; the countdown ticks on its own (EditCountdown), so the form does not re-render each second.
+  useEffect(() => {
+    if (!armed || deadline === null) return;
+    const id = setTimeout(() => void mark.current(), Math.max(0, deadline - Date.now()));
+    return () => clearTimeout(id);
+  }, [armed, deadline]);
 
   useEffect(() => {
     void cachedLiveSlots<LineupSlot>().then((slots) =>
@@ -236,12 +289,79 @@ export function EntryPage(props: EntryPageProps) {
     persist.current({ robot_status: nextStatus, data: nextData, breakdown_seconds: nextSeconds });
   }
 
+  /**
+   * The 5-minute mark (SPEC-FINAL 7.6 v1.45): the form saves what can be saved, stamped
+   * `client_created_at` + 5:00 exactly — however late this runs, so the server's window check
+   * passes — then becomes the entry read only. A change the save would refuse keeps its last
+   * saved value and is named (`keepSavable`); nothing else typed is lost. A submit already in
+   * flight was stamped inside the window and goes on; if it fails, the next submit comes here.
+   */
+  mark.current = async () => {
+    if (marked.current || inFlight.current || !own || deadline === null) return;
+    marked.current = true;
+    inFlight.current = true;
+    setSubmitting(true);
+    setReviewing(false);
+    form.closeProblems();
+    close(true);
+    const typed = { status, breakdownSeconds, data };
+    let settled: Settled | null = null;
+    let failed: string | null = null;
+    try {
+      // The timed parts' chunk, loaded since the app started (and precached): what to keep.
+      const { keepSavable } = await loadTimedParts().catch(() => {
+        throw new Error('Part of the app didn’t load. What was typed stays on this device.');
+      });
+      settled = keepSavable({
+        fields,
+        last: {
+          status: (own.robot_status as RobotStatus | null) ?? null,
+          breakdownSeconds:
+            typeof own.breakdown_seconds === 'number' ? own.breakdown_seconds : null,
+          data: own.data ?? {},
+        },
+        typed,
+        running: (key) => stopwatches.running(key),
+      });
+      if (settled.refused) {
+        failed = 'It no longer passes the form’s checks as it was saved.';
+      } else {
+        await submitEntry({
+          fields,
+          eventId: props.eventId,
+          formVersionId: props.formVersionId,
+          formKind: 'match',
+          matchId: props.matchId,
+          teamId: props.teamId,
+          alliance: props.alliance,
+          authorUserId: props.author.id,
+          robotStatus: settled.status,
+          breakdownSeconds: settled.breakdownSeconds,
+          data: settled.saved,
+          draftKey,
+          rowId: own.id,
+          clientUpdatedAt: new Date(deadline).toISOString(),
+        });
+      }
+    } catch (e) {
+      failed = e instanceof Error ? e.message : 'could not save';
+    }
+    const outcome: WindowOutcome =
+      failed === null && settled ? { notKept: settled.notKept, failed } : { notKept: [], failed };
+    setClosed(outcome);
+    inFlight.current = false;
+    setSubmitting(false);
+    props.onWindowClosed?.(own.id, outcome);
+  };
+
   /** One tap, one entry and one outbox operation, however fast the second tap comes. */
   async function commit() {
     if (inFlight.current) return;
     setError(null);
+    // The mark passed while its timer had not yet run (a sleeping tab): it saves now, as at 5:00.
+    if (armed && deadline !== null && Date.now() >= deadline) return void mark.current();
     if (props.existing && !canSelfEdit(props.existing, props.author, new Date())) {
-      // SPEC-FINAL 7.6: the window closed while the scout was on this screen.
+      // SPEC-FINAL 7.6, the last guard only (v1.45): the window closed with no mark to save at.
       setError('This entry is locked — ask a lead to change it.');
       return;
     }
@@ -272,9 +392,16 @@ export function EntryPage(props: EntryPageProps) {
     } catch (e) {
       close(false);
       setError(e instanceof Error ? e.message : 'could not submit');
+      // The mark passed while this submit was in flight: the form still saves and locks now.
+      if (armed && deadline !== null && Date.now() >= deadline) {
+        inFlight.current = false;
+        void mark.current();
+      }
     } finally {
-      inFlight.current = false;
-      setSubmitting(false);
+      if (!marked.current) {
+        inFlight.current = false;
+        setSubmitting(false);
+      }
     }
   }
 
@@ -375,6 +502,11 @@ export function EntryPage(props: EntryPageProps) {
   // Guidance only (SPEC-FINAL 8.4): it is handed nothing it could open, lock or submit.
   const timer = <MatchTimer config={props.timerConfig} layout={desktop ? 'desktop' : 'phone'} />;
   const hasTimer = (props.timerConfig?.phases.length ?? 0) > 0;
+  // The last minute, above Review entry (SPEC-FINAL 7.6 v1.45); it draws nothing before then.
+  const countdown = armed && deadline !== null ? <EditCountdown deadline={deadline} /> : null;
+
+  // After the mark the form is over: the route has gone to the entry's preview (task 1.52).
+  if (closed) return null;
 
   if (desktop) {
     return (
@@ -401,6 +533,7 @@ export function EntryPage(props: EntryPageProps) {
             onPick={pickPhase}
             onReview={review}
             reviewLabel={reviewLabel}
+            foot={countdown}
           />
           {confirm}
           {problems}
@@ -428,9 +561,25 @@ export function EntryPage(props: EntryPageProps) {
           bar's own top margin, so no scrolled content shows in a gap above the border. */}
         <div className="sticky bottom-[var(--bottom-bar,0px)] z-20 mt-6 px-4 [&>div]:mt-0">
           <ActionBar>
-            <Button variant="primary" size="block" disabled={status === null} onClick={review}>
-              {reviewLabel}
-            </Button>
+            {countdown ? (
+              // The countdown stands above the button, in the same bar (SPEC-FINAL 7.6 v1.45).
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                {countdown}
+                <Button
+                  variant="primary"
+                  size="block"
+                  className="min-h-13"
+                  disabled={status === null}
+                  onClick={review}
+                >
+                  {reviewLabel}
+                </Button>
+              </div>
+            ) : (
+              <Button variant="primary" size="block" disabled={status === null} onClick={review}>
+                {reviewLabel}
+              </Button>
+            )}
           </ActionBar>
         </div>
         {confirm}

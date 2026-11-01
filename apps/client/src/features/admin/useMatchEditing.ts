@@ -209,12 +209,11 @@ export function useMatchEditing({
       return out !== null;
     },
     /** Throws the person's line on refusal, for the confirm dialog to show. */
-    async remove(match: MatchRow) {
-      try {
-        await rpc.call('deleteMatch', { match_id: match.id });
-      } catch (e) {
-        throw new Error(panelErrorLine(e), { cause: e });
-      }
+    /**
+     * The match is gone on the server (the one DeleteDialog deleted it, task 1.61): drop it from
+     * the list and its marks.
+     */
+    removed(match: MatchRow) {
       if (!here()) return;
       publish(latest.current.filter((m) => m.id !== match.id));
       markUnsaved(match.id, false);

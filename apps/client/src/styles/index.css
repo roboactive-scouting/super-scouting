@@ -39,6 +39,10 @@
   --color-timer-bar-fill: var(--timer-bar-fill);
   --color-rail-warn: var(--rail-warn);
   --color-on-rail-warn: var(--on-rail-warn);
+  --color-qr-plate: var(--qr-plate);
+  --color-frame-shown: var(--frame-shown);
+  --color-frame-shown-rail: var(--frame-shown-rail);
+  --color-on-accent-soft: var(--on-accent-soft);
 
   --font-ui: 'Schibsted Grotesk Variable', 'Noto Sans Hebrew', system-ui, sans-serif;
   --font-sans: var(--font-ui);

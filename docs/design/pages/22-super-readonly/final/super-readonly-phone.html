@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Read-only super entry — final, phone</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../01-entry/src/entry.css"><link rel="stylesheet" href="../../01-entry/final/final.css"><link rel="stylesheet" href="../../14-entry-parts/src/parts.css"><link rel="stylesheet" href="../../15-super/src/super.css"><link rel="stylesheet" href="../src/ro.css">
+<style>.canvas{height:940px}.frames{gap:16px}.frames .phone{zoom:.8}.frames .frame{width:330px}</style>
+</head><body>
+<div id="root"></div>
+<script>window.FINAL = true;</script><script src="../../01-entry/src/entry.js"></script><script src="../../14-entry-parts/src/parts.js"></script><script src="../../15-super/src/super.js"></script><script src="../src/ro.js"></script>
+<script>
+const fig = (h, c) => `<figure class="frame"><div class="phone">${h}</div><figcaption>${c}</figcaption></figure>`;
+document.getElementById("root").innerHTML = `<div class="canvas"><div class="canvas-head"><b>Read-only super entry — final · phone</b><span>Variant B: a quiet read-only page that says whose entry it is, plus who did each Done row on the picker.</span></div>
+  <div class="frames">${fig(RO.screen(RO.picker()), "1 · Picker: Done rows say who (You, Dana…)")}${fig(RO.screen(RO.B.page()), "2 · Dana’s entry, read only")}${fig(RO.screen(RO.B.page().replace(`<div class="ro-sum">`, `<div class="ro-sum" style="margin-top:-150px">`), { time: "11:53" }), "3 · Scrolled: maps open view only")}</div></div>`;
+</script>
+<script src="../../shell.js"></script>
+</body></html>

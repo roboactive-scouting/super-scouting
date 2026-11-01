@@ -42,6 +42,7 @@ import {
   updateTeam,
 } from '../core/commands/teams.js';
 import { deleteEvent, deleteSeason } from '../core/commands/deleteCompetition.js';
+import { deleteEntry } from '../core/commands/deletes.js';
 import {
   createForm,
   deleteForm,
@@ -68,6 +69,9 @@ import {
 import { listConflicts } from '../core/queries/conflicts.js';
 import { countEntriesByScouter } from '../core/queries/countEntriesByScouter.js';
 import { listUsers } from '../core/queries/listUsers.js';
+import { getEntry, listTeamEvents, queryEntries, searchTeams } from '../core/queries/search.js';
+import { getTeamStats, rankTeams } from '../core/queries/stats.js';
+import { getDeleteImpact } from '../core/queries/deleteImpact.js';
 
 type EntryMeta = {
   kind: 'query' | 'command';
@@ -340,7 +344,7 @@ export const REGISTRY: Record<string, RegistryEntry> = {
   deleteMatch: {
     kind: 'command',
     description:
-      'Admin only: delete a match and its slots. Refused while any entry names it; correct the match number instead.',
+      'Admin only: delete a match and its slots. Refused while any entry names it (soft-deleted ones too); correct the match number instead, or pass with_entries with confirm_name equal to the match label ("Q41") to hard-delete every entry naming it with the match, in one transaction.',
     input: API.deleteMatch.input,
     output: API.deleteMatch.output,
     handler: deleteMatch,
@@ -420,7 +424,7 @@ export const REGISTRY: Record<string, RegistryEntry> = {
   deleteFormVersion: {
     kind: 'command',
     description:
-      'Admin only: delete one form version. Blocked while any entry is bound to it, and for the active version.',
+      'Admin only: delete one draft form version; the real delete needs confirm_name equal to its label ("v3"). Blocked, whatever is typed, while any entry is bound to it, and for a published or the active version.',
     input: API.deleteFormVersion.input,
     output: API.deleteFormVersion.output,
     handler: deleteFormVersion,
@@ -428,7 +432,7 @@ export const REGISTRY: Record<string, RegistryEntry> = {
   deleteForm: {
     kind: 'command',
     description:
-      'Admin only: hard-delete a form with all its versions, fields, scoring and entries, irreversibly. dry_run answers how many versions and entries go, and deletes nothing.',
+      'Admin only: hard-delete a form with all its versions, fields, scoring and entries, irreversibly. dry_run answers how many versions and entries go, and deletes nothing; the real delete needs confirm_name equal to the form name exactly.',
     input: API.deleteForm.input,
     output: API.deleteForm.output,
     handler: deleteForm,
@@ -528,5 +532,69 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     input: API.resolveConflict.input,
     output: API.resolveConflict.output,
     handler: resolveConflict,
+  },
+  searchTeams: {
+    kind: 'query',
+    description:
+      "The season's teams by number prefix or name, paginated: each marked when on the active event's roster (event_id, else the admin's active event) with its rank there by average scouted points (null until it has a counted match), its live entries there, and the other events we hold entries for it at. Counts per chip follow the query.",
+    input: API.searchTeams.input,
+    output: API.searchTeams.output,
+    handler: searchTeams,
+  },
+  listTeamEvents: {
+    kind: 'query',
+    description:
+      "The active season's events where we hold live entries for one team, in event order, each with its entry count and newest entry time, paginated. Powers the cross-event jump of the team search.",
+    input: API.listTeamEvents.input,
+    output: API.listTeamEvents.output,
+    handler: listTeamEvents,
+  },
+  queryEntries: {
+    kind: 'query',
+    description:
+      "One event's live entries, match and super (a kind filter narrows it), newest first and paginated, searchable by team name or number, match number or scouter name. Each row carries its scouted points from the shared engine (none for a no-show, a disabled robot or a super entry) and the scouter's name.",
+    input: API.queryEntries.input,
+    output: API.queryEntries.output,
+    handler: queryEntries,
+  },
+  getEntry: {
+    kind: 'query',
+    description:
+      "One live entry fully rendered: team, match, scouter's name, form version, every answer by phase with each scored field's points and each phase's subtotal, the scouted points, the team's average at that event, and whether the caller may edit it now. A soft-deleted entry is not found.",
+    input: API.getEntry.input,
+    output: API.getEntry.output,
+    handler: getEntry,
+  },
+  getTeamStats: {
+    kind: 'query',
+    description:
+      "One team's statistics at one event, computed by the shared engine: its rank among the roster by average scouted points, median, availability, best match and trend, every metric (average, median and std dev of points, then one per scorable field by phase) with its per-match series and its colour range at the event, the match-by-match table (paginated), its Long-text notes newest first, and its reliability counts with the matches named.",
+    input: API.getTeamStats.input,
+    output: API.getTeamStats.output,
+    handler: getTeamStats,
+  },
+  rankTeams: {
+    kind: 'query',
+    description:
+      'The fixed phase 1 ranking table of one event: every roster team with its rank by average scouted points (no-shows and disabled robots excluded, never zero), matches counted, breakdowns, no-shows, disabled and availability rate, sortable by any of those columns (never by standard deviation). No weighting.',
+    input: API.rankTeams.input,
+    output: API.rankTeams.output,
+    handler: rankTeams,
+  },
+  getDeleteImpact: {
+    kind: 'query',
+    description:
+      "Admin only (a lead too, for an entry): the exact damage a delete of a season, event, form, form version, match or entry would do, counted just now, deleting nothing — events, matches, entries (soft-deleted ones included, and how many those are), forms, versions, metrics, dashboards and presets, a match's six stations — with the name to type back, or why it is blocked whatever is typed.",
+    input: API.getDeleteImpact.input,
+    output: API.getDeleteImpact.output,
+    handler: getDeleteImpact,
+  },
+  deleteEntry: {
+    kind: 'command',
+    description:
+      'Lead or admin only: soft-delete one entry. The row stays with deleted_at set and a new revision, and the tombstone reaches every device through the delta pull. Scouters never delete an entry, their own included.',
+    input: API.deleteEntry.input,
+    output: API.deleteEntry.output,
+    handler: deleteEntry,
   },
 };

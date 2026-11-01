@@ -1,5 +1,4 @@
 import { db } from '@/data/db';
-import { unackedCount } from '@/data/outbox';
 import { plural } from '@/lib/plural';
 
 /**
@@ -8,20 +7,30 @@ import { plural } from '@/lib/plural';
  *
  * - `entries`: scouting entries in the outbox, waiting to send (one operation per row, 9.4).
  * - `other`: any other record waiting to send, never a bare match (6.4: it sends with its entry).
- * - `unacked`: every operation without a cloud ack, bare matches included — the guard 9.9 names.
+ * - `unacked`: every record without a cloud ack, bare matches included — the guard 9.9 names: a
+ *   pending sync state (parked and refused rows, received QR copies not yet acked) or anything
+ *   still in the outbox, counted once per row.
  * - `drafts`: unfinished entries (`db.drafts`, match and super) not yet submitted. Practice drafts
  *   never count: they are thrown away anyway (8.5).
+ *
+ * The device wipe (`data/wipe.ts`, task 1.49) refuses on exactly this — `isHeld` — read inside
+ * its own transaction, so the row's "held" and the wipe's refusal can never disagree.
  */
 export type WipeHold = { entries: number; other: number; unacked: number; drafts: number };
 
 export async function readWipeHold(): Promise<WipeHold> {
   let entries = 0;
   let other = 0;
+  const rows = new Set<string>();
   await db.outbox.each((op) => {
+    rows.add(op.row_id);
     if (op.entity === 'scouting_entry') entries++;
     else if (op.entity !== 'match') other++;
   });
-  return { entries, other, unacked: await unackedCount(), drafts: await db.drafts.count() };
+  for (const id of await db.syncState.where('sync_state').equals('pending').primaryKeys()) {
+    rows.add(id);
+  }
+  return { entries, other, unacked: rows.size, drafts: await db.drafts.count() };
 }
 
 /** True while the wipe must wait: anything at all would be lost. */
@@ -42,11 +51,28 @@ export function holdParts(hold: WipeHold): string[] {
 }
 
 /**
+ * How many records hold the wipe (SPEC-FINAL 9.9 "reports how many"): every record without a
+ * cloud ack (every operation, bare matches included, 9.10), then every unfinished entry.
+ */
+export function heldCount(hold: WipeHold): number {
+  return hold.unacked + hold.drafts;
+}
+
+/**
  * The held confirmation's line (16-settings final): "3 entries are still waiting to send. Wipe is
  * held until they are sent, so nothing is lost." Unfinished entries are named as such: they are
  * not waiting to send, they wait to be submitted or discarded.
  */
 export function heldSentence(hold: WipeHold): string {
+  const { what, until } = heldLines(hold);
+  return `${what} ${until}`;
+}
+
+/**
+ * The same line in its two parts, as the final draws it: `what` holds the wipe (bold), `until`
+ * says what lets it go.
+ */
+export function heldLines(hold: WipeHold): { what: string; until: string } {
   const sending = hold.entries + hold.other || (hold.unacked > 0 ? hold.unacked : 0);
   const noun =
     hold.other === 0 && hold.entries > 0
@@ -73,6 +99,5 @@ export function heldSentence(hold: WipeHold): string {
         : hold.drafts === 1
           ? 'it is submitted or discarded'
           : 'they are submitted or discarded';
-  lines.push(`Wipe is held until ${until}, so nothing is lost.`);
-  return lines.join(' ');
+  return { what: lines.join(' '), until: `Wipe is held until ${until}, so nothing is lost.` };
 }

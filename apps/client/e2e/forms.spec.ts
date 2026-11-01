@@ -461,6 +461,13 @@ test('builder: Match timer lists the phases with the bar, the match end and the 
   await teleop.fill('135');
   await expect(dialog.getByText(/Match ends at/)).toHaveText('Match ends at 180 s (3:00)');
   await expect(dialog.getByRole('button', { name: 'Save' })).toBeEnabled();
+  // Every phase named with its m:ss, a 15 s Auto too (user, 2026-11-01: it showed only "A"),
+  // and none of the words cut.
+  const strip = dialog.getByRole('img', { name: /^The match:/ });
+  await expect(strip.locator('[data-phase]')).toHaveText(['Auto0:15', 'Teleop2:15', 'Endgame0:30']);
+  for (const segment of await strip.locator('[data-phase]').all()) {
+    expect(await segment.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  }
   await shoot(page, 'builder-timer', 'desktop');
   await dialog.getByRole('button', { name: 'Save' }).click();
   await expect(dialog).toBeHidden();
@@ -527,17 +534,17 @@ test('builder: Import into this form shows what it adds, changes and removes', a
   await shoot(page, 'builder-import', 'desktop');
 });
 
-test('builder: Delete form waits for the typed phrase', async ({ page }) => {
+test("builder: Delete form opens the form's bill and waits for its name", async ({ page }) => {
   await openBuilder(page);
   await page.getByRole('button', { name: 'More', exact: true }).click();
   await page.getByRole('menuitem', { name: /Delete form/ }).click();
-  const dialog = page.getByRole('dialog', { name: 'Delete the match form?' });
-  await expect(dialog.getByText('264 entries from the 2026 events')).toBeVisible();
+  const dialog = page.getByRole('dialog', { name: 'Delete Match form?' });
+  await expect(dialog).toContainText('264 entries go');
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
-  const confirm = dialog.getByRole('button', { name: 'Delete Match form 2026' });
-  await expect(confirm).toHaveAttribute('aria-disabled', 'true');
-  await dialog.getByLabel(/to confirm/).fill('delete match form');
-  await expect(confirm).not.toHaveAttribute('aria-disabled', 'true');
+  const confirm = dialog.getByRole('button', { name: 'Delete form Match form' });
+  await expect(confirm).toBeDisabled();
+  await dialog.getByLabel(/type the name to confirm/i).fill('Match form');
+  await expect(confirm).toBeEnabled();
   await shoot(page, 'builder-delete', 'desktop');
 });
 

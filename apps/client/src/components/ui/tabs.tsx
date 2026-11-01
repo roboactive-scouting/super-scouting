@@ -27,6 +27,8 @@ export function Tabs<K extends string>({
   flagLabel = 'needs attention',
   dotted,
   flush = false,
+  fit = false,
+  tight = false,
 }: {
   label: string;
   tabs: readonly TabItem<K>[];
@@ -50,6 +52,16 @@ export function Tabs<K extends string>({
    * labels in `--ink-2` 650 and the counts in muted mono; the underline spans the tab.
    */
   flush?: boolean;
+  /**
+   * The team page's computer tabs (24-team final): each tab as wide as its words (22 px a side),
+   * set from the start, instead of sharing the bar's width.
+   */
+  fit?: boolean;
+  /**
+   * The team page's phone tabs (24-team final): four flush tabs at 375 px, so the label and its
+   * count sit 5 px apart with a 4 px inset, and "Matches 10" fits a quarter of the bar.
+   */
+  tight?: boolean;
 }) {
   const list = useRef<HTMLDivElement>(null);
   const doneId = useId();
@@ -81,7 +93,8 @@ export function Tabs<K extends string>({
       aria-label={label}
       onKeyDown={onKeyDown}
       className={cn(
-        'grid auto-cols-fr grid-flow-col bg-surface',
+        'grid grid-flow-col bg-surface',
+        fit ? 'auto-cols-max justify-start' : 'auto-cols-fr',
         !flush && 'gap-1 border-b border-line p-1.5',
       )}
     >
@@ -103,6 +116,8 @@ export function Tabs<K extends string>({
               selected ? 'bg-accent-tint text-accent-ink' : finished ? 'text-ink-2' : 'text-muted',
               flush && 'gap-2 rounded-none font-[650]',
               flush && !selected && 'text-ink-2',
+              fit && 'px-[22px]',
+              tight && 'gap-[5px] px-1 text-[0.84375rem]',
             )}
           >
             {finished && (

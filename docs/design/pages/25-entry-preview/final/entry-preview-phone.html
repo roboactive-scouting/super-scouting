@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Entry preview — final, phone</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../11-phone-shell/src/ps.css"><link rel="stylesheet" href="../../11-phone-shell/src/d.css"><link rel="stylesheet" href="../../24-team/src/team.css"><link rel="stylesheet" href="../src/ep.css">
+<style>.canvas{height:940px}.frames{gap:14px}</style>
+</head><body>
+<div id="root"></div>
+<script src="../../24-team/src/team.js"></script><script src="../src/ep.js"></script><script src="../src/final.js"></script>
+<script>
+const f = (h, c) => TP.fig(h, c);
+document.getElementById("root").innerHTML = `<div class="canvas"><div class="canvas-head"><b>Entry preview — final · phone</b><span>Variant B (score band, phase subtotals, points per row) with D's Team page and Edit buttons; Edit only for who may edit.</span></div>
+  <div class="frames">${f(FIN.p1(), "1 · Match entry, top")}${f(FIN.p2(), "2 · Scrolled to the end (a lead: Edit)")}${f(FIN.p3(), "3 · No-show, seen by a scouter: no Edit")}${f(FIN.p4(), "4 · Super entry: no score")}</div></div>`;
+</script>
+</body></html>

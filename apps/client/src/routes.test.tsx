@@ -87,6 +87,34 @@ describe('the route tree and the session (task 1.15)', () => {
     vi.restoreAllMocks();
   });
 
+  it('routes /sync/qr/send to the QR sender, over Sync on a computer (task 1.47)', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    await session.signIn(user, 'token-abc');
+    renderAt('/sync/qr/send');
+    // Two lazy chunks (Sync beneath, the sender over it): the suite's load can take over 1 s.
+    const sender = await screen.findByRole('dialog', { name: 'Send by QR' }, { timeout: 5000 });
+    expect(await within(sender).findByText('Nothing to send')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Sync', level: 1 })).toBeInTheDocument();
+    vi.restoreAllMocks();
+  });
+
+  it('routes /sync/qr/receive to the QR receiver, a page of its own at every width (task 1.48)', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    await session.signIn(user, 'token-abc');
+    renderAt('/sync/qr/receive');
+    const receiver = await screen.findByRole(
+      'dialog',
+      { name: 'Receive by QR' },
+      { timeout: 5000 },
+    );
+    // jsdom has no camera: the real @zxing/browser cannot start one, and the page says so.
+    expect(
+      await within(receiver).findByRole('heading', { name: 'The camera did not start' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Sync', level: 1 })).toBeNull();
+    vi.restoreAllMocks();
+  });
+
   it('an expired session does NOT leave the entry route', async () => {
     await session.signIn(user, 'token-abc');
     await session.expire();
@@ -235,10 +263,14 @@ describe('which routes wait for the event to load (task 1.17b)', () => {
       'sync',
       // The discarded-records log (task 1.42) reads only this device's log.
       'sync/discarded',
+      // The QR receiver (task 1.48) writes only this device's dataset and outbox.
+      'sync/qr/receive',
+      // The QR sender (task 1.47) reads only this device's outbox.
+      'sync/qr/send',
     ]);
   });
 
-  it('leaves Scout, the entry screen, super scouting, practice, Entries and Conflicts gated', () => {
+  it('leaves Scout, the entry screen, super scouting, practice, Entries, the entry preview, Conflicts, team search, the team page and the ranking gated', () => {
     const shell = routeTree().find((r) => r.path === '/');
     const gated = (shell?.children ?? [])
       .filter((r) => !needsNoHydration(r.handle))
@@ -249,11 +281,19 @@ describe('which routes wait for the event to load (task 1.17b)', () => {
     expect(gated.sort()).toEqual([
       'conflicts',
       'entries',
+      // The entry preview (task 1.52) reads the event's entries, matches and forms.
+      'entries/:id',
       'entry/:matchId/:teamId',
       'practice',
+      // The ranking (task 1.58) ranks the event's teams from its roster, entries and forms.
+      'ranking',
       'scout',
       'super',
       'super/:teamId',
+      // Team search (task 1.51) ranks the event's teams from its roster and entries.
+      'teams',
+      // The team page (task 1.53) computes a team's statistics from the event's rows.
+      'teams/:teamId',
     ]);
   });
 });

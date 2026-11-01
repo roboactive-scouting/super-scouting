@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Delete — trigger on the entry preview, phone</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../11-phone-shell/src/ps.css"><link rel="stylesheet" href="../../11-phone-shell/src/d.css"><link rel="stylesheet" href="../../24-team/src/team.css"><link rel="stylesheet" href="../../25-entry-preview/src/ep.css"><link rel="stylesheet" href="../src/final.css">
+<style>.canvas{height:940px}.frames{gap:14px}</style>
+</head><body>
+<div id="root"></div>
+<script src="../../24-team/src/team.js"></script><script src="../../25-entry-preview/src/ep.js"></script><script src="../../25-entry-preview/src/final.js"></script><script src="../src/triggers.js"></script>
+<script>
+const f = (h, c) => TP.fig(h, c);
+document.getElementById("root").innerHTML = `<div class="canvas"><div class="canvas-head"><b>Delete — where it opens · entry preview, phone</b><span>A lead or admin gets Delete after Edit at the end of the entry preview; it opens the "Are you sure?" pop-up. A scouter never deletes.</span></div>
+  <div class="frames">${f(FIN.p2(), "1 · A lead: Team page · Edit · Delete")}${f(FIN.p3(), "2 · A scouter: no Edit, no Delete")}</div></div>`;
+DT.entry();
+</script>
+</body></html>

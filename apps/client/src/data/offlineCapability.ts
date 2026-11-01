@@ -15,6 +15,11 @@ export const OFFLINE_CAPABILITY = {
   ensure_match: true,
   /** "Pick lists (admin), including reorder" (9.6, editable; the feature is phase 2). */
   edit_pick_list: true,
+  /**
+   * A lead's or admin's soft delete of an entry this device holds (SPEC-FINAL 3.9; task 1.61): a
+   * `delete` operation through the same outbox, so it works offline like an edit.
+   */
+  delete_entry: true,
   /** "Do-not-pick — admin add/edit/remove, and a lead's addition" (9.6, editable; phase 2). */
   add_do_not_pick: true,
   /** "The alliance bracket, including declines" (9.6, editable; phase 2). */
@@ -43,6 +48,12 @@ export const OFFLINE_CAPABILITY = {
   cross_event_view: false,
   /** "Season, event, match and roster management" (9.6, not available). */
   manage_events: false,
+  /**
+   * Every delete that runs on the server at once (SPEC-FINAL 3.9, 17.8; task 1.61): the admin's
+   * hard deletes (a season, an event, a form, a form version, a match), the count read before
+   * them (`getDeleteImpact`), and the soft delete of an entry this device does not hold.
+   */
+  delete_objects: false,
   /** "Resolving conflicts" (9.6, not available: it settles the row for everyone). */
   resolve_conflict: false,
 } as const satisfies Record<string, boolean>;

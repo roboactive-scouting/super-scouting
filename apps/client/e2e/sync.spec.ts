@@ -80,7 +80,10 @@ function records(): Seed[] {
       alliance: 'blue',
       status: 'disabled',
       saved: ago(23),
-      refused: { code: 'edit-window-expired', message: 'this entry is locked — ask a lead' },
+      refused: {
+        code: 'edit-window-expired',
+        message: 'changed after the 5-minute edit window. A lead can save it for you.',
+      },
       seq: 6,
     },
     {
@@ -294,7 +297,13 @@ test('sync: Waiting, grouped by competition, with the lead’s conflicts link, o
   );
   await expect(page.locator('[data-record="e2e-q38"]')).toContainText('QR · from Yael');
   await expect(page.locator(`[data-record="${NEW_MATCH}"]`)).toHaveCount(0);
-  await expect(page.getByText(/Not sent: This entry is locked — ask a lead\./)).toBeVisible();
+  // One line, no second "why" sentence (SPEC-FINAL 7.6, v1.44).
+  await expect(
+    page.getByText(
+      'Not sent: Changed after the 5-minute edit window. A lead can save it for you.',
+      { exact: true },
+    ),
+  ).toBeVisible();
   // The sidebar's Sync row carries the same count as the indicator.
   await expect(page.getByRole('link', { name: 'Sync, 6 waiting to send' })).toBeVisible();
 
@@ -315,7 +324,13 @@ test('sync: Problems — the refused record and the discarded notice', async ({ 
     'href',
     `/entry/${matchId(36)}/${teamId(5135)}?alliance=blue`,
   );
-  await expect(panel.getByText('It was changed after its 5 minutes were up.')).toBeVisible();
+  await expect(
+    panel.getByText(
+      'Not sent: Changed after the 5-minute edit window. A lead can save it for you.',
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(panel.getByText(/locked|5 minutes were up/)).toHaveCount(0);
   await expect(panel.getByRole('region', { name: 'Discarded entries' })).toContainText(
     '2 entries were removed from this device.',
   );
@@ -330,27 +345,48 @@ test('sync: Sent, newest first', async ({ page }) => {
   await shoot(page, 'sync-sent');
 });
 
-test('sync: More holds the discarded log, as a sheet on a phone and a menu on a computer', async ({
+test('sync: More holds the QR tools, the discarded log and the held escape hatch, as a sheet on a phone and a menu on a computer', async ({
   page,
 }) => {
   await openSync(page);
   await goOffline(page);
   await page.getByRole('button', { name: 'More' }).click();
-  await expect(page.getByRole('menuitem')).toHaveCount(1);
-  await expect(page.getByRole('menuitem')).toHaveText(
+  // Send by QR (task 1.47), Receive by QR and Discard received QR data (task 1.48).
+  await expect(page.getByRole('menuitem')).toHaveCount(4);
+  await expect(page.getByRole('menuitem').first()).toHaveText(
+    'Send by QRTo the collector tablet. No internet needed.',
+  );
+  await expect(page.getByRole('menuitem').nth(1)).toHaveText(
+    'Receive by QROn the collector tablet: scan another phone.',
+  );
+  await expect(page.getByRole('menuitem').nth(2)).toHaveText(
     'Discarded records2 removed because their event was deleted.',
   );
+  // The seeded QR copy (Q38, from Yael) has not reached the cloud: the escape hatch is held.
+  await expect(page.getByRole('menuitem').nth(3)).toHaveText(
+    'Discard received QR dataHeld: 1 received copy hasn’t reached the cloud.',
+  );
+  await expect(page.getByRole('menuitem').nth(3)).toHaveAttribute('aria-disabled', 'true');
   await shoot(page, 'sync-more-menu', 'desktop');
   await page.keyboard.press('Escape');
 
   await page.setViewportSize({ width: 375, height: 812 });
   await page.getByRole('button', { name: 'More' }).click();
   const sheet = page.getByRole('dialog', { name: 'More' });
-  await expect(sheet.getByRole('link')).toHaveCount(1);
+  await expect(sheet.getByRole('link')).toHaveCount(3);
+  await expect(sheet.getByRole('link', { name: /Send by QR/ })).toHaveAttribute(
+    'href',
+    '/sync/qr/send',
+  );
+  await expect(sheet.getByRole('link', { name: /Receive by QR/ })).toHaveAttribute(
+    'href',
+    '/sync/qr/receive',
+  );
   await expect(sheet.getByRole('link', { name: /Discarded records/ })).toHaveAttribute(
     'href',
     '/sync/discarded',
   );
+  await expect(sheet.getByRole('button', { name: /Discard received QR data/ })).toBeDisabled();
   await shoot(page, 'sync-more', 'phone');
 });
 

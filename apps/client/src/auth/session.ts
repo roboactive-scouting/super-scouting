@@ -1,5 +1,5 @@
 import type { Role } from '@frc/shared';
-import { db, type MetaRecord } from '@/data/db';
+import { db, JUST_WIPED_KEY, type MetaRecord } from '@/data/db';
 
 export type SessionUser = {
   id: string;
@@ -57,6 +57,8 @@ function notify(next: Session | null): void {
  */
 async function update(
   change: (current: Session | null) => Session | null | undefined,
+  /** More `meta` to write in the same transaction when the session changes. */
+  alsoInMeta?: () => Promise<unknown>,
 ): Promise<{ before: Session | null; after: Session | null } | null> {
   const box: { result?: { before: Session | null; after: Session | null } } = {};
   await db.transaction('rw', db.meta, async () => {
@@ -65,6 +67,7 @@ async function update(
     if (after === undefined) return; // no change
     const record: MetaRecord = { key: KEY, value: after };
     await db.meta.put(record);
+    await alsoInMeta?.();
     box.result = { before, after };
   });
   if (box.result) {
@@ -140,8 +143,15 @@ export const session = {
     return (await read())?.token ?? null;
   },
 
+  /**
+   * Also clears the wipe's mark (Phase 1 I side task 4): after the first successful sign-in, a
+   * device with no cached accounts is no longer described as just wiped.
+   */
   async signIn(user: SessionUser, token: string | null, offline = false): Promise<void> {
-    await update(() => ({ user, token, offline, expired: false }));
+    await update(
+      () => ({ user, token, offline, expired: false }),
+      () => db.meta.delete(JUST_WIPED_KEY),
+    );
   },
 
   /**

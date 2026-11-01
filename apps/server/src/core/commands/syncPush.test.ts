@@ -490,7 +490,39 @@ describe('syncPush', () => {
       },
       ctx,
     );
-    expect(res.results[0]).toMatchObject({ status: 'rejected', reason: 'edit-window-expired' });
+    // The detail says what happened, as the client's line does (SPEC-FINAL 7.6, v1.44).
+    expect(res.results[0]).toEqual({
+      op_id: expect.any(String),
+      status: 'rejected',
+      reason: 'edit-window-expired',
+      detail: 'changed after the 5-minute edit window. A lead can save it for you.',
+    });
+  });
+
+  // Phase 1 H side task 5 (SPEC-FINAL 7.6 v1.45): a form left open saves at the mark, stamped
+  // client_created_at + 5:00 exactly. The bound is inclusive, so that save passes; 1 ms more does not.
+  it('accepts a scouter save stamped exactly created + 5:00, and refuses created + 5:00 + 1 ms', async () => {
+    await syncPush(scouter, { device_id: 'd-1', operations: [op()] }, ctx);
+    const at = (updated: string, base: number) =>
+      syncPush(
+        scouter,
+        {
+          device_id: 'd-1',
+          operations: [
+            op({
+              action: 'update',
+              base_version: base,
+              client_created_at: '2026-11-14T09:00:00.000Z',
+              client_updated_at: updated,
+            }),
+          ],
+        },
+        ctx,
+      );
+    const stamped = await at('2026-11-14T09:05:00.000Z', 1);
+    expect(stamped.results[0]).toMatchObject({ status: 'applied', new_version: 2 });
+    const late = await at('2026-11-14T09:05:00.001Z', 2);
+    expect(late.results[0]).toMatchObject({ status: 'rejected', reason: 'edit-window-expired' });
   });
 
   it('measures elapsed CLIENT time, so an upload six hours later still passes', async () => {

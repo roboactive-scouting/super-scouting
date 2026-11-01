@@ -1198,3 +1198,186 @@ describe('map fields at Review entry (UF.24)', () => {
     expect((await pending(10))[0]!.payload.data).toMatchObject({ start: START, shots: SHOTS });
   });
 });
+
+describe('no edit after 5 minutes (SPEC-FINAL 7.6 v1.45; Phase 1 H side task 5)', () => {
+  const T0 = Date.parse('2026-11-14T09:00:00.000Z');
+  const MIN = 60_000;
+  const STAMP = '2026-11-14T09:05:00.000Z';
+  const own = (over: Record<string, unknown> = {}) => ({
+    id: 'e-1',
+    event_id: 'ev-1',
+    form_kind: 'match' as const,
+    form_version_id: 'fv-1',
+    match_id: 'm-1',
+    team_id: 't-1',
+    alliance: 'red' as const,
+    scouter_id: 'u-1',
+    robot_status: 'played',
+    breakdown_seconds: null,
+    data: { auto_notes: 9, driver: 'Ana', notes: 'quick' } as Record<string, unknown>,
+    client_created_at: new Date(T0).toISOString(),
+    client_updated_at: new Date(T0).toISOString(),
+    deleted_at: null,
+    ...over,
+  });
+  /**
+   * Only the timers the window uses, from `ms` after the entry was created; fake-indexeddb keeps
+   * its own (setImmediate) real. The clock also runs with real time, so the page can load.
+   */
+  const clockAt = (ms: number) =>
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+      shouldAdvanceTime: true,
+      now: T0 + ms,
+    });
+  const advance = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+  const timer = () => screen.queryByRole('timer');
+
+  beforeEach(async () => {
+    // What the mark keeps lives in the timed parts' chunk: in memory before any clock is faked.
+    await loadTimedParts();
+    // A required field on the first tab, to empty at the mark.
+    await db.rows.put(
+      field({
+        id: 'f0',
+        key: 'driver',
+        label: 'Driver',
+        type: 'short_text',
+        display_order: 0,
+        phase: 'auto',
+        unit: 'text',
+        direction: 'neutral',
+        required: true,
+      }),
+    );
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** What the page hands the route at the mark (task 1.52: the route opens the preview). */
+  const closedWith = vi.fn();
+
+  async function open(
+    entry: ReturnType<typeof own>,
+    author: { id: string; role: 'scouter' | 'lead' | 'admin' } = props.author,
+  ) {
+    closedWith.mockClear();
+    await db.rows.put({ ...entry, entity: 'scouting_entries', version: 1 } as CachedRow);
+    render(
+      <MemoryRouter>
+        <EntryPage {...props} author={author} existing={entry} onWindowClosed={closedWith} />
+      </MemoryRouter>,
+    );
+    await screen.findByLabelText('Auto notes value');
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  }
+
+  it('counts down in the last minute only: nothing at 3:59, "Editable for 1:00" at 4:00, then each second', async () => {
+    clockAt(3 * MIN + 50_000);
+    await open(own());
+    expect(timer()).toBeNull();
+    await advance(9_000); // 3:59
+    expect(timer()).toBeNull();
+    await advance(1_000); // 4:00
+    // Above Review entry, in the panel that holds it (jsdom draws the desktop layout).
+    const panel = screen.getByRole('complementary', { name: 'This entry' });
+    expect(within(panel).getByRole('timer')).toHaveTextContent(/^Editable for 1:00$/);
+    expect(timer()).toHaveClass('font-num', 'text-warn');
+    await advance(15_000); // 4:15
+    expect(timer()).toHaveTextContent(/^Editable for 0:45$/);
+    await advance(1_000);
+    expect(timer()).toHaveTextContent(/^Editable for 0:44$/);
+    expect(await pending(10)).toHaveLength(0);
+  });
+
+  it('at 5:00 saves what is typed, stamped created + 5:00, and hands over to the preview', async () => {
+    clockAt(4 * MIN + 50_000);
+    const user = await open(own());
+    await user.click(screen.getByRole('button', { name: 'Auto notes minus one' }));
+    await advance(10_500); // past 5:00
+    await waitFor(() => expect(closedWith).toHaveBeenCalledTimes(1));
+    expect(closedWith).toHaveBeenCalledWith('e-1', { notKept: [], failed: null });
+
+    const [op, ...rest] = await pending(10);
+    expect(rest).toHaveLength(0);
+    expect(op).toMatchObject({ action: 'update', row_id: 'e-1', base_version: 1 });
+    expect(op!.client_created_at).toBe(new Date(T0).toISOString());
+    expect(Date.parse(op!.client_updated_at) - Date.parse(op!.client_created_at)).toBe(300_000);
+    expect(op!.client_updated_at).toBe(STAMP);
+    expect(op!.payload.data).toEqual({ auto_notes: 8, driver: 'Ana', notes: 'quick' });
+    expect((await db.rows.get(['scouting_entries', 'e-1']))?.client_updated_at).toBe(STAMP);
+
+    // The form is gone: no tabs, no controls, no Review entry, no lock error. The route shows
+    // the preview (EntryRoute.test.tsx proves the banner lands there).
+    expect(screen.queryByRole('tab')).toBeNull();
+    expect(screen.queryByRole('button', { name: /review entry/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /plus one|minus one/ })).toBeNull();
+    expect(timer()).toBeNull();
+    expect(screen.queryByText(/locked/)).toBeNull();
+  });
+
+  it('keeps the saved value of an out-of-range change at the mark, names it, and keeps the rest', async () => {
+    clockAt(4 * MIN + 40_000);
+    const user = await open(own());
+    await user.click(screen.getByRole('button', { name: 'Auto notes plus one' }));
+    await user.click(screen.getByRole('button', { name: 'Auto notes plus one' }));
+    expect(screen.getByLabelText('Auto notes value')).toHaveTextContent('11');
+    await user.click(screen.getByRole('tab', { name: /Notes/ }));
+    await user.type(screen.getByRole('textbox', { name: 'Notes' }), ' and steady');
+    await advance(20_500);
+    await waitFor(() => expect(closedWith).toHaveBeenCalledTimes(1));
+    expect(closedWith).toHaveBeenCalledWith('e-1', {
+      notKept: ['Not kept: Auto notes 11 is over 10.'],
+      failed: null,
+    });
+    const [op] = await pending(10);
+    expect(op!.client_updated_at).toBe(STAMP);
+    expect(op!.payload.data).toEqual({ auto_notes: 9, driver: 'Ana', notes: 'quick and steady' });
+  });
+
+  it('keeps the saved value of a required field emptied at the mark, and names it', async () => {
+    clockAt(4 * MIN + 50_000);
+    const user = await open(own());
+    await user.clear(screen.getByRole('textbox', { name: /Driver/ }));
+    await user.click(screen.getByRole('button', { name: 'Auto notes minus one' }));
+    await advance(10_500);
+    await waitFor(() => expect(closedWith).toHaveBeenCalledTimes(1));
+    expect(closedWith).toHaveBeenCalledWith('e-1', {
+      notKept: ['Not kept: Driver is required and was left empty.'],
+      failed: null,
+    });
+    const [op] = await pending(10);
+    expect(op!.payload.data).toEqual({ auto_notes: 8, driver: 'Ana', notes: 'quick' });
+  });
+
+  it('saves at the mark with the review sheet open, closing it', async () => {
+    clockAt(4 * MIN + 50_000);
+    const user = await open(own());
+    await user.click(screen.getByRole('button', { name: /review entry/i }));
+    expect(await screen.findByRole('dialog', { name: 'Confirm this entry' })).toBeInTheDocument();
+    await advance(10_500);
+    await waitFor(() => expect(closedWith).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(await pending(10)).toHaveLength(1);
+  });
+
+  it("a lead's form never counts down and never locks", async () => {
+    clockAt(4 * MIN + 30_000);
+    await open(own(), { id: 'u-lead', role: 'lead' });
+    await advance(60_000); // 5:30
+    expect(timer()).toBeNull();
+    expect(closedWith).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /review entry/i })).toBeInTheDocument();
+    expect(await pending(10)).toHaveLength(0);
+  });
+
+  it('an entry opened after its window closed never counts down or saves by itself', async () => {
+    clockAt(5 * MIN + 10_000);
+    await open(own());
+    await advance(60_000);
+    expect(timer()).toBeNull();
+    expect(closedWith).not.toHaveBeenCalled();
+    expect(await pending(10)).toHaveLength(0);
+  });
+});

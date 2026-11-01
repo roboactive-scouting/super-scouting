@@ -1,4 +1,4 @@
-import { can, canEditEntry, SELF_EDIT_WINDOW_MS, type Role } from '@frc/shared';
+import { can, mayEditEntryNow, SELF_EDIT_WINDOW_MS, type Role } from '@frc/shared';
 import { db } from '@/data/db';
 
 /** Who is editing: the signed-in user (SessionUser satisfies this). */
@@ -60,23 +60,15 @@ export function editableUntil(entry: LocalEntry): Date {
 }
 
 /**
- * SPEC-FINAL 7.6, through the one shared rule the server also applies (`canEditEntry` in
- * packages/shared): a lead or admin (`manage_entries`) edits any entry at any time; a
- * scouter only their own, inside the five-minute window measured from
+ * SPEC-FINAL 7.6, through the one shared rule the server's entry preview also applies
+ * (`mayEditEntryNow` in packages/shared, task 1.50): a lead or admin (`manage_entries`) edits
+ * any entry at any time; a scouter only their own, inside the five-minute window measured from
  * `client_created_at` — here, to `now` on this device's clock. A scouter's own SUPER entry
  * is exempt from the window (v1.26, task 1.40): it is one running judgement of a team,
  * built up all event; the server exempts it the same way.
  */
 export function canSelfEdit(entry: LocalEntry, editor: Editor, now: Date): boolean {
-  if (entry.form_kind === 'super' && entry.scouter_id === editor.id) return true;
-  return canEditEntry(
-    { kind: 'user', userId: editor.id, role: editor.role },
-    {
-      scouter_id: entry.scouter_id,
-      client_created_at: entry.client_created_at,
-      client_updated_at: now.toISOString(),
-    },
-  );
+  return mayEditEntryNow({ kind: 'user', userId: editor.id, role: editor.role }, entry, now);
 }
 
 /** True when the editor's role lifts the window entirely (7.6: leads and admins). */

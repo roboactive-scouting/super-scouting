@@ -26,6 +26,8 @@ export default defineConfig({
       VITE_API_BASE_URL: 'http://api.test',
       VITE_DEVICE_WIPE_CODE: 'WIPE2096',
       VITE_APP_VERSION: '1.4.0',
+      // The QR receiver's camera is the stub the specs drive (vite.config.ts; task 1.48).
+      E2E_QR_CAMERA: 'stub',
     },
   },
 });

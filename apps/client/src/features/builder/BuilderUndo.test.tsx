@@ -392,7 +392,7 @@ describe('Builder: the way back (UF.14)', SLOW, () => {
           ['Edit as JSON', /Edit as JSON/],
           ['Export the match form', /^Export/],
           ['Import a form', /^Import/],
-          ['Delete the match form?', /Delete form/],
+          ['Delete Match form?', /Delete form/],
         ] as const
       ).map(
         ([name, item]) =>

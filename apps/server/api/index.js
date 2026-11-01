@@ -160,8 +160,16 @@ var setMatchTeamsInput = z3.object({ match_id: uuid, slots: z3.array(matchSlot).
     });
   }
 });
-var deleteMatchInput = z3.object({ match_id: uuid }).strict();
-var deleteMatchOutput = z3.object({ id: uuid, deleted: z3.literal(true) });
+var deleteMatchInput = z3.object({
+  match_id: uuid,
+  with_entries: z3.boolean().default(false),
+  confirm_name: z3.string().optional()
+}).strict();
+var deleteMatchOutput = z3.object({
+  id: uuid,
+  deleted: z3.literal(true),
+  entries: z3.number().int().optional()
+});
 var listMatchesInput = z3.object({
   event_id: uuid,
   limit: z3.number().int().min(1).optional(),
@@ -408,6 +416,39 @@ var exprSchema = z6.lazy(
     }).strict()
   ])
 );
+function evaluateExpr(expr, values) {
+  switch (expr.kind) {
+    case "literal":
+      return expr.value;
+    case "field": {
+      const value = values[expr.key];
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+      if (typeof value === "string") return value;
+      if (typeof value === "boolean") return value ? 1 : 0;
+      return null;
+    }
+    case "op": {
+      const left = evaluateExpr(expr.left, values);
+      const right = evaluateExpr(expr.right, values);
+      if (left === null || right === null) return null;
+      if (expr.op === "concat") {
+        if (typeof left !== "string" || typeof right !== "string") return null;
+        return left + right;
+      }
+      if (typeof left !== "number" || typeof right !== "number") return null;
+      switch (expr.op) {
+        case "+":
+          return left + right;
+        case "-":
+          return left - right;
+        case "*":
+          return left * right;
+        case "/":
+          return right === 0 ? null : left / right;
+      }
+    }
+  }
+}
 
 // ../../packages/shared/src/forms/config.ts
 var FIELD_TYPES = [
@@ -614,9 +655,13 @@ var publishFormVersionOutput = z8.object({
 });
 var restoreFormVersionInput = z8.object({ form_version_id: uuid4 }).strict();
 var restoreFormVersionOutput = z8.object({ active_version_id: uuid4 });
-var deleteFormVersionInput = z8.object({ form_version_id: uuid4 }).strict();
+var deleteFormVersionInput = z8.object({ form_version_id: uuid4, confirm_name: z8.string().optional() }).strict();
 var deleteFormVersionOutput = z8.object({ deleted: z8.literal(true) });
-var deleteFormInput = z8.object({ form_id: uuid4, dry_run: z8.boolean().default(false) }).strict();
+var deleteFormInput = z8.object({
+  form_id: uuid4,
+  dry_run: z8.boolean().default(false),
+  confirm_name: z8.string().optional()
+}).strict();
 var deleteFormOutput = z8.object({
   versions: z8.number().int(),
   entries: z8.number().int(),
@@ -771,6 +816,329 @@ var setEventRosterInput = z9.object({
 var listEventRosterInput = z9.object({ event_id: uuid5 }).strict();
 var eventRosterOutput = z9.object({ items: z9.array(rosterRow) });
 
+// ../../packages/shared/src/api/search.ts
+import { z as z10 } from "zod";
+var rowId2 = z10.string().min(1);
+var searchText = z10.string().trim().max(NAME_MAX_LENGTH).optional().transform((value) => value ? value : void 0);
+var limit = z10.number().int().min(1).optional();
+var cursor = z10.string().min(1).optional();
+var SEARCH_TEAMS_DEFAULT_LIMIT = 50;
+var SEARCH_TEAMS_MAX_LIMIT = 200;
+var LIST_TEAM_EVENTS_DEFAULT_LIMIT = 50;
+var LIST_TEAM_EVENTS_MAX_LIMIT = 100;
+var QUERY_ENTRIES_DEFAULT_LIMIT = 50;
+var QUERY_ENTRIES_MAX_LIMIT = 200;
+var TEAM_SEARCH_FILTERS = ["all", "at_event", "other"];
+var searchTeamsInput = z10.object({
+  query: searchText,
+  event_id: rowId2.optional(),
+  filter: z10.enum(TEAM_SEARCH_FILTERS).optional(),
+  limit,
+  cursor
+}).strict();
+var eventRef = z10.object({ id: z10.string(), name: z10.string() });
+var teamSearchItem = z10.object({
+  id: z10.string(),
+  number: z10.number().int(),
+  name: z10.string(),
+  /** On the active event's live roster. */
+  in_active_event: z10.boolean(),
+  /** Its place by average points at the active event; null when not there or not ranked yet. */
+  rank: z10.number().int().positive().nullable(),
+  /** Live entries (both kinds) for the team at the active event. */
+  entries_here: z10.number().int().nonnegative(),
+  /** The season's other events where we hold live entries for it, in event order. */
+  other_events: z10.array(eventRef)
+});
+var searchTeamsOutput = z10.object({
+  items: z10.array(teamSearchItem),
+  counts: z10.object({
+    all: z10.number().int().nonnegative(),
+    at_event: z10.number().int().nonnegative(),
+    other: z10.number().int().nonnegative()
+  }),
+  event: eventRef.nullable(),
+  next_cursor: z10.string().nullable()
+});
+var listTeamEventsInput = z10.object({ team_id: rowId2, limit, cursor }).strict();
+var listTeamEventsOutput = z10.object({
+  items: z10.array(
+    z10.object({
+      id: z10.string(),
+      name: z10.string(),
+      entry_count: z10.number().int().positive(),
+      last_entry_at: z10.string().nullable()
+    })
+  ),
+  next_cursor: z10.string().nullable()
+});
+var queryEntriesInput = z10.object({
+  event_id: rowId2,
+  form_kind: formKind.optional(),
+  query: searchText,
+  limit,
+  cursor
+}).strict();
+var ROBOT_STATUSES = ["played", "no_show", "disabled", "broke_down"];
+var entrySummary = z10.object({
+  id: z10.string(),
+  event_id: z10.string(),
+  form_kind: formKind,
+  /** Null for a super entry, and so are the match's type, number and label. */
+  match_id: z10.string().nullable(),
+  match_type: matchType.nullable(),
+  match_number: z10.number().int().nullable(),
+  /** "Q12", as the device writes it (`matchLabel`). */
+  match_label: z10.string().nullable(),
+  team_id: z10.string(),
+  team_number: z10.number().int(),
+  team_name: z10.string(),
+  alliance: z10.enum(["red", "blue"]).nullable(),
+  scouter_id: z10.string(),
+  scouter_name: z10.string().nullable(),
+  robot_status: z10.enum(ROBOT_STATUSES).nullable(),
+  /** `scoutedPoints`: null for a no-show, a disabled robot and a super entry — never 0 for them. */
+  scouted_points: z10.number().nullable(),
+  client_created_at: z10.string(),
+  client_updated_at: z10.string()
+});
+var queryEntriesOutput = z10.object({
+  items: z10.array(entrySummary),
+  next_cursor: z10.string().nullable()
+});
+var getEntryInput = z10.object({ entry_id: rowId2 }).strict();
+var breakdownField = z10.object({
+  key: z10.string(),
+  label: z10.string(),
+  type: z10.enum(FIELD_TYPES),
+  /** Absent when the entry holds no value for the field. */
+  value: z10.unknown().optional(),
+  points: z10.number().nullable()
+});
+var breakdownPhase = z10.object({
+  phase: z10.enum(FIELD_PHASES),
+  subtotal: z10.number().nullable(),
+  fields: z10.array(breakdownField)
+});
+var getEntryOutput = entrySummary.extend({
+  form_id: z10.string(),
+  form_version_id: z10.string(),
+  form_version: z10.number().int(),
+  phases: z10.array(breakdownPhase),
+  team_average: z10.number().nullable(),
+  can_edit: z10.boolean()
+});
+
+// ../../packages/shared/src/api/stats.ts
+import { z as z11 } from "zod";
+var rowId3 = z11.string().min(1);
+var eventRef2 = z11.object({ id: z11.string(), name: z11.string() });
+var direction = z11.enum(["higher_is_better", "lower_is_better", "neutral"]);
+var GET_TEAM_STATS_DEFAULT_LIMIT = 100;
+var GET_TEAM_STATS_MAX_LIMIT = 200;
+var TEAM_NOTES_MAX = 200;
+var statsScope = z11.object({ mode: z11.literal("event"), event_id: rowId3 }).strict();
+var getTeamStatsInput = z11.object({
+  team_id: rowId3,
+  scope: statsScope,
+  limit: z11.number().int().min(1).optional(),
+  cursor: z11.string().min(1).optional()
+}).strict();
+var STAT_GROUPS = ["overall", ...FIELD_PHASES];
+var METRIC_KINDS = ["number", "rate", "ordinal", "nominal"];
+var STAT_AGGREGATIONS = ["avg", "median", "stddev", "rate", "mode"];
+var statsSeriesPoint = z11.object({
+  entry_id: z11.string(),
+  match_label: z11.string(),
+  value: z11.number().nullable(),
+  asked: z11.boolean().default(true)
+});
+var statsMetric = z11.object({
+  key: z11.string(),
+  field_key: z11.string().nullable(),
+  label: z11.string(),
+  group: z11.enum(STAT_GROUPS),
+  kind: z11.enum(METRIC_KINDS),
+  aggregation: z11.enum(STAT_AGGREGATIONS),
+  direction,
+  value: z11.number().nullable(),
+  display: z11.string().nullable(),
+  domain: z11.object({ min: z11.number(), max: z11.number() }).nullable(),
+  /** The team's per-match values, oldest → newest (qualification matches only). */
+  series: z11.array(statsSeriesPoint),
+  unavailable_reason: z11.enum(["type-changed", "absent"]).nullable()
+});
+var statsCell = z11.object({ value: z11.number().nullable(), display: z11.string().nullable() });
+var statsMatchRow = z11.object({
+  entry_id: z11.string(),
+  match_id: z11.string().nullable(),
+  match_label: z11.string().nullable(),
+  match_type: matchType.nullable(),
+  match_number: z11.number().int().nullable(),
+  robot_status: z11.enum(ROBOT_STATUSES).nullable(),
+  scouted_points: z11.number().nullable(),
+  scouter_id: z11.string(),
+  scouter_name: z11.string().nullable(),
+  /** Keyed by `columns[].key`. */
+  columns: z11.record(statsCell)
+});
+var statsNote = z11.object({
+  entry_id: z11.string(),
+  form_kind: z11.enum(["match", "super"]),
+  match_label: z11.string().nullable(),
+  match_number: z11.number().int().nullable(),
+  field_key: z11.string(),
+  field_label: z11.string(),
+  value: z11.string(),
+  scouter_name: z11.string().nullable(),
+  client_updated_at: z11.string()
+});
+var statsReliability = z11.object({
+  breakdowns: z11.number().int().nonnegative(),
+  no_shows: z11.number().int().nonnegative(),
+  disabled: z11.number().int().nonnegative(),
+  available: z11.number().int().nonnegative(),
+  missed: z11.number().int().nonnegative(),
+  availability_rate: z11.number().nullable(),
+  breakdown_matches: z11.array(z11.string()),
+  no_show_matches: z11.array(z11.string()),
+  disabled_matches: z11.array(z11.string())
+});
+var getTeamStatsOutput = z11.object({
+  team: z11.object({ id: z11.string(), number: z11.number().int(), name: z11.string() }),
+  event: eventRef2.nullable(),
+  /** The team's live entries at the event, both kinds (the header's "10 entries"). */
+  entry_count: z11.number().int().nonnegative(),
+  /** The canonical basic rank among the event's roster — the same ordering as `rankTeams`. */
+  rank: z11.object({
+    rank: z11.number().int().positive().nullable(),
+    of: z11.number().int().nonnegative()
+  }),
+  headline: z11.object({ label: z11.string(), value: z11.number().nullable() }),
+  tiles: z11.object({
+    median: z11.number().nullable(),
+    availability: z11.object({
+      rate: z11.number().nullable(),
+      available: z11.number().int().nonnegative(),
+      total: z11.number().int().nonnegative()
+    }),
+    best_match: z11.object({ entry_id: z11.string(), match_label: z11.string(), points: z11.number() }).nullable(),
+    /** The `slope` of points per match; null with fewer than two counted matches. */
+    trend: z11.number().nullable()
+  }),
+  metrics: z11.array(statsMetric),
+  /** The match table's metric columns: the scored fields, in form order. */
+  columns: z11.array(z11.object({ key: z11.string(), label: z11.string() })),
+  matches: z11.array(statsMatchRow),
+  /** Every match row before paging; `matches` holds one page of them. */
+  match_count: z11.number().int().nonnegative(),
+  notes: z11.array(statsNote),
+  reliability: statsReliability,
+  next_cursor: z11.string().nullable()
+});
+var PHASE_SORT_KEYS = {
+  auto: "auto_points",
+  teleop: "teleop_points",
+  endgame: "endgame_points",
+  post_match: "post_match_points"
+};
+var RANK_SORT_KEYS = [
+  "average_points",
+  // PHASE_SORT_KEYS, in FIELD_PHASES order (a test holds the two together).
+  "auto_points",
+  "teleop_points",
+  "endgame_points",
+  "post_match_points",
+  "availability_rate",
+  "breakdowns",
+  "no_shows",
+  "disabled",
+  "matches_counted",
+  "number"
+];
+var SORT_DIRECTIONS = ["asc", "desc"];
+var rankTeamsInput = z11.object({
+  event_id: rowId3,
+  sort_by: z11.enum(RANK_SORT_KEYS).optional(),
+  direction: z11.enum(SORT_DIRECTIONS).optional(),
+  before_match_number: z11.number().int().positive().optional()
+}).strict();
+var rankPhaseAverage = z11.object({
+  phase: z11.enum(FIELD_PHASES),
+  average: z11.number().nullable()
+});
+var RANK_RECENT_MATCHES = 5;
+var rankRow = z11.object({
+  team_id: z11.string(),
+  number: z11.number().int(),
+  name: z11.string(),
+  rank: z11.number().int().positive().nullable(),
+  average_points: z11.number().nullable(),
+  stddev: z11.number().nullable(),
+  phase_averages: z11.array(rankPhaseAverage),
+  matches_counted: z11.number().int().nonnegative(),
+  breakdowns: z11.number().int().nonnegative(),
+  no_shows: z11.number().int().nonnegative(),
+  disabled: z11.number().int().nonnegative(),
+  availability_rate: z11.number().nullable(),
+  recent_totals: z11.array(z11.number()).max(RANK_RECENT_MATCHES),
+  last_counted_match: z11.number().int().positive().nullable()
+});
+var rankTeamsOutput = z11.object({ event: eventRef2, rows: z11.array(rankRow) });
+
+// ../../packages/shared/src/api/deletes.ts
+import { z as z12 } from "zod";
+var uuid6 = z12.string().uuid();
+var count = z12.number().int().min(0);
+var TYPE_NAME_EXACTLY = "Type the name exactly to delete.";
+var DELETE_KINDS = ["season", "event", "form", "form_version", "match", "entry"];
+var deleteKind = z12.enum(DELETE_KINDS);
+var DELETE_BLOCKED_REASONS = [
+  "active_season",
+  "default_event",
+  "version_has_entries",
+  "version_published",
+  "version_active"
+];
+var getDeleteImpactInput = z12.object({ kind: deleteKind, id: uuid6 }).strict();
+var deleteImpactStation = z12.object({
+  alliance: z12.enum(["red", "blue"]),
+  station: z12.number().int().min(1).max(3),
+  /** The team in the slot; null for an empty slot. */
+  team_number: z12.number().int().nullable(),
+  /** Entry rows naming the match for that team, soft-deleted ones included. */
+  entries: count
+});
+var getDeleteImpactOutput = z12.object({
+  kind: deleteKind,
+  id: uuid6,
+  name: z12.string(),
+  confirm_name: z12.string().nullable(),
+  blocked_reason: z12.enum(DELETE_BLOCKED_REASONS).nullable(),
+  blocked_message: z12.string().nullable(),
+  events: count,
+  /** The deleted events' names, in event order (a season's, or the one event). */
+  event_names: z12.array(z12.string()),
+  matches: count,
+  entries: count,
+  match_entries: count,
+  super_entries: count,
+  deleted_entries: count,
+  forms: count,
+  form_versions: count,
+  metrics: count,
+  dashboards: count,
+  weight_presets: count,
+  stations: z12.array(deleteImpactStation).nullable(),
+  last_saved_at: z12.string().nullable()
+});
+var deleteEntryInput = z12.object({ entry_id: uuid6 }).strict();
+var deleteEntryOutput = z12.object({
+  id: uuid6,
+  deleted: z12.literal(true),
+  version: z12.number().int()
+});
+
 // ../../packages/shared/src/api/index.ts
 var API = {
   login: { input: loginInput, output: loginOutput },
@@ -825,7 +1193,15 @@ var API = {
   listFormExports: { input: listFormExportsInput, output: listFormExportsOutput },
   getFormExport: { input: getFormExportInput, output: getFormExportOutput },
   listConflicts: { input: listConflictsInput, output: listConflictsOutput },
-  resolveConflict: { input: resolveConflictInput, output: resolveConflictOutput }
+  resolveConflict: { input: resolveConflictInput, output: resolveConflictOutput },
+  searchTeams: { input: searchTeamsInput, output: searchTeamsOutput },
+  listTeamEvents: { input: listTeamEventsInput, output: listTeamEventsOutput },
+  queryEntries: { input: queryEntriesInput, output: queryEntriesOutput },
+  getEntry: { input: getEntryInput, output: getEntryOutput },
+  getTeamStats: { input: getTeamStatsInput, output: getTeamStatsOutput },
+  rankTeams: { input: rankTeamsInput, output: rankTeamsOutput },
+  getDeleteImpact: { input: getDeleteImpactInput, output: getDeleteImpactOutput },
+  deleteEntry: { input: deleteEntryInput, output: deleteEntryOutput }
 };
 
 // ../../packages/shared/src/errors.ts
@@ -883,6 +1259,40 @@ function withinSelfEditWindow(clientCreatedAt, clientUpdatedAt) {
   const elapsed = updated - created;
   return elapsed >= 0 && elapsed <= SELF_EDIT_WINDOW_MS;
 }
+function canEditEntry(caller, entry) {
+  if (!isUser(caller)) return false;
+  if (caller.role === "lead" || caller.role === "admin") return true;
+  if (entry.scouter_id !== caller.userId) return false;
+  return withinSelfEditWindow(entry.client_created_at, entry.client_updated_at);
+}
+function mayEditEntryNow(caller, entry, now) {
+  if (!isUser(caller)) return false;
+  if (caller.role === "lead" || caller.role === "admin") return true;
+  if (entry.scouter_id !== caller.userId) return false;
+  if (entry.form_kind === "super") return true;
+  if (Number.isNaN(now.getTime())) return false;
+  return canEditEntry(caller, {
+    scouter_id: entry.scouter_id,
+    client_created_at: entry.client_created_at,
+    client_updated_at: now.toISOString()
+  });
+}
+
+// ../../packages/shared/src/format.ts
+var NO_VALUE = "\u2014";
+function formatCount(value) {
+  if (value === null || value === void 0 || !Number.isFinite(value)) return NO_VALUE;
+  return String(Math.round(value));
+}
+var MATCH_TYPE_PREFIX = {
+  qualification: "Q",
+  practice: "P",
+  playoff: "PO"
+};
+function matchLabel(match) {
+  const prefix = MATCH_TYPE_PREFIX[match.match_type] ?? match.match_type;
+  return `${prefix}${formatCount(match.number)}`;
+}
 
 // ../../packages/shared/src/season/manifest.ts
 var SEASON_IMAGE_MANIFEST = [
@@ -896,7 +1306,7 @@ function selectOptions(field) {
 }
 
 // ../../packages/shared/src/forms/visibility.ts
-function compare(left, op, right) {
+function conditionHolds(left, op, right) {
   switch (op) {
     case "=":
       return left === right;
@@ -922,7 +1332,7 @@ function isVisible(field, values) {
   if (!condition) return true;
   const controlling = values[condition.field_key];
   if (controlling === void 0) return false;
-  return compare(controlling, condition.op, condition.value);
+  return conditionHolds(controlling, condition.op, condition.value);
 }
 
 // ../../packages/shared/src/forms/validate.ts
@@ -1300,6 +1710,9 @@ var SELECT_FIELD_TYPES = [
   "multi_select"
 ];
 var SELECTS = SELECT_FIELD_TYPES;
+function isScorable(type) {
+  return SCORABLE.includes(type);
+}
 function isSelectType(type) {
   return SELECTS.includes(type);
 }
@@ -1355,14 +1768,14 @@ function validateScoringRules(rules, liveFields, options) {
     } else if (isSelect2 && rule.points !== 0) {
       push("points", `a ${field.type} scores by option_points; its points must be 0`);
     }
-    const optionPoints = rule.option_points ?? null;
-    if (optionPoints === null) return;
+    const optionPoints2 = rule.option_points ?? null;
+    if (optionPoints2 === null) return;
     if (!isSelect2) {
       push("option_points", `only a select scores by option; '${key2}' is a ${field.type} field`);
       return;
     }
     const values = optionValues(field);
-    for (const [value, points] of Object.entries(optionPoints)) {
+    for (const [value, points] of Object.entries(optionPoints2)) {
       if (!values.has(value)) {
         push(`option_points.${value}`, `'${value}' is not an option of '${key2}'`);
       } else if (!validPoints(points)) {
@@ -1434,6 +1847,10 @@ function validateVisibilityCondition(field, fields) {
 }
 
 // ../../packages/shared/src/sync/conflict.ts
+function logicalKeyOf(row) {
+  const match = row.form_kind === "match" ? row.match_id ?? "" : "";
+  return `${row.event_id}|${row.form_kind}|${row.team_id}|${match}`;
+}
 function isLater(a, b) {
   return Date.parse(a) > Date.parse(b);
 }
@@ -1480,7 +1897,7 @@ function stripServerColumns(row) {
 }
 
 // ../../packages/shared/src/sync/operation.ts
-import { z as z10 } from "zod";
+import { z as z13 } from "zod";
 var SYNC_ENTITIES = [
   "scouting_entry",
   "match",
@@ -1490,26 +1907,26 @@ var SYNC_ENTITIES = [
   "alliance_slot",
   "alliance_decline"
 ];
-var isoDateTime = z10.string().datetime({ offset: true }).transform((value, ctx) => {
+var isoDateTime = z13.string().datetime({ offset: true }).transform((value, ctx) => {
   const ms = Date.parse(value);
   if (Number.isNaN(ms)) {
     ctx.addIssue({ code: "custom", message: "Invalid datetime" });
-    return z10.NEVER;
+    return z13.NEVER;
   }
   return new Date(ms).toISOString();
 });
-var operationSchema = z10.object({
-  op_id: z10.string().min(1),
-  entity: z10.enum(SYNC_ENTITIES),
-  row_id: z10.string().uuid(),
-  action: z10.enum(["create", "update", "delete"]),
-  base_version: z10.number().int().positive().nullable(),
+var operationSchema = z13.object({
+  op_id: z13.string().min(1),
+  entity: z13.enum(SYNC_ENTITIES),
+  row_id: z13.string().uuid(),
+  action: z13.enum(["create", "update", "delete"]),
+  base_version: z13.number().int().positive().nullable(),
   /** Always the whole row, never a patch. Field-level merging does not exist. */
-  payload: z10.record(z10.unknown()),
-  author_user_id: z10.string().uuid(),
+  payload: z13.record(z13.unknown()),
+  author_user_id: z13.string().uuid(),
   client_created_at: isoDateTime,
   client_updated_at: isoDateTime,
-  seq: z10.number().int().nonnegative()
+  seq: z13.number().int().nonnegative()
 }).superRefine((op, ctx) => {
   if (op.action === "create" && op.base_version !== null) {
     ctx.addIssue({
@@ -1535,16 +1952,16 @@ var operationSchema = z10.object({
 });
 
 // ../../packages/shared/src/sync/protocol.ts
-import { z as z11 } from "zod";
+import { z as z14 } from "zod";
 var MAX_OPERATIONS_PER_PUSH = 200;
 var WATERMARK_OVERLAP_MS = 5e3;
-var pushRequestSchema = z11.object({
-  device_id: z11.string().uuid(),
-  operations: z11.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
+var pushRequestSchema = z14.object({
+  device_id: z14.string().uuid(),
+  operations: z14.array(operationSchema).max(MAX_OPERATIONS_PER_PUSH)
 });
-var pushEnvelopeSchema = z11.object({
-  device_id: z11.string().uuid(),
-  operations: z11.array(z11.unknown()).max(MAX_OPERATIONS_PER_PUSH)
+var pushEnvelopeSchema = z14.object({
+  device_id: z14.string().uuid(),
+  operations: z14.array(z14.unknown()).max(MAX_OPERATIONS_PER_PUSH)
 });
 var PARENT_DELETED_DETAIL = {
   event: "the event no longer exists",
@@ -1579,10 +1996,10 @@ var PULL_ENTITY_KEYS = [
   "dashboard_charts",
   "weight_presets"
 ];
-var pullRequestSchema = z11.object({
-  event_id: z11.string().uuid(),
-  since: z11.string().datetime({ offset: false }).optional(),
-  cursor: z11.string().optional()
+var pullRequestSchema = z14.object({
+  event_id: z14.string().uuid(),
+  since: z14.string().datetime({ offset: false }).optional(),
+  cursor: z14.string().optional()
 });
 var FORM_DELETION_ENTITIES = [
   "forms",
@@ -1590,6 +2007,933 @@ var FORM_DELETION_ENTITIES = [
   "form_fields",
   "scoring_rules"
 ];
+
+// ../../packages/shared/src/engine/score.ts
+function nonNegative(n) {
+  return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0;
+}
+function optionPoints(rule, option2) {
+  const table = rule.option_points;
+  if (table === null || typeof option2 !== "string") return 0;
+  return Object.prototype.hasOwnProperty.call(table, option2) ? nonNegative(table[option2]) : 0;
+}
+function scoreField(field, rule, value) {
+  if (!rule || !isScorable(field.type)) return 0;
+  switch (field.type) {
+    case "toggle":
+      return value === true ? nonNegative(rule.points) : 0;
+    case "counter":
+    case "number":
+      return typeof value === "number" && Number.isFinite(value) ? nonNegative(nonNegative(rule.points) * value) : 0;
+    case "single_select":
+      return optionPoints(rule, value);
+    case "multi_select":
+      return Array.isArray(value) ? [...new Set(value)].reduce((sum, option2) => sum + optionPoints(rule, option2), 0) : 0;
+    default:
+      return 0;
+  }
+}
+function hydrateComputed(data, fields) {
+  const out = { ...data };
+  for (const field of fields) {
+    if (field.type !== "computed") continue;
+    const expr = field.config.expression;
+    const value = expr ? evaluateExpr(expr, out) : null;
+    const empty = value === null || typeof value === "number" && !Number.isFinite(value);
+    if (empty || !isVisible(field, out)) {
+      delete out[field.key];
+    } else {
+      out[field.key] = value;
+    }
+  }
+  return out;
+}
+function scoreEntry(entry, fields, rules) {
+  if (entry.robot_status !== null && isDeadRobot(entry.robot_status)) return null;
+  const byKey = new Map(rules.map((r) => [r.field_key, r]));
+  const data = hydrateComputed(entry.data, fields);
+  const seen = /* @__PURE__ */ new Set();
+  let total = 0;
+  for (const field of fields) {
+    if (seen.has(field.key)) continue;
+    seen.add(field.key);
+    total += scoreField(field, byKey.get(field.key), data[field.key]);
+  }
+  return total;
+}
+
+// ../../packages/shared/src/engine/select.ts
+function instant(stamp2) {
+  const ms = Date.parse(stamp2);
+  return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+}
+function outranks(a, b) {
+  const updated = instant(a.client_updated_at) - instant(b.client_updated_at);
+  if (updated !== 0 && !Number.isNaN(updated)) return updated > 0;
+  const created = instant(a.client_created_at) - instant(b.client_created_at);
+  if (created !== 0 && !Number.isNaN(created)) return created > 0;
+  return a.id > b.id;
+}
+function canonicalEntries(entries) {
+  const best = /* @__PURE__ */ new Map();
+  for (const entry of entries) {
+    if (entry.deleted_at !== null && entry.deleted_at !== void 0) continue;
+    const key2 = logicalKeyOf(entry);
+    const current = best.get(key2);
+    if (!current || outranks(entry, current)) best.set(key2, entry);
+  }
+  return [...best.values()];
+}
+function entriesForAggregates(entries) {
+  return canonicalEntries(entries).filter((e) => e.form_kind !== "match" || e.match_type === "qualification").filter((e) => e.robot_status === null || !isDeadRobot(e.robot_status));
+}
+
+// ../../packages/shared/src/engine/aggregate.ts
+function presentValues(raw) {
+  return raw.filter(
+    (v) => v !== null && v !== void 0 && !(typeof v === "number" && !Number.isFinite(v))
+  );
+}
+function numbers(values) {
+  return values.filter((v) => typeof v === "number");
+}
+function finiteOrNull(n) {
+  if (!Number.isFinite(n)) return null;
+  return n === 0 ? 0 : n;
+}
+function sumOf(xs) {
+  let total = 0;
+  for (const x of xs) total += x;
+  return total;
+}
+function ascending(xs) {
+  return [...xs].sort((a, b) => a - b);
+}
+function percentileOf(sorted, p) {
+  const rank = p / 100 * (sorted.length - 1);
+  const lo = Math.floor(rank);
+  const hi = Math.ceil(rank);
+  const a = sorted[lo];
+  const b = sorted[hi];
+  return lo === hi ? a : a + (b - a) * (rank - lo);
+}
+function stddevOf(xs) {
+  if (xs.length < 2) return null;
+  const mean = sumOf(xs) / xs.length;
+  let squares = 0;
+  for (const x of xs) squares += (x - mean) * (x - mean);
+  return Math.sqrt(squares / xs.length);
+}
+function slopeOf(ys) {
+  const n = ys.length;
+  if (n < 2) return null;
+  const meanX = (n + 1) / 2;
+  const meanY = sumOf(ys) / n;
+  let covariance = 0;
+  let varianceX = 0;
+  ys.forEach((y, i) => {
+    const dx = i + 1 - meanX;
+    covariance += dx * (y - meanY);
+    varianceX += dx * dx;
+  });
+  return covariance / varianceX;
+}
+function minOf(xs) {
+  let m = xs[0];
+  for (const x of xs) if (x < m) m = x;
+  return m;
+}
+function maxOf(xs) {
+  let m = xs[0];
+  for (const x of xs) if (x > m) m = x;
+  return m;
+}
+function isScalar(v) {
+  return typeof v === "string" || typeof v === "boolean" || typeof v === "number" && Number.isFinite(v);
+}
+function valueOrder(optionOrder) {
+  const index = /* @__PURE__ */ new Map();
+  (optionOrder ?? []).forEach((option2, i) => {
+    if (!index.has(option2)) index.set(option2, i);
+  });
+  const typeRank = (v) => typeof v === "number" ? 0 : typeof v === "boolean" ? 1 : 2;
+  return (a, b) => {
+    const ia = typeof a === "string" ? index.get(a) : void 0;
+    const ib = typeof b === "string" ? index.get(b) : void 0;
+    if (ia !== void 0 && ib !== void 0) return ia - ib;
+    if (ia !== void 0) return -1;
+    if (ib !== void 0) return 1;
+    if (typeRank(a) !== typeRank(b)) return typeRank(a) - typeRank(b);
+    if (typeof a === "number" && typeof b === "number") return a - b;
+    if (typeof a === "boolean" && typeof b === "boolean") return Number(a) - Number(b);
+    return a < b ? -1 : a > b ? 1 : 0;
+  };
+}
+function bucketsOf(values, optionOrder) {
+  const counts = /* @__PURE__ */ new Map();
+  for (const value of values) {
+    const items = Array.isArray(value) ? [...new Set(value)] : [value];
+    for (const item of items) {
+      if (isScalar(item)) counts.set(item, (counts.get(item) ?? 0) + 1);
+    }
+  }
+  const order = valueOrder(optionOrder);
+  return [...counts.entries()].map(([value, count2]) => ({ value, count: count2 })).sort((a, b) => order(a.value, b.value));
+}
+function rateHit(value, condition) {
+  if (condition) return conditionHolds(value, condition.op, condition.value);
+  return value === true || typeof value === "number" && value > 0;
+}
+function compute(raw, aggregation, options, direction2) {
+  const values = presentValues(raw);
+  if (values.length === 0) return null;
+  switch (aggregation) {
+    case "count":
+      return values.length;
+    case "rate":
+      return values.filter((v) => rateHit(v, options?.rate_condition)).length / values.length;
+    case "mode": {
+      const buckets = bucketsOf(values, options?.option_order);
+      if (buckets.length === 0) return null;
+      let winner = buckets[0];
+      for (const bucket of buckets) if (bucket.count > winner.count) winner = bucket;
+      return winner.value;
+    }
+    case "distribution": {
+      const buckets = bucketsOf(values, options?.option_order);
+      return buckets.length === 0 ? null : buckets;
+    }
+    default:
+      break;
+  }
+  const xs = numbers(values);
+  if (xs.length === 0) return null;
+  switch (aggregation) {
+    case "avg":
+      return finiteOrNull(sumOf(xs) / xs.length);
+    case "median":
+      return finiteOrNull(percentileOf(ascending(xs), 50));
+    case "sum":
+      return finiteOrNull(sumOf(xs));
+    case "min":
+      return minOf(xs);
+    case "max":
+      return maxOf(xs);
+    case "stddev": {
+      const sd = stddevOf(xs);
+      return sd === null ? null : finiteOrNull(sd);
+    }
+    case "percentile": {
+      const p = options?.percentile;
+      if (typeof p !== "number" || !Number.isFinite(p) || p < 0 || p > 100) return null;
+      return finiteOrNull(percentileOf(ascending(xs), p));
+    }
+    case "slope": {
+      const slope = slopeOf(xs);
+      return slope === null ? null : finiteOrNull(slope);
+    }
+    case "best":
+    case "worst": {
+      if (direction2 !== "higher_is_better" && direction2 !== "lower_is_better") return null;
+      const wantMax = aggregation === "best" === (direction2 === "higher_is_better");
+      return wantMax ? maxOf(xs) : minOf(xs);
+    }
+    default:
+      return null;
+  }
+}
+function aggregate(values, aggregation, options, direction2 = "higher_is_better") {
+  return compute(values, aggregation, options, direction2);
+}
+function sequenceOrder(a, b) {
+  if (a.event_sort_order !== b.event_sort_order) return a.event_sort_order - b.event_sort_order;
+  if (a.event_id !== b.event_id) return a.event_id < b.event_id ? -1 : 1;
+  const ma = a.match_number ?? Number.POSITIVE_INFINITY;
+  const mb = b.match_number ?? Number.POSITIVE_INFINITY;
+  if (ma !== mb) return ma < mb ? -1 : 1;
+  if (a.team_id !== b.team_id) return a.team_id < b.team_id ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+function lastNPerTeam(sorted, n) {
+  if (Number.isNaN(n)) return [];
+  const keep = Math.floor(n);
+  if (keep <= 0) return [];
+  const seen = /* @__PURE__ */ new Map();
+  const kept = [];
+  for (let i = sorted.length - 1; i >= 0; i -= 1) {
+    const entry = sorted[i];
+    const count2 = seen.get(entry.team_id) ?? 0;
+    if (count2 >= keep) continue;
+    seen.set(entry.team_id, count2 + 1);
+    kept.push(entry);
+  }
+  return kept.reverse();
+}
+function applyFilters(entries, filters, fields) {
+  let population = entriesForAggregates(entries).map((entry) => ({
+    ...entry,
+    data: hydrateComputed(entry.data, fields)
+  }));
+  const statuses = filters.robot_status ?? [];
+  if (statuses.length > 0) {
+    population = population.filter(
+      (e) => e.robot_status === null || statuses.includes(e.robot_status)
+    );
+  }
+  for (const filter of filters.field_filters ?? []) {
+    population = population.filter((e) => {
+      const value = e.data[filter.field_key];
+      return value !== void 0 && value !== null && conditionHolds(value, filter.op, filter.value);
+    });
+  }
+  const excluded = filters.exclude_match_numbers ?? [];
+  if (excluded.length > 0) {
+    population = population.filter(
+      (e) => e.match_number === null || !excluded.includes(e.match_number)
+    );
+  }
+  population.sort(sequenceOrder);
+  const lastN = filters.last_n_matches;
+  return typeof lastN === "number" ? lastNPerTeam(population, lastN) : population;
+}
+
+// ../../packages/shared/src/engine/reliability.ts
+function reliabilityFor(entries) {
+  let breakdowns = 0;
+  let noShows = 0;
+  let disabled = 0;
+  let played = 0;
+  for (const entry of canonicalEntries(entries)) {
+    if (entry.form_kind !== "match" || entry.match_type !== "qualification") continue;
+    switch (entry.robot_status) {
+      case "played":
+        played += 1;
+        break;
+      case "broke_down":
+        breakdowns += 1;
+        break;
+      case "no_show":
+        noShows += 1;
+        break;
+      case "disabled":
+        disabled += 1;
+        break;
+      default:
+        break;
+    }
+  }
+  const available = played;
+  const missed = breakdowns + noShows + disabled;
+  const counted = available + missed;
+  return {
+    breakdowns,
+    no_shows: noShows,
+    disabled,
+    available,
+    missed,
+    availability_rate: counted === 0 ? null : available / counted
+  };
+}
+
+// ../../packages/shared/src/engine/versions.ts
+function optionValues3(field) {
+  return selectOptions(field).map(
+    (option2) => typeof option2 === "object" && option2 !== null ? option2.value : void 0
+  );
+}
+function isOrdinalSelect(field) {
+  return field.is_ordinal === true && (field.type === "single_select" || field.type === "multi_select");
+}
+function ranksCarryOver(older, active) {
+  let previous = -1;
+  for (const value of older) {
+    const at = active.indexOf(value);
+    if (at === -1 || at <= previous) return false;
+    previous = at;
+  }
+  return true;
+}
+function resolveFieldAcrossVersions(key2, versions) {
+  const field = versions.active.fields.find((f) => f.key === key2 && !f.deprecated);
+  if (!field) return { ok: false, reason: "absent" };
+  const ordinal = isOrdinalSelect(field);
+  const activeOptions = ordinal ? optionValues3(field) : [];
+  for (const version of [versions.active, ...versions.inScope]) {
+    for (const other of version.fields) {
+      if (other.key !== key2) continue;
+      if (other.type !== field.type) return { ok: false, reason: "type-changed" };
+      if (ordinal && !ranksCarryOver(optionValues3(other), activeOptions)) {
+        return { ok: false, reason: "type-changed" };
+      }
+    }
+  }
+  return { ok: true, field };
+}
+function rankOf(options, value) {
+  if (typeof value !== "string") return null;
+  const at = options.indexOf(value);
+  return at === -1 ? null : at;
+}
+function aggregationValue(field, value) {
+  if (!isOrdinalSelect(field)) return value;
+  const options = optionValues3(field);
+  if (field.type === "single_select") return rankOf(options, value);
+  if (!Array.isArray(value) || value.length === 0) return null;
+  let best = -1;
+  for (const option2 of value) {
+    const rank = rankOf(options, option2);
+    if (rank === null) return null;
+    if (rank > best) best = rank;
+  }
+  return best;
+}
+
+// ../../packages/shared/src/engine/breakdown.ts
+function scoutedPoints(entry, fields, rules) {
+  if (entry.form_kind === "super") return null;
+  return scoreEntry({ robot_status: entry.robot_status, data: entry.data }, fields, rules);
+}
+function shownValue(field, value) {
+  if (field.type === "single_select" && typeof value === "string") {
+    return selectOptions(field).find((o) => o.value === value)?.label ?? value;
+  }
+  if (field.type === "multi_select" && Array.isArray(value)) {
+    const options = selectOptions(field);
+    return value.map((v) => options.find((o) => o.value === v)?.label ?? v);
+  }
+  return value;
+}
+function scoreBreakdown(entry, fields, rules) {
+  if (entry.robot_status !== null && isDeadRobot(entry.robot_status)) {
+    return { total: null, phases: [] };
+  }
+  const scored = entry.form_kind !== "super";
+  const data = hydrateComputed(entry.data, fields);
+  const byKey = new Map(rules.map((r) => [r.field_key, r]));
+  const seen = /* @__PURE__ */ new Set();
+  const rows = /* @__PURE__ */ new Map();
+  for (const field of fields) {
+    if (seen.has(field.key)) continue;
+    seen.add(field.key);
+    if (field.type === "section") continue;
+    const held = Object.prototype.hasOwnProperty.call(data, field.key);
+    if (!held && (field.deprecated || !isVisible(field, data))) continue;
+    const rule = byKey.get(field.key);
+    const value = data[field.key];
+    const row = {
+      key: field.key,
+      label: field.label,
+      type: field.type,
+      points: scored && rule && isScorable(field.type) ? scoreField(field, rule, value) : null
+    };
+    if (held) row.value = shownValue(field, value);
+    const phase = field.phase ?? "post_match";
+    rows.set(phase, [...rows.get(phase) ?? [], row]);
+  }
+  const phases = FIELD_PHASES.flatMap((phase) => {
+    const list = rows.get(phase);
+    if (!list || list.length === 0) return [];
+    const points = list.map((r) => r.points).filter((p) => p !== null);
+    return [
+      {
+        phase,
+        subtotal: points.length > 0 ? points.reduce((sum, p) => sum + p, 0) : null,
+        fields: list
+      }
+    ];
+  });
+  return { total: scoutedPoints(entry, fields, rules), phases };
+}
+function averagePoints(entries, fields, rules) {
+  const counted = applyFilters(
+    entries.filter((e) => e.form_kind === "match"),
+    {},
+    fields
+  );
+  return {
+    avg: aggregate(
+      counted.map((e) => scoreEntry(e, fields, rules)),
+      "avg"
+    ),
+    matches_counted: counted.length
+  };
+}
+function rankByAveragePoints(entries, teams, fields, rules) {
+  const byTeam2 = new Map(teams.map((t) => [t.id, []]));
+  for (const entry of entries) byTeam2.get(entry.team_id)?.push(entry);
+  const all = [...new Map(teams.map((t) => [t.id, t])).values()].map((team) => ({
+    team_id: team.id,
+    number: team.number,
+    ...averagePoints(byTeam2.get(team.id) ?? [], fields, rules)
+  }));
+  const ranked = all.filter((t) => t.matches_counted > 0 && t.avg !== null).sort((a, b) => b.avg - a.avg || a.number - b.number).map((t, i) => ({ ...t, rank: i + 1 }));
+  const unranked = all.filter((t) => t.matches_counted === 0 || t.avg === null).sort((a, b) => a.number - b.number).map((t) => ({ ...t, rank: null }));
+  return [...ranked, ...unranked];
+}
+
+// ../../packages/shared/src/engine/teamStats.ts
+function entriesBeforeMatch(entries, before) {
+  if (before === void 0) return entries;
+  return entries.filter(
+    (e) => e.match_type !== "qualification" || e.match_number !== null && e.match_number < before
+  );
+}
+var RANK_SORT_DEFAULT_DIRECTION = {
+  average_points: "desc",
+  auto_points: "desc",
+  teleop_points: "desc",
+  endgame_points: "desc",
+  post_match_points: "desc",
+  availability_rate: "desc",
+  matches_counted: "desc",
+  breakdowns: "asc",
+  no_shows: "asc",
+  disabled: "asc",
+  number: "asc"
+};
+var HEADLINE_LABEL = "Average points";
+var POINTS_KEYS = {
+  average: "average_points",
+  median: "median_points",
+  stddev: "stddev_points"
+};
+var fieldMetricKey = (fieldKey) => `field:${fieldKey}`;
+function byTeam(entries) {
+  const out = /* @__PURE__ */ new Map();
+  for (const entry of entries) {
+    const list = out.get(entry.team_id);
+    if (list) list.push(entry);
+    else out.set(entry.team_id, [entry]);
+  }
+  return out;
+}
+function populationOf(entries, scoring) {
+  const matchEntries = entries.filter((e) => e.form_kind === "match");
+  const counted = applyFilters(matchEntries, {}, scoring.fields);
+  const series = canonicalEntries(matchEntries).filter((e) => e.match_type === "qualification").map((e) => ({ ...e, data: hydrateComputed(e.data, scoring.fields) })).sort(sequenceOrder);
+  return {
+    counted,
+    points: counted.map((e) => scoreEntry(e, scoring.fields, scoring.rules)),
+    series
+  };
+}
+var isDead = (e) => e.robot_status !== null && isDeadRobot(e.robot_status);
+var labelOf = (e) => e.match_type !== null && e.match_number !== null ? matchLabel({ match_type: e.match_type, number: e.match_number }) : null;
+function observedDomain(values) {
+  const xs = values.filter((v) => v !== null && Number.isFinite(v));
+  if (xs.length === 0) return null;
+  return { min: Math.min(...xs), max: Math.max(...xs) };
+}
+function fieldMetricShape(field) {
+  switch (field.type) {
+    case "counter":
+    case "number":
+    case "rating":
+    case "timer":
+      return { kind: "number", aggregation: "avg" };
+    case "toggle":
+      return { kind: "rate", aggregation: "rate" };
+    case "single_select":
+    case "multi_select":
+      return field.is_ordinal === true ? { kind: "ordinal", aggregation: "avg" } : { kind: "nominal", aggregation: "mode" };
+    default:
+      return null;
+  }
+}
+var isMetricType = (type) => isScorable(type) || type === "rating" || type === "timer";
+function metricFields(fields) {
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const field of fields) {
+    if (field.deprecated || !isMetricType(field.type) || seen.has(field.key)) continue;
+    seen.add(field.key);
+    out.push(field);
+  }
+  return out;
+}
+var ratingMax = (field) => typeof field.config.max === "number" ? field.config.max : 5;
+var defaultDirection = (field) => field.direction ?? (field.type === "timer" ? "lower_is_better" : "higher_is_better");
+function secondsText(value) {
+  if (value === null) return null;
+  const one = Math.round(value * 10) / 10;
+  return `${Number.isInteger(one) ? String(one) : one.toFixed(1)} s`;
+}
+var optionLabel = (field, value) => {
+  if (typeof value !== "string") return null;
+  return selectOptions(field).find((o) => o.value === value)?.label ?? value;
+};
+function seriesValue(kind, field, raw) {
+  if (kind === "rate") return typeof raw === "boolean" ? raw ? 1 : 0 : null;
+  const v = aggregationValue(field, raw);
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+function wasAsked(entry, key2, versions) {
+  if (entry.data[key2] !== void 0) return true;
+  return versions.get(entry.form_version_id)?.some((f) => f.key === key2 && !f.deprecated) ?? false;
+}
+function fieldValue(field, shape, direction2, counted) {
+  if (shape.kind === "nominal") {
+    const mode = aggregate(
+      counted.map((e) => e.data[field.key]),
+      "mode",
+      { option_order: selectOptions(field).map((o) => o.value) },
+      direction2
+    );
+    return { value: null, display: mode === null ? null : optionLabel(field, String(mode)) };
+  }
+  const values = counted.map((e) => aggregationValue(field, e.data[field.key]));
+  const value = aggregate(values, shape.aggregation, void 0, direction2);
+  if (field.type === "timer") return { value, display: secondsText(value) };
+  if (shape.kind !== "ordinal" || value === null) return { value, display: null };
+  const options = selectOptions(field);
+  const nearest = options[Math.min(Math.max(Math.round(value), 0), options.length - 1)];
+  return { value, display: nearest ? nearest.label : null };
+}
+function cellOf(field, raw) {
+  switch (field.type) {
+    case "counter":
+    case "number":
+      return {
+        value: typeof raw === "number" && Number.isFinite(raw) ? raw : null,
+        display: null
+      };
+    case "toggle":
+      return typeof raw === "boolean" ? { value: raw ? 1 : 0, display: raw ? "Yes" : "No" } : { value: null, display: null };
+    case "single_select": {
+      const rank = aggregationValue(field, raw);
+      return { value: typeof rank === "number" ? rank : null, display: optionLabel(field, raw) };
+    }
+    case "multi_select": {
+      if (!Array.isArray(raw) || raw.length === 0) return { value: null, display: null };
+      const rank = aggregationValue(field, raw);
+      return {
+        value: typeof rank === "number" ? rank : null,
+        display: raw.map((v) => optionLabel(field, v) ?? String(v)).join(", ")
+      };
+    }
+    default:
+      return { value: null, display: null };
+  }
+}
+var EMPTY_CELL = { value: null, display: null };
+var MATCH_TYPE_ORDER = ["practice", "qualification", "playoff"];
+function matchOrder(a, b) {
+  const ta = a.match_type === null ? 99 : MATCH_TYPE_ORDER.indexOf(a.match_type);
+  const tb = b.match_type === null ? 99 : MATCH_TYPE_ORDER.indexOf(b.match_type);
+  if (ta !== tb) return ta - tb;
+  const na = a.match_number ?? Number.POSITIVE_INFINITY;
+  const nb = b.match_number ?? Number.POSITIVE_INFINITY;
+  if (na !== nb) return na < nb ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+var instant2 = (stamp2) => {
+  const ms = Date.parse(stamp2);
+  return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+};
+function scoringPhases(scoring) {
+  const ruled = new Set(scoring.rules.map((r) => r.field_key));
+  const seen = /* @__PURE__ */ new Set();
+  const phases = /* @__PURE__ */ new Set();
+  for (const field of scoring.fields) {
+    if (seen.has(field.key)) continue;
+    seen.add(field.key);
+    if (isScorable(field.type) && ruled.has(field.key)) phases.add(field.phase ?? "post_match");
+  }
+  return FIELD_PHASES.filter((phase) => phases.has(phase));
+}
+function phaseOfSortKey(key2) {
+  return FIELD_PHASES.find((phase) => PHASE_SORT_KEYS[phase] === key2) ?? null;
+}
+function rankSortValue(row, key2) {
+  const phase = phaseOfSortKey(key2);
+  if (phase !== null) return row.phase_averages.find((p) => p.phase === phase)?.average ?? null;
+  return row[key2];
+}
+function rankRowHasData(row) {
+  return row.matches_counted > 0 || row.availability_rate !== null;
+}
+function compareRankRows(a, b, sort) {
+  const da = rankRowHasData(a);
+  const db = rankRowHasData(b);
+  if (da !== db) return da ? -1 : 1;
+  for (const { key: key2, direction: direction2 } of sort) {
+    const va = rankSortValue(a, key2);
+    const vb = rankSortValue(b, key2);
+    if (va === null || vb === null) {
+      if (va === vb) continue;
+      return va === null ? 1 : -1;
+    }
+    if (va !== vb) return direction2 === "asc" ? va - vb : vb - va;
+  }
+  if (a.rank !== b.rank) {
+    if (a.rank === null) return 1;
+    if (b.rank === null) return -1;
+    return a.rank - b.rank;
+  }
+  return a.number - b.number;
+}
+function sortRankRows(rows, sort) {
+  return [...rows].sort((a, b) => compareRankRows(a, b, sort));
+}
+function buildRankTable(input) {
+  const { scoring } = input;
+  const entries = entriesBeforeMatch(input.entries, input.before_match_number);
+  const teams = [...new Map(input.teams.map((t) => [t.id, t])).values()];
+  const grouped = byTeam(entries);
+  const ranks = new Map(
+    rankByAveragePoints(entries, teams, scoring.fields, scoring.rules).map((r) => [r.team_id, r])
+  );
+  const phases = scoringPhases(scoring);
+  const rows = teams.map((team) => {
+    const r = ranks.get(team.id);
+    const own = grouped.get(team.id) ?? [];
+    const reliability = reliabilityFor(own);
+    const counted = applyFilters(
+      own.filter((e) => e.form_kind === "match"),
+      {},
+      scoring.fields
+    );
+    const points = counted.map((e) => scoreEntry(e, scoring.fields, scoring.rules));
+    const totals = points.filter((p) => p !== null);
+    const subtotals = counted.map(
+      (e) => new Map(
+        scoreBreakdown(e, scoring.fields, scoring.rules).phases.map((p) => [p.phase, p.subtotal])
+      )
+    );
+    const phaseAverages = phases.map((phase) => ({
+      phase,
+      average: aggregate(
+        subtotals.map((byPhase) => byPhase.get(phase) ?? 0),
+        "avg"
+      )
+    }));
+    return {
+      team_id: team.id,
+      number: team.number,
+      name: team.name,
+      rank: r?.rank ?? null,
+      average_points: r?.avg ?? null,
+      stddev: aggregate(points, "stddev"),
+      phase_averages: phaseAverages,
+      matches_counted: r?.matches_counted ?? 0,
+      breakdowns: reliability.breakdowns,
+      no_shows: reliability.no_shows,
+      disabled: reliability.disabled,
+      availability_rate: reliability.availability_rate,
+      recent_totals: totals.slice(-RANK_RECENT_MATCHES),
+      last_counted_match: counted.at(-1)?.match_number ?? null
+    };
+  });
+  const key2 = input.sort_by ?? "average_points";
+  const direction2 = input.direction ?? RANK_SORT_DEFAULT_DIRECTION[key2];
+  return sortRankRows(rows, [{ key: key2, direction: direction2 }]);
+}
+function buildTeamStats(input) {
+  const { scoring, team } = input;
+  const fields = scoring.fields;
+  const roster = [...new Map(input.teams.map((t) => [t.id, t])).values()];
+  const grouped = byTeam(input.entries);
+  const ownEntries = grouped.get(team.id) ?? [];
+  const domainTeams = roster.some((t) => t.id === team.id) ? roster : [...roster, team];
+  const populations = new Map(
+    domainTeams.map((t) => [t.id, populationOf(grouped.get(t.id) ?? [], scoring)])
+  );
+  const own = populations.get(team.id);
+  const ownLabel = (e) => labelOf(e) ?? "";
+  const pointsSeries = own.series.map((e) => ({
+    entry_id: e.id,
+    match_label: ownLabel(e),
+    value: isDead(e) ? null : scoreEntry(e, fields, scoring.rules),
+    asked: true
+  }));
+  const pointsOf = (teamId) => populations.get(teamId)?.points ?? [];
+  const average = averagePoints(ownEntries, fields, scoring.rules).avg;
+  const pointsMetric = (key2, label, aggregation, direction2) => ({
+    key: key2,
+    field_key: null,
+    label,
+    group: "overall",
+    kind: "number",
+    aggregation,
+    direction: direction2,
+    value: aggregation === "avg" ? average : aggregate(own.points, aggregation),
+    display: null,
+    domain: observedDomain(domainTeams.map((t) => aggregate(pointsOf(t.id), aggregation))),
+    series: pointsSeries,
+    unavailable_reason: null
+  });
+  const metrics = [
+    pointsMetric(POINTS_KEYS.average, HEADLINE_LABEL, "avg", "higher_is_better"),
+    pointsMetric(POINTS_KEYS.median, "Median points", "median", "higher_is_better"),
+    pointsMetric(POINTS_KEYS.stddev, "Std dev of points", "stddev", "neutral")
+  ];
+  const versionFields = new Map(input.versions.map((v) => [v.id, v.fields]));
+  const inScopeIds = /* @__PURE__ */ new Set();
+  for (const population of populations.values()) {
+    for (const e of population.counted) inScopeIds.add(e.form_version_id);
+  }
+  const inScope = [...inScopeIds].flatMap((id) => {
+    const f = versionFields.get(id);
+    return f ? [{ fields: f }] : [];
+  });
+  const byGroup = /* @__PURE__ */ new Map();
+  for (const field of metricFields(fields)) {
+    const shape = fieldMetricShape(field);
+    if (!shape) continue;
+    const group = field.phase ?? "post_match";
+    const direction2 = defaultDirection(field);
+    const base2 = {
+      key: fieldMetricKey(field.key),
+      field_key: field.key,
+      label: field.label,
+      group,
+      kind: shape.kind,
+      aggregation: shape.aggregation,
+      direction: direction2
+    };
+    const resolved = resolveFieldAcrossVersions(field.key, { active: { fields }, inScope });
+    let metric;
+    if (!resolved.ok) {
+      metric = {
+        ...base2,
+        value: null,
+        display: null,
+        domain: null,
+        series: [],
+        unavailable_reason: resolved.reason
+      };
+    } else {
+      const f = resolved.field;
+      const { value, display } = fieldValue(f, shape, direction2, own.counted);
+      let domain = null;
+      if (shape.kind === "rate") domain = { min: 0, max: 1 };
+      else if (shape.kind === "ordinal") {
+        domain = { min: 0, max: Math.max(selectOptions(f).length - 1, 0) };
+      } else if (f.type === "rating") {
+        domain = { min: 1, max: ratingMax(f) };
+      } else if (shape.kind === "number") {
+        domain = f.expected_range ? { min: f.expected_range.min, max: f.expected_range.max } : observedDomain(
+          domainTeams.map(
+            (t) => fieldValue(f, shape, direction2, populations.get(t.id)?.counted ?? []).value
+          )
+        );
+      }
+      metric = {
+        ...base2,
+        value,
+        display,
+        domain,
+        series: shape.kind === "nominal" ? [] : own.series.map((e) => {
+          const asked = wasAsked(e, f.key, versionFields);
+          return {
+            entry_id: e.id,
+            match_label: ownLabel(e),
+            value: !asked || isDead(e) ? null : seriesValue(shape.kind, f, e.data[f.key]),
+            asked
+          };
+        }),
+        unavailable_reason: null
+      };
+    }
+    byGroup.set(group, [...byGroup.get(group) ?? [], metric]);
+  }
+  for (const phase of FIELD_PHASES) metrics.push(...byGroup.get(phase) ?? []);
+  const names = new Map(input.scouters.map((s) => [s.id, s.full_name]));
+  const ruled = new Set(scoring.rules.map((r) => r.field_key));
+  const scored = metricFields(fields).filter((f) => isScorable(f.type) && ruled.has(f.key));
+  const columns = scored.map((f) => ({ key: fieldMetricKey(f.key), label: f.label }));
+  const canonical = canonicalEntries(ownEntries);
+  const matches = canonical.filter((e) => e.form_kind === "match").sort(matchOrder).map((e) => {
+    const dead = isDead(e);
+    const data = hydrateComputed(e.data, fields);
+    return {
+      entry_id: e.id,
+      match_id: e.match_id,
+      match_label: labelOf(e),
+      match_type: e.match_type,
+      match_number: e.match_number,
+      robot_status: e.robot_status,
+      scouted_points: scoutedPoints(
+        { form_kind: e.form_kind, robot_status: e.robot_status, data: e.data },
+        fields,
+        scoring.rules
+      ),
+      scouter_id: e.scouter_id,
+      scouter_name: names.get(e.scouter_id) ?? null,
+      columns: Object.fromEntries(
+        scored.map((f) => [fieldMetricKey(f.key), dead ? EMPTY_CELL : cellOf(f, data[f.key])])
+      )
+    };
+  });
+  const activeOf = (kind) => kind === "match" ? fields : input.superFields ?? [];
+  const notes = [];
+  for (const e of canonical) {
+    const seen = /* @__PURE__ */ new Set();
+    const candidates = [...activeOf(e.form_kind), ...versionFields.get(e.form_version_id) ?? []];
+    for (const field of candidates) {
+      if (seen.has(field.key)) continue;
+      seen.add(field.key);
+      const value = e.data[field.key];
+      if (field.type !== "long_text" || typeof value !== "string" || value.trim() === "") continue;
+      notes.push({
+        entry_id: e.id,
+        form_kind: e.form_kind,
+        match_label: e.form_kind === "match" ? labelOf(e) : null,
+        match_number: e.form_kind === "match" ? e.match_number : null,
+        field_key: field.key,
+        field_label: field.label,
+        value,
+        scouter_name: names.get(e.scouter_id) ?? null,
+        client_updated_at: e.client_updated_at
+      });
+    }
+  }
+  notes.sort(
+    (a, b) => instant2(b.client_updated_at) - instant2(a.client_updated_at) || (a.entry_id < b.entry_id ? 1 : a.entry_id > b.entry_id ? -1 : 0)
+  );
+  const base = reliabilityFor(ownEntries);
+  const named = (status) => own.series.filter((e) => e.robot_status === status).map(ownLabel);
+  const reliability = {
+    ...base,
+    breakdown_matches: named("broke_down"),
+    no_show_matches: named("no_show"),
+    disabled_matches: named("disabled")
+  };
+  let best = null;
+  own.counted.forEach((e, i) => {
+    const points = own.points[i];
+    if (typeof points !== "number") return;
+    if (best === null || points > best.points) {
+      best = { entry_id: e.id, match_label: ownLabel(e), points };
+    }
+  });
+  const rank = rankByAveragePoints(input.entries, roster, fields, scoring.rules).find(
+    (r) => r.team_id === team.id
+  );
+  return {
+    team: { id: team.id, number: team.number, name: team.name },
+    event: input.event,
+    entry_count: ownEntries.filter((e) => e.deleted_at === null || e.deleted_at === void 0).length,
+    rank: { rank: rank?.rank ?? null, of: roster.length },
+    headline: { label: HEADLINE_LABEL, value: average },
+    tiles: {
+      median: aggregate(own.points, "median"),
+      availability: {
+        rate: base.availability_rate,
+        available: base.available,
+        total: base.available + base.missed
+      },
+      best_match: best,
+      trend: aggregate(own.points, "slope")
+    },
+    metrics,
+    columns,
+    matches,
+    match_count: matches.length,
+    notes,
+    reliability
+  };
+}
 
 // src/routes/errors.ts
 var STATUS = {
@@ -1656,13 +3000,13 @@ function createApp(deps) {
 
 // src/auth/token.ts
 import { jwtVerify, SignJWT } from "jose";
-import { z as z12 } from "zod";
-var sessionClaims = z12.object({
-  sub: z12.string().min(1),
-  role: z12.enum(["scouter", "lead", "admin"]),
-  username: z12.string().min(1),
-  iat: z12.number().int(),
-  exp: z12.number().int()
+import { z as z15 } from "zod";
+var sessionClaims = z15.object({
+  sub: z15.string().min(1),
+  role: z15.enum(["scouter", "lead", "admin"]),
+  username: z15.string().min(1),
+  iat: z15.number().int(),
+  exp: z15.number().int()
 });
 var key = (config2) => new TextEncoder().encode(config2.authJwtSecret);
 async function issueToken(user, config2) {
@@ -1702,18 +3046,18 @@ async function callerFor(request, config2, store, options = {}) {
 }
 
 // src/config.ts
-import { z as z13 } from "zod";
-var schema = z13.object({
-  SUPABASE_URL: z13.string().url(),
-  SUPABASE_SERVICE_ROLE_KEY: z13.string().min(1),
-  AUTH_JWT_SECRET: z13.string().min(32, "must be at least 32 characters"),
-  AUTH_TOKEN_TTL_DAYS: z13.coerce.number().int().positive().default(30),
-  AUTH_TOKEN_REFRESH_AFTER_DAYS: z13.coerce.number().int().positive().default(7),
-  ALLOWED_ORIGIN: z13.string().url(),
-  NODE_ENV: z13.enum(["development", "production", "test"]).default("development"),
+import { z as z16 } from "zod";
+var schema = z16.object({
+  SUPABASE_URL: z16.string().url(),
+  SUPABASE_SERVICE_ROLE_KEY: z16.string().min(1),
+  AUTH_JWT_SECRET: z16.string().min(32, "must be at least 32 characters"),
+  AUTH_TOKEN_TTL_DAYS: z16.coerce.number().int().positive().default(30),
+  AUTH_TOKEN_REFRESH_AFTER_DAYS: z16.coerce.number().int().positive().default(7),
+  ALLOWED_ORIGIN: z16.string().url(),
+  NODE_ENV: z16.enum(["development", "production", "test"]).default("development"),
   // Vercel's own system env var (https://vercel.com/docs/environment-variables/system-environment-variables),
   // not something anyone sets by hand. Absent locally and in tests.
-  VERCEL_GIT_COMMIT_SHA: z13.string().min(1).optional()
+  VERCEL_GIT_COMMIT_SHA: z16.string().min(1).optional()
 });
 function loadServerConfig(env) {
   const parsed = schema.safeParse(env);
@@ -1759,6 +3103,22 @@ function makePingDatabase(config2) {
     const { error } = await getServiceClient(config2).from("app_settings").select("id").limit(1);
     if (error) throw new Error(error.message);
   };
+}
+
+// src/core/entrySearch.ts
+function entrySearch(query) {
+  const text = query?.trim().toLowerCase();
+  return text ? { text } : null;
+}
+function teamMatches(team, q) {
+  return team.name.toLowerCase().includes(q.text) || /^\d+$/.test(q.text) && String(team.number).startsWith(q.text);
+}
+function matchMatches(match, q) {
+  if (/^\d+$/.test(q.text)) return match.number === Number(q.text);
+  return matchLabel(match).toLowerCase() === q.text;
+}
+function scouterMatches(fullName, q) {
+  return typeof fullName === "string" && fullName.toLowerCase().includes(q.text);
 }
 
 // src/repos/pull.ts
@@ -1845,10 +3205,10 @@ async function parentIds(db, key2, scope) {
   }
 }
 function supabasePullEntity(db) {
-  return async (key2, scope, since, offset, limit) => {
+  return async (key2, scope, since, offset, limit2) => {
     const spec = PULL_SCOPES[key2];
     if (!spec) return [];
-    let query = db.from(spec.table).select("*").order("updated_at", { ascending: true }).range(offset, offset + limit - 1);
+    let query = db.from(spec.table).select("*").order("updated_at", { ascending: true }).range(offset, offset + limit2 - 1);
     if (since !== void 0) query = query.gt("updated_at", since);
     const ids = await parentIds(db, key2, scope);
     if (ids !== null) {
@@ -1891,6 +3251,8 @@ var TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d
 var IN_CHUNK = 100;
 var EVENT_TEAMS_READ_LIMIT = 1e3;
 var FORM_EXPORTS_READ_LIMIT = 200;
+var ENTRY_READ_PAGE = 1e3;
+var ENTRIES_FOR_SCOPE_MAX = 2e4;
 function chunks(items) {
   const out = [];
   for (let i = 0; i < items.length; i += IN_CHUNK) out.push(items.slice(i, i + IN_CHUNK));
@@ -1913,6 +3275,45 @@ function dbError(error) {
 }
 function supabaseStore(db) {
   const pullEntity = supabasePullEntity(db);
+  async function entrySearchFilter(eventId, q) {
+    const teamIds = /* @__PURE__ */ new Set();
+    const matchIds = /* @__PURE__ */ new Set();
+    const scouterIds = /* @__PURE__ */ new Set();
+    for (let from = 0; ; from += ENTRY_READ_PAGE) {
+      const { data, error } = await db.from("scouting_entries").select("team_id, match_id, scouter_id").eq("event_id", eventId).is("deleted_at", null).order("id").range(from, from + ENTRY_READ_PAGE - 1);
+      if (error) throw dbError(error);
+      for (const row of data ?? []) {
+        teamIds.add(row.team_id);
+        if (row.match_id) matchIds.add(row.match_id);
+        scouterIds.add(row.scouter_id);
+      }
+      if ((data ?? []).length < ENTRY_READ_PAGE) break;
+    }
+    const hitTeams = [];
+    for (const chunk of chunks([...teamIds].filter((id) => UUID.test(id)))) {
+      const { data, error } = await db.from("teams").select("id, number, name").in("id", chunk);
+      if (error) throw dbError(error);
+      for (const t of data ?? []) if (teamMatches(t, q)) hitTeams.push(t.id);
+    }
+    const hitMatches = [];
+    for (const chunk of chunks([...matchIds].filter((id) => UUID.test(id)))) {
+      const { data, error } = await db.from("matches").select("id, match_type, number").in("id", chunk);
+      if (error) throw dbError(error);
+      for (const m of data ?? []) if (matchMatches(m, q)) hitMatches.push(m.id);
+    }
+    const hitScouters = [];
+    for (const chunk of chunks([...scouterIds].filter((id) => UUID.test(id)))) {
+      const { data, error } = await db.from("users").select("id, full_name").in("id", chunk);
+      if (error) throw dbError(error);
+      for (const u of data ?? []) if (scouterMatches(u.full_name, q)) hitScouters.push(u.id);
+    }
+    const parts = [
+      hitTeams.length > 0 ? `team_id.in.(${hitTeams.join(",")})` : null,
+      hitMatches.length > 0 ? `match_id.in.(${hitMatches.join(",")})` : null,
+      hitScouters.length > 0 ? `scouter_id.in.(${hitScouters.join(",")})` : null
+    ].filter((p) => p !== null);
+    return parts.length > 0 ? parts.join(",") : null;
+  }
   return {
     async getUser(id) {
       const { data, error } = await db.from("users").select("id, role, disabled_at").eq("id", id).maybeSingle();
@@ -1953,9 +3354,9 @@ function supabaseStore(db) {
       return data ?? [];
     },
     async countEnabledAdmins() {
-      const { count, error } = await db.from("users").select("id", { count: "exact", head: true }).eq("role", "admin").is("disabled_at", null);
+      const { count: count2, error } = await db.from("users").select("id", { count: "exact", head: true }).eq("role", "admin").is("disabled_at", null);
       if (error) throw dbError(error);
-      return count ?? 0;
+      return count2 ?? 0;
     },
     // The four methods below feed syncPush's idempotency and authorization decisions (and
     // eventExists, syncPull's 404). Each THROWS on a database error: swallowed, a blip
@@ -2021,7 +3422,7 @@ function supabaseStore(db) {
       if (error) throw dbError(error);
     },
     // Task 1.41 (SPEC-FINAL 9.5): the review queue's reads and the resolve command's guard.
-    async listOpenConflicts(eventId, entity, limit, after) {
+    async listOpenConflicts(eventId, entity, limit2, after) {
       if (after && (!TIMESTAMP.test(after.created_at) || !UUID.test(after.id))) {
         throw new Error("listOpenConflicts: a keyset must be a timestamp and a uuid");
       }
@@ -2032,13 +3433,13 @@ function supabaseStore(db) {
           `created_at.gt."${after.created_at}",and(created_at.eq."${after.created_at}",id.gt.${after.id})`
         );
       }
-      const { data, error } = await query.order("created_at", { ascending: true }).order("id", { ascending: true }).limit(limit);
+      const { data, error } = await query.order("created_at", { ascending: true }).order("id", { ascending: true }).limit(limit2);
       if (error) throw dbError(error);
       return data ?? [];
     },
-    async listSettledConflicts(eventId, entity, since, limit) {
+    async listSettledConflicts(eventId, entity, since, limit2) {
       if (!UUID.test(eventId)) return [];
-      const { data, error } = await db.from("sync_conflicts").select(CONFLICT_COLUMNS).eq("event_id", eventId).eq("entity", entity).gte("resolved_at", since).order("resolved_at", { ascending: false }).order("id", { ascending: true }).limit(limit);
+      const { data, error } = await db.from("sync_conflicts").select(CONFLICT_COLUMNS).eq("event_id", eventId).eq("entity", entity).gte("resolved_at", since).order("resolved_at", { ascending: false }).order("id", { ascending: true }).limit(limit2);
       if (error) throw dbError(error);
       return data ?? [];
     },
@@ -2139,9 +3540,9 @@ function supabaseStore(db) {
     },
     // Soft-deleted entries count: they are bound to the version all the same.
     async countEntriesByFormVersion(formVersionId) {
-      const { count, error } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).eq("form_version_id", formVersionId);
+      const { count: count2, error } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).eq("form_version_id", formVersionId);
       if (error) throw dbError(error);
-      return count ?? 0;
+      return count2 ?? 0;
     },
     // Ids survive a save: deletes first, then ONE upsert on (form_version_id, key), so a
     // key already saved is updated in place (keeping its id) and a new one is inserted.
@@ -2184,9 +3585,9 @@ function supabaseStore(db) {
       return data;
     },
     async purgeFormExports(olderThan) {
-      const { count, error } = await db.from("form_exports").delete({ count: "exact" }).lt("created_at", olderThan.toISOString());
+      const { count: count2, error } = await db.from("form_exports").delete({ count: "exact" }).lt("created_at", olderThan.toISOString());
       if (error) throw dbError(error);
-      return count ?? 0;
+      return count2 ?? 0;
     },
     // Task 1.28: the Exports picker. Bounded: exports live 24 hours, so 200 is far beyond use.
     async listFormExports() {
@@ -2204,9 +3605,9 @@ function supabaseStore(db) {
     async countLiveEntriesByFormVersions(versionIds) {
       const counted = await Promise.all(
         versionIds.map(async (id) => {
-          const { count, error } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).eq("form_version_id", id).is("deleted_at", null);
+          const { count: count2, error } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).eq("form_version_id", id).is("deleted_at", null);
           if (error) throw dbError(error);
-          return [id, count ?? 0];
+          return [id, count2 ?? 0];
         })
       );
       return new Map(counted);
@@ -2320,10 +3721,10 @@ function supabaseStore(db) {
       if (error) throw dbError(error);
       return data;
     },
-    async listSeasons(limit, after) {
+    async listSeasons(limit2, after) {
       let query = db.from("seasons").select(SEASON_COLUMNS);
       if (after) query = query.lt("year", after.year);
-      const { data, error } = await query.order("year", { ascending: false }).limit(limit);
+      const { data, error } = await query.order("year", { ascending: false }).limit(limit2);
       if (error) throw dbError(error);
       return data ?? [];
     },
@@ -2342,7 +3743,7 @@ function supabaseStore(db) {
       if (error) throw dbError(error);
       return data;
     },
-    async listEvents(seasonId, limit, after) {
+    async listEvents(seasonId, limit2, after) {
       let query = db.from("events").select(EVENT_COLUMNS).eq("season_id", seasonId);
       if (after) {
         if (!Number.isInteger(after.sort_order) || !UUID.test(after.id)) {
@@ -2352,7 +3753,7 @@ function supabaseStore(db) {
           `sort_order.gt.${after.sort_order},and(sort_order.eq.${after.sort_order},id.gt.${after.id})`
         );
       }
-      const { data, error } = await query.order("sort_order", { ascending: true }).order("id", { ascending: true }).limit(limit);
+      const { data, error } = await query.order("sort_order", { ascending: true }).order("id", { ascending: true }).limit(limit2);
       if (error) throw dbError(error);
       return data ?? [];
     },
@@ -2364,9 +3765,9 @@ function supabaseStore(db) {
       if (error) throw dbError(error);
       const eventIds = (events ?? []).map((e) => e.id);
       if (eventIds.length === 0) return 0;
-      const { count, error: countError } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).in("event_id", eventIds);
+      const { count: count2, error: countError } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).in("event_id", eventIds);
       if (countError) throw dbError(countError);
-      return count ?? 0;
+      return count2 ?? 0;
     },
     // RB.13: live entries per scouter across the season, for the Users page. Two reads, no
     // join, like countEntriesBySeason. PostgREST caps a read at max_rows = 1000
@@ -2386,7 +3787,7 @@ function supabaseStore(db) {
           if ((data ?? []).length < PAGE) break;
         }
       }
-      return [...counts].map(([scouter_id, count]) => ({ scouter_id, count }));
+      return [...counts].map(([scouter_id, count2]) => ({ scouter_id, count: count2 }));
     },
     // Task 1.19: teams, the roster, matches and their slots. Every method THROWS on a
     // database error, keeping Postgres's code (dbError), as the season and event methods
@@ -2418,7 +3819,7 @@ function supabaseStore(db) {
     // unused in v1 (task 1.19). A literal `*` in the query matches any one character
     // (see escapeLikePattern): harmless in a search box, and it never widens past it.
     async listTeams(options) {
-      const { query, limit, after } = options;
+      const { query, limit: limit2, after } = options;
       if (after && !Number.isInteger(after.number)) {
         throw new Error("listTeams: a keyset must be an integer team number");
       }
@@ -2427,7 +3828,7 @@ function supabaseStore(db) {
         return after ? q.gt("number", after.number) : q;
       };
       const read = async (filter) => {
-        const { data, error } = await filter(base()).order("number", { ascending: true }).limit(limit);
+        const { data, error } = await filter(base()).order("number", { ascending: true }).limit(limit2);
         if (error) throw dbError(error);
         return data ?? [];
       };
@@ -2436,7 +3837,7 @@ function supabaseStore(db) {
       if (/^[1-9]\d{0,4}$/.test(query)) reads.push(read((q) => q.or(numberPrefixFilter(query))));
       const byId = /* @__PURE__ */ new Map();
       for (const rows of await Promise.all(reads)) for (const row of rows) byId.set(row.id, row);
-      return [...byId.values()].sort((a, b) => a.number - b.number).slice(0, limit);
+      return [...byId.values()].sort((a, b) => a.number - b.number).slice(0, limit2);
     },
     // Two reads rather than an embedded join, like countEntriesBySeason: the live rows'
     // team ids, then those teams by number.
@@ -2511,14 +3912,14 @@ function supabaseStore(db) {
     // and the alphabetical order of the types is wrong, so this reads one type at a time
     // from the keyset's type onward — at most three reads a page, and one when the page
     // fills from the first type.
-    async listMatches(eventId, limit, after) {
+    async listMatches(eventId, limit2, after) {
       const start = after ? MATCH_TYPES.indexOf(after.match_type) : 0;
       if (after && (start < 0 || !Number.isInteger(after.number))) {
         throw new Error("listMatches: a keyset must be a match type and an integer number");
       }
       const out = [];
       for (const matchType2 of MATCH_TYPES.slice(start)) {
-        const remaining = limit - out.length;
+        const remaining = limit2 - out.length;
         if (remaining <= 0) break;
         let query = db.from("matches").select(MATCH_COLUMNS).eq("event_id", eventId).eq("match_type", matchType2);
         if (after && matchType2 === after.match_type) query = query.gt("number", after.number);
@@ -2574,9 +3975,9 @@ function supabaseStore(db) {
     },
     // Soft-deleted entries count: the `on delete restrict` foreign key counts them too.
     async countEntriesByMatch(matchId) {
-      const { count, error } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).eq("match_id", matchId);
+      const { count: count2, error } = await db.from("scouting_entries").select("id", { count: "exact", head: true }).eq("match_id", matchId);
       if (error) throw dbError(error);
-      return count ?? 0;
+      return count2 ?? 0;
     },
     // A hard delete. The match's match_teams cascade (tombstones too: the match_deletions
     // tombstone covers them); an entry refuses it with 23503.
@@ -2619,27 +4020,149 @@ function supabaseStore(db) {
       }
       return { events: eventIds.length, matches, entries, forms };
     },
-    // The remaining methods start as loud stubs, exactly as the fake does. Each later
-    // task replaces the two or three it needs. `supabaseStore` is typed `: Store`, so
-    // without these the file does not compile at all.
-    ...stubsFor(["getEntry", "queryEntries", "entriesForScope", "listTeamEvents"])
-    // The spread above only carries an index signature (its keys come from a plain
-    // string[]), so TS can't see that it supplies the remaining named Store methods;
-    // the assertion tells it what `stubsFor` guarantees at runtime instead.
+    // Task 1.60: the match with its entries, one SQL function (migration
+    // 20261028090000_delete_match_cascade.sql): entries (soft-deleted too), then the match.
+    async deleteMatchCascade(id) {
+      const { data, error } = await db.rpc("delete_match_cascade", { p_match_id: id });
+      if (error) throw dbError(error);
+      return typeof data === "number" ? data : 0;
+    },
+    // Task 1.60: head counts only, no rows read. Every row counts (soft-deleted ones still
+    // hold the keys and go with the delete); two more counts split them. Batched like every
+    // `in` filter here.
+    async tallyEntries(scope) {
+      const [column, ids] = "eventIds" in scope ? ["event_id", scope.eventIds] : ["form_version_id", scope.formVersionIds];
+      const tally = { entries: 0, deleted_entries: 0, super_entries: 0 };
+      for (const chunk of chunks(ids)) {
+        const all = await db.from("scouting_entries").select("id", { count: "exact", head: true }).in(column, chunk);
+        if (all.error) throw dbError(all.error);
+        const deleted = await db.from("scouting_entries").select("id", { count: "exact", head: true }).in(column, chunk).not("deleted_at", "is", null);
+        if (deleted.error) throw dbError(deleted.error);
+        const superRows = await db.from("scouting_entries").select("id", { count: "exact", head: true }).in(column, chunk).eq("form_kind", "super");
+        if (superRows.error) throw dbError(superRows.error);
+        tally.entries += all.count ?? 0;
+        tally.deleted_entries += deleted.count ?? 0;
+        tally.super_entries += superRows.count ?? 0;
+      }
+      return tally;
+    },
+    async countMatchesOfEvents(eventIds) {
+      let total = 0;
+      for (const chunk of chunks(eventIds)) {
+        const { count: count2, error } = await db.from("matches").select("id", { count: "exact", head: true }).in("event_id", chunk);
+        if (error) throw dbError(error);
+        total += count2 ?? 0;
+      }
+      return total;
+    },
+    async countAnalysisRows(scope) {
+      if ("formId" in scope) {
+        const { count: count2, error } = await db.from("metrics").select("id", { count: "exact", head: true }).eq("form_id", scope.formId);
+        if (error) throw dbError(error);
+        return { metrics: count2 ?? 0, dashboards: 0, weight_presets: 0 };
+      }
+      const out = { metrics: 0, dashboards: 0, weight_presets: 0 };
+      for (const table of ["metrics", "dashboards", "weight_presets"]) {
+        const { count: count2, error } = await db.from(table).select("id", { count: "exact", head: true }).eq("season_id", scope.seasonId);
+        if (error) throw dbError(error);
+        out[table] = count2 ?? 0;
+      }
+      return out;
+    },
+    // A match holds a handful of entries (six stations, plus the odd duplicate), far under
+    // PostgREST's 1000-row cap.
+    async listMatchEntries(matchId) {
+      const { data, error } = await db.from("scouting_entries").select("team_id, form_kind, client_updated_at, deleted_at").eq("match_id", matchId);
+      if (error) throw dbError(error);
+      return data ?? [];
+    },
+    // Task 1.50: the browse and search reads. SQL fetches rows over typed columns; the shared
+    // engine scores them in the use case. Nothing here reads into the JSONB.
+    async getEntry(id) {
+      if (!UUID.test(id)) return null;
+      const { data, error } = await db.from("scouting_entries").select("*").eq("id", id).maybeSingle();
+      if (error) throw dbError(error);
+      return data ?? null;
+    },
+    async queryEntries(options) {
+      const { eventId, formKind: formKind2, teamId, limit: limit2, after } = options;
+      if (after && (!TIMESTAMP.test(after.client_created_at) || !UUID.test(after.id))) {
+        throw new Error("queryEntries: a keyset must be a timestamp and a uuid");
+      }
+      if (!UUID.test(eventId) || teamId !== void 0 && !UUID.test(teamId)) return [];
+      const search = entrySearch(options.query);
+      const searchFilter = search ? await entrySearchFilter(eventId, search) : null;
+      if (search && searchFilter === null) return [];
+      const keyset = after ? entryKeysetFilter(after) : null;
+      let query = db.from("scouting_entries").select("*").eq("event_id", eventId).is("deleted_at", null);
+      if (formKind2) query = query.eq("form_kind", formKind2);
+      if (teamId !== void 0) query = query.eq("team_id", teamId);
+      if (searchFilter && keyset) query = query.or(`and(or(${searchFilter}),or(${keyset}))`);
+      else if (searchFilter ?? keyset) query = query.or(searchFilter ?? keyset);
+      const { data, error } = await query.order("client_created_at", { ascending: false }).order("id", { ascending: false }).limit(limit2);
+      if (error) throw dbError(error);
+      return data ?? [];
+    },
+    async listTeamEvents(teamIds, eventIds) {
+      const teams = [...new Set(teamIds)].filter((id) => UUID.test(id));
+      const events = [...new Set(eventIds)].filter((id) => UUID.test(id));
+      const groups = /* @__PURE__ */ new Map();
+      for (const teamChunk of chunks(teams)) {
+        for (const eventChunk of chunks(events)) {
+          for (let from = 0; ; from += ENTRY_READ_PAGE) {
+            const { data, error } = await db.from("scouting_entries").select("team_id, event_id, client_created_at").in("team_id", teamChunk).in("event_id", eventChunk).is("deleted_at", null).order("id").range(from, from + ENTRY_READ_PAGE - 1);
+            if (error) throw dbError(error);
+            for (const row of data ?? []) addTeamEventEntry(groups, row);
+            if ((data ?? []).length < ENTRY_READ_PAGE) break;
+          }
+        }
+      }
+      return [...groups.values()];
+    },
+    // Task 1.57: the statistics read. Every LIVE entry of the events (optionally one team's),
+    // paged by id, at most ENTRIES_FOR_SCOPE_MAX rows; the engine computes everything else.
+    async entriesForScope(scope) {
+      const events = [...new Set(scope.eventIds)].filter((id) => UUID.test(id));
+      if (events.length === 0) return [];
+      if (scope.teamId !== void 0 && !UUID.test(scope.teamId)) return [];
+      const out = [];
+      for (const chunk of chunks(events)) {
+        for (let from = 0; out.length < ENTRIES_FOR_SCOPE_MAX; from += ENTRY_READ_PAGE) {
+          let query = db.from("scouting_entries").select("*").in("event_id", chunk).is("deleted_at", null);
+          if (scope.teamId !== void 0) query = query.eq("team_id", scope.teamId);
+          const { data, error } = await query.order("id").range(from, from + ENTRY_READ_PAGE - 1);
+          if (error) throw dbError(error);
+          out.push(...data ?? []);
+          if ((data ?? []).length < ENTRY_READ_PAGE) break;
+        }
+      }
+      return out.slice(0, ENTRIES_FOR_SCOPE_MAX);
+    }
   };
 }
 function escapeLikePattern(value) {
   return value.replace(/[\\%_]/g, (c) => `\\${c}`).replace(/\*/g, "_");
 }
-function stubsFor(names) {
-  return Object.fromEntries(
-    names.map((name) => [
-      name,
-      async () => {
-        throw new Error(`Store.${name} is not implemented yet \u2014 it lands with its own task`);
-      }
-    ])
-  );
+function entryKeysetFilter(after) {
+  const c = after.client_created_at;
+  return `client_created_at.lt."${c}",and(client_created_at.eq."${c}",id.lt.${after.id})`;
+}
+function addTeamEventEntry(groups, row) {
+  const key2 = `${row.team_id}|${row.event_id}`;
+  const group = groups.get(key2);
+  if (!group) {
+    groups.set(key2, {
+      team_id: row.team_id,
+      event_id: row.event_id,
+      entry_count: 1,
+      last_entry_at: row.client_created_at
+    });
+    return;
+  }
+  group.entry_count += 1;
+  if (Date.parse(row.client_created_at) > Date.parse(group.last_entry_at)) {
+    group.last_entry_at = row.client_created_at;
+  }
 }
 
 // src/routes/rpc.ts
@@ -2969,7 +4492,7 @@ function pgCode(e) {
 }
 
 // src/core/queries/listEvents.ts
-import { z as z14 } from "zod";
+import { z as z17 } from "zod";
 
 // src/core/cursor.ts
 function encodeCursor(value) {
@@ -2990,23 +4513,23 @@ function decodeCursor(schema2, raw) {
 }
 
 // src/core/queries/listEvents.ts
-var eventCursor = z14.object({ s: z14.number().int(), i: z14.string().uuid() }).strict();
+var eventCursor = z17.object({ s: z17.number().int(), i: z17.string().uuid() }).strict();
 async function listEvents(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listEventsInput, input);
-  const limit = Math.min(parsed.limit ?? LIST_EVENTS_DEFAULT_LIMIT, LIST_EVENTS_MAX_LIMIT);
-  const cursor = parsed.cursor ? decodeCursor(eventCursor, parsed.cursor) : void 0;
+  const limit2 = Math.min(parsed.limit ?? LIST_EVENTS_DEFAULT_LIMIT, LIST_EVENTS_MAX_LIMIT);
+  const cursor2 = parsed.cursor ? decodeCursor(eventCursor, parsed.cursor) : void 0;
   const season = await seasonOrNotFound(ctx, parsed.season_id);
   const rows = await ctx.store.listEvents(
     season.id,
-    limit + 1,
-    cursor ? { sort_order: cursor.s, id: cursor.i } : void 0
+    limit2 + 1,
+    cursor2 ? { sort_order: cursor2.s, id: cursor2.i } : void 0
   );
-  const page = rows.slice(0, limit);
+  const page = rows.slice(0, limit2);
   const last = page[page.length - 1];
   return {
     items: page.map(toEvent),
-    next_cursor: rows.length > limit && last ? encodeCursor({ s: last.sort_order, i: last.id }) : null
+    next_cursor: rows.length > limit2 && last ? encodeCursor({ s: last.sort_order, i: last.id }) : null
   };
 }
 
@@ -3097,19 +4620,19 @@ async function setActiveEvent(caller, input, ctx) {
 }
 
 // src/core/queries/listSeasons.ts
-import { z as z15 } from "zod";
-var seasonCursor = z15.object({ y: z15.number().int() }).strict();
+import { z as z18 } from "zod";
+var seasonCursor = z18.object({ y: z18.number().int() }).strict();
 async function listSeasons(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listSeasonsInput, input);
-  const limit = Math.min(parsed.limit ?? LIST_SEASONS_DEFAULT_LIMIT, LIST_SEASONS_MAX_LIMIT);
+  const limit2 = Math.min(parsed.limit ?? LIST_SEASONS_DEFAULT_LIMIT, LIST_SEASONS_MAX_LIMIT);
   const after = parsed.cursor ? { year: decodeCursor(seasonCursor, parsed.cursor).y } : void 0;
-  const rows = await ctx.store.listSeasons(limit + 1, after);
-  const page = rows.slice(0, limit);
+  const rows = await ctx.store.listSeasons(limit2 + 1, after);
+  const page = rows.slice(0, limit2);
   const last = page[page.length - 1];
   return {
     items: page.map(toSeason),
-    next_cursor: rows.length > limit && last ? encodeCursor({ y: last.year }) : null
+    next_cursor: rows.length > limit2 && last ? encodeCursor({ y: last.year }) : null
   };
 }
 
@@ -3257,25 +4780,70 @@ async function inWaves(items, fn) {
   return results;
 }
 
+// src/core/commands/deleteCompetition.ts
+function refuseActive(message, details) {
+  return new AppError("conflict", message, details);
+}
+function assertConfirmed(typed, name) {
+  if (typed !== name) throw new AppError("invalid", TYPE_NAME_EXACTLY);
+}
+var seasonName = (season) => String(season.year);
+async function seasonIsActive(ctx, season) {
+  const active = await ctx.store.getActiveContext();
+  if (active.active_season_id === season.id) return true;
+  if (active.active_event_id === null) return false;
+  const event = await ctx.store.getEvent(active.active_event_id);
+  return event?.season_id === season.id;
+}
+async function eventIsDefault(ctx, event) {
+  return (await ctx.store.getActiveContext()).active_event_id === event.id;
+}
+async function deleteSeason(caller, input, ctx) {
+  assertCan(caller, "delete_objects");
+  const parsed = parseInput(deleteSeasonInput, input);
+  const season = await seasonOrNotFound(ctx, parsed.season_id);
+  if (await seasonIsActive(ctx, season)) {
+    throw refuseActive(SWITCH_SEASON_FIRST, { season_id: season.id });
+  }
+  const impact = await ctx.store.countDeleteImpact("season", season.id);
+  if (parsed.dry_run) return { deleted: false, ...impact };
+  assertConfirmed(parsed.confirm_name, seasonName(season));
+  await ctx.store.deleteSeason(season.id);
+  return { deleted: true, ...impact };
+}
+async function deleteEvent(caller, input, ctx) {
+  assertCan(caller, "delete_objects");
+  const parsed = parseInput(deleteEventInput, input);
+  const event = await eventOrNotFound(ctx, parsed.event_id);
+  if (await eventIsDefault(ctx, event)) {
+    throw refuseActive(SWITCH_EVENT_FIRST, { event_id: event.id });
+  }
+  const impact = await ctx.store.countDeleteImpact("event", event.id);
+  if (parsed.dry_run) return { deleted: false, ...impact };
+  assertConfirmed(parsed.confirm_name, event.name);
+  await ctx.store.deleteEvent(event.id);
+  return { deleted: true, ...impact };
+}
+
 // src/core/queries/listMatches.ts
-import { z as z16 } from "zod";
-var matchCursor = z16.object({ t: matchType, n: z16.number().int() }).strict();
+import { z as z19 } from "zod";
+var matchCursor = z19.object({ t: matchType, n: z19.number().int() }).strict();
 async function listMatches(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listMatchesInput, input);
-  const limit = Math.min(parsed.limit ?? LIST_MATCHES_DEFAULT_LIMIT, LIST_MATCHES_MAX_LIMIT);
-  const cursor = parsed.cursor ? decodeCursor(matchCursor, parsed.cursor) : void 0;
+  const limit2 = Math.min(parsed.limit ?? LIST_MATCHES_DEFAULT_LIMIT, LIST_MATCHES_MAX_LIMIT);
+  const cursor2 = parsed.cursor ? decodeCursor(matchCursor, parsed.cursor) : void 0;
   const event = await eventOrNotFound(ctx, parsed.event_id);
   const rows = await ctx.store.listMatches(
     event.id,
-    limit + 1,
-    cursor ? { match_type: cursor.t, number: cursor.n } : void 0
+    limit2 + 1,
+    cursor2 ? { match_type: cursor2.t, number: cursor2.n } : void 0
   );
-  const page = rows.slice(0, limit);
+  const page = rows.slice(0, limit2);
   const last = page[page.length - 1];
   return {
     items: await withSlots(ctx, page),
-    next_cursor: rows.length > limit && last ? encodeCursor({ t: last.match_type, n: last.number }) : null
+    next_cursor: rows.length > limit2 && last ? encodeCursor({ t: last.match_type, n: last.number }) : null
   };
 }
 
@@ -3292,16 +4860,16 @@ async function writeMatch(key2, write) {
 }
 var MATCHES_PAGE = 200;
 async function numbersOf(ctx, eventId, matchType2) {
-  const numbers = /* @__PURE__ */ new Set();
+  const numbers2 = /* @__PURE__ */ new Set();
   let after = { match_type: matchType2, number: 0 };
   for (; ; ) {
     const page = await ctx.store.listMatches(eventId, MATCHES_PAGE, after);
     for (const row of page) {
-      if (row.match_type !== matchType2) return numbers;
-      numbers.add(row.number);
+      if (row.match_type !== matchType2) return numbers2;
+      numbers2.add(row.number);
     }
     const last = page[page.length - 1];
-    if (page.length < MATCHES_PAGE || !last) return numbers;
+    if (page.length < MATCHES_PAGE || !last) return numbers2;
     after = { match_type: matchType2, number: last.number };
   }
 }
@@ -3356,17 +4924,18 @@ async function updateMatch(caller, input, ctx) {
   const stored = await writeMatch(key2, () => ctx.store.updateMatch(current.id, patch));
   return (await withSlots(ctx, [stored]))[0];
 }
-function hasEntries(match, count) {
-  const entries = count === 1 ? "1 entry" : count > 1 ? `${count} entries` : "entries";
+function hasEntries(match, count2) {
+  const entries = count2 === 1 ? "1 entry" : count2 > 1 ? `${count2} entries` : "entries";
   return new AppError(
     "conflict",
     `${describeMatch(match)} has ${entries}, so it cannot be deleted; correct the match number instead`,
-    { match_id: match.id, entries: count }
+    { match_id: match.id, entries: count2 }
   );
 }
 async function deleteMatch(caller, input, ctx) {
   assertCan(caller, "manage_events");
   const parsed = parseInput(deleteMatchInput, input);
+  if (parsed.with_entries) return deleteMatchWithEntries(caller, parsed, ctx);
   const match = await matchOrNotFound(ctx, parsed.match_id);
   const entries = await ctx.store.countEntriesByMatch(match.id);
   if (entries > 0) throw hasEntries(match, entries);
@@ -3379,6 +4948,25 @@ async function deleteMatch(caller, input, ctx) {
     throw e;
   }
   return { id: match.id, deleted: true };
+}
+async function deleteMatchWithEntries(caller, parsed, ctx) {
+  assertCan(caller, "delete_objects");
+  const match = await matchOrNotFound(ctx, parsed.match_id);
+  assertConfirmed(parsed.confirm_name, matchLabel(match));
+  let entries;
+  try {
+    entries = await ctx.store.deleteMatchCascade(match.id);
+  } catch (e) {
+    if (pgCode(e) === "23503") {
+      throw new AppError(
+        "conflict",
+        `an entry for ${matchLabel(match)} arrived while it was being deleted, so nothing was deleted; try again`,
+        { match_id: match.id }
+      );
+    }
+    throw e;
+  }
+  return { id: match.id, deleted: true, entries };
 }
 function notOnRoster(team) {
   return new AppError(
@@ -3490,19 +5078,19 @@ async function teamOrNotFound(ctx, id) {
 }
 
 // src/core/queries/listTeams.ts
-import { z as z17 } from "zod";
-var teamCursor = z17.object({ n: z17.number().int() }).strict();
+import { z as z20 } from "zod";
+var teamCursor = z20.object({ n: z20.number().int() }).strict();
 async function listTeams(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listTeamsInput, input);
-  const limit = Math.min(parsed.limit ?? LIST_TEAMS_DEFAULT_LIMIT, LIST_TEAMS_MAX_LIMIT);
+  const limit2 = Math.min(parsed.limit ?? LIST_TEAMS_DEFAULT_LIMIT, LIST_TEAMS_MAX_LIMIT);
   const after = parsed.cursor ? { number: decodeCursor(teamCursor, parsed.cursor).n } : void 0;
-  const rows = await ctx.store.listTeams({ query: parsed.query, limit: limit + 1, after });
-  const page = rows.slice(0, limit);
+  const rows = await ctx.store.listTeams({ query: parsed.query, limit: limit2 + 1, after });
+  const page = rows.slice(0, limit2);
   const last = page[page.length - 1];
   return {
     items: page.map(toTeam),
-    next_cursor: rows.length > limit && last ? encodeCursor({ n: last.number }) : null
+    next_cursor: rows.length > limit2 && last ? encodeCursor({ n: last.number }) : null
   };
 }
 
@@ -3572,48 +5160,6 @@ async function setEventRoster(caller, input, ctx) {
     throw e;
   }
   return { items: (await ctx.store.getRoster(event.id)).map(toRosterRow) };
-}
-
-// src/core/commands/deleteCompetition.ts
-var TYPE_NAME_EXACTLY = "Type the name exactly to delete.";
-function refuseActive(message, details) {
-  return new AppError("conflict", message, details);
-}
-function assertConfirmed(typed, name) {
-  if (typed !== name) throw new AppError("invalid", TYPE_NAME_EXACTLY);
-}
-async function deleteSeason(caller, input, ctx) {
-  assertCan(caller, "delete_objects");
-  const parsed = parseInput(deleteSeasonInput, input);
-  const season = await seasonOrNotFound(ctx, parsed.season_id);
-  const active = await ctx.store.getActiveContext();
-  let holdsDefault = false;
-  if (active.active_event_id !== null) {
-    const event = await ctx.store.getEvent(active.active_event_id);
-    holdsDefault = event?.season_id === season.id;
-  }
-  if (active.active_season_id === season.id || holdsDefault) {
-    throw refuseActive(SWITCH_SEASON_FIRST, { season_id: season.id });
-  }
-  const impact = await ctx.store.countDeleteImpact("season", season.id);
-  if (parsed.dry_run) return { deleted: false, ...impact };
-  assertConfirmed(parsed.confirm_name, String(season.year));
-  await ctx.store.deleteSeason(season.id);
-  return { deleted: true, ...impact };
-}
-async function deleteEvent(caller, input, ctx) {
-  assertCan(caller, "delete_objects");
-  const parsed = parseInput(deleteEventInput, input);
-  const event = await eventOrNotFound(ctx, parsed.event_id);
-  const active = await ctx.store.getActiveContext();
-  if (active.active_event_id === event.id) {
-    throw refuseActive(SWITCH_EVENT_FIRST, { event_id: event.id });
-  }
-  const impact = await ctx.store.countDeleteImpact("event", event.id);
-  if (parsed.dry_run) return { deleted: false, ...impact };
-  assertConfirmed(parsed.confirm_name, event.name);
-  await ctx.store.deleteEvent(event.id);
-  return { deleted: true, ...impact };
 }
 
 // src/core/commands/forms.ts
@@ -4186,44 +5732,64 @@ async function restoreFormVersion(caller, input, ctx) {
   await stamp(ctx, version.id, userId2);
   return { active_version_id: version.id };
 }
+var versionName = (version) => `v${version.version_no}`;
+async function versionDeleteBlock(ctx, version, form) {
+  const entries = await ctx.store.countEntriesByFormVersion(version.id);
+  if (entries > 0) {
+    return {
+      reason: "has-entries",
+      message: `this version has ${entries} ${entries === 1 ? "entry" : "entries"} bound to it and cannot be deleted; delete the form to remove them, or leave it`,
+      entries
+    };
+  }
+  if (form.active_version_id === version.id) {
+    return {
+      reason: "active-version",
+      message: "this is the active version; deleting it would leave the form with nothing to scout. Restore another version first",
+      entries
+    };
+  }
+  if (version.published_at !== null) {
+    const versions = await ctx.store.listFormVersions(form.id);
+    const superseded = versions.some(
+      (v) => v.version_no > version.version_no && v.published_at !== null
+    );
+    if (!superseded) {
+      return {
+        reason: "published",
+        message: `v${version.version_no} is the newest published version; publish a newer version first, or delete the whole form`,
+        entries
+      };
+    }
+  }
+  return null;
+}
 async function deleteFormVersion(caller, input, ctx) {
-  assertCan(caller, "manage_forms");
+  assertCan(caller, "delete_objects");
   const parsed = parseInput(deleteFormVersionInput, input);
   const version = await versionOrNotFound(ctx, parsed.form_version_id);
   const form = await formOrNotFound(ctx, version.form_id);
-  const entries = await ctx.store.countEntriesByFormVersion(version.id);
-  if (entries > 0) {
+  const block = await versionDeleteBlock(ctx, version, form);
+  if (block !== null) {
     throw new AppError(
       "invalid",
-      `this version has ${entries} ${entries === 1 ? "entry" : "entries"} bound to it and cannot be deleted; delete the form to remove them, or leave it`,
-      { reason: "has-entries", entries }
+      block.message,
+      block.reason === "has-entries" ? { reason: block.reason, entries: block.entries } : { reason: block.reason }
     );
   }
-  if (version.published_at !== null) {
-    throw new AppError(
-      "invalid",
-      `v${version.version_no} is published, and a device may still hold entries for it that have not reached the server; only a draft can be deleted on its own. Delete the whole form to remove it`,
-      { reason: "published" }
-    );
-  }
-  if (form.active_version_id === version.id) {
-    throw new AppError(
-      "invalid",
-      "this is the active version; deleting it would leave the form with nothing to scout. Restore another version first",
-      { reason: "active-version" }
-    );
-  }
+  assertConfirmed(parsed.confirm_name, versionName(version));
   await ctx.store.deleteFormVersion(version.id);
   return { deleted: true };
 }
 async function deleteForm(caller, input, ctx) {
-  assertCan(caller, "manage_forms");
+  assertCan(caller, "delete_objects");
   const parsed = parseInput(deleteFormInput, input);
   const form = await formOrNotFound(ctx, parsed.form_id);
   const versions = await ctx.store.listFormVersions(form.id);
   let entries = 0;
   for (const version of versions) entries += await ctx.store.countEntriesByFormVersion(version.id);
   if (parsed.dry_run) return { versions: versions.length, entries, deleted: false };
+  assertConfirmed(parsed.confirm_name, form.name);
   await ctx.store.deleteFormCascade(form.id);
   return { versions: versions.length, entries, deleted: true };
 }
@@ -4421,6 +5987,31 @@ async function importForm(caller, input, ctx) {
     await ctx.store.deleteFormCascade(form.id).catch(() => void 0);
     throw e;
   }
+}
+
+// src/core/commands/deletes.ts
+function softDeletedRow(existing, deletedAt, clientUpdatedAt) {
+  return {
+    ...existing,
+    deleted_at: deletedAt,
+    version: existing.version + 1,
+    client_updated_at: clientUpdatedAt
+  };
+}
+async function deleteEntry(caller, input, ctx) {
+  assertCan(caller, "manage_entries");
+  const parsed = parseInput(deleteEntryInput, input);
+  const existing = await ctx.store.getRow("scouting_entry", parsed.entry_id);
+  if (!existing) {
+    throw new AppError("not-found", "that entry does not exist", { entry_id: parsed.entry_id });
+  }
+  if (existing.deleted_at != null) {
+    return { id: existing.id, deleted: true, version: existing.version };
+  }
+  const at = ctx.now().toISOString();
+  const row = softDeletedRow(existing, at, at);
+  await ctx.store.putRow("scouting_entry", existing.id, row);
+  return { id: existing.id, deleted: true, version: row.version };
 }
 
 // src/core/commands/resolveConflict.ts
@@ -4803,10 +6394,10 @@ async function getFormExport(caller, input, ctx) {
 
 // src/core/queries/conflicts.ts
 import { isDeepStrictEqual } from "node:util";
-import { z as z18 } from "zod";
-var conflictCursor = z18.object({
-  c: z18.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/),
-  i: z18.string().uuid()
+import { z as z21 } from "zod";
+var conflictCursor = z21.object({
+  c: z21.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/),
+  i: z21.string().uuid()
 }).strict();
 var STATUS_FIELDS = ["robot_status", "breakdown_seconds"];
 var str = (value) => typeof value === "string" ? value : null;
@@ -4959,19 +6550,19 @@ var unique = (values) => [
 async function listConflicts(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listConflictsInput, input);
-  const limit = Math.min(parsed.limit ?? LIST_CONFLICTS_DEFAULT_LIMIT, LIST_CONFLICTS_MAX_LIMIT);
-  const cursor = parsed.cursor ? decodeCursor(conflictCursor, parsed.cursor) : void 0;
+  const limit2 = Math.min(parsed.limit ?? LIST_CONFLICTS_DEFAULT_LIMIT, LIST_CONFLICTS_MAX_LIMIT);
+  const cursor2 = parsed.cursor ? decodeCursor(conflictCursor, parsed.cursor) : void 0;
   const since = parsed.settled_since ? new Date(parsed.settled_since).toISOString() : new Date(ctx.now().getTime() - SETTLED_DEFAULT_WINDOW_MS).toISOString();
   const [open, settledRows] = await Promise.all([
     ctx.store.listOpenConflicts(
       parsed.event_id,
       "scouting_entry",
-      limit + 1,
-      cursor ? { created_at: cursor.c, id: cursor.i } : void 0
+      limit2 + 1,
+      cursor2 ? { created_at: cursor2.c, id: cursor2.i } : void 0
     ),
     ctx.store.listSettledConflicts(parsed.event_id, "scouting_entry", since, SETTLED_CONFLICTS_MAX)
   ]);
-  const page = open.slice(0, limit);
+  const page = open.slice(0, limit2);
   const conflicts = [...page, ...settledRows];
   const entryRows = await ctx.store.getEntriesByIds(
     unique(conflicts.flatMap((c) => [c.row_id, c.duplicate_row_id]))
@@ -4996,7 +6587,7 @@ async function listConflicts(caller, input, ctx) {
   const last = page[page.length - 1];
   return {
     items: page.map((c) => toItem(c, look)).filter((item) => item !== null),
-    next_cursor: open.length > limit && last ? encodeCursor({ c: last.created_at, i: last.id }) : null,
+    next_cursor: open.length > limit2 && last ? encodeCursor({ c: last.created_at, i: last.id }) : null,
     settled: settledRows.map((c) => toSettled(c, look))
   };
 }
@@ -5023,18 +6614,676 @@ var decodeCursor2 = (raw) => {
 async function listUsers(caller, input, ctx) {
   void caller;
   const parsed = parseInput(listUsersInput, input);
-  const limit = Math.min(parsed.limit ?? LIST_USERS_DEFAULT_LIMIT, LIST_USERS_MAX_LIMIT);
+  const limit2 = Math.min(parsed.limit ?? LIST_USERS_DEFAULT_LIMIT, LIST_USERS_MAX_LIMIT);
   const after = parsed.cursor ? decodeCursor2(parsed.cursor) : void 0;
   const rows = await ctx.store.listUsers({
     includeDisabled: parsed.include_disabled,
-    limit: limit + 1,
+    limit: limit2 + 1,
     after
   });
-  const page = rows.slice(0, limit);
+  const page = rows.slice(0, limit2);
   const last = page[page.length - 1];
   return {
     items: page.map(toPublicUser),
-    next_cursor: rows.length > limit && last ? encodeCursor2({ username: last.username, id: last.id }) : null
+    next_cursor: rows.length > limit2 && last ? encodeCursor2({ username: last.username, id: last.id }) : null
+  };
+}
+
+// src/core/queries/search.ts
+import { z as z22 } from "zod";
+var SEASON_EVENTS_READ_LIMIT = 200;
+var EVENT_ENTRIES_PAGE = 1e3;
+var EVENT_ENTRIES_MAX = 2e4;
+var entryCursor = z22.object({
+  c: z22.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/),
+  i: z22.string().min(1).max(64)
+}).strict();
+var offsetCursor = z22.object({ o: z22.number().int().nonnegative() }).strict();
+var str2 = (value) => typeof value === "string" ? value : null;
+var record2 = (value) => typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
+var unique2 = (values) => [
+  ...new Set(values.filter((v) => typeof v === "string" && v.length > 0))
+];
+var formKindOf2 = (row) => row.form_kind === "super" ? "super" : "match";
+var allianceOf2 = (row) => row.alliance === "red" || row.alliance === "blue" ? row.alliance : null;
+var ROBOT_STATUS = ["played", "no_show", "disabled", "broke_down"];
+var statusOf = (row) => typeof row.robot_status === "string" && ROBOT_STATUS.includes(row.robot_status) ? row.robot_status : null;
+function scoringLoader(ctx) {
+  const byVersion = /* @__PURE__ */ new Map();
+  const byForm = /* @__PURE__ */ new Map();
+  const formScoring = (formId, fallbackVersionId) => {
+    let pending = byForm.get(formId);
+    if (!pending) {
+      pending = (async () => {
+        const form = await ctx.store.getForm(formId);
+        const activeId = form?.active_version_id ?? fallbackVersionId;
+        const [fields, rules] = await Promise.all([
+          ctx.store.getFormFields(activeId),
+          ctx.store.getScoringRules(formId)
+        ]);
+        return {
+          fields,
+          rules: rules.map((r) => ({
+            field_key: r.field_key,
+            points: r.points,
+            option_points: r.option_points
+          }))
+        };
+      })();
+      byForm.set(formId, pending);
+    }
+    return pending;
+  };
+  return (versionId) => {
+    let pending = byVersion.get(versionId);
+    if (!pending) {
+      pending = (async () => {
+        const version = await ctx.store.getFormVersion(versionId);
+        if (!version) return null;
+        return {
+          version,
+          form_id: version.form_id,
+          ...await formScoring(version.form_id, version.id)
+        };
+      })();
+      byVersion.set(versionId, pending);
+    }
+    return pending;
+  };
+}
+async function lookupsFor(rows, ctx) {
+  const [teams, matches, users] = await Promise.all([
+    ctx.store.getTeamsByIds(unique2(rows.map((r) => str2(r.team_id)))),
+    ctx.store.getMatchesByIds(unique2(rows.map((r) => str2(r.match_id)))),
+    ctx.store.listUserNames(unique2(rows.map((r) => str2(r.scouter_id))))
+  ]);
+  return {
+    teams: new Map(teams.map((t) => [t.id, t])),
+    matches: new Map(matches.map((m) => [m.id, m])),
+    names: new Map(users.map((u) => [u.id, u.full_name]))
+  };
+}
+function toSummary(row, look, points) {
+  const teamId = String(row.team_id);
+  const team = look.teams.get(teamId);
+  if (!team) throw new Error(`entry ${row.id} names team ${teamId}, which does not exist`);
+  const matchId = str2(row.match_id);
+  const match = matchId ? look.matches.get(matchId) : void 0;
+  const scouterId = String(row.scouter_id);
+  return {
+    id: row.id,
+    event_id: String(row.event_id),
+    form_kind: formKindOf2(row),
+    match_id: matchId,
+    match_type: match?.match_type ?? null,
+    match_number: match?.number ?? null,
+    match_label: match ? matchLabel(match) : null,
+    team_id: teamId,
+    team_number: team.number,
+    team_name: team.name,
+    alliance: allianceOf2(row),
+    scouter_id: scouterId,
+    scouter_name: look.names.get(scouterId) ?? null,
+    robot_status: statusOf(row),
+    scouted_points: points,
+    client_created_at: String(row.client_created_at),
+    client_updated_at: String(row.client_updated_at)
+  };
+}
+function toEngineEntry(row, matches, eventSortOrder) {
+  const matchId = str2(row.match_id);
+  const match = matchId ? matches.get(matchId) : void 0;
+  return {
+    id: row.id,
+    form_version_id: String(row.form_version_id),
+    form_kind: formKindOf2(row),
+    event_id: String(row.event_id),
+    match_id: matchId,
+    team_id: String(row.team_id),
+    alliance: allianceOf2(row),
+    scouter_id: String(row.scouter_id),
+    robot_status: statusOf(row),
+    breakdown_seconds: typeof row.breakdown_seconds === "number" ? row.breakdown_seconds : null,
+    data: record2(row.data),
+    client_created_at: String(row.client_created_at),
+    client_updated_at: String(row.client_updated_at),
+    deleted_at: str2(row.deleted_at),
+    match_type: match?.match_type ?? null,
+    match_number: match?.number ?? null,
+    event_sort_order: eventSortOrder
+  };
+}
+async function allEventEntries(ctx, options) {
+  const out = [];
+  let after;
+  while (out.length < EVENT_ENTRIES_MAX) {
+    const page = await ctx.store.queryEntries({ ...options, limit: EVENT_ENTRIES_PAGE, after });
+    out.push(...page);
+    const last = page[page.length - 1];
+    if (page.length < EVENT_ENTRIES_PAGE || !last) break;
+    after = { client_created_at: String(last.client_created_at), id: last.id };
+  }
+  return out;
+}
+async function seasonMatchScoring(ctx, seasonId) {
+  const form = await ctx.store.getFormByKind(seasonId, "match");
+  if (!form?.active_version_id) return null;
+  const [fields, rules] = await Promise.all([
+    ctx.store.getFormFields(form.active_version_id),
+    ctx.store.getScoringRules(form.id)
+  ]);
+  return { fields, rules };
+}
+function teamHit(team, query) {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  return team.name.toLowerCase().includes(q) || /^\d+$/.test(q) && String(team.number).startsWith(q);
+}
+async function searchTeams(caller, input, ctx) {
+  void caller;
+  const parsed = parseInput(searchTeamsInput, input);
+  const limit2 = Math.min(parsed.limit ?? SEARCH_TEAMS_DEFAULT_LIMIT, SEARCH_TEAMS_MAX_LIMIT);
+  const offset = parsed.cursor ? decodeCursor(offsetCursor, parsed.cursor).o : 0;
+  const filter = parsed.filter ?? "all";
+  let event = null;
+  let seasonId;
+  if (parsed.event_id) {
+    event = await ctx.store.getEvent(parsed.event_id);
+    if (!event) {
+      throw new AppError("not-found", "that event does not exist; it may have been deleted", {
+        event_id: parsed.event_id
+      });
+    }
+    seasonId = event.season_id;
+  } else {
+    const active = await ctx.store.getActiveContext();
+    event = active.active_event_id ? await ctx.store.getEvent(active.active_event_id) : null;
+    seasonId = event?.season_id ?? active.active_season_id;
+  }
+  const empty = { all: 0, at_event: 0, other: 0 };
+  const eventRef3 = event ? { id: event.id, name: event.name } : null;
+  if (!seasonId) return { items: [], counts: empty, event: eventRef3, next_cursor: null };
+  const events = await ctx.store.listEvents(seasonId, SEASON_EVENTS_READ_LIMIT);
+  const rosterEvents = event && !events.some((e) => e.id === event.id) ? [...events, event] : events;
+  const rosters = await Promise.all(rosterEvents.map((e) => ctx.store.getRoster(e.id)));
+  const seasonTeams = /* @__PURE__ */ new Map();
+  for (const roster of rosters) for (const team of roster) seasonTeams.set(team.id, team);
+  const atEvent = new Set(
+    event ? (rosters[rosterEvents.findIndex((e) => e.id === event.id)] ?? []).map((t) => t.id) : []
+  );
+  const rank = /* @__PURE__ */ new Map();
+  const entriesHere = /* @__PURE__ */ new Map();
+  if (event) {
+    const rows = await allEventEntries(ctx, { eventId: event.id });
+    for (const row of rows) {
+      const teamId = String(row.team_id);
+      entriesHere.set(teamId, (entriesHere.get(teamId) ?? 0) + 1);
+    }
+    const scoring = await seasonMatchScoring(ctx, event.season_id);
+    if (scoring) {
+      const matchRows = rows.filter((r) => r.form_kind === "match");
+      const matches = new Map(
+        (await ctx.store.getMatchesByIds(unique2(matchRows.map((r) => str2(r.match_id))))).map(
+          (m) => [m.id, m]
+        )
+      );
+      const ranks = rankByAveragePoints(
+        matchRows.map((r) => toEngineEntry(r, matches, event.sort_order)),
+        [...seasonTeams.values()].filter((t) => atEvent.has(t.id)),
+        scoring.fields,
+        scoring.rules
+      );
+      for (const r of ranks) rank.set(r.team_id, r.rank);
+    }
+  }
+  const hits = [...seasonTeams.values()].filter((t) => teamHit(t, parsed.query));
+  const rankOf2 = (t) => rank.get(t.id) ?? null;
+  const here = hits.filter((t) => atEvent.has(t.id)).sort((a, b) => {
+    const ra = rankOf2(a);
+    const rb = rankOf2(b);
+    if (ra !== null && rb !== null) return ra - rb;
+    if (ra !== null) return -1;
+    if (rb !== null) return 1;
+    return a.number - b.number;
+  });
+  const elsewhere = hits.filter((t) => !atEvent.has(t.id)).sort((a, b) => a.number - b.number);
+  const counts = { all: hits.length, at_event: here.length, other: elsewhere.length };
+  const listed = filter === "at_event" ? here : filter === "other" ? elsewhere : [...here, ...elsewhere];
+  const page = listed.slice(offset, offset + limit2);
+  const otherEvents = events.filter((e) => e.id !== event?.id);
+  const held = await ctx.store.listTeamEvents(
+    page.map((t) => t.id),
+    otherEvents.map((e) => e.id)
+  );
+  const heldAt = new Set(held.map((h) => `${h.team_id}|${h.event_id}`));
+  const items = page.map((team) => ({
+    id: team.id,
+    number: team.number,
+    name: team.name,
+    in_active_event: atEvent.has(team.id),
+    rank: atEvent.has(team.id) ? rankOf2(team) : null,
+    entries_here: entriesHere.get(team.id) ?? 0,
+    other_events: otherEvents.filter((e) => heldAt.has(`${team.id}|${e.id}`)).map((e) => ({ id: e.id, name: e.name }))
+  }));
+  return {
+    items,
+    counts,
+    event: eventRef3,
+    next_cursor: offset + limit2 < listed.length ? encodeCursor({ o: offset + limit2 }) : null
+  };
+}
+async function listTeamEvents(caller, input, ctx) {
+  void caller;
+  const parsed = parseInput(listTeamEventsInput, input);
+  const limit2 = Math.min(
+    parsed.limit ?? LIST_TEAM_EVENTS_DEFAULT_LIMIT,
+    LIST_TEAM_EVENTS_MAX_LIMIT
+  );
+  const offset = parsed.cursor ? decodeCursor(offsetCursor, parsed.cursor).o : 0;
+  const { active_season_id: seasonId } = await ctx.store.getActiveContext();
+  if (!seasonId) return { items: [], next_cursor: null };
+  const events = await ctx.store.listEvents(seasonId, SEASON_EVENTS_READ_LIMIT);
+  const held = new Map(
+    (await ctx.store.listTeamEvents(
+      [parsed.team_id],
+      events.map((e) => e.id)
+    )).map((h) => [h.event_id, h])
+  );
+  const listed = events.flatMap((e) => {
+    const h = held.get(e.id);
+    return h && h.entry_count > 0 ? [{ id: e.id, name: e.name, entry_count: h.entry_count, last_entry_at: h.last_entry_at }] : [];
+  });
+  return {
+    items: listed.slice(offset, offset + limit2),
+    next_cursor: offset + limit2 < listed.length ? encodeCursor({ o: offset + limit2 }) : null
+  };
+}
+async function queryEntries(caller, input, ctx) {
+  void caller;
+  const parsed = parseInput(queryEntriesInput, input);
+  const limit2 = Math.min(parsed.limit ?? QUERY_ENTRIES_DEFAULT_LIMIT, QUERY_ENTRIES_MAX_LIMIT);
+  const cursor2 = parsed.cursor ? decodeCursor(entryCursor, parsed.cursor) : void 0;
+  const rows = await ctx.store.queryEntries({
+    eventId: parsed.event_id,
+    formKind: parsed.form_kind,
+    query: parsed.query,
+    limit: limit2 + 1,
+    after: cursor2 ? { client_created_at: cursor2.c, id: cursor2.i } : void 0
+  });
+  const page = rows.slice(0, limit2);
+  const [look, scorings] = await Promise.all([
+    lookupsFor(page, ctx),
+    (async () => {
+      const load = scoringLoader(ctx);
+      const ids = unique2(page.map((r) => str2(r.form_version_id)));
+      return new Map(await Promise.all(ids.map(async (id) => [id, await load(id)])));
+    })()
+  ]);
+  const items = page.map((row) => {
+    const scoring = scorings.get(String(row.form_version_id));
+    const points = scoring ? scoutedPoints(
+      { form_kind: formKindOf2(row), robot_status: statusOf(row), data: record2(row.data) },
+      scoring.fields,
+      scoring.rules
+    ) : null;
+    return toSummary(row, look, points);
+  });
+  const last = page[page.length - 1];
+  return {
+    items,
+    next_cursor: rows.length > limit2 && last ? encodeCursor({ c: String(last.client_created_at), i: last.id }) : null
+  };
+}
+function noSuchEntry(entryId) {
+  return new AppError("not-found", "that entry does not exist; it may have been deleted", {
+    entry_id: entryId
+  });
+}
+async function getEntry(caller, input, ctx) {
+  const parsed = parseInput(getEntryInput, input);
+  const row = await ctx.store.getEntry(parsed.entry_id);
+  if (!row || row.deleted_at != null) throw noSuchEntry(parsed.entry_id);
+  const kind = formKindOf2(row);
+  const status = statusOf(row);
+  const versionId = String(row.form_version_id);
+  const [look, scoring, event] = await Promise.all([
+    lookupsFor([row], ctx),
+    scoringLoader(ctx)(versionId),
+    ctx.store.getEvent(String(row.event_id))
+  ]);
+  if (!scoring) throw noSuchEntry(parsed.entry_id);
+  const breakdown = scoreBreakdown(
+    { form_kind: kind, robot_status: status, data: record2(row.data) },
+    scoring.fields,
+    scoring.rules
+  );
+  let teamAverage = null;
+  if (kind === "match") {
+    const teamRows = await allEventEntries(ctx, {
+      eventId: String(row.event_id),
+      formKind: "match",
+      teamId: String(row.team_id)
+    });
+    const matches = new Map(
+      (await ctx.store.getMatchesByIds(unique2(teamRows.map((r) => str2(r.match_id))))).map((m) => [
+        m.id,
+        m
+      ])
+    );
+    teamAverage = averagePoints(
+      teamRows.map((r) => toEngineEntry(r, matches, event?.sort_order ?? 0)),
+      scoring.fields,
+      scoring.rules
+    ).avg;
+  }
+  return {
+    ...toSummary(row, look, breakdown.total),
+    form_id: scoring.form_id,
+    form_version_id: versionId,
+    form_version: scoring.version.version_no,
+    phases: breakdown.phases,
+    team_average: teamAverage,
+    can_edit: mayEditEntryNow(
+      caller,
+      {
+        scouter_id: String(row.scouter_id),
+        form_kind: kind,
+        client_created_at: String(row.client_created_at)
+      },
+      ctx.now()
+    )
+  };
+}
+
+// src/core/queries/stats.ts
+import { z as z23 } from "zod";
+var offsetCursor2 = z23.object({ o: z23.number().int().nonnegative() }).strict();
+var noSuchEvent2 = (eventId) => new AppError("not-found", "that event does not exist; it may have been deleted", {
+  event_id: eventId
+});
+async function activeScoring(ctx, seasonId, kind) {
+  const form = await ctx.store.getFormByKind(seasonId, kind);
+  if (!form?.active_version_id) return { fields: [], rules: [] };
+  const [fields, rules] = await Promise.all([
+    ctx.store.getFormFields(form.active_version_id),
+    ctx.store.getScoringRules(form.id)
+  ]);
+  return {
+    fields,
+    rules: rules.map((r) => ({
+      field_key: r.field_key,
+      points: r.points,
+      option_points: r.option_points
+    }))
+  };
+}
+async function loadEvent(ctx, eventId) {
+  const event = await ctx.store.getEvent(eventId);
+  if (!event) throw noSuchEvent2(eventId);
+  const [roster, rows, scoring] = await Promise.all([
+    ctx.store.getRoster(event.id),
+    ctx.store.entriesForScope({ eventIds: [event.id] }),
+    activeScoring(ctx, event.season_id, "match")
+  ]);
+  const matches = new Map(
+    (await ctx.store.getMatchesByIds(unique2(rows.map((r) => str2(r.match_id))))).map((m) => [
+      m.id,
+      m
+    ])
+  );
+  return {
+    event,
+    roster: roster.map((t) => ({ id: t.id, number: t.number, name: t.name })),
+    rows,
+    entries: rows.map((r) => toEngineEntry(r, matches, event.sort_order)),
+    scoring
+  };
+}
+async function rankTeams(caller, input, ctx) {
+  void caller;
+  const parsed = parseInput(rankTeamsInput, input);
+  const { event, roster, entries, scoring } = await loadEvent(ctx, parsed.event_id);
+  return {
+    event: { id: event.id, name: event.name },
+    rows: buildRankTable({
+      teams: roster,
+      entries,
+      scoring,
+      sort_by: parsed.sort_by,
+      direction: parsed.direction,
+      before_match_number: parsed.before_match_number
+    })
+  };
+}
+async function getTeamStats(caller, input, ctx) {
+  void caller;
+  const parsed = parseInput(getTeamStatsInput, input);
+  const limit2 = Math.min(parsed.limit ?? GET_TEAM_STATS_DEFAULT_LIMIT, GET_TEAM_STATS_MAX_LIMIT);
+  const offset = parsed.cursor ? decodeCursor(offsetCursor2, parsed.cursor).o : 0;
+  const team = await ctx.store.getTeam(parsed.team_id);
+  if (!team) {
+    throw new AppError("not-found", "that team does not exist", { team_id: parsed.team_id });
+  }
+  const { event, roster, rows, entries, scoring } = await loadEvent(ctx, parsed.scope.event_id);
+  const own = rows.filter((r) => r.team_id === team.id);
+  const versionIds = unique2(rows.map((r) => str2(r.form_version_id)));
+  const [versions, superScoring, scouters] = await Promise.all([
+    Promise.all(
+      versionIds.map(async (id) => ({
+        id,
+        fields: await ctx.store.getFormFields(id)
+      }))
+    ),
+    activeScoring(ctx, event.season_id, "super"),
+    ctx.store.listUserNames(unique2(own.map((r) => str2(r.scouter_id))))
+  ]);
+  const stats = buildTeamStats({
+    team: { id: team.id, number: team.number, name: team.name },
+    event: { id: event.id, name: event.name },
+    teams: roster,
+    entries,
+    scoring,
+    versions,
+    superFields: superScoring.fields,
+    scouters
+  });
+  return {
+    ...stats,
+    matches: stats.matches.slice(offset, offset + limit2),
+    notes: stats.notes.slice(0, TEAM_NOTES_MAX),
+    next_cursor: offset + limit2 < stats.matches.length ? encodeCursor({ o: offset + limit2 }) : null
+  };
+}
+
+// src/core/queries/deleteImpact.ts
+var NO_ENTRIES = { entries: 0, deleted_entries: 0, super_entries: 0 };
+function blank2(kind, id, name) {
+  return {
+    kind,
+    id,
+    name,
+    confirm_name: null,
+    blocked_reason: null,
+    blocked_message: null,
+    events: 0,
+    event_names: [],
+    matches: 0,
+    entries: 0,
+    match_entries: 0,
+    super_entries: 0,
+    deleted_entries: 0,
+    forms: 0,
+    form_versions: 0,
+    metrics: 0,
+    dashboards: 0,
+    weight_presets: 0,
+    stations: null,
+    last_saved_at: null
+  };
+}
+var tallied = (t) => ({
+  entries: t.entries,
+  match_entries: t.entries - t.super_entries,
+  super_entries: t.super_entries,
+  deleted_entries: t.deleted_entries
+});
+var VERSION_REASON = {
+  "has-entries": "version_has_entries",
+  published: "version_published",
+  "active-version": "version_active"
+};
+function gate(name, blocked) {
+  return blocked ? { confirm_name: null, blocked_reason: blocked.reason, blocked_message: blocked.message } : { confirm_name: name, blocked_reason: null, blocked_message: null };
+}
+async function getDeleteImpact(caller, input, ctx) {
+  assertCan(caller, "manage_entries");
+  const { kind, id } = parseInput(getDeleteImpactInput, input);
+  if (kind !== "entry") assertCan(caller, "delete_objects");
+  switch (kind) {
+    case "season":
+      return seasonImpact(ctx, id);
+    case "event":
+      return eventImpact(ctx, id);
+    case "form":
+      return formImpact(ctx, id);
+    case "form_version":
+      return versionImpact(ctx, id);
+    case "match":
+      return matchImpact(ctx, id);
+    case "entry":
+      return entryImpact(ctx, id);
+  }
+}
+async function seasonImpact(ctx, id) {
+  const season = await seasonOrNotFound(ctx, id);
+  const name = seasonName(season);
+  const events = await allEventsOf(ctx, season.id);
+  const eventIds = events.map((e) => e.id);
+  const forms = (await Promise.all([
+    ctx.store.getFormByKind(season.id, "match"),
+    ctx.store.getFormByKind(season.id, "super")
+  ])).filter((f) => f !== null);
+  let formVersions = 0;
+  for (const form of forms) formVersions += (await ctx.store.listFormVersions(form.id)).length;
+  const blocked = await seasonIsActive(ctx, season) ? { reason: "active_season", message: SWITCH_SEASON_FIRST } : null;
+  return {
+    ...blank2("season", season.id, name),
+    ...gate(name, blocked),
+    events: events.length,
+    event_names: events.map((e) => e.name),
+    matches: await ctx.store.countMatchesOfEvents(eventIds),
+    ...tallied(eventIds.length > 0 ? await ctx.store.tallyEntries({ eventIds }) : NO_ENTRIES),
+    forms: forms.length,
+    form_versions: formVersions,
+    ...await ctx.store.countAnalysisRows({ seasonId: season.id })
+  };
+}
+async function eventImpact(ctx, id) {
+  const event = await eventOrNotFound(ctx, id);
+  const blocked = await eventIsDefault(ctx, event) ? { reason: "default_event", message: SWITCH_EVENT_FIRST } : null;
+  return {
+    ...blank2("event", event.id, event.name),
+    ...gate(event.name, blocked),
+    events: 1,
+    event_names: [event.name],
+    matches: await ctx.store.countMatchesOfEvents([event.id]),
+    ...tallied(await ctx.store.tallyEntries({ eventIds: [event.id] }))
+  };
+}
+async function formImpact(ctx, id) {
+  const form = await formOrNotFound(ctx, id);
+  const versions = await ctx.store.listFormVersions(form.id);
+  const formVersionIds = versions.map((v) => v.id);
+  const analysis = await ctx.store.countAnalysisRows({ formId: form.id });
+  return {
+    ...blank2("form", form.id, form.name),
+    ...gate(form.name, null),
+    ...tallied(
+      formVersionIds.length > 0 ? await ctx.store.tallyEntries({ formVersionIds }) : NO_ENTRIES
+    ),
+    forms: 1,
+    form_versions: versions.length,
+    metrics: analysis.metrics
+  };
+}
+async function versionImpact(ctx, id) {
+  const version = await versionOrNotFound(ctx, id);
+  const form = await formOrNotFound(ctx, version.form_id);
+  const name = versionName(version);
+  const block = await versionDeleteBlock(ctx, version, form);
+  return {
+    ...blank2("form_version", version.id, name),
+    ...gate(name, block ? { reason: VERSION_REASON[block.reason], message: block.message } : null),
+    ...tallied(await ctx.store.tallyEntries({ formVersionIds: [version.id] })),
+    form_versions: 1
+  };
+}
+var STATIONS = [
+  ["red", 1],
+  ["red", 2],
+  ["red", 3],
+  ["blue", 1],
+  ["blue", 2],
+  ["blue", 3]
+];
+async function matchImpact(ctx, id) {
+  const match = await matchOrNotFound(ctx, id);
+  const name = matchLabel(match);
+  const [entries, slots] = await Promise.all([
+    ctx.store.listMatchEntries(match.id),
+    ctx.store.listMatchSlots([match.id])
+  ]);
+  const teams = new Map(
+    (await ctx.store.getTeamsByIds([...new Set(slots.map((s) => s.team_id))])).map((t) => [
+      t.id,
+      t.number
+    ])
+  );
+  const stations = STATIONS.map(([alliance, station]) => {
+    const slot = slots.find((s) => s.alliance === alliance && s.station === station);
+    return {
+      alliance,
+      station,
+      team_number: slot ? teams.get(slot.team_id) ?? null : null,
+      entries: slot ? entries.filter((e) => e.team_id === slot.team_id).length : 0
+    };
+  });
+  const superEntries = entries.filter((e) => e.form_kind === "super").length;
+  const newest = entries.map((e) => e.client_updated_at).reduce(
+    (latest, at) => latest === null || Date.parse(at) > Date.parse(latest) ? at : latest,
+    null
+  );
+  return {
+    ...blank2("match", match.id, name),
+    confirm_name: entries.length > 0 ? name : null,
+    matches: 1,
+    entries: entries.length,
+    match_entries: entries.length - superEntries,
+    super_entries: superEntries,
+    deleted_entries: entries.filter((e) => e.deleted_at !== null).length,
+    stations,
+    last_saved_at: newest
+  };
+}
+async function entryImpact(ctx, id) {
+  const entry = await ctx.store.getEntry(id);
+  if (!entry || entry.deleted_at != null) {
+    throw new AppError("not-found", "that entry does not exist; it may have been deleted", {
+      entry_id: id
+    });
+  }
+  const [match, team] = await Promise.all([
+    typeof entry.match_id === "string" ? ctx.store.getMatch(entry.match_id) : null,
+    ctx.store.getTeam(String(entry.team_id))
+  ]);
+  const teamNumber2 = team ? String(team.number) : "";
+  const name = match ? `${matchLabel(match)} \xB7 ${teamNumber2}` : teamNumber2;
+  const isSuper = entry.form_kind === "super";
+  return {
+    ...blank2("entry", entry.id, name),
+    entries: 1,
+    match_entries: isSuper ? 0 : 1,
+    super_entries: isSuper ? 1 : 0
   };
 }
 
@@ -5247,7 +7496,7 @@ var REGISTRY = {
   },
   deleteMatch: {
     kind: "command",
-    description: "Admin only: delete a match and its slots. Refused while any entry names it; correct the match number instead.",
+    description: 'Admin only: delete a match and its slots. Refused while any entry names it (soft-deleted ones too); correct the match number instead, or pass with_entries with confirm_name equal to the match label ("Q41") to hard-delete every entry naming it with the match, in one transaction.',
     input: API.deleteMatch.input,
     output: API.deleteMatch.output,
     handler: deleteMatch
@@ -5317,14 +7566,14 @@ var REGISTRY = {
   },
   deleteFormVersion: {
     kind: "command",
-    description: "Admin only: delete one form version. Blocked while any entry is bound to it, and for the active version.",
+    description: 'Admin only: delete one draft form version; the real delete needs confirm_name equal to its label ("v3"). Blocked, whatever is typed, while any entry is bound to it, and for a published or the active version.',
     input: API.deleteFormVersion.input,
     output: API.deleteFormVersion.output,
     handler: deleteFormVersion
   },
   deleteForm: {
     kind: "command",
-    description: "Admin only: hard-delete a form with all its versions, fields, scoring and entries, irreversibly. dry_run answers how many versions and entries go, and deletes nothing.",
+    description: "Admin only: hard-delete a form with all its versions, fields, scoring and entries, irreversibly. dry_run answers how many versions and entries go, and deletes nothing; the real delete needs confirm_name equal to the form name exactly.",
     input: API.deleteForm.input,
     output: API.deleteForm.output,
     handler: deleteForm
@@ -5412,6 +7661,62 @@ var REGISTRY = {
     input: API.resolveConflict.input,
     output: API.resolveConflict.output,
     handler: resolveConflict
+  },
+  searchTeams: {
+    kind: "query",
+    description: "The season's teams by number prefix or name, paginated: each marked when on the active event's roster (event_id, else the admin's active event) with its rank there by average scouted points (null until it has a counted match), its live entries there, and the other events we hold entries for it at. Counts per chip follow the query.",
+    input: API.searchTeams.input,
+    output: API.searchTeams.output,
+    handler: searchTeams
+  },
+  listTeamEvents: {
+    kind: "query",
+    description: "The active season's events where we hold live entries for one team, in event order, each with its entry count and newest entry time, paginated. Powers the cross-event jump of the team search.",
+    input: API.listTeamEvents.input,
+    output: API.listTeamEvents.output,
+    handler: listTeamEvents
+  },
+  queryEntries: {
+    kind: "query",
+    description: "One event's live entries, match and super (a kind filter narrows it), newest first and paginated, searchable by team name or number, match number or scouter name. Each row carries its scouted points from the shared engine (none for a no-show, a disabled robot or a super entry) and the scouter's name.",
+    input: API.queryEntries.input,
+    output: API.queryEntries.output,
+    handler: queryEntries
+  },
+  getEntry: {
+    kind: "query",
+    description: "One live entry fully rendered: team, match, scouter's name, form version, every answer by phase with each scored field's points and each phase's subtotal, the scouted points, the team's average at that event, and whether the caller may edit it now. A soft-deleted entry is not found.",
+    input: API.getEntry.input,
+    output: API.getEntry.output,
+    handler: getEntry
+  },
+  getTeamStats: {
+    kind: "query",
+    description: "One team's statistics at one event, computed by the shared engine: its rank among the roster by average scouted points, median, availability, best match and trend, every metric (average, median and std dev of points, then one per scorable field by phase) with its per-match series and its colour range at the event, the match-by-match table (paginated), its Long-text notes newest first, and its reliability counts with the matches named.",
+    input: API.getTeamStats.input,
+    output: API.getTeamStats.output,
+    handler: getTeamStats
+  },
+  rankTeams: {
+    kind: "query",
+    description: "The fixed phase 1 ranking table of one event: every roster team with its rank by average scouted points (no-shows and disabled robots excluded, never zero), matches counted, breakdowns, no-shows, disabled and availability rate, sortable by any of those columns (never by standard deviation). No weighting.",
+    input: API.rankTeams.input,
+    output: API.rankTeams.output,
+    handler: rankTeams
+  },
+  getDeleteImpact: {
+    kind: "query",
+    description: "Admin only (a lead too, for an entry): the exact damage a delete of a season, event, form, form version, match or entry would do, counted just now, deleting nothing \u2014 events, matches, entries (soft-deleted ones included, and how many those are), forms, versions, metrics, dashboards and presets, a match's six stations \u2014 with the name to type back, or why it is blocked whatever is typed.",
+    input: API.getDeleteImpact.input,
+    output: API.getDeleteImpact.output,
+    handler: getDeleteImpact
+  },
+  deleteEntry: {
+    kind: "command",
+    description: "Lead or admin only: soft-delete one entry. The row stays with deleted_at set and a new revision, and the tombstone reaches every device through the delta pull. Scouters never delete an entry, their own included.",
+    input: API.deleteEntry.input,
+    output: API.deleteEntry.output,
+    handler: deleteEntry
   }
 };
 
@@ -5623,12 +7928,11 @@ async function applyEntry(op, author, ctx) {
       return rejected(op.op_id, "forbidden", "only a lead or admin may delete an entry");
     }
     if (!existing) return rejected(op.op_id, "invalid", "no such entry");
-    await ctx.store.putRow("scouting_entry", op.row_id, {
-      ...existing,
-      deleted_at: ctx.now().toISOString(),
-      version: existing.version + 1,
-      client_updated_at: op.client_updated_at
-    });
+    await ctx.store.putRow(
+      "scouting_entry",
+      op.row_id,
+      softDeletedRow(existing, ctx.now().toISOString(), op.client_updated_at)
+    );
     await ctx.store.markApplied(op.op_id);
     return {
       op_id: op.op_id,
@@ -5645,7 +7949,11 @@ async function applyEntry(op, author, ctx) {
       }
       const exempt = existing.form_kind === "super" && payload.form_kind === "super";
       if (!exempt && !withinSelfEditWindow(String(existing.client_created_at), op.client_updated_at)) {
-        return rejected(op.op_id, "edit-window-expired", "this entry is locked \u2014 ask a lead");
+        return rejected(
+          op.op_id,
+          "edit-window-expired",
+          "changed after the 5-minute edit window. A lead can save it for you."
+        );
       }
     }
     scouterId = String(existing.scouter_id);

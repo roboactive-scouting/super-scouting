@@ -1,6 +1,7 @@
 import { cva, type VariantProps } from 'class-variance-authority';
-import type { ComponentProps } from 'react';
+import { useContext, type ComponentProps } from 'react';
 import { cn } from '@/lib/utils';
+import { ACTION_BUTTON, InActionRow } from './surface-actions';
 
 /*
  * THEME "Locked components": primary is filled --accent, secondary is white with a
@@ -54,7 +55,19 @@ export type ButtonProps = ComponentProps<'button'> &
     busyLabel?: string;
   };
 
-/** A native button in one of five variants. `type` defaults to "button", never "submit". */
+/**
+ * A link drawn as a button in a `SurfaceActions` row (the held wipe's Send by QR first): the
+ * row's one size, as a `Button` there takes by itself.
+ */
+export function actionButtonClass(variant: ButtonProps['variant']): string {
+  return cn(buttonVariants({ variant, size: 'md' }), ACTION_BUTTON);
+}
+
+/**
+ * A native button in one of five variants. `type` defaults to "button", never "submit". In a
+ * sheet's or dialog's action row (`SurfaceActions`) the row decides its size (Phase 1 I side
+ * task 3): any `size` given is set aside, so every action there is the same height.
+ */
 export function Button({
   className,
   variant,
@@ -66,10 +79,15 @@ export function Button({
   children,
   ...props
 }: ButtonProps) {
+  const inRow = useContext(InActionRow);
   return (
     <button
       type={type}
-      className={cn(buttonVariants({ variant, size }), className)}
+      className={cn(
+        buttonVariants({ variant, size: inRow ? 'md' : size }),
+        inRow && ACTION_BUTTON,
+        className,
+      )}
       disabled={disabled || busy}
       aria-busy={busy || undefined}
       {...props}

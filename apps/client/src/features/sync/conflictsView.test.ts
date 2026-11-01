@@ -315,7 +315,7 @@ describe('the card', () => {
     );
     // Robot status and breakdown are equal; breakdown is null on both and is no row.
     expect(card.rows.map((r) => r.label)).toEqual(['Robot status', 'Auto pieces', 'mystery_key']);
-    expect(card.rows.at(-1)!.values).toEqual(['0.50', '—']);
+    expect(card.rows.at(-1)!.values).toEqual(['0.5', '—']); // one place (17.8 v1.46)
   });
 
   it('shows a card with zero differing fields', async () => {

@@ -17,21 +17,39 @@ export function Table({
   className,
   containerClassName,
   readOnly = false,
+  scrollLabel,
   ...props
 }: ComponentProps<'table'> & {
   containerClassName?: string;
   /** Its rows open nothing: none of them changes on hover. */
   readOnly?: boolean;
+  /**
+   * The table scrolls inside its own box (the ranking, user 2026-11-01): the box is a labelled
+   * region in the tab order, so the keyboard scrolls it too.
+   */
+  scrollLabel?: string;
 }) {
   return (
     <ReadOnlyRows.Provider value={readOnly}>
-      <div className={cn('relative w-full overflow-x-auto', containerClassName)}>
+      <div
+        className={cn('relative w-full overflow-x-auto', containerClassName)}
+        {...(scrollLabel !== undefined && {
+          role: 'region',
+          'aria-label': scrollLabel,
+          tabIndex: 0,
+        })}
+      >
         <table className={cn('w-full border-collapse text-start text-sm', className)} {...props} />
       </div>
     </ReadOnlyRows.Provider>
   );
 }
 
+/**
+ * `sticky`: the header row stays on the shell's top bar (`--top-bar`, Phase 1 I side task 2), not at
+ * `top-0` behind it. It sticks only where the table's own `overflow-x-auto` box does not scroll
+ * (give `Table` a `containerClassName` of `overflow-visible`); nothing uses it yet.
+ */
 export function TableHeader({
   className,
   sticky = false,
@@ -42,7 +60,7 @@ export function TableHeader({
       <thead
         className={cn(
           '[&_tr]:border-b [&_tr]:border-line',
-          sticky && 'sticky top-0 z-10 bg-surface',
+          sticky && 'sticky top-[var(--top-bar,0px)] z-10 bg-surface',
           className,
         )}
         {...props}

@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { formatTime, type FormFieldDefinition } from '@frc/shared';
 import { ActionBar } from '@/components/ui/action-bar';
 import { Button } from '@/components/ui/button';
-import { Note, Notice } from '@/components/ui/notice';
+import { Note } from '@/components/ui/notice';
 import { SuperTag } from '@/components/ui/tag';
 import { cachedFormFields } from '@/data/cache';
 import { keepScreenOn, useBoolPref } from '@/lib/devicePrefs';
@@ -23,6 +23,7 @@ import { stopwatches } from './stopwatches';
 import { submitEntry } from './submitEntry';
 import { superDoneAt } from './SuperPicker';
 import type { SuperTeam } from './superData';
+import { ReadOnlyTag, SuperReadOnly } from './SuperReadOnly';
 import { useDraft } from './useDraft';
 import { useEntryForm } from './useEntryForm';
 import { useWakeLock } from './useWakeLock';
@@ -43,6 +44,10 @@ export function superDraftKey(formVersionId: string, teamId: string): string {
  * never a second row. The fields, phase tabs, rules, problems and confirmation are the match
  * entry's own (`useEntryForm`, `PhaseTabs`, `FieldInput`, `ProblemsDialog`, `ConfirmEntry`).
  *
+ * Another scouter's entry, opened by a scouter, is read only (SPEC-FINAL 7.6 v1.35; 22 final):
+ * a Read only chip in the header, the author's card and the answers (`SuperReadOnly`), and no
+ * control that edits. The author, leads and admins get the form as before.
+ *
  * In practice (SPEC-FINAL 8.5; task 1.37) it is routed like the match entry: the draft goes to
  * the practice store, the device's entry is not opened (practice starts blank), the header says
  * "Practice · not saved" and Review entry is Finish practice.
@@ -53,6 +58,7 @@ export function SuperForm({
   author,
   team,
   formVersionId,
+  fieldImagePath,
   desktop,
   onSubmitted,
 }: {
@@ -62,6 +68,8 @@ export function SuperForm({
   team: SuperTeam;
   /** The version the existing entry was recorded with, else the form's published one. */
   formVersionId: string;
+  /** The season's field image for the map fields; null when the device does not hold it. */
+  fieldImagePath: string | null;
   desktop: boolean;
   onSubmitted: (rowId: string) => void;
 }) {
@@ -81,7 +89,9 @@ export function SuperForm({
   const restored = useRef(false);
   const errorRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLDivElement>(null);
-  const form = useEntryForm({ fields, data });
+  // Another scouter's entry, to a scouter (SPEC-FINAL 7.6): shown read only, as it was saved.
+  const locked = existing !== undefined && !canSelfEdit(existing, author, new Date());
+  const form = useEntryForm({ fields, data: locked && existing ? existing.data : data });
   const teamLabel = `${team.number} ${team.name}`;
   // SPEC-FINAL 8.6 (task 1.38): the screen stays on while the super entry is open, as on a match.
   useWakeLock(useBoolPref(keepScreenOn));
@@ -111,8 +121,6 @@ export function SuperForm({
   useEffect(() => {
     if (error) errorRef.current?.focus();
   }, [error]);
-
-  const locked = existing !== undefined && !canSelfEdit(existing, author, new Date());
 
   function update(next: Record<string, unknown>) {
     setData(next);
@@ -190,7 +198,10 @@ export function SuperForm({
         >
           ‹ Super scouting
         </Link>
-        <SuperTag />
+        <span className="flex items-center gap-1.5">
+          {locked && <ReadOnlyTag />}
+          <SuperTag />
+        </span>
       </div>
       <Title
         className={cn(
@@ -243,17 +254,32 @@ export function SuperForm({
     </header>
   );
 
-  if (locked) {
+  // A super form's map fields have no alliance of their own: the default red end, the team named,
+  // on the season's field image.
+  const context = {
+    alliance: 'red' as const,
+    station: null,
+    fieldImagePath,
+    caption: teamLabel,
+  };
+
+  // v1.35 (22-super-readonly final, variant B): the lock line is replaced by the Read only chip
+  // in the header and the author's card, over the entry's answers. Nothing edits.
+  if (locked && existing) {
     return (
-      <div className={cn(desktop && 'rounded-card border border-line bg-surface pb-5')}>
-        {header}
-        <div className={desktop ? 'px-7' : 'px-4 pt-4'}>
-          <Notice role="alert" tone="warning" still>
-            The super entry for <span dir="auto">{teamLabel}</span> is locked — ask a lead to change
-            it.
-          </Notice>
+      <EntryContext value={context}>
+        <div className={cn(desktop && 'rounded-card border border-line bg-surface pb-6')}>
+          {header}
+          <SuperReadOnly
+            entry={existing}
+            author={team.author}
+            authorSeen={team.authorSeen}
+            phases={form.phases}
+            data={form.saved}
+            desktop={desktop}
+          />
         </div>
-      </div>
+      </EntryContext>
     );
   }
 
@@ -324,14 +350,6 @@ export function SuperForm({
       )}
     </>
   );
-
-  // A super form's map fields have no alliance of their own: the default red end, the team named.
-  const context = {
-    alliance: 'red' as const,
-    station: null,
-    fieldImagePath: null,
-    caption: teamLabel,
-  };
 
   if (desktop) {
     return (

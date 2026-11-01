@@ -2,9 +2,20 @@ import { useState } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
-import type { ActiveContext, EventRow, SeasonRow } from '@frc/shared';
+import {
+  SWITCH_EVENT_FIRST,
+  SWITCH_SEASON_FIRST,
+  type ActiveContext,
+  type EventRow,
+  type SeasonRow,
+} from '@frc/shared';
 import { RpcError } from '@/data/rpc';
 import { CompetitionsPanel } from './CompetitionsPanel';
+import { MANAGE_UNREACHABLE } from './adminMessages';
+import { deleteImpact } from './deleteFixtures';
+
+/** The one DeleteDialog is a lazy chunk (task 1.61): its first load can pass a second. */
+const LAZY = { timeout: 5000 };
 
 const T0 = '2026-01-10T08:00:00.000Z';
 const season = (id: string, year: number, game_name: string, path = 'seasons/2026/field.webp') =>
@@ -100,8 +111,41 @@ function serverLike(fail?: { name: string; error: Error }): Call {
     if (name === 'createEvent') {
       return { ...FIVE_EVENTS[0]!, id: 'e-6', name: body.name, sort_order: 6 };
     }
+    if (name === 'getDeleteImpact') {
+      // The one DeleteDialog counts first (task 1.60): the default event and the active
+      // season are blocked whatever is typed.
+      if (body.kind === 'event') {
+        const event = FIVE_EVENTS.find((e) => e.id === body.id)!;
+        const blocked = event.id === ACTIVE.active_event_id;
+        return deleteImpact({
+          kind: 'event',
+          id: event.id,
+          name: event.name,
+          confirm_name: blocked ? null : event.name,
+          blocked_reason: blocked ? 'default_event' : null,
+          blocked_message: blocked ? SWITCH_EVENT_FIRST : null,
+          events: 1,
+          event_names: [event.name],
+          matches: 3,
+          entries: 17,
+          match_entries: 17,
+        });
+      }
+      const row = SEASONS.find((x) => x.id === body.id)!;
+      const blocked = row.id === ACTIVE.active_season_id;
+      return deleteImpact({
+        id: row.id,
+        name: String(row.year),
+        confirm_name: blocked ? null : String(row.year),
+        blocked_reason: blocked ? 'active_season' : null,
+        blocked_message: blocked ? SWITCH_SEASON_FIRST : null,
+        events: 5,
+        matches: 40,
+        entries: 214,
+      });
+    }
     if (name === 'deleteEvent' || name === 'deleteSeason') {
-      return { deleted: !body.dry_run, events: 1, matches: 3, entries: 17, forms: 0 };
+      return { deleted: true, events: 1, matches: 3, entries: 17, forms: 0 };
     }
     if (name === 'updateEvent') {
       return { ...FIVE_EVENTS.find((e) => e.id === body.event_id)!, name: body.name };
@@ -311,17 +355,29 @@ describe('CompetitionsPanel — events', () => {
     expect(cards()[0]).toBe('Haifa (renamed)');
   });
 
-  it('deletes an event from its ✎ dialog once the damage is named and the name typed', async () => {
+  it('deletes an event from its ✎ dialog: the edit dialog closes, the bill counts, the name is typed', async () => {
     const rpc = serverLike();
     renderCompetitions({ rpc });
     await userEvent.click(screen.getByRole('button', { name: 'Rename District #1 · Haifa' }));
     await userEvent.click(screen.getByRole('button', { name: 'Delete District #1 · Haifa' }));
-    const confirm = await screen.findByRole('dialog', { name: 'Delete this event?' });
-    expect(confirm).toHaveTextContent('This deletes 3 matches and 17 entries for good.');
-    await userEvent.type(within(confirm).getByLabelText(/Type District #1/), 'District #1 · Haifa');
-    await userEvent.click(
-      within(confirm).getByRole('button', { name: 'Delete District #1 · Haifa for good' }),
+    const bill = await screen.findByRole('dialog', { name: 'Delete District #1 · Haifa?' }, LAZY);
+    // One surface at a time: the ✎ dialog is gone, the delete opens alone (one scrim).
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(rpc).toHaveBeenCalledWith('getDeleteImpact', { kind: 'event', id: 'e-1' });
+    expect(bill).toHaveTextContent('17 entries go');
+    expect(bill).toHaveTextContent('3 matches');
+    const go = within(bill).getByRole('button', { name: 'Delete event District #1 · Haifa' });
+    await userEvent.type(
+      within(bill).getByLabelText(/type the name to confirm/i),
+      'district #1 · haifa',
     );
+    expect(go).toBeDisabled();
+    await userEvent.clear(within(bill).getByLabelText(/type the name to confirm/i));
+    await userEvent.type(
+      within(bill).getByLabelText(/type the name to confirm/i),
+      'District #1 · Haifa',
+    );
+    await userEvent.click(go);
     expect(rpc).toHaveBeenCalledWith('deleteEvent', {
       event_id: 'e-1',
       confirm_name: 'District #1 · Haifa',
@@ -330,15 +386,40 @@ describe('CompetitionsPanel — events', () => {
     expect(cards()).not.toContain('District #1 · Haifa');
   });
 
-  it('offers Delete for the default event and the active season only as off, with why', async () => {
-    renderCompetitions({ rpc: serverLike() });
+  it('the default event and the active season open Blocked with the exact text: no delete, nothing typed', async () => {
+    const rpc = serverLike();
+    renderCompetitions({ rpc });
     await userEvent.click(screen.getByRole('button', { name: 'Rename District #3 · Tel Aviv' }));
-    expect(screen.getByRole('button', { name: 'Delete District #3 · Tel Aviv' })).toBeDisabled();
-    expect(screen.getByText('Switch the default event first.')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Delete District #3 · Tel Aviv' }));
+    const event = await screen.findByRole(
+      'dialog',
+      { name: "District #3 · Tel Aviv can't be deleted" },
+      LAZY,
+    );
+    expect(within(event).getByText(SWITCH_EVENT_FIRST)).toBeInTheDocument();
+    expect(within(event).queryByRole('textbox')).not.toBeInTheDocument();
+    expect(within(event).queryByRole('button', { name: /delete/i })).not.toBeInTheDocument();
+    await userEvent.click(
+      within(event).getByRole('button', { name: 'Keep District #3 · Tel Aviv' }),
+    );
     await userEvent.click(screen.getByRole('button', { name: 'Edit season' }));
-    expect(screen.getByRole('button', { name: 'Delete 2026' })).toBeDisabled();
-    expect(screen.getByText('Switch the active season first.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Delete 2026' }));
+    const season = await screen.findByRole('dialog', { name: "Season 2026 can't be deleted" });
+    expect(within(season).getByText(SWITCH_SEASON_FIRST)).toBeInTheDocument();
+    expect(within(season).queryByRole('textbox')).not.toBeInTheDocument();
+    expect(within(season).queryByRole('button', { name: /delete/i })).not.toBeInTheDocument();
+    expect(rpc).not.toHaveBeenCalledWith('deleteEvent', expect.anything());
+    expect(rpc).not.toHaveBeenCalledWith('deleteSeason', expect.anything());
+  });
+
+  it('holds Delete offline, with the line that says why', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    renderCompetitions({ rpc: serverLike() });
+    await userEvent.click(screen.getByRole('button', { name: 'Rename District #1 · Haifa' }));
+    expect(screen.getByRole('button', { name: 'Delete District #1 · Haifa' })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Delete District #1 · Haifa' }),
+    ).toHaveAccessibleDescription(MANAGE_UNREACHABLE);
   });
 
   it('disables "Make default" and "Make … active" offline; the page’s one line says why', () => {

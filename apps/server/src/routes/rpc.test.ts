@@ -30,7 +30,7 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
     }
   });
 
-  it('has thirty-five authenticated commands for that loop to check, so it is not vacuous', () => {
+  it('has thirty-six authenticated commands for that loop to check, so it is not vacuous', () => {
     const commands = Object.entries(REGISTRY).filter(
       ([, e]) => e.kind === 'command' && !e.unauthenticated,
     );
@@ -42,6 +42,7 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
       'createSeason',
       'createTeam',
       'createUser',
+      'deleteEntry',
       'deleteEvent',
       'deleteForm',
       'deleteFormVersion',
@@ -90,6 +91,7 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
       'createSeason',
       'createTeam',
       'createUser',
+      'deleteEntry',
       'deleteEvent',
       'deleteForm',
       'deleteFormVersion',
@@ -100,10 +102,13 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
       'ensureMatch',
       'exportForm',
       'getActiveContext',
+      'getDeleteImpact',
+      'getEntry',
       'getForm',
       'getFormDictionary',
       'getFormExport',
       'getFormVersion',
+      'getTeamStats',
       'importForm',
       'listConflicts',
       'listEventRoster',
@@ -112,10 +117,13 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
       'listForms',
       'listMatches',
       'listSeasons',
+      'listTeamEvents',
       'listTeams',
       'listUsers',
       'login',
       'publishFormVersion',
+      'queryEntries',
+      'rankTeams',
       'refreshToken',
       'renameUser',
       'reorderEvents',
@@ -124,6 +132,7 @@ describe('the use-case registry (SPEC-FINAL 16.4)', () => {
       'restoreFormVersion',
       'saveDraftFields',
       'saveFormExport',
+      'searchTeams',
       'setActiveEvent',
       'setActiveSeason',
       'setEventRoster',

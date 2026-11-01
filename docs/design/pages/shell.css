@@ -359,3 +359,55 @@ body {
   vertical-align: middle;
   margin-left: 6px;
 }
+
+/* ---------- phone bottom bar (data-bbar, from Phase 1 I) ---------- */
+.pbar {
+  flex: none;
+  display: flex;
+  background: var(--rail);
+  padding: 6px 8px 22px;
+}
+.pbar > span {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding-top: 6px;
+  min-height: 52px;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--rail-muted);
+}
+.pbar .ic {
+  width: 52px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+}
+.pbar svg {
+  width: 22px;
+  height: 22px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+}
+.pbar > span.cur {
+  margin-top: -22px;
+  color: #fff;
+}
+.pbar .fab {
+  width: 58px;
+  height: 58px;
+  border-radius: 18px;
+  background: var(--accent);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  border: 4px solid var(--rail);
+  box-shadow: 0 8px 20px -8px rgba(18, 121, 91, 0.6);
+}
+.pbar .fab svg {
+  width: 26px;
+  height: 26px;
+}

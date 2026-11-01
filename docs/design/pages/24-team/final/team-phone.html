@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Team page — final, phone</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../11-phone-shell/src/ps.css"><link rel="stylesheet" href="../../11-phone-shell/src/d.css"><link rel="stylesheet" href="../src/team.css">
+<style>.canvas{height:940px}.frames{gap:6px}.frames .phone{zoom:.72}</style>
+</head><body>
+<div id="root"></div>
+<script src="../src/team.js"></script><script src="../src/final.js"></script>
+<script>
+const f = (h, c) => TP.fig(h, c);
+document.getElementById("root").innerHTML = `<div class="canvas"><div class="canvas-head"><b>Team page — final · phone</b><span>Variant D2: tiles and trend lines; the Matches tab opens with the match strip, then match · robot · scouter · points.</span></div>
+  <div class="frames">${f(FIN.pStats(), "1 · Stats")}${f(FIN.pStatsScrolled(), "2 · Stats scrolled: compact header")}${f(FIN.pMatches(), "3 · Matches: strip, then the list")}${f(FIN.pProgress(), "4 · Progress, two charts stacked")}${f(FIN.pNotes(), "5 · Notes")}${f(FIN.pEmpty(), "6 · No entries yet")}</div></div>`;
+</script>
+</body></html>

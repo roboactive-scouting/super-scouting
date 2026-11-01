@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Clock } from 'lucide-react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { Note, WarningNotice } from '@/components/ui/notice';
@@ -6,12 +6,16 @@ import { AuthError, AuthField, AuthFrame, AuthSubmit } from './AuthFrame';
 import { OFFLINE_SIGN_IN_LINE } from './messages';
 import {
   offlineLogin,
+  readJustWiped,
   signInErrorLine,
   signInWithFallback,
+  WIPED_DEVICE_LINE,
+  WIPED_LEAD,
   type OfflineSignIn,
 } from './offlineLogin';
 import type { SessionUser } from './session';
 import { useSession } from './useSession';
+import { useDeviceQuery } from '@/data/useDeviceQuery';
 import { PATHS } from '@/lib/paths';
 import { useOnline } from '@/lib/useOnline';
 
@@ -19,6 +23,19 @@ export const EXPIRED_LINE =
   'Your sign-in expired. Everything you entered is saved on this device and will sync after you sign in.';
 
 export type { OfflineSignIn };
+
+/** The wiped device's line (side task 4), its lead in bold. */
+const wipedLine: ReactNode = (
+  <>
+    <b className="font-bold">{WIPED_LEAD}</b>
+    {WIPED_DEVICE_LINE.slice(WIPED_LEAD.length)}
+  </>
+);
+
+/** A failed sign-in's line; the wiped device's with its lead in bold. */
+function errorLine(line: string | null): ReactNode {
+  return line === WIPED_DEVICE_LINE ? wipedLine : line;
+}
 
 const home = (user: SessionUser) => (user.must_change_password ? PATHS.changePassword : PATHS.home);
 
@@ -35,6 +52,11 @@ export function LoginPage({
   const navigate = useNavigate();
   const current = useSession();
   const online = useOnline();
+  // A wipe's mark (side task 4): offline, the page says up front that this device was wiped, in
+  // place of the note about cached credentials (the wipe took them). Online, signing in works and
+  // clears the mark, so nothing extra is said.
+  const justWiped = useDeviceQuery(readJustWiped, [], ['meta']);
+  const wipedOffline = !online && justWiped === true;
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +106,13 @@ export function LoginPage({
           <WarningNotice icon={Clock}>{EXPIRED_LINE}</WarningNotice>
         </div>
       )}
-      {!online && (
+      {wipedOffline && (
+        <div role="status" className="mt-4">
+          <Note icon="offline">{wipedLine}</Note>
+        </div>
+      )}
+      {/* Not drawn until the mark is read, so it never flashes before the wiped line. */}
+      {!online && justWiped === false && (
         <div role="status" className="mt-4">
           <Note icon="offline">{OFFLINE_SIGN_IN_LINE}</Note>
         </div>
@@ -106,7 +134,10 @@ export function LoginPage({
           hint="Forgot it? Ask an admin to reset it."
           inputRef={passwordRef}
         />
-        <AuthError message={error} />
+        {/* The same line twice would read as two problems: the one up front says it. */}
+        <AuthError
+          message={wipedOffline && error === WIPED_DEVICE_LINE ? null : errorLine(error)}
+        />
         <AuthSubmit busy={busy} label="Sign in" busyLabel="Signing in…" />
       </form>
     </AuthFrame>

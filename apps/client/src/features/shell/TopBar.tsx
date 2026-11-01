@@ -1,10 +1,11 @@
 import { Menu } from 'lucide-react';
 import { useCurrentTitle } from '@/lib/pageTitle';
 import { SyncPill, type SyncStatus } from './SyncPill';
+import { TOP_BAR } from './barHeights';
 
 /**
  * The phone's top edge on `--rail` (THEME "Phone top bar"): ☰, the mark, the page's name, and
- * the sync pill at the right.
+ * the sync pill at the right. Exactly `TOP_BAR.phone` tall (the shell's `--top-bar`).
  */
 export function TopBar({
   menuOpen,
@@ -17,8 +18,11 @@ export function TopBar({
 }) {
   const title = useCurrentTitle();
   return (
-    <header className="on-rail sticky top-0 z-30 bg-rail pt-[env(safe-area-inset-top)] text-rail-ink">
-      <div className="flex h-[3.375rem] items-center gap-2.5 ps-1 pe-2.5">
+    <header
+      style={{ height: TOP_BAR.phone }}
+      className="on-rail sticky top-0 z-30 bg-rail pt-[env(safe-area-inset-top)] text-rail-ink"
+    >
+      <div className="flex h-full items-center gap-2.5 ps-1 pe-2.5">
         <button
           type="button"
           aria-label="Open the menu"

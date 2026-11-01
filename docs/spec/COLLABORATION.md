@@ -192,6 +192,7 @@ Carry these forward; they're easy to forget and expensive to discover late.
 - **Duplicate scouting of the same (team, match)** needs a defined resolution rule before any average is computed.
 - **RTL/Hebrew, if needed, must be designed in from the start.** Retrofitting touches every component, table and chart axis.
 - **The keep-alive does not prevent every Supabase pause.** Production was paused on 2026-10-05, four days after a green run. When the keep-alive fails with `"database":"error"` and the project's `<ref>.supabase.co` does not resolve, the project is paused (or deleted): restore it in the Supabase dashboard, then re-run `gh workflow run keepalive.yml`.
+- **New tables need an explicit grant.** Since 2026-10-30 Supabase no longer grants Data API access to new `public` tables. A migration that creates a table without `grant ... to service_role` passes review and fails at runtime with "permission denied" (BUILD-CONTEXT §7).
 - **Handover.** Accounts (Vercel, Supabase, TBA key) should belong to the team, not to a student who graduates.
 
 

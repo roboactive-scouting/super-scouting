@@ -19,6 +19,13 @@ export type SuperTeam = {
   seen: string[];
   /** This device's super entry for the team at this event, if it holds one (SPEC-FINAL 8.1). */
   entry: LocalEntry | undefined;
+  /** The full name of `entry`'s author (`scouter_id`) from the cached users; null when unknown. */
+  author: string | null;
+  /**
+   * The matches `entry`'s author scouted this team in, from the match entries this device holds
+   * (22-super-readonly final: "seen in 5 matches"); 0 without an entry.
+   */
+  authorSeen: number;
   /**
    * The form version of the team's newest unfinished super draft, when the device holds that
    * version's fields: the form opens on it, so Resume brings the draft back (UF.23).
@@ -30,6 +37,8 @@ export type SuperData = {
   eventName: string;
   /** The active season's super form's published version; null while there is none. */
   formVersionId: string | null;
+  /** The season's field image, which the super form's map fields draw on (as EntryRoute). */
+  fieldImagePath: string | null;
   teams: SuperTeam[];
 };
 
@@ -44,7 +53,7 @@ const TYPE_ORDER: Record<string, number> = { practice: 0, qualification: 1, play
  * a pulled match entry by someone else on another device was not seen here.
  */
 export async function loadSuper(eventId: string, scoutId: string): Promise<SuperData> {
-  const [events, forms, settings, teams, roster, matches, entries, drafts, fields] =
+  const [events, forms, settings, teams, roster, matches, entries, drafts, fields, users, seasons] =
     await Promise.all([
       cachedRows<EventRow>('events'),
       cachedRows<FormRow>('forms'),
@@ -55,7 +64,16 @@ export async function loadSuper(eventId: string, scoutId: string): Promise<Super
       localEntries(eventId),
       db.drafts.filter((d) => d.key.includes(':super:')).toArray(),
       cachedRows<{ form_version_id: string }>('form_fields'),
+      cachedRows<{ id: string; full_name?: unknown }>('users'),
+      cachedRows<{ id: string; field_image_path?: string | null }>('seasons'),
     ]);
+  const nameOf = new Map(
+    users.flatMap((u) =>
+      typeof u.full_name === 'string' && u.full_name.trim() !== ''
+        ? [[u.id, u.full_name.trim()] as const]
+        : [],
+    ),
+  );
   const event = events.find((e) => e.id === eventId);
   // As EntryRoute: the event's own season, else the default's when the event row is missing.
   const seasonId = event?.season_id ?? settings[0]?.active_season_id ?? null;
@@ -65,13 +83,17 @@ export async function loadSuper(eventId: string, scoutId: string): Promise<Super
 
   const seenBy = new Map<string, Set<string>>();
   const superBy = new Map<string, LocalEntry>();
+  /** `scouter:team` → the matches that scouter scouted the team in, whoever is signed in. */
+  const scoutedBy = new Map<string, Set<string>>();
   for (const entry of entries) {
     if (entry.form_kind === 'super') {
       superBy.set(entry.team_id, entry);
-    } else if (entry.scouter_id === scoutId && entry.match_id) {
-      const set = seenBy.get(entry.team_id) ?? new Set<string>();
+    } else if (entry.match_id) {
+      const key = `${entry.scouter_id}:${entry.team_id}`;
+      const set = scoutedBy.get(key) ?? new Set<string>();
       set.add(entry.match_id);
-      seenBy.set(entry.team_id, set);
+      scoutedBy.set(key, set);
+      if (entry.scouter_id === scoutId) seenBy.set(entry.team_id, set);
     }
   }
   // As `draftedVersion`: the newest super draft per team on a version this device holds.
@@ -98,18 +120,24 @@ export async function loadSuper(eventId: string, scoutId: string): Promise<Super
   return {
     eventName: event?.name ?? 'This competition',
     formVersionId: form?.active_version_id ?? null,
+    fieldImagePath: seasons.find((s) => s.id === seasonId)?.field_image_path ?? null,
     teams: roster
       .filter((r) => r.event_id === eventId && r.deleted_at == null)
       .map((r) => teamById.get(r.team_id))
       .filter((t): t is TeamRow => t !== undefined)
-      .map((t) => ({
-        id: t.id,
-        number: t.number,
-        name: t.name,
-        seen: labels(t.id),
-        entry: superBy.get(t.id),
-        draftVersionId: drafted.get(t.id)?.version,
-      })),
+      .map((t) => {
+        const entry = superBy.get(t.id);
+        return {
+          id: t.id,
+          number: t.number,
+          name: t.name,
+          seen: labels(t.id),
+          entry,
+          author: entry ? (nameOf.get(entry.scouter_id) ?? null) : null,
+          authorSeen: entry ? (scoutedBy.get(`${entry.scouter_id}:${t.id}`)?.size ?? 0) : 0,
+          draftVersionId: drafted.get(t.id)?.version,
+        };
+      }),
   };
 }
 

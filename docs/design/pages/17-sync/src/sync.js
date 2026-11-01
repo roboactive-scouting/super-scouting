@@ -23,7 +23,7 @@ window.SN = (() => {
     { m: 'Q39', st: 'B2', tn: 5951, s: 'P', at: '11:47', org: 'here', newm: true },
     { m: 'Q38', st: 'R3', tn: 4338, s: 'B', at: '11:41', org: 'qr', from: 'Yael' },
     { m: 'Super', tn: 1690, sup: true, at: '11:30', org: 'here' },
-    { m: 'Q36', st: 'B2', tn: 5135, s: 'D', at: '11:25', org: 'here', rej: 'This entry is locked — ask a lead.', why: 'It was changed after its 5 minutes were up.' },
+    { m: 'Q36', st: 'B2', tn: 5135, s: 'D', at: '11:25', org: 'here', rej: 'Changed after the 5-minute edit window. A lead can save it for you.', why: '' },
     { m: 'Q71', st: 'R1', tn: 2231, s: 'P', at: 'Sat 15:02', org: 'here', evt: 'District #2 · Haifa' },
   ];
 

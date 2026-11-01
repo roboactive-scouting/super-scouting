@@ -1,6 +1,30 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.15 · **Date:** 2026-10-20 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.39 · **Date:** 2026-11-01 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+*v1.39 (2026-11-01): the user's feedback from testing develop, built on `fix/ranking-feedback` (spec v1.02 / SPEC-FINAL v1.50): a breakdown counts as missed for availability (points still count); the phone sort builder shows each figure's full name; the sort badge stays inside its column; on a computer the ranking table and the study panel scroll on their own with the header always pinned; "30 teams" on the ranking page and "of 30 teams" on Home's top teams; one computer dialog standard (×, Escape, click outside, unless busy); the builder's phase strip names every phase with its time.*
+*v1.38 (2026-10-29): user decisions after Phase 1 J, built on `fix/phase-1j-decisions` (spec v1.01 / SPEC-FINAL v1.49): a form version is deleted on its own when it is a draft or superseded by a newer published version (the forms list's trash now also on the draft row); every "of N" rank counts the roster; "±" always one decimal; the bundle budget is 240 KB; the dev seed's first team is 2096. **Phase 1 K's smoke tests run against the dev project** (§19.3, as 1.9's) — the delete flows included, which need migration `20261028090000_delete_match_cascade`, already on dev.*
+*v1.37 (2026-10-28): task 1.58b, Home's our-team rank card and top teams (round 03's "wanted, after ranking", in no task until now); "places moved" is counted since our last match (user; spec v1.00 / SPEC-FINAL v1.48).*
+*v1.36 (2026-10-28): where the delete dialogs open is drawn (`docs/design/pages/28-delete/final/delete-triggers-*`): Delete on the entry preview for a lead or admin, a trash button on older form-version rows; task 1.61 points at them.*
+*v1.35 (2026-10-28): the delete confirmation is designed (`docs/design/pages/28-delete/final/`, spec v0.99 / SPEC-FINAL v1.47 §3.9, §17.8); task 1.60 adds deleting a match with its entries and the two-file backup text, task 1.61 points at the final.*
+*v1.34 (2026-10-28): the ranking page is designed (`docs/design/pages/27-ranking/final/`, spec v0.98 / SPEC-FINAL v1.46 §13.5, §17.9, D18); task 1.58 points at it and adds the per-phase averages and the standard deviation to `rankRow`; §17.8 now prints one decimal, so 1.58 also changes `formatMetric`.*
+*v1.33 (2026-10-27): a fifth side task at the top of Phase 1 I: the team page's field charts show "—" for every match, even where the field was answered (user).*
+*v1.32 (2026-10-27): a fourth side task at the top of Phase 1 I: a wipe made offline says first that the phone cannot sign in again until it has a connection (user).*
+*v1.31 (2026-10-27): a third side task at the top of Phase 1 I: the Wipe sheet's buttons line up, and every sheet and dialog lays out its actions by one rule (user).*
+*v1.30 (2026-10-27): a second side task at the top of Phase 1 I: nothing pinned floats, starting with the team page's tab strip; every sticky element in the app is audited (user).*
+*v1.29 (2026-10-27): a side task at the top of Phase 1 I: the entry's Review sheet keeps its answers from showing under Keep editing and Submit (user).*
+*v1.28 (2026-10-23): a fifth side task at the top of Phase 1 H: no edit after 5 minutes — countdown, save at the mark, lock (user; SPEC-FINAL v1.45 §7.6).*
+*v1.27 (2026-10-23): a fourth side task at the top of Phase 1 H: the edit-window refusal reads "Not sent: changed after the 5-minute edit window. A lead can save it for you." (user; SPEC-FINAL v1.44 §7.6).*
+*v1.26 (2026-10-23): the entry search is designed as the Entries page plus a kind switch (`docs/design/pages/26-entry-search/final/`, spec v0.95 / SPEC-FINAL v1.43 §13.3); task 1.52 extends the existing `/entries` page instead of replacing it.*
+*v1.25 (2026-10-23): the team search page is designed (`docs/design/pages/23-team-search/final/`, spec v0.94 / SPEC-FINAL v1.42 §13.2); task 1.51 points at it.*
+*v1.24 (2026-10-23): the entry preview is designed (`docs/design/pages/25-entry-preview/final/`, spec v0.93 / SPEC-FINAL v1.41 §13.4); task 1.52 points at it.*
+*v1.23 (2026-10-23): the team page is designed (`docs/design/pages/24-team/final/`, spec v0.92 / SPEC-FINAL v1.40 §13.1, §12.6); task 1.53 points at it.*
+*v1.22 (2026-10-23): a third side task at the top of Phase 1 H: option-button labels never split mid-word (user).*
+*v1.21 (2026-10-23): a second side task at the top of Phase 1 H: Wipe anyway, for a device whose records cannot reach the cloud (user; SPEC-FINAL v1.39 §9.9).*
+*v1.20 (2026-10-23): a side task at the top of Phase 1 H: the sign-in fields stay left-to-right when the keyboard types Hebrew (user).*
+*v1.19 (2026-10-20): side task 2 of 1.47 is designed (`docs/design/pages/22-super-readonly/final/`, spec v0.87 / SPEC-FINAL v1.35 §7.6, §8.1): a quiet read-only page replaces the lock line, and the super picker names who did each Done team.*
+*v1.18 (2026-10-20): the QR receiver is designed (`docs/design/pages/21-qr-receive/final/`, spec v0.86 / SPEC-FINAL v1.34 §9.8); task 1.48 points at it.*
+*v1.17 (2026-10-20): the QR sender is designed (`docs/design/pages/20-qr-send/final/`, spec v0.85 / SPEC-FINAL v1.33 §9.8): a Next batch button and a Screen Wake Lock (Q7.9, Q7.10); task 1.47 points at it.*
+*v1.16 (2026-10-20): task 1.47 carries a second side task: another scouter's super entry shows read only, with its answers (spec v0.84 / SPEC-FINAL v1.32 §7.6, user).*
 *v1.15 (2026-10-20): task 1.47 carries a side task: small start and end marks on a cycle path (spec v0.83 / SPEC-FINAL v1.31 §8.2, user). Phase 1 F and UI fix round 3 are on `develop`.*
 *v1.14 (2026-10-12): the discarded-records log is designed (`docs/design/pages/19-discarded/final/`, spec v0.81 / SPEC-FINAL v1.29 §9.7); task 1.42 points at it. Phase 1 F's pages are all designed.*
 *v1.13 (2026-10-12): the Conflicts page is designed (`docs/design/pages/18-conflicts/final/`, spec v0.80 / SPEC-FINAL v1.28 §9.5); task 1.44 points at it, and task 1.41 adds `sync_conflicts.resolution`.*
@@ -93,7 +117,7 @@ Every task's requirements implicitly include this section. Values are copied ver
 - **Motion respects `prefers-reduced-motion`**: with it set, nothing moves. On the data-entry path, motion only informs (SPEC-FINAL §17.9).
 - **Touch targets ≥ 48 × 48 px with ≥ 8 px between adjacent targets. WCAG AA: 4.5:1 for text, 3:1 for UI boundaries and chart strokes, in every theme** (§17.7).
 - **`dir="auto"` on every text node that can hold Hebrew** — form labels, notes, chart axis labels, table cells (§17.1).
-- **Formatting is identical on every surface** (§17.8): computed metrics and standard deviations to **2 decimal places**; integer counts and team numbers with **no decimals and no thousands separator**; percentages as **whole numbers**; dates **`DD/MM/YYYY`**; times **24-hour**; the **device's local timezone**.
+- **Formatting is identical on every surface** (§17.8): computed metrics and standard deviations to **1 decimal place, a whole number bare** *(v1.34; was 2 — task 1.58 makes the change)*; integer counts and team numbers with **no decimals and no thousands separator**; percentages as **whole numbers**; dates **`DD/MM/YYYY`**; times **24-hour**; the **device's local timezone**.
 - **Builder routes require a viewport ≥ 1024 px** and otherwise render one clear "this needs a computer" panel. Alliance selection and conflict review work at any width (§17.2).
 - **Device baseline: Android Chrome from the last ~2 years, iOS Safari 16+** (§18.1). That is the browserslist and the Vite build target; older devices are unsupported rather than broken-for.
 - **No secret value is ever written into the repository, a commit message, or a chat message** (Appendix B). Only non-secret identifiers — project refs and deployment URLs — are ever spoken aloud.
@@ -164,6 +188,8 @@ So the execution order is: … 1.49, **1.54, 1.55, 1.56**, 1.50, 1.51, 1.52, **1
 **Release note — match deletions (UF.1).** Migration `20261008090000_match_deletions` must be pushed to **production before the server containing UF.1 is deployed**, the same way (by hand, BUILD-CONTEXT §4). That server's delta pull reads `match_deletions`; without the table every delta pull fails, so no device can sync.
 
 **Release note — form versions and exports (1.27).** Migrations `20261008100000_form_versions_updated_by` and `20261008101000_form_exports` must be pushed to **production before the server containing task 1.27 is deployed**, the same way (by hand, BUILD-CONTEXT §4). That server stamps `form_versions.updated_by` on every form write and reads and writes `form_exports`; without them every form save and every export fails.
+
+**Release note — match with its entries (1.60).** Migration `20261028090000_delete_match_cascade` must be pushed to **production before the server containing task 1.60 is deployed**, the same way (by hand, BUILD-CONTEXT §4). That server's `deleteMatch({ with_entries: true })` calls the new `delete_match_cascade` function; without it every delete of a match together with its entries fails (the plain delete of a match with no entries, and every other delete, are unaffected).
 
 If you would rather the file read in execution order, renumber it once before the first build chat and never again — but do not renumber halfway through, because the commit messages and the branch names will stop matching.
 
@@ -15292,6 +15318,17 @@ git add -A && git commit -m "feat(client): encode the offline capability matrix 
 
 The venue workflow this exists for: **a central tablet collects scouters' data by QR inside the arena, and a runner carries that tablet outside every few matches to sync it to the cloud.**
 
+**Progress** (build chat on `feat/phase-1g`, 2026-10-20):
+
+| Task | Status | Commit |
+|---|---|---|
+| 1.46 QR frame codec | done | f754b12 |
+| 1.47 side task 1: path start and end marks | done | f9fb8ea |
+| 1.47 side task 2: read-only super entry, names on the picker | done | c333a37 |
+| 1.47 QR sender | done | 31edc79 |
+| 1.48 QR receiver, disposal on ack | done | 7a17344 |
+| 1.49 device wipe | done | 61c11f9 |
+
 ---
 
 ## Task 1.46: Shared — the QR frame codec
@@ -15524,7 +15561,9 @@ git add -A && git commit -m "feat(shared): add the deflate + framed QR codec wit
 
 > **Side task (v1.15, user 2026-10-20): start and end marks on a cycle path** (SPEC-FINAL v1.31 §8.2). Small, and taking no extra screen room: each path's **first point is a hollow ring** and its **last point a small arrowhead pointing along the last leg**, in the path's own colour, no larger than a point's dot, with no labels. Draw them in `MapSheet`'s editing map, its view-only mode (UF.24) and the form's map button thumbnail; a one-point path shows only the ring; selection, ✕ Remove and the blue mirroring are unchanged (the arrow turns with the drawing). Add unit tests (ring on the first point, arrow on the last, the arrow's angle after mirroring) and refresh the map e2e shots in both themes. Logged under Task 1.47 in `DEVIATIONS.md`. Not a separate deployment: it ships with Phase 1 G.
 
-**Design (redesign system).** The sender is a full-screen `Sheet side="bottom"` or page with a frame counter. The QR canvas draws black on white, which the QR format needs for scanning.
+> **Side task 2 (v1.16, user 2026-10-20): another scouter's super entry is read only, and visible** (SPEC-FINAL v1.32 §7.6). Today `SuperForm`'s `locked` branch draws only the header and "The super entry for … is locked — ask a lead to change it." *(v1.19)* Build `docs/design/pages/22-super-readonly/final/` (variant B): **replace** that Warning notice with a grey **Read only** chip in the header and the author's card ("Dana Mor's entry · Started 10:40 · last changed 11:12 · seen in 5 matches", the count from the device's match entries by that `scouter_id`, left out when 0) over "Only Dana, a lead or an admin can change it."; under it, show the entry's answers by phase exactly as the confirmation summary draws them (`ConfirmEntry`'s rows, including UF.24's map rows that open the map view only), with no control that edits and no Review entry. Leads and admins and the author are unchanged (they edit). The same read-only view for a match entry locked to a scouter is **not** in scope (not asked). Also in `SuperPicker`, the Done tag names who: "✓ You 11:02" for the signed-in scouter's own entry, else the first name of its `scouter_id` from the cached users. Tests: a scouter opening another scouter's super entry sees its values, the author's card and no editable control or warning; the picker shows "You" and another scouter's first name; the map row opens view only; a lead still edits; the author still edits an hour later. Refresh the super e2e shots in both themes. Logged under Task 1.47.
+
+**Design (redesign system).** *(v1.17)* Build `docs/design/pages/20-qr-send/final/` (variant A): on a phone a full-screen page on `--rail`, no top or bottom bar; on a computer a dialog over Sync. The QR canvas draws black on white on a white card, which the QR format needs for scanning. Under it a frame strip (one segment per frame) and "Frame k of N"; **Done — back to Sync** is the only way out (Esc on a computer), no Stop. Above 200 operations, "Batch k of n" and **Next batch** (the sender moves on only when tapped, SPEC-FINAL v1.33 §9.8); nothing pending shows "Nothing to send". The batch is read once on open. Hold `navigator.wakeLock.request('screen')` while open, release it on unmount, and hide "Screen stays on" if it is refused. Tests to add: Next batch shows batch 2 frames; Done releases the wake lock; a refused wake lock still renders the code.
 *(v1.12)* Each record whose batch was shown records the time (`qr_shown_at`, local only); the Sync page's Waiting list shows **"shown by QR hh:mm"** on it (SPEC-FINAL v1.27 §9.10). It is a display, not a receipt: the record stays pending.
 
 **Files:**
@@ -15638,7 +15677,7 @@ git add -A && git commit -m "feat(client): add the QR sender with a cyclic five-
 
 ## Task 1.48: Client — the QR receiver and disposal on ack
 
-**Design (redesign system).** The camera view fills a `Card`, and its progress ("12 of 30 frames") is a `Badge`. Disposal on ack is a `Notice tone="success"`.
+**Design (redesign system).** *(v1.18)* Build `docs/design/pages/21-qr-receive/final/` (variant C): a full-screen page on `--rail` on a phone or tablet, camera then a ring ("7 of 11") and **one numbered cell per frame** from `collector.progress()` (which frames are held, not only how many); on a computer the camera at the left and the status at the right. On complete the screen turns `--accent`: the authors' names (from the cached users, else "a scouter"), the record count, entries and super entries, the Next batch hint, **Scan the next phone** and Done. Play a short Web Audio beep unless "Sound on" is off (a per-device setting) and call `navigator.vibrate?.(200)`. A checksum failure shows the damaged-code card and resets the collector. A blocked camera (`NotAllowedError`) shows "The camera is blocked" with Try again. Disposal on ack is a `Notice tone="success"`. Tests to add: the cells mark held frames in any order; complete names the author and counts; a bad checksum writes nothing and resets; Sound off plays nothing; a blocked camera shows Try again.
 *(v1.12)* While the device holds received copies, the Sync page's Waiting tab opens with a **"Received by QR"** block: the count by `author_user_id`, each with its last scan time (store `received_at` with each copy). See `docs/design/pages/17-sync/final/` phone image 6.
 
 **Files:**
@@ -15842,6 +15881,33 @@ git add -A && git commit -m "feat(client): add the lead-approved device wipe, re
 
 # Phase 1 H — browse and search (§20.2.8)
 
+> **Side task (v1.20, user 2026-10-23): sign-in fields stay left-to-right in Hebrew.** On `/login`, a password typed with the Hebrew keyboard by mistake is drawn from the right and runs under the eye button (screenshot from the user: the text sits over the eye icon). Usernames and passwords are Latin credentials, so `PasswordInput` and the username field get `dir="ltr"` with left-aligned text, keeping the eye's `pe-12` room, wherever they are used (sign-in, Switch scouter, Change password, reconnect, the admin's set-password). *[RAISED BY ME]* While the field holds any Hebrew letter, a quiet `--muted` line under it says "Your keyboard is typing Hebrew." (never an error, and the value is not changed). Tests: the input is `dir="ltr"`; Hebrew text shows the hint and Latin text does not; e2e shots of `/login` with a Hebrew password at both widths in every theme, shown and hidden. Logged under Phase 1 H in `DEVIATIONS.md`; ships with Phase 1 H.
+
+> **Side task 2 (v1.21, user 2026-10-23): Wipe anyway** (SPEC-FINAL v1.39 §9.9). Today a held wipe has no way out, so a device whose records can never reach the cloud cannot be cleared. While the wipe is held, the Wipe sheet in Settings keeps its held line and adds, under it, **Send by QR first** (opens `/sync/qr/send`, so the unsent records can be copied to another device) and a destructive **Wipe anyway…** that opens a second confirmation: "**3 records have not reached the cloud. Wiping now deletes them for good.**", the lead's code, and typing the number of records that will be lost ("3") before the filled-ink **Wipe anyway** enables; **Keep this device** first. On confirm, every unacked record (and unfinished entry) is first written to the discarded-records log with the reason "wiped before it reached the cloud" (summary only, as 9.7 does — never the values), then the device is wiped exactly as the normal wipe does (signs out; the discarded log survives). `wipeDevice` gains `{ force: true, expected: n }`: refused unless the code matches **and** `n` equals the device's current unacked count, read in the same transaction (a record saved meanwhile refuses the wipe). Built from the existing sheet and `DestructiveConfirm`; no new design page (16-settings final's sheet, plus the second confirmation in the same component). Tests: the normal wipe is unchanged while held; Wipe anyway with a wrong code, or a wrong or stale count, removes nothing; with the right ones the log holds one row per lost record and the device is empty; Send by QR first opens the sender. e2e shots of the held sheet with the two actions and the second confirmation, both widths, every theme. Logged under Phase 1 H in `DEVIATIONS.md`; ships with Phase 1 H.
+
+> **Side task 3 (v1.22, user 2026-10-23): option-button labels never split mid-word.** In a four-column option group on a phone (the screenshot: an end-game select with Climb · Parked · Low …), "Parked" with its ✓ breaks as "Park / ed", because `components/ui/option-buttons.tsx` lets the label break anywhere (`[overflow-wrap:anywhere]`). A label wraps only **between words**; a single word never breaks. When the longest word of any option does not fit beside the ✓ at four columns, the whole group drops to two columns (one rule for the group, so the buttons stay even), measured, not guessed from character counts; a word too long even for one column (rare) may still break, as the last resort. The ✓ keeps its place. Applies wherever `OptionButtons` is used (entry fields, builder preview). Tests: "Parked", "Defense" and a Hebrew label are never split at 375 px; a group whose longest word fits keeps four columns; e2e shots of the entry's end-game group at 375 and 1440 in every theme, with the selected state. Logged under Phase 1 H in `DEVIATIONS.md`; ships with Phase 1 H.
+
+> **Side task 4 (v1.27, user 2026-10-23): the edit-window refusal says what happened** (SPEC-FINAL v1.44 §7.6). A record refused with `edit-window-expired` now reads, on Entries and on Sync alike, **"Not sent: changed after the 5-minute edit window. A lead can save it for you."** — one line, replacing "Not synced: This entry is locked — ask a lead" (Entries) and "Not sent: This entry is locked — ask a lead. It was changed after its 5 minutes were up." (Sync). `rejectionMessage` (`apps/client/src/data/rejections.ts`) returns "Changed after the 5-minute edit window. A lead can save it for you."; the refused-line label is **"Not sent:"** on both pages (`EntryParts.tsx` changes from "Not synced:"); Sync drops its second "why" sentence for this code; `syncPush`'s `message` for the code becomes the same sentence in lower case. The entry form's own lock message when a scouter opens a locked entry (`EntryPage`, `SuperForm`) is out of scope. Tests: the unit tests and e2e specs that pin the old text (`rejections.test.ts`, `EntriesPage.test.tsx`, `SyncPage.test.tsx`, `outbox.test.ts`, `entries.spec.ts`, `sync.spec.ts`) pin the new one; e2e shots of the refused line on Entries and Sync at both widths in every theme. Logged under Phase 1 H in `DEVIATIONS.md`; ships with Phase 1 H.
+
+> **Side task 5 (v1.28, user 2026-10-23): no edit after 5 minutes** (SPEC-FINAL v1.45 §7.6). Today a scouter's form left open across the 5-minute mark keeps accepting input and only `commit()` refuses ("This entry is locked — ask a lead to change it.", `EntryPage.tsx`). Instead, for a scouter editing their own **match** entry (leads, admins and super entries unchanged):
+> - In the last 60 s the Save bar shows "Editable for 0:45" (mono, `--warn`) above the button, ticking each second from `client_created_at` (the same clock `canSelfEdit` uses).
+> - At the mark the form commits what is typed with `client_updated_at` = `client_created_at` + 5:00 (so `withinSelfEditWindow` passes on the server). It then navigates to the read-only `/entries/:id` (page 25), which shows the Success banner "Saved — the 5 minutes are up."
+> - A field whose value would fail the save's checks (out of `expected_range`, a required field emptied) keeps its last saved value, and the banner adds one line per field: "Not kept: High goal 40 is over 20."
+> - Every other place that could start an edit after the window shows the entry read only: Entries, Sync's **Open entry**, the team page's match rows. The preview's Edit is already hidden.
+> - The old "locked" error in `commit()` stays only as the last guard.
+> 
+> Built from the existing Primary action bar, Success banner and Error-line parts; **no new design page.**
+> 
+> Tests (fake timers):
+> - the countdown appears at 4:00, not before;
+> - at 5:00 the entry is saved with the stamped time and the form is gone;
+> - an out-of-range edit at the mark keeps the old value and names it;
+> - a lead's form never counts down;
+> - a super entry never counts down;
+> - e2e shots of the countdown and the banner at both widths in every theme.
+> 
+> Logged under Phase 1 H in `DEVIATIONS.md`; ships with Phase 1 H.
+
 ---
 
 ## Task 1.50: Server — the browse and search queries
@@ -15979,6 +16045,7 @@ git add -A && git commit -m "feat(server): add team search, entry search and ent
 - `/teams` → `PATHS.teams`, plus a `NAV_ITEMS` row `{ id: 'teams', label: 'Search', icon: Search, group: 'competition', bottomBar: 2, visible: () => true }`. Set Entries' `bottomBar` to 3.
 - The bottom bar becomes Home · Scout · Search · Entries.
 - The search box is `Input type="search"`, and results are `Table` or list rows.
+- *(v1.25)* Build `docs/design/pages/23-team-search/final/` (variant A2) and compare screenshots at 1440 and 375 px: chips All · At this event (**default**) · Other events; a team at the active event is a link row (the whole row, `role="link"`, with the round › and the pressed/hovered state from `THEME.md`), not a separate button; a team elsewhere gets the dashed Other event button; a "Show all" line closes the filtered list; the computer table has no column of other events. Components: Rank badge (side), Link row, Other-event button, Show-all line, Event picker.
 
 **Files:**
 - Create: `apps/client/src/features/teams/TeamSearchPage.tsx`, `apps/client/src/features/teams/TeamSearchPage.test.tsx`, `apps/client/src/features/teams/CrossEventJump.tsx`
@@ -16110,12 +16177,13 @@ git add -A && git commit -m "feat(client): add the season-wide team search with 
 
 ## Task 1.52: Client — entry search and the entry preview page
 
-**Design (redesign system).** Filters are toggle chips with `aria-pressed`. A row opens `/entries/:id` (`PATHS` gains an `entry(id)` helper) as a **full page**, never a drawer or `Sheet`.
+**Design (redesign system).** *(v1.24)* The preview is `docs/design/pages/25-entry-preview/final/` (variant B + D's buttons); compare screenshots at 1440 and 375 px. It shows the header (score, or "—" / "not counted"; none for super), "Scouted by …", the time and the form version; the score band; per-phase subtotals and per-row points; and Team page / Edit, with Edit rendered only when §7.6 allows the viewer to edit (it opens the entry form). `getEntry` (1.50) therefore also returns each field's points, each phase's subtotal, the form version and the team's average. The page's components are in `THEME.md` (Entry header, Score band, Answer rows with points). Filters are toggle chips with `aria-pressed`. A row opens `/entries/:id` (`PATHS` gains an `entry(id)` helper) as a **full page**, never a drawer or `Sheet`.
 
 **Files:**
 - Create: `apps/client/src/features/entries/EntrySearchPage.tsx`, `apps/client/src/features/entries/EntryPreviewPage.tsx`
 - Create: `apps/client/src/features/entries/EntrySearchPage.test.tsx`, `apps/client/src/features/entries/EntryPreviewPage.test.tsx`
 - Modify: `apps/client/src/routes.tsx` (replace the walking skeleton's `/entries` with this)
+- *(v1.26)* **Design: `docs/design/pages/26-entry-search/final/` (variant A).** `/entries` is already the round-05 Entries page (RB.11); `EntrySearchPage` **extends it** rather than starting over: keep its search, chips (All · Mine · Waiting · Needs a look), refused line and key; add the Both · Match · Super segmented switch (Both default), list super entries by time (SUPER tag, no score), make every row and card a link to `/entries/:id`, and drop the station tag from the computer table and the phone cards. Compare screenshots at 1440 and 375 px.
 
 **Interfaces:**
 - Produces: `/entries` — list rows, filters as chips, search that filters as you type; `/entries/:id` — the read-only preview, **a full page, not a drawer**.
@@ -16234,7 +16302,7 @@ git add -A && git commit -m "feat(client): add entry search and the full-page en
 
 ## Task 1.53: Client — the team page
 
-**Design (redesign system).** The team header is the page's own sticky `<header>`, not `PageHeader`. This task's test finds it as `banner` rendering the page standalone. On the live phone layout the shell's `TopBar` is the top-level banner, and a `<header>` inside `<main>` is not one. The tab strip is `<Tabs>`, and stat rows are label → value → inline bar with `ShadedValue`.
+**Design (redesign system).** *(v1.23)* Build `docs/design/pages/24-team/final/` (variant D2) and compare screenshots at 1440 and 375 px against it: tabs Stats · Matches · Progress · Notes; Stats = four stat tiles (median, availability, best match, trend), then stat rows label → shaded value → bar → sparkline, plus reliability; Matches = the match strip (that tab only), then match · status · scouter · points on a phone (no station, no field values) and the table with the metric columns and a Scouter column on a computer; the phone header shrinks to one line once scrolled; the shading ramp and the new components are in `THEME.md` (Team header, Value shading, Stat row, Match strip, Note quote, Progression chart). The `matches` rows of `getTeamStats` (1.57) carry `scouter_name`. The team header is the page's own sticky `<header>`, not `PageHeader`. This task's test finds it as `banner` rendering the page standalone. On the live phone layout the shell's `TopBar` is the top-level banner, and a `<header>` inside `<main>` is not one. The tab strip is `<Tabs>`, and stat rows are label → value → inline bar with `ShadedValue`.
 
 **Files:**
 - Create: `apps/client/src/features/teams/TeamPage.tsx`, `apps/client/src/features/teams/TeamHeader.tsx`, `apps/client/src/features/teams/MatchByMatchTable.tsx`, `apps/client/src/features/teams/NotesList.tsx`
@@ -16365,6 +16433,26 @@ git add -A && git commit -m "feat(client): add the team page with stats, match-b
 # Phase 1 I — basic statistics (§20.2.9)
 
 **One metric implementation, in TypeScript, in `packages/shared`** (SPEC-FINAL §11.1). It runs unchanged in the browser (offline) and on the server (online). There is no second implementation and no metric logic in SQL. Wrong numbers are worse than no numbers, so this is one of the two non-negotiable test suites (§18.4).
+
+> **Side task (v1.29, user 2026-10-27): the Review sheet's buttons sit on a solid foot.** On the entry's Review sheet (`features/entry/ConfirmEntry.tsx`), **Keep editing** and **Submit entry** float over the answers: the user can see entry data under them. Cause, from the code: the foot is `sticky bottom-0 bg-surface pt-2`, but the scrolling surface keeps padding below it (the phone `Sheet`'s `pb-[env(safe-area-inset-bottom)]` plus `ResponsiveDialog`'s `pb-4`; the computer `Dialog`'s `py-[1.375rem]`), so answers scrolled under the foot show through that strip. Fix it so the foot is opaque from its top edge to the sheet's bottom edge, the buttons never overlap a row, and the last answer can scroll fully above the foot; the failed-submit line stays a direct child of the foot (`EntryPage.test.tsx` asserts it). *[RAISED BY ME]* Fix it in the shared surface, not only in `ConfirmEntry`, so every sticky foot in a `Sheet` or `Dialog` behaves the same (the super entry's Review sheet is the same `ConfirmEntry`, and so is any later sheet with a pinned foot), and give the foot a hairline `--line` top edge while content scrolls under it, so the edge reads as a bar, not a gap. Tests: the foot's box reaches the scroller's bottom edge with no padding below it; an e2e shot of a long entry's Review sheet scrolled halfway, at 375 and 1440, every theme, with nothing visible under the buttons. Logged under Phase 1 I in `DEVIATIONS.md`; ships with Phase 1 I.
+
+> **Side task 2 (v1.30, user 2026-10-27): nothing pinned floats.** On the team page (`/teams/:teamId`) the tab strip (Stats · Matches · Progress · Notes) floats while the page scrolls: it is not flush under the team header, so content shows between or under them. Likely cause, from the code: the header (`TeamHeader.tsx`) and the tabs (`TeamPage.tsx`) are **two** sticky elements, and the tabs' `top` is the header's height measured by a `ResizeObserver` and rounded (`Math.round`). On a phone the header shrinks to one line with a padding transition, so the measured offset lags or misses by a pixel, and the tabs hang below it. Reproduce first (phone at 375 px and computer at 1440, scrolling slowly through the compact switch, both directions), then fix it so the header and the tabs are **one** sticky block (one wrapper that sticks, the tabs inside it): no measured offset, no gap, the tabs always flush under the header, and the "a tab chosen while stuck keeps them stuck" behaviour kept. **The same pattern elsewhere — audit each, fix what floats, and log what was checked:**
+> - **Hard-coded bar heights:** `MatchTimer.tsx` sticks at `top-[calc(3.375rem+env(safe-area-inset-top))]` (phone) and `top-[3.75rem]` (computer), and `HEADER_TOP` in `TeamHeader.tsx` repeats the same two numbers. These are copies of `TopBar`'s and `CrumbBar`'s heights. The shell publishes the top bar's height once as a CSS variable (as it already does `--bottom-bar` for the foot), and every sticky element reads it, so a bar that changes height can never leave a gap.
+> - **Bottom-pinned bars:** the entry's Save bar (`EntryPage.tsx`, `SuperForm.tsx`) and `ActionBar` sit on `bottom-[var(--bottom-bar,0px)]` above the fixed `BottomBar`; check that no content shows between them or below them (the safe-area inset, the raised Scout button).
+> - **Sticky inside a scroller:** the Review sheet's foot (side task 1), the builder's sticky phase headers (`BuilderCanvas.tsx`, under the column's scroll), and `TableHeader sticky` (`components/ui/table.tsx`, `top-0`: under the page's own sticky crumb bar it would stick behind it; unused today, so make it take the same top variable before anything uses it).
+> - Every pinned surface is opaque from edge to edge (`bg-surface` or `bg-rail`, no padding strip it does not paint) and has the z-order that keeps scrolled content under it.
+>
+> Tests: on the team page, the tabs' top equals the header's bottom at every scroll position, including mid-transition (a unit test over the one sticky block, plus an e2e that scrolls step by step and checks the boxes touch); no hard-coded bar height is left in a `top-[…]` class (a source test like `styles/classes.test.ts`); e2e shots of the team page scrolled at 375 and 1440 and of the entry form scrolled under the timer, every theme. Logged under Phase 1 I in `DEVIATIONS.md`; ships with Phase 1 I.
+
+> **Side task 3 (v1.31, user 2026-10-27): the Wipe sheet's buttons line up.** In Settings → Wipe this device, while the wipe is held (`features/settings/DeviceWipe.tsx`), the sheet shows two rows of buttons that do not agree: **Send by QR first · Wipe anyway…** are default-size buttons, left-aligned and content-width (`flex flex-wrap gap-2`), and under them **Keep this device · Wipe this device** are the larger footer buttons, right-aligned (`ResponsiveDialog`'s footer, `justify-end`). On a phone the two rows start and end at different edges and differ in height; the computer dialog has the same two edges (`settings-wipe-anyway-held-*.png`). Fix: one size and one edge for every button in the sheet. **One rule for every sheet and dialog, built into the shared surface rather than per page:** on a phone, a sheet's action row is full width with equal-width buttons (secondary first, primary or destructive last), as the entry's Review sheet already does; on a computer, a dialog's actions sit right-aligned, equal height. *[RAISED BY ME]* While the wipe is held, the footer drops the disabled **Wipe this device**: a greyed wipe beside a live **Wipe anyway…** reads as two wipes, and the held line already says why the plain wipe is off. The footer is then **Keep this device** alone, with the held row (**Send by QR first · Wipe anyway…**) as the sheet's actions. **Audit every `ResponsiveDialog`, `Dialog`, `Sheet` and `DestructiveConfirm` footer in the app** (32 files today, from a grep of `features/`: the admin user, season, event and match dialogs and sheets, the builder's dialogs, Switch competition, the entry's Review, problems, station, map and practice sheets, Settings and the Wipe sheet, Sync, the nav drawer and the cross-event jump): list each one in `DEVIATIONS.md` with what changed, and move any that breaks the rule onto it. Tests: in the held sheet, every action button has the same height and, on a phone, the rows share both edges; a source or unit test that the shared footer renders full-width equal buttons below 1024 px and right-aligned at 1024 px and above; e2e shots of the held sheet and the Wipe anyway confirmation at 375 and 1440, every theme. Logged under Phase 1 I in `DEVIATIONS.md`; ships with Phase 1 I.
+
+> **Side task 4 (v1.32, user 2026-10-27): an offline wipe warns that the phone cannot sign in again.** A wipe, the normal one or **Wipe anyway**, removes everything the app keeps on the device, including the cached accounts that make an offline sign-in work (§9.9; unchanged — a wiped phone is a phone being handed on, so it keeps no one's login). Done offline, the device lands on `/login` and cannot sign anyone in until it has a connection, and nothing said so before the confirm. Fix, wording only, the wipe itself unchanged: **while the device is offline**, both wipe confirmations (`features/settings/DeviceWipe.tsx`) show, above the confirm button, a warning Notice: "**You're offline.** After the wipe, this phone can't sign in again until it has a connection." Online, the line is not shown. The confirm stays enabled (the warning informs, it does not block). *[RAISED BY ME]* After a wipe, the sign-in page's no-accounts line (`NO_CACHED_ACCOUNTS_LINE`, `auth/offlineLogin.ts`) reads "**This device was wiped.** Connect to the internet to sign in." instead of "has not loaded the team's accounts yet", which reads as a first install: the wipe leaves a marker that survives it (as the discarded-records log already does), and the first successful sign-in clears it. The online/offline signal is read through the existing connection state, never a new `navigator.onLine` check of its own. Tests: offline, both confirmations show the line and online they do not; after a wipe the offline sign-in shows the wiped line, and after an online sign-in it is gone; e2e shots of the offline normal and Wipe anyway confirmations and of `/login` after a wipe, at 375 and 1440, every theme. Logged under Phase 1 I in `DEVIATIONS.md`; ships with Phase 1 I.
+
+> **Side task 5 (v1.33, user 2026-10-27): a field's chart shows the answers it has.** On the team page (`/teams/:teamId`, Progress tab and the computer's Stats chart), picking **Driver skill** (rating), **Climb time** or **Cycle time** (timers) or **Cycle estimate** (number) draws "—" over **every** match, even after the user scouted an entry with Driver skill filled and checked it in the entry preview. **What is known (dev, 2026-10-27, through `getTeamStats` on the local server):** the shared engine computes these correctly. For 8009, 8020, 8012, 8013, 8002, 8001 and 8000, Driver skill is the newest match's rating (series `[—, —, —, 4]`) and Cycle estimate 10. Cycle time is genuinely empty (timers left "unsure"), and Climb time is a conditional field nobody has answered. Team 8014's three entries are all seed entries from before Driver skill existed, so the server holds no answer for it: an 8014 entry scouted on the phone had not reached the server. The device's `cachedRows('scouting_entries')` does include the phone's own entries. **So the fault is on the device path or in how the chart reads, not in the engine.** Reproduce first, on the phone and on the computer, online and offline: scout a match with Driver skill, a Climb time, a Cycle time and Cycle estimate filled, then open that team's page. Compare the device's `loadDeviceTeamStats` (`features/teams/teamStats.ts`) with the server's `getTeamStats` for the same team, metric by metric and match by match. Suspects to rule in or out, each logged: the device builds `versions` only from cached `form_fields` (`versionFields`), and passes `formScoring(…, { versions: [] })`; a version the cache lacks changes what `buildTeamStats` reads; the entry is still in the outbox, so its row may not carry `form_version_id`, `match_type` or `match_number` as a pulled row does (`toEngineEntry`); the chart's picker (`chartMetrics`, `ProgressionChart`) reads a different metric object than the Stats row. Fix the cause in the shared input or the device path (never a second formula), and add a test that the device and the server agree, metric for metric, on the same rows. **Plus two reading rules** *[RAISED BY ME]*:
+> - A match scouted on a form version that **did not have the field** is not a "—" on that field's chart. "—" means "no value: no-show, disabled, or left empty". A field that did not exist yet is not drawn at all: it has no point, no dash and no dotted bridge, and the x-axis keeps the match.
+> - A field chart with **no value at all** says so in one line ("No Driver skill answers for this team yet") in place of an empty plot. A chart with one value shows its dot and the team value line.
+>
+> Tests: device and server give the same `metrics` for a fixture with an entry still in the outbox, an entry on an older version without the field, a no-show and an "unsure" timer; the chart draws one dot for one answer, no dash for a match whose version lacked the field, and the empty line for none; e2e shots of the Progress tab with Driver skill picked, at 375 and 1440, every theme. Logged under Phase 1 I in `DEVIATIONS.md`; ships with Phase 1 I.
 
 ---
 
@@ -17146,6 +17234,14 @@ git add -A && git commit -m "feat(server): add getTeamStats and the fixed phase 
 - `/ranking` → `PATHS.ranking`, plus a `NAV_ITEMS` row `{ id: 'ranking', label: 'Ranking', icon: Trophy, group: 'competition', bottomBar: 3, visible: () => true }`. **Set Entries' `bottomBar` to `null`**, which moves it to the drawer and sidebar only (spec v0.49).
 - The bottom bar becomes Home · Scout · Search · Ranking.
 - The table is `Table` with `TableHeader sticky` and `numeric` cells. The top-3 medals are a `Trophy` icon plus the rank number.
+- *(v1.34)* **Design: `docs/design/pages/27-ranking/final/` (variant N).** Build it and compare screenshots at 1440 and 375 px; its README is the behaviour. In short:
+  - **Two categories** (the locked Category switch) replace column visibility: **Scoring** = By-phase bar · Total · one column per scoring phase · Consistency · Availability (Status marks) · Matches; **Availability** = Status spread bar · Availability · Breakdowns · No-shows · Disabled · Matches.
+  - **Data.** `rankRow` (`packages/shared/src/api/stats.ts`) gains `stddev` and `phase_averages` (one per phase in `FIELD_PHASES` that carries points in the season's form, from `scoreBreakdown` in `engine/breakdown.ts`), both computed in `buildRankTable` (`engine/teamStats.ts`) over the same counted entries as `average_points`, so the offline table equals the server's. Played = `matches_counted − breakdowns`. The spread counts scouted entries only, never the schedule.
+  - **Sort** runs in the client over every row (no pagination): a list of `{ key, direction }` per category, each category keeping its own. A header click replaces the list with that one key (a second click reverses it, so the tests below still hold); the Sort control states the list in words and opens the Sort builder (popover on a computer, `Sheet` on a phone) to reorder, flip and add tie-breakers from the open category's keys. Still tied → rank order; no data last. Consistency is never a key. `RANK_SORT_KEYS` gains the phase keys; `rank` never changes.
+  - **Team study:** a row selects the team and fills the panel beside the table (computer) or opens the bottom sheet (phone): points by phase with share and place, Consistency with the typical-match range (Total ± SD), the Status spread and the four counts, **Open team page** (`/teams/:teamId`).
+  - **Shading** reuses `shadeFor` / `ShadedValue` (1.53's deviation): the figures in the current sort are shaded, the rest plain.
+  - **One decimal (SPEC-FINAL §17.8, v1.46).** Change `formatMetric` (`packages/shared/src/format.ts`) to one place with a whole number bare (`12.3456` → `"12.3"`, `12` → `"12"`) and its test to match; `teamView.formatStat` then delegates to it instead of keeping its own copy. `ComputedValue` and `conflictsView` keep calling `formatMetric`. This task's test below expects `'50'` (was `'50.00'`).
+  - Components (THEME "Locked components", Ranking): Category switch, Sort control, Sort builder, Numbered sort badge, By-phase bar, Status marks, Status spread bar, Team study panel / summary sheet.
 
 **Files:**
 - Create: `apps/client/src/features/ranking/RankingPage.tsx`, `apps/client/src/features/ranking/RankingPage.test.tsx`
@@ -17183,7 +17279,7 @@ describe('RankingPage — the fixed phase 1 table (SPEC-FINAL 13.5)', () => {
   it('lists every team with rank, average points and the reliability figures', async () => {
     render(<RankingPage eventId="ev-1" rpc={rpcFor()} />);
     const first = await screen.findByRole('row', { name: /Team 1000/ });
-    expect(first).toHaveTextContent('50.00');
+    expect(first).toHaveTextContent('50'); // v1.34: one decimal, a whole number bare (SPEC-FINAL 17.8)
     expect(within(first).getByLabelText(/breakdowns/i)).toBeInTheDocument();
     expect(within(first).getByLabelText(/availability/i)).toHaveTextContent('100%');
   });
@@ -17250,6 +17346,37 @@ Expected: every suite green, including the new file(s) from this task.
 
 ```bash
 git add -A && git commit -m "feat(client): add the fixed phase 1 ranking table"
+```
+
+---
+
+## Task 1.58b: Client — Home's our-team rank card and top teams
+
+*(v1.37, user 2026-10-28; [RAISED BY ME]: designed with Home in round 03 as "wanted, after ranking" (`docs/design/pages/03-home/final/README.md`, "Our team" and "Top teams") but in no task until now. Runs right after 1.58, on the same data.)*
+
+**Design.** `docs/design/pages/03-home/final/` — compare `home-desktop.png` and `home-phone.png` at 1440 and 375 px. Today's Home hides both; this task shows them once the event has a ranking.
+
+**Files:**
+- Create: `apps/client/src/features/home/OurTeamCard.tsx`, `apps/client/src/features/home/TopTeamsCard.tsx` and a test for each
+- Modify: `apps/client/src/features/home/HomePage.tsx`, `StatTiles.tsx` (the desktop row gains the fourth tile), `homeData.ts`; `packages/shared/src/engine/teamStats.ts` and `packages/shared/src/api/stats.ts` (below)
+
+**Data — the same source as the ranking page** (`rankTeams` online, `buildRankTable` over the device's entries offline), so Home and `/ranking` can never disagree:
+- `rankRow` gains `recent_totals: number[]` — the team's last **five** counted match totals, oldest first (no-show and disabled left out, as for the average).
+- `buildRankTable` takes an optional `before_match_number`: only qualification matches numbered **below** it count. `rankTeams` passes it through. That is the whole of "places moved".
+
+**Our team** (2096, the configured team): rank **#N of M** (M = the ranked teams), the average (one decimal, §17.8), and **places moved since our last match**: our rank now against our rank computed with `before_match_number` = the number of 2096's most recent counted match — "▲2 since Q36", "▼1 since Q36", "No change since Q36" (an arrow and a word, never colour alone). Fewer than two counted matches for 2096: the move line is left out. 2096 not ranked yet: the card stays hidden, as today.
+
+**Top teams:** the top five by the canonical rank, each with its five-match trend line from `recent_totals` (the team page's sparkline), 2096 highlighted when it is among them, and a **Full ranking** link to `/ranking`. No ranking yet: hidden, and coverage keeps the full width, as today.
+
+- [ ] **Step 1: Write the failing tests** — the move reads ▲/▼/No change against a ranking computed before our last match; hidden with fewer than two matches; Top teams lists exactly five in rank order with 2096 marked; offline, both cards read the device's ranking and agree with `/ranking`.
+- [ ] **Step 2: Implement, run, commit**
+
+```bash
+pnpm --filter @frc/shared exec vitest run src/engine && pnpm --filter @frc/client exec vitest run src/features/home && pnpm typecheck
+```
+
+```bash
+git add -A && git commit -m "feat(client): add the our-team rank card and top teams to Home"
 ```
 
 ---
@@ -17366,10 +17493,10 @@ git add -A && git commit -m "feat: add value shading and the per-match progressi
 **Rules, verbatim (SPEC-FINAL §3.9).**
 - **Hard cascade delete** applies to `seasons`, `events` and `forms`, is **admin-only and irreversible**. Deleting a season deletes its events, their matches and entries, its forms, all their versions, its metrics, dashboards and presets. Deleting an event deletes its matches, entries, pick lists, do-not-pick rows and alliance bracket. Deleting a form deletes its versions, its fields, its scoring rules and **every entry bound to it**.
 - **Deleting a single form version that has entries bound to it is blocked**, and **no confirmation text overrides it**. Deleting the parent is a cascade, not an orphaning, which is why one is allowed and the other is not.
-- **Deleting a match that has entries is blocked.** Correct the match number instead, or delete the entries first.
+- **Deleting a match that has entries is blocked on its own.** Correct the match number instead, or delete the match **with its entries** *(v1.35)*: `deleteMatch({ match_id, with_entries: true, confirm_name })`, admin only, `confirm_name` = the match label ("Q41"); in one transaction it hard-deletes every `scouting_entries` row naming the match — **soft-deleted ones included**, since their rows still hold the `on delete restrict` key — then the match, recording the match tombstone as today (UF.1). `getDeleteImpact` covers `{ kind: 'match' }` (entries, by station). A device that later pushes an entry for it gets the existing `parent-deleted` refusal. "Delete the entries first" is gone: it never worked.
 - **The active season and the active event cannot be deleted.** Switch the active context first.
 - **Confirmation names the damage** — exact counts, and the admin types the object's name to proceed.
-- **Back up first**: the delete screen instructs the admin to run `supabase db dump` before proceeding.
+- **Back up first**: the delete screen shows the **two-file backup** from `docs/ops/SETUP.md` › Backup (schema, then `--data-only --use-copy`), never the bare `supabase db dump`, which saves no rows *(v1.35)*.
 - `deleteEntry` is a **lead/admin soft delete**. Scouters never hard-delete entries.
 
 - [ ] **Step 1: Write the failing test**
@@ -17506,6 +17633,8 @@ git add -A && git commit -m "feat(server): add the admin cascade deletes with an
 ## Task 1.61: Client — the destructive-action surface
 
 **Design (redesign system).** The one dialog is `ConfirmDialog`, already restyled, and `getDeleteImpact`'s counts fill its `loss` line.
+- *(v1.35)* **Design: `docs/design/pages/28-delete/final/` (variant A).** Compare screenshots at 1440 and 375 px; its README's table says which face each kind gets. `DeleteDialog` has three faces: **Bill + type** (the `--ink` band with the biggest count and the itemised counts, then 1 · Back up first with the two SETUP.md lines and Copy both, 2 · Type the name, Cancel focused + the filled-ink delete) for season, event, form, form version and a match with its entries; **Are you sure?** (a small pop-up, no band, nothing typed) for one entry and a match with no entries; **Blocked** (the band with the Blocked tag, the ways forward as cards, no delete) for a form version with entries, the active season or default event — and a match with entries opens a choice (Correct the match number · Delete Q41 and its 6 entries… · Close) before its bill. Components (THEME, Delete): Delete bill, Are-you-sure pop-up, Blocked tag and ways forward, Station tiles, Backup command box. The tests below hold: the commands contain `supabase db dump`; `kind="entry"` has no typing. Add `kind="match"` with entries (typing "Q41") and without (Are you sure?).
+- *(v1.36)* **The triggers** (`28-delete/final/delete-triggers-*.png`): `EntryPreviewPage` gets a filled-ink **Delete** after Edit, rendered only for a lead or admin (a third equal button on a computer, a full-width row on a phone), opening Are you sure?; the forms list (`FormsPage`, page 13) gets a 36 px filled-ink trash button with `aria-label="Delete version vN"` on each older version row (none on the draft or the active version). Test: a scouter sees no Delete on the preview, even on their own entry.
 
 **Files:**
 - Create: `apps/client/src/features/admin/DeleteDialog.tsx`, `apps/client/src/features/admin/DeleteDialog.test.tsx`

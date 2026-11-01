@@ -22,12 +22,14 @@ import { cn } from '@/lib/utils';
 import { FieldImage } from '@/season/FieldImage';
 import { isKnownSeasonImage } from '@/season/images';
 import {
+  endAngle,
   imageToView,
   viewRotation,
   viewToImage,
   type MapLayout,
   type Rotation,
 } from './mapGeometry';
+import { PathMark } from './PathMark';
 import { DRAW_SLOP_PX } from './simplify';
 
 /** One mark on the map, in IMAGE coordinates (0–1, the season image as stored, unturned). */
@@ -47,7 +49,8 @@ export type MapMark = {
 
 /**
  * One route on the map (the cycle path, task 1.35), its points in IMAGE coordinates: a 1.8 px
- * round-joined line in the scout's alliance colour with a dot at each point. The one being drawn
+ * round-joined line in the scout's alliance colour with a dot at each point, except that the first
+ * is a hollow ring and the last a small arrowhead along the last leg (v1.31). The one being drawn
  * is dashed with bigger dots; while one is drawn or selected, the others fade to 45 %.
  */
 export type MapPath = {
@@ -642,8 +645,28 @@ function FieldDrawing({
       {paths.map((route) => {
         const isSelected = route.id === selected;
         const faded = busy && !isSelected && !route.drawing;
+        const last = route.points.length - 1;
+        // The end arrow turns with the drawing; a path with no leg of any length keeps its dot.
+        const angle = last > 0 ? endAngle(route.points, rotation, view) : null;
         return route.points.map((p, j) => {
           const at = imageToView(p, rotation);
+          const size = route.drawing ? 14 : 10;
+          // The first point is a hollow ring and the last an arrowhead (v1.31), each IN PLACE of
+          // that point's dot, never around it, so neither is larger than a dot.
+          if (j === 0 || (j === last && angle !== null)) {
+            return (
+              <PathMark
+                key={`${route.id}-${j}`}
+                kind={j === 0 ? 'start' : 'end'}
+                alliance={alliance}
+                size={size}
+                angle={angle ?? 0}
+                faded={faded}
+                x={at.x}
+                y={at.y}
+              />
+            );
+          }
           return (
             <span
               key={`${route.id}-${j}`}

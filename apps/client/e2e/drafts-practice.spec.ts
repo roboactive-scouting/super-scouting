@@ -319,6 +319,28 @@ test('practice: the strip, the real form saving nothing, and Practice finished',
   await confirm.getByRole('button', { name: 'Finish practice' }).click();
   const done = page.getByRole('dialog', { name: 'Practice finished' });
   await expect(done).toContainText('Nothing was saved or sent.');
+  // A label never wraps (Phase 1 I side task 3): "Practice another match" does not fit half a
+  // phone sheet on one line, so the row stacks, full width, the primary at the bottom; each
+  // button keeps one 52 px line. On a computer the two sit side by side, right-aligned, 44 px.
+  const finishedRow = done.locator('[data-surface-actions]');
+  await expect(finishedRow).toHaveAttribute('data-stacked', 'true');
+  const stackBoxes = async () =>
+    finishedRow.evaluate((row) =>
+      [...row.children].map((c) => {
+        const b = c.getBoundingClientRect();
+        return { label: c.textContent, top: b.top, width: b.width, height: b.height };
+      }),
+    );
+  const phoneStack = await stackBoxes();
+  expect(phoneStack.map((b) => b.label)).toEqual(['Exit practice', 'Practice another match']);
+  expect(phoneStack[1]!.top).toBeGreaterThan(phoneStack[0]!.top);
+  for (const b of phoneStack) expect(Math.round(b.height)).toBe(52);
+  expect(Math.round(phoneStack[0]!.width)).toBe(Math.round(phoneStack[1]!.width));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const desktopRow = await stackBoxes();
+  expect(desktopRow[1]!.top).toBe(desktopRow[0]!.top);
+  for (const b of desktopRow) expect(Math.round(b.height)).toBe(44);
+  await page.setViewportSize({ width: 375, height: 812 });
   await bothThemes(page, 'practice-finished');
 
   // Exit practice: back on Scout, the strip gone, and no draft to offer from the practice.

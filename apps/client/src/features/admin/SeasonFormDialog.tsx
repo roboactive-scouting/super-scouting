@@ -5,9 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { ErrorLine } from '@/components/ui/notice';
+import { SurfaceActions } from '@/components/ui/surface-actions';
 import type { Rpc } from '@/data/rpc';
 import { FieldImage } from '@/season/FieldImage';
-import { DeleteCompetition } from './DeleteCompetition';
+import { DeleteAction } from './DeleteAction';
 import { TextField } from './fields';
 import { panelErrorLine } from './adminMessages';
 
@@ -19,7 +20,8 @@ export const IMAGE_PATH_HINT =
  * hint, and a live preview), in a dialog: "+ New season" creates, "Edit season" edits. An
  * edit sends only the fields that changed (SPEC-FINAL 6.4); `field_image_path` may be
  * refused once the season has entries, and that refusal is the use case's own sentence.
- * Editing also offers "Delete …" (RB.20) when the page passes `onDeleted`.
+ * Editing also offers "Delete …" (RB.20) when the page passes `onDelete`: the page closes this
+ * dialog and opens the one DeleteDialog (task 1.61).
  */
 export function SeasonFormDialog({
   open,
@@ -27,8 +29,7 @@ export function SeasonFormDialog({
   rpc,
   onSaved,
   onClose,
-  active = false,
-  onDeleted,
+  onDelete,
 }: {
   open: boolean;
   /** `null` creates a season. */
@@ -36,9 +37,8 @@ export function SeasonFormDialog({
   rpc: Rpc;
   onSaved: (row: SeasonRow) => void;
   onClose: () => void;
-  /** The season being edited is the active one: it cannot be deleted. */
-  active?: boolean;
-  onDeleted?: (seasonId: string) => void;
+  /** "Delete 2025": the page opens the delete for this season. */
+  onDelete?: (season: SeasonRow) => void;
 }) {
   return (
     <Dialog open={open} title={season ? `Edit ${season.year}` : 'New season'} onClose={onClose}>
@@ -49,19 +49,8 @@ export function SeasonFormDialog({
         onSaved={onSaved}
         onClose={onClose}
       />
-      {season && onDeleted && (
-        <DeleteCompetition
-          key={season.id}
-          target={{
-            kind: 'season',
-            id: season.id,
-            name: String(season.year),
-            label: `${season.year} — ${season.game_name}`,
-            active,
-          }}
-          rpc={rpc}
-          onDeleted={onDeleted}
-        />
+      {season && onDelete && (
+        <DeleteAction name={String(season.year)} onDelete={() => onDelete(season)} />
       )}
     </Dialog>
   );
@@ -225,14 +214,14 @@ function SeasonForm({
           {error}
         </ErrorLine>
       )}
-      <div className="mt-5 flex flex-wrap justify-end gap-2">
+      <SurfaceActions className="mt-5">
         <Button variant="secondary" disabled={busy} onClick={onClose}>
           Cancel
         </Button>
         <Button type="submit" variant="primary" disabled={!can} busy={busy} busyLabel="Saving…">
           {season ? 'Save changes' : 'Create season'}
         </Button>
-      </div>
+      </SurfaceActions>
     </form>
   );
 }

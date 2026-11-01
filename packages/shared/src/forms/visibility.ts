@@ -1,6 +1,15 @@
 import type { FormFieldDefinition, VisibilityCondition } from './types';
 
-function compare(left: unknown, op: VisibilityCondition['op'], right: unknown): boolean {
+/**
+ * The one comparison of SPEC-FINAL's `Op` (5.8, 11.2): `=` and `!=` are strict equality; the
+ * ordered operators hold only between two numbers. A visibility condition, a metric's field
+ * filter and its rate condition all judge through this, so they can never disagree.
+ */
+export function conditionHolds(
+  left: unknown,
+  op: VisibilityCondition['op'],
+  right: unknown,
+): boolean {
   switch (op) {
     case '=':
       return left === right;
@@ -28,7 +37,7 @@ export function isVisible(field: FormFieldDefinition, values: Record<string, unk
   if (!condition) return true;
   const controlling = values[condition.field_key];
   if (controlling === undefined) return false;
-  return compare(controlling, condition.op, condition.value);
+  return conditionHolds(controlling, condition.op, condition.value);
 }
 
 export function visibleFields(

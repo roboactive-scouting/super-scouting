@@ -16,11 +16,15 @@ const GATE = /\buseCapability\(|<OfflineGate\b/;
 
 describe('the offline gates (SPEC-FINAL 9.6, task 1.45)', () => {
   it('never gates the scouting path: entry creation, the self-edit and bare match creation', () => {
+    // Not scouting: Entries under a session override (6.3) lists ANOTHER event's entries, a
+    // server read held as a cross-event view (9.6). The device's own list is never gated.
+    const notScouting = new Set(['features/entries/serverEntries.ts']);
     const scouting = FILES.filter(
       (f) =>
-        f.path.startsWith('features/entry/') ||
-        f.path.startsWith('features/entries/') ||
-        f.path === 'data/outbox.ts',
+        (f.path.startsWith('features/entry/') ||
+          f.path.startsWith('features/entries/') ||
+          f.path === 'data/outbox.ts') &&
+        !notScouting.has(f.path),
     );
     expect(scouting.length).toBeGreaterThan(0);
     for (const file of scouting) {

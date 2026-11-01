@@ -3,6 +3,7 @@ import { useId, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { useDragDismiss } from './drag-dismiss';
+import { SurfaceFoot } from './surface-foot';
 import { useModalFocus, type InitialFocus } from './useModalFocus';
 
 export type SheetProps = {
@@ -35,6 +36,17 @@ export type SheetProps = {
   dragToClose?: boolean;
   /** A bottom sheet's round icon, centred above a centred title (as Dialog's `icon`). */
   icon?: ReactNode;
+  /**
+   * A foot pinned to the sheet's bottom edge while the rest scrolls (the Review sheet's buttons;
+   * Phase 1 I side task 1): `SurfaceFoot`, edge to edge, opaque down to the bottom edge, the
+   * safe-area inset inside it. Its children are laid out as a column.
+   */
+  foot?: ReactNode;
+  /**
+   * A bottom sheet's THEME "Delete bill" (task 1.61): a dark `--ink` band edge to edge at the top,
+   * the grab handle inside it, then the title on white. The band is the drag handle.
+   */
+  band?: ReactNode;
 };
 
 /**
@@ -62,6 +74,8 @@ function OpenSheet({
   showClose = false,
   dragToClose = true,
   icon,
+  foot,
+  band,
 }: SheetProps) {
   const heading = useId();
   const close = () => {
@@ -96,8 +110,14 @@ function OpenSheet({
         style={bottom ? undefined : { width: `min(${width / 16}rem, 85vw)` }}
         className={cn(
           'absolute flex flex-col overflow-y-auto overscroll-contain',
+          // A pinned foot carries the bottom room itself: padding here would be a strip under
+          // it that the scroller does not paint over, where scrolled content shows through.
+          bottom && (foot ? 'pb-0' : 'pb-[env(safe-area-inset-bottom)]'),
           bottom
-            ? 'motion-safe:animate-sheet-up inset-x-0 bottom-0 max-h-[86dvh] rounded-t-[20px] bg-surface px-4 pt-2.5 pb-[env(safe-area-inset-bottom)] text-ink shadow-[var(--shadow-sheet)]'
+            ? cn(
+                'motion-safe:animate-sheet-up inset-x-0 bottom-0 max-h-[86dvh] rounded-t-[20px] bg-surface px-4 text-ink shadow-[var(--shadow-sheet)]',
+                band ? 'pt-0' : 'pt-2.5',
+              )
             : cn(
                 'motion-safe:animate-drawer-in inset-y-0 start-0 touch-pan-y border-e',
                 tone === 'dark'
@@ -106,7 +126,26 @@ function OpenSheet({
               ),
         )}
       >
-        {bottom && (
+        {bottom && band && (
+          <>
+            {/* The band is the handle: a drag on it pulls the sheet down even when scrolled. */}
+            <div
+              data-drag-handle=""
+              data-band=""
+              className="-mx-4 shrink-0 touch-none bg-ink px-5 pt-2.5 pb-5 text-surface"
+            >
+              <div
+                aria-hidden="true"
+                className="mx-auto mb-3.5 h-1 w-10 rounded-sm bg-rail-muted"
+              />
+              {band}
+            </div>
+            <h2 id={heading} className="mt-[1.125rem] mb-1.5 text-lg font-[750]" dir="auto">
+              {title}
+            </h2>
+          </>
+        )}
+        {bottom && !band && (
           // The handle and the title: a drag here pulls the sheet down even when scrolled.
           <div data-drag-handle="" className="touch-none">
             <div aria-hidden="true" className="mx-auto mb-3 h-[5px] w-10 rounded-sm bg-line" />
@@ -135,6 +174,17 @@ function OpenSheet({
           </div>
         )}
         {children}
+        {foot && (
+          <SurfaceFoot
+            scroller={panel}
+            className={cn(
+              'pt-2 pb-[calc(1rem+env(safe-area-inset-bottom))]',
+              bottom ? '-mx-4 px-4' : 'px-4',
+            )}
+          >
+            {foot}
+          </SurfaceFoot>
+        )}
       </div>
     </div>
   );

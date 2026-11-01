@@ -574,7 +574,7 @@ test('conflicts: a scouter reads the queue, every action off, and has no nav row
   test.slow();
   const api = server();
   await open(page, 'scouter', api.overrides);
-  await expect(page.getByRole('link', { name: 'Sync' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Sync', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: /^Conflicts/ })).toHaveCount(0);
   await page.goto('/conflicts');
   await expect(page.getByText('A lead or an admin resolves these.')).toBeVisible();

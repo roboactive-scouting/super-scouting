@@ -12,6 +12,9 @@
     manage:
       '<path d="M3 9h18M8 3v4M16 3v4M4 5h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1"/>',
     menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+    teams: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
+    ranking:
+      '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3"/>',
   };
   const svg = (k) => `<svg viewBox="0 0 24 24">${icon[k]}</svg>`;
   const nav = (on, id, label) =>
@@ -22,10 +25,15 @@
     const on = el.dataset.deskShell;
     const crumb = el.dataset.crumb || '';
     const inner = el.innerHTML;
+    // data-nav="stats" (Phase 1 I on): Search and Ranking join the Competition group.
+    const stats = el.dataset.nav === 'stats';
+    const comp = stats
+      ? `${nav(on, 'home', 'Home')}${nav(on, 'scout', 'Scout')}${nav(on, 'teams', 'Search')}${nav(on, 'ranking', 'Ranking')}${nav(on, 'entries', 'Entries')}`
+      : `${nav(on, 'home', 'Home')}${nav(on, 'scout', 'Scout')}${nav(on, 'entries', 'Entries')}`;
     el.outerHTML = `<div class="app">
       <aside class="side">
         <div class="brand"><img src="../../../concepts/src/mark.png" alt=""><div><b>RobActive Scout</b><small>Team 2096</small></div></div>
-        <div class="navg"><h6>Competition</h6>${nav(on, 'home', 'Home')}${nav(on, 'scout', 'Scout')}${nav(on, 'entries', 'Entries')}</div>
+        <div class="navg"><h6>Competition</h6>${comp}</div>
         <div class="navg"><h6>Admin</h6>${nav(on, 'users', 'Users')}${nav(on, 'manage', 'Manage')}</div>
         <div class="foot"><div class="av">NL</div><div><b>Noa Levi</b><small>Scout lead · Switch</small></div></div>
       </aside>
@@ -42,9 +50,19 @@
     const title = el.dataset.title || 'Scout';
     const sync = el.dataset.sync || '<span class="dot w"></span>3 waiting';
     const inner = el.innerHTML;
+    // data-bbar="<current id>" adds the dark bottom bar (plan 1.58): Home · Scout · Search · Ranking,
+    // the current page raised in green; data-bbar="none" for a page that is in none of them.
+    const cur = el.dataset.bbar;
+    const tab = (id, label) =>
+      cur === id
+        ? `<span class="cur"><span class="fab">${svg(id)}</span>${label}</span>`
+        : `<span><span class="ic">${svg(id)}</span>${label}</span>`;
+    const bar = cur
+      ? `<div class="pbar">${tab('home', 'Home')}${tab('scout', 'Scout')}${tab('teams', 'Search')}${tab('ranking', 'Ranking')}</div>`
+      : '';
     el.outerHTML = `<div class="sbar"><span>${time}</span><span style="font-size:11px">● ● ●</span></div>
       <div class="ptop"><span class="menu">${svg('menu')}</span><img src="../../../concepts/src/mark.png" alt=""><b>${title}</b>
         <span class="sync">${sync}</span></div>
-      <div class="pbody">${inner}</div>`;
+      <div class="pbody">${inner}</div>${bar}`;
   });
 })();

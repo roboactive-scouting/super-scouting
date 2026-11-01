@@ -4,7 +4,8 @@ import type { Point } from '@frc/shared';
 import { useIsDesktop } from '@/lib/useMediaQuery';
 import { cn } from '@/lib/utils';
 import { imageUrlFor, isKnownSeasonImage } from '@/season/images';
-import { imageToView, viewRotation } from './mapGeometry';
+import { endAngle, imageToView, viewRotation } from './mapGeometry';
+import { PathMark } from './PathMark';
 
 /** The season image's shape: `public/seasons/2026/field.webp` is 2000 × 812. */
 const RATIO = 2000 / 812;
@@ -105,6 +106,37 @@ export function MapButton({
                 ))}
               </svg>
             )}
+            {paths.flatMap((route, i) => {
+              // The first point's ring and the last's arrow, as on the map itself (v1.31); the
+              // thumbnail has no dots, so they are as big as a spot's.
+              if (route.length === 0) return [];
+              const angle = endAngle(route, rotation, RATIO);
+              const first = view(route[0]!);
+              const last = view(route[route.length - 1]!);
+              return [
+                <PathMark
+                  key={`${i}-start`}
+                  kind="start"
+                  alliance={alliance}
+                  size={8}
+                  x={first.x}
+                  y={first.y}
+                />,
+                ...(angle !== null
+                  ? [
+                      <PathMark
+                        key={`${i}-end`}
+                        kind="end"
+                        alliance={alliance}
+                        size={8}
+                        angle={angle}
+                        x={last.x}
+                        y={last.y}
+                      />,
+                    ]
+                  : []),
+              ];
+            })}
             {spots.map((p, i) => {
               const at = view(p);
               return (

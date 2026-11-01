@@ -79,3 +79,32 @@ export function canEditEntry(caller: Caller, entry: EntryOwnership): boolean {
   if (entry.scouter_id !== caller.userId) return false;
   return withinSelfEditWindow(entry.client_created_at, entry.client_updated_at);
 }
+
+/** What `mayEditEntryNow` reads of an entry: its author, its kind and when it was created. */
+export type EntryEditSubject = {
+  scouter_id: string;
+  form_kind: 'match' | 'super';
+  client_created_at: string;
+};
+
+/**
+ * SPEC-FINAL 7.6, as ONE rule for "may this caller edit this entry now?" — the device's
+ * Edit button (`canSelfEdit`), the entry preview's `can_edit` (getEntry, task 1.50), and any
+ * later reader. A lead or admin always may. A scouter may edit their own SUPER entry at any
+ * time (v1.26: one running judgement of a team, built up all event) and their own MATCH entry
+ * only within five minutes of its `client_created_at`, measured to `now` — the caller's clock
+ * (the device's on the device, the server's on the server). Another scouter's entry, and any
+ * `service` caller, never. An unreadable `now` or stamp is false, never a throw.
+ */
+export function mayEditEntryNow(caller: Caller, entry: EntryEditSubject, now: Date): boolean {
+  if (!isUser(caller)) return false;
+  if (caller.role === 'lead' || caller.role === 'admin') return true;
+  if (entry.scouter_id !== caller.userId) return false;
+  if (entry.form_kind === 'super') return true;
+  if (Number.isNaN(now.getTime())) return false;
+  return canEditEntry(caller, {
+    scouter_id: entry.scouter_id,
+    client_created_at: entry.client_created_at,
+    client_updated_at: now.toISOString(),
+  });
+}

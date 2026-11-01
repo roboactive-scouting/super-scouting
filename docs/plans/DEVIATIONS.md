@@ -8297,3 +8297,2235 @@ Rejected: a drag at the limit finishing the path and starting the next (a drag a
 **What I did instead:** the replay test uses its own match (`ids.replayMatch`, qualification 2, created and torn down with the suite), so it tests only what it says: a replayed op is `noop`. Run against the dev preview server: 8 of 8 passed. Rejected: expecting `duplicate` (that tests 1.40's rule, which the server suite already covers, not idempotency).
 
 **Risk:** none for the app; `apps/server` is a server input, so the server redeploys with unchanged code.
+
+## Task 1.46 — the codec is a subpath export, not in the index
+
+**Plan said:** modify `packages/shared/src/index.ts` to export the QR codec.
+
+**What was wrong:** `@frc/shared`'s index is imported by the client's initial chunk and inlined by the server's bundled function. Exporting the codec there would pull `fflate` into the initial JS (budget 228 KB) and could change `apps/server/api/index.js` and trip `bundle-drift.test.ts`.
+
+**What I did instead:** `packages/shared/package.json` `exports` gains `"./qr": "./src/qr/codec.ts"` (the `"."` entry is kept); the index is untouched. The client imports `@frc/shared/qr`, only from lazy QR pages. Resolution checked with a throwaway vitest file in `apps/client` and `pnpm typecheck` (Bundler resolution reads `exports`; the workspace symlink needs no alias; `fflate` resolves from `packages/shared/node_modules`, so it is not added to `apps/client`); the throwaway file is removed. Rejected: exporting from the index (above); a client-side alias (unneeded).
+
+**Risk:** none known; the Vite production build is not run in this task, so the lazy-chunk resolution of `fflate` is first proven by the first client task that imports it.
+
+## Task 1.46 — two test adaptations
+
+**Plan said:** the test file verbatim.
+
+**What was wrong:** (1) `corrupted[corrupted.length - 1] ^= 0xff` fails `tsc` under `noUncheckedIndexedAccess` (TS2532). (2) "roughly nine to thirteen frames for a hundred entries" got 1 frame: the fixture's fields are so repetitive that 100 operations deflate under 2,300 bytes.
+
+**What I did instead:** (1) `corrupted[n] = corrupted[n]! ^ 0xff`. (2) that one test builds entries with 40 pseudo-random numeric fields (seeded LCG, deterministic) so the batch is realistically incompressible; the 4–20 frame bounds are unchanged. All other tests are verbatim (reformatted by prettier). The codec is verbatim; fflate `^0.8.2` is in `packages/shared` dependencies.
+
+**Risk:** none.
+
+## Task 1.47 side task 1 — a cycle path's start ring and end arrow (v1.31)
+
+**Plan said:** each path's first point is a hollow ring and its last point a small arrowhead pointing along the last leg, in the path's own colour, no larger than a point's dot and with no labels; drawn on `MapSheet`'s editing map, its view-only mode and the form's map button thumbnail; the arrow turns with the drawing; the unit tests cover the ring, the arrow and its angle after mirroring.
+
+**What was wrong:** nothing in the plan says whether a mark goes around the point's dot or in place of it, or what the arrow does on a leg with no length, or in what units its angle is worked out. The route's SVG is a stretched 0–100 viewBox (`preserveAspectRatio="none"`), so a triangle drawn inside it would be squashed with the field's width : height, and the view's 0–1 is not square either, so an angle taken from the 0–1 coordinates would be wrong on every non-square drawing.
+
+**What I did instead:** the ring REPLACES the first point's dot and the arrow REPLACES the last point's dot (a one-point path shows only the ring), so neither is larger than a dot (10 px, or 14 px on the path being drawn; 8 px in the thumbnail, which has no dots). Selection is untouched: the dots were never a hit target (`pointer-events-none`; the invisible 24 px stroke over the line and the ✕ Remove pill do the selecting), and each mark carries `data-path-point` like the dot it replaced, so the points are still counted as before (ConfirmEntry's count of 9 is unchanged). The marks are a new `PathMark` (an HTML-sized SVG, white casing, alliance colour, faded to 45 % with its path) so the arrow is never squashed. The angle comes from the new `endAngle(points, rotation, aspect)` in `mapGeometry.ts`: the last leg with any length, taken from the points as drawn (`imageToView`, so after the mirroring and the quarter turn) with the drawing's width : height put back; it is on the mark as `data-angle`. A path whose points all sit in one place has no leg to point along, so its last point keeps the ordinary dot after the ring. The midpoints' dots, the route line, the selected-path casing and the live freehand stroke layer are unchanged. Everything lives in the lazy `timedParts` chunk (12.0 → 12.5 KB); the initial JS is 226.2 KB gzip before and after, `BUDGET_KB` unchanged at 228. Rejected: the ring AROUND the first dot (13 px or more, larger than a dot, and a ring around a filled dot is no longer hollow); the arrow drawn as a polygon inside the route's viewBox (squashed by the aspect ratio); an angle from the 0–1 view coordinates without the aspect (wrong off a square); an arrow on a zero-length last leg pointing at an arbitrary angle (a guess a scouter would read as data).
+
+**Risk:** the marks are 10 px on a finished path, so the ring's coloured stroke is about 8 px wide; on a 112 px thumbnail they are 8 px. Both read in the shots in both themes; the user may want them bigger, which `size` in `PathMark` allows (the brief caps them at a dot's size).
+
+## Task 1.47 side task 2 — another scouter's super entry read only; who on the picker (v1.32, v1.35)
+
+**Plan said:** replace `SuperForm`'s Warning lock notice with a grey Read only chip, the author's card ("Dana Mor's entry · Started 10:40 · last changed 11:12 · seen in 5 matches", the count from the device's match entries by that `scouter_id`, left out when 0) over "Only Dana, a lead or an admin can change it.", then the entry's answers by phase exactly as `ConfirmEntry` draws them, map rows opening the map view only; and the picker's Done tag naming who: "✓ You 11:02", else the first name of the entry's `scouter_id` from the cached users.
+
+**What was wrong:** the plan and the brief leave six things open, and one existing behaviour stood in the way. (1) The picker's time: today's `superDoneAt` reads `client_updated_at`, while the 22 final README says "the time it was first saved". (2) The name when the device does not hold the author's user row. (3) "seen in n matches by that `scouter_id`" does not say whether every team counts. (4) "Exactly as the confirmation draws them" vs the 22 final's own details: phase headings ("Auto" in the mock, "Autonomous" in `ConfirmEntry`), "Tap to view" on a computer (the confirmation says "Click to view" there), and a long text answer "under its name, left-aligned, wrapping" (the confirmation puts every value at the right). (5) "last changed" for an entry never changed. (6) `ConfirmEntry`'s rows were private to it. And the super form passed `fieldImagePath: null` to its map fields (since task 1.36), so a map row's view only opened on "This season's game image is missing" — on the read-only page and on the editable super form alike.
+
+**What I did instead:** (1) The design wins: the picker's tag shows `client_created_at`; `superDoneAt` (updated time) still feeds the editing line "Editing your entry from …", unchanged. (2) Unknown author: the tag keeps today's "✓ Done 10:40", the card reads "Another scouter's entry" with "Only its author, a lead or an admin can change it.". (3) This team and that scouter: distinct matches of the device's live match entries with that `scouter_id` and this `team_id` (README: "the matches the author scouted this team in"). (4) The confirmation's rendering is moved, unchanged, into a new `EntryAnswers.tsx` (`EntryAnswers` + `useMapView` + `MapRow`) that both use, so the read-only page shows "Autonomous" and "Click to view" on a computer like the confirmation; `stackLong` (read-only page only) puts a text answer over 24 characters under its name, left-aligned, 500 weight, wrapping, as the 22 mock's `.ro-row.long` (same 24-character threshold). `ConfirmEntry`'s look is unchanged (its tests pass untouched). (5) "last changed …" is left out when `client_updated_at` is missing or equals `client_created_at`. (6) See (4). The field image: `loadSuper` now reads the season's `field_image_path` (as `EntryRoute`) and `SuperForm` passes it into its `EntryContext`. Also: `locked` is now computed before `useEntryForm`, which is handed the entry's own saved data when locked (a stray draft under that key is never shown as the author's answers); `Initials` gains a 34 px size for THEME's Author card; the e2e super form gains Start position (single point), Scoring spots (multi point) and Weaknesses so the fixture matches the 22 final, and its six super entries are by the signed-in user, Dana Mor (added to that spec's pull, handed five of the fixture's 1690 match entries by other scouters), Omer and Amit. Rejected: keeping the Warning notice (v1.19 amends v1.16); "a scouter" as the unknown-name tag ("✓ a scouter 10:40" reads oddly, "Done" is what the tag said before); a separate read-only row renderer (two copies of the confirmation's rows would drift); phase tabs or a peek sheet (variants C and D, rejected by the user).
+
+**Risk:** initial JS 226.2 → 226.4 KB gzip (the shared `EntryAnswers` sits in the initial chunk with `ConfirmEntry`); `BUDGET_KB` unchanged at 228. The read-only UI itself is in the lazy `SuperEntryPage` chunk (5.0 → 5.7 KB). On a computer, opening a team from the picker still resets its filter to To do (the route remounts the picker; existing behaviour, not changed here) — the e2e re-selects Done before the shot.
+
+## Task 1.47 — the sender reads the whole outbox once, the refused records too
+
+**Plan said:** "The page reads `pending(QR_BATCH_MAX_OPERATIONS)`, calls `encodeBatch`" — while the test and the design split a backlog above 200 into consecutive batches ("Batch 1 of 2", Next batch).
+
+**What was wrong:** `pending(200)` returns at most 200 operations, so batch 2 can never exist. And `pending()` leaves out every PARKED operation (a refused row, SPEC-FINAL 9.3.1), which Sync's Waiting list counts and shows: the sender would have carried fewer records than the indicator says are waiting.
+
+**What I did instead:** the new lazy module `features/qr/qrSendData.ts`: `readQrOutbox()` reads EVERY outbox operation in `seq` order (parked ones and bare matches included; timestamps through `asUtcIso`, as `pending()` does), `splitIntoBatches()` cuts it into runs of at most `QR_BATCH_MAX_OPERATIONS`, and each run goes through its own `encodeBatch` call (its own random batch id). `planQrSend()` does all of that once, when the page opens; nothing re-reads while it is open ("the batch is fixed when the page opens"), so a record saved meanwhile waits for the next send. Tests: batch 2's frames decode to operations 200–204; a parked operation is carried although `pending()` omits it; an operation enqueued while the code shows never reaches it, and every frame keeps one batch id. Rejected: `pending(200)` (no batch 2; parked rows dropped); a loop over `pending(200, skip)` (still drops parked rows); re-reading per batch (the batch would move under the user).
+
+**Risk:** a refused operation pushed again by the collector tablet will most likely be refused again there and park on the tablet, so it holds that tablet's Discard received QR data until a lead re-saves it (task 1.48 should expect this). Carrying it is still the durable choice: the typed data then exists on two devices. A bare match and its entry can fall either side of a batch boundary (they are cut in `seq` order); the tablet needs both batches for the entry to push cleanly.
+
+## Task 1.47 — Done only, a router-free page, and Sync beneath on a computer
+
+**Plan said:** a page at `/sync/qr/send` that cycles "until the sender stops"; the test renders `<QrSendPage />` with no router.
+
+**What was wrong:** the 20 final (user, 2026-10-20) has no Stop: Done — back to Sync is the only way out (Esc on a computer), and on a computer it is a dialog over Sync. A page rendered without a router cannot call `useNavigate`.
+
+**What I did instead:** `QrSendPage({ onDone })` uses no router hook; `routes.tsx`'s `QrSendRoute` passes `onDone` (back through history when Sync's More opened it, `state.fromSync`, so Back never returns to the code; else to `/sync` in its place) and, on a computer, renders `SyncRoute` beneath the dialog. Both shapes are portalled to `<body>`: on a phone a full-screen `role="dialog"` page on `--rail` over the top and bottom bars; on a computer the scrim and a 900 × 560 split dialog. While it is open `#root` is `inert` (the app beneath takes no focus, clicks or reading; axe flagged the sidebar's waiting count under the scrim before this: "color-contrast: Elements must meet minimum color contrast ratio thresholds .text-rail-warn"). Esc is a document listener (the More menu that opened it can still hold focus beneath), and Done is idempotent. The route's handle is `{ title: 'Sync', crumb: ['This device'] }`, so the crumb over the dialog reads "This device / Sync" as drawn, and it is NO_HYDRATION (it reads only the outbox). Rejected: a Stop button (user); the shared `Dialog` (its title row, × and padding are not the split panel); a nested `/sync` child route with an Outlet (it would change Sync's route shape for one dialog).
+
+**Risk:** `inert` on `#root` is new in this app; it is removed on unmount.
+
+## Task 1.47 — "shown by QR": when `qr_shown_at` is written
+
+**Plan said:** each record whose batch was shown records the time (`qr_shown_at`, local only).
+
+**What was wrong:** not said when, and the README says "the last time its batch was on screen".
+
+**What I did instead:** `SyncStateRecord.qr_shown_at?: string | null` (optional, not indexed, no Dexie version bump). `markShownByQr(rowIds, at)` stamps it with Dexie `modify` on that field alone — never `sync_state`, `acked_at`, `origin` or `rejection` — when a batch appears and again when it leaves (Next batch, Done, leaving the page), so the time is the last time it was on screen. A new local save writes a fresh sync state without it (the new content has not been shown). Sync shows "shown by QR hh:mm" (`savedLabel`, so another day reads "Sat 11:44") on a waiting card's second line and, on a computer, in the table's last column (the computer's mark is not drawn in 17's final). Rejected: a stamp on every frame (a write five times a second); only at open (not "the last time").
+
+**Risk:** a refusal written by `ackResults` rebuilds the state without `qr_shown_at`, so a refused record's mark goes until it is shown again.
+
+## Task 1.47 — test adaptations
+
+**Plan said:** the test file verbatim, with `vi.useFakeTimers()` and bare `vi.advanceTimersByTime`.
+
+**What was wrong:** verbatim, all six tests hang: "Test timed out in 15000ms." (each of the six) — the default fake timers include `setImmediate`, on which fake-indexeddb runs, and `setTimeout`, on which RTL's `findBy` waits. `toHaveTextContent('frame 1 of N')` is case-sensitive against "Frame 1 of N". "advances one frame every 200 ms" with 60 × `op()` is one frame (they deflate under 2,300 bytes), so its wrap was vacuous. `findByText(/batch 1 of 2/i)` matches only one text node.
+
+**What I did instead:** `vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })` (as AppShell.test does), each advance inside `act` (`tick`), and "Frame" capitalised. The advance test enqueues `bulky()` operations (random notes, several frames) and checks 1 → 2 → N−1 → N → 1. The unmount test also asserts `vi.getTimerCount()` is 0 after unmount (without it, removing `clearInterval` passed: an unmounted page never draws). The code is drawn in a `useLayoutEffect`, in the same commit as "Frame k of N" (the code and its number change in one paint; it also lets `waitFor` see the draw through its MutationObserver while `setInterval` is faked). "Batch 1 of 2" is one text node, so the design's bold numbers in that band are plain 600-weight text. Added tests: Next batch shows batch 2's frames; a parked operation is carried and the batch is read once; never an ack (every frame shown, Done, then the outbox and every sync state equal before, but for `qr_shown_at`); Done releases the wake lock; unmount releases it; a refused wake lock still renders the code without "Screen stays on"; Escape closes it. Mutations run, each failing its test: an `ackResults` call in `planQrSend`; `markShownByQr` also writing `origin`; `pending()` in place of the whole outbox; no `clearInterval`; Done without releasing the lock; the label shown when refused; one batch of everything; re-reading the outbox on every frame.
+
+**Risk:** none.
+
+## Task 1.47 — QR rendering, wake lock and copy details
+
+**Plan said:** `QRCode.toCanvas(canvas, [{ data: frame, mode: 'byte' }], { errorCorrectionLevel: 'M', version: 40 })`; hold the wake lock and hide "Screen stays on" if refused.
+
+**What was wrong:** nothing; these fill gaps. qrcode 1.5.4 takes a `Uint8Array` as byte-segment data (`ByteData` copies it with `new Uint8Array(data)`; `@types/qrcode` types it `Buffer | Uint8ClampedArray | Uint8Array`), so no conversion. A 2,331-byte segment fits version 40-M and 2,332 throws (checked against the installed library); a frame is at most 2,312. Its default margin is 4 modules and its canvas writes a pixel width on the element.
+
+**What I did instead:** `margin: 1` (the white card's 10 px padding is the rest of the quiet zone, about 6 modules at phone width) and `scale` = the device pixels per module the card allows (4 when unmeasured); the canvas is `w-full! h-auto!` with `image-rendering: pixelated`. `useWakeLock` now returns whether a lock is held (callers that ignore it are unchanged); "☀ Screen stays on" shows only while it is true, and Done turns the hook off before `onDone`, so the lock is released at once. The frame counter is `role="status"` with `aria-live="off"` (a region announcing five times a second would drown a screen reader). Reduced motion: the code still cycles (it is the data); nothing else moves (the strip changes state without transitions), so there is nothing to switch off. Copy: the empty state says "this device" on a computer and "this phone" on a phone, as Sync does (the test's "this device" is the jsdom desktop). Not drawn in the final and decided here: the computer's empty state is a 440 px light dialog with the shared `EmptyState` and Back to Sync; the computer's batch band and Done + Next batch sit in the right panel; "In this code" reads "Q28–Q39 · saved before 11:44" (the match range only when all its entries share a match type; the time is when the page read the outbox). Tokens added to `theme.css` (both themes) and `index.css`: `--qr-plate` #ffffff (the code's card, white in every theme), `--frame-shown` #9fcbb8 and `--frame-shown-rail` #3c6b5b (the strip's already-shown segments, from the mock).
+
+**Risk:** on a 1× screen the 177-module code is drawn at 1 px a module and stretched (`pixelated`) to the card, so modules are uneven by a pixel (visible in the 375 px shots); phones are 2–3×, where the scale is 3–5. The code is generated on every frame (about 18 ms per frame in Node on this machine); pre-rendering every frame would hold several MB per frame.
+
+## Task 1.47 — the e2e shots hold whichever frame is showing
+
+**Plan said:** shots of the sender at both widths in every theme.
+
+**What was wrong:** the frames move at five a second and the app has no test-only hold (none is allowed in app code). Playwright's clock API would also freeze `requestAnimationFrame`, which `shoot()`'s settle step waits on.
+
+**What I did instead:** the real `qrcode` draws the code and the shots take whichever frame is on screen; the spec reads the counter with `/^Frame \d+ of \d+$/`. With the fixture's records, 12 entries + 1 super entry deflate into one frame ("Frame 1 of 1"; the mock's 11 frames are illustrative) and 200 entries into four. Rejected: `page.clock` (hangs `settle`); a query flag in the app (not allowed).
+
+**Risk:** the pictures differ run to run in the code and counter only.
+
+## Task 1.47 — a bare match travels with its entry
+
+**Plan said:** split a backlog above 200 operations into consecutive batches (SPEC-FINAL 9.8); this task's first cut sliced the outbox in `seq` order every 200 operations.
+
+**What was wrong:** a slice can put a bare match (SPEC-FINAL 6.4, queued when a match number was new on the device) in batch 1 and an entry that names it in batch 2. A tablet that scans only batch 2 then holds an entry whose match the server does not have, and its push is refused (orchestrator review, 2026-10-20).
+
+**What I did instead:** `splitIntoBatches(ops, max = 200)` in `features/qr/qrSendData.ts` now walks the outbox in `seq` order and skips a queued match that some entry names. It adds that match to the batch of the first entry naming it, and repeats it in every later batch holding another entry that names it. Each batch is sorted by `seq`, so the match comes ahead of its entries; it is queued first, and `rebuildMatchFor` also gives it the entry's seq. A match and its entry are never split. When the pair does not fit, the batch ends early rather than going over 200. A queued match that no entry names travels where it stands.
+
+The repeat is safe, as I checked in `apps/server/src/core/commands/syncPush.ts`. `applyOne` asks `ctx.store.wasApplied(op.op_id)` (the `applied_operations` ledger) first. For a match already applied it answers `noop` with the canonical match id, and the client acks a `noop`. On the receiver, `enqueue` keeps one operation per row. The repeat is the identical operation, same op_id, so it stays one queued operation.
+
+Tests (`qrSendData.test.ts`, 6):
+- a match goes into the batch of its first entry, ahead of it
+- a match is repeated in a later batch (same object, same op_id)
+- the batch ends early rather than split a pair or exceed the cap
+- a match no entry names stays where it stands
+- 450 entries with matches: no entry lost or added, every batch at most 200, every entry with its match
+- `planQrSend` on 203 queued operations: the decoded batch 2 is `[match, 201, 202, 203]`
+
+Mutations, each failing:
+- plain slicing (the earlier behaviour): 4 tests
+- no repeat in later batches: 2 tests
+- batches not in `seq` order: 8 tests
+
+I also fixed a test race in "advances one frame every 200 ms". The interval starts in a passive effect, which `waitFor` could see before it was registered (1 failure in about 10 runs). An `act` flush (`tick(0)`) now comes before the clock moves.
+
+Rejected:
+- putting the match only in the first batch: a tablet that scans only a later batch still lacks it
+- stretching a batch over 200 to keep a pair: the cap is SPEC-FINAL's
+- moving the entry up to its match's batch: that reorders the entry's `seq` relative to other entries
+
+**Risk:** a batch can hold one repeated match per distinct new match among its entries, so slightly fewer than 200 records. Task 1.48's receiver must handle a match op it already holds: same op_id, same content. `enqueue`'s per-row coalescing does that.
+
+## Task 1.48 — `receiveOperations` writes the outbox itself, not through `enqueue`
+
+**Plan said:** `receiveOperations(operations)` writes each received operation into the dataset and the outbox, marked `origin: 'qr'` (the plan names `enqueue(op, origin)` as the outbox's entry point).
+
+**What was wrong:** `enqueue` does not fit a received copy, for four reasons:
+- Its delete check (`authorRole`) throws `DeleteNotAllowedError` when the device does not hold the author's role. A lead's delete carried from another phone would then fail the whole batch.
+- Its coalescing keeps the older `base_version` and `create` action, and always takes the incoming payload. An older copy scanned after a newer one (a re-scan of a phone's first batch) would overwrite the newer change.
+- It writes a fresh sync state. A re-scan of a parked (refused) copy would then un-park it.
+- It is its own transaction. The task needs one transaction per batch, so a failure writes nothing.
+
+**What I did instead:** `data/qrReceive.ts` `receiveOperations(operations, at?)` runs one Dexie transaction over `rows`, `outbox`, `syncState` and `meta`. It takes the batch in the sender's `seq` order. For each operation:
+- **The same op_id is already queued** (a re-scan, or a bare match repeated across batches): only `received_at` is refreshed. The result counts it `unchanged`.
+- **The device holds a newer or equal change of the row:** the copy is skipped. "Holds" means the queued operation's `client_updated_at`, else the cached row's `client_updated_at ?? updated_at`. So an older copy never overwrites a newer one, and an acked copy scanned again is not queued again.
+- **Otherwise** the copy replaces any queued operation for the row wholesale: the sender's op as it is, with its own base version and action. It takes a fresh local `seq` (`nextSeq`), in batch order, so a bare match stays ahead of its entry. The fresh sync state is `{ pending, origin: 'qr', received_by_qr: true, received_at }`.
+
+The dataset row is written the way `submitEntry` / `ensureMatchLocally` write the device's own save:
+- an entry: the payload plus id, version, `client_*` timestamps, `updated_at` and `deleted_at: null`
+- a match: event, type, number and version
+- a delete: removes the cached row
+- any other entity (none uses the outbox yet): goes to the outbox only
+
+The copy keeps its op_id, row_id, author and client timestamps; only the local `seq` is new. A `seq` from another device would order the copy against this device's own operations by another device's counter. That is meaningless, and it could also put an entry ahead of its match.
+
+Rejected:
+- calling `enqueue` inside an outer transaction: all four problems above remain
+- keeping the sender's `seq`: see above
+- last-scan-wins without the timestamp check: a stale batch would roll a record back
+
+**Risk:** a copy whose row was deleted here and acked (the row is gone) is written again if an older batch is re-scanned, since nothing on the device is newer. The server answers it by its base-version rule. This is rare, because it needs a lead to delete a received entry before its author's phone syncs.
+
+## Task 1.48 — the sync-state record: `origin` cleared on ack, `received_by_qr` permanent, `received_at`
+
+**Plan said:** the sync-state record carries `{ row_id, sync_state, acked_at, origin, received_by_qr }`. `origin` is cleared on ack; `received_by_qr` is permanent.
+
+**What was wrong:** nothing; this logs the details. `ackResults` used to copy the row's `origin` forward on ack, so a QR copy stayed `qr` forever.
+
+**What I did instead:**
+- `SyncStateRecord` gains `received_by_qr?: boolean` and `received_at?: string | null` (the scan time, for Sync's "last scan 11:44"). Neither is indexed, so there is no Dexie version bump.
+- In `ackResults`, an ack now writes `origin: 'local'` for every row and carries `received_by_qr` / `received_at` over (`receivedOf`).
+- A rejection's state rewrite carries both fields too, and so do `enqueue`'s fresh state (a lead re-saving a received copy on the tablet) and `rebuildMatchFor`'s match state. Otherwise the escape hatch would lose the copy.
+- `readSyncList`'s Sent tab shows an acked received copy as "QR · from Yael" (`received_by_qr`), since its `origin` is now `local`.
+- `discardReceivedQrData` and `receivedQrState` treat `origin: 'qr'` with no `received_by_qr` as a received copy too, so any state still marked `qr` is held, never missed. This guards states written before 1.48, like `e2e/sync.spec.ts`'s seed.
+
+**Risk:** none known. The wipe guard reads `sync_state`, unchanged.
+
+## Task 1.48 — disposal on ack: Sync's success notice
+
+**Plan said:** "Disposal on ack is a `Notice tone="success"`." It does not say where, or with what copy.
+
+**What I did instead:**
+- `ackResults` counts the acked operations whose state was `origin: 'qr'` (bare matches left out). It adds them to `meta['qr.disposed'] = { count, at }` in the same transaction.
+- Sync's Waiting tab shows `Notice tone="success" role="status"`: "**4 received copies reached the cloud.** They no longer wait here; the records stay on this tablet." It has a **Dismiss** button (`dismissQrDisposal`, which clears the key). The count accumulates across syncs until it is dismissed.
+
+The 17-sync final draws no such notice. I put it on Waiting, because that is the tab the copies just left.
+
+Rejected:
+- a toast: it would be gone before a runner carrying the tablet back looks at it
+- a line on each Sent row: Sent already says "QR · from …" and "✓ sent"
+
+**Risk:** none.
+
+## Task 1.48 — "Received by QR" counts the copies still waiting; "this tablet"
+
+**Plan said:** "While the device holds received copies, the Waiting tab opens with a Received by QR block: the count by `author_user_id`, each with its last scan time."
+
+**What I did instead:**
+- The block counts the copies still in the outbox marked `origin: 'qr'`, bare matches left out (the Waiting count's rule). An acked copy has left Waiting and appears under Sent and in the success notice.
+- One row per author: initials, the cached user's full name (else "a scouter"), "last scan hh:mm" (the latest `received_at`), and the count in mono. Rows are ordered by latest scan first.
+- On a phone-width screen, Sync says "What this tablet has sent…" while the device holds any received copy, waiting or acked (17-sync final, image 6, "a collector tablet: this tablet"). It still says "this device" on a computer.
+
+Rejected: counting acked copies in the block. Its count would then disagree with the Waiting tab it heads.
+
+**Risk:** none.
+
+## Task 1.48 — Discard received QR data: held line, confirmation, result
+
+**Plan said:** `discardReceivedQrData()` is the escape hatch. It is refused for any record without a cloud ack, and reports how many it would refuse.
+
+**What I did instead:**
+- `discardReceivedQrData()` returns `{ discarded, refused }` from one transaction over `rows`, `outbox` and `syncState`. It is refused whole while any received copy is pending or still queued. Otherwise it deletes every received copy's cached row (by `id`) and its sync state. The device's own records are untouched. Counts are records: bare matches are not counted unless only bare matches are held, so a refusal never reports 0.
+- `receivedQrState()` returns `{ held, discardable }` for More.
+- In More, after a rule, the row reads one of:
+  - `Held: n received copies haven't reached the cloud.` (disabled)
+  - `Nothing received by QR is on this device.` (disabled)
+  - `Removes n received copies already in the cloud.`, which opens the `DestructiveConfirm`: "Discard received QR data?", `Discard n received copies`. It is a plain confirm with no type-to-confirm, because every copy is already in the cloud.
+- After it runs, a line under the tabs: "Removed n received copies from this device.", or an `ErrorLine` if a copy arrived meanwhile and it was refused.
+- The phone's More sheet renders this row as a `<button>` (the others stay links). `MoreItem` became a link-or-action union.
+
+**Risk:** none.
+
+## Task 1.48 — a frame of another batch starts a fresh batch
+
+**Plan said:** feed every decoded byte array into a `Collector`. `Collector.add` throws on a frame of another batch.
+
+**What I did instead:** the page reads each frame's header itself (`qrFrame.frameHeader`: batch id at bytes 0–3, index at 4–5, count at 6–7). A frame whose batch id differs from the batch in hand drops that batch, writing nothing, and starts a fresh collector from this frame.
+
+The sender moves forward only (Next batch), and a new phone held up is a new batch, so the old batch could not finish anyway.
+
+Two more checks:
+- `frameHeader` ignores a code that cannot be one of ours: under 12 bytes, a count of 0, or an index at or past the count.
+- A frame of the same batch with a different count is ignored.
+
+The completed batch is parsed with the push protocol's own `operationSchema.array()` (`batchOperations`). Anything that passes the CRC but is not a list of operations is then dropped like a damaged batch.
+
+Rejected: ignoring the new batch until the old one completes. The tablet would then be stuck until someone leaves the page.
+
+**Risk:** two phones held in view at once restart each other's progress. The cells make that visible.
+
+## Task 1.48 — held frames are tracked in the page; the shared Collector is unchanged
+
+**Plan said:** show "frames 7 of 11" from `collector.progress()`. The design adds one numbered cell per held frame.
+
+**What I did instead:** `progress()` gives only counts. The page keeps the set of held indices from each accepted frame's header (bytes 4–5), alongside the collector. `packages/shared` is not touched, so the plan's codec tests are unchanged.
+
+Rejected: extending `Collector` with `held()`. That is a shared API change for a display need.
+
+**Risk:** none.
+
+## Task 1.48 — frames are read from BYTE_SEGMENTS; zxing's text decoding made safe
+
+**Plan said:** feed every decoded byte array into the collector.
+
+**What was wrong:** `Result.getText()` is lossy for the binary byte-mode frames, as the orchestrator flagged. I read `@zxing/library` 0.21.3's source to confirm:
+- `DecodedBitStreamParser.decodeByteSegment` pushes the raw `Uint8Array`, and `QRCodeReader.decode` puts the byte segments under `ResultMetadataType.BYTE_SEGMENTS`.
+- `decodeByteSegment` also turns every byte segment into text, and a throw there fails the whole code with `FormatException`.
+- Under jsdom (`{}.toString.call(window)` is `[object global]`, so zxing decides it is not a browser), ISO-8859-1 goes to `decodeFallback`, which is `decodeURIComponent` over `%xx`. That throws on binary. The first real-frame test failed with:
+
+```
+FormatException
+    at Function.DecodedBitStreamParser.decode (…/@zxing/library/cjs/core/qrcode/decoder/DecodedBitStreamParser.js:124:19)
+```
+
+- With no `CHARACTER_SET` hint, zxing guesses the set, and can name one ("ISO8859_1") that may not be a valid `TextDecoder` label.
+
+**What I did instead:** `features/qr/qrFrame.ts`:
+- `frameBytes(result)` concatenates the `BYTE_SEGMENTS` arrays.
+- The reader is created with `DecodeHintType.CHARACTER_SET = 'ISO-8859-1'`.
+- The module sets `ZXingStringEncoding.customDecoder`, which decodes ISO-8859-1 byte by byte and so never throws. Any other set goes to `TextDecoder` as before.
+
+`qrFrame.test.ts` draws a real `encodeBatch` frame with `qrcode` exactly as the sender does (one byte segment, version 40, level M). It decodes the picture with zxing's own `QRCodeReader` and checks that `frameBytes` equals the frame, header included, and that the batch decodes. A second test shows `getText()`'s bytes differ from the frame.
+
+Rejected: `getText()` with a latin-1 re-encode. That depends on zxing's guessed set and on the platform decoder.
+
+**Risk:** the custom decoder is global to `@zxing/library`, which only this lazy page loads.
+
+## Task 1.48 — the e2e camera: a build-time alias, never in a normal build
+
+**Plan said:** no camera in CI; mock `BrowserQRCodeReader.decodeFromVideoDevice`.
+
+**What I did instead:**
+- **Unit tests:** `vi.mock('@zxing/browser')`. The mocked `decodeFromVideoDevice` keeps the page's callback, and the tests hand it zxing-shaped results holding real `encodeBatch` frames.
+- **e2e:** `playwright.config.ts`'s `webServer.env` sets `E2E_QR_CAMERA=stub`. Only then does `vite.config.ts` alias `@zxing/browser` to `e2e/stubs/zxing-browser.ts`. The stub's `decodeFromVideoDevice` sets `window.__qrCamera.show(base64)`, which the spec calls with real frames. If `page.addInitScript` set `window.__qrCamera = { blocked: true }`, it throws `NotAllowedError` instead.
+- **Proof that nothing ships:** after a plain `pnpm build`, `grep -rl "__qrCamera\|E2E_QR_CAMERA\|zxing-browser" apps/client/dist` finds nothing. `decodeFromVideoDevice` is only in `QrReceivePage-*.js`.
+
+Rejected:
+- Chrome's `--use-fake-device-for-media-stream` with a y4m of QR frames: it needs a generated video per test, and does not run in every channel
+- a `window` hook in the shipped page: it would ship to production
+
+**Risk:** an e2e build's `dist` contains the stub, so run `pnpm build` again before `check-bundle` or a deploy from local (Vercel builds its own).
+
+## Task 1.48 — copy, states and tokens beyond the drawn finals
+
+**Plan said:** build the 21-qr-receive final (variant C) and its copy.
+
+**What I did instead:**
+- **"Her phone shows Next batch?"** became **"The phone shows Next batch? Tap it there, then scan again."** The author's gender is unknown, and several authors can be named.
+- **Before the first frame** (not drawn; the README says the ring reads 0 with no cells):
+  - phone: "Scanning…" over "Point the camera at the other phone's code."
+  - desktop: "Frames come in any order. A green screen and a beep mean it is done."
+- **A camera error other than `NotAllowedError` / `SecurityError`** (no camera, camera busy, no `mediaDevices`) reads "The camera did not start · Another app may be using it. Close it, then try again." with the same Try again.
+- **A save that fails after a good checksum** shows the warning card "That batch could not be saved · Starting again, hold still" and writes nothing (one transaction).
+- **"Saving…"** shows while the transaction runs.
+- **Computer states** (only scanning is drawn):
+  - Blocked: the camera panel shows the blocked message on `--rail`, and the right column keeps only the head and Done; no ring claims to scan.
+  - Done: the whole page turns `--accent` with the phone's done content in a 26 rem column.
+- **The Sound toggle** is a `role="switch"` ghost button: "Sound on" / "Sound off" (`devicePrefs.qrSound`, on by default, per device). `navigator.vibrate?.(200)` runs whatever Sound says (SPEC-FINAL 9.8 lists them separately).
+- **The beep:** an 880 Hz Web Audio tone for 180 ms. The audio context is made on first use and resumed on any tap on the page, for browsers that start it suspended.
+- **Wake lock:** the receiver holds `useWakeLock(true)` with no UI line, so the tablet does not dim mid-scan.
+- **New token `--on-accent-soft: #e2f3eb`** for the done screen's detail lines (THEME "Success screen"). The mockup's `#d8efe5` measures 4.45:1 on light `--accent`, under the 4.5:1 floor. `styles/contrast.test.ts` now checks the pair in both themes.
+- **Light frame cells** use `--ink-2` numbers on `--line`. `--muted` on `--line` failed axe colour contrast on the two-digit cells.
+
+**Risk:** the user should look at the copy changes on dev.
+
+## Task 1.48 — `@zxing/library` as a direct dependency; test and spec adaptations
+
+**Plan said:** modify `apps/client/package.json` to add `"@zxing/browser": "^0.1.5"`.
+
+**What I did instead:**
+- **Dependencies:** added `@zxing/browser@^0.1.5` and `@zxing/library@^0.21.3`. The page imports `DecodeHintType`, `ResultMetadataType` and `ZXingStringEncoding` from the library, which is `@zxing/browser`'s peer dependency. Both are only in the lazy `QrReceivePage` chunk (110.5 KB gzip), and it is precached.
+- **The plan's given data test** is used as written (only Prettier reflowed it). Eight more data tests guard the representation.
+- **`SyncPage.test.tsx`:** the More test now expects four rows, and four new tests cover the QR block, the notice, the held Discard and the confirmed Discard.
+- **`e2e/sync.spec.ts`:** the More test expects four menu rows (three links and one button on a phone), with the held Discard.
+- **`routes.test.tsx`:** the no-hydration list gains `sync/qr/receive`. A new test renders the route with the real `@zxing/browser` in jsdom (no camera: "The camera did not start").
+- **`e2e/qr-receive.spec.ts`:** the Sync shot holds 9 received copies (4 + 3 + 2), not the design's 12. With ten or more waiting, the sidebar's Sync count (`NavList`, `text-rail-warn` on `--rail`, 3.27:1) fails axe colour contrast. That is outside this task's screens. axe skips one-character text, so counts under 10 pass, and that is why `sync.spec`'s 6 never showed it.
+
+**Risk:** the sidebar count contrast gap is real for 10+ waiting records. It is reported for a later fix (a `--rail-warn` text token at 4.5:1).
+
+## Task 1.48 — the QR sender's route test waits up to 5 s for its lazy chunks
+
+**Plan said:** nothing. This is a test from task 1.47 (`routes.test.tsx`, "routes /sync/qr/send to the QR sender, over Sync on a computer").
+
+**What was wrong:** under the full `pnpm test` load, the test failed 2 runs out of 3 after this task, at 1071–1073 ms:
+
+```
+TestingLibraryElementError: Unable to find role="dialog" and name "Send by QR"
+ ❯ src/routes.test.tsx:94:33
+```
+
+`findByRole` waits 1 s by default. On a computer the route loads two lazy chunks, Sync beneath and the sender over it. Sync's chunk now also loads `data/qrReceive` and runs three more device queries. The test passes alone in 530 ms.
+
+**What I did instead:** that `findByRole` now waits up to 5 s, the same as the new `/sync/qr/receive` route test. Nothing else changed.
+
+Rejected: lazy-loading `data/qrReceive` inside Sync. That adds a third chunk round-trip for a page that opens offline.
+
+**Risk:** none. A real failure still fails, after 5 s.
+
+## Task 1.49 — an unfinished entry holds the wipe too; the given test's draft becomes a practice draft
+
+**Plan said:** the given `wipe.test.ts` puts a `db.drafts` record and expects `wipeDevice('2096')` to succeed and remove it ("wipes the dataset, the drafts and the watermark when everything is acked").
+
+**What was wrong:** task 1.38's `wipeHold.ts` already counts unfinished entries (`db.drafts`, match and super) as holding the wipe. Settings shows the row as "held: … 1 unfinished entry". The orchestrator asked that the UI's held state and `wipeDevice`'s refusal agree. With the given test as written they would not: the row would say held while the wipe ran.
+
+**What I did instead:** `wipeDevice` refuses on exactly `isHeld(readWipeHold())`, read inside its own transaction, so they cannot disagree. An unfinished entry holds it, like an unacked record. `unacked` in the refusal is `heldCount`, which is unacked records plus unfinished entries. The given test's third case puts a **practice** draft instead (thrown away anyway, SPEC-FINAL 8.5) and also checks that `syncState` and `practiceDrafts` are empty. A new test shows a `db.drafts` record refuses and removes nothing. The rest of the given test is used as written, with two changes. The `discarded` record is filled out to its real type, since `typecheck` covers tests. The `@/config` mock gains `builtAt: ''` and a URL `apiBaseUrl`, the real `ClientConfig` shape.
+
+Rejected: following the given test, so a wipe deletes unfinished entries. A scouter's unsubmitted entry is typed work, and "so nothing is lost" (16-settings final) covers it. Rejected: a fourth result, `reason: 'drafts'`. The orchestrator fixed the three-way result, and the held line already names the unfinished entries.
+
+**Risk:** a lead must resume and submit, or discard, a forgotten draft before wiping. The held line says so: "1 unfinished entry is not submitted yet. Wipe is held until it is submitted or discarded".
+
+## Task 1.49 — what the wipe removes and what it keeps
+
+**Plan said:** wipes the dataset, the drafts and the watermark; keeps the discarded-records log.
+
+**What I did instead:** the 16-settings final's sheet says "Removes everything this app keeps on this phone and signs out", so:
+- **Removed:** `rows`, `syncState`, `drafts`, `practiceDrafts` (the outbox is empty, or the wipe is refused), and every `meta` key except the kept ones. That covers the session, the station, `sync.watermark` / `sync.hydrated_event_id` / `sync.last_success_at`, the last sync failure, the match remap and gone events, the QR disposal notice and the token-loss diagnostic. Then the device's own settings go back to their defaults: `device.*` in localStorage, which is the theme, text size, Keep the screen on, Vibrate on taps and Sound on. `clearDevicePrefs` does it; task 1.38 left it for this. The look is re-applied and practice mode ends. `session.signOut()` tells this tab and the others, so the shell leaves for `/login`. Every listener re-reads (`notifyChanged` for rows, outbox and meta).
+- **Kept:** `discarded` (SPEC-FINAL 9.7, life of the install). In `meta`: `device.id` (this install's identity, push's `device_id`), `outbox.seq` (local order keeps rising) and a new `device.wiped_at` mark.
+- **Kept, not data:** the computer sidebar's fold (`shell.sidebar.collapsed`). It is a layout choice on a desktop, never on a phone, and holds nothing about anyone.
+
+Rejected: keeping the theme, text size and station across a wipe as per-device comfort. The wipe is "for a phone you are handing on", and the final says "everything". Rejected: keeping the session, because the final says the wipe signs out. Rejected: a new `device.id`. Nothing on the server keys a person by it, and a stable id keeps the server's logs per device continuous.
+
+**Risk:** a lead who wipes to clear a stale cache (not to hand the phone on) also loses the phone's theme and text size. They take two taps to set again.
+
+## Task 1.49 — a sync running across a wipe does not mark the device hydrated
+
+**Plan said:** nothing.
+
+**What was wrong:** take a sync whose pull started before the wipe. It would write its later pages and then set `sync.watermark` and `sync.hydrated_event_id` on the emptied device. The next sync would pull a delta from that watermark and skip everything the wipe removed, while the gate says "cached".
+
+**What I did instead:** `wipeDevice` writes `meta` `device.wiped_at`, and `syncNow` reads it as its pull begins. `syncNow` sets the watermark, the hydration mark and the last success only inside a `meta` transaction that first re-reads the mark and finds it unchanged. A wipe in between leaves the device unhydrated, and the next sync pulls from scratch. `wipe.test.ts` tests it with a wipe between two pull pages, and it is mutation-checked.
+
+Rejected: holding the wipe while a sync runs. The shell context does not expose sync state to Settings, and a sync can start a moment after the check anyway.
+
+**Risk:** rows from the pull's later pages may stay in the cache until the next sync's full pull overwrites them. They are the active competition's rows, the same ones that pull would bring.
+
+## Task 1.49 — DestructiveConfirm gains `ready`, `children` and a node `held`; its typed phrase is not autocapitalised
+
+**Plan said:** "`DeviceWipe` sits on the settings page behind `ConfirmDialog typeToConfirm`".
+
+**What I did instead:** I used the existing destructive pattern (`components/ui/destructive-confirm.tsx`) with `typeToConfirm`. It is extended without changing any other caller:
+- `children`: the caller's own fields, between the body and type-to-confirm (the wipe's **Lead's code**).
+- `ready` (default true): one more condition before the filled-ink button enables (a code is typed).
+- `held` takes a node as well as a string. A string is still the quiet muted line. The wipe passes the final's held line, a `Notice tone="warning"` (white, 3 px `--warn` edge) with the first sentence bold. `wipeHold.heldLines` splits the sentence; `heldSentence` is unchanged.
+- The type-to-confirm input gets `autoCapitalize="none" autoCorrect="off"`. The match is exact, so a phone keyboard that capitalises the first letter ("Wipe this device") would never match. This applies to every caller, and none of their phrases relies on autocapitalisation.
+
+The phrase is `wipe this device`. The code is compared exactly and case-sensitively against `VITE_DEVICE_WIPE_CODE`. Only surrounding spaces are ignored, on both sides: a phone keyboard's trailing space, or a padded env value. Rejected: case-insensitive. It weakens the accident guard for no gain, since the lead knows the code as configured. Rejected: no trimming. A trailing space from a keyboard suggestion would read as a wrong code.
+
+The code is checked when the button is pressed, not live. A wrong code shows the Error line under the field, "That is not the lead's code. Nothing was wiped.", and wipes nothing. A live check would turn the button on exactly when the code is right, which reveals the code one character at a time.
+
+**Risk:** none for the other callers. The new props are optional, and a string `held` renders as before.
+
+## Task 1.49 — the wipe confirmation is its own lazy chunk; known differences from the final
+
+**Plan said:** the wipe dialog is lazy.
+
+**What I did instead:** `SettingsPage` was already a lazy route. `DeviceWipe` is a second lazy chunk inside it (`DeviceWipe-*.js`, 1.4 KB gzip, precached), mounted only while open, so `data/wipe.ts` loads only then. Initial JS went from 226.9 KB to 227.0 KB gzip, from the sync guard and the `DestructiveConfirm` props. The budget stays at 228. `wipeHold.ts` no longer imports `unackedCount` from the outbox. It counts pending sync states and outbox rows itself, once per row. This is a defensive union, so an outbox row without a pending state still holds the wipe.
+
+Known differences from the 16-settings final come from task 1.38's shared component and are kept. The buttons sit side by side at the foot of the sheet, not stacked full width. The sheet keeps the component's bold object line ("Everything this app keeps on this device") above the body. The final does not draw the code field or the typed phrase ("not drawn"); they follow THEME "Type to confirm".
+
+**Risk:** none.
+
+## Task 1.49 — ship: the wipe e2e waits for the first pull (orchestrator)
+
+**Plan said:** ship with the full suite green.
+
+**What was wrong:** the full e2e run failed `settings.spec.ts` "settings: the wipe asks for the lead’s code, refuses a wrong one, then wipes and signs out" with `expect(received).toBeGreaterThan(expected)` · `Expected: > 0` · `Received:   0` at `expect(before.rows).toBeGreaterThan(0)`: the spec counted IndexedDB rows before the first pull had written them. It then failed 3 of 3 alone.
+
+**What I did instead:** the spec polls the row count (`expect.poll`) before taking the "before" counts; 4 of 4 settings tests pass. Rejected: a fixed wait (hides the race instead of waiting on it).
+
+**Risk:** none for the app.
+
+## Phase 1 G — final review fixes (I1, I2, m1, m2, m4, m6, m7, m8)
+
+**Plan said:** tasks 1.46–1.49 as built; the final whole-branch review (`b21f2d9..4ed09cf`) found two Important and several Minor defects. m3 (one schema-invalid op makes a sender's batch untransferable) and m5 (an e2e build's `dist` holds the camera stub) are left as they are and stay logged; m9 (the plan's progress cell) is the orchestrator's.
+
+**What was wrong:**
+- **I1** `receiveOperations` replaced any queued operation of the row with a newer copy (`db.outbox.delete(queued.op_id)`), including this device's own unacked edit, e.g. a lead's correction of a received entry when the sender's clock runs ahead. That broke SPEC-FINAL 9.4 ("leaves the outbox ONLY on a cloud ack").
+- **I2** "Discard received QR data" removed acked cloud rows but left `sync.watermark`, so a delta pull never sent them again; the tablet lost them for the rest of the event.
+- **m1** the receive page's `mounted` ref was only initialised `true`; StrictMode's mount → cleanup → mount left it `false` and the page stuck on "Saving…" in `pnpm dev`.
+- **m2** `describeBatch` ran inside the save's `try`, so its failure after a committed write read "That batch could not be saved. Nothing was saved."
+- **m4** the receiver took any number of operations and inflated without a bound (a deflate bomb up to 65,535 frames).
+- **m6** an acked received copy whose row was evicted still counted: More and the confirm promised "5 received copies", the result said nothing was there.
+- **m7** `useWakeLock` never listened for the sentinel's `release`, so "Screen stays on" outlived a lock the system dropped.
+- **m8** a Discard failure closed the confirm with no message.
+
+**What I did instead:**
+- **I1** a copy replaces a queued operation only when that operation is itself an unacked received copy (`syncState.origin === 'qr'`) and the copy is newer. A queued operation of the device's own (`origin: 'local'`, which a lead's re-save of a copy also is) is kept with its cached row, and the copy counts `unchanged`; the sender keeps its own copy pending (9.8) and the server's base-version rule (9.5) settles the two edits. Rejected: comparing authors (a lead's re-save keeps the scouter's row but is the device's own op); comparing client times only (the bug: clocks in an arena drift).
+- **I2** the Discard transaction now spans `meta` and clears `sync.watermark` (new shared key `WATERMARK_KEY` in `data/db.ts`, used by `sync.ts`); `sync.hydrated_event_id` stays, so the next sync pulls the current event in full and the offline gate is untouched. A wrong event's rows stay gone (the pull is event-scoped). A pull already running when Discard commits would have written its delta watermark back, so `syncNow` reads the stored watermark as it starts and does not mark the pull when it was non-null then and is null now; the next sync pulls in full. Rejected: also clearing the hydration mark (resets the offline gate for nothing); bumping `device.wiped_at` to stop the in-flight pull (that key means a wipe); re-pulling inside Discard (needs the network, which Discard must not).
+- **m1** the unmount effect sets `mounted.current = true` in its body and nulls the closed audio context on cleanup.
+- **m2** only `receiveOperations` is in the failure branch. After it, `describeBatch(...).catch(() => summarizeBatch(operations))`: `summarizeBatch` (new export of `data/qrReceive.ts`, the pure half of `describeBatch`) counts from the operations alone, authors "a scouter". Rejected: a separate "saved, names unknown" line (the final draws one done screen).
+- **m4** two bounds. The client's `batchOperations` is `operationSchema.array().max(QR_BATCH_MAX_OPERATIONS)`: a longer batch is dropped as damaged and nothing is written. The inflate bound is a shared change in `packages/shared/src/qr/codec.ts`, because the collector inflates inside `result()` and the client never sees the compressed bytes: `inflateSync` is replaced by fflate's streaming `Inflate`, fed 1 KB at a time, throwing once the output passes `QR_MAX_INFLATED_BYTES` (new export, 4 MB). Valid batches inflate exactly as before; every existing codec test is unchanged and green, plus one new test (over the cap throws, just under it decodes). The page already treats any `result()` throw as damaged. Rejected: `inflateSync(data, { out })` — fflate 0.8 still grows a given `out` buffer, so it does not cap; capping the frame count (a 1:1000 ratio makes any useful count far too large); duplicating the collector in the client to reach the compressed bytes.
+- **m6** `receivedCopies()` (was `unackedReceived`) splits received copies into `unacked` and `present` (acked, row still in the dataset). More's count, the confirm and Discard all count `present` with the same `recordCount`; an orphaned state is neither counted nor touched. Rejected: deleting the marker on eviction (touches the eviction path, and the row returns with its event).
+- **m7** each granted sentinel gets a `release` listener that sets `held` false, only while that sentinel is still the current lock (the one it replaces fires `release` too).
+- **m8** a failed Discard shows `ErrorLine` "Discard did not finish. Nothing was removed." (true: one transaction), cleared when Discard is opened again.
+
+Tests, each mutation-checked (guard removed → named test fails → restored): I1 two tests in `qrReceive.test.ts` (Dana's correction survives Yael's re-shown copy; an unsent edit survives a newer copy); I2 two in `sync.test.ts` (Discard → full pull brings the row back; Discard during a delta pull does not get its watermark written back); m1 StrictMode render reaches the done screen; m2 a rejected `describeBatch` still shows "Got it, a scouter!"; m4 codec bomb test and `qrFrame.test.ts` 201-op batch; m6 an evicted row is neither counted nor discarded; m7 a `release` event turns the hook false; m8 a rejected Discard shows the error line.
+
+**Risk:** I1: when the device's own op is older than the copy, the newer copy waits on the sender until that phone syncs or is shown again after the tablet syncs; nothing is lost. I2: a sync started just after a Discard pulls the whole event once (more data on a venue connection, once). m4: a legitimate batch over 4 MB inflated is refused as damaged; 200 real operations are well under 1 MB.
+
+## Phase 1 G — orchestration and the dev check (orchestrator, 2026-10-20)
+
+**Plan said:** BUILD-CONTEXT §9 (one subagent per task, the orchestrator commits), §12 (a flow that touches the server is also checked in the browser pane against dev seed data); the chat's prompt: do not raise `BUDGET_KB`.
+
+**What was wrong:** three instructions disagreed and were set aside by precedence (prompt, BUILD-CONTEXT, then the skills): BUILD-CONTEXT §12.5 lets a build chat raise the budget — the prompt forbids it, so it stayed at 228 (it was never needed: 226.2 → 227.1 KB); `subagent-driven-development` has the implementer commit and suggests a worktree — BUILD-CONTEXT and CLAUDE.md say the orchestrator commits in the single working copy. The side tasks have no commit line in the plan. The baseline e2e run (115) had 2 failures under load (`entry.spec.ts:12`, `scout.spec.ts:74`), both green alone. `tsc -p apps/client/e2e/tsconfig.json` reports `entry-map.spec.ts(350,44): error TS2322` from `ca6cee72` (round 3), outside `pnpm typecheck`; left as it is.
+
+**What I did instead:** side tasks committed as their own `feat(client): … (task 1.47 side task N)` commits inside 1.47. The dev check ran a local server (`tsx --env-file`, `SUPABASE_URL` the dev ref) and the client's dev server in the browser pane; the seed lead was signed in by the page reading the seed fixture through Vite, so no credential was typed. A one-operation batch authored by `seed_scouter` (match 17) went through `encodeBatch` → `newCollector` → `receiveOperations`: Sync showed the Received by QR block and "QR · from Seed", More held Discard ("Held: 1 received copy hasn't reached the cloud."); Sync now pushed it under the lead's token, the dev server stored it as `seed_scouter`'s with its original `client_created_at`, the outbox emptied, the row stayed with `origin: 'local'`, `received_by_qr: true`, and the success notice showed; Discard then removed only that row (98 own entries kept). The wipe: a wrong code said "That is not the lead's code. Nothing was wiped." with 350 rows kept; the right code emptied rows, outbox, sync state and drafts and opened `/login`. `pnpm db:clean` then removed the litter (9 scouting entries). Not proven: a real camera reading a real phone's code (the user's device rehearsal).
+
+**Risk:** the camera path is proven only against the e2e stub and a zxing decode of a rendered code; the user's rehearsal is the first real-camera run. The sidebar's Sync count (`text-rail-warn` on `--rail`, 3.27:1) fails axe once 10 or more records wait (pre-existing, found by task 1.48; needs a THEME decision).
+
+## Phase 1 G fix — the QR code was unreadable on a phone (smaller text frames, a 1080p camera, the native reader on Android)
+
+**Plan said:** SPEC-FINAL 9.8: 2,300-byte frames, QR version 40, level M, byte mode, `@zxing/browser` scanning from the rear camera. Tasks 1.47 and 1.48 built that.
+
+**What was wrong:** the user, on real devices: an iPhone could not read the sender's code from a computer screen at all. Three causes. (1) The receiver called `decodeFromVideoDevice(undefined, …)`, so zxing asked for `{ facingMode: 'environment' }` alone and the browser opened the camera at about 640×480. (2) Each frame was a version-40 code (177 modules, 2,312 bytes), under 2 px a module at that resolution. (3) The frames change every 200 ms and zxing-js decodes slowly. A fourth cause turned up during this fix (below): zxing-js's QR finder misses large codes.
+
+**What I did instead:**
+- **Smaller frames.** `QR_FRAME_BYTES` 2300 → 500; the header stays 12 bytes; `QR_BATCH_MAX_OPERATIONS` stays 200 and `QR_FRAMES_PER_SECOND` stays 5. The codec test's realistic backlog of 100 entries is now 30 frames (bounds 20–45; they were 4–20). Two new codec exports: `QR_VERSION = 18` and `QR_MODULES = 89`.
+- **Frames as text in alphanumeric mode.** New shared `frameToText` / `textToFrame`: Base45 (RFC 9285). Every Base45 character is a QR alphanumeric character. `textToFrame` throws on a character outside the alphabet, on a length that leaves one character over, and on a group out of range. A full frame (12 + 500 bytes) is 768 characters. Tests cover the RFC examples, a round trip of every length from 0 to 600, and rejection.
+- **Sender.** One alphanumeric segment, level M, **version 18** (89 modules) for every frame of every batch, so the code never changes size. qrcode itself picks 18 as the smallest version that holds 768 characters, and version 17 throws (`qrFrame.test.ts` proves both). The orchestrator expected v18; it is.
+- **Receiver camera** (`features/qr/qrScanner.ts`, new). It asks for `{ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false }`. After the stream starts, if the track lists `focusMode: 'continuous'`, it applies it and ignores a refusal. On `OverconstrainedError` or `NotFoundError` it asks once more with `{ video: true, audio: false }`. If that fails too, `NotAllowedError`/`SecurityError` shows "The camera is blocked" (refused is never retried), and anything else (no camera at all, `NotReadableError`, no `mediaDevices`) shows the existing "The camera did not start". There is no new "unsupported" screen: no final draws one.
+- **Two readers, both reading text, then `textToFrame`.** *Native*: used when `window.BarcodeDetector` exists and `getSupportedFormats()` lists `qr_code` (Android Chrome). `getUserMedia` goes straight into the `<video>`; `detect(video)` runs once per new video frame (`requestVideoFrameCallback`, else `requestAnimationFrame`); the next is asked for only when the last has answered, so no more than one is ever in flight. Stop cancels the callback and stops the tracks. *zxing*: used everywhere else (iPhone Safari). It calls `decodeFromConstraints` with `POSSIBLE_FORMATS: [QR_CODE]` (no TRY_HARDER) and 50 ms delays, and reads `result.getText()`. A text that is not Base45, or too short for a header, is ignored and the scan goes on. `BarcodeDetector` is typed locally and feature-detected.
+- **Removed:** the `BYTE_SEGMENTS` reading (`frameBytes`), `FRAME_CHARSET` and the ISO-8859-1 `CHARACTER_SET` hint. **Kept, changed:** `ZXingStringEncoding.customDecoder`. Our frames never reach it (alphanumeric text is not decoded through a character set), but a foreign byte-mode code can. If that decoder throws, the error is not one zxing's scan loop retries after (`ChecksumException`/`FormatException`/`NotFoundException`), and **the loop stops for good**: the camera would freeze silently. The decoder now tries `TextDecoder` and falls back to one character per byte, so it never throws. For the same reason, the page's text callback is wrapped so it can never throw into zxing.
+- **zxing-js's QR finder, fixed** (`features/qr/zxingFinder.ts`, new; not in the orchestrator's brief). The new real-canvas e2e flaked: a perfectly drawn frame failed to decode in both passes. I measured `@zxing/library` 0.21.3 on clean renders of random full frames. It read 90% at 3 px a module, 57% at 6 px, and about half at 8–12 px, which is the scale a 1080p camera sees from 20 cm. Some frames it never read at any scale, and a frame that is never read never completes its batch. The fault is in `FinderPatternFinder`. Data-area runs that look like finder patterns win because zxing-js (a) stops scanning once it holds three candidates of a similar module size and skips rows towards a guessed third, so the real third finder is often never reached, and (b) picks the three by module size alone. zxing's Java reader has picked them by shape since 3.4. The fix is applied when the zxing path starts, to the esm/ build the app bundles (deep import `@zxing/library/esm/core/qrcode/detector/FinderPatternFinder`). It replaces `selectBestPatterns` with Java 3.4's geometric choice (the three candidates seen twice or more, within 1.4× module size, closest to a right isosceles triangle), and turns off the early stop and the row skip. Measured: 24 of 24 seeded full frames on noisy 1920×1080 pictures at 6, 8 and 10 px a module, against 12, 13 and 12 without it. On 40 pictures at 8–11 px: 40/40 against 26/40, at 23.4 against 21.0 ms a decode (Node, this machine). The geometric choice alone reads 22 of 24, so both parts are needed. The built `QrReceivePage` chunk holds one copy of the finder class, and the patch targets the class the detector instantiates. Rejected: TRY_HARDER (still about half at 6–12 px with the original choice, 91% with the new one, and slower); downscaling the picture before zxing (BrowserCodeReader draws the video at full size, and it would need its own scan loop); a smaller version (v10 still failed 14% at 6 px); `PURE_BARCODE` (it reads every clean render, but it assumes the picture is the code alone and square to it, which a camera picture never is).
+- **Tests.** Codec: as above. `qrFrame.test.ts`: real seeded frames drawn by qrcode at v18, read by zxing's `QRCodeReader` with the finder fix at 3 and 2 px a module; a whole batch completes; foreign text is ignored. `zxingFinder.test.ts`: the geometric choice, NotFoundException, and before/after on 1080p pictures. `QrReceivePage.test.tsx`: the zxing mock is now `decodeFromConstraints` feeding `getText()` results. It checks the constraints asked for, the hints, the fix applied to the esm finder, a foreign code ignored, the `{ video: true }` fallback once, "did not start" after it, and continuous focus offered/absent/refused. A new native describe mocks `window.BarcodeDetector`, `navigator.mediaDevices` and `play()`. In it, a real multi-frame batch completes from `rawValue`s with a foreign code and repeats mixed in; at most one `detect()` is in flight; zxing is never started; a damaged batch writes nothing; leaving mid-batch stops the tracks and the loop and writes nothing; the fallback works; blocked; and the zxing path is taken when the detector lacks `qr_code`. Every earlier guard test is kept. The tests that showed one frame of a two- or three-operation batch now show all its frames: such a batch is now two frames. `QrSendPage.test.tsx`: every frame is one alphanumeric Base45 segment at level M and `QR_VERSION`. e2e: the stub implements `decodeFromConstraints`, records the constraints in `window.__qrCamera.constraints`, takes text in `show(text)`, and deletes `window.BarcodeDetector` as the receive chunk loads, so the e2e app always takes the zxing path (Playwright's Chrome on this Windows machine has none anyway: `'BarcodeDetector' in window` is false in headless Chrome 155). `qr-receive.spec.ts` checks the 1080p constraints and no native reader. `qr-send.spec.ts` has a new test, "the drawn code reads back with zxing, every frame, at 3 px a module". In the page, it takes a picture of the real sender canvas each time the frame changes, for two loops, scaled down with smoothing to 3 px a module on a white border. The pictures are decoded in Node with `@zxing/library` and the finder fix until every frame is held, and the batch's op ids must equal the seeded ones: 8 of 8 repeats passed. Without the fix it failed 1 run in 4 (and 1 in 6 with a nearest-neighbour downscale). The last-batch shot test expects 2 frames (5 records), not 1.
+- Mutation checks: `textToFrame` accepting an unknown character → the codec rejection test fails. The native path never taken → 5 of 6 native tests fail. `improveFinder` not called on the zxing path → the 1080p/hints test fails (`expected undefined to be true`). The early stop and row skip left in → `zxingFinder.test.ts` reads 22, not 24.
+- Bundle: initial JS 227.1 KB before and after (budget 228, not raised). `QrReceivePage` 110.5 → 111.4 KB, `QrSendPage` 13.7 → 13.7 KB, all lazy chunks precached.
+
+**Rejected alternatives (from the orchestrator's decision, with the user's go-ahead):** keeping version 40 and only raising the camera resolution (177 modules is at most 6 px a module at 1080p, less in practice, and zxing's finder fails worst on large codes: 36 of 40 clean v40 renders missed at 6 px); byte mode read by BarcodeDetector (its `rawValue` is a string, which mangles binary); base64 text (a third larger than the bytes, and it needs byte mode: 10.7 bits a byte, against Base45's 8.25 in alphanumeric mode); slowing the display below 5 fps (longer loops for every batch, and it does not fix a code that cannot be resolved or found).
+
+**Risk:** no real camera has run yet (CI has none): the next device rehearsal is the proof, on an iPhone (zxing path) and an Android phone (native path). Batches are about 4.6 times as many frames: SPEC-FINAL 9.8's "9–13 frames, a cycle in ~2.5 s" for 100–200 entries is now about 40–60 frames, a cycle of 8–12 s. Entries with long entry-map paths make more: the e2e fixture of 13 records with two 95-point paths each is 49 frames, about 10 s, and the receiver's cells wrap to five rows on a phone. At 1080p, zxing decodes about 2.25 times as many pixels per attempt as at 640×480, which is slower on an older iPhone; the 50 ms delay between attempts is unchanged. The finder fix patches a private zxing-js class (`FinderPatternFinder` in esm/), so a `@zxing/library` upgrade must re-check it: `zxingFinder.test.ts` and the `IMPROVED` assertion in `QrReceivePage.test.tsx` will tell. SPEC-FINAL 9.8's encoding table (2,300 bytes, version 40, byte mode, "no base64 expansion", `@zxing/browser` alone) and decision D12 now disagree with the code. They were not edited here (orchestrator's call).
+
+## Phase 1 H side task 1 — sign-in fields stay left-to-right
+
+**Plan said:** `PasswordInput` and the username field get `dir="ltr"` with left-aligned text, keeping the eye's `pe-12` room, wherever they are used (sign-in, Switch scouter, Change password, reconnect, the admin's set-password). While the field holds any Hebrew letter, a quiet `--muted` line under it says "Your keyboard is typing Hebrew." (never an error; the value is not changed). Tests: the input is `dir="ltr"`; Hebrew shows the hint and Latin does not; e2e shots of `/login` with a Hebrew password at both widths in every theme, shown and hidden.
+
+**What was wrong:** nothing blocking. Three facts the plan text does not mention: (1) only sign-in, Change password (both through `AuthField`) and Switch scouter use `PasswordInput`; the reconnect prompt and the three admin set-password fields (Users page Reset password dialog, user page Reset password card, Add a user's Initial password) are plain `Input`s in a row beside buttons, and the admin ones were already `dir="ltr"`. (2) `usernameSchema` accepts letters of any script, so a Hebrew username such as `דנה` is valid (`packages/shared/src/api/users.test.ts`, "accepts letters of any script, including Hebrew"). (3) Python's text mode on Windows wrote CRLF into the edited files on the first pass and `pnpm format:check` failed on 9 files ("Code style issues found in 9 files"); converted back to LF, then clean.
+
+**What I did instead:** the hint lives once, in `components/ui/password-input.tsx`: `hasHebrew(value)` (U+05D0–U+05EA and the presentation forms U+FB1D–U+FB4F; niqqud alone does not count), `HEBREW_KEYBOARD_LINE`, `KeyboardHint({ value, id?, className? })` (renders nothing for Latin text), `withKeyboardHint(value, hintId, describedBy?)` (adds the hint to the field's `aria-describedby` only while it shows), and `CREDENTIAL_DIR` / `credentialClass` (`'ltr'` / `'text-left'`). `PasswordInput` now forces `dir="ltr"` on the input *and* on the wrapper that positions the eye (so `pe-12` and the `end-1` eye stay on the same side even inside a right-to-left container), ignores a caller's `dir` (Switch scouter passed `dir="auto"`; removed there too), and shows the hint under itself, tracking its own text for an uncontrolled `defaultValue`. `AuthField` sets `dir="ltr"` + `text-left` for every field (it is only used for credentials) and adds the hint under the username. The reconnect prompt and the three admin set-password fields keep their plain `Input` and layout and get `dir="ltr"`, `text-left` and a `KeyboardHint` under the row (not inside it, so the buttons beside the field do not move). The hint is a plain `<p>`, not `role="status"`/`alert`, and never sets `aria-invalid`. Alternatives rejected: moving the reconnect prompt onto `PasswordInput` (it would add an eye button the design for that prompt does not have — a UI change outside this task); a `CredentialInput` wrapper component for the row layouts (its hint would sit inside the flex row beside the buttons, or need a wrapper-class prop that every caller must get right); changing the admin Add-a-user and Rename *username* fields (not in the plan's list, and Hebrew usernames are valid there, so the admin types them on purpose); blocking or transliterating Hebrew (the plan says the value is never changed).
+
+**Risk:** a user whose username really is Hebrew sees the quiet line under the sign-in username while typing it; it is informational only and the sign-in still works, and the text renders correctly left-to-right because it is a single-direction run. The admin username fields still use `dir="auto"`, so a Hebrew username there is drawn from the right — consistent with it being a deliberate entry. If a later page adds another password field, it must use `PasswordInput` or `KeyboardHint` + `CREDENTIAL_DIR` to get the same behaviour; nothing enforces it.
+
+## Phase 1 H side task 2 — Wipe anyway
+
+**Plan said:** while the wipe is held, the Wipe sheet adds **Send by QR first** (opens `/sync/qr/send`) and a destructive **Wipe anyway…** that opens a second confirmation ("**3 records have not reached the cloud. Wiping now deletes them for good.**", the lead's code, the count typed, filled-ink **Wipe anyway**, **Keep this device** first). `wipeDevice` gains `{ force: true, expected: n }`, refused unless the code matches and `n` equals the current unacked count read in the same transaction. Every unacked record and unfinished entry goes to the discarded log with the reason "wiped before it reached the cloud" (summary only) before the normal wipe runs. Built from the existing sheet and `DestructiveConfirm`; no new design page.
+
+**What was wrong:** nothing blocked the plan. Choices it left open, and one guard that fired:
+1. *The count.* "Unacked count" is taken as `heldCount(readWipeHold())` = unacked rows + unfinished entries — the same number the held sheet and the normal wipe's refusal already use, and the same set the log is written for, so the typed count always equals the rows the log gains. Rejected: unacked rows only (the drafts are also destroyed, and the plan logs them too, so the typed number would be smaller than the loss).
+2. *Result shape.* A count mismatch returns `{ ok: false, reason: 'wrong-count', unacked: <count now> }`; a stale count is the same refusal (it is a mismatch at transaction time). The normal path's results are unchanged (`{ ok: true }`, `wrong-code`, `unacked`). `{ force: true, expected: 0 }` on a device with nothing held is just the normal wipe. The forced wipe also clears `db.outbox` (the normal wipe never needed to: it only runs with an empty outbox, so adding `outbox.clear()` to the shared path changes nothing for it).
+3. *Log rows.* One row per lost record: each outbox row (its latest operation), each `pending` sync-state row with no operation left (parked / received-by-QR copies), each draft. Ids are `wiped:<at>:<row_id>` / `wiped:<at>:draft:<key>`, so they never collide with the 9.7 rows (keyed by op_id). Reason stored as the sentence `Wiped before it reached the cloud.` (exported `WIPE_REASON`), sentence-cased like `DISCARD_REASON`. Entries use the existing `describeEntry`; a draft is described from its key (`<version>:<match id | super>:<team id>`) with the signed-in user as scouter; a bare match or pick-list/alliance change gets a new optional `DiscardedSummary.what` ("Match", "Pick list change", "Unfinished match entry"…), which `kindLabel` shows. Values are never kept (tested: a `data` value in the payload and in a draft never reaches the log).
+4. *Dismissed on write.* Wiped rows are written with `dismissed_at = discarded_at`, so the Sync notice does not greet the next person to sign in on the handed-on device; the log page still lists them. Rejected: leaving them undismissed (the loss was already shown and confirmed by the lead in the second confirmation; the notice exists for losses nobody saw).
+5. *The log page.* `/sync/discarded` said only "an admin deleted…". It now shows one Note per cause present (the admin's delete, and/or the wipe) and, when any wiped row exists, the subtitle "Records removed from this device before they reached the cloud." Smallest change that keeps the page truthful; no design page touched.
+6. *UI.* Same `DeviceWipe` component: under the held `Notice`, a secondary `Link` "Send by QR first" and a `destructive` `Button` "Wipe anyway…"; the latter swaps the `DestructiveConfirm` (keyed, so the typed field resets) to title "Wipe anyway?", the loss sentence as `loss`, the lead's code as `children`, `typeToConfirm={String(count)}`, confirm "Wipe anyway", no icon. The count is read live: a record saved while the confirmation is open changes the sentence and the required typed number, so the confirm turns off again; if it races the click, the transaction refuses with `wrong-count` and the sheet says "The count changed: N records have not reached the cloud now. Nothing was wiped." "Keep this device" closes the whole sheet. While the forced wipe runs the sheet keeps the count it was sent with (otherwise the emptied device flipped it back to the normal sheet for a frame before sign-out). Singular: "1 record has not reached the cloud. Wiping now deletes it for good."
+7. *Bundle guard fired.* With `recordWiped` in `data/discarded.ts` (which the outbox pulls into the initial chunk), `pnpm bundle:check` printed `initial JS 228.2 KB gzip` / `initial JS over 228 KB gzip` (HEAD measured 227.4 KB).
+
+**What I did instead:** for 7, moved `recordWiped` and its helpers into a new `apps/client/src/data/wipeLog.ts`, imported only by `data/wipe.ts` (reached only from the lazy `DeviceWipe`): initial JS 227.5 KB, under the 228 KB budget, which was not raised. Everything else as described above.
+
+**Risk:** the 228 KB budget now has 0.5 KB of headroom; the next client task will likely need to raise it. `DiscardedSummary.what` is optional and absent on every pre-existing log row, so old rows render as before. A pending sync-state row whose cached row is gone is logged as a scouting entry with "unknown team" (the only shape it can be resolved to). The e2e shot `settings-wipe-held` (existing test) now also shows the two new actions.
+
+## Phase 1 H side task 3 — option labels never split mid-word
+
+**Plan said:** an option button's label wraps only between words; a single word never breaks. When the longest word of any option does not fit beside the ✓ at four columns, the whole group drops to two columns, measured, not guessed from character counts; a word too long even for one column may still break as the last resort. The ✓ keeps its place. Tests: "Parked", "Defense" and a Hebrew label never split at 375 px; a group whose longest word fits keeps four columns; e2e shots of the entry's end-game group at 375 and 1440 in every theme, with the selected state.
+
+**What was wrong:** nothing blocked the plan. Choices it left open, and one existing test the rule contradicts:
+1. *How it measures.* A hidden probe card in each group (`[data-option-probe]`, inside an `aria-hidden`, `invisible h-0 overflow-hidden` holder so it never widens the page): the card's own edge and padding (`CARD_BODY`, shared with the real cards), the accent dot when any option has one, every word of every label stacked one per line (`whitespace-nowrap`), and the ✓. Its width is the card the longest word needs beside the ✓ at the live font and text size. A `ResizeObserver` on the grid and on the probe re-measures (a resize, the fonts arriving, the 150 % text size); `useLayoutEffect` measures once before the first paint. Rule: exported pure `fitColumns(need, width, gap)` → the most of 4 / 2 / 1 columns at which `need <= (width − (n−1)·gap)/n + 0.5`. Rejected: canvas `measureText` (jsdom has no canvas, and the edge, gap and ✓ would still have to be added up by hand); reading a rendered card's overflow (the ✓ is only on the chosen card and the measurement would oscillate between 4 and 2); character counts (the plan forbids it).
+2. *The ✓ is reserved for every option.* The rule uses the chosen card's width for every word, so whichever option is chosen its words stay whole; the visible ✓ is unchanged (only on the chosen card, `ms-auto`, `shrink-0`).
+3. *Words in the probe are drawn by `::before` (`content: attr(data-word)`),* so no `getByText` / Playwright text locator finds a second "Parked" and no screen reader reads it.
+4. *The cascade goes to one column too.* A word that does not fit at two columns sends the group to one (`grid-cols-1`), the plan's "too long even for one column" read as the floor; only then does a word break (`[overflow-wrap:break-word]`, which replaced `[overflow-wrap:anywhere]` and breaks a word only when it overflows its line). The container queries stay as the unmeasured fallback (no `ResizeObserver`, and jsdom): `@min-[26rem]:grid-cols-4` is dropped once the measure says the words do not fit at four, and `@max-[14rem]:grid-cols-1` (task 1.38) is kept.
+5. *A hidden group* (an inactive panel, width 0) keeps its last answer until it shows.
+6. *Labels that are not text* (a `ReactNode` label) bring no words to the probe; every caller today passes strings (`FieldInput`, and the builder's canvas and Try it through it).
+7. *The UF.18 e2e (`entry.spec.ts`, "a four-option select at phone, tablet and desktop widths") expected four columns at 768 and 1440.* Measured in Chrome: the control column is 440 px at both, a quarter is 104 px, and "Parked" (47.5 px at 14 px semibold) with its ✓ needs a 113.5 px card (2 px edge + 32 px padding + 12 px gap + 20 px ✓). Chosen, it broke as "Park / ed": the reported bug. Real output before the change to the spec: `Expected: 4` / `Received: 2` at `entry.spec.ts:143`.
+8. *Bundle.* `pnpm build && pnpm bundle:check` printed `initial JS 228.0 KB gzip` (233,412 bytes in the e2e build, 60 bytes under the 228 KB budget; HEAD measured 227.5 KB). Under budget, so `BUDGET_KB` was not raised.
+
+**What I did instead:** for 7, the spec now expects two columns at 768 and 1440, with a comment giving the measured numbers; its tablet and desktop shots now show the climb group in two columns (the small-desktop shot already did). Everything else as described above. New tests: six in `controls.test.tsx` (the rule with numbers; the whole group drops to two; a group whose words fit keeps four; re-measure on resize down to one column and back; a hidden group keeps its answer; the probe holds every word once, with the ✓, and no text query finds it), with `ResizeObserver` and `getBoundingClientRect` stubbed. New e2e `option-labels.spec.ts`: an end-game group ("Parked", "Defense", "Deep climb", "חנייה חלקית") and a "Fouls drawn" group (0 / 1 / 2 / 3+); with each option chosen in turn, every word of every label is on one line box (`Range.getClientRects()` tops) at 375 and 1440; at 1440 the end-game group is two columns (`data-fit="2"`) and the fouls group four (`data-fit="4"`). Mutation check: with `fitColumns` forced to 4 the spec fails (`Parked chosen: "Parked" on one line`, `Expected - 1 / Received + 1` lines).
+
+**Risk:** with the entry's 440 px control column, a four-option group keeps four columns only when its longest word is about 38 px or less at the default text size (digits, "Low", "Mid"); most real end-game groups now show two columns on a tablet and a computer. That is the plan's rule, but it changes how the UF.18 shots look. The initial-JS budget now has about 60 bytes of headroom: side task 5 (the countdown in the Save bar) will almost certainly have to raise `BUDGET_KB` (BUILD-CONTEXT §12.5). One probe per option group adds a few hidden nodes to the entry page (one span per distinct word).
+
+## Phase 1 H side task 4 — the edit-window refusal says what happened
+
+**Plan said:** a record refused with `edit-window-expired` reads, on Entries and on Sync alike, "Not sent: changed after the 5-minute edit window. A lead can save it for you." — one line. `rejectionMessage` returns "Changed after the 5-minute edit window. A lead can save it for you."; the refused-line label is "Not sent:" on both pages (`EntryParts.tsx` changes from "Not synced:"); Sync drops its second "why" sentence for this code; `syncPush`'s `message` for the code becomes the same sentence in lower case. The entry form's own lock message (`EntryPage`, `SuperForm`) is out of scope.
+
+**What was wrong:** nothing failed; five points the plan left open or stated two ways.
+1. *Capital or lower-case "changed" after the label.* The plan and SPEC-FINAL 7.6 quote the line as "Not sent: changed after …", but the same paragraph has `rejectionMessage` return "Changed after …", Entries renders `rejectionMessage` after the label as it is, Sync's `notSentLine` capitalises whatever it shows, and the 17-sync final README renders "**Not sent:** Changed after the 5-minute edit window. A lead can save it for you."
+2. *"The same sentence in lower case" for the server.* Taken whole, "changed after the 5-minute edit window. a lead can save it for you." would show on Sync as "… window. a lead can save it for you." (Sync capitalises only the first letter of the server's words).
+3. *Records already refused.* Sync showed the server's stored `message`, not the client's text. A device holding a record refused before this ships keeps "this entry is locked — ask a lead" in IndexedDB until the record is re-saved, so Sync would have gone on showing the old line for it.
+4. *Is "Not sent:" for this code only, or for every refusal on Entries?* `refusedText` in `EntryParts.tsx` is the label for every refusal code (`forbidden`, `invalid` too), and the 05-entries README describes "Not synced: …" in general with the edit-window line as the exception.
+5. *The Sync "why" sentence is a `Record<RejectionReason, string>`*, so dropping one code needs a type change.
+
+**What I did instead:**
+1. Capital "C" on both pages ("Not sent: Changed after the 5-minute edit window. A lead can save it for you."), as `rejectionMessage` and the 17-sync final render it; the plan's lower-case quote read as the sentence's wording, not its case after a bold label.
+2. The server's `detail` is `'changed after the 5-minute edit window. A lead can save it for you.'` — lower-case first letter only, the server's existing convention (the old detail was "this entry is locked — ask a lead"). `apps/server/api/index.js` regenerated with `pnpm --filter @frc/server build` (226.6 kb) and in the diff.
+3. `notSentLine` (`data/syncList.ts`) uses the client's `rejectionMessage` for `edit-window-expired` and the server's words for every other code, so Sync and Entries say the same line from the same source, and a record refused under the old wording reads the new line. Rejected: trusting the server's `message` (stale on devices; the two pages could drift apart again).
+4. "Not sent:" for every refusal on Entries, the same label Sync already used for every code. Rejected: "Not sent:" for the edit window only, which would put two labels for the same state on one list; the plan names the label change on `EntryParts.tsx`, and the label is shared there.
+5. `REASON_WORDS` became `Partial<Record<RejectionReason, string>>` without the `edit-window-expired` key, and `reasonInWords` returns `string | undefined`; `NotSent` (SyncPage) renders the "why" span only when there is one. `forbidden`, `invalid` and `parent-deleted` keep their why.
+
+Tests: `rejections.test.ts` (the new line, also for a stored old message), `EntriesPage.test.tsx` (the label "Not sent:" for all three codes, "not synced" nowhere on the page, the new line in Needs a look), `useEntriesView.test.ts`, `outbox.test.ts`, `SyncPage.test.tsx` (the `<p>` is exactly the one line in Waiting and in Problems; new: a record refused in the old words reads the new line; a `forbidden` refusal keeps the server's words and its why), `syncPush.test.ts` (the exact `detail`), `entries.spec.ts` and `sync.spec.ts` (the exact line; "locked" / "5 minutes were up" absent). `entries-look` is now shot at both widths (was phone only), so the Entries refused line has a desktop shot too. Out of scope and unchanged: "This entry is locked — ask a lead to change it." in `EntryPage.tsx` and `SuperForm.tsx`, and "…and the entry is locked — ask a lead…" in `EntryRoute.tsx` (side task 5's path).
+
+Bundle: `pnpm build && pnpm bundle:check` printed `initial JS 228.0 KB gzip`; the e2e build's manifest measures 233,441 bytes, 31 bytes under the 228 KB budget (side task 3 left 233,412). `BUDGET_KB` not raised.
+
+**Risk:** the label "Not synced:" no longer appears anywhere on Entries, also for `forbidden` and `invalid` refusals — a wording change beyond the edit window that the user has not seen on those codes. For records refused before the deploy only the text shown on the device changes; their stored rejection and outbox state are untouched. The initial-JS headroom is now 31 bytes: side task 5 will have to raise `BUDGET_KB` (BUILD-CONTEXT §12.5).
+
+## Phase 1 H side task 5 — no edit after 5 minutes
+
+**Plan said:** for a scouter editing their own match entry (leads, admins and super entries unchanged): in the last 60 s the Save bar shows "Editable for 0:45" (mono, `--warn`) above the button, ticking each second from `client_created_at`; at the mark the form commits what is typed with `client_updated_at` = `client_created_at` + 5:00, then navigates to the read-only `/entries/:id` (page 25) with the Success banner "Saved — the 5 minutes are up."; a field whose value would fail the save's checks (out of `expected_range`, a required field emptied) keeps its last saved value and the banner adds "Not kept: High goal 40 is over 20."; every other place that could start an edit after the window (Entries, Sync's Open entry, the team page's match rows) shows the entry read only; the old "locked" error in `commit()` stays only as the last guard. Built from the Primary action bar, Success banner and Error-line parts; no new design page. Tests with fake timers; e2e shots of the countdown and the banner at both widths in every theme.
+
+**What was wrong:** nothing failed outright; the plan could not be followed literally in one place and left several choices open.
+1. *`/entries/:id` (page 25) does not exist.* It is built in task 1.52, and this run builds nothing from task 1.50 on. **Orchestrator's call (2026-10-26):** after the save at the mark the entry route itself shows the entry read only, in place; when 1.52 lands, the mark should navigate to `/entries/:id` instead.
+2. *Entries opens nothing* (`EntryCard` / `EntriesTable` are static until the preview, SPEC-FINAL 13.4), and the team page is task 1.53. The places that do open an entry today all go to the `/entry/:matchId/:teamId` route: Sync's Open entry, Home's Open, and a draft's Resume.
+3. *The route already had a lock path* (`EntryRoute.tsx`: "This robot is already scouted in this match on this device, and the entry is locked — ask a lead to change it." with Back to scouting), and it was decided on **every render** against `new Date()`. Built as planned, a re-render of the route after 5:00 (seen in the e2e run after a sync) swapped the form's own read-only view for the route's and threw away the banner. Seen in the e2e run: the banner was on screen, and 3 s later the route's view without it (a temporary `DBG` log showed `EntryPage` unmounting with no new resolve).
+4. *The countdown's placement on a computer.* The desktop entry has no Save bar: Review entry is at the foot of the "This entry" panel (`EntrySummary`).
+5. *What "the same checks the normal save uses" are.* Review entry is held by `entryProblems` (out of range — config min/max first, then `expected_range`, as `validateEntryData` orders them —, a required field unanswered, a stopwatch still running, Broke down with no time); `submitEntry` then runs `validateEntryShape` / `validateEntryData`.
+6. *Wording the plan did not give:* a required field emptied, a stopwatch still running, Broke down with no time, and a save that cannot happen at all.
+7. *An entry opened after its window had already closed* (on `EntryPage` directly, e.g. its existing unit test at 6 minutes): saving it at a "mark" would stamp changes made after the window as made inside it.
+8. *Bundle.* The entry route and `EntryPage` are in the initial bundle (the competition path never waits on a chunk), and the budget had 31 bytes left.
+
+**What I did instead:**
+1. **At the mark, read only in place.** `EntryPage` arms one `setTimeout` for `client_created_at` + 5:00 when a scouter (`!editsAnyTime`) opens their own `form_kind = 'match'` entry while its window is still open (`editableUntil`, the clock `canSelfEdit` uses). When it fires, the form closes the review sheet and the problems list, works out what can be kept (`keepSavable`), saves through `submitEntry` with the new `clientUpdatedAt` = `new Date(deadline).toISOString()` (also written to the local row's `client_updated_at` / `updated_at`), and renders `MatchReadOnly`: the header with a **Read only** chip (`ReadOnlyTag`, as the super read-only view), the Success banner with one "Not kept: …" line per change put back, the lock line "Only a lead or an admin can change it now.", and the answers by phase (`EntryAnswers`, as the confirmation and the read-only super entry draw them; a map row opens its map view only). Focus moves to the banner. The stamp does not depend on when the timer actually runs (a sleeping tab), and a `commit()` after the mark whose timer has not yet run goes to the same save. A submit already in flight at the mark goes on (it was stamped inside the window); if it fails, the mark runs then. Rejected: navigating to `/scout` with a notice (the plan wants the entry shown); building a stand-in `/entries/:id` route (task 1.52's job, and a route the preview would then have to replace).
+2. **Every route that opens an entry shows it read only once it cannot be edited.** `EntryRoute` now renders `MatchReadOnly` (no form, no lock error, no alert) instead of the old lock notice, for a scouter's own match entry past its window and for another scouter's match entry (whose lock notice it was too): "Another scouter's entry. Only they, a lead or an admin can change it." inside that scouter's window, "… Only a lead or an admin can change it." after. A lead or admin gets the form as before. Rejected: keeping the notice for another scouter's entry (SPEC-FINAL 7.6 v1.32's "read only means visible" applies to a match entry just as well, and two different refusals on one route read as two rules).
+3. **The route decides once, when it resolves** (`resolvedAt` in its resolved state; `canSelfEdit(existing, author, new Date(resolved.resolvedAt))`). A form left open past the mark is `EntryPage`'s to lock. Test: `EntryRoute.test.tsx` "keeps the form's own save at the mark on screen, banner and all, when the route renders again" (re-renders with a new author object); with the old `new Date()` the test fails.
+4. **Desktop: the countdown sits above Review entry in the "This entry" panel** (`EntrySummary` gained a `foot` slot, `empty:hidden` so nothing moves before the last minute). Phone: inside the `ActionBar`, above the Review entry button, in a column. `EditCountdown` ticks on its own (a `setTimeout` asleep until the last minute, then on each second boundary), so the form does not re-render every second; it is `role="timer"`, `font-num`, `text-warn`, centred, text only (nothing moves, under reduced motion or not). Shown when 0 < time left ≤ 60 s, rounded up to the whole second: "Editable for 1:00" at exactly 4:00, nothing at 3:59. Rejected: an `aria-live` announcement each second (noisy); re-rendering `EntryPage` with `useNow`.
+5. **`keepSavable` (`features/entry/editWindow.ts`, pure) uses `entryProblems`** — the very checks that hold Review entry — on the form as typed: each refused field goes back to its last saved value (or to nothing, i.e. its starting value, when the saved entry never held it), and the checks run again, because putting a value back can show or hide a conditional field. A stopwatch still running at the mark keeps its saved time. Broke down with no time keeps the saved status and breakdown time, and the field changes are still kept. A dead robot (No show, Disabled) saves no field data, as always. If the saved entry itself now fails a check (a field made required in place since) nothing can be saved: `refused`. `rangeProblem` was split into `rangeBreach` (value, limit, side) and the words, so the "Not kept" line reuses the same limit; the problems list's text is unchanged.
+6. **Wording.** Range: "Not kept: High goal 40 is over 20." / "Not kept: High goal -1 is under 0." (the plan's shape; the plain number, no unit). Required emptied: "Not kept: Driver is required and was left empty." Running stopwatch: "Not kept: Cycle time was still running." (always named: its running time is not in its value yet). Broke down with no time: "Not kept: Broke down needs the time it stopped." (the problems list's own reason). A value put back that the scout had not changed is not named. Nothing saved (refused, or `submitEntry` threw): an Error line "Not saved — the 5 minutes are up. A lead can save it for you." with the reason under it, over the entry as last saved; the draft is left on the device (nothing typed is deleted). Rejected: "… was emptied" (reads as if the app emptied it).
+7. **Only an entry opened inside its window counts down or saves by itself.** Opened after it closed (only reachable on `EntryPage` directly, since the route now shows it read only), no countdown and no save: `commit()`'s "This entry is locked — ask a lead to change it." is the last guard, kept as the plan says (`SuperForm`'s copy is untouched: a scouter's own super entry is never locked, and another scouter's is already read only).
+8. **Bundle.** `keepSavable` and `MatchReadOnly` (with the banner) live in the timed parts' lazy chunk (`timedParts.ts`), which `lazyParts.tsx` starts loading as the app starts and the service worker precaches; `MatchReadOnly` has a `lazyParts` stand-in with the existing "didn't load · Try again" notice, and the mark awaits `loadTimedParts()` (if that ever failed: the Error line above, "Part of the app didn't load. What was typed stays on this device."). In the initial bundle stay the mark's timer and save, `EditCountdown`, and the route's switch. Measured: `pnpm build && pnpm bundle:check` printed `initial JS 229.5 KB gzip` with everything in the initial bundle, `initial JS 228.9 KB gzip` after the move (timed parts 13.0 → 13.7 KB). **`BUDGET_KB` raised from 228 to 229** in `scripts/check-bundle.mjs`, and the line in BUILD-CONTEXT §12.5 updated, as the user allows (2026-10-11). Rejected: a separate lazy chunk for the read-only view (a second loader and stand-in set in `lazyParts`, which is initial, would cost about what it saves).
+9. **Tests.** `EntryPage.test.tsx` "no edit after 5 minutes" (fake `setTimeout`/`setInterval`/`Date` with `shouldAdvanceTime`; fake-indexeddb's `setImmediate` stays real): nothing at 3:59 and "Editable for 1:00" at 4:00 in the panel, then 0:45 and 0:44; at 5:00 one `update` op with `client_updated_at` = created + 300000 ms (`2026-11-14T09:05:00.000Z`) and the form gone (no tabs, no controls, no Review entry, no lock text; Read only, the lock line and the saved value shown); an out-of-range change kept at its saved value and named while the other change is kept; a required field emptied likewise; the review sheet open at the mark closes; a lead never counts down or locks; an entry opened after its window never saves by itself. `editWindow.test.ts`: `countdownText`, every "Not kept" line, and `keepSavable` (all kept; range; required; a field never held; a running stopwatch; Broke down with no time; a dead robot; a value put back showing a conditional field; refused). `EntryRoute.test.tsx`: own entry past the window read only (no form, no alert, no "locked"); another scouter's entry read only with the note; a lead gets the form past the window with no countdown; the re-render test above. `SyncPage.test.tsx`: Sync's Open entry on a scouter's own entry past its window lands on the read-only view. `SuperEntryPage.test.tsx`: a super entry left open across 5:00 never counts down or locks. `syncPush.test.ts`: a scouter's update stamped exactly created + 5:00 is applied, created + 5:00 + 1 ms is refused `edit-window-expired` (no server source changed; `pnpm --filter @frc/server build` left `apps/server/api/index.js` unchanged). e2e `entry-window.spec.ts` (Playwright `page.clock`): the countdown at 4:15 (`entry-window-countdown`), the save at 5:00 with "Not kept: Auto notes scored 11 is over 10." (`entry-window-saved`, plus the long phone shot), the pushed operation stamped `2026-03-17T10:05:00.000Z` with Teleop's change and Auto's saved value, the entry opened again read only with the saved values (`entry-window-readonly`), and a lead's form that never counts down; each at 375 and 1440 in Light and Outdoor. The spec answers pushes and pulls with a one-entry server: the shared mock's static pull would otherwise put the server's older copy back over the save.
+
+**Risk:**
+- When task 1.52 builds `/entries/:id`, the mark should navigate there (the Success banner and the "Not kept" lines move with it), and `EntryRoute`'s read-only branch can become a redirect to the preview. Task 1.53's team-page match rows must open the preview, not `/entry/...` for a locked entry. Entries rows open nothing until 1.52.
+- A draft left from before the window closed (a crash at 4:50, reopened at 6:00) is never finished by the scouter: Resume now opens the entry read only, and the draft stays until a lead finishes it on that device or it is discarded.
+- The mark relies on one `setTimeout` up to 5 minutes long; a phone that suspends the page fires it late, which only delays the lock (the stamp is exact either way, and a submit after the mark takes the same path).
+- The pull (`upsertEntities`) puts every pulled row over the local one, including a row whose update is still in the outbox; the e2e shows that with a static mock. Unchanged behaviour, outside this task, but the read-only view shows whatever the device holds.
+- Initial-JS headroom after the raise: about 0.1 KB.
+
+## Phase 1 H side tasks — orchestration (orchestrator, 2026-10-26)
+
+**Plan said:** BUILD-CONTEXT §9: load `executing-plans` and `subagent-driven-development`, one subagent per task, sequentially; the orchestrator commits. The chat's prompt: side tasks 1 → 5 on `feat/phase-1h` from `design/phase-1h` (`f2bbca6`), one commit per side task, never stop to ask, push the branch, no pull request; the last commit carries the exact side task 5 message.
+
+**What was wrong:** instructions set aside by precedence (prompt, BUILD-CONTEXT, then the skills): `executing-plans` says stop and ask on a blocker and use a worktree and `finishing-a-development-branch` — the prompt says never stop, there is one working copy, and the branch is pushed with no pull request. The plan's side tasks carry no commit lines. The side task 2 subagent stalled once ("Agent stalled: no progress for 600s") after its refactor had landed; it was resumed with its work intact and finished. Side task 5's plan text navigates to `/entries/:id` (page 25), which task 1.52 builds, and the prompt forbids anything from 1.50 onwards.
+
+**What I did instead:** commits written in the prompt's side task 5 style (`fix(client)|feat(client): … (Phase 1 H side task N)`). For side task 5, the orchestrator's call: the entry route shows the entry read only in place after the mark, and when opened past the window; 1.52 turns that into a navigation to the preview (see the side task 5 entry). Every subagent's diff was read and the full suite, typecheck, lint, format, `docs:check`, `build` and `bundle:check` re-run by the orchestrator before each commit. Baseline before side task 1: 213 files, 2977 tests.
+
+**Risk:** the read-only view in place is a stand-in that 1.52 must replace; the team page's match rows (1.53) must also open an entry past its window read only.
+
+## Task 1.54 — the scoring engine, the canonical entry and the status rule
+
+**Plan said:** create `packages/shared/src/engine/{types,score,select}.ts` with the tests `score.test.ts` and `select.test.ts` as written in the plan; `scoreField` with a module-level `SCORABLE = new Set([...])` and `Math.max(0, …)` clamps; `hydrateComputed` setting a computed key to the expression's value or `null`; `scoreEntry` returning null for `no_show` / `disabled`; `canonicalEntries` keeping the entry with `entry.client_updated_at > current.client_updated_at` (a string comparison) per `logicalKeyOf`; `entriesForAggregates` = canonical → qualification only (super entries pass) → status rule; export from `index.ts`. Step 2: run the tests and watch them fail; step 4: `pnpm vitest run packages/shared && pnpm typecheck`.
+
+**What was wrong:**
+
+1. _The plan's test file does not compile._ `score.test.ts` calls `hydrateComputed` without importing it, and `const entry = { … } as never; hydrateComputed(entry.data, …)` reads a property of `never` (TS2339, "Property 'data' does not exist on type 'never'").
+2. _The canonical rule compared strings, and left the tie undefined._ `client_updated_at` reaches the engine in two formats (a server row `2026-11-14T09:08:00+00:00`, a client row `….000Z`), which `sync/conflict.ts`'s `isLater` already documents as ordering differently from the instants. With `>` on a tie (the same instant) the first row seen wins, so the canonical entry depended on row order, which differs between a Postgres result and IndexedDB: the browser and the server could count different entries.
+3. _The clamps leaked._ `Math.max(0, NaN)` is `NaN`, so a non-finite `points` poisoned a whole score; `Math.max(0, rule.points * value)` turns a negative `points` times a negative number value into positive points; `rule.option_points?.[value]` reads `Object.prototype` for an option value such as `constructor` (a function, then `NaN`); a multi-select payload repeating an option scored it twice.
+4. _`hydrateComputed`'s `null` differs from what the device saves._ The client's `previewData` (`apps/client/src/features/entry/entryValues.ts`) leaves a computed key out when its value is null or not finite, or when the field's own condition hides it (SPEC-FINAL 5.8).
+5. _Exporting the engine from the middle of `index.ts` broke the server bundle check._ First full run: "FAIL |@frc/server| src/bundle-drift.test.ts > the deployed function bundle > matches src/handler.ts (regenerate with `pnpm --filter @frc/server build`)". A rebuild diffed against `apps/server/api/index.js` showed 297 lines, all module reordering (`forms/scoring.ts` and others pulled ahead of `season/manifest.ts`) and no engine code (the server does not use it yet, so it is shaken out).
+6. _The same first run also failed_ `UserDetailPage.test.tsx > offline once loaded … > holds every section's action, under the one state that says the data is safe` ("Unable to find an element with the text: /safe on this device/"). It passes alone (24/24) and in the second full run; no client file was touched. A timing flake under full-suite load.
+
+**What I did instead:**
+
+1. Tests: `hydrateComputed` is imported, and a typed `scored(status, data)` helper replaces the `as never` casts. Every plan test is kept with its assertion. Added — score: a repeated multi-select option; every type outside the five (derived from `FIELD_TYPES` minus `SCORABLE_FIELD_TYPES`, so a new type is covered) scores 0 with a rule and any value shape; no rule → 0; null / wrong-shape / NaN / Infinity values → 0; `Object.prototype` keys; negative points, negative option points and a negative number value → 0; non-finite points → 0; a dead robot with values is still null; a played robot with nothing is a real 0; a super entry is scored; a rule naming no field or an unscorable field is ignored; fouls recorded as data leave the score unchanged; a key listed twice scores once; a computed field with a rule is never scored; `hydrateComputed` on division by zero, no expression, its own condition hiding it, and other keys left as stored. Select: distinct matches; three duplicates in either order; instants vs strings (`…T11:00:00+02:00` vs `…T10:00:00.000Z`); both tie-break steps in either order; one super entry per team per event; a soft-deleted later duplicate neither counts nor hides the live one; empty input; an unknown match type dropped; a super entry kept; a mixed population; a duplicate counted once. 53 engine tests (the plan had 18).
+2. **The canonical order, defined (`select.ts`, `outranks`), and total, so it does not depend on row order:** (a) the greater `client_updated_at` **as an instant** (`Date.parse`) wins; (b) on the same instant, the greater `client_created_at` instant; (c) on that too, the greater `id` by plain string order. An unparseable stamp sorts below every real one. Soft-deleted rows are dropped before the choice, so a live row always beats a deleted one whatever the stamps (as the conflict review's `counted` already does). Rejected: `latestWins` as it is (a tie keeps the first argument, so order-dependent); the server's `updated_at` or `version` (not on `EngineEntry`, and a row created offline has neither yet); a string comparison (wrong across formats, point 2 above).
+3. `scoreField` reuses `isScorable` from `forms/scoring.ts` (no module-level `Set`: the 1.29 shared-module rule) and takes `Pick<FormFieldDefinition, 'type'>`. One `nonNegative` (finite and > 0, else 0) clamps `points` first and then the product; option scores are read from own keys only (`hasOwnProperty`); a multi select scores each distinct option once.
+4. `hydrateComputed` follows the device's payload shape: a computed field whose value is null, not finite, or hidden by its own condition (`isVisible`) holds no key; otherwise it is set to the recomputed value. It is exported (the plan's interface list omits it; its own comment names it for every read path).
+5. `scoreEntry` uses `isDeadRobot` (`forms/validate.ts`), takes `readonly` arrays, scores each field key once (the first field carrying it), and hydrates computed fields first as the plan says (no effect on the score, since computed is never scored). `entriesForAggregates` uses `isDeadRobot` too; a null status (a super entry) passes, as in the plan. `canonicalEntries` also treats an `undefined` `deleted_at` as live.
+6. `EngineEntry` uses the existing `FormKind`, `Alliance` and `MatchType` types instead of restated literal unions (identical members).
+7. `index.ts`: the engine exports go **last**, after `./version`, with a comment saying why. The rebuilt bundle then differs from the committed one only in the `sourceMappingURL` file name the temp outfile carries, and `bundle-drift.test.ts` passes. Rejected: regenerating and committing a reordered `apps/server/api/index.js` (a 297-line diff to a deployed artifact for no change in behaviour).
+8. Step 2 ("watch fail") was not run as its own step. Instead each rule was mutation-checked, restored and byte-compared with its backup: status rule out of `entriesForAggregates` → 3 failures; out of `scoreEntry` → 2; no tie-break → 2; no `id` tie-break → 1; string comparison → 2; qualification filter out → 2; super entries dropped by it → 1; soft-delete filter out → 3; non-negative clamp out → 1. The gate was `pnpm test && pnpm typecheck && pnpm lint && pnpm format:check`.
+
+**Risk:**
+
+- On an exact `client_updated_at` tie the conflict review's "counted" label (`latestWins(a, b)`, which keeps `a`: server `core/queries/conflicts.ts`, client `features/sync/conflictsView.ts`) can name a different row from the one the engine counts. Millisecond ties between two devices are rare; the fix is for both to call one shared comparator (export `outranks`, or give `latestWins` the same tie-break). Not done here: outside this task.
+- `scoreEntry` scores every field it is handed, deprecated ones included, if a rule names them. Which field set to pass (the active version's, SPEC-FINAL 5.1) is the caller's choice in 1.50 and 1.57.
+- Super entries pass `entriesForAggregates`; an aggregate that must be match-only has to filter on `form_kind` itself.
+
+## Task 1.55 — the aggregation catalogue
+
+**Plan said:** create `packages/shared/src/engine/aggregate.ts` and `aggregate.test.ts`. `aggregate(raw: unknown[], aggregation, options?, direction = 'higher_is_better'): AggregateResult` with `AggregateResult = number | string | null | DistributionBucket[]` and `DistributionBucket = { value: unknown; count: number }`; drop `null` / `undefined`, return null on an empty set; `numbers()` narrowing to finite numbers, linear-interpolated `percentileOf`, OLS `slopeOf` against 1…n, population `stddevOf`, `best` / `worst` null for `neutral`. `applyFilters(entries, filters, fields)` is named in the interface with only "a `describe('applyFilters')` block asserting the fixed evaluation order, `exclude_match_numbers`, `last_n_matches` ordering by event `sort_order` then match number, and `field_filters` with all six operators". Run `pnpm vitest run packages/shared && pnpm typecheck`.
+
+**What was wrong:**
+
+1. _`applyFilters` has no body in the plan,_ and the plan's evaluation order starts with qualification-only and the status rule, which 1.54 put in `entriesForAggregates`. Left to the caller, an aggregate over raw rows would count no-shows, playoffs and duplicates.
+2. _The plan's result types are too loose and too narrow at once._ `value: unknown` loses the type a renderer needs; `number | string` has no `boolean`, yet the mode of a toggle is `true` or `false`. Every caller of a numeric aggregation (1.57's `average_points: number | null`) would have to narrow a union that can never hold a string there.
+3. _Dropping only null / undefined lets NaN and ±Infinity in._ `count` and `rate` would count a NaN as a value (`rate([0, NaN, 5])` = 1/3), and `min([4, -Infinity])` is `-Infinity`. Sums of very large finite values overflow to `Infinity`, which is not a number the UI can show.
+4. _The default rate condition never holds for a toggle._ "points > 0" judged with the visibility rule (ordered operators hold only between numbers) makes `rate([true, true])` = 0, though SPEC-FINAL 11.2 lists rate as the boolean aggregation.
+5. _A multi select's value is an array._ Counted as a distinct value, two equal arrays are two different objects, so `distribution` and `mode` give one bucket per entry.
+6. _The rate condition and `field_filters` need SPEC-FINAL's `Op` comparison,_ which already exists privately in `forms/visibility.ts` (`compare`). A second copy could drift from the visibility rule.
+
+**What I did instead:**
+
+1. `applyFilters(entries, filters, fields)` runs the whole fixed order: scope (the caller's `entries`) → `entriesForAggregates` (canonical → qualification only → status rule) → the metric's `robot_status` → `field_filters` → `exclude_match_numbers` → `last_n_matches`. Details: computed fields are re-derived with `hydrateComputed(entry.data, fields)` before any filter reads them, and the returned entries are copies carrying the hydrated `data` (inputs untouched). `robot_status` only narrows: it cannot bring back a no-show or disabled entry, and a super entry (null status) passes it. An empty list is no filter (all three lists). A field filter on a missing or null value fails, whatever the operator. `exclude_match_numbers` never drops a super entry. The result is sorted in the "last N" order — event `sort_order`, then event id, then match number (a super entry after its event's matches), then team, then id, so it is total — and `last_n_matches` keeps **each team's** last N (`Math.floor`; N ≤ 0 or NaN keeps nothing, N larger than the population keeps all). Map the result to values in its order and `slope` reads the match sequence.
+2. Types: `ScalarValue = number | string | boolean`; `DistributionBucket = { value: ScalarValue; count: number }`; `AggregateResult = ScalarValue | DistributionBucket[] | null`; and `aggregate` is generic, returning `AggregateResultFor<A>` — `DistributionBucket[] | null` for `distribution`, `ScalarValue | null` for `mode`, `number | null` for the rest. Also exported: `AGGREGATIONS` (the catalogue as a const array, so tests iterate every aggregation and a new one cannot be forgotten), `ComparisonOp` (= `VisibilityCondition['op']`), `FieldFilter`, `MetricFilters`. `values` and `option_order` are `readonly`; `direction` is `FieldDirection`.
+3. null, undefined, NaN and ±Infinity are all "not a value": dropped before anything counts. A numeric aggregation reads only `typeof v === 'number'` (no coercion of booleans or numeric strings) and returns null when none is left. Any numeric result that is not finite (overflow) is null, and -0 is returned as 0. `median` is the 50th percentile. `percentile` without a number in 0..100 is null rather than a guess. An aggregation name outside the catalogue is null. A real zero is still a value (`avg([0, 0])` = 0).
+4. `rate` with no `rate_condition` counts `true` or a number > 0 as a hit; with one, it judges through the shared comparison.
+5. `mode` / `distribution` count each distinct option of an array once per entry, skip non-scalar values (coordinates, event logs), and return null when nothing was counted. Order (and mode tie-break): options in `option_order` first, by list position; then unlisted values — numbers ascending, false before true, strings by code unit. Only observed values get a bucket.
+6. `forms/visibility.ts`'s private `compare` is now the exported `conditionHolds` (same body, one doc comment); `isVisible` calls it. The server bundle was regenerated (`pnpm --filter @frc/server build`): the diff to `apps/server/api/index.js` and its `.map` is the two renamed lines only. The engine export goes last in `index.ts`, after `./engine/types`.
+7. Tests: the plan's 11 tests are kept with their assertions (prettier-formatted). Added, 149 more (160 in the file): every aggregation null on empty, all-null, all-NaN/Infinity and (numeric ones) all-non-numeric input, each as its own `it.each` case; a sample of one for all 14; mixed values; NaN out of count and rate's denominator; real zeros; overflow; -0; input not mutated; odd median; negatives; population vs sample stddev; numeric (not string) sort; invalid percentiles; slope by index; toggle rate; explicit conditions; neutral / unknown direction; string, unlisted, boolean, `1` vs `"1"` and multi-select buckets. `applyFilters`: each pair of steps in the fixed order shown to matter; "last N" across two events in either input order; numeric match order; slope fed the sequence; per-team last N; N edge cases; the six operators; strict `=`; missing / null values; AND; a stale stored computed value; `robot_status` narrowing; a super entry. End to end: for every aggregation, a population with a no-show, a disabled robot, a practice and a playoff match, an older duplicate and a soft-deleted copy gives exactly what the two played matches give; the scouted score through `scoreEntry` likewise; null for a team whose every entry is excluded and when the filters leave nothing.
+8. Step "watch it fail" was replaced by mutation checks, each restored and byte-compared with a backup: the empty case returning 0 for each aggregation alone (14 runs, 6 failures each); the numeric guard → 0 (10); mode / distribution with no category → 0 (1 each); stddev and slope of one → 0 (2 each); invalid percentile → 0 (1); neutral best/worst → 0 (2); NaN kept as a value (7); sample stddev (2); overflow passed through (1); raw entries instead of `entriesForAggregates` (35); canonical only (34); status rule removed (31); qualification removed (32); duplicates unresolved (17); `robot_status` re-admitting (1); last N before the field filters (3); no sequence sort (3); last N across teams (1); no computed hydration (1).
+
+Rejected: a running mean (accumulates rounding on integer data, where `sum / n` is exact); coercing booleans to 1/0 for numeric aggregations (the spec gives booleans `rate`, and a silent coercion is a wrong number waiting to happen); throwing on a missing percentile (a metric must render "—", not crash a dashboard); a local copy of the comparison; an empty `robot_status` list meaning "no status allowed"; last N over the whole population (a ranking over many teams would keep the event's last N rows, not each team's); counting arrays as values; mapping ordinal options to rank indices inside `aggregate` (that is value extraction, done before aggregation; see Risk).
+
+**Risk:**
+
+- `applyFilters` hydrates every entry with the one field list it is given. Pass the active version's fields (SPEC-FINAL 5.1); the cross-version type guard (1.56, `resolveFieldAcrossVersions`) must run before a metric aggregates.
+- The population must be one form kind's entries: a super entry passes the qualification and status rules, and in a mixed population it would take a "last N" slot.
+- Ordinal selects: `aggregate` does not turn options into rank indices (SPEC-FINAL 5.3, 12.6). Given the raw option strings, every numeric aggregation returns null — no wrong number, but no number either — until the caller maps values to ranks.
+- `slope` indexes the values it is given 1…n, so a match whose value is missing closes the gap rather than leaving one.
+- The first full gate run failed 3 client tests no file of this task touches: `routes.test.tsx` ("Unable to find role="radio" and name `/broke down/i`", and "expect(element).toBeChecked() … Received element is not checked") and `BuilderUndo.test.tsx` ("Test timed out in 10000ms."), plus 1 unhandled error attributed to `routes.test.tsx`. Both files pass alone (33/33), and the second full run was green (218 files, 3246 tests). Timing flakes under full-suite load, like 1.54's `UserDetailPage` one.
+
+## Task 1.56 — cycles, reliability and the cross-version guard
+
+**Plan said:** create `packages/shared/src/engine/{cycles,reliability,versions}.ts` with tests. `deriveCycles(taps, eventType, timed, tEnd)` → `{ count, durations, timeToFirst }` with the plan's body and seven tests; `reliabilityFor(entries)` → `{ breakdowns, no_shows, disabled, available, missed, availability_rate }`, tested for "the four counts and the rate, that a team with no entries yields `null` rather than `0`, and that `broke_down` counts as available and flagged"; `resolveFieldAcrossVersions(key, versions)` → `{ ok: true; field } | { ok: false; reason: 'type-changed' | 'absent' }`, tested for same type, type changed, absent and a label change. No body for `reliabilityFor` or `resolveFieldAcrossVersions`, and no shape for `versions`. Run `pnpm vitest run packages/shared && pnpm typecheck && pnpm lint`.
+
+**What was wrong:**
+
+1. _`versions` has no shape,_ yet the guard must know which version is the active one (its field is the one returned, SPEC-FINAL 5.1) and which versions the window's entries were recorded under (11.7: "between versions inside the aggregation window").
+2. _"A team with no entries yields `null` rather than `0`" cannot hold for the counts._ No no-shows is a real 0, and task 1.57's own fixtures expect `{ breakdowns: 0, no_shows: 0, disabled: 0, availability_rate: null }` for an empty team.
+3. _Reliability's population is unspecified, and the obvious one is wrong._ `entriesForAggregates` / `applyFilters` (1.54, 1.55) remove no_show and disabled, so reliability built on them would always report 0 missed and a 100 % rate.
+4. _The plan's `deriveCycles` turns bad data into wrong numbers._ A tap stored after `tEnd` gives a negative final cycle (`tEnd − tₙ < 0`); a `NaN` `t` breaks the sort (`a - b` is NaN) and propagates; a negative `t` gives a negative first cycle. `validateEntryData` accepts any finite `t`, negative included (`validTap`).
+5. _Ordinal selects (the orchestrator's addition)._ SPEC-FINAL 5.3 and 12.6 say an ordinal select aggregates on its option rank, but nothing mapped options to ranks: 1.55 left it to callers, which would invite a second implementation, and `aggregate` handed the raw option strings returns null for every numeric aggregation.
+6. _Ordinal option lists across versions._ Adding, removing or reordering an option makes a new version (5.1, v1.20). Ranks read by the active list are wrong for an older entry whose list had another order, and an option the active list no longer has would read as no value and drop out of an average unseen.
+
+**What I did instead:**
+
+1. `resolveFieldAcrossVersions(key, { active, inScope })`, with `VersionFields = { fields: readonly FormFieldDefinition[] }` (a `FormVersionDefinition` satisfies it). `inScope` = every version an entry in the window was recorded under; including the active one is harmless. Rules, in order: no live (non-deprecated) field with the key in the active version → `absent`; any field with the key, in the active version or a version in scope (deprecated ones included), with another `type` → `type-changed`; otherwise `{ ok: true, field }` with the ACTIVE version's field. A label, help text, range, metadata or a nominal select's option list never refuses. A key missing from an older version (the field was added later) is fine. Also exported: `VersionsInScope`, `FieldUnavailableReason`, `FieldResolution`.
+2. `reliabilityFor` returns 0 counts and a null `availability_rate` when no match counts (also when the only entries are practice or playoff ones). `Reliability` is exported.
+3. Reliability reads `canonicalEntries(entries)` (one entry per (team, match), the latest `client_updated_at`, soft-deleted never) filtered to `form_kind = 'match'` and `match_type = 'qualification'`, then counts each status: played → available; broke_down → available and a breakdown; no_show → missed and a no-show; disabled → missed and disabled. A super entry never counts; a match entry with a null `robot_status` (the column is nullable) is counted neither way. It takes ONE team's entries and does not split by team.
+4. `deriveCycles` keeps the plan's formulas and its seven tests verbatim, and also: ignores a tap whose `t` is not finite or is below 0; closes the timed final open cycle only when `tEnd` is finite and ≥ tₙ (a tap at exactly `tEnd` gives a real 0-length final cycle, as a tap at t = 0 gives a 0 first cycle in the plan's own test); sorts a copy (input untouched). Taps are typed `readonly CycleTap[]` (`{ type: string; t: number }`, which `EventLogTap` satisfies). Added tests: empty input timed and un-timed; the empty series aggregates to null for 8 aggregations; unsorted input; same-instant taps; the bad-`t` and late-tap cases; un-timed ignores `tEnd`; every duration ≥ 0; and, over a population through `applyFilters` (a no-show, a disabled robot, an older duplicate, a practice match), only the two played matches' series appear, so no zero stands in for a dead robot.
+5. **The orchestrator's call:** one exported helper, `aggregationValue(field, value)`, in `versions.ts` beside the guard (the guard decides which field reads every entry). Ordinal single select (`is_ordinal === true`) → the option's 0-based index in the field's option list, worst → best, top = 0; an unlisted option or a non-string → null. **Ordinal multi select → the highest rank selected** (the best level reached); an empty array → null, and any unlisted option in it → null rather than a rank read from the rest. Every other field (a nominal select, `is_ordinal` null or false, any other type even if wrongly marked ordinal) → the value unchanged. Read it with the field the guard returned, so every version's entries share the active list's ranks.
+6. **The orchestrator's call, decided here:** when the active field is an ordinal select, the guard returns `type-changed` unless every in-scope version's option values appear in the active list in the same relative order (a subsequence). An option ADDED anywhere is accepted (each older option keeps exactly one rank under the active list); an option REMOVED from the active list, or a REORDER, refuses. The older version's own `is_ordinal` does not matter: the active field decides how values read (`is_ordinal` is an in-place edit, plan line 13022). It is the same reason as a type change rather than a third one, so the UI keeps SPEC-FINAL 11.7's two messages.
+7. The exports go at the end of `packages/shared/src/index.ts`, after `./engine/aggregate`. The server does not use them yet; the full suite (bundle-drift included) is green without rebuilding `apps/server/api/index.js`. No module-level `Set` or `Map`.
+8. Step "watch it fail" was replaced by mutation checks, each restored and byte-compared with a backup (`cmp`): the cross-version `type` check removed → 5 failures; practice/playoff let into reliability → 2; duplicates let through (soft-deleted still dropped) → 1; raw entries into reliability → 2; the ordinal mapping made identity → 6; the ordinal order check removed → 3; the late-tap final-cycle guard removed → 2. 60 new tests (cycles 26, reliability 10, versions 24). The gate was `pnpm test && pnpm typecheck && pnpm lint && pnpm format:check` and `pnpm docs:check`.
+
+Rejected: `versions` as a plain array with the active one first (an order convention a caller can get wrong silently); handing the guard the entries so it finds the versions itself (it would still need every version's definition, and the caller has both); building reliability on `entriesForAggregates` (it would count no missed match at all); counting a null-status match entry as available (it says nothing either way); clamping a negative final cycle to 0 (a zero cycle that never happened); throwing on a bad tap (a dashboard must render "—", not crash); a third refusal reason for a reordered ordinal (the spec has two messages); refusing an ordinal on any option-list change (one option added to a climb list would refuse a whole season's metric with no wrong number to prevent); an ordinal multi select always null, or its mean rank (the highest level reached is what a "levels" field is built for; the mean rank of a set has no meaning); mapping ranks inside `aggregate` (value extraction, not aggregation, as 1.55 decided).
+
+**Risk:**
+
+- `timed` is not stored on an entry. The client knows it while scouting (`matchClock.wasTimed()`, `apps/client/src/features/entry/matchClock.ts`), but neither `data` nor a skeleton column records it, so a cycle metric cannot choose the timed or un-timed series per entry. `tEnd` is `matchEndSeconds(timer_config)` (`forms/timer.ts`). Whoever builds cycle metrics has to decide how `timed` is persisted.
+- `deriveCycles` takes taps, not entries: a dead robot's empty log gives `count: 0`. Feed it only entries `applyFilters` kept, or a no-show becomes a zero cycle count.
+- `reliabilityFor` adds up whatever it is handed: pass one team's entries, or the counts are the population's.
+- `aggregationValue` turns ordinal values into ranks for every aggregation, so `mode` / `distribution` then report ranks; a renderer that wants option labels maps the rank back through the option list. The plan's 12.6 shading (`shadeFor` with `{ kind: 'ordinal', options }`) computes an option's position itself; it should read the rank from `aggregationValue` rather than become a second copy.
+- The guard checks only the versions it is given: a caller that leaves a version out of `inScope` is not protected.
+
+## Phase 1 I engine (1.54–1.56) — orchestration (orchestrator, 2026-10-26)
+
+**Plan said:** BUILD-CONTEXT §9: one subagent per task, sequentially, the orchestrator commits with the plan's exact messages. The chat's prompt: 1.54 → 1.55 → 1.56 on `feat/phase-1h`, never stop to ask, push the branch with no pull request, prove the negatives and mutation-check the status rule.
+
+**What was wrong:** SPEC-FINAL 5.3 / 12.6 say an ordinal select aggregates on its option rank, but no engine task maps options to ranks: 1.55's `aggregate` reads only numbers, so "average climb level" would have been null, or a caller would have written a second rank implementation. Two client tests (`routes.test.tsx`, `BuilderUndo.test.tsx`) and one in 1.54's run (`UserDetailPage.test.tsx`) failed once each under full-suite load and passed alone and on re-runs.
+
+**What I did instead:** the rank mapping was given to 1.56 as `aggregationValue` beside the cross-version guard (0-based, top of the list = 0; an ordinal multi select reads its highest rank; an ordinal whose older option list is not an in-order subsequence of the active one is refused as `type-changed`) — see the 1.56 entry. The orchestrator read every diff, re-ran `pnpm test && pnpm typecheck && pnpm lint && pnpm format:check && pnpm docs:check` before each commit, and ran its own mutation checks: the status rule out of `entriesForAggregates` (3 tests fail) and the type check out of `resolveFieldAcrossVersions` (5 tests fail), each restored. Floor: 3033 tests / 215 files at `cffc922`.
+
+**Risk:** whether an entry was timed is not stored, so `deriveCycles`' `timed` argument cannot be chosen per stored entry yet — a spec decision before any cycle metric ships. The flaky client tests can fail CI intermittently.
+
+## Task 1.50 — The scoring breakdown lives in `packages/shared` (orchestrator D1)
+
+**Plan said:** `getEntry` returns "one entry fully rendered with its derived score", and task 1.52's design note adds each field's points, each phase's subtotal, the form version and the team's average. The plan names no function for the per-field points.
+
+**What was wrong:** `scoreEntry` returns only the total. A breakdown built in the server or the client would be a second scoring implementation (SPEC-FINAL 11.1), and the 1.52 preview must render offline from the device's own rows.
+
+**What I did instead:** `packages/shared/src/engine/breakdown.ts` (new, exported last from `index.ts`):
+- `scoutedPoints(entry, fields, rules): number | null` — `scoreEntry`, except a **super entry is null**. `scoreEntry` itself scores a super entry's data (it reads only `robot_status`), but no page shows a super score (13.3, 13.4), so this is the one place that says so. `queryEntries.scouted_points` and `getEntry.scouted_points` both come from it.
+- `scoreBreakdown(entry, fields, rules): { total, phases }` with `entry = { form_kind, robot_status, data }` (plain row columns). No-show / disabled → `{ total: null, phases: [] }`. Super → phases with every `points` and `subtotal` null, total null. Otherwise `total` IS `scoutedPoints(...)` (not a re-summed figure, so fractional points can never drift from `scoreEntry`), and each phase's `subtotal` is the sum of its rows' points, or null when no row in it is scored.
+- Rows are what the confirmation summary shows (`EntryAnswers`): every field but a `section` heading, each key once (the first field that carries it, as `scoreEntry` does), under `phase ?? 'post_match'`, phases in `FIELD_PHASES` order, empty phases dropped. Computed fields are re-derived (`hydrateComputed`) and shown, unscored. A field the active version retired (`deprecated`) or whose own condition hides it is left out **unless the entry holds a value for it** — a held value is exactly what `scoreEntry` scores, so the rows always add up to the total. The confirmation summary has no such rows because its fields are the entry's own version; scoring here uses the ACTIVE version (5.1), whose fields can differ.
+- `points` is a number when a rule names the field and the type is scorable (0 included: "a scored field that earned nothing"), null otherwise. `value` is the hydrated stored value, except a single select's is its option **label** and a multi select's is the array of its picks' labels (an option no longer listed reads as its stored value). A field the entry holds nothing for has **no `value` key** (not null: a Timer's null means "Unsure").
+- Tests: `breakdown.test.ts` (14), including `total === scoreEntry` for played, empty and broke-down entries and for fractional points, and the held-retired-field case.
+
+Rejected: subtotal 0 for an unscored phase (the Notes card would read "0 pts"); `value` as a display string (a map field needs its taps to open the map view, UF.24); including a retired field only when it scores (a held value is shown either way, as the device would).
+
+**Risk:** the preview shows the ACTIVE version's labels and options for an entry scouted on an older version; a key the active version no longer has at all is not shown (and not scored, as before).
+
+## Task 1.50 — `averagePoints` and the interim rank (orchestrator D2, D3)
+
+**Plan said:** §13.2 "marks a team in the active event with its rank". No stored rank exists in the schema.
+
+**What was wrong:** nothing to read; the ranking dashboard is task 1.58.
+
+**What I did instead:** `averagePoints(entries, fields, rules) → { avg, matches_counted }` = `aggregate(applyFilters(entries.filter(form_kind === 'match'), {}, fields).map(scoreEntry), 'avg')`; one team's entries, the caller groups. `rankByAveragePoints(entries, teams, fields, rules) → TeamRank[]` (`{ team_id, number, rank, avg, matches_counted }`): each roster team's `averagePoints`, ranked highest first, ties to the lower team number, positions 1, 2, 3 with no shared places; a team with no counted match entry (only no-show, disabled, practice, playoff or no entries) has `rank: null` and comes after the ranked ones by number; entries of a team not in `teams` are ignored. `searchTeams` ranks the event's live roster with the season's match form (its active version's fields and the form's rules). **Interim until task 1.58** — 1.58 should replace the source of `rank`, not add a second one.
+
+**Risk:** a team whose only counted matches all scored 0 is ranked (avg 0), last among the ranked.
+
+## Task 1.50 — Which event, which season, which teams (orchestrator D4)
+
+**Plan said:** `searchTeams` searches "all teams in the season"; `listTeamEvents` returns "the events a team has entries at".
+
+**What was wrong:** teams are a global registry with no season column; the only season link is `event_teams` (an event's roster). The Store's `listTeams({ seasonId })` option is "reserved for searchTeams" and unused.
+
+**What I did instead:**
+- **The season's teams** = teams on the **live** roster of any event of the season (rosters read per event, `getRoster`). A team removed from every roster but still holding entries is not listed. `listTeams`' `seasonId` stays unused.
+- `searchTeams` takes the effective event from `event_id`, else `getActiveContext().active_event_id`; an `event_id` naming no event is `not-found`. With no event, the active season's teams are listed unranked (`event: null`); with no season either, an empty result. Default `filter` is `all` (the plan's test expects t-3 in an unfiltered search); the page's own default chip ("At this event") is the client's.
+- `listTeamEvents` has no event input (D5's shape), so it reads the **active season** (`getActiveContext().active_season_id`): the event picker only offers events of the season being searched. No active season → empty.
+- `queryEntries` requires `event_id` and reads only that event.
+
+**Risk:** a session override (1.51) to an event of ANOTHER season would make `listTeamEvents` list the global active season's events, not the override's. Today every event the picker offers is in the active season, so this cannot arise from the UI.
+
+## Task 1.50 — The Store's three read stubs changed shape
+
+**Plan said:** `context.ts` declared `queryEntries({ eventId, formKind?, query?, limit, cursor?: string })`, `listTeamEvents(teamId): StoredRow[]` and `getEntry(id)`, and "a task that wants a method not on this list has drifted".
+
+**What was wrong:** an opaque string cursor inside the Store would have to be decoded twice (the use case validates every cursor before it reaches a PostgREST filter, as listConflicts does); `getEntry`'s team average needs one team's entries; a team search page needs the other events of a whole page of teams in one read, not one read per team.
+
+**What I did instead:** no new methods; the three stubs' signatures changed (as task 1.41 replaced `listConflicts`):
+- `queryEntries({ eventId, formKind?, teamId?, query?, limit, after?: EntryKeyset })` — `EntryKeyset = { client_created_at, id }`; live rows only, newest first by (client_created_at desc, id desc).
+- `listTeamEvents(teamIds, eventIds): TeamEventEntries[]` — `{ team_id, event_id, entry_count, last_entry_at }` per pair with live entries; batched (`in` chunks of 100), paged by 1000 (`range`), grouped in TS (PostgREST aggregates are off by default on Supabase).
+- `getEntry(id)` returns a soft-deleted row too; the use case refuses it (`not-found`).
+- `entriesForScope` is still a stub (task 1.57).
+
+**The search in SQL (Supabase store):** a query first reads the typed `team_id, match_id, scouter_id` of the event's live entries (paged), then those teams, matches and users, matches them in TS by `core/entrySearch.ts` (ONE copy, also used by the fake), and filters the page by `or=(team_id.in.(…),match_id.in.(…),scouter_id.in.(…))`. Every list is bounded by the event's entries, not the registry. With a keyset as well, both go in ONE `or` parameter as `or=(and(or(<search>),or(<keyset>)))`, because two `or` query parameters are not documented to AND. A query that names nothing returns `[]` without reading the page. The JSONB is never read by SQL.
+
+Rejected: an embedded-resource filter (`teams!inner(...)`) — PostgREST cannot OR across different embedded tables; resolving teams over the whole registry (an `ilike '%a%'` could name thousands of ids in a URL); fetching the event's rows and paging in TS (the plan: "filters and pages in SQL").
+
+**Risk:** the nested `and(or(…),or(…))` filter and the quoted-timestamp keyset are verified by the recording-db unit tests only, not against a live PostgREST (this task ran nothing against Supabase). The quoted keyset is the form `listOpenConflicts` already uses on dev. A first dev run of 1.52's entry search with a query AND a second page is the real proof.
+
+## Task 1.50 — Search and pagination rules
+
+**Plan said:** searchable "by team name, team number, match number and scouter name"; "bounded and paginated".
+
+**What was wrong:** the matching rules and the cursor kinds were not specified.
+
+**What I did instead:** case-insensitive and literal throughout. Team: name substring or number **prefix** (as `listTeams`). Match: the number **exactly** ("3" is Q3/P3/PO3, never Q13), or the device's label ("q4", "PO1"). Scouter: full-name substring. `queryEntries` pages by keyset (`{c, i}`, the instant kept as the database wrote it); `searchTeams` and `listTeamEvents` page by **offset** (`{o}`) because their order is computed (rank) — a team whose rank changes between pages can repeat or be skipped, as on any live ranking. Limits: searchTeams 50 / max 200, listTeamEvents 50 / max 100, queryEntries 50 / max 200, each clamped. Event-wide reads inside a use case (ranks, counts, a team's average) walk `queryEntries` 1000 at a time and stop at 20 000 rows.
+
+**Risk:** `searchTeams` reads every live entry of the event (with `data`, to score the ranks) on each call. At a venue-sized event (~600 entries) that is one page, but a client that calls it per keystroke should debounce, or rank on the device with `rankByAveragePoints` from its pulled rows.
+
+## Task 1.50 — `mayEditEntryNow`: one Edit rule (orchestrator D6)
+
+**Plan said:** `getEntry`'s Edit shows only to someone allowed to edit under §7.6.
+
+**What was wrong:** `canEditEntry` (shared) does not exempt a super entry; the client's `canSelfEdit` added the exemption itself, so a server-side `can_edit` would have been a third copy.
+
+**What I did instead:** `mayEditEntryNow(caller, { scouter_id, form_kind, client_created_at }, now: Date): boolean` in `packages/shared/src/auth/permissions.ts` (plus `EntryEditSubject`): lead/admin always; a scouter their own super entry any time and their own match entry while `withinSelfEditWindow(client_created_at, now)`; another scouter's entry and any `service` caller never; an invalid `now` or stamp is false, not a throw. `canSelfEdit` (`apps/client/src/features/entry/localEntries.ts`) now delegates to it, with identical results. `getEntry` passes `ctx.now()` (the injected clock; the fake's `nowValue`). Tests: 7 in `permissions.test.ts`, 5 `can_edit` cases in `search.test.ts` (past 5 min, another scouter's entry and a service caller are false), each proved by a mutation (`can_edit` forced true → 4 failures; the soft-delete check removed → 1).
+
+**Risk:** the server's push still exempts a super entry by its own code path (task 1.40) — the same rule, a second spelling. Moving it onto `mayEditEntryNow` is a later clean-up (it compares `client_updated_at`, not `now`).
+
+## Task 1.50 — Wire shapes as built (orchestrator D5)
+
+**Plan said:** the shapes of D5.
+
+**What was wrong:** a few types were open.
+
+**What I did instead:** schemas in `packages/shared/src/api/search.ts`, rows in `API`: `searchTeamsInput/Output`, `teamSearchItem`, `listTeamEventsInput/Output`, `queryEntriesInput/Output`, `entrySummary`, `getEntryInput/Output`, `breakdownField`, `breakdownPhase`, constants `SEARCH_TEAMS_*`, `LIST_TEAM_EVENTS_*`, `QUERY_ENTRIES_*`, `TEAM_SEARCH_FILTERS`, `ROBOT_STATUSES`. Ids are `z.string().min(1)`, not uuids (the fake's ids are not; the Supabase store reads a non-uuid as no row), as `conflicts.ts`. `team_number`/`team_name` are non-null (`scouting_entries.team_id` is `on delete restrict`; a missing team throws); `scouter_name` is nullable, as conflicts' authors are. `match_label` comes from `matchLabel` — moved from the client's `lib/matchLabel.ts` into `packages/shared/src/format.ts` (with `MATCH_TYPE_PREFIX`) so the server writes the label the device shows; the client module re-exports it. `match_label`, `match_type`, `match_number` are null for a super entry. `getEntry.form_version` is the version NUMBER; `team_average` is `averagePoints` over the team's live match entries at the **entry's** event (null for a super entry). A form with no `active_version_id` scores with the entry's own version; an entry whose version is gone scores null in the list and is `not-found` in `getEntry`.
+
+**Risk:** none known.
+
+## Task 1.50 — Fixture, plan test and bundle
+
+**Plan said:** implement `seedSmallSeason` and `softDelete` in `fake-context.ts`; the plan's test file verbatim.
+
+**What was wrong:** nothing; three small departures.
+
+**What I did instead:** the seed lives in its own module, `apps/server/src/test/small-season.ts` (`SMALL_SEASON` ids exported), called from `fake-context.ts` — the fake is 1700 lines already. ev-2's entries are `e-21`/`e-22` (t-2's and t-3's), so `listTeamEvents('t-1')` is `['ev-1']`; `e-9` is on the retired v1 and scores 3 by v2's rules (the active-version rule is tested). `softDelete` sets `deleted_at`, `updated_at` and bumps `version`. The plan's test is verbatim except its imports carry `.js` (`./search.js`, `../../test/fake-context.js`), as every server test does. The new API rows put the initial client JS at **229.4 KB** gzip (no engine code reached the initial chunk; the growth is the four zod schemas the typed client imports with the whole `API` map), so `BUDGET_KB` went **229 → 230** (`scripts/check-bundle.mjs`, BUILD-CONTEXT §12.5 updated).
+
+**Risk:** `pnpm format:check` reports only `NEXT-CHAT.md` (the untracked handoff file, untouched here); it passes once that file is deleted before the commit.
+
+## Task 1.51 — The plan's test predates the design; adapted to the final (A2)
+
+**Plan said:** the plan's `TeamSearchPage.test.tsx` verbatim: `listitem`s named by team, a button "Open 2096" navigating to `/teams/t-1`, a button "3339 competed elsewhere", an event button "Week 3", an "are you sure" dialog with Cancel and "Switch for this session", the offline line "only the default competition is available offline", and a `searchTeams` mock returning `{ items, next_cursor }`.
+
+**What was wrong:** `docs/design/pages/23-team-search/final/README.md` (user, 2026-10-23) replaced every one of those: the WHOLE row is the link (no Open button; a `<li>` takes no accessible name from its content anyway), At this event is the default chip (3339 is not in the default list), the dashed Other event button, a radio picker with Cancel / Continue, the are-you-sure "Switch to another event?" with **Keep <event>** first and **Switch and open**, and the offline Note "Offline. Other events need a connection; teams at <event> still open." The mock also lacked `counts` and `event`, which `searchTeamsOutput` requires.
+
+**What I did instead:** the same proofs against the final: rows are links named "2096 ROBACTIVE, team page" with `href="/teams/t-1"` (no Open button); the rank badge is an image named "Rank 1, medal" / "Rank 9", only on at-event rows; medals on ranks ≤ 3 only; "3339 BumbleB: other event" opens the picker (`listTeamEvents` called with the team id), Continue opens "Switch to another event?", Keep leaves `sessionOverride.get()` null and never navigates, Switch and open sets `ev-2` and navigates to `/teams/t-4`; offline the button is disabled, a click opens nothing, the design's Note shows and the rpc is never called. Added: At this event is the default, Show all selects All, the override's event is what `searchTeams` is asked for, the offline list comes from the cache with the shared ranks, a server failure falls back to the device, an override with no connection offers the way back, and the phone rows.
+
+**Risk:** none; every plan proof is kept in substance.
+
+## Task 1.51 — Offline, the list holds the season's other teams too (orchestrator: "All shows those teams only")
+
+**Plan said (orchestrator decision):** offline, build the at-this-event list from the cache; All shows those teams only, and the Other events part shows the offline note.
+
+**What was wrong:** the device already holds every team of the season (SPEC-FINAL 9.3's synced set: "Every team in the season … needed because team search is season-wide (§13.2) and must work offline"; `apps/server/src/repos/pull.ts` scopes `teams` as `season-teams`), and the final's offline frame (phone 5) lists teams at other events with their Other event buttons disabled at 45 %.
+
+**What I did instead:** offline, the list is every cached season team: the roster's teams ranked at the event, the rest as "not at this event" rows with the Other event button disabled; the chips and counts cover both; the Note shows. The device holds no other event, so those rows name no event offline ("not at this event") and `other_events` is empty. Rejected: hiding them (a search for a team at another event would look empty offline, the thing the Show-all line exists to prevent).
+
+**Risk:** a team that left every roster of the season since the last pull still shows until the next pull, as every cached row does.
+
+## Task 1.51 — One season list per event, filtered and searched on the device
+
+**Plan said:** "filters as you type"; the orchestrator: page through `next_cursor`; debounce, or search on the device.
+
+**What was wrong:** nothing; the choice was open.
+
+**What I did instead:** online (no override) and always under an override, ONE `searchTeams({ event_id: <effective>, filter: 'all', limit: 200 })` walk (at most 5 pages) per effective event and connection change; the query and the chips filter that list on the device with `teamHit`, the server's own rule (name substring, any case; digits = number prefix), so no keystroke reaches the server and nothing needs a debounce. The chip counts follow the query, as the server's `counts` do (the mock-up's static counts while typing came from its helper, not a decision). While the server answers, and if it fails, the device's list shows (no override). Under an override: offline → `StateMessage offline-needs-server` ("<event> is not on this device; its teams need a connection") with "Back to <default>" (clears the override); a failure → `StateMessage failed` with Try again. Whether to fetch reads the app's `useOnline`; the cross-event path itself is gated only by `useCapability('cross_event_view')`.
+
+**Risk:** a season over 1000 teams would be cut at 5 pages; a real season has a few hundred.
+
+## Task 1.51 — Small calls the design left open
+
+**Plan said:** the README's head, rows and dialogs.
+
+**What was wrong:** some values were not specified.
+
+**What I did instead:**
+- **Our team** is `OUR_TEAM_NUMBER = 2096` in `features/teams/teamSearch.ts`, as the Brand and AccountBlock already hard-code "Team 2096"; no setting holds it.
+- **Short event name** ("District #3") is the name before " · " (`shortEventName`), used where the design shortens it: the picker's title, Keep <event>, the offline Note, the phone sub-line. "Scouting still saves to" names the admin default in full.
+- **Head under an override** omits the year ("25 teams · ranks from …"): the device holds only the default's season, and an override set from Switch competition may be another season's event.
+- **The picker** preselects its first event (one tap to Continue); with no events it says "We hold no entries for <team> at another event." and Continue stays disabled. A pick that is the admin default clears the override instead of setting it. Going offline while it is open closes it.
+- **Empty results:** with At this event on and only other-event matches, the Show-all line stands alone; with nothing at all, `StateMessage no-results` with "Clear the search" (clears the query, selects All).
+- **The desktop table's fourth header** is the screen-reader-only word "Open" (the design's is blank).
+- **Event picker rows** are their own radio rows in `CrossEventJump.tsx`, not `DescribedChoice stacked` (which has no radio circle; the final draws one).
+
+**Risk:** none known.
+
+## Task 1.51 — Shared pieces, and what the screenshots differ in
+
+**Plan said:** components Rank badge (side), Link row, Other-event button, Show-all line, Event picker; compare the screenshots at 1440 and 375 px.
+
+**What was wrong:** nothing; recording the shape.
+
+**What I did instead:** `components/ui/link-row.tsx` exports `LinkRow` (the phone row: one `<Link>` over the whole row, round ›, pressed / hovered / focused = `--accent-tint` + 3 px `--accent` start edge, the › filled) and `LinkTableRow` (a table row whose last cell's link is stretched over the row with `after:inset-0`; the row takes the tint, the edge and the focus ring, the number underlines through `LINK_KEY_TEXT`, "Team page ›" shows on hover or focus). `components/ui/rank-badge.tsx` is one `role="img"` named "Rank 7" / "Rank 1, medal" (lucide `Medal`, no metal colours), with `none` words in its place. The Other-event button, Show-all line and Event picker live in `features/teams/`. BUILD-CONTEXT §12.5's component list names the two new ones. Differences from the finals: the computer table's rows are the locked Data table's 46 px, not the mock-up's ~42 px; the shots light a row by keyboard focus (with its focus ring), because `shoot()` moves the pointer away before each picture, so neither hover nor press can be captured; the medal glyph is lucide's; the fixture ranks other teams than the mock-up (2096 is #20 and shows in the long phone shot).
+
+**Risk:** none known. The `e2e/shell.spec.ts` phone-bar test now shoots five pages in two themes and is marked `test.slow()` (it passed alone in 29 s, and timed out at 60 s beside the teams spec).
+
+## Task 1.51 — Bundle
+
+**Plan said:** a lazy page; raise `BUDGET_KB` only if needed.
+
+**What was wrong:** nothing.
+
+**What I did instead:** `TeamSearchPage` is a lazy chunk (8.2 KB gzip, precached by the `**/*.js` glob); the nav row, the `Search` icon and the paths moved the initial JS from 229.4 to **229.6 KB** gzip, under the 230 KB budget. No raise.
+
+**Risk:** 0.4 KB of headroom is left; task 1.52 will likely need a raise.
+
+## Task 1.51 — Rows link to a route that does not exist yet
+
+**Plan said:** rows open `/teams/:teamId`; do not register it (task 1.53 does).
+
+**What was wrong:** nothing, but until 1.53 lands a tap on a row reaches React Router's default error element (the route tree has no catch-all).
+
+**What I did instead:** left as instructed: `TEAM_ROUTE` and `teamPath()` are in `lib/paths.ts`, with no route.
+
+**Risk:** a reviewer on dev between 1.51 and 1.53 sees the router's 404 when opening a team.
+
+## Task 1.52 — One `/entries` page; the plan's tests predate the designs
+
+**Plan said:** create `EntrySearchPage.tsx` and `EntrySearchPage.test.tsx`, replace `/entries` with it; the list test drives `rpc.call('queryEntries', { form_kind, query })` from a chip `match`, expects points as `25.00`, and `navigate('/entries/e-1')` on a row click; the preview test feeds `EntryPreviewPage` an `rpc` that returns a hand-made entry.
+
+**What was wrong:** the closed designs (26-entry-search A, 25-entry-preview B + D) and the user's decisions settle it otherwise: `/entries` stays ONE page (the round-05 page extended), the kind filter is a Both · Match · Super `segmented` switch (not chips), points are whole numbers as on every final ("34", not "25.00"), each row is a link (`href`), and the device is the source offline.
+
+**What I did instead:** no `EntrySearchPage.tsx`: `features/entries/EntriesPage.tsx` (+ `useEntriesView.ts`, `EntriesTable.tsx`, `EntryCard.tsx`, `EntryParts.tsx`) IS the entry search; its tests stay in `EntriesPage.test.tsx` / `useEntriesView.test.ts`. The plan's assertions were adapted: kind → `radio` "Super 2" etc.; search filters in memory (no `query` input); row → `link` with `href="/entries/<id>"` and a click landing on the `/entries/:id` route (no dialog). `EntryPreviewPage.test.tsx` seeds the device (`src/test/entryPreviewFixtures.ts`) and keeps the plan's proofs: phase headings in order (h2), no `definition` rows and the "—" for a no-show, Hebrew `dir="auto"`, DD/MM/YYYY HH:MM.
+
+**Risk:** none known. Rejected: a second page beside `/entries` (the user ruled one page).
+
+## Task 1.52 — The list reads the device, not `queryEntries`
+
+**Plan said:** the list calls `queryEntries` (task 1.50) with `form_kind` and `query`.
+
+**What was wrong:** the venue is offline (the normal mode), Entries already reads the device cache, and the waiting and refused lines exist only on the device.
+
+**What I did instead:** `buildEntryRows` reads the cached entries (both kinds), matches, teams, users, line-up, outbox and refusals, plus `forms` / `form_versions` / `form_fields` / `scoring_rules`; each match row's points are `scoutedPoints` from `@frc/shared`, scored with the entry's form's ACTIVE version and the form's rules (`lib/derive/scoring.ts` `scoringForVersion`, which mirrors 1.50's `scoringLoader`). Soft-deleted entries and another event's are dropped. `queryEntries` stays for online and service callers.
+
+**Risk:** under a session override to an event the device does not hold, the list is empty (as before this task). The server's `queryEntries` with a search AND a cursor is still unproven against live PostgREST (1.50's note); this task does not exercise it.
+
+## Task 1.52 — The preview: device first, `getEntry` only for an entry the device does not hold
+
+**Plan said:** `EntryPreviewPage` renders `getEntry`'s answer.
+
+**What was wrong:** offline the server cannot answer, and the 5:00 mark lands on the preview offline.
+
+**What I did instead:** `features/entries/entryPreview.ts` `loadDevicePreview` builds the page from the cache with `scoreBreakdown` and `averagePoints` (`@frc/shared`; the active version's fields and the form's rules, like `getEntry`), the entry's OWN version number for "form vN", the line-up's station and the season image for the map view. A soft-deleted entry, or another event's, gives "This entry is not here" with no server call. Only when the device does not hold the entry (or its form) does the page call `getEntry`; `fromWire` draws the answer (map fields read their words but do not open: the device has no field definition or image for them). A server `not-found`, or an answer for another event, gives "This entry is not here"; any other failure gives `StateMessage offline-needs-server` "This entry is not on this device". No `navigator.onLine` / `useOnline` check: `data/offlineGates.test.ts` forbids `useOnline(` under `features/entries/`, and BUILD-CONTEXT §12.5 says no page keeps its own online check; trying the call and reading the failure needs neither.
+
+**Risk:** offline, an id the device does not hold costs one failed fetch (immediate when the browser is offline) before the message.
+
+## Task 1.52 — Edit: the shared rule on the device clock, everywhere
+
+**Plan said:** Edit only when §7.6 allows the viewer (getEntry's `can_edit`).
+
+**What was wrong:** `can_edit` is measured on the server's clock at fetch time, and most previews never fetch.
+
+**What I did instead:** the page always decides with `mayEditEntryNow(viewer, entry, deviceNow)`, also for an entry that came from `getEntry` (overriding `can_edit`), and sets a timer to the 5:00 mark so an open page drops Edit when the window closes. Edit opens `entryPath(match, team, alliance)` for a match entry and `superTeamPath(team)` for a super entry. Without Edit, Team page stands alone, full width.
+
+**Risk:** a device clock set back keeps Edit longer; the server's window check stays the safety net (§7.6).
+
+## Task 1.52 — Paths
+
+**Plan said:** `PATHS` gains an `entry(id)` helper.
+
+**What was wrong:** helpers are module functions, not members of `PATHS`, and `entryPath` is taken by the entry form.
+
+**What I did instead:** `ENTRY_PREVIEW_ROUTE = '/entries/:id'` and `entryPreviewPath(id)` in `lib/paths.ts`, with a paths test (off the data-entry path).
+
+**Risk:** none.
+
+## Task 1.52 — The 5-minute mark and the read-only entry route land on the preview (Phase 1 H side-task carry-overs)
+
+**Plan said:** (NEXT-CHAT.md carry-overs) navigate the mark to `/entries/:id` with the banner and the "Not kept" lines; turn `EntryRoute`'s read-only branch into a redirect; Entries rows open the preview; reuse `MatchReadOnly` / `EntryAnswers` where they fit.
+
+**What was wrong:** nothing.
+
+**What I did instead:** `EntryPage` gains `onWindowClosed(rowId, outcome)` (its `Closed` type became the exported `WindowOutcome = { notKept, failed }`) and draws nothing after the mark; `EntryRoute` navigates with `replace` to `entryPreviewPath(id)` and `state: { windowClosed }`; the preview draws the Success banner with each "Not kept: …" line (or the Error line "Not saved — the 5 minutes are up. …") at the top of its body and moves focus to it. `EntryRoute`'s read-only branch is `<Navigate to={entryPreviewPath(existing.id)} replace />` (Home's Open, Sync's Open entry, a draft's Resume, a typed URL). Dead code removed: `features/entry/MatchReadOnly.tsx`, its `lazyParts` stand-in and `timedParts` export, and `lockNote` (the "Only a lead or an admin can change it now." line: the preview says it by showing no Edit). `EntryAnswers`' `MapRow` is exported and reused for the preview's map rows (new optional `end` and `className`; its label span is now `flex-1`, which changes nothing with two children). Tests rewritten: `EntryPage.test.tsx` (the mark calls `onWindowClosed` with the outcome), `EntryRoute.test.tsx` (redirect to the preview; the mark lands there with the banner, focused, no Edit), `SyncPage.test.tsx` (Open entry → the preview), `e2e/entry-window.spec.ts` (the URL is `/entries/<id>`, no Edit).
+
+**Risk:** router state survives a reload, so the banner shows again after a refresh of that preview; harmless.
+
+## Task 1.52 — Small calls the designs left open
+
+**Plan said:** nothing on these.
+
+**What was wrong:** nothing; recording the calls.
+
+**What I did instead:**
+- **Kind counts** are faceted: they follow the search AND the chip ("Super 0" under Needs a look); the chip counts follow the search and the kind (the brief). The final's static mock counts do not settle it.
+- **"Waiting"** is the chip's word at both widths (26 final; it was "Waiting to send" on a computer).
+- **The time** on a row and in the preview is `client_created_at` (when it was scouted), not the plan test fixture's `client_updated_at`.
+- **Points** print whole ("47"); a fractional total prints one place. The team average prints one place ("avg 38.5").
+- **Phase names:** `PHASE_NAME`, except the last phase is "Post-match" for a match entry (25 desktop) and "Notes" for a super entry (25 phone frame 4). The band's legend uses the short tab words (Auto, Teleop, Endgame); a fourth scored phase would take the accent at 25 %.
+- **Rows:** in a phase that scores anything every row keeps the 34 px points column (empty for an unscored row, as the final's map row); a phase that scores nothing has no column. An unanswered field reads a `--muted` "—" inline (never stacked as a long answer); an untouched counter reads 0 and a switch "No", as the confirmation does.
+- **Header:** on a computer there is no ‹ back row (the final has none; the crumb "Entries / Q37 · 1690 Orbit" and the sidebar carry it). On a phone ‹ Entries goes back through history, or to `/entries` when the preview was opened directly. The phone title is "Q37 · 1690" / "Super · 1690".
+- **Phone cards** keep the scouter's full name (UF.8: wrapping, never cut) where the 26 mock-up shows a first name.
+- **List refusal lines** are `ErrorLine announce={false}` (a line that describes a record, as on Sync), not a live alert on every render.
+
+**Risk:** none known.
+
+## Task 1.52 — Shared pieces
+
+**Plan said:** add "Table row as a link" (and its card twin) and a SUPER tag variant in `components/ui`; reuse `link-row`.
+
+**What was wrong:** nothing.
+
+**What I did instead:** `LinkTableRow` without an `endLabel` is THEME "Table row as a link" (a narrow last cell, a faint › turning `--accent` while the row is lit; the row's tint, edge and focus ring are 1.51's); `LinkCard` is its phone twin (white card, faint ›, pressed / hovered / focused = tint + 3 px edge). `SuperTag compact` (22 px: the card and the preview header) and `FormKindTag` ("Match entry" grey, or SUPER) in `tag.tsx`; `Initials` size 26. `lib/derive/scoring.ts` holds `toEngineEntry` (moved out of `features/teams/teamSearch.ts`, which now imports it), `formScoring`, `scoringForVersion` and `scoringCache`. BUILD-CONTEXT §12.5's list names them.
+
+**Risk:** none known.
+
+## Task 1.52 — Bundle
+
+**Plan said:** keep the new pages out of the initial chunk; raise `BUDGET_KB` only if needed.
+
+**What was wrong:** nothing.
+
+**What I did instead:** `EntriesPage` became a lazy chunk (3.9 KB gzip) and `EntryPreviewPage` is one (5.5 KB), both precached (`dist/sw.js` lists both). Initial JS went from 229.6 to **226.5 KB** gzip (budget 230). No raise. `routes.tsx`'s comment now says Entries left the main bundle.
+
+**Risk:** Entries now waits on a (precached) chunk when first opened.
+
+## Task 1.52 — e2e fixture, and what the screenshots differ in
+
+**Plan said:** screenshots at 1440 and 375 px, compared with the finals.
+
+**What was wrong:** nothing; recording the differences.
+
+**What I did instead:** `e2e/fixtures.ts` gains a super form (v3) and three super entries (`SUPER_ENTRIES`, `pullWithSupers()`), outside the default pull so no other screen changes. Differences left: the phone bottom bar raises Entries on the preview (the shell raises the current nav item; the 25 mock-ups draw it flat); the kind switch is the locked Segmented control's 46 px, not the mock-up's 40 px; lit rows and cards are shot by keyboard focus (with its ring) because `shoot()` moves the pointer away; the fixture's match form has no map field and one Notes field, so the e2e preview has no "6 spots" row and no Hebrew note (the unit tests prove both); values differ from the mock-ups (Q37 1690 is Amit's 52 points at Red 2); the Entries crumb reads "District #3 · Tel Aviv / Entries" as before this task (the 26 mock-up shows "Entries").
+
+**Risk:** none known.
+
+## Task 1.52 — Entries under a session override
+
+**Plan said:** the entry search reads `queryEntries` (the build read the device instead; see "The list reads the device, not `queryEntries`" above).
+
+**What was wrong:** under a session override (SPEC-FINAL 6.3, "While an override is in effect the client asks the server for computed results") the device holds only the default event, so `/entries` listed nothing for the overridden event.
+
+**What I did instead:** `EntriesPage` branches on `useSessionOverride()`. No override: `DeviceEntries`, the device path exactly as before (no rpc call; a unit test asserts it). Override: `OverrideEntries` reads `queryEntries({ event_id: <override id>, limit: 200, cursor })` through the injected `rpc` (default `typedCall`), following `next_cursor` up to 10 pages (2,000 entries, far above an event's few hundred), once per event, with no `query` and no `form_kind`: the search, the Both · Match · Super switch and Mine then run in memory over those rows through the same `useRowsView` the device path uses, so the counts behave as on the device and nothing needs debouncing. Rejected: sending the search to the server (a call per keystroke, the switch's counts would need a call per kind, and the server's match-number rule is exact where the device's is a substring) and a Load more button (a second pagination UI for a list that fits in a few pages). `rowFromSummary` maps `EntrySummary` to `EntryRow`: points are the server's `scouted_points` (null → "—" for a no-show, disabled and super, never 0); `match_label`, `team_*`, `scouter_name`, `client_created_at` → the row's label, team, scouter, time. Waiting and Needs a look are this device's states (outbox, refusals, line-up) and say nothing about another event's server rows: those two chips are **hidden** under an override (not shown as 0, which would read as "nothing to fix there"); the row flags are all false. The read is held through `useCapability('cross_event_view')`: offline it makes no call and shows `StateMessage` `offline-needs-server` ("<event> is not on this device; other events need a connection.") with Back to <default event>, which clears the override; a failed read shows `failed` with Try again. The empty state offers Back to <default event> in place of Scout a match (no entry may be created under an override). The crumb names the overridden event. New file `features/entries/serverEntries.ts`; `useEntriesView` is split into the device read plus `useRowsView(all, me)`. Lazy: `EntriesPage` chunk 3.9 → 4.8 KB gzip; initial JS unchanged at 226.5 KB.
+
+**Risk:** an event with more than 2,000 live entries would list only the newest 2,000 under an override. The server rows are read once per event per visit; an entry synced by another device while the page is open appears on the next visit. Not checked live against dev seed data (no Supabase in this fix).
+
+## Task 1.52 — The offline-gates guard exempts the override's server read (orchestrator)
+
+**Plan said:** `src/data/offlineGates.test.ts` (task 1.45): no file under `features/entry/`, `features/entries/` or `data/outbox.ts` may call `useCapability(` or render `<OfflineGate`, because the scouting path is never gated.
+
+**What was wrong:** the session-override fix for Entries (above) holds its server read through `useCapability('cross_event_view')` in `features/entries/serverEntries.ts`, and the guard failed:
+
+```
+FAIL src/data/offlineGates.test.ts > the offline gates (SPEC-FINAL 9.6, task 1.45) > never gates the scouting path: entry creation, the self-edit and bare match creation
+AssertionError: features/entries/serverEntries.ts: expected 'import { useEffect, useState } from \…' not to match /\buseCapability\(|<OfflineGate\b/
+```
+
+**What I did instead:** the guard names `features/entries/serverEntries.ts` as not scouting, with the reason in a comment: under an override, Entries lists another event's entries, which is a server read and a cross-event view (§9.6, "not available offline"). No entry is created there (an override blocks new entries, §6.3), and the device's own list stays ungated (`EntriesPage.test.tsx`: without an override, no rpc call and no gate). Rejected: moving the hook to `features/context/` only to dodge the folder rule. That passes the guard while hiding the gate, which is worse than naming it.
+
+**Risk:** a later gate added to that one file would also pass the guard. The exemption is a single path, not a folder.
+
+## Task 1.57 — The statistics live in `packages/shared`, as two pure builders (orchestrator O1)
+
+**Plan said:** "Both use cases fetch rows with SQL (through the store) and hand them to the same shared engine the browser runs. Neither contains a formula." Files: `stats.ts` and `stats.test.ts` in the server, plus registry, store and fake.
+
+**What was wrong:** nothing in the engine assembles a team page or a ranking table, so "hand them to the engine" would have left the assembly (which metric, which population, which domain, which order) in the server, and the device (SPEC-FINAL 9.6: statistics are computed on the device from raw entries, offline) would have needed a second copy.
+
+**What I did instead:** new `packages/shared/src/engine/teamStats.ts` with `buildTeamStats(input)` and `buildRankTable(input)`, pure over plain rows (`EngineEntry[]`, the roster, the active match version's fields and rules, the versions the entries name, the super form's active fields, the scouters' names), built only from the engine's own pieces (`applyFilters`, `aggregate`, `aggregationValue`, `resolveFieldAcrossVersions`, `averagePoints`, `rankByAveragePoints`, `reliabilityFor`, `canonicalEntries`, `scoutedPoints`). The wire schemas are the new `packages/shared/src/api/stats.ts`, in the `API` map as `getTeamStats` and `rankTeams`. Both new modules are exported at the END of `packages/shared/src/index.ts`. `sequenceOrder` in `engine/aggregate.ts` is now exported (one "last N" order for the per-match series and for `slope`, instead of a second comparator). The server's `stats.ts` only loads rows, calls the builder and pages the match list. Tests: `engine/teamStats.test.ts` (11) and `core/queries/stats.test.ts` (29).
+
+**Risk:** 1.53 must call the same builders with the same inputs on the device (the task report lists them). A device that lacks a version's fields skips that version in the cross-version guard (see "The cross-version window" below).
+
+## Task 1.57 — "All metrics" in phase 1 (orchestrator O2; the plan's pinned answer)
+
+**Plan said:** `getTeamStats` returns "all metrics for the team"; the plan's closing note pins it as "the fixed ranking columns plus one row per scorable field".
+
+**What was wrong:** nothing said which aggregation each field gets, or what "scorable" covers.
+
+**What I did instead:** groups in this order. **Overall:** `average_points` (Average points, `averagePoints`, the headline), `median_points` (Median points), `stddev_points` (Std dev of points, `direction: 'neutral'`). Then one group per phase in `FIELD_PHASES` order (auto, teleop, endgame, post_match; a field with no phase is post_match, as `scoreBreakdown` files it; a group with no field is absent), **one metric per live (non-deprecated) field whose type `isScorable`** (toggle, counter, number, single select, multi select) of the ACTIVE match version, each key once, in form order. Aggregation by type: counter/number → `avg` (kind `number`); toggle → `rate` (kind `rate`, 0–1; an unanswered toggle is no data); ordinal single or multi select → `avg` over `aggregationValue` ranks (kind `ordinal`; a multi select reads its highest rank), with `display` = the label of the option at `Math.round(avg)`; nominal single or multi select → `mode` over the RAW values with the option list as `option_order` (kind `nominal`, `value: null`, `display` = the mode's label, no domain, no series). A field with `direction: null` reads as `higher_is_better`. The reliability figures are not metric rows: they are `reliability` and `tiles.availability`. Rating, timer, computed, text, position, cycle and event-log fields get no metric because they are not scorable. Rejected: adding rating and timer fields (useful, but outside the pinned answer; the phase 2 metric builder covers them).
+
+**Risk:** a team page will not show a driver-skill rating or a timer field until the metric builder (phase 2). The ordinal label rounds half up (a 1.5 average of None/Low/High shows "High").
+
+## Task 1.57 — What a metric carries, and its colour domain (orchestrator O3)
+
+**Plan said:** nothing beyond "all metrics".
+
+**What was wrong:** the brief left the neutral metric's domain open ("decide and log").
+
+**What I did instead:** each metric is `{ key, field_key | null, label, group, kind, aggregation, direction, value, display, domain, series, unavailable_reason }`. `key` is `average_points` / `median_points` / `stddev_points` or `field:<key>` (exported `fieldMetricKey`), the same key the match table's columns use. `domain` (12.6): a declared `expected_range` for a `number` metric; `{0, 1}` for a rate; `{0, n − 1}` (option ranks) for an ordinal; otherwise the observed min–max of that metric over the event's roster teams, nulls excluded (null when no team has a value). **A neutral metric keeps its domain** (std dev, a neutral toggle) so the client can draw the faint bar; the client must never shade it or sort by it. The domain population is the roster plus the team itself when it is not on the roster, so its bar still lies inside the range. `series` is the team's canonical qualification match entries, oldest → newest in `sequenceOrder` (the order `slope` reads), with a no-show or disabled match as `value: null`; a rate's point is 1/0, an ordinal's its rank. The std-dev row's series is the points series (what the spread is measured over). A nominal metric and an unavailable one have `series: []`.
+
+**Risk:** the observed domain is recomputed for every roster team per request (`applyFilters` once per team, then one `aggregate` per field). Fine for a 50-team event.
+
+## Task 1.57 — The cross-version window is the event's counted entries
+
+**Plan said:** "refuses a metric whose field type changed between versions". NEXT-CHAT: `inScope` holds the fields of every distinct `form_version_id` among the scoped entries.
+
+**What was wrong:** "scoped entries" could be read as the team's alone. Then one team's metric would be refused while another team's was not, and the domain would mix types across teams.
+
+**What I did instead:** `inScope` is every version named by an entry that FEEDS an aggregate (`applyFilters`' output) for any team of the domain population. A field is then available for every team at the event or for none, and a practice or dead entry on an old version (never read) refuses nothing. A version the input does not list is not checked (`resolveFieldAcrossVersions`' own rule); the server loads every version its rows name. A refused metric is `value: null, display: null, domain: null, series: []` with `unavailable_reason: 'type-changed'` (or `'absent'`), and `aggregate` is never called for it.
+
+**Risk:** on the device, a version the cache does not hold is not checked, so the device could compute a value the server refuses. The pull carries every published version of the season, so this needs a version deleted under live entries, which cascades those entries away.
+
+## Task 1.57 — The rest of `getTeamStats` (orchestrator O4)
+
+**Plan said:** "all metrics … plus the match-by-match series and its notes". The test reads `matches[].match_number`, `notes[].field_label / scouter_name / client_updated_at`, `metrics[].field_key / value / unavailable_reason`, and pages with `limit`.
+
+**What was wrong:** the shapes were open.
+
+**What I did instead:** the output is `team`, `event`, `entry_count`, `rank { rank, of }`, `headline { label: 'Average points', value }`, `tiles { median, availability { rate, available, total }, best_match, trend }`, `metrics`, `columns`, `matches`, `match_count`, `notes`, `reliability`, `next_cursor`. Beyond the brief: **`entry_count`** (the team's live entries at the event, both kinds — the header's "10 entries", counted as `searchTeams.entries_here` counts), **`match_count`** (the whole match list's size, since `matches` is one page) and **`form_kind` on each note** (a super note has no match). Choices:
+
+- `rank` is `rankByAveragePoints` over the roster, the same call `buildRankTable` makes, so the badge and the table cannot disagree (a test walks every row). `of` is the roster's size; a team not on the roster is `rank: null`.
+- `best_match` is the counted match with the most points, the earliest on a tie. `trend` is `aggregate(points, 'slope')` over the counted matches.
+- `matches` holds the team's **canonical** match entries (one per match: a duplicate shows once, the newer; a soft-deleted one never), **practice and playoff included** (they never feed a figure), ordered practice → qualification → playoff, then by number. That is the plan's "match-number order"; `sequenceOrder` ignores the type and would interleave P1 and Q1. `scouted_points` is `scoutedPoints` with the active version. A no-show or disabled row has `scouted_points: null` and every cell `{ value: null, display: null }`, whatever its data holds.
+- `columns` are the live scorable fields that a scoring rule names, in form order (`{ key: 'field:<key>', label }`). A cell is `{ value, display }`: counter/number → the number; toggle → 1/0 and "Yes"/"No"; single select → its rank if ordinal (else null) and the option's label; multi select → the highest rank if ordinal and the labels joined with ", ".
+- `notes` are every non-blank Long-text answer of the team's canonical entries, **both kinds, every match type and every status** (a no-show's "never came out" is a note). Each is labelled by the active version of the entry's form (the entry's own version for a key the active one no longer has), newest first by `client_updated_at` as an instant, then entry id. The server returns the newest **200** (`TEAM_NOTES_MAX`); the builder returns all.
+- `reliability` is `reliabilityFor` on the team's RAW entries, plus `breakdown_matches`, `no_show_matches` and `disabled_matches` (labels of the canonical qualification entries with that status, in match order).
+- Paging: `limit` (default 100, clamped to 200) and an offset `cursor` page `matches` only; every other part comes whole on every page.
+- **Scope:** only `{ mode: 'event', event_id }` is accepted; any other mode is `invalid`. The season scope (11.4's full-season view) waits for the dashboards that need it.
+
+**Risk:** the device builds the whole page in one call, so 1.53 pages nothing.
+
+## Task 1.57 — `rankTeams` sorting (orchestrator O5)
+
+**Plan said:** "sorts by any column on request, and never by standard deviation"; "returns no weighting inputs at all in phase 1".
+
+**What was wrong:** the default direction per column and the tie-break were open.
+
+**What I did instead:** `sort_by` ∈ `average_points` (default) | `availability_rate` | `breakdowns` | `no_shows` | `disabled` | `matches_counted` | `number`, checked by the zod schema (anything else, `stddev` included, is `invalid`). With no `direction`, each column sorts best first (`RANK_SORT_DEFAULT_DIRECTION`): average points, availability and matches counted descending; breakdowns, no-shows, disabled and number ascending. A null sorts last whatever the direction. A tie falls to the canonical rank (unranked last), then the lower number, so the default sort is exactly `rankByAveragePoints`' order. `rank` on every row is the canonical rank whatever the sort. The output is `{ event, rows }` and nothing else: no `weights`, `contributions` or normalised values anywhere (tested on the table, and on each row with `.strict()`). Not paginated (13.5).
+
+**Risk:** none known.
+
+## Task 1.57 — Scoring and the store reads (orchestrator O6; `entriesForScope`)
+
+**Plan said:** modify `repos/store.ts` and `test/fake-context.ts`. `entriesForScope(scope: { eventIds; teamId? })` was a stub on both.
+
+**What was wrong:** nothing; recording the calls.
+
+**What I did instead:** `entriesForScope` is implemented in both stores: every LIVE entry of the events (both kinds, every team unless `teamId`), paged by id in 1000-row pages, at most `ENTRIES_FOR_SCOPE_MAX` (20,000, 1.50's bound). A non-uuid id reads nothing; a database error throws. Store tests cover the paging, the team narrowing and the error. The use cases score with the season's match form's ACTIVE version and the form's rules (`searchTeams`' rule; there is one match form per season, so it equals `scoringLoader` for every match entry). A season with no match form or no active version scores with no fields and no rules, and then has no entries either, since they cascade with their versions. With `entriesForScope` filled, no Store method is a stub any more, so `stubsFor` (now unused) is deleted from `repos/store.ts` with its two comments. `search.ts` now exports `toEngineEntry`, `str` and `unique` for `stats.ts` rather than duplicating them. No migration.
+
+**Risk:** an event past 20,000 live entries would be truncated silently (as 1.50's reads are).
+
+## Task 1.57 — The fixture and the plan's test
+
+**Plan said:** implement `seedRankingFixture`, `duplicateEntry` and `changeFieldTypeBetweenVersions` in the fake; the test as written.
+
+**What was wrong:** nothing. The plan's test runs verbatim apart from the `.js` import extensions (`./stats.js`, as `search.test.ts`) and prettier's line wrapping.
+
+**What I did instead:** the fixture is its own file, `apps/server/src/test/ranking-fixture.ts` (as `small-season.ts`): se-1 / ev-1, teams t-1 2096, t-2 1690 and t-3 3065 all on the roster, Q1–Q3 and P1, match form fm-1 (v1 retired, v2 active) with a toggle, two counters, a nominal pickup, a neutral defense toggle, an ordinal climb and a Long-text "Notes", and super form fs-1 with its own "Notes". t-1 scores 10 and 20 and has a no-show that holds stale values, so a "never 0" test can fail. t-2 scores 12 (played) and 12 (broke down). t-3 has only a practice entry (30). `duplicateEntry(id, { scoreDelta, newer })` copies the entry as `<id>-dup`, adds `scoreDelta / points` to the first counter or number field a positive rule scores, and moves `client_updated_at` one minute later (or earlier). `changeFieldTypeBetweenVersions(key)` writes `key` into the newest older version of the form whose active version holds it (creating `<active>-old` when there is none) with another type (`short_text`, or `counter` for a short_text), and moves that form's oldest live counted entry onto that version. 25 tests beyond the plan's prove: a no-show is null in points, every cell and every series; std dev is neutral; the wire schemas parse; the header rank equals the table's row for every team; every role and a service caller get the same answers; soft-deleted entries never count; the newer duplicate wins in the list and the average; the cursor pages; an unknown team, event, scope or cursor is refused; sorting and tie-breaks. Mutation-checked: making a dead match's series 0, making std dev `higher_is_better`, emptying the version window and dropping the dead-row cell rule each fail the suite.
+
+**Risk:** none known.
+
+## Task 1.57 — Bundle
+
+**Plan said:** nothing (BUILD-CONTEXT §12.5: initial JS at most 230 KB gzip).
+
+**What was wrong:** nothing.
+
+**What I did instead:** the new schemas reach the initial chunk through the `API` map; the builders do not, since nothing in the client imports them yet. Measured initial JS **227.1 KB** gzip (226.5 before). No raise.
+
+**Risk:** 1.53 keeps `buildTeamStats` and the engine in its lazy chunk only if it imports them from the team page alone.
+
+## Task 1.53 — The plan's test predates the design and task 1.57; adapted to the final (D2)
+
+**Plan said:** `render(<TeamPage teamId="t-1" rpc={rpcFor()} />)` with an rpc payload; the header's headline `'15.50'` and `getByLabelText(/rank 1/i)`; `getComputedStyle(header).position === 'sticky'`; the match table on the page from the start and `navigate('/entries/e-1')` from a mocked `useNavigate`; notes as `listitem`s named /note/; `queryByRole('img')` null; the empty state from an rpc payload.
+
+**What was wrong:** task 1.57 moved the statistics into the shared `buildTeamStats`, and the brief made the page compute ON THE DEVICE (statistics are viewable offline, 9.6), so the page has no rpc payload outside a session override. The design (24-team final, D2) prints one decimal ("38.4", not "15.50"), puts the match table on the Matches tab, and makes every match row a link (THEME "Table row as a link"), not a click handler. jsdom loads no CSS, so `getComputedStyle(...).position` is never `sticky` for a Tailwind class. An `aria-label` on a plain `<span>` is not a valid name (and the side `RankBadge` is `role="img"`, which this page must not have).
+
+**What I did instead:** `TeamPage({ teamId, eventId, rpc? })`; the tests seed the device cache (`src/test/teamPageFixtures.ts`) and watch the real shared `buildTeamStats` (`vi.mock` wrapper). Kept, adapted: sticky header as the `banner` standalone (`toHaveClass('sticky')` plus `tagName === 'HEADER'`); number, name, "Average points", "32.3" and the sr-only words "Rank 2 of 4"; every metric row label → shaded value → `role="meter"` → sparkline; the match table (after choosing Matches) with header + one row per match and "—" in every value column of the no-show row; the row's link `href="/entries/<id>"`, clicked, lands on `/entries/<id>` (a `MemoryRouter` route, no mocked navigate); notes `listitem`s named "Note, Q9, הערות, Yael Shapira", newest first; Hebrew `dir="auto"`; reliability `role="group"` "Reliability" with 86% and the counts; no `img` role and no `<img>` on any tab at both widths; the empty state. Added: the builder is fed the whole event; neutral and min = max are flat; the strip is on Matches only; the chart's no-show gap; up to four charts; the phone list, the compact header and ‹; the override path (getTeamStats, offline, not found, a dead payload row). Mutation-checked (scratchpad `mutate-153.cjs`): a dead row showing its stale columns, neutral shaded, min = max shaded, the strip on every tab, a no-show drawn as 0, notes oldest first, the chart exposed as `role="img"`, the phone list printing 0 for a no-show — each fails the suite, and each was restored.
+
+**Risk:** none known; the plan's literal assertions on rpc payload shapes (`team.rank`, `columns: { auto_notes: 2 }`) no longer exist in 1.57's wire shape.
+
+## Task 1.53 — The page is computed on the device by the shared `buildTeamStats`; `getTeamStats` only under a session override
+
+**Plan said:** "The charts on this page consume … the `getTeamStats` query of task 1.57" (the test passes an rpc).
+
+**What was wrong:** the venue is offline (9.6: statistics are viewable offline) and 1.57 built `buildTeamStats` precisely so the device can run the server's computation.
+
+**What I did instead:** `features/teams/teamStats.ts` `loadDeviceTeamStats(teamId, eventId)` mirrors `apps/server/src/core/queries/stats.ts`: the event's live roster (`event_teams` → `teams`), EVERY live entry of the event (all teams, both kinds) joined by `toEngineEntry` (match type, number, event sort order), every form version those entries name (live fields in display order), the season's match form's ACTIVE scoring (`formScoring`), the super form's active fields, and every cached user's name; then one `buildTeamStats` call. No formula in the client. A team or event the device does not hold → "This team is not here" + Back to Search. Under a session override (6.3) `useServerTeamStats` calls `getTeamStats` with `limit: 200`, following `next_cursor` (at most 5 pages) to hold every match row, gated by `useCapability('cross_event_view')` — offline: `StateMessage offline-needs-server` "<event> is not on this device; its statistics need a connection." with "Back to <default>" (clears the override), and no call; `not-found` → the not-found state; any other failure → Try again. Mirrors `features/entries/serverEntries.ts`. The shell already shows the override banner, so the page adds none. The engine stays out of the initial chunk: only the lazy team page imports `buildTeamStats`.
+
+**Risk:** the device reads every live entry of the event on each cache change (`useDeviceQuery(['rows'])`); a few hundred rows at an event; the e2e device (about 200 entries) renders without a visible wait.
+
+## Task 1.53 — Task 1.59's shading, `ShadedValue` and `ProgressionChart` pulled forward (user's decision); the THEME ramp wins over 1.59's test
+
+**Plan said:** (1.59) `shadeFor(value, domain, direction)` "→ a colour from the shared ramp and a lightness, or `null` for no value"; the test maps "the worst value to red and the best to green", "returns no scale at all for neutral" (`null`); `shadeFor` returns `{ background, text }`; `ProgressionChart` is a Recharts `LineChart`; add `recharts` to `apps/client/package.json`; modify `RankingPage.tsx`.
+
+**What was wrong:** the user locked the ramp on 2026-10-23 (THEME "Value shading", SPEC-FINAL 12.6 v1.40): one hue, the accent mixed into the surface 6 % (worst) → 52 % (best), text `--ink`, `neutral` and min = max FLAT `--line-2` (not "no scale"), no data a bare `--muted` "—" excluded from the domain. The brief also required the shared module to return numbers, never CSS. `RankingPage` is task 1.58 (Phase 1 I).
+
+**What I did instead:** `packages/shared/src/engine/shading.ts` (exported at the END of `index.ts`): `ShadeDomain` = `range {min,max}` | `rate` (fixed 0–1) | `ordinal {options}`; `shadeFor(value, domain, direction)` → `{ position 0–1 (lower_is_better reversed), mix (6–52, rounded), flat, lightness (1 − mix/100, monotonic) }`, FLAT `{0.5, 0, true, 1}` for neutral, a single-point domain and a value with no domain, `null` for no value (null, undefined, NaN, an option not in the list); `domainPosition(value, domain)` is the raw 0–1 placement a meter reads. An ordinal option's rank comes from `aggregationValue` (the engine's one rank); an average rank (a number) is placed on the same 0…n−1 scale. `SHADE_MIX_WORST` 6, `SHADE_MIX_BEST` 52. 1.59's test adapted (12 tests): "red/green" → palest/darkest with the mix values; neutral → flat, not null; min = max → `position 0.5, flat`; plus clamping, NaN, a no-domain value, the meter placement. `components/ShadedValue.tsx` turns a shade into `color-mix(in srgb, var(--accent) N%, var(--surface))` (or `var(--line-2)`) through a `--shade-bg` custom property (jsdom drops a `color-mix` background, so the tests can read it), a 5 px chip, mono 600, `--ink` text, the value ALWAYS printed; null → a bare `--muted` "—". Its test proves the value is printed for best, worst, flat, neutral and no-domain shades. `RankingPage` untouched (Phase 1 I). No `recharts`.
+
+**Risk:** 1.58/1.59 must reuse `shadeFor`/`ShadedValue` rather than the plan's `{ background, text }` shape.
+
+## Task 1.53 — No Recharts: the progression chart and the sparklines are hand-written SVG
+
+**Plan said:** (1.59) "`ProgressionChart` is a Recharts `LineChart` over match number"; add `"recharts": "^2.13.3"`.
+
+**What was wrong:** the team page is a precached offline chunk; Recharts (with d3 pieces) would add tens of KB to it for one line, and the THEME marks (a no-show gap bridged by a dotted line with "—", the broke-down diamond, the dashed average) are custom anyway. Rejected Recharts for those reasons (orchestrator).
+
+**What I did instead:** `features/teams/ProgressionChart.tsx`: an SVG sized to its box (ResizeObserver; 340 px until measured), `--line-2` grid, three ticks from 0 (a 1/2/2.5/5 × 10ⁿ step covering the highest value / 2.2; rates 0 · 50 · 100 %), mono 10 px `--muted` axes labelled with the match number (thinned to one label per 18 px), the series 2.2 px `--accent` with white 3 px dots, broke down a `--warn` diamond, a null (no-show, disabled, unanswered) a GAP bridged by a dotted `--faint` line with "—" over it — never a 0 — the team's value as a dashed `--faint` line, and the legend under the first chart. The SVG is `aria-hidden` with `focusable="false"`; the `<figure>` is named "<metric>, match by match" and holds a visually hidden list ("Q26: no show, not counted", "Q14: 11, broke down", "Team value: 32.3"), so no `img` role. `MetricPicker` (the 12.5 view-time selector) is the locked `Select` labelled "Chart metric"; `ProgressPanel` stacks up to `MAX_CHARTS` 4 with "+ Add a chart under it · up to 4" (adds the first metric not on a chart yet, hidden at 4 or when none is left) and a ✕ on every chart but the first. The picker offers "Points per match" and every field metric with a series (median and std dev share the points series; nominal and unavailable metrics have none), named with the phase word: "Teleop high goal" (a label already naming its phase is not prefixed again). The stat-row sparkline (`StatRows.tsx`) is a 64 × 20 SVG, 1.5 px `--accent`, end dot, `aria-hidden`; it leaves a no-show OUT rather than drawing a gap (at 64 px a gap read as two charts in the first screenshots; the Progress chart shows the gap).
+
+**Risk:** none known.
+
+## Task 1.53 — Small calls the design left open
+
+**Plan said:** nothing on these.
+
+**What was wrong:** the design (24 final) and THEME leave them open, or the data differs from the mock.
+
+**What I did instead:**
+- **Formatting:** points and averages to one place, whole bare ("38.4", "41"; `formatStat`), not SPEC 17.8's two places (the brief: the design wins); rates whole percents (`formatPercent`); the trend signed ("+2.3", "−0.4"); counts plain.
+- **Metrics:** exactly `buildTeamStats`' metrics, labels as the builder gives them ("Std dev of points", not the mock's "Spread (std dev)"; no "Best match" row — it is a tile); groups Overall, Autonomous, Teleop, Endgame, Post-match. Ordinal: its nearest option's label in the shaded chip (UI face, not mono, no wrapping), a bar and a sparkline of ranks; nominal: words, no bar, no trend line; `unavailable_reason` → "cannot calculate this metric" (+ " — field type changed between versions"). The meter's `aria-valuemin/max` are the domain, `aria-valuenow` the value clamped into it, `aria-valuetext` "7, 0 to 20 at the event" (+ ", lower is better"); the fill is the shade's position (reversed for `lower_is_better`), `--faint` for neutral.
+- **Header:** the `<h1>` is "1690 Orbit" (on a computer the big number is `aria-hidden` and the h1 carries an sr-only "1690 "); the rank badge's words are sr-only "Rank 4 of 22" with the visual "#4 / of 22" (computer) or "Rank #4 / 22" (phone) `aria-hidden` — no `RankBadge` (it is `role="img"`); no rank → "not ranked yet"; the phone's full header puts the small rank tag in its sub-line, as frame 1 does; "last seen" is the last match row's label; entries counted as `entry_count` (both kinds — the e2e team shows "11 entries", 10 matches and a super entry). ‹ goes back through history, or to Search when opened directly (`aria-label` "Back to Search"). The compact header switches at scrollY > 24 and back at < 4 (hysteresis, so the height it gives back cannot flip it).
+- **Tabs:** the locked `Tabs`, `flush`; a new `fit` prop (computer: each tab as wide as its words, 22 px a side, from the start) and `tight` prop (phone: 5 px label-to-count, 4 px inset, 13.5 px, so "Matches 10" fits a quarter of 375 px). 48 px tall (the §17.7 floor the component already uses over THEME's 44). The tabs bar sticks under the header (its `top` = the header's `top` + the header's measured height); a tab chosen while the bar is stuck scrolls so the new panel starts right under it; every panel is at least a screen tall under the tabs, so a short panel (Notes, Progress) can still be read with the bar stuck.
+- **Phone tiles:** the four tiles sit between the header and the tabs on EVERY tab (they are the team's summary, like the header), so the tab bar does not jump when a tab is chosen; frames 3–5 show the scrolled state, where the tiles have scrolled away.
+- **Reliability on a phone:** a 4-column strip card at the top of the Stats panel, above the stat rows, always (frame 2 shows it once scrolled; frame 1 is cut at the tabs). The matches are named under the counts at both widths (the brief), where the mock's phone strip hid them.
+- **Match strip:** shaded over the strip's OWN points (12.6: the observed min–max of the values shown), not the event's average-points domain the mock used; the cell label is `--ink-2`, not `--muted` (axe: `--muted` mono 10 px fails 4.5:1 on the darker shades); 28 px minimum cells with a sideways scroll past ~10 matches on a phone; each cell is a link named "Q14 Broke down, 11 points, Omer K.: open the entry"; the strip is a `nav` named "Match strip".
+- **Computer table:** newest first like the mock's rows, so the header says "Points" WITHOUT the mock's "↓" (the rows are not sorted by points; an arrow would claim a sort that is not there); not shaded (the final's table is unshaded); a column of words (Yes / No, an option label) and its header read from the start, numbers from the end; the caption "A row opens the entry · Q25 was a no-show: no values, not counted" names every no-show.
+- **Phone list:** `LinkCard`s made flat rows (no radius or border but the `--line-2` divider), 52 px min, the faint ›; the scouter as first name + initial.
+- **Notes:** a super entry's note is labelled "Super"; time "11:52" today, "Fri 16:05" within six days, else "14/11/2026 16:05"; the computer's Stats tab shows the newest 4 under "NOTES ——— newest first"; no notes → "No notes for this team yet."; a `<ul aria-label="Notes">` of `<li aria-label="Note, Q9, Notes, Yael Shapira">`.
+- **Progress on a computer:** the Progress tab is one column, at most 768 px wide; the Stats tab's Progress card shows the first chart and its picker (the same `charts` state as the tab).
+- **Empty state:** the locked `EmptyState` with a new `align="start"` (the final's card is set from the start edge), the Search icon, "No entries for this team yet", "Stats, matches and notes appear here once someone scouts 5987 at District #3 · Tel Aviv.", one action "Scout a match" (→ `/scout`); no tabs; the header "0 entries · not ranked yet" and "—".
+- **Picker size:** the locked `Select` keeps the 48 px tap floor (THEME draws a 34 px select).
+
+**Risk:** the user may want the tiles on the Stats tab only, the strip on the event's domain, or the ↓ back; each is a one-line change.
+
+## Task 1.53 — Route, shared pieces and docs
+
+**Plan said:** produce `/teams/:teamId`.
+
+**What was wrong:** nothing; recording where it lives.
+
+**What I did instead:** `routes.tsx` registers `teams/:teamId` as a lazy chunk (`TeamPage`, precached by the service worker's glob like every chunk), gated (waits for the event, `routes.test.tsx`'s list), keyed by the team, handle `{ title: 'Team', crumb: ['Search'] }`; the page names itself "Team 1690" (phone top bar) and the crumb "Search / 1690 Orbit"; nav's Search has no `end`, so the sidebar and the bar mark Search. New files beyond the plan's list: `teamStats.ts` (device + override data), `teamView.ts` (words and shades, unit-tested), `StatRows.tsx`, `ProgressionChart.tsx` (1.59), `components/ShadedValue.tsx` (1.59), `src/test/teamPageFixtures.ts`, `e2e/team.spec.ts`. `Tabs` gains `fit` and `tight`, `EmptyState` gains `align`; BUILD-CONTEXT §12.5's component list names them and `ShadedValue`.
+
+**Risk:** none known.
+
+## Task 1.53 — Bundle
+
+**Plan said:** nothing (BUILD-CONTEXT §12.5: initial JS at most 230 KB gzip; the brief: the page is lazy).
+
+**What was wrong:** nothing.
+
+**What I did instead:** the team page, the shared builder and the shading reach only the lazy `TeamPage` chunk (13.6 KB gzip). Measured initial JS **227.3 KB** gzip (227.1 before; the route row and the lazy import). No raise.
+
+**Risk:** none known.
+
+## Task 1.53 follow-up — Rating and timer fields get a team-page metric (user, 2026-10-27)
+
+**Plan said:** "All metrics for the team" in phase 1 is "the fixed ranking columns plus one row per scorable field" (IMPLEMENTATION-PLAN, the 1.57 note), so `buildTeamStats` made a metric for the five scorable types only, and a post-match "Driver skill" rating or a climb-time timer had no row.
+
+**What was wrong:** nothing failed; the user asked for ratings and timers on the team page.
+
+**What I did instead:** `packages/shared/src/engine/teamStats.ts` — `scorableFields` is now `metricFields` (scorable, `rating` or `timer`); both are `kind: 'number'`, `aggregation: 'avg'`, through the same `resolveFieldAcrossVersions` → `applyFilters` → `aggregationValue` → `aggregate` pipeline, in their phase's group in form order (a rating with no phase lands in Post-match, which then appears). A rating's domain is its declared 1..`config.max` (5 when unset, as `validateEntryData`); a timer's is its `expected_range`, else the observed range across the event's teams. Sparkline series: a no-show or disabled match and an "unsure" timer (null) are null, never 0. Neither is a match-table column (`columns` stays the scored fields). A timer metric carries `display` "12.4 s" (whole bare, else one place), and the client's `metricText` prints a number metric's `display` when the engine set one. Default directions when the form declares none: a rating is `higher_is_better` (a higher rating is a better rating by construction); a timer is `lower_is_better` (user, 2026-10-27: a faster time is the common case — climb, cycle, auto routine). A declared `direction` always wins, so a timer where longer is better (a defence hold) sets it in the builder. Rejected: `neutral` for an undirected timer (my first cut — it never shades, which hides the spread); the user chose `lower_is_better`. Fixtures: `src/test/teamPageFixtures.ts` gains Climb time (timer, no direction, one "unsure" answer) and Driver skill (rating 1–5); `e2e/team.spec.ts` adds the same two fields to its own pull only, so the other specs' entry and builder screens keep their form.
+
+**Risk:** a form whose timers measure something where longer is better and that left `direction` blank will shade those timers backwards until an admin sets the direction. A rating's `expected_range`, if one is ever declared, is ignored in favour of 1..max.
+
+## Phase 1 I side task 1 — the Review sheet's buttons sit on a solid foot (plan v1.29)
+
+**Plan said:** make the Review sheet's foot (`features/entry/ConfirmEntry.tsx`) opaque from its top edge to the sheet's bottom edge, buttons never over a row, the last answer able to scroll fully above the foot, the failed-submit line still a direct child of the foot; fix it in the shared surface so every sticky foot in a `Sheet` or `Dialog` behaves the same; a `--line` hairline top edge while content scrolls under it. Tests: the foot's box reaches the scroller's bottom edge with no padding below; an e2e shot of a long entry's Review sheet scrolled halfway, 375 and 1440, every theme.
+
+**What was wrong:** the cause was as the plan read it, reproduced before the fix with the new spec (30 counters, scrolled halfway). On the computer the foot stopped 22 px above the dialog's edge (`Error: desktop: foot to the edge … Expected: < 0.5 Received: 22`) — the `Dialog`'s `py-[1.375rem]` — and "Endgame count 4" showed in that strip under Keep editing / Submit entry. On the phone at the end of the list the foot sat 15.75 px above the edge (`ResponsiveDialog`'s `pb-4`); halfway down the Playwright phone shows no strip only because Chrome's `env(safe-area-inset-bottom)` is 0 there — on an iPhone that inset is the strip the user saw. The foot was also content-width (inside the sheet's `px-4`), so it could not read as a bar.
+
+**What I did instead:** a new shared `components/ui/surface-foot.tsx` (`SurfaceFoot`), drawn by the surface itself: `Sheet` and `Dialog` take a `foot` prop (and `ResponsiveDialog` passes it to whichever shape it renders) and draw the foot as the scroller's LAST child, `sticky bottom-0 z-10 bg-surface`, a `flex-col gap-3` column (so a failed-submit line and the action row are its direct children). While a foot is pinned the scroller keeps NO bottom padding (`pb-0`), and the foot carries that room inside its own painted box: on a bottom sheet `pt-2 pb-[calc(1rem+env(safe-area-inset-bottom))]`, on the dialog `pt-2 pb-[1.375rem]`; edge to edge (`-mx-4 px-4` / `-mx-6 px-6`). The content wrapper of the phone `ResponsiveDialog` drops to `pb-3` with a foot, so the room between the last answer and the buttons stays 20 px as before (12 + 8; the dialog's `gap-3` + 8). The hairline is `data-[stuck=true]:shadow-[0_-1px_0_var(--line)]` (the builder's sticky phase header draws its rule the same way, a shadow, so the foot never changes height); `data-stuck` is true while the scroller has more than 1 px left to scroll (a scroll listener plus a `ResizeObserver` on the scroller and its children, guarded where there is none). `Dialog`'s first focus falls to a foot's first control when the body has none. Without a `foot` both surfaces are unchanged (`Dialog` writes `pt-[1.375rem] pb-[1.375rem]` for `py-[1.375rem]`, the same box). `ConfirmEntry` (both the match entry's and the super entry's Review, and practice) now passes its error line and buttons as `foot`; its own `sticky` div is gone. BUILD-CONTEXT §12.5 gains a "Pinned foot in a sheet or dialog" line, so a later sheet uses `foot`. The audit for other sticky feet inside a `Sheet` or `Dialog`: `grep sticky` over `src/` finds none besides `ConfirmEntry`'s (the other sticky elements are page bars — side task 2's list).
+
+Tests: `components/ui/surface-foot.test.tsx` (9): a bottom sheet and a dialog with a foot draw it as the scroller's last child with `pb-0` on the scroller and the room in the foot, edge to edge; without a foot each keeps its padding and draws none (the negative); `ResponsiveDialog` on a phone hands the foot to the sheet; the hairline is off for a list that fits, on mid-list, off at the end; a dialog with no control in its body focuses the foot's action; `ConfirmEntry` on phone and computer has Keep editing, Submit entry and the failed-submit `alert` as direct children of the one `.sticky` foot. A mutation (the dialog keeping `pb-[1.375rem]` with a foot) fails the dialog test. `e2e/review-foot.spec.ts`: at 375 and 1440, halfway down, `data-stuck` is true, the foot's bottom, left and right are within 0.5 px of the scroller's inner edges, its background is painted, and every probe point from the foot's top to the edge (three columns, every 2 px) that lands inside the surface lands on the foot; at the end, `data-stuck` is false, the last answer's row ends above the foot and the foot still reaches the edge; shots `review-foot-scrolled-{phone,desktop}` and `-outdoor-` scrolled halfway.
+
+Rejected: (1) moving the foot outside the scroller (a non-scrolling body + a fixed foot row) — it would also pin the title and handle, change what `useDragDismiss` reads as "scrolled", and move the scroller off the `role="dialog"` element that specs and tests scroll; (2) a CSS `:has([data-…])` rule on the surface to drop its padding — it hides the coupling in a selector and cannot be read in jsdom; (3) keeping the surface's padding and giving the foot a negative bottom margin — a sticky box's margins enter its constraint rectangle, which is exactly what went wrong; (4) a `border-t` for the hairline — it would add a pixel to the foot only while stuck, so the buttons would jump. The name `data-pinned-foot` was not reused: it already marks a page's `<main>` for `ActionBar` (BUILD-CONTEXT §12.5), and `ShellLayout` selects on it.
+
+**Risk:** `foot` and `footer` now sit side by side on `Dialog`/`ResponsiveDialog` (pinned vs unpinned action row); side task 3's one action-row rule may want to fold them into one. The `ConfirmEntry` action row keeps its equal-width buttons at both widths, as before (side task 3 decides the computer's alignment). The safe-area part is proven by structure (no scroller padding, the inset inside the foot's box), not by a picture: Chrome's inset is 0 in Playwright.
+
+Bundle: initial JS **227.7 KB** gzip (227.3 before: `SurfaceFoot` and the `foot` plumbing ride in the shared `Dialog`/`Sheet`). No raise.
+
+## Phase 1 I side task 2 — nothing pinned floats (plan v1.30)
+
+**Plan said:** on the team page (`/teams/:teamId`) the tab strip floats: it is not flush under the team header. Reproduce it at 375 and 1440, scrolling slowly through the compact switch both ways. Then make the header and the tabs ONE sticky block: one wrapper that sticks, the tabs inside it, no measured offset, no gap, and "a tab chosen while stuck keeps them stuck" kept. Then audit the same pattern elsewhere and fix what floats: hard-coded bar heights (`MatchTimer`, `HEADER_TOP`) → the shell publishes the top bar's height once as a CSS variable; the bottom-pinned bars (Save bars, `ActionBar`); sticky inside a scroller (the Review foot, the builder's phase headers, `TableHeader sticky`); every pinned surface opaque edge to edge with the right z-order. Tests: tabs' top = header's bottom at every scroll position (unit + step-by-step e2e), a source test that no `top-[…]` holds a bar height, and e2e shots of the team page scrolled and of the entry form scrolled under the timer, at 375 and 1440, every theme.
+
+**What was wrong:** reproduced before the fix with the new test in `e2e/team.spec.ts`. It scrolls 4 px at a time from 0 to 480 and back, with motion on, reads the boxes on 4 frames per step, and treats the tabs as stuck once the panel has slid under them. Phone, before: `phone: 964 samples, 540 stuck; header off its bar 0; tabs over the header 0; stuck with a gap 540`. Every stuck sample was `{"bar":54,"headerTop":54,"header":121,"tabs":129,…}`, an **8 px gap** with the rules showing through it. Computer, before: `desktop: … stuck with a gap 0`; there was no gap at 1440. The 8 px is exactly the vertical padding the compact header gives back (`pt-3.5 pb-3` = 26 px → `py-[9px]` = 18 px). By inference, not instrumented: the `ResizeObserver` watched the header's content box (its default), and the padding transition does not change that box. So the height measured at the switch (new content + old padding) was never measured again. It was a steady 8 px, not the one-frame lag the plan suspected.
+
+The stalled agent's uncommitted test was **replaced, not kept.** Its "parted" filter counted every sample where the tabs were < 60 px below the header, which included the tabs scrolling up toward the header (gaps 57, 53, … 9). It would have failed with a correct fix. It also wrote files through `SEAMS_DIR`/`writeFileSync`.
+
+**What I did instead:**
+- **One sticky block** (`TeamPage.tsx`, `div[data-team-head]`, `sticky top-[calc(var(--top-bar,0px)-var(--team-tiles,0px))] z-20`):
+  - The block holds the header, the phone's stat tiles, and the tab bar.
+  - The header keeps its own `sticky top-[var(--top-bar,0px)]` inside the block.
+  - The tabs follow the header **in flow** in the same box. Whatever the header's height, or its padding transition, they touch it by layout. There is no offset between them, measured or not.
+  - The computer has no tiles, so `--team-tiles` is unset (0) and the block simply sticks on the bar.
+  - On the phone, the design puts the four stat tiles **between** the header and the tabs (24-team final, frame 1). They must scroll away under the header. So the block sticks the tiles' height *above* the bar while the header's own sticky keeps it on the bar.
+  - That height is the one value read from layout: `--team-tiles`, the tiles' border-box height. It is unrounded, published on the page root by a `ResizeObserver` (`box: 'border-box'`), and written straight to the style, so there is no React render in between. It is the tiles' height, never the header's: the tiles never animate, and nothing about the header (its compact switch, its transition) enters it.
+  - **This is a deviation from "no measured offset"**, logged as such. With the tiles between the two, CSS has no way to say "stop when the tabs reach the header" without knowing the tiles' height. The alternatives are under Rejected.
+  - The panel's minimum height moved to the page root: `calc(100dvh - var(--top-bar) + var(--team-tiles))`. This is the same room as before (a screen under the stuck block) without the header's height in it.
+  - The "keeps them stuck" rule now reads the block. If the panel's top is under the block's bottom when a tab is chosen, the new panel is scrolled to start at that bottom.
+  - The header's `ref` prop and `HEADER_TOP` are gone.
+- **`--top-bar`** (`features/shell/barHeights.ts`, `TOP_BAR`):
+  - The two heights are written once: phone `calc(3.375rem + env(safe-area-inset-top))`, computer `3.75rem`. `ShellLayout` publishes the current one on every page as `--top-bar`, next to `--bottom-bar`.
+  - `TopBar` and `CrumbBar` take their own height from the same `TOP_BAR` (inline `height`; the TopBar's row is `h-full` under its safe-area padding). So the bar and every sticky element under it cannot disagree.
+  - Moved onto `top-[var(--top-bar,0px)]`: `MatchTimer` (both layouts), `TeamHeader`, and `TableHeader sticky` (it was `top-0`, behind the bar).
+  - `BuilderPage`'s `h-[calc(100dvh-3.75rem)]` is now `h-[calc(100dvh-var(--top-bar,0px))]`. That is the same copy of the height, though not a `top-[…]`.
+- **Audit:** what was checked and what was found.
+
+  | Pinned element | Finding | Change |
+  |---|---|---|
+  | Team page tabs (phone) | **Floated** by 8 px. | Fixed above. |
+  | Team page tabs (computer) | Flush before and after. | Now in the one block. |
+  | `MatchTimer` (phone `top-[calc(3.375rem+env(safe-area-inset-top))]`, computer `top-[3.75rem]`) | Did not float: the values matched the bars. A copy of the bars' heights. | → `--top-bar`. e2e: the timer sits within 0.5 px of the bar at 375 and 1440, and every probe point (every 2 px down, every 12 px across) from the screen top to the timer's bottom lands on the bar or the timer. |
+  | `HEADER_TOP` (`TeamHeader.tsx`) | A copy of the bars' heights. | Removed. |
+  | `TopBar` (sticky `z-30` `bg-rail`, safe-area inside its padding) | Opaque edge to edge. | Its height now comes from `TOP_BAR`. |
+  | `CrumbBar` (sticky `z-20` `bg-surface`) | Opaque edge to edge. | Its height now comes from `TOP_BAR`. |
+  | Entry Save bar (`EntryPage.tsx`: wrapper `sticky bottom-[var(--bottom-bar,0px)]` + `ActionBar`) | Phone e2e, scrolled: every probe point from the bar's top to the screen's bottom edge lands on the bar. The entry route hides the bottom bar. The computer has no pinned Save bar: Review entry sits in the side panel. | No change. |
+  | Super entry Save bar (`SuperForm.tsx`) | Same wrapper and classes as the entry's, so checked by code. `super.spec` passes. Not probed on its own. | No change. |
+  | `ActionBar` above `BottomBar` (Scout page) | `scout.spec`, the long roster scrolled to its end: every probe point from the action bar's top to the screen's bottom lands on the action bar or the bottom bar, including the raised Scout button and the safe-area foot. The existing flush check (≤ 1 px) still holds. | No change. |
+  | `PhoneMatchList`'s `ActionBar` | The same component. | Not probed. |
+  | Review sheet foot (`SurfaceFoot`, side task 1) | Checked: `sticky bottom-0 z-10 bg-surface`, edge to edge, the scroller has no bottom padding. `review-foot.spec` passes. | No change. |
+  | Builder phase header (`BuilderCanvas.tsx`, `sticky top-0 z-[3] bg-line-2`) | Its scroller (`overflow-y-auto bg-line-2`) has no top padding, so `top-0` is its edge. The header is opaque, the same colour as the scroller, and spans the 410 px column the items live in. Its own rule shows once scrolled. `forms.spec` passes. | No change. |
+  | `TableHeader sticky` | Was `top-0`, behind the bar. Unused. | → `top-[var(--top-bar,0px)]`. Its doc comment notes that it only sticks where `Table`'s own `overflow-x-auto` box is made `overflow-visible`: that box is a scroll container. |
+  | `Sidebar` (`sticky top-0 h-dvh z-30 bg-rail`) | Opaque. | No change. |
+  | `BottomBar` (`fixed bottom-0 z-30 bg-rail`, safe area in its own padding) | Opaque to the bottom edge. | No change. |
+  | Z-order | The team block `z-20` sits under `TopBar` `z-30`, so the part of the block above the bar (the tiles, on the phone) is covered by the bar. On the computer, the block and `CrumbBar` (`z-20`) never overlap. | — |
+- **Tests:**
+  - `TeamPage.test.tsx` (+4):
+    - On the computer, the block holds exactly [header, tab bar]. Nothing on the page has an inline `top`, and nothing else is sticky. The panel is outside the block. Every tab keeps the same block.
+    - On the phone, the block holds [header, tiles, tab bar], and `--team-tiles` is the tiles' unrounded height (`217.25px`). Compact, the block holds the same three in the same order.
+    - A tab chosen while stuck scrolls the new panel to the block's bottom. The negative: a tab chosen while not stuck does not scroll.
+  - `styles/classes.test.ts` (+3): `BAR_COPY` finds no bar height (3.375rem, 3.75rem, 54px, 60px, `safe-area-inset-top`) in a `top-[…]` class and no `100dvh-<bar>`. The phone bar's `3.375rem + env(safe-area-inset-top)` appears in `features/shell/barHeights.ts` only. The rule's own catch and accept cases are tested too.
+  - `ShellLayout.test.tsx` (+1): `--top-bar` is published on the entry route (no bottom bar) and on the computer, and each bar is exactly that tall.
+  - `MatchTimer.test.tsx`: both layouts read `--top-bar`, and no `top-[…rem]` remains.
+  - `ui.test.tsx` (+1): `TableHeader sticky` sits on `--top-bar` and is not `top-0`. Without `sticky`, it is not sticky.
+  - e2e:
+    - `team.spec.ts`: the step-by-step walk at 375 and 1440, waiting first until the header sits on the bar. Then, stuck, every probe point from the screen top to the tab bar's bottom lands on the bar or the block. Then the keep-stuck check after choosing Notes. Shot: `team-scrolled-desktop`. The phone's `team-scrolled` is shot by the phone-frames test.
+    - `entry-timer.spec.ts`: a new test with a long Teleop (12 extra counters, so the form scrolls at 1440 × 900). Shots: `entry-timer-scrolled-{phone,desktop}`.
+    - `scout.spec.ts`: the bottom-band probe.
+    - The probe helper is `e2e/pinned.ts` (`showsThrough`).
+  - **Mutations:** each change fails its test.
+    - The block's top `+8px` fails the walk: `desktop: … header off its bar 964` and `phone: … stuck with a gap 540`.
+    - The phone timer's top `+6px` fails the timer test: `Error: phone: timer on the bar … Received: 6`.
+
+Rejected:
+1. **Two sticky elements, the tabs' `top` from one CSS variable that the header's height also reads.** The header would need a fixed height, and the phone header's sub-line can wrap. It is also still two sticky elements, which the plan rules out.
+2. **Swapping the tabs into the header's sticky box once they reach it (a JS "stuck" boolean).** It is structurally exact while stuck. But the tab strip would remount at the swap and lose keyboard focus, and the swap must render in the same frame as the scroll (`flushSync` in a scroll listener).
+3. **Moving the phone's tiles under the tabs**, so the block needs no measure. This is a design change: the final puts them between the header and the tabs.
+4. **Fixing the tiles' height in CSS** (each `StatTile` line `truncate`d, a computed rem height). This is fragile: notes like "9 of 10 matches" wrap at 320 px. It is also a second copy of `StatTile`'s box.
+5. **CSS anchor positioning** (`anchor()` on the tabs). It does not work with `position: sticky`, and support on the venue phones is not there.
+
+**Risk:**
+- **Landmarks.** The tiles and the tab strip are now outside `<main>`. The block has to hold the header (the page's `banner`, which must stay outside `main`) and the tabs together. `<main>` now holds the panel. axe (wcag2a/aa) is clean, and the `region` rule is best-practice only.
+- **The tiles' height.** If it were ever stale, the phone block would stick early or late by that much. It is published before paint and on every resize of the tiles, and the e2e walk proves it at 375.
+- **The opening transient.** At the very first frame after the team page opens, the e2e saw the header 61.5 px below the bar once (`headerTop 115.5`), as the stalled agent's data also shows. The test now waits for the header to sit on the bar before walking. This looks like a shell notice that shows for a moment; I did not identify it.
+- **`TableHeader sticky`** still won't stick to the page inside `Table`'s `overflow-x-auto` box. See its doc comment.
+
+Bundle: initial JS **227.7 KB** gzip, unchanged. No raise.
+
+## Phase 1 I side task 3 — the Wipe sheet's buttons line up; one action rule for every sheet and dialog (plan v1.31)
+
+**Plan said:** one size and one edge for every button in the held Wipe sheet; one rule for every sheet and dialog, built into the shared surface: on a phone, a full-width row of equal-width buttons (secondary first, primary or destructive last); on a computer, right-aligned, equal height. *[RAISED BY ME]* while held, drop the disabled **Wipe this device**, so the footer is **Keep this device** alone. Audit every `ResponsiveDialog`, `Dialog`, `Sheet` and `DestructiveConfirm` footer and log each.
+
+**What was wrong:** the held row (`flex flex-wrap gap-2`, 44 px `md` buttons, content width, left) and the footer (`DestructiveConfirm`'s own hand-styled buttons, 48 px from `tap-target`, `justify-end`) were two layouts. Across the app the "action row" was rebuilt per page in six different ways: `flex flex-wrap justify-end gap-2` (Dialog/ResponsiveDialog footer, EventForm, SeasonForm), `flex gap-2.5` + `size="lg" flex-1` (Review, LineupTiles, StationSheet), `flex-1 lg:flex-none` (CrossEventJump), `w-full lg:w-auto` (SwitchCompetition, Problems), `max-lg:w-full` (Settings Done), stacked `size="block"` (PracticeFinished, the map's failed-to-load sheet).
+
+**What I did instead:** the rule is one component, `components/ui/surface-actions.tsx`:
+- `SurfaceActions` draws the row: `flex gap-2.5 max-lg:w-full lg:flex-wrap lg:justify-end lg:gap-2`. Below 1024 px it is full width; at 1024 px and above it is right-aligned. It decides by **width** (Tailwind's `lg`, SPEC-FINAL 17.3's breakpoint), not by which surface it is in, so a `Dialog` below 1024 px and a sheet agree, and the rule reads exactly as the plan states it.
+- `Button` reads `InActionRow`: inside the row it takes `md` (44 px) plus `ACTION_BUTTON` (`max-lg:min-h-[52px] max-lg:min-w-0 max-lg:flex-1 max-lg:px-3 max-lg:text-base max-lg:whitespace-normal`). So on a phone every action is 52 px and equal width (a long label wraps inside its half instead of overflowing); on a computer every action is the 44 px `md` button. **A `size` passed to a Button inside the row is set aside**: the row decides, so no caller can make one action taller again. `actionButtonClass(variant)` gives a `Link` drawn as a button (Send by QR first) the same classes.
+- `Dialog`'s and `ResponsiveDialog`'s `footer` render inside `SurfaceActions` (it replaced their `mt-2 flex flex-wrap justify-end gap-2` div). A pinned `foot` (side task 1) or a row in the content uses `SurfaceActions` directly. **`footer` vs `foot`:** both kept. `footer` is the unpinned row, `foot` the pinned column (an error line above the row); one rule now governs the buttons in both, which was the point. Folding `footer` into `foot` would pin every confirmation's buttons and give short dialogs that never scroll a sticky foot for nothing; rejected.
+- `DestructiveConfirm` now draws its two actions with `Button` (`secondary`, then `destructive`) instead of its own `BUTTON` string, keeping `aria-disabled` (focusable while held or busy). New prop `hideConfirm`: no confirm button at all. `DeviceWipe` passes `hideConfirm={held}`: while held the footer is **Keep this device** alone, and the held line's **Send by QR first · Wipe anyway…** is the sheet's action row, the same `SurfaceActions`. While the hold is still being read ("Checking what is waiting to send.") the disabled wipe stays, because nothing else is offered yet.
+- **Sizes chosen:** phone 52 px, the established phone action size (THEME "Primary action bar", the Review sheet, the station and lineup sheets). Computer 44 px `md`, the default every admin and builder dialog already used. `DestructiveConfirm` was 48 px on both; it is now 52 / 44. Its icon is now the Button's 17 px (it was 20 px).
+- **Review on a computer** (side task 1's note): the rule wins. The Review dialog's Keep editing · Submit entry are now right-aligned 44 px buttons, not two equal 52 px halves. Practice finished, the station sheet and "Scout … instead?" also go right-aligned on a computer. Practice finished on a phone goes from two stacked 52 px buttons (Practice another match first) to one row, **Exit practice · Practice another match** (secondary first, primary last); first focus stays on Practice another match.
+
+**The audit** (every `features/**/*.tsx` that renders `ResponsiveDialog`, `Dialog`, `Sheet` or `DestructiveConfirm`; 32 files):
+
+| File | Surface | Before | Now |
+|---|---|---|---|
+| admin/AddMatchesSheet.tsx | Sheet (phone) | a form's full-width 52 px submit, then "or one match" with an inline input + button | **Unchanged, exempt:** no action row. These are form submits, already full width or an input's own button (07-manage final) |
+| admin/AddUserDialog.tsx | Dialog ×2 | `footer`: Cancel · Add user; Add another · Done | Shared row through `footer`, no page change |
+| admin/DeleteCompetition.tsx | DestructiveConfirm | its own 48 px buttons | Shared row (through DestructiveConfirm) |
+| admin/DisableSection.tsx | DestructiveConfirm | as above | Shared row |
+| admin/DisableUserConfirm.tsx | DestructiveConfirm | as above | Shared row |
+| admin/EditMatchDialog.tsx | Dialog | `footer`: Cancel · Save changes | Shared row through `footer` |
+| admin/EditMatchSheet.tsx | Sheet (phone) | full-width 52 px Save changes, then a ghost full-width Delete match | **Unchanged, judgement call:** one action (Save) already full width. Delete is a low-emphasis ghost that *starts* a separate destructive flow (07-manage final); a row would give a destructive start the weight of Save |
+| admin/EventFormDialog.tsx | Dialog | own `mt-5 flex flex-wrap justify-end gap-2` row in the form | `SurfaceActions className="mt-5"` (kept inside the `<form>` for submit) |
+| admin/MatchesPanel.tsx | DestructiveConfirm | own buttons | Shared row |
+| admin/PhoneMatchList.tsx | DestructiveConfirm | own buttons | Shared row (the page's `ActionBar` is not a sheet; unchanged) |
+| admin/ResetPasswordDialog.tsx | Dialog ×2 | `footer`: Cancel · Reset password; Done | Shared row through `footer` |
+| admin/SeasonFormDialog.tsx | Dialog | own `justify-end` row | `SurfaceActions className="mt-5"` |
+| admin/UnsavedConfirm.tsx | DestructiveConfirm | own buttons | Shared row |
+| builder/BuilderLeaveGuard.tsx | DestructiveConfirm | own buttons | Shared row |
+| builder/BuilderPage.tsx | DestructiveConfirm | own buttons | Shared row |
+| builder/DeleteFormDialog.tsx | DestructiveConfirm | own buttons | Shared row (the in-body `size="sm"` export button is not an action row) |
+| builder/ImportExport.tsx | Dialog ×2 | `footer` with a `me-auto` ghost "Also download a copy" and an offline line | Shared row through `footer`; `me-auto` and the line still work in the `lg:` row (a desktop-only page) |
+| builder/RawJsonEditor.tsx | Dialog | `footer`: `me-auto` Copy all, offline line, Cancel · Apply | Shared row, otherwise unchanged |
+| builder/TimerConfigEditor.tsx | Dialog | `footer`: `me-auto` ghost Remove the timer, line, Cancel · Save | Shared row, otherwise unchanged |
+| context/SwitchCompetitionSheet.tsx | ResponsiveDialog | `footer` Close with `w-full lg:w-auto` | Class removed; the row does it |
+| entry/ConfirmEntry.tsx | ResponsiveDialog `foot` | `flex gap-2.5`, `size="lg" flex-1` at both widths | `SurfaceActions` in the foot; the error line stays a direct child of the foot. Computer: right-aligned 44 px |
+| entry/LineupTiles.tsx | ResponsiveDialog | own `flex gap-2.5` row, `size="lg" flex-1 px-3` | `SurfaceActions className="mt-1"` |
+| entry/PracticeFinished.tsx | ResponsiveDialog | stacked `size="block"`, primary first | `SurfaceActions`: Exit practice · Practice another match |
+| entry/ProblemsDialog.tsx | ResponsiveDialog | Keep editing `size="lg" w-full lg:w-auto lg:self-end` | `SurfaceActions className="mt-1"` |
+| entry/StationSheet.tsx | ResponsiveDialog | own `flex gap-2.5` row, `size="lg" flex-1 px-3` | `SurfaceActions className="mt-2"` (the station bar's `max-lg:w-full` button is on the page, not in the sheet) |
+| entry/lazyParts.tsx | ResponsiveDialog (map not loaded) | Close `size="block"` | `SurfaceActions` |
+| entry/map/MapSheet.tsx | Dialog (computer) + own full-screen pop-up (phone) | a tool bar: tools, count, Close/Done | **Unchanged, exempt:** THEME "Map dialog (computer)" is one 40 px tool row with Done at its end, and "Map pop-up (phone)" a full-screen bar with tools and a full-width Done. A tool bar, not a footer; the phone pop-up is not a `Sheet` |
+| settings/DeviceWipe.tsx | DestructiveConfirm ×2 | held row `flex flex-wrap gap-2` (44 px, left) + footer (48 px, right, with a disabled wipe) | Held: the held row is `SurfaceActions`; the footer is Keep this device alone (`hideConfirm`). Wipe anyway: shared row |
+| settings/SettingsPage.tsx | ResponsiveDialog ×2 | Done `max-lg:w-full` | Class removed; the row does it |
+| shell/NavDrawer.tsx | Sheet `start` | the menu | **Unchanged, exempt:** no actions |
+| sync/SyncPage.tsx | Sheet "More" + DestructiveConfirm | menu rows; own confirm buttons | More: **unchanged, exempt** (a menu). Discard confirm: shared row |
+| teams/CrossEventJump.tsx | ResponsiveDialog ×2 | `footer`, `flex-1 lg:flex-none` on each | Classes removed; the row does it |
+
+A source test (`surface-actions.test.tsx`) fails if any feature file brings back `flex flex-wrap justify-end gap-2`, `flex-1 lg:flex-none`, `w-full lg:w-auto` or a closing `max-lg:w-full"`.
+
+**Rejected:**
+- **Deciding by surface shape** (a context from `Sheet` = phone layout, `Dialog` = computer layout). It would leave a plain `Dialog` below 1024 px right-aligned, and a test could check only the shape, not the width the plan names.
+- **`*:` child selectors on the row** to size the buttons. Their order against the button's own `px-…`/`min-h-…` would hang on Tailwind's output order; classes on the button go through `tailwind-merge`.
+- **A new `Button` size** (`action`): one more locked size where a context-bound class does it.
+- **The held row as the pinned `foot`** (side task 1's suggestion). The wipe sheet is short and does not scroll; a foot adds nothing there.
+- **Keeping the disabled wipe while held:** the plan's decided *[RAISED BY ME]*.
+
+**Risk:**
+- The 16-settings final draws the held wipe with two stacked full-width buttons (Keep this device, the disabled Wipe this device). The plan's rule replaces it: the phone sheet is now [Send by QR first | Wipe anyway…] over [Keep this device], both rows edge to edge (e2e-measured: same left and right, every action 52 px; on a computer every action 44 px and both rows end at the same right edge).
+- Two-line labels on a phone ("Practice another match" in half of 343 px) wrap inside the 52 px button and the row's other button stretches to match. A label of three lines would grow the row; none does today.
+- The 14-entry-parts final and side task 1's Review shots drew the Review dialog's buttons as two equal halves on a computer. They are now right-aligned (the plan's rule).
+- `EditMatchSheet` is the one sheet left with two buttons of different heights (Save 52 px over a ghost Delete 44 px), logged above as a judgement call, not moved.
+
+Bundle: initial JS **227.8 KB** gzip (from 227.7), under the 230 budget. No raise.
+
+**Follow-up (orchestrator, before commit): a button label never wraps.**
+
+**What was wrong:** the first cut let a long label wrap inside its half (`max-lg:whitespace-normal`): "Practice another match" took two lines in a 52 px button (`practice-finished-phone.png`).
+
+**What I did instead:**
+- `ACTION_BUTTON` no longer has `max-lg:whitespace-normal`, so the button keeps its own `whitespace-nowrap`.
+- `SurfaceActions` measures, as `OptionButtons` does for its column drop. Each button's one-line width is read on the button itself: inline `width: max-content; flex: none` for the read, put back before paint. That width is checked against its equal share of the row (`fitsInRow(need, count, width, gap)`, with half a pixel of slack).
+- When any label does not fit, the row gets `data-stacked="true"` and `ACTIONS_STACKED` (`max-lg:flex-col`). Below 1024 px that is full width, one per line, in the caller's order, so the primary or destructive button is at the bottom. At 1024 px and up nothing changes (the class is `max-lg:` only).
+- A ResizeObserver on the row and its buttons re-measures. The one-line width does not depend on the row's layout, so stacking cannot feed back into the measure. A row with no width keeps its answer.
+- The copy is unchanged.
+- Practice finished on a phone is now Exit practice over Practice another match, each full width and 52 px. The held wipe's rows and Wipe anyway's row still fit side by side at 375 px.
+
+**Rejected:**
+- A hidden probe element, which is what `OptionButtons` uses. Here the buttons themselves can be read at `max-content`, so a probe would be a second copy of every label.
+- Guessing from character counts.
+- `truncate`.
+
+**Risk:**
+- A single label wider than the full row would still overflow its one line. No current label comes close: the longest is "Practice another match", about 204 px of a 343 px row.
+- The measure forces a layout read on each render of a row. Rows are few and small.
+
+Tests: 6 new in `surface-actions.test.tsx`:
+- the `fitsInRow` rule
+- a long label stacks, with the primary last and the styles put back
+- short labels stay one row
+- re-measure on a resize, both ways
+- a zero-width row keeps its answer
+- no row button may wrap
+
+Mutation: measuring the laid-out width instead of the one-line width fails 3 of them. e2e `drafts-practice.spec.ts`: Practice finished at 375 is stacked, both buttons 52 px, equal width, the primary below. At 1440 the two buttons sit on one line at 44 px.
+
+Bundle: initial JS **228.2 KB** gzip, under 230.
+
+## Phase 1 I side task 4 — an offline wipe warns that the phone cannot sign in again (plan v1.32)
+
+**Plan said:** while offline, both wipe confirmations show a warning Notice above the confirm ("**You're offline.** After the wipe, this phone can't sign in again until it has a connection."); online it is not shown; the confirm stays enabled. *[RAISED BY ME]* after a wipe the sign-in page's no-accounts line reads "**This device was wiped.** Connect to the internet to sign in.", from a marker that survives the wipe and is cleared by the first successful sign-in. The connection is read through the existing state, never a new `navigator.onLine` check.
+
+**What was wrong:** nothing in the plan. Five choices it left open:
+1. *Which "warning Notice".* `WarningNotice` (THEME "Warning notice", `--warn-tint`) with `lead="You're offline."` and the `WifiOff` icon. That is the shape the builder already uses for its "You're offline." line, and THEME's "Something to know before going on". Rejected: the legacy `Notice tone="warning"` (the held line's edge). Here the warning sits under the type-to-confirm field, and a second edge-only box read as part of the form.
+2. *Where it goes.* There was no slot "above the confirm" in `DestructiveConfirm`: `children` sit before the typed phrase, and `held` disables the confirm. I added a `notice` prop, drawn after the type-to-confirm field and `held`, before the error line. It holds nothing. Rejected: passing it as `held` (that disables the confirm), or as `children` (it would sit between the code and the phrase).
+3. *Which states of the normal wipe show it.* Only the open one (nothing waiting, confirm drawn). Since side task 3 the held sheet has no confirm, and its own way out is Wipe anyway…, whose confirmation shows the warning. While the hold is still being read it is not shown, so it does not flash and then go when the sheet turns held.
+4. *The marker.* A new `meta` key, `JUST_WIPED_KEY = 'device.just_wiped'` (`data/db.ts`). The wipe writes it in its own transaction, after it deletes `meta`, and lists it in `KEPT_META`. Rejected: reusing `WIPED_AT_KEY`. A sync reads that at the start of its pull and again when it marks hydration, so a sign-in clearing it would cost the first pull after sign-in its hydration mark. Rejected: `localStorage`. The wipe's `clearDevicePrefs` and the session live in IndexedDB, and the discarded log (the precedent the plan names) is there too.
+5. *Who clears it.* `session.signIn`, inside the same `meta` transaction as the session write (`update`'s new `alsoInMeta`). Every successful sign-in goes through it: online, offline, and the reconnect exchange. Rejected: clearing it after the session write, outside the transaction. The first cut did that, and two existing tests failed (`AppShell.test.tsx` "exchanges the held password…" and `offlineLogin.integration.test.ts` "on reconnect, mints a token…"). They read `pendingCredential` the moment the token appears, and the extra await after the notify moved `pendingCredential.clear()` later:
+   `AssertionError: expected { username: 'seed_scouter', …(1) } to be null`
+
+**What I did instead:**
+- `offlineLogin` reads the mark only when no accounts are cached. With the mark it throws `OfflineLoginError('wiped')` (`WIPED_DEVICE_LINE`); without it, `'no-accounts'` as before. `signInWithFallback` treats `'wiped'` exactly as `'no-accounts'`. So an online device with no answer still gets the server-unreachable line, and a 5xx still gets the server line.
+- `LoginPage` draws `WIPED_LEAD` in bold inside the error line. `AuthError` takes a `ReactNode`.
+- `DeviceWipe` reads `useOnline()` (settings is not one of the folders `offlineGates.test.ts` restricts) and passes the warning as `notice` to both confirmations.
+- The wipe itself is unchanged.
+
+**Risk:**
+- The error line is already semibold, so the bold lead is only a little heavier than the rest of the line (`login-wiped-*.png`).
+- `SwitchScouter` still shows `NO_CACHED_ACCOUNTS_LINE` when nothing is cached. It cannot be reached after a wipe, because the wipe signs out, so it was left alone.
+- *[RAISED BY ME]* On `/login` after an offline wipe, the offline note above the form still says "Signing in will use the credentials cached on this device", and none are cached. The wiped line only appears after a submit. Not changed here: the plan names only the no-accounts line.
+
+Tests:
+- `DeviceWipe.test.tsx`, 7 new:
+  - the wording
+  - normal wipe, offline: the warning, placed after the typed phrase, with the lead in `<b>`, and the confirm still enables
+  - normal wipe, online: none
+  - it comes and goes with the `offline`/`online` events
+  - held and offline: none
+  - Wipe anyway, offline: the warning, and the confirm still enables
+  - Wipe anyway, online: none
+- `offlineLogin.test.ts`, 5 new:
+  - the wiped line
+  - the offline fallback says it and keeps the mark
+  - online with no answer, the server line still wins
+  - no mark gives the old line
+  - an online sign-in clears the mark and the old line comes back
+- `LoginPage.test.tsx`, 2 new: the wiped line with its bold lead, not the old line; an online sign-in clears the mark.
+- `wipe.test.ts`: the wipe leaves `JUST_WIPED_KEY: true` in `meta`, plus 1 new test: after a real wipe of a device with a cached account, offline sign-in gives the wiped line.
+- Mutation: dropping the clear from `session.signIn` fails 2.
+- e2e:
+  - `settings.spec.ts`, new test: online, neither confirmation has the line. Offline, both do, and the confirm enables. Wipe anyway offline lands on `/login`, and an offline sign-in there says the device was wiped. Shots: `settings-wipe-offline`, `settings-wipe-anyway-offline`.
+  - `auth.spec.ts`, new test: the mark set and offline, the sign-in shows the wiped line with `<b>` on the lead. Shot: `login-wiped`.
+  - Both specs ran, every theme, at 375 and 1440.
+
+Bundle: initial JS **228.3 KB** gzip, under 230.
+
+**Follow-up (orchestrator, same task): the wiped line up front on `/login`.** The *[RAISED BY ME]* risk above is fixed. While the wipe's mark is set and the device is offline, `/login` shows "**This device was wiped.** Connect to the internet to sign in." as soon as it opens, in the offline note's style (`Note icon="offline"`, `role="status"`), in place of the note that offers cached credentials. Online with the mark set, nothing extra is shown. Offline without the mark, the old note is unchanged.
+- The page reads the mark through `useDeviceQuery(readJustWiped, [], ['meta'])`. `readJustWiped` is the new helper in `auth/offlineLogin.ts`, and `offlineLogin` uses it too.
+- Neither offline line is drawn until the mark has been read, so the cached-credentials note never flashes before the wiped line.
+- Pressing Sign in while the line is up gets the same refusal. That refusal is not drawn a second time as an error line, because the same line twice reads as two problems. If the page still thought it was online (the connection dropped with no event), the refusal shows as the error line, as before.
+
+Rejected: keeping both the note and the error line.
+
+Tests:
+- `LoginPage.test.tsx`, now 4 in the wipe group:
+  - offline with the mark: the wiped line up front with a bold lead, no cached-credentials note, and no second copy after a refused submit
+  - offline without the mark: the old note
+  - online with the mark: neither; going offline then brings the wiped line, which proves the mark was read
+  - the error-line case
+- e2e `auth.spec.ts`: the mark set and the page reloaded. Online, no status line. Offline, the wiped line up front with a bold lead and no cached-credentials note. A refused Sign in adds no alert. The `login-wiped` shot is taken again.
+- e2e `settings.spec.ts`: after the offline Wipe anyway, `/login` shows the wiped line up front, with no cached-credentials note.
+- Bundle: still 228.3 KB.
+
+## Phase 1 I side task 5 — a field's chart shows the answers it has (plan v1.33)
+
+**Plan said:** find why picking Driver skill, Climb time, Cycle time or Cycle estimate draws "—" over every match, ruling the four suspects in or out (the device's `formScoring(…, { versions: [] })`; a version the cache lacks; an outbox row without `form_version_id`, `match_type` or `match_number`; the chart reading a different metric object). Fix the cause on the device path or in the shared input, never a second formula, and add a test that device and server agree. *[RAISED BY ME]* A match whose form version did not have the field is not drawn at all (no point, no dash, no dotted bridge; the x-axis keeps the match). A field chart with no value says so in one line ("No Driver skill answers for this team yet"). One value shows its dot and the team value line.
+
+**What was wrong:** none of the four suspects. On the dev event the device path agrees with the server metric for metric and match for match. The "—" was the engine's correct null, drawn as a gap. Evidence, from the local server against dev on 2026-10-28:
+
+- I logged in as `seed_lead` and pulled event `…0002` the way the device does: 1 page, 103 entries, 5 form versions, 32 form fields.
+- I fed those rows through `loadDeviceTeamStats` (cache mocked with the pulled rows) and compared with `getTeamStats` for 8009, 8014, 8020 and 8000. All 40 metrics were `SAME`: value, `unavailable_reason` and every series point. For example 8009's Driver skill was `[null,null,null,4]` on both sides, and its Cycle estimate `[null,null,null,10]` on both.
+- Of the event's 100 match entries, 90 are on versions `…0004` and `…0005`. Those versions hold only `auto_left_zone, auto_notes, notes, teleop_notes, endgame_climb`. The new fields exist only on the active version `…98e3f5` (10 entries).
+  - So every team with one new-version match shows three "—" and one lone dot. A single point draws no line segment, only a 3 px dot at the right edge.
+  - 8014 (three seed entries, all on `…0005`) shows "—" over every match.
+  - Cycle time and Climb time have no number on the new version either: 8009's Q17 timer is `null` ("unsure"), and Climb time (`climb_seconds`, shown only when the climb is `high`) is unanswered. So they are dashes throughout.
+- Suspect 3, tested directly: an outbox-shaped 8014 row (the exact keys `submitEntry` writes, a client `.000Z` stamp) on Q20, added to the dump, shows on the device as `[null,null,null,3]` with value 3. The row shape is fine.
+- Suspect 4: `ProgressPanel` and the Stats card both take their metric from `chartMetrics(stats.metrics)` by key. That is the same object the Stats row reads.
+- Suspect 1: `versions: []` only feeds `formScoring`'s fallback when a form has no active version, and `scoringOf` returns before that. Harmless, but it now gets the cached `form_versions` anyway.
+- Suspect 2: a version missing from the cache only touched the type-changed guard and the note labels. With the new reading rule it would also touch "asked", so it is handled there (below).
+- The 8014 entry the user scouted on the phone was not on the server. If it was in the phone's cache, the device would have drawn it, as the probe shows. I cannot see the phone. Likely causes are practice mode (which writes nothing) or a push still waiting. **Not verified.**
+
+**What I did instead:**
+
+- **Shared engine (one implementation).**
+  - `statsSeriesPoint` gains `asked: boolean`, as `z.boolean().default(true)`, so a server that predates it parses as the old reading.
+  - `buildTeamStats` sets `asked` on every field series point through the new `wasAsked`. A point is asked when the entry holds a value of the key (`null` included, so an "unsure" timer was asked) or when its version holds a live field of that key. A not-asked point is `value: null, asked: false`. Points-per-match points are always `asked: true`.
+  - A version the caller does not hold reads as a version without the field. The server reads a version whose fields it cannot find the same way, so a device with a stale cache never shows a dash the server would not.
+  - Rejected: inferring "asked" from `data` alone. A field left empty is absent from `data` (8020's Q19 has no `cycle_time` key), so it would vanish instead of showing "—".
+  - Rejected: reading an unknown version as asked. That is the old dash, the very one this task removes.
+  - Server bundle rebuilt (`apps/server/api/index.js`).
+- **Device path.** `loadDeviceTeamStats` now reads the cache and calls the new pure `deviceTeamStats(rows, teamId, eventId)`. It also reads `form_versions` and passes them to `formScoring`. Nothing else changed, because the device was already right.
+- **Chart (`ProgressionChart`).**
+  - A not-asked point keeps its x position and label, and draws no point and no "—".
+  - A gap's dotted bridge stops at a not-asked match, and so does the solid line.
+  - The text alternative says "Qn: not on the form for this match". A broke-down suffix is kept, because it is still true.
+  - A field chart with no value is one `--muted` line, "No {label} answers for this team yet", at the chart's height. It sits inside the same measured box, so switching metrics keeps the width.
+  - Its legend is dropped (`chartHasValues`, in `ProgressPanel` and on the computer's Stats card).
+  - Points per match always keeps its plot.
+- **Small calls.**
+  - The empty line uses the field's own label ("Climb time"), not the picker's phase-prefixed one ("Endgame climb time"), as in the plan's example.
+  - A conditional field hidden by its condition is still "—", because it is on the version. Example: Climb time when the climb was not `high`. The rule is about the version, not the condition.
+  - A no-show on a version without the field is not drawn: "not asked" wins over "dead".
+  - The match table's cells are unchanged (out of scope).
+- **The device-equals-server test** is `apps/client/src/features/teams/teamStats.parity.test.ts`.
+  - It runs the server's own `getTeamStats`, through a Store stub over the same rows, against `deviceTeamStats`.
+  - The fixture has an entry still in the outbox: a client-stamped row on a match the device made itself (`ensureMatchLocally`'s bare row). It also has two versions where v1 lacks the four fields, a no-show, a disabled robot, an "unsure" timer, a field left empty, and the super form's own `driver_skill` select.
+  - It compares the whole `TeamStats`, with note stamps compared as instants.
+  - The server module is loaded with `import.meta.glob`, not imported. A static import fails the client's composite `tsc -b` with `error TS6307: File 'C:/dev/frc-scouting/apps/server/src/core/queries/stats.ts' is not listed within the file list of project 'C:/dev/frc-scouting/apps/client/tsconfig.app.json'`. Its signature is restated in the test.
+  - Rejected: putting the test in `apps/server`, importing the client. The server's `tsc --noEmit` is its Vercel build, and it would then reach into `apps/client`, which is not a server input (`SERVER_INPUTS`).
+
+**Risk:**
+
+- The restated `getTeamStats` type in the parity test is not checked against the server's. A changed signature fails the test at run time, not at `tsc`.
+- A phone with a stale cache (missing a version's fields) now draws nothing where the server draws "—" for a field left empty on that version. The reverse cannot happen.
+- The phone's missing 8014 entry is unexplained; see "What was wrong".
+- Bundle: 228.3 KB, unchanged against the 230 budget.
+
+Tests:
+
+- `packages/shared/src/engine/teamStats.test.ts`, 2 new:
+  - On v1 (no Driver skill or Climb time) the points are not asked, a no-show included. On v2 an answer, a no-show, a field left empty and an unsure timer are all asked. An unknown version is read from the entry. Points are always asked. The wire schema passes.
+  - A series point without `asked` parses as asked.
+- `apps/server/src/core/queries/stats.test.ts`: the no-show point now carries `asked: true`.
+- `teamStats.parity.test.ts`, 4 new: 8009, 8014 (with the outbox entry) and 8020 are equal on both sides, and the four cases read as the plan names them. Mutation: the device passing `versions: []` fails all 4.
+- `ProgressionChart.test.tsx`, 7 new:
+  - one answer is one dot plus the team value line
+  - not-asked matches draw no dash, point or bridge, and the axis keeps them
+  - nothing is bridged across a not-asked match
+  - a gap still draws "—"
+  - the empty line when there is no value (all not asked, or asked but empty)
+  - points per match keeps its plot
+  - the Progress tab drops the legend under an empty chart
+- e2e `team.spec.ts`, 1 new:
+  - Setup: Orbit's first five matches are on an older version without Climb time and Driver skill, and nobody timed a climb.
+  - Driver skill shows the five not-asked matches, the one no-show as the only "—", and a mark on every other match.
+  - Climb time shows its empty line.
+  - Shot `team-progress-field` at 1440 and 375, Light and Outdoor.
+
+## Task 1.58 — The plan's test predates the design and task 1.57; adapted to the final (variant N)
+
+**Plan said:** `render(<RankingPage eventId="ev-1" rpc={rpcFor()} />)` with rows of `team_number` / `team_name`, `findByRole('columnheader', { name: /average points/i })` clicked → `aria-sort` `ascending`, then `descending`; `findAllByRole('row')` → 51; the offline test with an rpc that throws and no device data.
+
+**What was wrong:** the real `rankRow` (task 1.57) is `number` / `name` and now carries `stddev` and `phase_averages`; the design (27-ranking final) calls the headline column "Total" and starts it sorted best first, so its header already holds `aria-sort="descending"` before any click; the page links to team pages, so it needs a router; the design's group header row (AVERAGE POINTS PER MATCH · AVAILABILITY) is a second `<tr>` in the `<thead>`, which would make 52 rows; the offline page computes from the device's cache, so an empty cache has nothing to show. The plan's row fixture also gave the no-data team `breakdowns: 1, no_shows: 4` with `availability_rate: null`, which `reliabilityFor` can never return.
+
+**What I did instead:** `apps/client/src/features/ranking/RankingPage.test.tsx` keeps every assertion's intent on the real shapes: Team 1000's row reads "50" (not "50.00"), names its breakdowns and shows availability "100%"; exactly three medals (`Medal, rank 1…3`); the Total header — `descending` at rest — flips to `ascending` on a click and back to `descending` on a second; Consistency never takes `aria-sort` and a click on it changes no order; Team 1049 shows "—" and never "0.00"; 51 rows, no pagination; offline with the device seeded from `src/test/teamPageFixtures.ts` the page says "Computed from the data on this device" and calls no rpc; no weighting button or slider. The page is wrapped in a `MemoryRouter`; the group header row is `aria-hidden` (its words are in the table's sr-only caption), so the 51 holds. The no-data fixture team has 0 counts, as the builder gives. Added (the brief's negatives): the rank of every row is unchanged under every sort key in both directions and both categories, and under a three-figure sort built in the Sort builder; the no-data team is last under every one of those sorts; Consistency has no `aria-sort`, no mark, no button, and is absent from the "+ Figure" pills in both categories; nothing is named /weight/ (button, label or text) and there is no slider or range input in either category or the builder; "—" (or "No counted matches yet") in every figure cell of the no-data row in both categories. Plus the source line (server / device, a failed server falling back to the device), the study panel, the override paths and the phone list and sheets. Mutation-checked (scratchpad `mutate-158.sh`): no-data-not-last in the shared comparator, the rank following the sort, a sort glyph on Consistency, "0" for no data, `stddev` offered as a tie-breaker, a header click that never reverses, a phase averaged over a different population and a std dev over a different population — each fails the suite, and each was restored.
+
+**Risk:** none known.
+
+## Task 1.58 — Shading is task 1.59; the figures print plain, through one seam
+
+**Plan said:** (1.58) "Shading reuses `shadeFor` / `ShadedValue` (1.53's deviation): the figures in the current sort are shaded, the rest plain."
+
+**What was wrong:** nothing; the brief splits it: shading is task 1.59, on the same branch.
+
+**What I did instead:** every figure prints plain. Each figure cell is `FigureValue({ row, figure, inSort })` in `features/ranking/parts.tsx` (`data-figure`, `data-in-sort`): a figure in the current sort already has the chip's box (`min-w-[3.25rem] px-[7px] py-[3px]`, 600 `--ink`), so 1.59 swaps its body for `ShadedValue` without moving anything; the value comes from `figureValue(row, key)` (null for no data) and the text from `figureText`. The phone row's end figure is the first figure of the sort (`inSort`, the one the README says a phone shades). Consistency and Matches are never a `FigureValue`.
+
+**Risk:** 1.59 must read the domain over every row (`allRows`), not only the sorted ones the table is handed; both are passed to the table and the list.
+
+## Task 1.58 — `rankRow` gains `stddev` and `phase_averages`; a sort key per phase
+
+**Plan said:** "`rankRow` gains `stddev` and `phase_averages` (one per phase in `FIELD_PHASES` that carries points in the season's form, from `scoreBreakdown`), both computed in `buildRankTable` over the same counted entries as `average_points`." "`RANK_SORT_KEYS` gains the phase keys."
+
+**What was wrong:** the shape and the key names were open.
+
+**What I did instead:** `phase_averages: { phase: FieldPhase; average: number | null }[]`, in `FIELD_PHASES` order, one item per phase that `scoringPhases(scoring)` (new, `engine/teamStats.ts`) finds: a phase holding a scorable field a scoring rule names (no phase → `post_match`, each key once, a retired ruled field included — `scoreEntry` still scores a value an entry holds for it). The same items, same order, on every row. Each average is `aggregate(…, 'avg')` over the SAME `applyFilters` population as `averagePoints` of each entry's `scoreBreakdown` subtotal for that phase, 0 where the entry has no row or no points there (it was counted, so 0 is real), so the phases add up to Total (tested, including a retired field present in one match and absent in the next); null with no counted entry. `stddev` is `aggregate(points, 'stddev')` over the same points (null under two matches), which is exactly the team page's "Std dev of points" (tested per row on both the device and the server). `RANK_SORT_KEYS` gains `auto_points`, `teleop_points`, `endgame_points`, `post_match_points` (`PHASE_SORT_KEYS`, a test holds them to `FIELD_PHASES`), best first = `desc`; `rankSortValue(row, key)` reads a phase key from `phase_averages` (null for a phase the form does not score, so it ties through). `stddev` stays invalid (`rankTeamsInput` and `rankTeams` tested with `stddev`, `consistency`, `stddev_points`). The server's `rankTeams` is unchanged (it already hands the builder its scoring); a new server test proves its rows equal `buildRankTable` over the same store rows under every key and direction. Server bundle rebuilt (BUILD-CONTEXT §6). No migration.
+
+**Risk:** a deployed pre-1.58 server answers rows without the two fields; the client's `call()` refuses that shape (`rankRow` requires them), so `useRanking` shows the device's table until the server is redeployed — correct, but the "From the server" line will not show until then.
+
+## Task 1.58 — One ranking order; a team with no data sorts last on the server too
+
+**Plan said:** (1.57) `rankTeams` sorts one column, "a null sorts last whatever the direction; ties fall to the canonical rank, then the lower number". (1.58) "Still tied → rank order; no data last." SPEC-FINAL 13.5 v1.46: "a team with no data sorts last whatever the sort."
+
+**What was wrong:** under 1.57's rule a team with no data has 0 in every count, so it came FIRST under a count sort; the 1.57 test pinned that, and the page needs the opposite. With the change, that test failed:
+
+```
+FAIL src/core/queries/stats.test.ts > rankTeams — sorting (task 1.57) > sorts a count column fewest first by default, ties to the canonical rank
+AssertionError: expected [ 't-2', 't-1', 't-3' ] to deeply equal [ 't-2', 't-3', 't-1' ]
+```
+
+**What I did instead:** one comparator in `packages/shared/src/engine/teamStats.ts`, `compareRankRows(a, b, sort: RankSortStep[])` (and `sortRankRows`): `rankRowHasData` false (no counted match and no status-counted match) last whatever the sort; then each step, a null in that key after every value in either direction; then the canonical rank, then the lower number. `buildRankTable` sorts with it (one step), and the ranking page sorts with it (several). A team that only ever no-showed HAS data (0 % available) and sorts among the others. The 1.57 test now expects `['t-2', 't-1', 't-3']` (t-3 has only a practice entry) and checks `desc` too, citing SPEC-FINAL 13.5 v1.46. Rejected: a client-only rule, which would let the server's order and the page's disagree.
+
+**Risk:** a caller of `rankTeams` sorting by a count now sees unscouted teams last instead of first; no caller sorted on the server before this task.
+
+## Task 1.58 — One decimal everywhere (SPEC-FINAL 17.8 v1.46)
+
+**Plan said:** change `formatMetric` to one place with a whole number bare and its test; `teamView.formatStat` delegates; "This task's test below expects `'50'` (was `'50.00'`)."
+
+**What was wrong:** three existing tests expected two places:
+
+```
+FAIL src/features/entry/phases.test.ts > entry phases > reads values for the confirm list
+AssertionError: expected '12.5' to be '12.50' // Object.is equality
+FAIL src/features/sync/conflictsView.test.ts > the card > a duplicate: the earlier copy first, two secondary Keeps, no station from a cleared slot
+AssertionError: expected [ '0.5', '—' ] to deeply equal [ '0.50', '—' ]
+FAIL src/features/entry/FieldInput.test.tsx > … > formats a computed float to 2 places and a whole number with none; nothing yet is a dash
+```
+
+**What I did instead:** `formatMetric` rounds to one place and prints a whole number bare (`12.3456` → `"12.3"`, `12` → `"12"`, `-0.04` → `"0"`, never `"-0"`); new `formatStdDev` → `"±6.1"` (and `"±9"` for a whole SD, by the same rule; "—" for none). `teamView.formatStat` is now `formatMetric`. The three tests expect `'12.5'`, `'0.5'` and `/^0\.3$/`. `ComputedValue` and `conflictsView` still call `formatMetric`.
+
+**Risk:** the design draws "±10.0" / "10.0"; SPEC-FINAL 17.8 v1.46 says a whole number prints bare, which wins, so the page prints "±9" and "10".
+
+## Task 1.58 — One data source for /ranking and Home; the device loader is the team page's
+
+**Plan said:** "computed on-device from cached raw entries while offline and from `rankTeams` while online." Brief: one hook callable without the page; online `rankTeams`; offline or when it fails `buildRankTable` over the device's entries with the inputs the team page passes; copy the team page's device pattern, do not invent a second.
+
+**What was wrong:** nothing; recording the shape and the refactor.
+
+**What I did instead:** `features/teams/teamStats.ts` gains `loadDeviceEventStats(eventId)` — the body of 1.53's `loadDeviceTeamStats` (roster, every live entry of the event via `toEngineEntry`, the active match scoring, the super fields, the versions, teams and users), which `loadDeviceTeamStats` now calls, so the ranking and the team page read the device through ONE function. `features/ranking/deviceRanking.ts` (`deviceRankInput`, `loadDeviceRanking`) is that plus one `buildRankTable` call; it is loaded with a dynamic `import()` from `features/ranking/useRanking.ts`, so a first-chunk page (Home, 1.58b) can call `useRanking` without the engine entering the initial JS. `useRanking(eventId, rpc?)` → `loading | unknown | offline-needs-server | failed (retry) | ready { event, rows, source }`, `source` = `{ kind: 'server', asOf }` or `{ kind: 'device', lastSyncAt, waiting }`. Online it shows the device's table at once and the server's when it answers (asking again when a sync lands after the answer); offline, or when the server fails, the device's; under a session override the server only, held by `cross_event_view` (as the team page). Rows come in the canonical order; the page sorts. `useQualRange(eventId)` gives the sub-line's "Q1–Q40". Tests: `deviceRanking.test.ts` proves the device's rows are `buildRankTable` over the team page's inputs and that every row's rank, Total, Consistency and reliability equal that team's device team page.
+
+**Risk:** online, the device's table shows for the time the request takes, then the server's replaces it; the two can differ by the entries still waiting to send (the device's table counts them, the server's does not yet). The source line says which is shown.
+
+## Task 1.58 — No `@tanstack/react-table`
+
+**Plan said:** modify `apps/client/package.json` (add `"@tanstack/react-table": "^8.20.5"`).
+
+**What was wrong:** sorting 50 rows is one `Array.sort` with the shared comparator, and the locked `Table` already draws the sticky header and numeric cells; the library would add weight to a precached chunk for nothing it does here.
+
+**What I did instead:** no dependency added; the sort is `sortRankRows` (shared), the columns are written out in `RankingTable.tsx`. Rejected: the library for column visibility (the categories replace it) or pagination (there is none).
+
+**Risk:** none known.
+
+## Task 1.58 — Navigation: Ranking in the bar, Entries to the drawer
+
+**Plan said:** a `NAV_ITEMS` row `{ id: 'ranking', label: 'Ranking', icon: Trophy, group: 'competition', bottomBar: 3, visible: () => true }`; Entries' `bottomBar` → `null`.
+
+**What was wrong:** the shell's tests and `e2e/shell.spec.ts` pinned the bar as Home · Scout · Search · Entries and Entries' waiting badge on its tab, e.g.
+
+```
+FAIL src/features/shell/nav.test.ts > navigation (spec v1.15) > phone bar: Home · Scout · Search · Entries (task 1.51, 23-team-search final)
+```
+
+**What I did instead:** the row exactly as given, before Entries (so the sidebar's Competition group reads Home · Scout · Search · Ranking · Entries), `PATHS.ranking = '/ranking'`, the lazy route `ranking` (gated, waits for the event; handle title "Ranking"). Tests now pin Home · Scout · Search · Ranking for every role, Entries in the phone menu and the sidebar, Ranking raised on `/ranking`, nothing raised on `/entries`, and the waiting count in the top-bar pill (and the drawer) only; `routes.test.tsx` lists `ranking` among the gated routes; `e2e/shell.spec.ts` shoots `shell-bar-ranking` in place of `shell-bar-entries`. `BottomBar.tsx`'s Entries badge code is left in place, now unreachable.
+
+**Risk:** the waiting count is no longer on any bottom-bar tab (SPEC-FINAL 17.9 still says "Entries with the waiting-to-send count" for the 1.51 bar); it stays in the top bar's pill and the drawer.
+
+## Task 1.58 — Small calls the design left open
+
+**Plan said:** nothing on these.
+
+**What was wrong:** the design (27-ranking final, THEME "Ranking, 2026-10-28") leaves them open, or the app's data differs from the mock.
+
+**What I did instead:**
+- **Medal:** the design's ribbon-and-disc SVG with the number (`RankMedal`, one image "Medal, rank 1"), not the plan's `Trophy` icon nor the side `RankBadge` (team search's "#7" tag). No rank: "—".
+- **Percent:** "100%" (`formatPercent`, as the team page prints it), not the mock's "100 %".
+- **Consistency:** "±12.9"; under two counted matches "—". The study's strip runs 0 → the round multiple of 20 above every team's Total + SD; the band is Total ± SD (never below 0), "Typical match: 18–43 points".
+- **Place:** among the teams with a value, 1 + those strictly above ("1st · best" at 1); Share is the phase over Total, a whole percent. "Rank 4 of 23": of the teams holding a rank.
+- **Status spread:** Played = `matches_counted − breakdowns`; the scale is the table's most matches on the field (left) and most missed (right, at least one); the study's bar uses the team's own matches. A team with no data shows "No counted matches yet".
+- **Matches** is shown, never sorted (the design gives it no mark), and is not a tie-breaker.
+- **A fourth phase** (post-match) draws in `--control-border`.
+- **Study beside the list from 1360 px**, where the 728 px table still fits beside the 320 px panel; under 1360 px (1024–1359 computers) the study opens in the bottom sheet. The table's header sticks under the crumb bar from 1360 px; narrower, the table scrolls sideways in its card at its least width (728 px Scoring, 920 px Availability), where a sticky header would stick to the card's scroll box, so it does not stick. A second click on the selected row closes the study.
+- **Group headers:** the Availability view's group row reads "Scouted matches by status" + the legend over the spread and Availability, and "Counts of matches" over the three counts (the mock's "Availability · counts of matches" over a narrow span wrapped the legend onto two lines).
+- **Source:** on a computer the header's right reads "From the server · as of 11:43" or "Computed from the data on this device · Last synced 11:08 · 3 entries waiting to send" (Home's words; "Everything is sent" at 0, "Never synced" with none); the phone shows the device notice card (frame 2) or "Q1–Q40 · from the server · as of 11:40".
+- **Empty and failed states:** no roster or no event on the device → "No teams to rank yet" (Back to Home); an override offline → `offline-needs-server` with "Back to <default event>"; an override's server failure → Try again.
+- **Sort builder:** a popover under the control on a computer (Escape or a click outside closes it, focus back to the control), a bottom sheet on a phone; the last figure cannot be removed (its × is disabled); the direction switch is a radio group per figure ("Best first / Worst first", "Fewest first / Most first"); dragging uses `SortableGrip` (keyboard and pointer, with spoken announcements).
+
+**Risk:** the user may want the mock's "100 %", the panel at 1280 px with a narrower table, or Matches sortable; each is a small change.
+
+## Task 1.58 — Bundle
+
+**Plan said:** nothing (BUILD-CONTEXT §12.5: initial JS at most 230 KB gzip).
+
+**What was wrong:** nothing.
+
+**What I did instead:** `/ranking` is a lazy chunk (`RankingPage` 11.8 KB gzip; `deviceRanking` 0.3 KB, the engine shared with the team page's chunk). Measured initial JS **227.8 KB** gzip (the nav row, the route's lazy import and the wider `rankRow` / sort-key schemas in the `API` map). No raise.
+
+**Risk:** if 1.58b imports `useRanking` into Home (first chunk), the hook itself is small and the engine stays lazy (`deviceRanking.ts` is a dynamic import); measure again then.
+
+## Task 1.58b — "Our last match" is `last_counted_match` on `rankRow`
+
+**Plan said:** "our rank computed with `before_match_number` = the number of 2096's most recent counted match"; `rankRow` gains `recent_totals` only.
+
+**What was wrong:** `recent_totals` carries points, not match numbers, so neither source could say which match "our last match" was; computing it from the device's entries while the rows came from the server would mix two sources.
+
+**What I did instead:** `rankRow` gains `last_counted_match: z.number().int().positive().nullable()` — the qualification match number of the team's latest counted entry (`applyFilters` order, the same population as `average_points`), null with none — beside `recent_totals: z.array(z.number()).max(RANK_RECENT_MATCHES)` (`RANK_RECENT_MATCHES = 5`, `api/stats.ts`), the last five of those points, oldest first. Both are computed in `buildRankTable`, so the server's rows and the device's carry them alike. Rejected: a parallel `recent_matches: number[]` (five numbers where one is read), a separate "last match" query (a second source), and reading the device's entries (mixes sources).
+
+**Risk:** a deployed server older than this task answers rows without the two fields; the client's `call()` refuses that shape, so `useRanking` shows the device's table (as after 1.58) until the server is redeployed.
+
+## Task 1.58b — `before_match_number`: what "only qualification matches numbered below it count" filters
+
+**Plan said:** "`buildRankTable` takes an optional `before_match_number`: only qualification matches numbered below it count. `rankTeams` passes it through."
+
+**What was wrong:** nothing; the edge cases were open.
+
+**What I did instead:** `entriesBeforeMatch(entries, before)` (exported, `engine/teamStats.ts`) runs first in `buildRankTable`, so every figure — the rank (`rankByAveragePoints`), the average, the reliability counts, `recent_totals`, `last_counted_match` — is the table as it stood then. It keeps every non-qualification entry (no figure counts them anyway) and drops a qualification entry numbered at or above `before`, and one with no number (it cannot be placed). `rankTeamsInput` takes `before_match_number: z.number().int().positive().optional()` (0, −1, 2.5 and "36" are refused, tested); the server use case passes it straight to the builder. Tests: shared (`teamStats.test.ts`, "the trend line and before a match"), server (`stats.test.ts`, "ranks the event before a match through the same builder": `rankTeams` with `before_match_number` 1, 2, 3, 4, 99 equals `buildRankTable` over the same store rows, and 2096 goes from #2 before Q2 to #1), device (`deviceRanking.test.ts`: `loadDeviceRanking(event, n)` is the very `buildRankTable({ ...input, before_match_number: n })` call). Server bundle rebuilt (BUILD-CONTEXT §6). No migration.
+
+**Risk:** none known.
+
+## Task 1.58b — The "before" ranking comes from the source of "now": `useRankingBefore(now, n)`
+
+**Plan said:** (brief) extend `useRanking` with an optional before-match option, or a sibling hook on the same code path; online both reads are `rankTeams`, offline both the device's.
+
+**What was wrong:** two independent `useRanking` calls each choose their own source. Online, `useRanking` shows the device's table until the server answers, so the "now" and the "before" reads could stand on different sources for a moment.
+
+**What I did instead:** a sibling hook, `useRankingBefore(now: Ranking, beforeMatch: number | null, rpc?) → RankRow[] | null`, in `features/ranking/useRanking.ts`. It reads `now.source.kind`: `server` → `rankTeams { event_id: now.event.id, before_match_number }` only, asked again when `now.source.asOf` moves; `device` → the same lazily imported `loadDeviceRanking(eventId, beforeMatch)` only, tagged with the number it was computed for. So the two never mix by construction. `beforeMatch` is `moveMatchOf(our row of now)`: our `last_counted_match` once we have two counted matches, else null (no read at all). Tests (`OurTeamCard.test.tsx`): online, the calls are exactly `[{ event_id }, { event_id, before_match_number: 36 }]` and the device's loader is never called with a number (while the device holds a ranking of its own); offline, `rpc.call` is never called and the device's loader is called with our last match; the move equals `ourTeamOf` over `loadDeviceRanking(event, n)`. Rejected: an option on `useRanking` (each call would choose its own source); computing the move on the client from `recent_totals` (it cannot re-rank the other teams).
+
+**Risk:** online, while the server's "now" is still on its way the device's "now" and "before" show; when the server's "now" arrives the move line disappears until the server's "before" answers (one more `rankTeams`). It never shows a mixed move.
+
+## Task 1.58b — `useRanking` hardened for a first-chunk page
+
+**Plan said:** nothing.
+
+**What was wrong:** Home's existing tests inject `rpc = { call: vi.fn() }` (answers `undefined`) and `{ call: vi.fn().mockResolvedValue({ items: [], next_cursor: null }) }`. The first crashed Home:
+
+```
+TypeError: Cannot read properties of undefined (reading 'then')
+    at C:\dev\frc-scouting\apps\client\src\features\ranking\useRanking.ts:87:47
+```
+
+and the second handed the page `rows: undefined`. Neither can happen through the real `typedCall` (it validates), but Home must never fall over because of the ranking.
+
+**What I did instead:** both hooks call through `Promise.resolve().then(() => rpc.call(…)).then((out) => rankTeamsOutput.parse(out))`, so a call that throws or answers another shape is a failed read (the device's table stands in, or the move is left out). `useRanking(eventId: string | null, …)`: with no event (Home before the shell has one) it reads nothing from either side (tested: "asks for no ranking while there is no competition"). The schema is already in the first chunk (the API map).
+
+**Risk:** none known.
+
+## Task 1.58b — Home's existing "no RPC on load" tests now allow the ranking's `rankTeams`
+
+**Plan said:** (RB.10, `HomePage.test.tsx`) "renders from the device alone — no RPC on load"; "loads competitions only when Switch competition is opened" (`expect(rpc.call).not.toHaveBeenCalled()` before the click).
+
+**What was wrong:** online, Our team and Top teams read `rankTeams` on load (the task's own rule: the ranking page's source). Both tests failed: `AssertionError: expected "spy" to not be called at all, but actually been called 1 times`.
+
+**What I did instead:** the first test now expects the calls to be exactly `['rankTeams']`; the second expects no call but `rankTeams` before the sheet opens and another after. The `homeData.ts` header says the same ("no RPC; the one exception is the ranking").
+
+**Risk:** none known.
+
+## Task 1.58b — Bundle: two constants moved out of lazy modules; budget 230 → 232
+
+**Plan said:** nothing (BUILD-CONTEXT §12.5: initial JS at most 230 KB gzip; a build chat may raise it and log it).
+
+**What was wrong:** the first build measured `initial JS 239.5 KB gzip` / `initial JS over 230 KB gzip`: Home imported `OUR_TEAM_NUMBER` from `features/teams/teamSearch.ts` and `rankedCount` from `features/ranking/rankingView.ts`, which pulled both modules — and the engine functions their lazy pages use — into the first chunk. With those two moved it measured `initial JS 230.4 KB gzip` / `initial JS over 230 KB gzip`.
+
+**What I did instead:** `OUR_TEAM_NUMBER` lives in `lib/ourTeam.ts` (no imports; `teamSearch.ts` re-exports it, so the ranking and team search are unchanged) and `rankedCount` in `features/ranking/rankedCount.ts` (`rankingView.ts` re-exports it). The 2.6 KB over 1.58's 227.8 KB is `useRanking` (moved from the lazy ranking chunk, which fell from 11.8 to 11.0 KB), the two cards, the Home model and the sparkline; no engine string (`scoreBreakdown`, "Std dev of points") is in the first chunk. `BUDGET_KB` 230 → 232 (`scripts/check-bundle.mjs`, its header, and BUILD-CONTEXT §12.5). Rejected: lazy-loading the two cards (about 1 KB back, but a second chunk fetched on the page every scout opens first, for cards that already wait on the ranking).
+
+**Risk:** 1.6 KB of headroom left.
+
+## Task 1.58b — The team page's sparkline moves to `components/Sparkline.tsx`, with a faint tone
+
+**Plan said:** "each with its five-match trend line from `recent_totals` (the team page's sparkline)".
+
+**What was wrong:** the sparkline lived inside `features/teams/StatRows.tsx` (which imports the team page's view helpers), always `--accent`; the design draws the other teams' lines `--faint` with an `--ink-2` dot and ours `--accent`.
+
+**What I did instead:** `Sparkline({ values, tone = 'accent' | 'faint' })` in `components/Sparkline.tsx`, the same drawing (64 × 20, 1.5 px, end dot, a null left out, under two values nothing); `StatRows.tsx` imports it, so the team page is unchanged. Added to BUILD-CONTEXT §12.5.
+
+**Risk:** none known.
+
+## Task 1.58b — Small calls the design and the plan left open
+
+**Plan said:** the card shows "#N of M", the average and the move ("▲2 since Q36", "▼1 since Q36", "No change since Q36"); Top teams the top five with trend lines, 2096 highlighted, Full ranking.
+
+**What was wrong:** the design (03-home final) draws "avg 51.2 · ▲ 2 places" and leaves the rest open.
+
+**What I did instead:**
+- **Move text:** the plan's words win over the design's: "avg 45.2 · ▲3 since Q32". The arrow and number are `aria-hidden`; a screen reader hears "Up 3 places since Q32" / "Down 1 place since Q32"; "No change since Q32" is printed once. The rank is "#3 / 33" on screen and "Rank 3 of 33" spoken. M = the ranked teams (`rankedCount`, as the ranking's study panel).
+- **Desktop card:** the fourth tile at `1.35fr` (the design's grid), not stretched to the row's height (`self-start`, as the design draws it); with the longer move line, "Our team at this event" wraps rather than being cut off. On a phone, a full-width card under the tiles, before coverage (the README's phone order).
+- **Top teams:** rows are not links (the design gives them none); Full ranking (a 48 px hit area) opens `PATHS.ranking`. The figure is the average (one decimal, a whole number bare — "44"); the header reads "Average points · last 5" / "avg points · last 5" (design). Our row: `--accent-tint`, the name in `--accent-ink`, and "our team" for a screen reader, never the tint alone. Coverage 1.3fr beside Top teams 1fr (design `.g2`); coverage alone keeps the full width, and Top teams alone (under a session override, where coverage is hidden) takes it.
+- **Session override:** the cards show the override event's ranking (`useRanking` already reads the server for it, held by `cross_event_view`); offline under an override nothing shows. Rejected: hiding them like coverage (coverage is the default competition's device data; the ranking is the override's own).
+
+**Risk:** the user may want the design's "▲ 2 places" wording, the card stretched to the tiles' height, or Top teams rows that open team pages; each is a small change.
+
+## Task 1.58b — The ranking's e2e fixture is shared with Home's spec
+
+**Plan said:** (brief) Home's Playwright spec with realistic data, Our team with a move line and 2096 among the top five, every theme; one shot with 2096 unranked.
+
+**What was wrong:** the realistic ranking event lived inside `e2e/ranking.spec.ts`, and in it 2096 is #31 of 33 with no change.
+
+**What I did instead:** the fixture moved verbatim to `e2e/rankingFixture.ts` (`PULL`, `RANK_ENTRIES`, `rankTeamsAnswer(input)` — now passing `before_match_number` through — and `rankingEventWith(entries)` for a variant); `ranking.spec.ts` imports it and is otherwise unchanged. `home.spec.ts` gives 2096 nine teleop notes a match and 30 in its last counted one (Q32): #3 of 33, #6 before Q32, "▲3 since Q32"; a second variant drops 2096's entries (not ranked). The existing Home shots now also show the cards, from the device (the base mock has no `rankTeams`, so it fails and the device's table stands in: 2096 #20 of 22, "▼1 since Q32").
+
+**Risk:** none known.
+
+## Task 1.58b — A conflicts e2e locator matched the top bar's "Syncing…"
+
+**Plan said:** nothing (the full e2e run, BUILD-CONTEXT §12.3).
+
+**What was wrong:** the full run failed one test, 1 time in 3 when repeated:
+
+```
+e2e\conflicts.spec.ts:571:1 › conflicts: a scouter reads the queue, every action off, and has no nav row
+Error: strict mode violation: getByRole('link', { name: 'Sync' }) resolved to 2 elements:
+    1) <a href="/sync" … aka getByRole('link', { name: 'Sync', exact: true })
+    2) <a href="/sync" … aria-label="Syncing…" … aka getByRole('link', { name: 'Syncing…' })
+```
+
+The name match is a substring, so the sidebar's Sync row and the top bar's sync pill ("Syncing…") both match while the first sync is still running. Home now also computes the device's ranking on the pull's row changes, which plausibly keeps that window open a little longer after `networkidle`.
+
+**What I did instead:** the locator is `{ name: 'Sync', exact: true }` (the sidebar row the test means). Three repeats of the spec then passed (15 of 15).
+
+**Risk:** none known; other specs that name a link by a prefix of "Syncing…" would have the same latent race.
+
+## Task 1.59 — Only the ranking page's shading was left; the plan's "recharts" and `{ background, text }` stay superseded
+
+**Plan said:** (1.59) create `shading.ts`, `ShadedValue.tsx`, `ProgressionChart.tsx`; `shadeFor` returns `{ background, text }`; `ProgressionChart` is a Recharts `LineChart`; add `"recharts": "^2.13.3"`; modify `RankingPage.tsx` and `TeamPage.tsx`.
+
+**What was wrong:** task 1.53 already built `shadeFor` (numbers, never CSS), `ShadedValue` and a hand-written SVG `ProgressionChart` and wired the team page (see "Task 1.53 — Task 1.59's shading, `ShadedValue` and `ProgressionChart` pulled forward" and "Task 1.53 — No Recharts"); task 1.58 built the ranking page with every figure plain through `FigureValue` (see "Task 1.58 — Shading is task 1.59; the figures print plain, through one seam"). Nothing of 1.59 was left but the ranking page's shading.
+
+**What I did instead:** only the ranking page's shading. `FigureValue` (`features/ranking/parts.tsx`) now renders a figure that is `inSort` and has a `scale` as a `ShadedValue` chip (text from `figureText`, shade from `figureShade`), and every other figure plain as before. `rankingView.ts` gains `FigureScale`, `figureScale(rows, key)`, `sortScales(rows, sort)` and `figureShade(row, key, scale)`; `RankingTable` computes `sortScales(allRows, sort)` once per render (`useMemo`), `RankingList` `figureScale(allRows, first)` for the phone's first figure. `shading.ts`, `ShadedValue`, `ProgressionChart`, `TeamPage` and `package.json` are untouched; `recharts` is not added and `shadeFor` still returns `{ position, mix, flat, lightness }` — 1.53's entries stand.
+
+**Risk:** none known.
+
+## Task 1.59 — Scales: Matches counted more is better; the rate's raw value; the domain over every row
+
+**Plan said:** (README) "Total and the phases run over the observed min–max, Availability over a fixed 0–100 %, and the counts over a reversed min–max. Consistency is never shaded." Matches counted: not stated.
+
+**What was wrong:** the brief asked for a decision on Matches counted, and on which rows make the domain.
+
+**What I did instead:** `figureScale` gives Matches counted `higher_is_better` over the observed min–max (more scouted matches, more trustworthy figures). Rejected: `neutral` (flat `--line-2` on every cell says nothing, and a flat chip would imply a sort that is not there) and `lower_is_better` (fewer matches is not better). It is dead code on the page today: `matches_counted` is no figure of `sortFigures`, so no sort can hold it and the Matches column prints plain (a test holds it). The team number (a sort key, no figure) has no scale. Availability is `{ kind: 'rate' }` over the 0–1 fraction `rankRow` carries. Total, the phases and the counts take their domain from `allRows` (every row the page holds, not the sorted copy), reading each through `figureValue`, so a row with no data, or a null phase value, is not in it; with no value anywhere the domain is a point (flat, and no cell is shaded anyway). A no-data cell in a shaded figure is `ShadedValue`'s bare muted "—", given the chip's box (`min-w-[3.25rem] px-[7px] py-[3px]`) so a no-data row does not move. A figure with no scale is never shaded. `FigureValue`'s shaded branch wraps the chip in a `display: contents` span that carries `data-figure` / `data-in-sort`, so tests and e2e read them as before.
+
+**Risk:** a sort that gains Matches later shades it higher-is-better; change `figureScale` if that is not what is wanted.
+
+## Task 1.59 — Tests and e2e: counts asserted, mutation-checked
+
+**Plan said:** unit tests for the domain helper; page tests for the shading; e2e shots showing it.
+
+**What was wrong:** nothing.
+
+**What I did instead:** 8 unit tests in `rankingView.test.ts`, 8 in `RankingPage.test.tsx` (computer) and 1 phone test; the suite is 3631 (was 3614). Mutation check: flipping the counts' direction in `figureScale` fails 10 of them (the four unit tests on direction, best/worst Total, the header-click, Availability, count-sort and phone tests); restored. `e2e/ranking.spec.ts` asserts 33 chips (36 teams, three with no data) under Total, none on Teleop, Availability and Breakdowns shaded and No-shows plain, and 33 on the phone list; the existing shots now show the shading in both themes at 1440 and 375. One unrelated test, `QrSendPage.test.tsx` ("getTimerCount" = 1), failed once in a full run under load and passed in the two reruns (3631 of 3631 both times).
+
+**Risk:** the QR timer test looks load-sensitive; not touched.
+
+## Task 1.58 — merging develop's Phase 1 I side tasks 1–5 into the ranking branch (orchestrator merge, 2026-10-28)
+
+**Plan said:** task 1.58 feeds the ranking and the team page from one device loader, `loadDeviceEventStats` (`features/teams/teamStats.ts`), and `loadDeviceTeamStats` calls it. Side task 5 (develop, ec95b97) split the team page's loader into a cache read and a pure `deviceTeamStats(rows, teamId, eventId)` over `DeviceStatsRows` (so `teamStats.parity.test.ts` can hold the device to the server's `getTeamStats` on the same rows), and added `form_versions` to the tables read. Side task 2 put every sticky element on the shell's published `--top-bar` (`styles/classes.test.ts` fails on a copied bar height); side task 3 made every sheet and dialog action row `SurfaceActions`.
+
+**What was wrong:** the two loaders conflicted, and the ranking code written on the design branch predates both rules: the phone list's sticky block sat at `top-[calc(3.375rem+env(safe-area-inset-top))]`, the computer table's header at `min-[1360px]:top-[3.75rem]` and the study panel at `top-[4.75rem]` (the crumb bar plus 1rem, a copy the guard's regex does not catch), all copies of `TOP_BAR`; the phone's Team study sheet drew its one action, Open team page, as a hand-styled 48 px link.
+
+**What I did instead:**
+- `teamStats.ts` keeps both shapes, one function deep: `loadDeviceStatsRows()` reads `DEVICE_STATS_TABLES` into `DeviceStatsRows` (side task 5's read, `form_versions` included); the pure `deviceEventStats(rows, eventId)` is task 1.58's `DeviceEventStats` builder over those rows; `loadDeviceEventStats(eventId)` (the ranking's entry point, unchanged signature) is `deviceEventStats(await loadDeviceStatsRows(), eventId)`; side task 5's pure `deviceTeamStats(rows, teamId, eventId)` now builds from `deviceEventStats`, and `loadDeviceTeamStats` is `deviceTeamStats(await loadDeviceStatsRows(), …)`. So the ranking and the team page still read the device through one function, and the parity test exercises that same function. The match form's scoring now receives the cached `form_versions` (develop's change) where the ranking branch passed `[]`; `formScoring` does not read `versions`, so no figure changes.
+- The three sticky offsets read the shell: `top-[var(--top-bar,0px)]` on the phone's category / sort / labels block and on the 1360 px table header, `top-[calc(var(--top-bar,0px)+1rem)]` on the study panel. Each is still one sticky block.
+- The Team study sheet's Open team page sits in `SurfaceActions` with `actionButtonClass('secondary')`: 52 px full width below 1024 px (was 48 px), and at 1024–1359 px (the computer widths that still use the sheet) a right-aligned 44 px button, by side task 3's width rule.
+- The Sort builder sheet and popover have no action row (direction toggles, a remove ×, tie-breaker chips), so side task 3 does not apply; unchanged. Home's rank cards have no sticky element or sheet; unchanged.
+- `apps/server/api/index.js(.map)` regenerated by `pnpm --filter @frc/server build`, not hand-merged (BUILD-CONTEXT §6). BUILD-CONTEXT §12.5's component list carries both `category-switch` (1.58) and `surface-actions` (side task 3); the budget line stays 232 KB with both histories (develop never raised it). The merged initial JS measures 231.4 KB gzip, under 232; no raise.
+
+**Risk:** the 27-ranking final draws Open team page as a 48 px full-width link; it is now the rule's 52 px (phone) and right-aligned 44 px at 1024–1359 px, a departure from the final the user may want to look at in the `ranking` sheet shots.
+
+## Task 1.58 — review fix: a server answer is stamped when it was asked (review Minor 1)
+
+**Plan said:** `useRanking` asks the server again when a sync lands after its answer.
+
+**What was wrong:** the answer was stamped with its arrival time (`at: new Date().toISOString()` inside the success handler), so a server read made before this device's push committed, answering after `sync.last_success_at` was written, counted as newer than the sync and was never asked again ("From the server · as of 11:42" without the two pushed entries).
+
+**What I did instead:** the hook stamps each read with the time it was ASKED (`askedAt`, taken before `rpc.call`), and `stale` compares `sync.lastSyncAt` with the read's `askedAt` whatever its state: a sync that ends while the read is still under way asks again at once, and the overtaken read's answer is dropped when it lands (each read carries an `id`; only the current one may settle). The "as of" shown to the user is the ask time too (one `at`, no separate arrival `asOf`): the server read its entries after that moment, so the time never claims more than the answer holds; at HH:MM the two differ only for a read that straddles a minute. Rejected: keeping a separate arrival-time `asOf` for the header — it is the figure that overstated freshness in the first place.
+
+**Risk:** none known. `useRankingBefore` keys on this `asOf`, so it is re-asked exactly when `now` is.
+
+## Task 1.58 — review fix: a failed read retries after a sync; a held answer lapses offline (review Minor 2)
+
+**Plan said:** online, the server's `rankTeams`; until it answers and whenever it fails, the device's table.
+
+**What was wrong:** `stale` needed an answer, so a failed read (`navigator.onLine` true, the request dead) was never retried while online; and online → offline → online re-showed the answer from before the outage instead of the device's table, which may hold entries recorded offline.
+
+**What I did instead:** the same `stale` rule covers a failed read (its `askedAt`), so a later successful sync retries it. Going offline (or `cross_event_view` lost under an override) marks what is held `lapsed`; back online, a lapsed read is asked again and a lapsed answer is not shown as current — the device's table stands in until the new answer lands. Offline, when the device does not hold the event, the last answer still stands in with its own "as of" (unchanged). Reads are no longer cancelled by the effect's cleanup; a superseded read (newer ask, other event) is dropped by its `id` and `key`. `useRankingBefore` needed no code change: its server key includes `now`'s `asOf`, which now moves on every re-ask (after a sync, a failure retried after a sync, the return online), and while `now`'s answer has lapsed `now` is the device's, so `before` is too; its comment says so, and a hook test proves it is re-asked with `now` after a sync. Rejected: putting `sync.lastSyncAt` itself in the effect's dependencies — the meta read that fills it at mount would cancel and repeat the first request (two `rankTeams` calls on every mount); and keeping the cleanup's cancel with `stale` in the dependencies — a re-ask flips `stale` back to false and the cleanup would cancel the re-ask and ask a third time.
+
+**Risk:** a failed read is retried only after a successful sync, a reconnect, a remount or a change of event — not on a timer — by design (no polling).
+
+## Task 1.58 — review fix: hook tests for the refresh rules (review Minor 3)
+
+**Plan said:** (no hook test; the page and Home tests cover the hook.)
+
+**What was wrong:** nothing exercised a sync landing after an answer, a failure, or online → offline → online; deleting the `stale` check left every test green.
+
+**What I did instead:** new `apps/client/src/features/ranking/useRanking.test.tsx` (`renderHook`, an rpc whose calls the test settles one by one, `setMeta('sync.last_success_at')` + `notifyChanged('meta')` as `sync.ts` does): a sync after an answer asks again and shows the new rows; a sync ending while a read is under way makes it stale (Minor 1's race; the overtaken answer is never shown); a failure retries after a later sync while the device's table stands in; offline → online shows the device's table until the re-ask lands; Minor 9's guard; `useRankingBefore` re-asked with `now`. Mutation-checked: `stale` forced false, or the `stale` check removed from the effect, fails four tests; showing a lapsed answer online, or not re-asking it, fails the offline → online test; removing the event guard fails the Minor 9 test.
+
+**Risk:** none.
+
+## Task 1.58 — review fix: device ↔ server parity of the ranking table (review Minor 5)
+
+**Plan said:** the device's table equals the server's for the same entries (proved by transitivity through `buildRankTable`).
+
+**What was wrong:** no test compared `phase_averages`, `recent_totals`, `last_counted_match` or the `before_match_number` path between the device and the server.
+
+**What I did instead:** a `describe` added to `apps/client/src/features/teams/teamStats.parity.test.ts`, on side task 5's fixture (the outbox entry on the device's own Q6 match): the cache is written to IndexedDB and read by `loadDeviceRanking` itself, the server side is its own `rankTeams` over the Store, compared with `toEqual` row for row and whole, without and with `before_match_number` 6, 4 and 2, plus a check that the figures compared are real (8014's last counted match is the outbox's Q6, three recent totals, every phase a number; before Q6, Q2 and two). Mutation-checked: ignoring `beforeMatch` on the device fails 4 tests; dropping the device's locally created match fails 6. Rejected: a pure `deviceEventStats` → `buildRankTable` call in the test — it would restate `deviceRankInput` rather than test it.
+
+**Risk:** none.
+
+## Task 1.58 — review fix: the Sort builder's direction pair follows the radio pattern (review Minor 7)
+
+**Plan said:** the Sort builder's direction toggle (27-ranking final).
+
+**What was wrong:** `role="radiogroup"` with two `role="radio"` buttons, both in the Tab order, no arrow keys.
+
+**What I did instead:** the key handling `Segmented` and `CategorySwitch` each held a copy of is now one function, `onRadioGroupKey(e, choose)` in `apps/client/src/components/ui/radio-keys.ts` (arrows wrap, Left / Right flip right-to-left, Home / End; focus and choose); `Segmented`, `CategorySwitch` and the direction pair use it, and the direction pair gets the roving tabIndex (only the checked radio is 0). `CategorySwitch` gains `Segmented`'s right-to-left test (a `dir` ancestor as well as the computed direction). `AllianceButtons` keeps its own equivalent copy (ref-based, outside this branch's pages). Mutation-checked: removing the key handler or the roving tabIndex fails the new page test. BUILD-CONTEXT §12.5 lists `radio-keys`.
+
+**Risk:** `Segmented` and `CategorySwitch` behaviour is unchanged by intent; their existing tests pass.
+
+## Task 1.58 — review fix: a phone row's spoken name names its figures (review Minor 8)
+
+**Plan said:** a phone row is one button opening the summary sheet; the labels above the list are `aria-hidden`.
+
+**What was wrong:** the row's name read "… 45.2 ±6.1 100%" with no word for which figure 45.2 is.
+
+**What I did instead:** an `sr-only` figure label ("Total", "Availability", a phase …, from `figureOf`) before the end figure and "consistency" before the ±, inside the row; nothing visible changes (absolutely positioned, outside the flex flow).
+
+**Risk:** none.
+
+## Task 1.58 — review fix: the device table belongs to the requested event (review Minor 9)
+
+**Plan said:** (no rule.)
+
+**What was wrong:** `useDeviceQuery` resets only in its effect, so the first render after the event changed returned the previous event's device table as `ready`.
+
+**What I did instead:** `useRanking` treats a device table whose `event.id` is not the requested event as not yet read (`undefined`: loading), mirroring `useRankingBefore`'s guard — not as `null`, which would show "unknown" for one frame.
+
+**Risk:** none.
+
+## Task 1.58 — review fix: stale comment and the Scoring segment's line from the season's phases (review Minor 11)
+
+**Plan said:** the 27-ranking final draws Scoring's line as "Total · Auto · Teleop · Endgame · Consistency".
+
+**What was wrong:** the line was fixed text, wrong for a form scoring Post-match or no Endgame; `RankingPage.tsx`'s header comment still said value shading was a later task.
+
+**What I did instead:** `categoryOptions(phases)` in `rankingView.ts` builds both segments, Scoring's line from the table's phases (`PHASE_NAME`) between "Total" and "Consistency"; for the usual three phases the text is the final's. The comment now says the figures in the sort are shaded. Tested in `rankingView.test.ts` and on the page (a post-match, no-endgame form).
+
+**Risk:** none.
+
+## Task 1.58 — review findings left as they are (review Minors 4, 6, 10)
+
+**Plan said:** (as built.)
+
+**What was wrong:** the review raised the team page's "Rank N of M" counting the roster while Home and the ranking count ranked teams (4), a whole standard deviation printing bare "±9" (6), and Home re-reading the device ranking on every row change (10).
+
+**What I did instead:** nothing, by the user's decision (4 and 6 are the user's calls; 10 needs no change until a phone profile shows jank).
+
+**Risk:** "Rank 3 of 44" on the team page beside "#3 / 42" on Home remains until the user picks one count.
+
+## Task 1.60 — the deletes stay beside their objects; `deletes.ts` re-exports them and adds `deleteEntry`
+
+**Plan said:** create `apps/server/src/core/commands/deletes.ts` producing `deleteSeason`, `deleteEvent`, `deleteForm`, `deleteFormVersion`, `deleteMatch` and `deleteEntry`, with store methods that delete the entries first by hand (`db.from('scouting_entries').delete()` then the parent).
+
+**What was wrong:** RB.20 already built `deleteSeason` / `deleteEvent` (`deleteCompetition.ts`) on the SQL functions `delete_event_cascade` / `delete_season_cascade` (one transaction each, which the plan's two-statement store code is not); task 1.27 built `deleteForm` / `deleteFormVersion` (`forms.ts`); `deleteMatch` lives in `matches.ts` (UF.1 tombstone by trigger).
+
+**What I did instead:** extended each where it is. `deletes.ts` re-exports the five and holds the new `deleteEntry` plus `softDeletedRow`, the one soft-delete rule now shared with syncPush's `delete` operation. The registry imports from the original modules (unchanged lines) and `deleteEntry` from `deletes.js`. The helpers `assertConfirmed`, `seasonName`, `seasonIsActive`, `eventIsDefault` (deleteCompetition.ts) and `versionDeleteBlock`, `versionName` (forms.ts) are exported so `getDeleteImpact` predicts the exact refusals the deletes make. Rejected: moving every delete into `deletes.ts` — churn across three reviewed modules and their tests for no behaviour.
+
+**Risk:** none; the bundle is regenerated.
+
+## Task 1.60 — a typed confirmation on every cascade, checked by the server
+
+**Plan said:** "require `confirm_name` to equal the object's name exactly" for every delete.
+
+**What was wrong:** `deleteForm` and `deleteFormVersion` took no `confirm_name` (the form's typed text, "delete match form", was the client's alone), and `deleteMatch` had no cascade at all.
+
+**What I did instead:** `confirm_name: z.string().optional()` on `deleteFormInput`, `deleteFormVersionInput` and `deleteMatchInput` (optional in the schema, so the current client still compiles; the server refuses a missing or different one with `invalid` / `TYPE_NAME_EXACTLY` "Type the name exactly to delete.", now exported from `@frc/shared` and re-exported by `deleteCompetition.ts`). The names: season = its year ("1999", as RB.20), event = its name, form = `forms.name` (the stored name, not the client's "Match form 2026" display), form version = "v{version_no}", match with entries = `matchLabel` ("Q41", "P3", "PO1"). No trimming and no case folding anywhere. `deleteForm`'s `dry_run` still answers counts without a name. A season's year has no case, so its wrong-name test types " 1999", "1999 " and "" instead. The active-season and default-event texts were already exactly "Switch the active season first." / "Switch the default event first." (`SWITCH_SEASON_FIRST` / `SWITCH_EVENT_FIRST`); unchanged.
+
+**Risk:** **the existing client breaks at runtime until task 1.61 lands**: `DeleteFormDialog` calls `deleteForm({ form_id })` with no `confirm_name` and is now refused `invalid`. Nothing in the client calls `deleteFormVersion` yet. 1.61 must pass the typed name.
+
+## Task 1.60 — `delete_objects` for every hard delete
+
+**Plan said:** every delete starts with `assertCan(caller, 'delete_objects')`.
+
+**What was wrong:** `deleteForm` / `deleteFormVersion` checked `manage_forms`, `deleteMatch` `manage_events` (all admin-only).
+
+**What I did instead:** `deleteForm` and `deleteFormVersion` now check `delete_objects` (SPEC-FINAL 7.2's "Delete a season, an event or a form — admin"). `deleteMatch` keeps `manage_events` for the plain delete (a match with no entries is match management, unchanged) and adds `delete_objects` on the `with_entries` path. The roles are identical, so only the refusal's message changes (`not permitted: delete_objects`). A mutation removing the `with_entries` `delete_objects` check survives the tests for that reason: `manage_events` refuses the same callers first.
+
+**Risk:** none while the two capabilities hold the same roles.
+
+## Task 1.60 — a published form version stays undeletable on its own (design 28 vs Phase 1 D review #2)
+
+**Plan said:** (design `28-delete/final/README.md`) a form version with no entries opens Bill + type ("v1"), and the trash button sits on every "older version row (the ones with View and Restore)".
+
+**What was wrong:** older version rows are PUBLISHED versions, and Phase 1 D review #2 refuses every published version on its own (a device may still hold queued entries for it; deleting it would turn them into `parent-deleted` discards). The brief did not lift that rule.
+
+**What I did instead:** kept it. The refusal order is has-entries → published → active-version, all before the name is read. `getDeleteImpact` reports them as `blocked_reason` `version_has_entries`, `version_published`, `version_active` with the server's own sentence in `blocked_message`. Only a DRAFT with no entries offers `confirm_name` "vN". Rejected: deleting a published, inactive version with no server entries — it would reverse a reviewed safety decision silently.
+
+**Risk:** **the design's trash button on an older (published) version row will always open Blocked** ("published"), never the bill. The user must either accept that (Blocked, with "Delete the whole form…" as the way forward) or lift review #2 explicitly; 1.61 needs the answer.
+
+## Task 1.60 — `deleteMatch({ with_entries: true })` is one SQL function, `delete_match_cascade`
+
+**Plan said:** in one transaction, hard-delete every entry naming the match (soft-deleted ones included), then the match, recording the tombstone as today.
+
+**What was wrong:** nothing; the store has no transactions, so it needs a function, like RB.20's.
+
+**What I did instead:** migration `20261028090000_delete_match_cascade.sql`: `delete_match_cascade(p_match_id uuid) returns integer` — entries (every row with that `match_id`), then the match; returns the entry rows deleted. `security invoker`, `set search_path = ''`, execute revoked from public/anon/authenticated and granted to `service_role` (as `20261007120000_delete_cascade.sql`). The match_deletions tombstone comes from the existing trigger; the slots cascade. Applied to dev with `pnpm db:push`; types regenerated (one line). Store: `deleteMatchCascade(id): Promise<number>`. An entry racing in between the two statements fails the match delete with 23503, which rolls back the whole call; the use case answers `conflict` "an entry for Q41 arrived while it was being deleted, so nothing was deleted; try again". `deleteMatchOutput` gains `entries` (optional; present on the cascade only), so the plain delete's answer `{ id, deleted: true }` is unchanged. The plain refusal text is unchanged ("…so it cannot be deleted; correct the match number instead"); no server message ever said "delete the entries first" (only a client test fixture in `MatchesPanel.test.tsx` does — 1.61's).
+
+**Risk:** production needs the migration before this server deploys (release note added to IMPLEMENTATION-PLAN.md).
+
+## Task 1.60 — `getDeleteImpact`: one flat shape, and entries counted as rows that go
+
+**Plan said:** `getDeleteImpact(caller, { kind, id })` with the exact counts; the test's `toMatchObject({ events, matches, entries, forms, form_versions, metrics, dashboards, weight_presets })`; "each affected table with `select(..., { head: true, count: 'exact' })`".
+
+**What was wrong:** RB.20's `countDeleteImpact` (and so `deleteSeason`/`deleteEvent`'s `dry_run`) counts LIVE entries only; the brief says a match's count includes soft-deleted ones "since they block".
+
+**What I did instead:** one object for every kind (every count present, 0 where it does not apply), plus `name`, `confirm_name` (null = nothing to type, or blocked), `blocked_reason`/`blocked_message`, `event_names`, `match_entries`/`super_entries` (the design's "1,804 match · 108 super"), `stations` (a match's six, red 1–3 then blue 1–3, with team number and entry count) and `last_saved_at` (a match's newest `client_updated_at`). `entries` counts every row the delete removes — soft-deleted ones included, for every kind — and `deleted_entries` says how many of those are already soft-deleted, so the dialog can show either. RB.20's `countDeleteImpact` and its `dry_run` answers are left exactly as they were (live entries). Five new Store methods (`tallyEntries`, `countMatchesOfEvents`, `countAnalysisRows`, `listMatchEntries`, `deleteMatchCascade`) rather than one per-kind store method, so the counting logic is written once, in the use case. Admin only (`delete_objects`), except `kind: 'entry'`, which a lead may ask too (a lead soft-deletes entries); a scouter and a service caller are refused for every kind although it is a `query` — it is the first step of a command (set against permissions.ts's note that queries normally let a service caller read). An entry already soft-deleted is `not-found`. The metrics, dashboards and weight_presets tables exist (migration 20260903093000), so they are counted (0 today: nothing writes them). Rejected: a discriminated union per kind (the client branches on `kind` either way), and changing RB.20's live count (its client and tests read it).
+
+**Risk:** a season's bill (all rows) can read higher than the Entries page (live rows) by `deleted_entries`. Entries for a team on no slot of the match ("not in line-up") are in `entries` but in no station tile: `entries − Σ stations` is that number.
+
+## Task 1.60 — the fake context: entries counted from the rows, no analysis maps
+
+**Plan said:** `ctx.seedSmallSeason()` ("se-1 with ev-1, ev-2, one form, two versions, 12 entries"), `ctx.rows.scouting_entries`, `ctx.formVersions`, `ctx.scoringRules`.
+
+**What was wrong:** the small-season fixture's ids are not uuids, and every delete schema is strict uuid; it also has six matches and fourteen entries, not four and twelve. The fake's `countEntriesByMatch` / `deleteMatch` read only the declared `entryCountsByMatch`, never the rows, so a soft-deleted entry ROW could not block a match.
+
+**What I did instead:** `deletes.test.ts` builds its own uuid fixture with the plan's shape (season 1999 "SEED GAME", events "Seed District Event" (default) and "Second Event", four matches, twelve entries — eleven match entries on "Seed match form" v1/v2 and one super). The fake's `countEntriesByMatch` and `deleteMatch` now count `rows.scouting_entries` naming the match (soft-deleted included) plus `entryCountsByMatch`, as `countEntriesByFormVersion` already did; the whole server suite stayed green with it. The fake holds no metrics/dashboards/presets maps (FakeContext adds no fields), so its `countAnalysisRows` answers zeros; the Supabase store's head counts are tested in `store.test.ts`. Three existing `forms.test.ts` calls now pass `confirm_name` ('v2', 'Match', 'v1'). Mutation-checked: a case-folded confirm, a scouter allowed `deleteEntry`, the name read before the version block, the cascade skipping soft-deleted rows, and a lead given every impact kind each fail the suite.
+
+**Risk:** none.
+
+## Task 1.60 — `deleteEntry` reuses the push's soft delete; idempotent
+
+**Plan said:** `deleteEntry` is a lead/admin soft delete; the test asserts `deleted_at` set and `version` 2.
+
+**What was wrong:** the push path already soft-deletes (`syncPush` `delete` op, `manage_entries` against the author).
+
+**What I did instead:** `softDeletedRow(existing, deletedAt, clientUpdatedAt)` is that rule, used by both. `deleteEntry({ entry_id })` → `{ id, deleted: true, version }`, `manage_entries` (lead/admin; a scouter is refused, own entry included; a service caller too), `not-found` for an unknown id. With no device clock, `client_updated_at` is the server's `now` (a push uses the op's). An entry already soft-deleted answers deleted with its version and is not written again. Tested: the online delete and a lead's pushed delete write the same `deleted_at`/`version`/`client_updated_at`.
+
+**Risk:** the design says the entry soft delete "goes through the outbox like any other change"; 1.61 may use the outbox (works offline) or `deleteEntry` (online only). Both apply the same rule.
+
+## Task 1.60 — the integration test calls the SQL functions, not the server's store
+
+**Plan said:** `packages/db/test/deletes.itest.ts` "calls the real `deleteEvent` and then the real `deleteSeason`".
+
+**What was wrong:** `packages/db` cannot import `apps/server`; the server's store methods are one `rpc` call each, already unit-tested for the function name and arguments.
+
+**What I did instead:** the itest calls the three SQL functions with the service client, as `deleteCascade.itest.ts` does: a season (year 1911) with two events, four matches and twelve entries; a fifth match held only by a soft-deleted entry, which a plain delete refuses with 23503 and `delete_match_cascade` removes (answering 1, its slot gone, its tombstone written); then the event, then the season; no orphan by any key (events, matches, match_teams, entries by event, id and version, forms, versions), five match tombstones, the teams and the user untouched. Random ids, cleaned in `afterAll` (rows, plus the tombstones in `match_deletions` and `form_deletions`). Run twice to prove the clean-up: team numbers 999981–999986 and username `itest_deletes` are unique, so a leftover would fail the second run's inserts.
+
+**Risk:** none.
+
+## Task 1.60 — client bundle
+
+**Plan said:** (BUILD-CONTEXT §12.5) initial JS at most 232 KB gzip.
+
+**What was wrong:** nothing yet: the two new API-map rows and their schemas ship in the client's first chunk.
+
+**What I did instead:** measured after `pnpm --filter @frc/client build`: `initial JS 231.7 KB gzip` (was 230.4), under the budget; not raised.
+
+**Risk:** 0.3 KB of headroom; task 1.61's DeleteDialog will likely need the budget raised, or the dialog lazy.
+
+## Task 1.60 — orchestrator: the published-version rule stays; the trash button opens Blocked
+
+**Plan said:** (1.61, v1.36, and design 28's table) older version rows on the forms list get a trash button, and "a form version with no entries" opens the bill + type.
+
+**What was wrong:** older rows are published versions, and Phase 1 D review #2 refuses deleting any published version on its own: a device that has been offline since that version was active may still hold queued entries for it, and deleting it turns them into `parent-deleted` discards. Offline is the normal mode at a venue, and those entries cannot be recovered.
+
+**What I did instead:** kept review #2 on the server (`version_published`). The trash button stays where the user placed it (older rows only), and for a published version it opens Blocked, with "Delete the whole form…" as the way forward. Only a draft can be deleted alone. Rejected: lifting review #2 to match the design's "bill for a version with no entries" — the user's brief named who sees the button, not a change to that rule, and a wrong call here loses scouting data silently and irreversibly.
+
+**Risk:** the bill + type face for a lone form version is reachable only for a draft. If the user wants older published versions deletable, it is a one-rule change on the server plus a release note; raised in the build report.
+
+## Task 1.61 — the files: no `SeasonsPanel` / `EventsPanel`; the triggers are where Manage, the forms list and the builder already keep them
+
+**Plan said:** modify `features/admin/SeasonsPanel.tsx`, `EventsPanel.tsx`, `MatchesPanel.tsx`, `features/builder/BuilderPage.tsx`, `features/entries/EntryPreviewPage.tsx`.
+
+**What was wrong:** `SeasonsPanel.tsx` and `EventsPanel.tsx` do not exist: since the redesign (RB.20) seasons and events are one Competitions tab (`CompetitionsPanel.tsx`), and their Delete sits in `SeasonFormDialog` / `EventFormDialog` (`DeleteCompetition`). The phone's match delete is `PhoneMatchList.tsx`; the forms list's trash buttons need `FormsPage.tsx`, `FormCard.tsx` and `VersionTimeline.tsx`; the whole-form delete is opened from both `BuilderPage` and `FormsPage` (`DeleteFormDialog`).
+
+**What I did instead:** created `features/admin/DeleteDialog.tsx` (+ test), `DeleteFlow.tsx` (+ test), `LazyDeleteFlow.tsx`, `DeleteAction.tsx`, `deleteFixtures.ts` (test answers, like `matchFixtures.ts`), `features/entry/softDeleteEntry.ts` (+ test), `components/ui/band.test.tsx`; modified the files above plus `CompetitionsPanel`, `ManagePage` (the event's name for the match bill), `useMatchEditing` (`remove` → `removed`), `matchOps` (`DELETE_MATCH_BODY` gone), `components/ui/dialog.tsx`, `sheet.tsx`, `responsive-dialog.tsx`, `data/offlineCapability.ts`. Deleted `DeleteCompetition.tsx` + its test and `builder/DeleteFormDialog.tsx`: one dialog replaces both (the brief). DeleteCompetition's cases moved to `DeleteDialog.test`, `DeleteFlow.test` and `CompetitionsPanel.test`.
+
+**Risk:** none.
+
+## Task 1.61 — the plan's test, adapted only where the real API forces it
+
+**Plan said:** `<DeleteDialog kind name impact blocked? onConfirm onCancel />`, the field found by `getByLabelText(/type the name to confirm/i)`, and "the one dialog is `ConfirmDialog`, already restyled, and `getDeleteImpact`'s counts fill its `loss` line".
+
+**What was wrong:** there is no `ConfirmDialog`; the design (28 final) is three faces with a band, not a `loss` line on `DestructiveConfirm`. The design's visible step heading is "Type the season's name" / "Type Q41", which the plan's regex does not match. The server is the gate too, so the confirm must carry what was typed.
+
+**What I did instead:** the plan's eight cases are in `DeleteDialog.test.tsx` word for word (only reflowed by Prettier). `DeleteDialog` keeps exactly the plan's props and adds optional ones (`confirmName`, `blockedReason`, `ways`, `context`, `subject`, `facts`, `held`, `busy`, `error`, `onCorrectMatch`); `onConfirm(typed?)` receives exactly what was typed (nothing for "Are you sure?"). The name field's accessible name is "Type the name to confirm" (`aria-label`, described by the hint and the "No match yet" / "Matches" state); the visible heading stays the design's. The confirm button is really `disabled` (the plan asserts `toBeDisabled`), not `aria-disabled` as `DestructiveConfirm` does; Cancel keeps first focus. Rejected: renaming the visible heading to the plan's phrase — it would contradict the locked design for a test's sake.
+
+**Risk:** none.
+
+## Task 1.61 — three pieces: `DeleteDialog` draws, `DeleteFlow` counts and deletes, `LazyDeleteFlow` loads it
+
+**Plan said:** "one dialog used by every cascade delete, driven by `getDeleteImpact`".
+
+**What was wrong:** the plan's tests render the dialog with counts as props, and the brief asks for the dialog to load lazily and for the server's answer to pick the face.
+
+**What I did instead:** `DeleteDialog` is pure (counts in, `onConfirm(typed)` out). `DeleteFlow` takes a `DeleteRequest` (kind, id, a label to show while counting, and per kind: the form's name and id for a version, the event's name and the page's "correct it" callback for a match, the card and `onDevice` for an entry), calls `getDeleteImpact`, picks the face exactly as task 1.60's report says (`blocked_reason` → Blocked; `confirm_name` → Bill + type, a match's Choice first; neither → Are you sure?), types against `confirm_name` (the server's: the stored `forms.name`, "v4", "Q41"), sends the typed text (`deleteSeason` / `deleteEvent` / `deleteForm` / `deleteFormVersion` with `confirm_name`; `deleteMatch` plain or `with_entries: true, confirm_name`), and shows the server's refusal in the dialog (sentence-cased, never a code). While counting it shows a "Counting what goes with …" dialog with a skeleton; a failed count says so with Try again and offers no delete. Every page opens it through `LazyDeleteFlow` (`React.lazy`, its own 7.2 KB chunk, precached by the service worker like every chunk). Rejected: one component that fetches — the plan's tests could not render it with counts.
+
+**Risk:** a page that imports `DeleteFlow` directly would pull it into its chunk; BUILD-CONTEXT §12.5 now says to open it through `LazyDeleteFlow`.
+
+## Task 1.61 — Manage: the Edit dialog closes and the delete opens alone; the active season and default event open Blocked
+
+**Plan said:** (RB.20, unchanged by the plan) the Delete inside the Edit season / ✎ event dialog; the brief: the active season / default event are Blocked ("Switch the active season first." / "Switch the default event first.").
+
+**What was wrong:** RB.20 stacked its confirm over the Edit dialog (two scrims, a key-event guard), and showed the active season's / default event's Delete as off with the line. The design draws the bill alone over Manage, and the brief's Blocked face needs the button to open.
+
+**What I did instead:** `DeleteAction` ("Delete 2025", held offline with Manage's line) asks the page to delete; `CompetitionsPanel` closes the Edit dialog and opens `LazyDeleteFlow` (one dialog; focus goes back to Edit season / ✎ on close). The active season and default event's Delete is enabled and opens Blocked with the server's reason mapped to the exact `SWITCH_SEASON_FIRST` / `SWITCH_EVENT_FIRST` text, a "Keep …" way, no delete button and no field. Rejected: keeping the button off — the brief names Blocked as the face.
+
+**Risk:** none; the server refuses them whatever is sent.
+
+## Task 1.61 — a match: the Choice, Correct the match number opens the match's own editor
+
+**Plan said:** a match with entries opens a choice (Correct the match number · Delete Q41 and its 6 entries… · Close) before its bill.
+
+**What was wrong:** nothing; "Correct the match number" needed a target.
+
+**What I did instead:** it closes the delete and opens that match's existing edit dialog (Manage, computer) or edit sheet (phone matches view). The tiles read `stations` ("saved", "2 saved", or "no entry" for an empty station); "Last saved HH:MM" from `last_saved_at`. On a phone the three are full-width 52 px buttons in the design's order (Correct, primary, first; Close last and focused — THEME "Blocked tag and ways forward"); on a computer they are the one action row, right-aligned, Close · Delete… · Correct (primary last, `SurfaceActions`' rule), with Close focused. A match with no entries is "Are you sure?" with "This deletes Q41. No entries are saved to it, so nothing else goes. There is no restore." (the design draws only the entry's line). Rejected: a phone-style column on the computer — §12.5's action-row rule.
+
+**Risk:** none.
+
+## Task 1.61 — the entry's soft delete: the outbox when the device holds it, `deleteEntry` when it does not
+
+**Plan said:** (brief) follow 1.60's report on `deleteEntry` (online) vs a `delete` outbox operation; the README: "the soft delete of an entry goes through the outbox like any other change".
+
+**What was wrong:** the preview shows an entry the device holds, or one `getEntry` read from the server; `getEntryOutput` carries no row revision, so an outbox operation for a server-only entry would have no honest `base_version`.
+
+**What I did instead:** held on the device → `softDeleteEntry` (`features/entry/softDeleteEntry.ts`): a `delete` operation (empty payload, the row's `version` as `base_version`, the lead or admin as author) through `enqueue` — which already refuses a scouter's delete (`DeleteNotAllowedError`) and folds a delete of a still-pending create away — and the device's row marked `deleted_at` at once, so it leaves every list here before it syncs; works offline. Not held → `deleteEntry({ entry_id })` on the server (1.60), held offline. Both apply the server's one rule (`softDeletedRow`), so the two paths agree. The preview then goes back to Entries. New capability rows: `delete_entry: true` (the outbox path), `delete_objects: false` (every hard delete, every count, and the server-only entry delete). Rejected: `deleteEntry` only — a lead at a venue (offline is normal) could not delete; the outbox only — impossible without the revision.
+
+**Risk:** none for the scouting path: no gate was added under `features/entry/` or `features/entries/` (the offline-gates test); the server path's gate is in `DeleteFlow` (`features/admin/`).
+
+## Task 1.61 — counts print without a thousands separator ("1912", not "1,912")
+
+**Plan said:** (design `delete-desktop.png`) "1,912 entries go".
+
+**What was wrong:** SPEC-FINAL 17.8: integer counts print with no decimals and no separator (`formatCount`), on every surface, so two views never disagree.
+
+**What I did instead:** `formatCount` everywhere ("1912", "1804 match · 108 super"). Rejected: the design's comma — it would be the only count in the app with one.
+
+**Risk:** none.
+
+## Task 1.61 — the faces' copy where the design drew none
+
+**Plan said:** the README draws Season 2025's bill, version 1's Blocked face (entries bound), Q41's Choice and bill, and one entry's "Are you sure?".
+
+**What was wrong:** event, form and draft-version bills, and the Blocked faces for a published version, the active version, the active season and the default event, are not drawn.
+
+**What I did instead:** the same pieces with these words. Kicker: "Delete {Season 2025 | event | form | version N of Form} · hard delete · cannot be undone" ("Delete Q41 and its entries · cannot be undone" for a match). Biggest count: the entries that go, else the versions (a form, a version), else the matches (a season, an event). Sentence: season as designed; event "with N matches, and everything else {event} holds: its roster, pick lists and alliance bracket."; form "with N versions of {form}, their fields and their scoring."; version "with the fields and the scoring of version N of {form}." Items: season — events (names), matches, entries (match · super), forms (versions in all), then dashboards, weight presets and metrics when not 0; event — matches, entries; form — versions, entries, metrics when not 0; a version and a match — none. Blocked band per reason: has-entries "N entries are bound to it" / "Deleting the version would leave them with no form to read them by." (design); published "vN is published" / "A device that was offline while it was in use may still hold entries for it that have not reached the server."; active "vN is the active version"; active season / default event "N entries are scouted in it" / "It is the active season (default event): every device scouts in it.". Title "{Version 1 | Season 2026 | event} can't be deleted"; the line: has-entries the design's "It still holds collected data, so there is nothing to confirm here. Pick a way forward."; published "Only a draft can be deleted on its own. A published version goes with its whole form, so nothing scouted on it is left without one."; active "Scouts would be left with nothing to open. Restore another version first, or delete the whole form."; season / event the exact SWITCH texts. Ways: "Keep …" (focused) on every Blocked face, plus "Delete the whole form…" on every version reason (it opens the form's own bill, typed from empty). A blocked version's right column is the forms list's dates (vN · form, published DD/MM, replaced by vN+1). Buttons: "Delete season 2025", "Delete event {name}", "Delete form {name}", "Delete version N", "Delete Q41", "Delete entry".
+
+**Risk:** words only; the user reviews them on dev.
+
+## Task 1.61 — the phone bill follows phone frame 3: no line, hint or note on show; the title stays
+
+**Plan said:** (design phone 3) the band, 1 · Back up first, 2 · Type Q41, Cancel + Delete Q41; no title, no "rows are removed" line, no hint, no footer note; "Counted on the server just now" at the end of the band's sentence.
+
+**What was wrong:** the sheet needs an accessible name (its title), and the line, hint and note describe the field and the button.
+
+**What I did instead:** below 1024 px the line, the hint and the note are `sr-only` (read, not drawn; the offline line still shows when held), the kicker has no ⚠ and no aside, and "Counted on the server just now." ends the band's sentence. The title ("Delete Q41 and its 6 entries?") stays visible under the band, as on the computer. Rejected: hiding the title — a sheet whose name is invisible reads as a different surface from the computer's dialog.
+
+**Risk:** none.
+
+## Task 1.61 — the builder's Delete form: the stored name is typed, Export it first is gone
+
+**Plan said:** one dialog replaces `DeleteFormDialog`.
+
+**What was wrong:** the old dialog asked for the phrase "delete match form" and named the form "Match form 2026" (its display name), and the server now requires `confirm_name` = the stored `forms.name` (task 1.60); it also had an "Export it first" link.
+
+**What I did instead:** the form's bill types `getDeleteImpact.confirm_name` ("Match form"); "Delete form Match form" sends it. The "Export it first" link is gone: the bill's step 1 (the two-file backup) is the design's way to keep a copy; Export stays on the builder's More menu and the card. Unit and e2e tests that pinned the old phrase, button and link were rewritten to the new face.
+
+**Risk:** an admin who used Export it first from the dialog now opens Export from the menu.
+
+## Task 1.61 — the forms list's trash buttons
+
+**Plan said:** a 36 px filled-ink trash button, `aria-label="Delete version vN"`, on each older version row, none on the draft or the active version; it opens Blocked for a published version (orchestrator's decision).
+
+**What was wrong:** nothing.
+
+**What I did instead:** `VersionTimeline` draws it after Restore on `older` rows only (a `destructive` `icon-sm` button sized to 36 px, its ::after keeping the 48 px target), held offline through `delete_objects`. Measured 36 × 36 in the e2e. Every published version opens Blocked (has-entries first, else published), whose ways are Keep and Delete the whole form…; a draft has no trash button, so the draft's Bill + type ("v4") is reachable only by the API today (tested in `DeleteFlow.test`).
+
+**Risk:** as logged by 1.60: if the user wants older versions deletable alone, it is a server rule change.
+
+## Task 1.61 — `Dialog` / `Sheet` / `ResponsiveDialog` take a `band`
+
+**Plan said:** (§12.1, §12.5) build on the shared dialog and sheet.
+
+**What was wrong:** neither could draw an edge-to-edge band above its title, and the bill must open on it (and a phone sheet's grab handle sits on the dark band).
+
+**What I did instead:** a `band` prop: a dialog draws it first, edge to edge (`bg-ink text-surface`, 32 px sides, the bill's), then the title and body with 32 px sides; a bottom sheet draws it as its drag handle with a `--rail-muted` grab bar, then the title at 18 px. Without `band` both draw exactly as before (`band.test.tsx`). Not combined with `foot`. Rejected: a delete-only surface of its own — §12.5's "never invent your own".
+
+**Risk:** none seen; every dialog and sheet test is green.
+
+## Task 1.61 — client bundle: 231.9 KB, the budget not raised
+
+**Plan said:** (brief) load `DeleteDialog` lazily so the initial chunk does not grow; raise `BUDGET_KB` only if impossible.
+
+**What was wrong:** the first chunk grew 0.2 KB anyway: `dialog.tsx` and `sheet.tsx` (the `band` slot) and `offlineCapability.ts` (two rows) are in it.
+
+**What I did instead:** measured `initial JS 231.9 KB gzip` (was 231.7) under the 232 KB budget, so `BUDGET_KB` and §12.5's guard line are unchanged. `DeleteFlow` (the dialog, its faces and the flow) is a 7.2 KB lazy chunk.
+
+**Risk:** 0.1 KB of headroom left for Phase 1 K.
+
+## Task 1.61 — unit tests wait up to 5 s for the dialog's chunk
+
+**Plan said:** nothing.
+
+**What was wrong:** the entry preview's "queues the soft delete" case failed intermittently (2 of 13 runs, then once in the full suite, at its Cancel-focus check): the dialog opens from a lazy chunk, whose first transform under load can pass `findBy*`'s 1 s default.
+
+**What I did instead:** the first wait for a lazily opened delete in each suite takes `{ timeout: 5000 }` (`LAZY`, as `ManageRoute.test` already does for its lazy phone view), and the first-focus checks right after a lazy open (Cancel, Close, Keep version 2) wait for the focus with `waitFor` — the full suite once found the dialog a moment before its mount effect had moved focus. Six back-to-back runs of the three suites were then green.
+
+**Risk:** none.
+
+## Task 1.61 — e2e fixtures and the browser-pane check
+
+**Plan said:** realistic fixture data; the flow checked in the browser pane against dev seed data (§12.3).
+
+**What was wrong:** the brief: skip the browser-pane check; the orchestrator does it. The e2e fixture has no Q41 (40 matches) and v1 holds 12 entries (design: 312).
+
+**What I did instead:** `e2e/delete.spec.ts` (8 tests) renumbers three fixture line-ups as Q40–Q42 for the phone frames, counts Season 2025 with the design's numbers through a mocked `getDeleteImpact`, and uses the forms fixture's own v1 (12 entries). `manage.spec`'s event delete and `forms.spec`'s builder delete were rewritten to the new face (their shot names kept). `FORMS_RPC` answers `getDeleteImpact` and `deleteFormVersion`.
+
+**Risk:** the server-side flow (real counts, the outbox delete reaching the server) is the orchestrator's browser-pane check.
+
+## Fix (2026-10-29) — the form-version delete rule
+
+**Plan said:** (task 1.60, Phase 1 D review #2) a published version is never deleted on its own; only a draft is, and the whole form is the only way a published one goes. Task 1.61's forms list had no trash on the draft row.
+
+**What was wrong:** the user replaced the rule on 2026-10-29: "Published versions — form versions can be deleted only where there is a newer version published (or if the season is deleted). Draft versions — change it. Also draft version can be deleted."
+
+**What I did instead:** `versionDeleteBlock` (`apps/server/src/core/commands/forms.ts`) checks, in order: entries bound to it, soft-deleted included → `has-entries` / `version_has_entries` (unchanged, SPEC-FINAL 17.8); the form's active version → `active-version` / `version_active` (moved ahead of the published check, so the active version is named for being active); a published version with no newer published version of the same form (`version_no` higher, `published_at` set; a newer draft does not count) → `published` / `version_published`, message "v3 is the newest published version; publish a newer version first, or delete the whole form". Otherwise a draft or a superseded published version deletes once "vN" is typed exactly. `getDeleteImpact` shares the function, so the dialog's face follows. Doc comments on `versionDeleteBlock`, `deleteFormVersion` and `DELETE_BLOCKED_REASONS` now state the user's rule. Client: the 36 px trash is on every row but the active version, the draft row included, in the same place; `version_published`'s Blocked face reads "v3 is the newest published version" / "Publish a newer version first, then this one can be deleted. Or delete the whole form." and offers a third card, "Publish a newer version" (Open the builder, on the draft when there is one), before "Delete the whole form instead"; three ways forward sit in three columns on a computer. `DeleteRequest` (form_version) takes `onPublishNewer`, the page's own navigation, as a match takes `onCorrect`. Rejected: dropping "Delete the whole form instead" for this reason to keep two cards — the user's rule names the whole-form (and season) delete as the other way a published version goes.
+
+**Risk:** a device may still hold queued entries for a superseded version that was deleted (the user accepted it). The push refuses each as `parent-deleted`, "the form version no longer exists" (`syncPush.ts`), proven by `deletes.test.ts` › "a device that later pushes an entry for the deleted version is refused parent-deleted". The entries rule still blocks any version the server already has entries for. SPEC-FINAL 3.3 / 3.9 and the spec's decision log are not edited here (the orchestrator's files).
+
+## Fix (2026-10-29) — e2e fixtures over a given version list
+
+**Plan said:** (brief) a superseded version with no entries opens the bill; the newest published opens Blocked.
+
+**What was wrong:** the e2e forms fixture holds entries on every published version, and its `getDeleteImpact` blocked every published version.
+
+**What I did instead:** `e2e/formFixtures.ts` exports `listFormsOf(versions)` and `deleteImpactOf(versions)` (the server's order: entries → active → newest published), and `FORMS_RPC` uses them over `VERSIONS`. `delete.spec.ts` overrides both with v2 at 0 entries (the bill, `delete-version-bill-desktop`) and with v2 restored as active and v3 at 0 entries (the Blocked face, `delete-version-newest-blocked-desktop`, a shot the brief did not ask for: the face's copy and its three cards changed). `src/test/builderHarness.tsx` follows the same rule.
+
+**Risk:** none.
+
+## Fix (2026-10-29) — orchestrator: the user's decisions after Phase 1 J
+
+**Plan said:** bundle budget 232 KB; "of N" = the ranked teams on Home and the ranking page; "±" printed by `formatMetric` (a whole number bare); the dev seed's teams are 8000–8029.
+
+**What was wrong:** nothing in the plan — the user decided otherwise (2026-10-29): expand the bundle space, every rank counts the roster, "±" carries one decimal, add 2096 to the seed so Home's Our team card shows on dev. Recorded in spec v1.01 / SPEC-FINAL v1.49 / plan v1.38.
+
+**What I did instead:** `BUDGET_KB` 232 → 240 at a measured 231.9 KB (BUILD-CONTEXT §12 guard line updated). `rankedCount` → `rosterCount` (`rows.length`: the table holds one row per roster team). `formatStdDev` always prints one decimal ("±9.0"). The seed's first team (`SEED.team(0)`) is 2096 RoboActive (was 8000 Iron Falcons; same id), and the seeded roster rows are upserted with `deleted_at: null` so a re-seed brings a removed roster row back (dev had one: 29 of 30). Dev re-seeded; 2096 ranks 30 of 30 there. Rejected: a 2096 with flattering seed data — the seed's figures stay deterministic. The smoke suite already runs against dev (CI on `e9b8186`: `/health` + 8 slice tests green); Phase 1 K's delete smoke tests will too.
+
+**Risk:** a test or spec that referred to team 8000 in the dev seed by number (none found: e2e mocks the API).
+
+## Fix (2026-11-01) — the user's feedback from testing develop
+
+**Plan said:** SPEC-FINAL 11.3's reliability column: `broke_down` is "available, and flagged as a breakdown", so availability = (played + broke down) / scouted; the Status spread put Played and Broke down on the "On the field" side. The computer's ranking table scrolled with the page (its header sticky only from 1360 px) and the study panel was `sticky`; the Sort builder's row was one line at both widths; the computer `Dialog` closed on Escape and × only, and seven dialogs hid the ×; the builder's phase strip showed a phase under 12 % by its first letter.
+
+**What was wrong:** the user tested the develop preview (2026-11-01) and decided otherwise: a breakdown hurts availability; on a phone the Sort builder cut the figure's name to "…" (the row's fixed parts left ~10 px); on a computer the numbered sort badge spilled into the next column and scrolling "works weird" (a study panel taller than the window, a header that did not stick below 1360 px); "30 teams" should be said without a click; "keep standard settings and looks in the app" for dialogs; the phase strip hid "Auto".
+
+**What I did instead:**
+1. `reliabilityFor`: `available` = played; `missed` = broke down + no show + disabled; `breakdowns` stays its own count. Points averages are unchanged (`entriesForAggregates` untouched): a broke-down match still counts in every average. The spread is Played | Missed (Broke down, Disabled, No show); its header "Played · finished the match" | "Missed" ("Played" | "Missed" in the study and on the phone); the study reads "available · played the whole match in X of Y" with the footnote "A breakdown counts as missed for availability; its points still count. Only scouted matches count." `spreadScale` returns `{ played, missed }` (was `{ onField, missed }`); `missedOf` added. The team page's tile and rows read the engine's new figures (their wording is unchanged: "5 of 7 matches"). Server bundle regenerated.
+2. `SortControls.tsx`: the sheet's rows are `stacked` (two lines: grip · By/then · badge + full name · ×, then the direction pair across the name's column, buttons `flex-1`); the popover keeps its one line. The name never truncates at either width (`truncate` dropped; it may wrap rather than cut).
+3. `RankingTable.tsx`: sortable columns widened to fit their in-sort header — Total 66 → 76, Auto/Teleop 60 → 80, Endgame 74 → 92, Post-match 74 → 108, Availability 100 → 116, Breakdowns 110 → 128, No-shows 100 → 112, Disabled 92 → 108; minimum widths Scoring 728 → 800, Availability 920 → 960. Proven by e2e at 1440 and 1280 px for every header in its sorted state.
+4. The computer's `/ranking` is exactly the window under the crumb bar and any shell notice (`calc(100dvh - <measured top>)`, falling back to `--top-bar` before the first measure; at least 30 rem); the ranking area takes the rest. The table scrolls in its own card on both axes with its header `sticky top-0` at every width; the box is a labelled, focusable region (`Table`'s new `scrollLabel`). The study panel is `max-h-full overflow-y-auto` (no longer sticky). The phone layout is unchanged.
+5. `teamsText` (`rosterCount.ts`, re-exported by `homeData.ts`): "30 teams" / "1 team" on the ranking's event line (both layouts) and Home's Top teams heading, "of 30 teams · average points · last 5".
+6. `Dialog`: the × always, an icon-headed dialog's in its top right corner; a backdrop click closes it only when the pointer went down AND up on the backdrop itself; `dismissible={false}` holds Escape, the × and the backdrop. The `showClose` prop is removed from `Dialog` (nothing needed it once the seven overrides went); `Sheet` keeps its own `showClose`. BUILD-CONTEXT §12.5 records the standard.
+7. `TimerConfigEditor` `PhaseBar`: every phase is named with its m:ss; each segment `min-w-max` and `flex: <seconds> 1 0`; the `total` prop is gone.
+
+Rejected: the Status spread header "Missed · Broke down · Disabled · No show" — tried first; the missed side is as wide as the most missed matches (often one or two), so it truncated to "Mis…" in the study and "Missed · Brok…" in the table; the legend above the table already names the shapes. A fixed `h-[calc(100dvh-var(--top-bar))]` alone — a shell notice (offline, a session override) made the page scroll by the notice's height and hid the area's bottom, so the top is measured (a MutationObserver on the shell column's children, and window resize). At 1280 px the scroll pictures show no selected row: under 1360 px a row opens the summary sheet over the page by design, so a "row selected" picture there would show the sheet, not the table.
+
+**Risk:** the availability rate of every team with a breakdown drops (dev and production data are recomputed on read; nothing is stored). Home's Our team and the team page read the same engine. A half-filled form in a computer dialog (Add user, Edit season/event) now closes on a stray backdrop click — the user's standard. Delete's "Are you sure?" face is a `Dialog` at both widths, so the phone pop-up gains the × too. The spec's §11.3 / §13.5 / §17.8 text is the orchestrator's (SPEC-FINAL v1.50 already carries it in the working tree).
+
+**Orchestrator, the same fix (2026-11-01): a typed-into dialog survives a click outside.** The build made every computer dialog close on a backdrop click; the user chose "keep it open" for a half-filled form. `Dialog` marks itself edited on the first `input` event from its fields and then ignores the backdrop click; Escape and the × still close it. One rule in the primitive, not a `dirty` prop per form, so no form dialog can forget it. Test: `primitives-2.test.tsx`, "keeps a half-filled form open on a backdrop click". Risk: a dialog whose field is changed and changed back stays edited — the safe side.

@@ -1,6 +1,44 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.31 · **Date:** 2026-10-20 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.50 · **Date:** 2026-11-01 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.50: a breakdown counts as missed for availability, its points still count (§11.3, §13.5); the ranking page and Home's top teams state the roster count (§13.5); every computer dialog has the × and closes on Escape, the × or a click outside unless busy (§17.8); the builder's phase strip always names each phase with its time. See the living spec's §21, v1.02.*
+
+*v1.49: a form version can be deleted on its own when it is a draft or a newer version has been published, still never with entries bound to it (§3.9); every "of N" rank counts the event's roster (§13.5); a standard deviation always prints one decimal (§17.8). See the living spec's §21, v1.01.*
+
+*v1.48: Home's our-team card counts "places moved" since our last match: our rank now against the ranking computed from the matches before it (§13.5). See the living spec's §21, v1.00.*
+
+*v1.47: the delete confirmation is designed (§3.9, §17.8): the bill first; a plain "Are you sure?" where nothing is typed; a match with entries can be deleted together with them; the backup step is the two-file dump. See the living spec's §21, v0.99.*
+
+*v1.46: the ranking page is designed (§13.5, D18): phase 1's table gains the Auto, Teleop and Endgame averages and Consistency, two categories (Scoring, Availability) replace column visibility, availability shows on every row, a status spread over the scouted matches, a team study panel, and a sort of several figures; the phone bottom bar is Home · Scout · Search · Ranking (§17.9); averages and standard deviations print **one** decimal, a whole number bare (§17.8). See the living spec's §21, v0.98.*
+
+*v1.45: no edit is possible after the 5 minutes (§7.6): an open form counts down its last minute, saves what is typed at 5:00 and locks. See the living spec's §21, v0.97.*
+
+*v1.44: a record refused for the edit window reads "Not sent: changed after the 5-minute edit window. A lead can save it for you." everywhere (§7.6), replacing "this entry is locked — ask a lead". See the living spec's §21, v0.96.*
+
+*v1.43: the entry search is the Entries page (§13.3): 05's design plus a Both · Match · Super switch; no station in the table. See the living spec's §21, v0.95.*
+
+*v1.42: the team search page is designed (§13.2): At this event by default, the whole row opens the team page, a Show all line for other events. See the living spec's §21, v0.94.*
+
+*v1.41: the entry preview is designed (§13.4): a score band, phase subtotals and points per row, the form version, and Team page / Edit buttons (Edit only for who may edit, §7.6). See the living spec's §21, v0.93.*
+
+*v1.40: the team page is designed (§13.1): tiles, stat rows with trend lines, a match strip on the Matches tab only, the scouter on every match row; the worst → best shading ramp is fixed (§12.6). See the living spec's §21, v0.92.*
+
+*v1.39: a held wipe gains **Wipe anyway**, for a device whose records cannot reach the cloud (§9.9). See the living spec's §21, v0.91.*
+
+*v1.38: QR frames are 500-byte Base45 text in alphanumeric mode at a fixed version 18, the receiver asks for a 1080p camera and uses the browser's own QR reader where it has one (§9.8, D12); version 40 was unreadable by a phone camera (user, 2026-10-23). See the living spec's §21, v0.90.*
+
+*v1.37: every migration that creates a table grants it to `service_role` explicitly, because Supabase stops doing so automatically on 2026-10-30 (§19.4). See the living spec's §21, v0.89.*
+
+*v1.36 (Phase 1 G build): a received QR copy never replaces the receiving device's own unsent change, and discarding received QR data makes the next sync a full pull (§9.8). See the living spec's §21, 2026-10-20 (v0.88).*
+
+*v1.35: another scouter's super entry opens as a quiet read-only page (the warning lock line is replaced, §7.6), and the super picker names who did each Done team (§8.1). See the living spec's §21, 2026-10-20 (v0.87).*
+
+*v1.34: the QR receiver's page (§9.8): frame cells, a done screen naming the author, sound and vibration, a damaged batch restarts. See the living spec's §21, 2026-10-20 (v0.86).*
+
+*v1.33: the QR sender's page (§9.8): a next-batch button above 200 operations, and the screen kept on while codes show. See the living spec's §21, 2026-10-20 (v0.85).*
+
+*v1.32: a scouter sees another scouter's super entry read only (§7.6), built as a side task of task 1.47. See the living spec's §21, 2026-10-20 (v0.84).*
 
 *v1.31: a cycle path shows small start and end marks (§8.2), built as a side task of task 1.47. See the living spec's §21, 2026-10-20 (v0.83).*
 
@@ -585,10 +623,11 @@ Two distinct mechanisms, and they do not overlap:
 Additional rules:
 
 - **Deleting a whole form is an admin cascade** and takes its entries with it. **Deleting a single form version that has entries bound to it is blocked** with an explanation, and no confirmation text overrides it. Deleting the parent is a cascade, not an orphaning, which is why one is allowed and the other is not.
-- **Deleting a match that has entries is blocked** (`scouting_entries.match_id` is `on delete restrict`). Correct the match number instead, or delete the entries first.
+- **A single form version is deleted on its own only when it is a draft, or a newer version of the same form has been published** — never the active version, never the newest published one, never with entries bound to it; the label ("v2") is typed. Otherwise it goes only with its form or its season. A device's queued entry for a deleted version is refused as `parent-deleted` (§9.3.1) and shows in the conflicts list. *(v1.49, user 2026-10-29. Was: only a draft, because a device may hold queued entries for any published version (Phase 1 D review #2).)*
+- **Deleting a match that has entries is blocked on its own** (`scouting_entries.match_id` is `on delete restrict`). The admin either **corrects the match number**, or **deletes the match together with its entries** — a hard cascade like an event's: the counts, the backup step, the match label typed ("Q41"); the entries, soft-deleted ones included, and the match go in one transaction. *(v1.47, user 2026-10-28. Was "or delete the entries first", which never worked: a soft-deleted entry keeps its row and so still holds the match **[RAISED BY ME]**.)*
 - **The active season and the active event cannot be deleted.** Switch the active context first.
 - **Confirmation names the damage** — exact counts, and the admin types the object's name to proceed (§17.8).
-- **Back up first.** The delete screen instructs the admin to run `supabase db dump` before proceeding (§18.6).
+- **Back up first.** Every hard delete's confirmation shows the **two-file backup** from `docs/ops/SETUP.md` › Backup — the schema (`supabase db dump -f …`) and the rows (`supabase db dump --data-only --use-copy -f …`), shown as two lines with one Copy. **Never the bare `supabase db dump`, which saves no rows** (DEVIATIONS, task 0.7) before proceeding (§18.6). *(v1.47 [RAISED BY ME]; was "run `supabase db dump`".)*
 
 ### 3.10 `updated_at` is load-bearing
 
@@ -901,11 +940,16 @@ Custom username/password authentication in the server use-case layer. **Supabase
 
 A scouter may edit their **own** entry for **5 minutes** after creating it. After that the row locks for them, and only a lead or admin can change it.
 
-**Super entries are exempt** *(v1.26, user, 2026-10-12)*: a scouter may edit their own super entry (§8.1) at any time during the event. A super entry is one running judgement of a team, built up over every match the scouter watches, not a record of one match, so locking it after five minutes defeats its purpose. The window below applies to `form_kind = 'match'` entries only, on the client and on the server; another scouter's super entry stays read-only to a scouter, as before.
+**Super entries are exempt** *(v1.26, user, 2026-10-12)*: a scouter may edit their own super entry (§8.1) at any time during the event. A super entry is one running judgement of a team, built up over every match the scouter watches, not a record of one match, so locking it after five minutes defeats its purpose. The window below applies to `form_kind = 'match'` entries only, on the client and on the server; another scouter's super entry stays read-only to a scouter, as before. *(v1.32, user 2026-10-20)* **Read only means visible:** a scouter who opens another scouter's super entry sees *(v1.35: in place of the lock line)* a **Read only** chip, **whose entry it is** (the author, when it was started and last changed, and how many matches the author scouted the team in) with "Only *name*, a lead or an admin can change it.", **and the entry's answers by phase**, as the confirmation summary shows them (map fields open their map view only), with no control that edits. Leads and admins still edit any super entry at any time.
 
 - The window is measured from the entry's **`client_created_at`**, so it behaves identically offline and online.
-- The **client enforces it** by locking the UI at the 5-minute mark.
-- **The server also enforces it**, using the two client timestamps carried on the mutation: an operation whose `author_user_id` has the `scouter` role and targets its own entry is accepted only when `client_updated_at − client_created_at ≤ 5 minutes`. An edit outside the window is rejected with `edit-window-expired`, and the client surfaces it as "this entry is locked — ask a lead".
+- The **client enforces it** by locking the UI at the 5-minute mark. *(v1.45, user 2026-10-23)* **There is no way to edit after 5 minutes:**
+  - Once the window has closed, nothing offers an edit: the Entry preview shows no Edit (§13.4), and opening the entry from Entries, Sync or the team page shows it read only.
+  - **A form left open runs down with the window.** In the last 60 seconds the form's Save bar shows a countdown, "Editable for 0:45" (mono, `--warn`), above the Save button.
+  - **At 5:00 the form saves what is typed and locks.** The save is stamped `client_updated_at` = `client_created_at` + 5:00, so it passes the server's check below. The form then becomes the read-only entry preview, with a Success banner: "Saved — the 5 minutes are up."
+  - **[RAISED BY ME] A change that cannot be saved is not kept.** A value the save would refuse (out of `expected_range`, §15.1; a required field emptied) keeps its last saved value. The banner says so in one line per field: "Not kept: High goal 40 is over 20." The lead can still make that change. Nothing else typed is lost.
+  - Leads, admins and super entries are unaffected (above).
+- **The server also enforces it**, using the two client timestamps carried on the mutation: an operation whose `author_user_id` has the `scouter` role and targets its own entry is accepted only when `client_updated_at − client_created_at ≤ 5 minutes`. An edit outside the window is rejected with `edit-window-expired`, and the client surfaces it as **"Not sent: changed after the 5-minute edit window. A lead can save it for you."** *(v1.44, user 2026-10-23; was "this entry is locked — ask a lead", which read as if syncing had locked it)*. The same one line is the refused-record line on Entries and on Sync, with no second "why" sentence; the server's `message` for this code is the same text. *(v1.45)* With the client rule above, this refusal is only a safety net (a device clock moved back, a bug); a scouter should not meet it in normal use.
 - **The server compares the two client timestamps to each other, never to server time.** An entry created and edited offline and uploaded six hours later still passes, because the elapsed time measured is the scouter's own, exactly as it is on-device.
 - Scouters never hard-delete entries. Removal is a lead/admin soft-delete.
 - Leads and admins may edit or manage any entry at any time.
@@ -938,6 +982,8 @@ This is where 95% of usage happens: a student in a loud arena, phone in one hand
 If a super entry for that (team, event) already exists on the device, the app opens it for editing rather than starting a second one. The duplicate path of §9.5 exists for the case two devices create one independently.
 
 *Design (v1.24, `docs/design/pages/15-super/final/`):* reached from a **Super scouting** card on Scout. The picker shows a progress line ("6 of 20 super-scouted on this device"), search and **To do · Done · All** chips over the roster, to-do teams ordered by how many matches this device saw them in. The form's header names the team, the event, and the matches this device scouted the team in ("Seen here in Q12 · Q19…"); a reopened entry says so. The confirmation names the team and the event and says no match is recorded.
+
+*(v1.35)* **The super picker names who did each Done team:** the tag reads "✓ You 11:02" for the signed-in user's own entry and "✓ *first name* 10:40" for another scouter's (the entry's `scouter_id`; the time it was first saved). The progress count includes every super entry the device holds, whoever wrote it.
 
 ### 8.2 The entry form
 
@@ -1220,16 +1266,16 @@ The venue workflow: a **central tablet collects scouters' data by QR inside the 
 |---|---|
 | Payload | The sender's pending outbox operations, serialised as JSON |
 | Compression | **`fflate`** raw deflate (browser-safe, tiny, fast) |
-| Framing | The compressed byte stream is split into frames of **2,300 bytes** |
-| QR parameters | Version 40, error-correction level **M**, **byte mode** (binary — no base64 expansion) |
+| Framing | The compressed byte stream is split into frames of **500 bytes** *(v1.38; was 2,300)* |
+| QR parameters | *(v1.38)* Each frame (header + slice) is written as **Base45 text** (RFC 9285) in **alphanumeric mode** — about 3% larger than raw bytes, and plain text, so every scanner reads it. Error-correction level **M**; **one fixed version for the batch, version 18** (89 modules), the smallest that holds a full frame. *Was version 40 byte mode: 177 modules, unreadable by a phone camera at the resolution a browser opens it.* |
 | Frame header | 12 bytes: 4-byte batch id, 2-byte frame index, 2-byte frame count, 4-byte CRC32 of the *whole* compressed payload |
 | Display | **Cyclic repeat at 5 frames per second** — frames are shown 1…N, 1…N, … indefinitely until the sender stops |
-| Library — render | `qrcode` (byte-mode capable) |
-| Library — scan | `@zxing/browser`, continuous scan from the rear camera |
+| Library — render | `qrcode` |
+| Library — scan | *(v1.38)* The browser's own **`BarcodeDetector`** where it reads `qr_code` (Android Chrome), else **`@zxing/browser`** (iPhone Safari) with zxing 3.4's finder-pattern selection. Continuous scan from the rear camera, asked for at **1920×1080** with continuous focus where offered. |
 
 The receiver collects frames by index and completes when it holds all N. Order does not matter, and because the sender loops indefinitely, a frame missed on one pass is caught on the next.
 
-**Sizing.** ~200 KB of raw JSON (≈100–200 entries) compresses to roughly 20–30 KB → **9–13 frames** → one full cycle in ~2.5 s, with a complete scan typically inside 5 s. The sender **caps a batch at 200 operations** and splits larger backlogs into consecutive batches, each with its own batch id.
+**Sizing.** *(v1.38)* A realistic backlog of 100–200 entries compresses to roughly 10–30 KB → **about 20–60 frames** → one full cycle in about 4–12 s; frames are collected in any order, so a scan completes within a few cycles. The sender **caps a batch at 200 operations** and splits larger backlogs into consecutive batches, each with its own batch id.
 
 **Semantics.**
 
@@ -1240,6 +1286,9 @@ The receiver collects frames by index and completes when it holds all N. Order d
 - When either device later reaches the internet, each uploads independently. Because the server keys on `row_id`, a second upload of the same record is an **idempotent upsert** resolved by the base-version rule: a no-op if identical, a fast-forward if linear, and flagged only on genuine divergence. Never a duplicate row.
 - No device needs to be designated "the syncer", and re-scanning the same batch is harmless.
 - The receiver shows a running count of frames collected and a clear "batch complete" state.
+- *(v1.34)* **The receiver** learns the frame count from the first frame it reads (each header carries it), then shows a ring with the count collected and **one cell per frame**, filled as frames arrive in any order. On completion it shows the records' author (`author_user_id` names; several are listed) and the record count, plays a short sound (unless the user turned it off on this device) and vibrates where supported, and offers **Scan the next phone**. A batch whose checksum fails is dropped whole, nothing is written, and scanning restarts. A batch is written only when complete, so leaving mid-batch saves nothing. A frame carries no batch count, so the done screen tells the user to tap Next batch on the sender if it shows one.
+- *(v1.33)* **The sender** covers the screen and shows the current frame number of N, looping by itself. **A batch is fixed when the sender opens**: records saved meanwhile wait for the next send. When the backlog splits into batches, the sender shows "Batch k of n" and moves to the next batch **only when the user taps Next batch** (the tablet sends nothing back, so the sender cannot know a batch arrived). **Done** closes it at any point and marks nothing sent.
+- *(v1.33)* **The sender holds a Screen Wake Lock** while it is open and releases it on Done or on leaving the page. If the browser refuses the lock, the transfer still works.
 
 **Disposal of transferred copies — on ack, not on a timer.** A record whose sync state is `origin: 'qr'` is **discarded from the receiving device the moment its cloud acknowledgment arrives**. There is no TTL and no waiting period.
 
@@ -1247,7 +1296,9 @@ The receiver collects frames by index and completes when it holds all N. Order d
 - **On ack**, the copy is removed from the receiver's outbox and its `origin: 'qr'` marker is cleared. The row itself remains in the local dataset as an ordinary cached row of the active competition — which is exactly what the next delta pull would hand the device anyway — so the collector tablet's own statistics stay correct and complete.
 - Records the device created itself (`origin: 'local'`) behave identically: pruned from the outbox on ack, retained in the dataset.
 
-**Manual escape hatch.** The sync page carries a **"discard received QR data"** action for when something has gone wrong — a corrupt batch, a device handed over mid-event, a scan from the wrong event. It removes every `origin: 'qr'` record on the device and is **refused for any record without a cloud ack**, the same guard as the device wipe (§9.9). It reports how many records it would refuse and stops rather than partially clearing.
+**Manual escape hatch.** The sync page carries a **"discard received QR data"** action for when something has gone wrong — a corrupt batch, a device handed over mid-event, a scan from the wrong event. It removes every `origin: 'qr'` record on the device and is **refused for any record without a cloud ack**, the same guard as the device wipe (§9.9). It reports how many records it would refuse and stops rather than partially clearing. *(v1.36)* Removing those rows leaves the device's delta-sync watermark ahead of them, so the hatch also clears the watermark: **the next sync is a full pull** and the cloud's copies of the removed rows come back as ordinary cached rows.
+
+*(v1.36)* **A received copy never replaces the receiving device's own unsent change.** When the device already queues its own operation for the same row (a lead correcting a received entry on the collector tablet), the incoming copy is skipped and counted as unchanged; the sender still holds it, so nothing is lost. A newer copy replaces only an older unacked *received* copy.
 
 ### 9.9 Lead-approved local wipe
 
@@ -1256,6 +1307,7 @@ A "clear this device's offline data" action, gated behind a **constant code held
 - It is a guard against accidents, **not a secret** — a client-side build variable is visible in the bundle, and this is accepted.
 - **The wipe is refused for any record without a cloud ack**, so it can never destroy unsynced data. If unacked records exist the action reports how many and refuses.
 - *(v1.27)* It is reached from **Settings** ("Wipe this device", §17.9) only, not from the sync page.
+- *(v1.39, user 2026-10-23)* **Wipe anyway.** While the wipe is held, a second, harder path clears a device whose records cannot reach the cloud (a stuck record, a device that must be cleared in a hurry). It offers **Send by QR first** (§9.8), so the unsent records can be copied to another device, then asks for the lead's code **and the number of records that will be lost**, typed. The count must equal the device's unacked count at the moment of the wipe. Each lost record is written to the discarded-records log (§9.7, summary only) with the reason "wiped before it reached the cloud" before the wipe runs, so the loss is recorded, never silent. The normal wipe keeps its refusal.
 
 ### 9.10 Sync status surface
 
@@ -1377,7 +1429,7 @@ The engine applies one fixed rule everywhere:
 | Status | Performance metrics | Reliability metric |
 |---|---|---|
 | `played` | **Included** | available |
-| `broke_down` | **Included** — a robot that played then died genuinely underperformed, and its partial data is real observed performance | available, and flagged as a breakdown |
+| `broke_down` | **Included** — a robot that played then died genuinely underperformed, and its partial data is real observed performance | **missed**, and flagged as a breakdown *(v1.50, user 2026-11-01; was available)* |
 | `no_show` | **Excluded entirely.** Never counted as zero. | missed |
 | `disabled` | **Excluded entirely.** Never counted as zero. | missed |
 
@@ -1386,7 +1438,7 @@ The engine applies one fixed rule everywhere:
 - **breakdowns** (count of `broke_down`),
 - **no-shows** (count of `no_show`),
 - **disabled** (count of `disabled`),
-- **availability rate** = available / (available + missed).
+- **availability rate** = available / (available + missed) — available is `played` only; a breakdown is missed *(v1.50)*.
 
 These are shown alongside performance metrics in statistics, ranking and pick-list views, and **reliability is a first-class input to alliance selection**: a high scorer that frequently breaks down must not out-rank a slightly lower but dependable robot.
 
@@ -1537,6 +1589,7 @@ Every numeric cell or mark carrying a metric value is **colour-scaled from worst
 - **No data** — a cell with no value renders as a distinct **"—"** and is **excluded from the column's min/max domain**. Missing data must never look like a bad value.
 - **All-equal or single row** — when min == max, shading falls back to a **flat mid-colour**. Inferring "best" from one data point would be dishonest.
 - **Colourblindness** — the shading ramp must vary **lightness monotonically**, so it stays legible without hue, **and the numeric value is always printed in the cell**. Colour is a fast cue, never the only channel.
+- **The ramp** *(v1.40, 2026-10-23)* — one hue, the accent, mixed into the surface from 6 % (worst) to 52 % (best); the text stays ink. Flat cells (neutral, min = max) use `--line-2`. Tokens in `docs/design/THEME.md`, "Value shading".
 
 ### 12.7 Operational (meta) statistics
 
@@ -1610,6 +1663,8 @@ Required content, beyond the team dashboard's configurable charts:
 
 There are no photos on this page.
 
+*(v1.40, user 2026-10-23)* **The page as designed** (`docs/design/pages/24-team/final/`): tabs **Stats · Matches · Progress · Notes** under the sticky header (which shrinks to one line on a phone once scrolled). Stats opens with four stat tiles (median points, availability, best match, trend = the `slope`), then every metric as **label → shaded value → bar → a per-match trend line**, grouped by phase, with the reliability counts. **Matches** opens with a **match strip** (one shaded cell per match, oldest → newest; a broke-down match edged amber, a no-show dashed with "—"), shown on that tab only. Then on a phone the list shows match · robot status · **scouter** · points, with no station and no field values (they are one tap away in the entry); on a computer the table keeps the metric columns above and adds the **scouter**. Progress stacks up to four charts (§12.5). Notes are quotes, newest first. A team with no entries shows "No entries for this team yet".
+
 ### 13.2 Team search page
 
 Searches **all teams in the season** by number or name.
@@ -1617,6 +1672,8 @@ Searches **all teams in the season** by number or name.
 - A team **in the active event** shows a **small side rank badge**; the **top 3 carry a medal icon**. Teams not in the active event show no rank.
 - Team **in the active event** → a button → that team's page (13.1).
 - Team **not in the active event** → a **differently-styled button** → pick from the **events that team competed at** (events where we hold entries for it) → an **"are you sure?" confirmation** → on yes, switch the active event as a **session-only override** and land on that team's page. **Disabled offline.**
+
+*(v1.42, user 2026-10-23)* **The page as designed** (`docs/design/pages/23-team-search/final/`): one list with the chips All · **At this event (the default)** · Other events, filtering as you type. A team at the active event is a row whose **whole area opens its team page** (a round › at the end; pressed or hovered rows tint with an accent edge). It carries the rank badge at the side, with the medal on the top 3. A team at another event shows a dashed **Other event** button instead. While At this event is selected, a closing line offers "n more teams at other events · Show all". The computer table is Team · Rank here · Entries here, with no column naming other events. The event pick is a sheet of radio rows (events where we hold entries); the are-you-sure names the event and the team, says the switch is for this session and this device only, and offers **Keep District #3** first. The phone bottom bar becomes Home · Scout · Search · Entries.
 
 ### 13.3 Entry search page
 
@@ -1626,9 +1683,13 @@ Searchable by **team name, team number, match number, scouter name**. Each row s
 
 Filters as chips, search that filters as you type. A row opens the preview **as a full page, not a drawer**.
 
+*(v1.43, user 2026-10-23)* **One page.** The entry search *is* `/entries`: the Entries page as designed in round 05 (search, All · Mine · Waiting · Needs a look) plus a **Both · Match · Super** switch (Both by default). Super entries sit in the list by time with a SUPER tag and no score, and every row opens the entry preview. The station tag is dropped from the list (table and phone cards). Design: `docs/design/pages/26-entry-search/final/`.
+
 ### 13.4 Entry preview page
 
 A read-only rendering of a **single entry**: all field values laid out **by phase**, plus the entry's **scouted score**, team, match, alliance, robot status, scouter, form kind and timestamp.
+
+*(v1.41, user 2026-10-23)* **The page as designed** (`docs/design/pages/25-entry-preview/final/`): a header with the match, team, robot status, station, form kind and the score ("—" over "not counted" for an excluded entry; no score for a super entry), then "Scouted by …", the time and the **form version**. A match entry with a score then shows a **score band**: where the points came from, by phase, against the team's average. The answers follow by phase, each phase with its **points subtotal** and each scored row with its **points**. A no-show or disabled entry shows a note and no field rows. At the end come **Team page** and **Edit**; Edit shows only to someone allowed to edit it under §7.6 (the scouter's own match entry within its 5 minutes, their own super entry, a lead or an admin) and opens the entry in its form.
 
 ### 13.5 Ranking page
 
@@ -1651,7 +1712,24 @@ Layout: the **metrics table first**, then charts and other metrics below.
 
 **Weight presets:** an admin can save **named weight presets** (these seed the pick list, §14.3). A lead can adjust weights live but **session-only**. **Offline, weights can be changed but not saved.**
 
-**Phase 1 ships a fixed ranking table**, not this one: the canonical basic rank, the average scouted score, and the four reliability figures, with column sort and no weighting. The admin-built columns, the weighting mode and the presets arrive in phase 2 with the metric builder they depend on (§20.2).
+**Phase 1 ships a fixed ranking table**, not this one: the canonical basic rank, the average scouted score **and its per-phase averages**, its **consistency** (standard deviation), and the four reliability figures, with a **sort of one or several figures** and no weighting *(v1.46; was "the average scouted score, and the four reliability figures, with column sort")*. The admin-built columns, the weighting mode and the presets arrive in phase 2 with the metric builder they depend on (§20.2).
+
+*(v1.46, user 2026-10-28)* **Phase 1's table as designed** (`docs/design/pages/27-ranking/final/`, variant N):
+
+- **Two categories**, switched by a category switch; they replace column visibility. Each keeps its own sort.
+  - **Scoring:** a by-phase bar · **Total** (the average scouted points) · one average per phase that carries points in the season's form (normally Auto · Teleop · Endgame; together they add up to Total) · **Consistency** (± the standard deviation, never a sort) · the team's availability · Matches.
+  - **Availability:** a **status spread** · **Availability** · Breakdowns · No-shows · Disabled · Matches.
+- **Availability on every Scoring row:** the % (bold under 100 %) with one robot-status shape per problem match (◆ broke down, □ disabled, – no show), so a strong team that is not dependable shows without a click.
+- **Status spread:** one bar of the team's **scouted** matches, Played on the "played" side of a line, Broke down, Disabled and No show on the "missed" side *(v1.50; Broke down was on the played side)*, every block with its shape and count. **[RAISED BY ME]** The denominator is the matches scouted, never the schedule: a match nobody scouted is in none of the four statuses and is not drawn as missed.
+- **Sort:** one figure or several, in order, each with its own direction (best/worst first; fewest/most first for counts), from the open category's figures only.
+  - A header click makes that figure the whole sort; a second click reverses it. The sort control states the whole sort in words and opens a builder that adds tie-breakers.
+  - Each later figure settles ties in the one before it. Teams still tied keep rank order, and a team with no data sorts last whatever the sort.
+  - **Rank never changes** with the sort: it is the canonical basic rank (§11.5), with medals on the top 3.
+- **Team study:** a row opens one team's record beside the list on a computer and in a bottom sheet on a phone: rank, **Open team page**, points by phase with each phase's share of Total and the team's place in it, consistency with the typical-match range (Total ± SD), and availability with the status spread and the four counts.
+- **Phases are the form's, not fixed** **[RAISED BY ME]**: the bar and the per-phase figures follow the phases that score in the season's form, so a year that scores a post-match field gets that segment too and the parts still add up to Total.
+- Shading (§12.6) marks the figures in the current sort; the others print plain.
+- Offline, the phone computes the same table from the entries on the device and says so ("Computed from the data on this device", with the last sync time).
+- *(v1.48, user 2026-10-28)* **Home reads the same ranking**: the our-team card shows rank #N of M (M is the event's roster, ranked or not, as on the ranking page and the team page *(v1.49, user 2026-10-29)*), the average, and **places moved since our last match** — our rank now against our rank computed from the qualification matches numbered below our most recent counted one ("▲2 since Q36"); the top-teams list is the top five with a five-match trend line, its heading saying "of N teams" *(v1.50)*. The ranking page's line under the event name states the roster count ("30 teams") *(v1.50, user 2026-11-01)*.
 
 ### 13.6 Compare page
 
@@ -1972,8 +2050,8 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 
 | Value | Format |
 |---|---|
-| Computed metrics and averages | **2 decimal places** |
-| Standard deviation | 2 decimal places |
+| Computed metrics and averages | **1 decimal place**; a whole number prints bare ("41", "38.4") *(v1.46; was 2)* |
+| Standard deviation | **Always** 1 decimal place, as "±6.1", "±9.0" *(v1.49)* |
 | Integer counts (game pieces, match numbers, team numbers) | **No decimals**; team numbers carry **no thousands separator** |
 | Percentages | **Whole numbers** |
 | Dates | **`DD/MM/YYYY`** |
@@ -1990,7 +2068,9 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 **Destructive actions — one pattern everywhere.**
 
 - A single confirm dialog that **names the object**, **states what is lost as a count** ("this deletes 4 entries"), and puts the destructive verb on the primary button.
-- **Type-to-confirm only for multi-record irreversibles** — delete a season, delete a form version, wipe local device data. **Plain confirm for single records.**
+- **Type-to-confirm only for multi-record irreversibles** — delete a season, an event, a form, a form version, a match together with its entries, wipe local device data. **Plain confirm for single records** — one entry, a match with no entries — as a small **"Are you sure?"** pop-up naming the record, with Cancel first. *(v1.47)*
+- *(v1.47, user 2026-10-28)* **As designed** (`docs/design/pages/28-delete/final/`, variant A): a cascade delete opens on **the bill** — a dark band with the damage as the biggest count, then every count itemised — then the title as a question, **1 · Back up first**, **2 · Type the name**, and Cancel (focused) beside the filled-ink delete button. A blocked delete keeps the band with a Blocked tag and offers the ways forward as cards, with no delete button.
+- *(v1.50, user 2026-11-01)* **Every dialog on a computer behaves the same:** the × at the top right, and Escape, the × and a click outside all close it — except while it is saving or deleting, when none of them does. Once something in it has been typed or changed, a click outside does nothing, so a half-filled form survives a stray click; Escape and the × still close it. Phone sheets keep tap-outside and drag-down.
 - **Undo instead of a dialog wherever undo is possible** — repeatable inputs, one-tap do-not-pick removal.
 - **An action that would orphan collected data is blocked, not confirmed.** Deleting a form version with entries bound to it fails with an explanation, and no confirmation text overrides it.
 
@@ -2025,7 +2105,7 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 
 **Navigation (v1.3).**
 - **≥ 1024 px:** a collapsible **sidebar**, remembered per device.
-- **Below 1024 px:** a top bar whose menu opens the same destinations as a **drawer** (with the sync line and the account: Switch scouter · Change password · Sign out), plus a **bottom bar**: Home · **Scout, a raised button in the middle** · Entries (with the waiting-to-send count). Team search and Ranking join it with their pages as **Home · Teams · Scout · Ranking · Entries** — four tabs plus the raised Scout; Entries stays in the bar. *(Amended 2026-10-07, v1.15; was "at most four, Ranking returns Entries to the drawer".)*
+- **Below 1024 px:** a top bar whose menu opens the same destinations as a **drawer** (with the sync line and the account: Switch scouter · Change password · Sign out), plus a **bottom bar**: Home · Scout · Search · Entries (Entries with the waiting-to-send count) from task 1.51; with the Ranking page (task 1.58) it becomes **Home · Scout · Search · Ranking**, and **Entries moves to the drawer** and the sidebar. *(v1.46, user 2026-10-28; returns to the original "at most four, Ranking returns Entries to the drawer", which v1.15 had replaced with Home · Teams · Scout · Ranking · Entries.)*
 - **The bottom bar is hidden on the entry route.**
 - The context switcher is still never in the nav: the nav links to Home, which holds it.
 
@@ -2156,6 +2236,7 @@ A pull request into `main` cannot merge unless the run is green.
 - **CI auto-applies them to the dev project** on every push to `develop`.
 - **Production is migrated by hand, one deliberate CLI command** — never automatically on merge. A merge on a Friday must not be able to alter the database on a competition Saturday.
 - **The production schema is never hand-edited in the Supabase dashboard.** The schema must be reproducible from the repo alone.
+- **Every migration that creates a table grants it to `service_role`** (`select, insert, update, delete`) in the same file, and grants nothing to `anon` or `authenticated`. From 2026-10-30 Supabase no longer grants new `public` tables automatically.
 
 ### 19.5 Required documentation deliverables
 
@@ -2475,13 +2556,13 @@ Every one of these is a decision that was **made** during consolidation because 
 | D9 | Match-timer configuration location | `forms.timer_config`, edited in place, no new version | §3.3, §8.4 |
 | D10 | Cross-version type change | Metric refuses with an explicit message rather than mixing types | §11.7 |
 | D11 | Practice-mode drafts | A separate IndexedDB store, cleared on exit from practice mode | §8.5 |
-| D12 | QR encoding parameters | fflate deflate, 2,300-byte frames, QR v40/EC-M byte mode, cyclic repeat at 5 fps, 200-op batch cap | §9.8 |
+| D12 | QR encoding parameters | fflate deflate, 500-byte frames as Base45 text, QR v18/EC-M alphanumeric mode, cyclic repeat at 5 fps, 200-op batch cap; native `BarcodeDetector` else zxing, 1080p camera *(v1.38; was 2,300-byte v40 byte mode)* | §9.8 |
 | D13 | Device wipe code | `VITE_DEVICE_WIPE_CODE`, explicitly not a secret | §9.9 |
 | D14 | Disposal of QR copies | **On cloud ack, with no TTL** — never before the ack, plus a manual "discard received QR data" action guarded the same way as the device wipe | §9.8 |
 | D15 | Parent-deleted records | Client hard-deletes, but raises a notice naming exactly what was discarded and logs it locally | §9.7 |
 | D16 | User deletion | Implemented as `disabled_at`, so authorship survives | §3.2, §7.3 |
 | D17 | Super-scouting coverage denominator | Teams with a recorded entry, not matches — follows from (team, event) cardinality | §12.7 |
-| D18 | Ranking table phasing | Phase 1 ships a **fixed** ranking table; the configurable, weighted one arrives in phase 2 with the metric builder it depends on | §13.5, §20.2, §20.6 |
+| D18 | Ranking table phasing | Phase 1 ships a **fixed** ranking table — the basic rank, Total and its per-phase averages, consistency and the four reliability figures, in two categories, with a sort of several figures *(v1.46)* — and the configurable, weighted one arrives in phase 2 with the metric builder it depends on | §13.5, §20.2, §20.6 |
 | D19 | Event roster | A first-class `event_teams` table with an admin surface. Nothing previously modelled "which teams are at this event", which the rank badges, the robot picker and the coverage metric all need | §3.1, §6.4 |
 | D20 | Match membership | Normalized into `match_teams` rather than six nullable columns, so "which matches contain team X" is one indexed lookup | §3.1 |
 | D21 | Active context storage | An `app_settings` singleton, not a flag on `events` — the only shape that can express "a season is active but has no events yet" | §3.1, §6.3 |

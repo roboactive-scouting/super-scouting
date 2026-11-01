@@ -117,6 +117,29 @@ describe('Match timer (task 1.32, SPEC-FINAL 8.4)', () => {
     expect(within(dialog).getByRole('button', { name: 'Save' })).toBeDisabled();
   });
 
+  // User, 2026-11-01: a short phase showed only its first letter ("A"); now every phase is named.
+  it('the phase strip names every phase with its m:ss, a 15 s Auto and a 5 s one too', async () => {
+    const { u, dialog } = await openTimer();
+    // The strip is drawn again whenever the lengths change (none while one is invalid).
+    const segment = (phase: string) =>
+      within(dialog)
+        .getByRole('img', { name: /^The match:/ })
+        .querySelector<HTMLElement>(`[data-phase="${phase}"]`)!;
+    // 15 s of 180 (8 %): "Auto" and "0:15", never "A".
+    expect(segment('auto')).toHaveTextContent(/^Auto0:15$/);
+    expect(segment('teleop')).toHaveTextContent(/^Teleop2:15$/);
+    expect(segment('endgame')).toHaveTextContent(/^Endgame0:30$/);
+    // Each at least as wide as its words; the rest shared by length.
+    expect(segment('auto').className).toContain('min-w-max');
+    expect(segment('auto').style.flex).toBe('15 1 0px');
+    expect(segment('teleop').style.flex).toBe('135 1 0px');
+    // A 5 s phase (5 of 170, 3 %) keeps its name and m:ss too.
+    await u.clear(lengthBox(dialog, 'Auto'));
+    await u.type(lengthBox(dialog, 'Auto'), '5');
+    expect(segment('auto')).toHaveTextContent(/^Auto0:05$/);
+    expect(segment('auto').style.flex).toBe('5 1 0px');
+  });
+
   it('updates the total live as a length changes', async () => {
     const { u, dialog } = await openTimer();
     await u.clear(lengthBox(dialog, 'Teleop'));

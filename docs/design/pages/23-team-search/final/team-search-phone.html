@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Team search — final, phone</title>
+<link rel="stylesheet" href="../../../theme.css"><link rel="stylesheet" href="../../shell.css"><link rel="stylesheet" href="../../11-phone-shell/src/ps.css"><link rel="stylesheet" href="../../11-phone-shell/src/d.css"><link rel="stylesheet" href="../../24-team/src/team.css"><link rel="stylesheet" href="../src/ts.css">
+<style>.canvas{height:940px}.frames{gap:8px}.frames .phone{zoom:.76}</style>
+</head><body>
+<div id="root"></div>
+<script src="../../24-team/src/team.js"></script><script src="../src/ts.js"></script><script src="../src/final.js"></script>
+<script>
+const f = (h, c) => TP.fig(h, c);
+document.getElementById("root").innerHTML = `<div class="canvas"><div class="canvas-head"><b>Team search — final · phone</b><span>Variant A2: At this event by default; the whole row opens the team page; other events through a picker and an are-you-sure; Search raised in the bottom bar.</span></div>
+  <div class="frames">${f(FIN.p1(), "1 · Default: this event (Orbit pressed)")}${f(FIN.p2(), "2 · Typing “30”: Show all for other events")}${f(FIN.p3(), "3 · Other event → pick where")}${f(FIN.p4(), "4 · Are you sure?")}${f(FIN.p5(), "5 · Offline: other events off")}</div></div>`;
+</script>
+</body></html>

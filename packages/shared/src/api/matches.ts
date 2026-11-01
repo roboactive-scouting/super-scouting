@@ -121,10 +121,27 @@ export const setMatchTeamsInput = z
   });
 export type SetMatchTeamsInput = z.input<typeof setMatchTeamsInput>;
 
-export const deleteMatchInput = z.object({ match_id: uuid }).strict();
+/**
+ * A match with no entries is deleted as it stands (`manage_events`). One with entries is
+ * refused, unless `with_entries: true` (task 1.60, SPEC-FINAL 3.9 v1.47): admin only
+ * (`delete_objects`), `confirm_name` equal to the match label ("Q41") exactly, and every
+ * entry naming the match — soft-deleted ones included — goes with it in one transaction.
+ */
+export const deleteMatchInput = z
+  .object({
+    match_id: uuid,
+    with_entries: z.boolean().default(false),
+    confirm_name: z.string().optional(),
+  })
+  .strict();
 export type DeleteMatchInput = z.input<typeof deleteMatchInput>;
 
-export const deleteMatchOutput = z.object({ id: uuid, deleted: z.literal(true) });
+/** `entries`: how many entry rows went with it, on a `with_entries` delete only. */
+export const deleteMatchOutput = z.object({
+  id: uuid,
+  deleted: z.literal(true),
+  entries: z.number().int().optional(),
+});
 export type DeleteMatchOutput = z.infer<typeof deleteMatchOutput>;
 
 export const listMatchesInput = z

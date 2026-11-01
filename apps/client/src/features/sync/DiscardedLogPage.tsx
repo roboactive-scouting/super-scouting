@@ -19,6 +19,7 @@ import {
   DISCARD_REASON,
   groupDiscarded,
   listDiscarded,
+  WIPE_REASON,
   type DiscardedGroup,
 } from '@/data/discarded';
 import { useDeviceQuery } from '@/data/useDeviceQuery';
@@ -53,8 +54,10 @@ export function DiscardedLogPage() {
           Discarded records
         </h1>
         <p className="mt-0.5 text-[0.8125rem] text-muted lg:text-[0.875rem]">
-          Entries removed from {device} because an admin deleted what they belonged to. Kept here
-          for as long as the app is installed.
+          {records?.some((r) => r.reason === WIPE_REASON)
+            ? `Records removed from ${device} before they reached the cloud.`
+            : `Entries removed from ${device} because an admin deleted what they belonged to.`}{' '}
+          Kept here for as long as the app is installed.
         </p>
       </header>
 
@@ -74,7 +77,11 @@ export function DiscardedLogPage() {
         />
       ) : (
         <>
-          <Note icon="info">{DISCARD_REASON}</Note>
+          {reasonsOf(records).map((reason) => (
+            <Note key={reason} icon="info">
+              {reason}
+            </Note>
+          ))}
           {desktop ? (
             <DiscardedTable groups={groupDiscarded(records)} />
           ) : (
@@ -86,6 +93,17 @@ export function DiscardedLogPage() {
       )}
     </main>
   );
+}
+
+/**
+ * The causes the log holds, each said once: an admin's delete (9.7) and, since v1.39, Wipe
+ * anyway (9.9). A record from before reasons varied reads as the admin's delete.
+ */
+function reasonsOf(records: readonly DiscardedRecord[]): string[] {
+  const reasons = new Set<string>(
+    records.map((r) => (r.reason === WIPE_REASON ? WIPE_REASON : DISCARD_REASON)),
+  );
+  return [DISCARD_REASON, WIPE_REASON].filter((r) => reasons.has(r));
 }
 
 /** "Removed Sun 12 Oct, 08:02". */

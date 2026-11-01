@@ -199,14 +199,14 @@ describe('push rejections are recorded, never pruned (SPEC-FINAL 9.4, 7.6)', () 
         op_id: queued!.op_id,
         status: 'rejected',
         reason: 'edit-window-expired',
-        detail: 'this entry is locked — ask a lead',
+        detail: 'changed after the 5-minute edit window. A lead can save it for you.',
       },
     ]);
     const state = await syncStateOf('row-1');
     expect(state?.sync_state).toBe('pending');
     expect(state?.rejection).toMatchObject({
       code: 'edit-window-expired',
-      message: 'this entry is locked — ask a lead',
+      message: 'changed after the 5-minute edit window. A lead can save it for you.',
     });
     expect(typeof state?.rejection?.at).toBe('string');
     expect(await db.outbox.count()).toBe(1);
@@ -386,7 +386,10 @@ describe('a rejected op is parked, not retried (SPEC-FINAL 9.3.1)', () => {
 
     it('keeps the base_version of a refused update a lead re-saves', async () => {
       await enqueue(op({ action: 'update', base_version: 4, author_user_id: 'u-scouter' }));
-      await rejectFirst('edit-window-expired', 'this entry is locked — ask a lead');
+      await rejectFirst(
+        'edit-window-expired',
+        'changed after the 5-minute edit window. A lead can save it for you.',
+      );
       await enqueue(op({ action: 'update', base_version: 5, author_user_id: 'u-lead' }));
       const [queued] = await pending(50);
       expect(queued).toMatchObject({ action: 'update', base_version: 4, author_user_id: 'u-lead' });
