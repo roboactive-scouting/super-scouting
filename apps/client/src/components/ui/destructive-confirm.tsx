@@ -104,7 +104,6 @@ function OpenConfirm({
       title={title}
       onClose={onCancel}
       dismissible={!busy}
-      showClose={false}
       initialFocus={cancel}
       describedBy={`${id}-body`}
       width={460}

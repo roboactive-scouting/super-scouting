@@ -35,7 +35,6 @@ export function ProblemsDialog({
       open={open}
       title={problemsTitle(problems.length)}
       onClose={onClose}
-      showClose={false}
       describedBy={describe}
       width={560}
     >

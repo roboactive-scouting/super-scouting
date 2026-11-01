@@ -461,6 +461,13 @@ test('builder: Match timer lists the phases with the bar, the match end and the 
   await teleop.fill('135');
   await expect(dialog.getByText(/Match ends at/)).toHaveText('Match ends at 180 s (3:00)');
   await expect(dialog.getByRole('button', { name: 'Save' })).toBeEnabled();
+  // Every phase named with its m:ss, a 15 s Auto too (user, 2026-11-01: it showed only "A"),
+  // and none of the words cut.
+  const strip = dialog.getByRole('img', { name: /^The match:/ });
+  await expect(strip.locator('[data-phase]')).toHaveText(['Auto0:15', 'Teleop2:15', 'Endgame0:30']);
+  for (const segment of await strip.locator('[data-phase]').all()) {
+    expect(await segment.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  }
   await shoot(page, 'builder-timer', 'desktop');
   await dialog.getByRole('button', { name: 'Save' }).click();
   await expect(dialog).toBeHidden();

@@ -212,7 +212,8 @@ describe('TeamPage (SPEC-FINAL 13.1; 24-team final)', () => {
   it('shows breakdowns, no-shows, disabled and the availability rate, with the matches named', async () => {
     open();
     const panel = await screen.findByRole('group', { name: /reliability/i });
-    expect(panel).toHaveTextContent('Availability86%6 of 7');
+    // 5 played of 7: the Q14 breakdown is missed for availability (user, 2026-11-01).
+    expect(panel).toHaveTextContent('Availability71%5 of 7');
     expect(panel).toHaveTextContent('Breakdowns1Q14');
     expect(panel).toHaveTextContent('No-shows1Q26');
     expect(panel).toHaveTextContent('Disabled0');

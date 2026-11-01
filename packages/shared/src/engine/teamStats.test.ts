@@ -434,7 +434,8 @@ describe('buildTeamStats (task 1.57)', () => {
       breakdowns: 1,
       disabled_matches: ['Q2'],
       breakdown_matches: ['Q3'],
-      availability_rate: 2 / 3,
+      // Played 1 of 3: the breakdown is missed for availability too (user, 2026-11-01).
+      availability_rate: 1 / 3,
     });
     expect(stats.metrics[0]!.series.map((p) => p.value)).toEqual([6, null, 2]);
   });

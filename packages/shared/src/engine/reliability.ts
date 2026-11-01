@@ -3,13 +3,16 @@ import type { EngineEntry } from './types';
 
 /** SPEC-FINAL 11.3's reliability figures for one team over a scope. */
 export type Reliability = {
-  /** Matches the robot played and then broke down in: available, and flagged. */
+  /**
+   * Matches the robot broke down in: missed for availability, and flagged (user, 2026-11-01,
+   * replaces 11.3's "available, flagged"). Its points still count in every average.
+   */
   breakdowns: number;
   no_shows: number;
   disabled: number;
-  /** `played` + `broke_down`. */
+  /** `played` only: the matches the robot finished. */
   available: number;
-  /** `no_show` + `disabled`. */
+  /** `broke_down` + `no_show` + `disabled` (user, 2026-11-01: a breakdown is missed). */
   missed: number;
   /** available / (available + missed), 0–1; null when no match counts (no data, never 0). */
   availability_rate: number | null;
@@ -24,9 +27,14 @@ export type Reliability = {
  *   entry never counts;
  * - match entries of qualification matches only (11.2): practice and playoff matches and
  *   super entries never count;
- * - each entry's `robot_status`: played → available; broke_down → available and a breakdown;
+ * - each entry's `robot_status`: played → available; broke_down → missed and a breakdown;
  *   no_show → missed and a no-show; disabled → missed and disabled. A match entry with no
  *   status says nothing about availability and is not counted.
+ *
+ * A breakdown hurts availability (user, 2026-11-01, replaces SPEC-FINAL 11.3's "available,
+ * flagged"): `availability_rate = played / (played + broke_down + no_show + disabled)`. Its
+ * performance is unchanged — a broke-down match still counts in every points average
+ * (`entriesForAggregates` removes only no_show and disabled).
  *
  * No counted match: every count is 0 (nothing happened) and `availability_rate` is null.
  */
@@ -56,8 +64,8 @@ export function reliabilityFor(entries: readonly EngineEntry[]): Reliability {
     }
   }
 
-  const available = played + breakdowns;
-  const missed = noShows + disabled;
+  const available = played;
+  const missed = breakdowns + noShows + disabled;
   const counted = available + missed;
   return {
     breakdowns,

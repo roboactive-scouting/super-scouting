@@ -434,6 +434,79 @@ describe('Dialog', () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 
+  // The app's dialog standard (user, 2026-11-01): ×, Escape and the backdrop all close it.
+  it('closes on a click on the backdrop, but not on a drag from inside to outside', async () => {
+    const onClose = vi.fn();
+    render(
+      <Dialog open title="Add a user" onClose={onClose}>
+        <input aria-label="Name" />
+      </Dialog>,
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Add a user' });
+    const backdrop = dialog.parentElement!;
+    expect(backdrop).toHaveAttribute('data-backdrop');
+    // A click inside the dialog closes nothing.
+    await userEvent.click(screen.getByRole('textbox', { name: 'Name' }));
+    expect(onClose).not.toHaveBeenCalled();
+    // A text selection dragged out of the dialog: down inside, up on the backdrop.
+    fireEvent.pointerDown(screen.getByRole('textbox', { name: 'Name' }));
+    fireEvent.pointerUp(backdrop);
+    expect(onClose).not.toHaveBeenCalled();
+    // And the other way round: down on the backdrop, up inside.
+    fireEvent.pointerDown(backdrop);
+    fireEvent.pointerUp(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+    // Down and up on the backdrop itself.
+    await userEvent.click(backdrop);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a half-filled form open on a backdrop click; Escape and the × still close it', async () => {
+    const onClose = vi.fn();
+    render(
+      <Dialog open title="Add a user" onClose={onClose}>
+        <input aria-label="Name" />
+      </Dialog>,
+    );
+    const backdrop = screen.getByRole('dialog', { name: 'Add a user' }).parentElement!;
+    await userEvent.type(screen.getByRole('textbox', { name: 'Name' }), 'Noa');
+    await userEvent.click(backdrop);
+    expect(onClose).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).toHaveBeenCalledOnce();
+    await userEvent.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it('while busy (dismissible false) ignores Escape, the × and the backdrop', async () => {
+    const onClose = vi.fn();
+    render(
+      <Dialog open title="Deleting" onClose={onClose} dismissible={false}>
+        <p>Deleting the match…</p>
+      </Dialog>,
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Deleting' });
+    const close = screen.getByRole('button', { name: 'Close' });
+    expect(close).toHaveAttribute('aria-disabled', 'true');
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(close);
+    await userEvent.click(dialog.parentElement!);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('draws the × on an icon-headed dialog too, in its corner', async () => {
+    const onClose = vi.fn();
+    render(
+      <Dialog open title="Practice finished" onClose={onClose} icon={<span>✓</span>}>
+        <button type="button">Another</button>
+      </Dialog>,
+    );
+    const close = screen.getByRole('button', { name: 'Close' });
+    expect(close.className).toContain('absolute');
+    await userEvent.click(close);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it('renders nothing while closed', () => {
     render(
       <Dialog open={false} title="Add a user" onClose={() => {}}>

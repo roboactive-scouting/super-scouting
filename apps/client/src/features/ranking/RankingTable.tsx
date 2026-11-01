@@ -43,8 +43,9 @@ import {
 } from './rankingView';
 
 /*
- * The computer's ranking table (27-ranking final, frames 1 and 2): the locked `Table` with a
- * sticky header under the crumb bar and numeric cells. A sortable header is a button (a click
+ * The computer's ranking table (27-ranking final, frames 1 and 2): the locked `Table` with numeric
+ * cells, scrolling inside its own card on both axes with its header always pinned (user,
+ * 2026-11-01: the page fills the window and the card fills the ranking area). A sortable header is a button (a click
  * makes its figure the whole sort, a second click reverses it); the first figure of the sort
  * carries `aria-sort`, every figure in the sort its Numbered sort badge, the others a faint ⇕,
  * and Consistency nothing at all. A row click selects the team for the study panel.
@@ -102,6 +103,14 @@ function SortableHead({
   );
 }
 
+/** Each phase column's width: its header fits bold with the numbered badge. */
+const PHASE_COL: Record<FieldPhase, string> = {
+  auto: 'w-[80px]',
+  teleop: 'w-[80px]',
+  endgame: 'w-[92px]',
+  post_match: 'w-[108px]',
+};
+
 const GROUP =
   'block border-b-2 border-line pb-[5px] text-[0.6875rem] font-[650] tracking-[0.07em] text-muted uppercase';
 
@@ -134,26 +143,26 @@ export function RankingTable({
   const scoring = category === 'scoring';
   return (
     <Table
-      // From 1360 px the table always fits (beside the study panel too): the header sticks under
-      // the crumb bar. Narrower, it scrolls sideways inside its card at its least width, and a
-      // sticky header would stick to that scroll box instead of the page, so it does not stick.
-      containerClassName="overflow-x-auto rounded-card border border-line bg-surface min-[1360px]:overflow-visible"
-      className={cn('table-fixed text-[0.84375rem]', scoring ? 'min-w-[728px]' : 'min-w-[920px]')}
+      // The table's own scroll box, on both axes: the area gives it its height (RankingPage), the
+      // header sticks to the top of the box at every width, and the box is a labelled, focusable
+      // region so the keyboard scrolls it.
+      scrollLabel={`Ranking table, ${scoring ? 'Scoring' : 'Availability'}`}
+      containerClassName="min-w-0 flex-1 max-h-full overflow-auto overscroll-contain rounded-card border border-line bg-surface"
+      className={cn('table-fixed text-[0.84375rem]', scoring ? 'min-w-[800px]' : 'min-w-[960px]')}
     >
-      {/* The design's widths (27-ranking final); the team's name (Scoring) or the spread
-          (Availability) takes the room the others leave. */}
+      {/* Every sortable column fits its header in its in-sort state — bold, the numbered badge,
+          the status shape where it has one (user, 2026-11-01: the badge spilled into the next
+          column); the team's name (Scoring) or the spread (Availability) takes the room the
+          others leave. */}
       <colgroup>
         <col className="w-12" />
         {scoring ? (
           <>
             <col />
             <col className="w-[84px]" />
-            <col className="w-[66px]" />
+            <col className="w-[76px]" />
             {phases.map((phase) => (
-              <col
-                key={phase}
-                className={phase === 'endgame' || phase === 'post_match' ? 'w-[74px]' : 'w-[60px]'}
-              />
+              <col key={phase} className={PHASE_COL[phase]} />
             ))}
             <col className="w-[78px]" />
             <col className="w-[104px]" />
@@ -162,10 +171,10 @@ export function RankingTable({
           <>
             <col className="w-[160px]" />
             <col />
-            <col className="w-[100px]" />
-            <col className="w-[110px]" />
-            <col className="w-[100px]" />
-            <col className="w-[92px]" />
+            <col className="w-[116px]" />
+            <col className="w-[128px]" />
+            <col className="w-[112px]" />
+            <col className="w-[108px]" />
           </>
         )}
         <col className="w-[70px]" />
@@ -175,7 +184,7 @@ export function RankingTable({
           ? 'Ranking, Scoring: average points per match, by phase, with consistency and availability'
           : 'Ranking, Availability: the scouted matches by status'}
       </caption>
-      <TableHeader className="z-10 bg-surface min-[1360px]:sticky min-[1360px]:top-[var(--top-bar,0px)] [&_tr]:border-b-0">
+      <TableHeader className="sticky top-0 z-10 bg-surface shadow-[0_1px_0_var(--line)] [&_tr]:border-b-0">
         <tr aria-hidden="true">
           <th colSpan={2} />
           {scoring ? (

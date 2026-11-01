@@ -2322,8 +2322,8 @@ function reliabilityFor(entries) {
         break;
     }
   }
-  const available = played + breakdowns;
-  const missed = noShows + disabled;
+  const available = played;
+  const missed = breakdowns + noShows + disabled;
   const counted = available + missed;
   return {
     breakdowns,

@@ -167,7 +167,12 @@ describe('TeamSearchPage (SPEC-FINAL 13.2)', () => {
     expect(sure).toHaveTextContent('Switch this session to Week 3 · Haifa and open 3339 BumbleB?');
     expect(sure).toHaveTextContent('Scouting still saves to');
     const buttons = within(sure).getAllByRole('button');
-    expect(buttons.map((b) => b.textContent)).toEqual(['Keep District #3', 'Switch and open']);
+    // The dialog's × first (every dialog draws it; user, 2026-11-01), then the two actions.
+    expect(buttons.map((b) => b.textContent || b.getAttribute('aria-label'))).toEqual([
+      'Close',
+      'Keep District #3',
+      'Switch and open',
+    ]);
     await user.click(within(sure).getByRole('button', { name: 'Keep District #3' }));
     expect(sessionOverride.get()).toBeNull();
     expect(navigate).not.toHaveBeenCalled();

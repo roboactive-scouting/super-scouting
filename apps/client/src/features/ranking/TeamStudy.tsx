@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils';
 import { NO_MATCHES, PHASE_FILL, PhaseBar, StatusShape, StatusSpread, SpreadHead } from './parts';
 import {
   hasData,
+  missedOf,
   ordinal,
   PHASE_NAME,
   phaseAverage,
@@ -190,13 +191,16 @@ function ScoringSection({ row, rows, phases }: StudyProps) {
   );
 }
 
-/** How dependable: the %, the Status spread, the tally of the four statuses. */
+/**
+ * How dependable: the %, the Status spread, the tally of the four statuses. A breakdown is missed
+ * for availability (user, 2026-11-01, replaces SPEC-FINAL 11.3's "available, flagged").
+ */
 function AvailabilitySection({ row }: { row: RankRow }) {
   const s = statusSpread(row);
-  const onField = s.played + s.broke_down;
-  const scouted = onField + s.disabled + s.no_show;
+  const missed = missedOf(s);
+  const scouted = s.played + missed;
   // The study draws one team: its own matches set the scale.
-  const scale = { onField: Math.max(onField, 1), missed: Math.max(s.disabled + s.no_show, 1) };
+  const scale = { played: Math.max(s.played, 1), missed: Math.max(missed, 1) };
   return (
     <Section title="How dependable" kicker="Availability">
       <Big
@@ -204,7 +208,7 @@ function AvailabilitySection({ row }: { row: RankRow }) {
         words={
           hasData(row) ? (
             <>
-              available · on the field in <span className="num">{onField}</span> of{' '}
+              available · played the whole match in <span className="num">{s.played}</span> of{' '}
               <span className="num">{scouted}</span>
             </>
           ) : (
@@ -237,7 +241,8 @@ function AvailabilitySection({ row }: { row: RankRow }) {
         ))}
       </dl>
       <p className="text-[0.78125rem] leading-[1.4] text-muted">
-        A breakdown counts as available: the robot was on the field. Only scouted matches count.
+        A breakdown counts as missed for availability; its points still count. Only scouted matches
+        count.
       </p>
     </Section>
   );
@@ -245,18 +250,25 @@ function AvailabilitySection({ row }: { row: RankRow }) {
 
 const teamName = (row: RankRow) => `${row.number} ${row.name}`;
 
-/** The computer's study panel, beside the list. */
+/**
+ * The computer's study panel, beside the list. `className`: the page sizes it (the ranking's area
+ * gives it its height and its own scroll; user, 2026-11-01).
+ */
 export function TeamStudyPanel({
   onClose,
   id,
+  className,
   ...props
-}: StudyProps & { onClose: () => void; id?: string }) {
+}: StudyProps & { onClose: () => void; id?: string; className?: string }) {
   const { row, rows } = props;
   return (
     <aside
       id={id}
       aria-label={`Team study, ${teamName(row)}`}
-      className="flex flex-col gap-2.5 self-start rounded-card border border-line bg-surface px-[18px] py-4 sticky top-[calc(var(--top-bar,0px)+1rem)]"
+      className={cn(
+        'flex flex-col gap-2.5 self-start rounded-card border border-line bg-surface px-[18px] py-4',
+        className,
+      )}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">

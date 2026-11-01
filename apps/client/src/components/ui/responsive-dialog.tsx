@@ -7,7 +7,8 @@ import { SurfaceActions } from './surface-actions';
 export type ResponsiveDialogProps = DialogProps & {
   /**
    * The ✕ on the phone sheet as well. Default false: the phone finals draw only the handle;
-   * Switch competition asked for its ✕ (UI fix notes, Home 2). `showClose` is the desktop's.
+   * Switch competition asked for its ✕ (UI fix notes, Home 2). The desktop Dialog always draws
+   * its × (user, 2026-11-01).
    */
   sheetClose?: boolean;
   /** Drag the phone sheet down to dismiss it (UF.4). Default true. */

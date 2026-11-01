@@ -356,20 +356,30 @@ export function availabilityLabel(row: RankRow): string {
   return `Availability ${formatPercent(row.availability_rate)} · ${plural(row.breakdowns, 'breakdown', 'breakdowns')} · ${row.disabled} disabled · ${plural(row.no_shows, 'no-show', 'no-shows')}`;
 }
 
+/** The Status spread's scale: the left side (Played) and the right side (Missed), in matches. */
+export type SpreadScale = { played: number; missed: number };
+
 /**
- * The Status spread's scale for a table: the most matches any team was on the field for (left of
- * the line) and the most it missed (right; at least one, so "Missed" always has room).
+ * The Status spread's scale for a table: the most matches any team played (left of the line) and
+ * the most it missed — broke down, disabled or no show (right; at least one, so "Missed" always
+ * has room). A breakdown is missed for availability (user, 2026-11-01, replaces SPEC-FINAL 11.3's
+ * "available, flagged").
  */
-export function spreadScale(rows: readonly RankRow[]): { onField: number; missed: number } {
-  let onField = 1;
+export function spreadScale(rows: readonly RankRow[]): SpreadScale {
+  let played = 1;
   let missed = 1;
   for (const row of rows) {
     if (!rankRowHasData(row)) continue;
     const s = statusSpread(row);
-    onField = Math.max(onField, s.played + s.broke_down);
-    missed = Math.max(missed, s.disabled + s.no_show);
+    played = Math.max(played, s.played);
+    missed = Math.max(missed, missedOf(s));
   }
-  return { onField, missed };
+  return { played, missed };
+}
+
+/** The matches a spread counts as missed for availability: broke down + disabled + no show. */
+export function missedOf(s: StatusSpread): number {
+  return s.broke_down + s.disabled + s.no_show;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -416,7 +426,7 @@ export function phaseShare(row: RankRow, phase: FieldPhase): string {
 }
 
 /** The roster (the "of N" of "Rank 4 of 30"); its own module since task 1.58b. */
-export { rosterCount } from './rosterCount';
+export { rosterCount, teamsText } from './rosterCount';
 
 /**
  * The Consistency strip (THEME "Team study panel"): an axis from 0 to a round ceiling over every

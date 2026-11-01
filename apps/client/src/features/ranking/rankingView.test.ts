@@ -9,6 +9,7 @@ import {
   figureShade,
   figureText,
   headerClick,
+  missedOf,
   moveStep,
   ordinal,
   phasePlace,
@@ -41,7 +42,8 @@ const row = (over: Partial<RankRow>): RankRow => ({
   breakdowns: 3,
   no_shows: 1,
   disabled: 2,
-  availability_rate: 10 / 13,
+  // 7 played of 13 scouted: a breakdown is missed for availability (user, 2026-11-01).
+  availability_rate: 7 / 13,
   recent_totals: [70, 80, 90],
   last_counted_match: 30,
   ...over,
@@ -166,11 +168,21 @@ describe('a row in words (task 1.58)', () => {
       'no_show',
     ]);
     expect(statusMarks(row({ breakdowns: 0, disabled: 0, no_shows: 0 }))).toEqual([]);
-    expect(spreadScale([row({}), empty])).toEqual({ onField: 10, missed: 3 });
-    expect(spreadScale([empty])).toEqual({ onField: 1, missed: 1 });
+    // Played left of the line; broke down, disabled and no show right of it (user, 2026-11-01).
+    expect(spreadScale([row({}), empty])).toEqual({ played: 7, missed: 6 });
+    expect(spreadScale([empty])).toEqual({ played: 1, missed: 1 });
+    expect(missedOf(statusSpread(row({})))).toBe(6);
     expect(
-      availabilityLabel(row({ availability_rate: 1, breakdowns: 1, disabled: 0, no_shows: 0 })),
-    ).toBe('Availability 100% · 1 breakdown · 0 disabled · 0 no-shows');
+      availabilityLabel(
+        row({
+          matches_counted: 4,
+          availability_rate: 0.75,
+          breakdowns: 1,
+          disabled: 0,
+          no_shows: 0,
+        }),
+      ),
+    ).toBe('Availability 75% · 1 breakdown · 0 disabled · 0 no-shows');
   });
 
   it('gives the study its share, place and typical range', () => {

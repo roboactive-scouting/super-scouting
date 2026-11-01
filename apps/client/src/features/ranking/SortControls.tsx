@@ -115,14 +115,18 @@ type BuilderProps = {
   onChange: (sort: RankSortStep[]) => void;
 };
 
-/** The builder's content (THEME "Sort builder"): rows, tie-breakers, the footnote. */
+/**
+ * The builder's content (THEME "Sort builder"): rows, tie-breakers, the footnote. `stacked` (the
+ * phone's sheet): each row on two lines, so the figure's name is never cut.
+ */
 function SortBuilderBody({
   category,
   phases,
   sort,
   onChange,
   headingId,
-}: BuilderProps & { headingId?: string }) {
+  stacked = false,
+}: BuilderProps & { headingId?: string; stacked?: boolean }) {
   const [announcer, setAnnouncer] = useState<HTMLDivElement | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -176,6 +180,7 @@ function SortBuilderBody({
                 step={step}
                 index={i}
                 only={sort.length === 1}
+                stacked={stacked}
                 onBest={(best) => onChange(setStepBest(sort, step.key, best))}
                 onRemove={() => onChange(removeStep(sort, step.key))}
               />
@@ -205,17 +210,24 @@ function SortBuilderBody({
   );
 }
 
-/** One figure of the sort: grip · By/then · badge + figure · direction · ×. */
+/**
+ * One figure of the sort: grip · By/then · badge + figure · direction · × on one line (the
+ * computer's 520 px popover). `stacked` (the phone's sheet, user 2026-11-01: at 375 px the one
+ * line left ~10 px for the name): grip · By/then · badge + the full name · × on the first line,
+ * the direction pair under it across the name's column. The name is never truncated.
+ */
 function StepRow({
   step,
   index,
   only,
+  stacked,
   onBest,
   onRemove,
 }: {
   step: RankSortStep;
   index: number;
   only: boolean;
+  stacked: boolean;
   onBest: (best: boolean) => void;
   onRemove: () => void;
 }) {
@@ -236,7 +248,10 @@ function StepRow({
         transition: sortable.transition ?? undefined,
       }}
       className={cn(
-        'grid min-h-[52px] grid-cols-[28px_34px_minmax(0,1fr)_auto_36px] items-center gap-2 rounded-control border border-line bg-surface py-1 ps-1 pe-1.5',
+        'grid min-h-[52px] items-center rounded-control border border-line bg-surface ps-1 pe-1.5',
+        stacked
+          ? 'grid-cols-[28px_34px_minmax(0,1fr)_36px] gap-x-2 gap-y-1.5 pt-1 pb-2'
+          : 'grid-cols-[28px_34px_minmax(0,1fr)_auto_36px] gap-2 py-1',
         sortable.isDragging && 'relative z-10 shadow-[var(--shadow-float)]',
       )}
     >
@@ -244,13 +259,18 @@ function StepRow({
       <span className="text-[0.78125rem] text-muted">{index === 0 ? 'By' : 'then'}</span>
       <span className="flex min-w-0 items-center gap-2 text-[0.90625rem] font-[650]">
         <SortBadge n={index + 1} className="size-[18px] text-[0.6875rem]" />
-        <span className="truncate">{label}</span>
+        <span data-sort-name className="min-w-0 [overflow-wrap:anywhere]">
+          {label}
+        </span>
       </span>
       <span
         role="radiogroup"
         aria-label={`${label} direction`}
         onKeyDown={(e) => onRadioGroupKey(e, (i) => onBest(i === 0))}
-        className="flex gap-[3px] rounded-control border border-line bg-line-2 p-[3px]"
+        className={cn(
+          'flex gap-[3px] rounded-control border border-line bg-line-2 p-[3px]',
+          stacked && 'col-start-3 row-start-2',
+        )}
       >
         {[true, false].map((side) => (
           <button
@@ -261,7 +281,8 @@ function StepRow({
             tabIndex={best === side ? 0 : -1}
             onClick={() => onBest(side)}
             className={cn(
-              'hover-veil motion-safe:transition inline-flex h-[34px] min-w-[82px] items-center justify-center rounded-[6px] px-2.5 text-[0.8125rem] font-[650]',
+              'hover-veil motion-safe:transition inline-flex h-[34px] items-center justify-center rounded-[6px] px-2.5 text-[0.8125rem] font-[650] whitespace-nowrap',
+              stacked ? 'min-w-0 flex-1' : 'min-w-[82px]',
               best === side
                 ? 'bg-accent-tint text-accent-ink shadow-[inset_0_0_0_2px_var(--accent)]'
                 : 'text-ink-2',
@@ -276,7 +297,10 @@ function StepRow({
         aria-label={`Remove ${label}`}
         disabled={only}
         onClick={onRemove}
-        className="hover-veil motion-safe:transition grid size-9 place-items-center rounded-control text-muted disabled:opacity-40"
+        className={cn(
+          'hover-veil motion-safe:transition grid size-9 place-items-center rounded-control text-muted disabled:opacity-40',
+          stacked && 'col-start-4 row-start-1',
+        )}
       >
         <X aria-hidden="true" className="size-4" />
       </button>
@@ -351,7 +375,7 @@ export function SortSheet({
       showClose
     >
       <div className="pb-4">
-        <SortBuilderBody {...builder} />
+        <SortBuilderBody {...builder} stacked />
       </div>
     </Sheet>
   );

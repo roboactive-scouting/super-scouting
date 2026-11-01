@@ -161,8 +161,14 @@ describe('RankingPage — the fixed phase 1 table (SPEC-FINAL 13.5)', () => {
     open();
     await screen.findByRole('row', { name: /Team 1049/ });
     expect(screen.getAllByRole('row')).toHaveLength(51);
-    // A sticky header (jsdom loads no CSS: the class is what can be read) under the crumb bar.
-    expect(document.querySelector('thead')).toHaveClass('min-[1360px]:sticky');
+    // The table scrolls inside its own box with its header always pinned to the box's top (user,
+    // 2026-11-01; jsdom loads no CSS: the classes are what can be read), and the box is a
+    // labelled region in the tab order, so the keyboard scrolls it.
+    expect(document.querySelector('thead')).toHaveClass('sticky', 'top-0');
+    const box = screen.getByRole('region', { name: 'Ranking table, Scoring' });
+    expect(box).toHaveAttribute('tabindex', '0');
+    expect(box).toHaveClass('overflow-auto', 'max-h-full');
+    expect(box).toContainElement(document.querySelector('table'));
     expect(screen.queryByRole('navigation', { name: /pagination/i })).not.toBeInTheDocument();
   });
 
@@ -581,6 +587,45 @@ describe('RankingPage — the team study and where the figures came from (task 1
     expect(screen.queryByRole('complementary')).toBeNull();
   });
 
+  it('says the roster under the event’s name: “50 teams” (user, 2026-11-01)', async () => {
+    open();
+    await screen.findByRole('row', { name: /Team 1000/ });
+    const line = screen.getByText('ISR District Event #3').parentElement!;
+    expect(line).toHaveTextContent(/^ISR District Event #3 · 50 teams · averages leave out/);
+  });
+
+  it('counts a breakdown as missed in the study’s availability (user, 2026-11-01)', async () => {
+    open();
+    await user().click(await screen.findByRole('row', { name: /Team 1003/ }));
+    const panel = screen.getByRole('complementary', { name: 'Team study, 1003 Team 1003' });
+    // Team 1003: 10 counted matches, 3 of them broke down, and 3 no-shows: played 7 of 13.
+    expect(panel).toHaveTextContent('available · played the whole match in 7 of 13');
+    expect(panel).toHaveTextContent(
+      'A breakdown counts as missed for availability; its points still count. Only scouted matches count.',
+    );
+    // The spread: Played left of the line; Broke down, Disabled and No show right of it.
+    const spread = within(panel).getByRole('img', { name: /^Scouted matches:/ });
+    const [left, , right] = [...spread.children] as HTMLElement[];
+    expect(
+      [...left!.querySelectorAll<HTMLElement>('[data-block]')].map((b) => b.dataset.block),
+    ).toEqual(['played']);
+    expect(
+      [...right!.querySelectorAll<HTMLElement>('[data-block]')].map((b) => b.dataset.block),
+    ).toEqual(['broke_down', 'no_show']);
+    // It scrolls on its own, as tall as the ranking area at most (the page does not scroll).
+    expect(panel).toHaveClass('max-h-full', 'overflow-y-auto');
+    expect(panel.parentElement).toHaveAttribute('data-ranking-area');
+  });
+
+  it('heads the Availability spread “Played · finished the match” | “Missed”', async () => {
+    open();
+    await screen.findByRole('row', { name: /Team 1000/ });
+    await user().click(screen.getByRole('radio', { name: /^Availability/ }));
+    expect(screen.getByRole('columnheader', { name: /Played/ })).toHaveTextContent(
+      'Played · finished the matchMissed',
+    );
+  });
+
   it('under a session override offline, says the ranking needs a connection', async () => {
     online.mockReturnValue(false);
     sessionOverride.set('ev-2', 'Week 3');
@@ -666,6 +711,30 @@ describe('RankingPage — on a phone (task 1.58)', () => {
     const availability = await screen.findByRole('list', { name: 'Teams, Availability' });
     expect(availability.querySelectorAll('[style*="--shade-bg"]')).toHaveLength(49);
     expect(mixOf(chip(1004, 'availability_rate'))).toBe(34);
+  });
+
+  it('says the roster under the event’s name: “50 teams” (user, 2026-11-01)', async () => {
+    open();
+    await screen.findByRole('list', { name: 'Teams, Scoring' });
+    const line = screen.getByText('ISR District Event #3').nextElementSibling!;
+    expect(line).toHaveTextContent(/^50 teams · from the server · as of/);
+  });
+
+  it('lays each Sort builder row on two lines in the sheet, the name never cut (user, 2026-11-01)', async () => {
+    open();
+    await screen.findByRole('list', { name: 'Teams, Scoring' });
+    await user().click(screen.getByRole('button', { name: /^Sort Scoring:/ }));
+    const sheet = screen.getByRole('dialog', { name: 'Sort Scoring by' });
+    await user().click(within(sheet).getByRole('button', { name: '+ Teleop' }));
+    for (const row of sheet.querySelectorAll<HTMLElement>('[data-sort-step]')) {
+      const name = row.querySelector('[data-sort-name]')!;
+      expect(name).not.toHaveClass('truncate');
+      // The direction pair on the second line, under the name's column.
+      expect(within(row).getByRole('radiogroup')).toHaveClass('col-start-3', 'row-start-2');
+    }
+    expect(
+      sheet.querySelector('[data-sort-step="teleop_points"] [data-sort-name]'),
+    ).toHaveTextContent('Teleop');
   });
 
   it('shows the device notice offline, and the Sort builder in a sheet', async () => {
