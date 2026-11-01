@@ -357,7 +357,11 @@ describe('DeleteDialog — the faces (28-delete final)', () => {
       'Blue 2saved',
       'Blue 3saved',
     ]);
-    expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
+    // The face's own Close (the last one; the dialog's × comes first — user, 2026-11-01).
+    const closes = screen.getAllByRole('button', { name: 'Close' });
+    expect(closes).toHaveLength(2);
+    expect(closes.at(-1)).toHaveTextContent('Close');
+    expect(closes.at(-1)).toHaveFocus();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Correct the match number' }));
     expect(onCorrectMatch).toHaveBeenCalledOnce();

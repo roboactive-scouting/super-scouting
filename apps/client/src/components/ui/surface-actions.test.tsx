@@ -142,11 +142,12 @@ describe('the action row of a sheet or dialog (Phase 1 I side task 3)', () => {
       />,
     );
     const dialog = screen.getByRole('dialog', { name: 'Wipe this device?' });
+    // The dialog's × (every dialog draws it; user, 2026-11-01), then Cancel alone.
     expect(
       within(dialog)
         .getAllByRole('button')
-        .map((b) => b.textContent),
-    ).toEqual(['Cancel']);
+        .map((b) => b.textContent || b.getAttribute('aria-label')),
+    ).toEqual(['Close', 'Cancel']);
   });
 
   it('a pinned foot or a row in the content uses the same row (SurfaceActions)', () => {

@@ -17,15 +17,28 @@ export function Table({
   className,
   containerClassName,
   readOnly = false,
+  scrollLabel,
   ...props
 }: ComponentProps<'table'> & {
   containerClassName?: string;
   /** Its rows open nothing: none of them changes on hover. */
   readOnly?: boolean;
+  /**
+   * The table scrolls inside its own box (the ranking, user 2026-11-01): the box is a labelled
+   * region in the tab order, so the keyboard scrolls it too.
+   */
+  scrollLabel?: string;
 }) {
   return (
     <ReadOnlyRows.Provider value={readOnly}>
-      <div className={cn('relative w-full overflow-x-auto', containerClassName)}>
+      <div
+        className={cn('relative w-full overflow-x-auto', containerClassName)}
+        {...(scrollLabel !== undefined && {
+          role: 'region',
+          'aria-label': scrollLabel,
+          tabIndex: 0,
+        })}
+      >
         <table className={cn('w-full border-collapse text-start text-sm', className)} {...props} />
       </div>
     </ReadOnlyRows.Provider>

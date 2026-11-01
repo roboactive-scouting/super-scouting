@@ -1,5 +1,5 @@
 import { CloudOff } from 'lucide-react';
-import { useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { formatTime, type RankSortKey, type RankSortStep } from '@frc/shared';
 import { Skeleton } from '@/components/Skeleton';
 import { StateMessage } from '@/components/StateMessage';
@@ -19,6 +19,7 @@ import {
   headerClick,
   phasesOf,
   sortedRows,
+  teamsText,
   type Category,
 } from './rankingView';
 import { SortControl, SortPopover, SortSheet } from './SortControls';
@@ -37,10 +38,35 @@ import { useQualRange, useRanking, type RankingSource } from './useRanking';
  */
 
 /**
- * The study sits beside the list from 1360 px, where the table still fits beside it (the sidebar,
- * the page's margins, the 320 px panel and the table's 728 px); under it, in the bottom sheet.
+ * The study sits beside the list from 1360 px (the sidebar, the page's margins, the 320 px panel
+ * and the table); under it, in the bottom sheet. Where the table is wider than its share it
+ * scrolls sideways inside its own card, its header still pinned (user, 2026-11-01).
  */
 const WIDE_QUERY = '(min-width: 1360px)';
+
+/**
+ * Where the computer's page starts in the document, in px: under the crumb bar and any shell
+ * notice above it (offline, a session override — the notices' heights are their own, so it is
+ * measured). Null until `main` is in, when the page falls back to `--top-bar`. Measured again when
+ * a notice comes or goes (the shell column's children) and when the window changes size.
+ */
+function useTopInDocument(main: HTMLElement | null): number | null {
+  const [top, setTop] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    if (!main) return;
+    const measure = () => setTop(Math.round(main.getBoundingClientRect().top + window.scrollY));
+    measure();
+    const column = main.parentElement?.parentElement;
+    const notices = new MutationObserver(measure);
+    if (column) notices.observe(column, { childList: true });
+    window.addEventListener('resize', measure);
+    return () => {
+      notices.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [main]);
+  return top;
+}
 
 /** "3 entries waiting to send" (Home's words), or "Everything is sent". */
 function waitingText(waiting: number): string {
@@ -128,6 +154,8 @@ export function RankingPage({
   const [selected, setSelected] = useState<string | null>(null);
   const sortButton = useRef<HTMLButtonElement>(null);
   const popoverId = useId();
+  const [page, setPage] = useState<HTMLElement | null>(null);
+  const top = useTopInDocument(page);
 
   const rows = ranking.status === 'ready' ? ranking.rows : null;
   const sort = sorts[category];
@@ -192,8 +220,18 @@ export function RankingPage({
     setSelected((was) => (desktop && was === teamId ? null : teamId));
 
   if (desktop) {
+    // The computer (user, 2026-11-01: "scrolling works weird"): the page is exactly the window
+    // under the crumb bar (and any shell notice) and does not scroll; the event line and the
+    // controls stay put, and the ranking area takes the rest. The table scrolls inside its card
+    // on both axes with its header always pinned, and the study panel scrolls on its own. A very
+    // short window keeps the area at least 16 rem tall, and the page then scrolls by the
+    // difference.
     return (
-      <main className="mx-auto flex w-full flex-col gap-4 px-8 pt-[22px] pb-8">
+      <main
+        ref={setPage}
+        style={top === null ? undefined : { height: `calc(100dvh - ${top}px)` }}
+        className="mx-auto flex h-[calc(100dvh-var(--top-bar,0px))] min-h-[30rem] w-full flex-col gap-4 px-8 pt-[22px] pb-6"
+      >
         <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
           <div>
             <h1 className="text-[1.625rem] leading-[1.1] font-[750] tracking-[-0.02em]">Ranking</h1>
@@ -205,8 +243,7 @@ export function RankingPage({
                   · Qualifications <span className="num">{quals}</span>
                 </>
               )}{' '}
-              · <span className="num">{rows.length}</span> teams · averages leave out no-show and
-              disabled matches
+              · {teamsText(rows)} · averages leave out no-show and disabled matches
             </p>
           </div>
           <SourceLine source={source} />
@@ -241,12 +278,7 @@ export function RankingPage({
             anchor={sortButton}
           />
         </div>
-        <div
-          className={cn(
-            'grid items-start gap-4',
-            panelBeside ? 'grid-cols-[minmax(0,1fr)_320px]' : 'grid-cols-1',
-          )}
-        >
+        <div data-ranking-area className="flex min-h-[16rem] flex-1 items-start gap-4">
           <RankingTable
             category={category}
             rows={ordered}
@@ -263,6 +295,7 @@ export function RankingPage({
               rows={rows}
               phases={phases}
               onClose={() => setSelected(null)}
+              className="max-h-full w-[320px] shrink-0 overflow-y-auto overscroll-contain"
             />
           )}
         </div>
@@ -285,11 +318,16 @@ export function RankingPage({
       <div className="flex flex-col gap-0.5 px-4 pt-3 pb-2.5">
         <b className="text-base font-bold tracking-[-0.01em]">{event.name}</b>
         <span className="text-[0.78125rem] text-muted">
-          {quals && <span className="num">{quals}</span>}
+          {quals && (
+            <>
+              <span className="num">{quals}</span> ·{' '}
+            </>
+          )}
+          {teamsText(rows)}
           {source.kind === 'server' && (
             <>
-              {quals && ' · '}from the server · as of{' '}
-              <span className="num">{formatTime(source.asOf)}</span>
+              {' '}
+              · from the server · as of <span className="num">{formatTime(source.asOf)}</span>
             </>
           )}
         </span>

@@ -128,7 +128,6 @@ export function CrossEventJump({
         open
         title="Switch to another event?"
         onClose={onClose}
-        showClose={false}
         width={440}
         footer={
           <>
@@ -156,7 +155,6 @@ export function CrossEventJump({
       open
       title={`${teamName} wasn’t at ${here}`}
       onClose={onClose}
-      showClose={false}
       width={460}
       footer={
         <>

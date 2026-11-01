@@ -115,7 +115,7 @@ describe('the pinned foot of a modal surface (Phase 1 I side task 1)', () => {
 
   it("a dialog whose body has no control puts first focus on the foot's action", () => {
     render(
-      <Dialog open title="Review" onClose={() => {}} showClose={false} foot={<button>Done</button>}>
+      <Dialog open title="Review" onClose={() => {}} foot={<button>Done</button>}>
         <p>Answers</p>
       </Dialog>,
     );

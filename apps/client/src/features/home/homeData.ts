@@ -6,6 +6,9 @@ import { newestFirst, type LineupSlot } from '@/lib/derive/entries';
 import { matchLabel } from '@/lib/matchLabel';
 import { rosterCount } from '@/features/ranking/rosterCount';
 
+/** Top teams' "of 30 teams": the same roster count as Our team's "of" (user, 2026-11-01). */
+export { teamsText } from '@/features/ranking/rosterCount';
+
 /*
  * What Home shows, read from the device alone (redesign RB.10): no RPC. The one exception is the
  * ranking (task 1.58b): Our team and Top teams read the ranking page's own source, `useRanking`

@@ -190,6 +190,10 @@ describe('getTeamStats — what the team page reads (task 1.57)', () => {
     });
     const t2 = await getTeamStats(lead, { ...t1, team_id: 't-2' }, ctx);
     expect(t2.reliability.breakdown_matches).toEqual(['Q2']);
+    // A breakdown is missed for availability (user, 2026-11-01); its points still count.
+    expect(t2.reliability).toMatchObject({ available: 1, missed: 1, availability_rate: 0.5 });
+    expect(t2.tiles.availability).toEqual({ rate: 0.5, available: 1, total: 2 });
+    expect(t2.headline.value).toBe(12);
     expect(stats.entry_count).toBe(4); // three match entries and a super entry
   });
 
@@ -374,14 +378,16 @@ describe('rankTeams — sorting (task 1.57)', () => {
 
   it('puts a null last whatever the direction', async () => {
     expect(await order({ event_id: 'ev-1', direction: 'asc' })).toEqual(['t-2', 't-1', 't-3']);
+    // Availability: t-1 2/3 (a no-show), t-2 1/2 (a breakdown counts as missed — user,
+    // 2026-11-01, replaces 11.3's "available, flagged"); t-3 has none.
     expect(await order({ event_id: 'ev-1', sort_by: 'availability_rate' })).toEqual([
-      't-2',
       't-1',
+      't-2',
       't-3',
     ]);
     expect(
       await order({ event_id: 'ev-1', sort_by: 'availability_rate', direction: 'asc' }),
-    ).toEqual(['t-1', 't-2', 't-3']);
+    ).toEqual(['t-2', 't-1', 't-3']);
   });
 
   it('sorts a count column fewest first by default, ties to the canonical rank', async () => {

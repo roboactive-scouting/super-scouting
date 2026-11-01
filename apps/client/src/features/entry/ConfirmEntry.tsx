@@ -71,7 +71,6 @@ export function ConfirmEntry(props: {
         title={props.title ?? 'Confirm this entry'}
         onClose={props.onBack}
         initialFocus={back}
-        showClose={false}
         // The surface's pinned foot (Phase 1 I side task 1): opaque to the bottom edge, a hairline
         // while answers pass under it. The failed-submit reason is a DIRECT child of the foot
         // (its `.sticky` box): in view, beside the button just pressed (EntryPage.test.tsx

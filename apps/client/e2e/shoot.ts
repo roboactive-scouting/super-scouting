@@ -10,13 +10,15 @@ const WIDTHS = {
 /**
  * Shot only when asked for by name: 1024 x 768, the narrowest desktop (desktop-only pages),
  * 768 x 1024, a tablet held upright (UF.18: the entry controls between the phone and the desk),
- * and 1100 x 800, a small desktop whose entry column is under the option buttons' four-column
- * width (UF.18 review).
+ * 1100 x 800, a small desktop whose entry column is under the option buttons' four-column
+ * width (UF.18 review), and 1280 x 800, a common laptop under the ranking's 1360 px (the
+ * ranking's own scrolling, user 2026-11-01).
  */
 const EXTRA = {
   laptop: { width: 1024, height: 768 },
   tablet: { width: 768, height: 1024 },
   small: { width: 1100, height: 800 },
+  '1280': { width: 1280, height: 800 },
 } as const;
 
 const screenPath = (file: string) =>
@@ -111,7 +113,7 @@ async function shootOne(
   opts: { long?: boolean; before?: () => Promise<void> },
 ) {
   // `only: 'laptop'` writes `<name>-laptop.png` at 1024 x 768; `'tablet'`, 768 x 1024;
-  // `'small'`, 1100 x 800.
+  // `'small'`, 1100 x 800; `'1280'`, 1280 x 800.
   const extra = only !== undefined && only in EXTRA;
   for (const [label, size] of Object.entries(extra ? EXTRA : WIDTHS)) {
     if (only && only !== label) continue;

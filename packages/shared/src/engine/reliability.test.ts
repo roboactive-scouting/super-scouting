@@ -38,20 +38,31 @@ describe('reliabilityFor (SPEC-FINAL 11.3)', () => {
       breakdowns: 2,
       no_shows: 2,
       disabled: 1,
-      available: 4,
-      missed: 3,
-      availability_rate: 4 / 7,
+      available: 2,
+      missed: 5,
+      availability_rate: 2 / 7,
     });
   });
 
-  it('counts broke_down as available and flagged, not as missed', () => {
+  it('counts broke_down as missed and flagged (user, 2026-11-01, replaces 11.3)', () => {
     expect(reliabilityFor(season('broke_down'))).toEqual({
       breakdowns: 1,
       no_shows: 0,
       disabled: 0,
-      available: 1,
-      missed: 0,
-      availability_rate: 1,
+      available: 0,
+      missed: 1,
+      availability_rate: 0,
+    });
+  });
+
+  it('a breakdown lowers the rate: 3 played + 1 broke down is 0.75', () => {
+    expect(reliabilityFor(season('played', 'played', 'broke_down', 'played'))).toEqual({
+      breakdowns: 1,
+      no_shows: 0,
+      disabled: 0,
+      available: 3,
+      missed: 1,
+      availability_rate: 0.75,
     });
   });
 
@@ -157,9 +168,9 @@ describe('reliabilityFor (SPEC-FINAL 11.3)', () => {
       breakdowns: 1,
       no_shows: 0,
       disabled: 0,
-      available: 1,
-      missed: 0,
-      availability_rate: 1,
+      available: 0,
+      missed: 1,
+      availability_rate: 0,
     });
   });
 

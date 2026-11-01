@@ -71,8 +71,12 @@ describe('DestructiveConfirm (SPEC-FINAL 17.8: the single destructive pattern)',
     await u.click(screen.getByRole('button', { name: 'Open it' }));
     await u.tab();
     expect(screen.getByRole('button', { name: 'Delete 2026 Reefscape' })).toHaveFocus();
+    // Past the last action, round to the dialog's × (first in the DOM; user, 2026-11-01).
+    await u.tab();
+    expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
     await u.tab();
     expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    await u.tab({ shift: true });
     await u.tab({ shift: true });
     expect(screen.getByRole('button', { name: 'Delete 2026 Reefscape' })).toHaveFocus();
   });

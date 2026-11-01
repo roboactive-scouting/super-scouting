@@ -6,7 +6,7 @@ import { db } from '@/data/db';
 import { useRanking } from '@/features/ranking/useRanking';
 import { rankingRows, rankingRpc, renderHomeWith, setWidth } from '@/test/homeRanking';
 import { EVENT_ID, TEAM_ROWS } from '@/test/teamPageFixtures';
-import { topTeamsOf } from './homeData';
+import { teamsText, topTeamsOf } from './homeData';
 import { TopTeamsCard } from './TopTeamsCard';
 
 /*
@@ -69,6 +69,22 @@ describe('Top teams (task 1.58b)', () => {
     );
   });
 
+  it('says the roster in its heading, "of N teams", every roster team counted (user, 2026-11-01)', async () => {
+    const rows = rankingRows();
+    renderHomeWith(rankingRpc(rows));
+    const card = await screen.findByRole('region', { name: 'Top teams' });
+    // Every roster team, the unranked ones too: the same "of" as Our team's "#3 / N".
+    expect(card.querySelector('[data-roster]')).toHaveTextContent(`of ${rows.length} teams`);
+    expect(card).toHaveTextContent(`Top teamsof ${rows.length} teams · average points · last 5`);
+  });
+
+  it('teamsText: "30 teams", and "1 team" for one', () => {
+    const rows = rankingRows();
+    expect(teamsText(rows)).toBe(`${rows.length} teams`);
+    expect(teamsText(rows.slice(0, 1))).toBe('1 team');
+    expect(teamsText([])).toBe('0 teams');
+  });
+
   it('opens the full ranking', async () => {
     renderHomeWith(rankingRpc(rankingRows()));
     const card = await screen.findByRole('region', { name: 'Top teams' });
@@ -100,6 +116,7 @@ describe('Top teams (task 1.58b)', () => {
       <MemoryRouter>
         <TopTeamsCard
           rows={topTeamsOf(rankingRows({ usRank: 9 }))}
+          of="30 teams"
           ourTeam={2096}
           desktop={false}
         />
@@ -108,7 +125,7 @@ describe('Top teams (task 1.58b)', () => {
     const card = screen.getByRole('region', { name: 'Top teams' });
     expect(within(card).getAllByRole('listitem')).toHaveLength(5);
     expect(card.querySelector('[data-us]')).toBeNull();
-    expect(card).toHaveTextContent('avg points · last 5');
+    expect(card).toHaveTextContent('of 30 teams · avg points · last 5');
   });
 
   it('offline: lists the device’s ranking, the same rows /ranking reads, and asks no server', async () => {

@@ -215,7 +215,6 @@ export function DeleteFlow({
             : `Delete ${req.label}?`
         }
         onClose={onClose}
-        showClose={false}
         width={520}
         footer={
           <>

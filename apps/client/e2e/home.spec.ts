@@ -311,6 +311,8 @@ test('home: Our team and Top teams from the ranking, at both widths (task 1.58b)
   await expect(ours).toContainText('▲3 since Q32');
   const top = page.getByRole('region', { name: 'Top teams' });
   await expect(top.getByRole('listitem')).toHaveCount(5);
+  // The roster, as Our team's "/ 36" (user, 2026-11-01).
+  await expect(top.locator('[data-roster]')).toHaveText('of 36 teams');
   await expect(top.locator('li[data-us]')).toHaveAttribute('data-team', '2096');
   await expect(top.getByRole('link', { name: 'Full ranking' })).toHaveAttribute('href', '/ranking');
   await shoot(page, 'home-ranking', undefined, { long: true });

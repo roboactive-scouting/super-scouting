@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.49 · **Date:** 2026-10-29 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.50 · **Date:** 2026-11-01 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.50: a breakdown counts as missed for availability, its points still count (§11.3, §13.5); the ranking page and Home's top teams state the roster count (§13.5); every computer dialog has the × and closes on Escape, the × or a click outside unless busy (§17.8); the builder's phase strip always names each phase with its time. See the living spec's §21, v1.02.*
 
 *v1.49: a form version can be deleted on its own when it is a draft or a newer version has been published, still never with entries bound to it (§3.9); every "of N" rank counts the event's roster (§13.5); a standard deviation always prints one decimal (§17.8). See the living spec's §21, v1.01.*
 
@@ -1427,7 +1429,7 @@ The engine applies one fixed rule everywhere:
 | Status | Performance metrics | Reliability metric |
 |---|---|---|
 | `played` | **Included** | available |
-| `broke_down` | **Included** — a robot that played then died genuinely underperformed, and its partial data is real observed performance | available, and flagged as a breakdown |
+| `broke_down` | **Included** — a robot that played then died genuinely underperformed, and its partial data is real observed performance | **missed**, and flagged as a breakdown *(v1.50, user 2026-11-01; was available)* |
 | `no_show` | **Excluded entirely.** Never counted as zero. | missed |
 | `disabled` | **Excluded entirely.** Never counted as zero. | missed |
 
@@ -1436,7 +1438,7 @@ The engine applies one fixed rule everywhere:
 - **breakdowns** (count of `broke_down`),
 - **no-shows** (count of `no_show`),
 - **disabled** (count of `disabled`),
-- **availability rate** = available / (available + missed).
+- **availability rate** = available / (available + missed) — available is `played` only; a breakdown is missed *(v1.50)*.
 
 These are shown alongside performance metrics in statistics, ranking and pick-list views, and **reliability is a first-class input to alliance selection**: a high scorer that frequently breaks down must not out-rank a slightly lower but dependable robot.
 
@@ -1718,7 +1720,7 @@ Layout: the **metrics table first**, then charts and other metrics below.
   - **Scoring:** a by-phase bar · **Total** (the average scouted points) · one average per phase that carries points in the season's form (normally Auto · Teleop · Endgame; together they add up to Total) · **Consistency** (± the standard deviation, never a sort) · the team's availability · Matches.
   - **Availability:** a **status spread** · **Availability** · Breakdowns · No-shows · Disabled · Matches.
 - **Availability on every Scoring row:** the % (bold under 100 %) with one robot-status shape per problem match (◆ broke down, □ disabled, – no show), so a strong team that is not dependable shows without a click.
-- **Status spread:** one bar of the team's **scouted** matches, Played and Broke down on the "on the field" side of a line, Disabled and No show on the "missed" side, every block with its shape and count. **[RAISED BY ME]** The denominator is the matches scouted, never the schedule: a match nobody scouted is in none of the four statuses and is not drawn as missed.
+- **Status spread:** one bar of the team's **scouted** matches, Played on the "played" side of a line, Broke down, Disabled and No show on the "missed" side *(v1.50; Broke down was on the played side)*, every block with its shape and count. **[RAISED BY ME]** The denominator is the matches scouted, never the schedule: a match nobody scouted is in none of the four statuses and is not drawn as missed.
 - **Sort:** one figure or several, in order, each with its own direction (best/worst first; fewest/most first for counts), from the open category's figures only.
   - A header click makes that figure the whole sort; a second click reverses it. The sort control states the whole sort in words and opens a builder that adds tie-breakers.
   - Each later figure settles ties in the one before it. Teams still tied keep rank order, and a team with no data sorts last whatever the sort.
@@ -1727,7 +1729,7 @@ Layout: the **metrics table first**, then charts and other metrics below.
 - **Phases are the form's, not fixed** **[RAISED BY ME]**: the bar and the per-phase figures follow the phases that score in the season's form, so a year that scores a post-match field gets that segment too and the parts still add up to Total.
 - Shading (§12.6) marks the figures in the current sort; the others print plain.
 - Offline, the phone computes the same table from the entries on the device and says so ("Computed from the data on this device", with the last sync time).
-- *(v1.48, user 2026-10-28)* **Home reads the same ranking**: the our-team card shows rank #N of M (M is the event's roster, ranked or not, as on the ranking page and the team page *(v1.49, user 2026-10-29)*), the average, and **places moved since our last match** — our rank now against our rank computed from the qualification matches numbered below our most recent counted one ("▲2 since Q36"); the top-teams list is the top five with a five-match trend line.
+- *(v1.48, user 2026-10-28)* **Home reads the same ranking**: the our-team card shows rank #N of M (M is the event's roster, ranked or not, as on the ranking page and the team page *(v1.49, user 2026-10-29)*), the average, and **places moved since our last match** — our rank now against our rank computed from the qualification matches numbered below our most recent counted one ("▲2 since Q36"); the top-teams list is the top five with a five-match trend line, its heading saying "of N teams" *(v1.50)*. The ranking page's line under the event name states the roster count ("30 teams") *(v1.50, user 2026-11-01)*.
 
 ### 13.6 Compare page
 
@@ -2068,6 +2070,7 @@ The supplied logo is **raster, not vector**. It is large enough for every use in
 - A single confirm dialog that **names the object**, **states what is lost as a count** ("this deletes 4 entries"), and puts the destructive verb on the primary button.
 - **Type-to-confirm only for multi-record irreversibles** — delete a season, an event, a form, a form version, a match together with its entries, wipe local device data. **Plain confirm for single records** — one entry, a match with no entries — as a small **"Are you sure?"** pop-up naming the record, with Cancel first. *(v1.47)*
 - *(v1.47, user 2026-10-28)* **As designed** (`docs/design/pages/28-delete/final/`, variant A): a cascade delete opens on **the bill** — a dark band with the damage as the biggest count, then every count itemised — then the title as a question, **1 · Back up first**, **2 · Type the name**, and Cancel (focused) beside the filled-ink delete button. A blocked delete keeps the band with a Blocked tag and offers the ways forward as cards, with no delete button.
+- *(v1.50, user 2026-11-01)* **Every dialog on a computer behaves the same:** the × at the top right, and Escape, the × and a click outside all close it — except while it is saving or deleting, when none of them does. Once something in it has been typed or changed, a click outside does nothing, so a half-filled form survives a stray click; Escape and the × still close it. Phone sheets keep tap-outside and drag-down.
 - **Undo instead of a dialog wherever undo is possible** — repeatable inputs, one-tap do-not-pick removal.
 - **An action that would orphan collected data is blocked, not confirmed.** Deleting a form version with entries bound to it fails with an explanation, and no confirmation text overrides it.
 

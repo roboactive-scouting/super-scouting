@@ -404,7 +404,6 @@ function BillFace({
       }
       onClose={onCancel}
       dismissible={!busy}
-      showClose={false}
       initialFocus={cancel}
       describedBy={`${id}-line`}
       width={940}
@@ -691,7 +690,6 @@ function SureFace({
       title="Are you sure?"
       onClose={onCancel}
       dismissible={!busy}
-      showClose={false}
       initialFocus={cancel}
       describedBy={`${id}-line`}
       width={420}
@@ -838,7 +836,6 @@ function ChoiceFace({
       open
       title={`${name} has entries`}
       onClose={onCancel}
-      showClose={false}
       initialFocus={close}
       describedBy={`${id}-line`}
       width={860}
@@ -973,7 +970,6 @@ function BlockedFace({
       open
       title={`${capital(short)} can't be deleted`}
       onClose={onCancel}
-      showClose={false}
       initialFocus={keep}
       width={860}
       band={band}

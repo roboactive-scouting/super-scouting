@@ -17,6 +17,7 @@ import {
   statusMarks,
   statusSpread,
   type FigureScale,
+  type SpreadScale,
   type StatusKey,
 } from './rankingView';
 
@@ -276,11 +277,12 @@ const BLOCK: Record<StatusKey, string> = {
 };
 
 /**
- * THEME "Status spread bar": one row of blocks over the team's SCOUTED matches — Played and Broke
- * down left of a 2 px `--ink-2` line ("On the field"), Disabled and No show right of it
- * ("Missed") — each as wide as its count against the table's `scale` and printing its shape and
- * count. A match nobody scouted is in none of the four, so it is never drawn as missed. No data:
- * "No counted matches yet". `size`: `lg` in the team study (22 px blocks).
+ * THEME "Status spread bar": one row of blocks over the team's SCOUTED matches — Played left of a
+ * 2 px `--ink-2` line, Broke down, Disabled and No show right of it ("Missed": a breakdown is
+ * missed for availability — user, 2026-11-01, replaces SPEC-FINAL 11.3's "available, flagged") —
+ * each as wide as its count against the table's `scale` and printing its shape and count. A match
+ * nobody scouted is in none of the four, so it is never drawn as missed. No data: "No counted
+ * matches yet". `size`: `lg` in the team study (22 px blocks).
  */
 export function StatusSpread({
   row,
@@ -289,7 +291,7 @@ export function StatusSpread({
   className,
 }: {
   row: RankRow;
-  scale: { onField: number; missed: number };
+  scale: SpreadScale;
   size?: 'row' | 'lg';
   className?: string;
 }) {
@@ -318,14 +320,12 @@ export function StatusSpread({
       role="img"
       aria-label={`Scouted matches: ${s.played} played, ${s.broke_down} broke down, ${s.disabled} disabled, ${s.no_show} no show`}
       className={cn('grid h-6 items-center', className)}
-      style={{ gridTemplateColumns: `${scale.onField}fr 2px ${scale.missed}fr` }}
+      style={{ gridTemplateColumns: `${scale.played}fr 2px ${scale.missed}fr` }}
     >
-      <span className="flex justify-end gap-0.5 pe-[3px]">
-        {block('played', scale.onField)}
-        {block('broke_down', scale.onField)}
-      </span>
+      <span className="flex justify-end gap-0.5 pe-[3px]">{block('played', scale.played)}</span>
       <span aria-hidden="true" className="h-6 w-0.5 rounded-[1px] bg-ink-2" />
       <span className="flex justify-start gap-0.5 ps-[3px]">
+        {block('broke_down', scale.missed)}
         {block('disabled', scale.missed)}
         {block('no_show', scale.missed)}
       </span>
@@ -333,26 +333,30 @@ export function StatusSpread({
   );
 }
 
-/** The spread's header: "On the field · Played + Broke down" | "Missed", on the same scale. */
+/**
+ * The spread's header: "Played · finished the match" | "Missed" ("Played" alone when `short`), on
+ * the same scale. Missed holds Broke down, Disabled and No show (the legend's shapes); its word
+ * never truncates, as the missed side can be one match wide.
+ */
 export function SpreadHead({
   scale,
   short = false,
   className,
 }: {
-  scale: { onField: number; missed: number };
+  scale: SpreadScale;
   short?: boolean;
   className?: string;
 }) {
   return (
     <span
       className={cn('grid items-center text-[0.71875rem] font-semibold text-muted', className)}
-      style={{ gridTemplateColumns: `${scale.onField}fr 2px ${scale.missed}fr` }}
+      style={{ gridTemplateColumns: `${scale.played}fr 2px ${scale.missed}fr` }}
     >
       <span className="truncate pe-1.5 text-end">
-        {short ? 'On the field' : 'On the field · Played + Broke down'}
+        {short ? 'Played' : 'Played · finished the match'}
       </span>
       <span aria-hidden="true" className="h-3.5 w-0.5 rounded-[1px] bg-ink-2" />
-      <span className="ps-1.5">Missed</span>
+      <span className="ps-1.5 whitespace-nowrap">Missed</span>
     </span>
   );
 }

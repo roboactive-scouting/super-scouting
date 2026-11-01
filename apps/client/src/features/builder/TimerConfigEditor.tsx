@@ -345,7 +345,7 @@ export function TimerConfigEditor({
       )}
       {total !== null && (
         <>
-          <PhaseBar config={candidate} total={total} />
+          <PhaseBar config={candidate} />
           <p className="flex items-baseline gap-2 text-[0.84375rem] text-ink-2">
             Match ends at <b className="font-num text-[1.125rem] font-bold text-ink">{total} s</b>{' '}
             <span>({formatClock(total)})</span>
@@ -481,11 +481,12 @@ function PhaseRow({
 }
 
 /**
- * The phases to scale, in order (design `.fs-bar`): each as wide as its share of the match,
- * named with its m:ss — a narrow one by its first letter only. Drawn for the eye; its label
- * reads the same out loud. Widths ease only under motion-safe.
+ * The phases to scale, in order (design `.fs-bar`): every phase always named with its m:ss (user,
+ * 2026-11-01: a short Auto showed only "A"). Each segment is at least as wide as its content
+ * (`min-width: max-content`) and the rest of the width is shared by length (`flex: <seconds> 1 0`).
+ * Drawn for the eye; its label reads the same out loud. The shares ease only under motion-safe.
  */
-function PhaseBar({ config, total }: { config: TimerConfig; total: number }) {
+function PhaseBar({ config }: { config: TimerConfig }) {
   const spoken = config.phases
     .map((p) => `${TIMER_PHASE_NAME[p.phase]} ${formatClock(p.seconds)}`)
     .join(', then ');
@@ -496,27 +497,21 @@ function PhaseBar({ config, total }: { config: TimerConfig; total: number }) {
       className="flex h-[30px] overflow-hidden rounded-control border border-line"
     >
       {config.phases.map((p) => {
-        const share = p.seconds / total;
         const name = TIMER_PHASE_NAME[p.phase];
         return (
           <span
             key={p.phase}
-            style={{ width: `${share * 100}%` }}
+            data-phase={p.phase}
+            style={{ flex: `${p.seconds} 1 0` }}
             className={cn(
-              'flex min-w-0 items-center justify-center overflow-hidden border-e-2 border-surface text-xs font-bold whitespace-nowrap text-ink last:border-e-0 motion-safe:transition-[width]',
+              'flex min-w-max items-center justify-center border-e-2 border-surface px-1.5 text-xs font-bold whitespace-nowrap text-ink last:border-e-0 motion-safe:transition-[flex-grow]',
               PHASE_TONE[p.phase],
             )}
           >
-            {share < 0.12 ? (
-              name[0]
-            ) : (
-              <>
-                {name}
-                <code className="ms-[5px] font-num font-medium text-ink-2">
-                  {formatClock(p.seconds)}
-                </code>
-              </>
-            )}
+            {name}
+            <code className="ms-[5px] font-num font-medium text-ink-2">
+              {formatClock(p.seconds)}
+            </code>
           </span>
         );
       })}

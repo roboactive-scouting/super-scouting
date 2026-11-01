@@ -9,14 +9,18 @@ import { cn } from '@/lib/utils';
  * each with its rank, number and name, the trend line of its last five counted matches
  * (`recent_totals`, the team page's sparkline: `--faint`, ours `--accent`) and its average
  * points; our team's row is tinted `--accent-tint` and says "our team" to a screen reader. Then
- * **Full ranking**, to /ranking. The caller hides the card while nothing is ranked.
+ * **Full ranking**, to /ranking. The caller hides the card while nothing is ranked. The heading's
+ * end text opens with the roster, "of 30 teams" (`of`: `teamsText`; user, 2026-11-01).
  */
 export function TopTeamsCard({
   rows,
+  of,
   ourTeam,
   desktop,
 }: {
   rows: readonly RankRow[];
+  /** The event's roster in words, "30 teams". */
+  of: string;
   ourTeam: number;
   desktop: boolean;
 }) {
@@ -33,7 +37,8 @@ export function TopTeamsCard({
           Top teams
         </h2>
         <span className="text-[0.78125rem] text-muted">
-          {desktop ? 'Average points · last 5' : 'avg points · last 5'}
+          <span data-roster>of {of}</span> ·{' '}
+          {desktop ? 'average points · last 5' : 'avg points · last 5'}
         </span>
       </div>
       <ol className={desktop ? 'mt-1.5' : 'mt-1'}>

@@ -21,15 +21,13 @@ export type DialogProps = {
   width?: number;
   /** First focus goes here. Default: the first control in the body, else the footer. */
   initialFocus?: RefObject<HTMLElement | null>;
-  /** `false` holds Escape and the × (an action in flight). Default true. */
+  /** `false` holds Escape, the × and a click on the backdrop (an action in flight). Default true. */
   dismissible?: boolean;
-  /** Show the × at the title's end. Default true. */
-  showClose?: boolean;
   /** The id of the element that describes the dialog (aria-describedby). */
   describedBy?: string;
   /**
    * A round icon centred above a centred title (entry parts, "Practice finished"; task 1.37).
-   * The body lays itself out; the × is not drawn.
+   * The body lays itself out; the × sits in the dialog's top right corner.
    */
   icon?: ReactNode;
   /**
@@ -51,8 +49,16 @@ const FOCUSABLE =
 /**
  * The centred desktop dialog (THEME "Dialog (desktop)": 16 px radius, white, a float
  * shadow over the sheet scrim; title 20 px / 750 with × at the right; actions right-aligned).
- * The desktop twin of the bottom sheet; ResponsiveDialog picks between them. Escape and ×
- * close it; a tap on the scrim does not, so a half-filled form survives a stray click.
+ * The desktop twin of the bottom sheet; ResponsiveDialog picks between them.
+ *
+ * The app's one dialog standard (user, 2026-11-01: "keep standard settings and looks in the
+ * app"): every dialog draws the × at its top right (an icon-headed one in the corner), and
+ * Escape, the × and a click on the backdrop all close it — none of them while it is busy
+ * (`dismissible={false}`, e.g. mid-delete). The backdrop click counts only when the pointer went
+ * down AND up on the backdrop itself, so a text selection dragged out of the dialog never
+ * closes it. Once anything in the dialog has been typed into or changed (an `input` event from
+ * its fields), the backdrop click is ignored, so a half-filled form survives a stray click;
+ * Escape and the × still close it (user, 2026-11-01).
  */
 export function Dialog(props: DialogProps) {
   if (!props.open) return null;
@@ -67,7 +73,6 @@ function OpenDialog({
   width = 520,
   initialFocus,
   dismissible = true,
-  showClose = true,
   describedBy,
   icon,
   foot,
@@ -89,6 +94,26 @@ function OpenDialog({
   const { panel, onKeyDown } = useModalFocus(() => {
     if (dismissible) onClose();
   }, first);
+  // Whether the pointer went down on the backdrop itself (not in the panel, nor a portal in it).
+  const downOnBackdrop = useRef(false);
+  // Whether a field in the dialog has been typed into or changed since it opened.
+  const edited = useRef(false);
+
+  const closeButton = (
+    <button
+      ref={close}
+      type="button"
+      aria-label="Close"
+      onClick={dismissible ? onClose : undefined}
+      aria-disabled={!dismissible || undefined}
+      className={cn(
+        'tap-target hover-veil motion-safe:transition motion-safe:active:not-disabled:scale-[0.97] flex shrink-0 items-center justify-center rounded-control text-muted aria-disabled:opacity-50',
+        icon ? 'absolute end-3 top-3' : '-me-2',
+      )}
+    >
+      <X aria-hidden="true" className="size-5" />
+    </button>
+  );
 
   const head = (
     <div
@@ -98,18 +123,7 @@ function OpenDialog({
       <h2 id={heading} className="min-w-0 flex-1 text-xl font-[750]" dir="auto">
         {title}
       </h2>
-      {showClose && !icon && (
-        <button
-          ref={close}
-          type="button"
-          aria-label="Close"
-          onClick={dismissible ? onClose : undefined}
-          aria-disabled={!dismissible || undefined}
-          className="tap-target hover-veil motion-safe:transition motion-safe:active:not-disabled:scale-[0.97] -me-2 flex shrink-0 items-center justify-center rounded-control text-muted aria-disabled:opacity-50"
-        >
-          <X aria-hidden="true" className="size-5" />
-        </button>
-      )}
+      {!icon && closeButton}
     </div>
   );
   const content = (
@@ -120,7 +134,18 @@ function OpenDialog({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[var(--scrim)] p-4">
+    <div
+      data-backdrop=""
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[var(--scrim)] p-4"
+      onPointerDown={(e) => {
+        downOnBackdrop.current = e.target === e.currentTarget;
+      }}
+      onPointerUp={(e) => {
+        const both = downOnBackdrop.current && e.target === e.currentTarget;
+        downOnBackdrop.current = false;
+        if (both && dismissible && !edited.current) onClose();
+      }}
+    >
       <div
         ref={panel}
         tabIndex={-1}
@@ -130,9 +155,12 @@ function OpenDialog({
         aria-labelledby={heading}
         aria-describedby={describedBy}
         onKeyDown={onKeyDown}
+        onInput={() => {
+          edited.current = true;
+        }}
         style={{ width }}
         className={cn(
-          'motion-safe:animate-scale-in flex max-h-full max-w-full flex-col overflow-y-auto rounded-2xl bg-surface text-ink shadow-[var(--shadow-float)]',
+          'motion-safe:animate-scale-in relative flex max-h-full max-w-full flex-col overflow-y-auto rounded-2xl bg-surface text-ink shadow-[var(--shadow-float)]',
           band
             ? 'gap-0'
             : // A pinned foot carries the bottom room itself: padding here would be a strip under
@@ -140,6 +168,8 @@ function OpenDialog({
               cn('gap-3 px-6 pt-[1.375rem]', foot ? 'pb-0' : 'pb-[1.375rem]'),
         )}
       >
+        {/* An icon-headed dialog's × sits in the corner, first in the DOM as the head's does. */}
+        {icon && closeButton}
         {band ? (
           <>
             <div data-band="" className="shrink-0 bg-ink px-8 pt-[1.375rem] pb-6 text-surface">

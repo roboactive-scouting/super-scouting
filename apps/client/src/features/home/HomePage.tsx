@@ -19,7 +19,7 @@ import { CoverageCard } from './CoverageCard';
 import { GoToTiles } from './GoToTiles';
 import { HomeHeader } from './HomeHeader';
 import { HomeNotReady, notReady } from './HomeNotReady';
-import { loadHome, moveMatchOf, ourTeamOf, topTeamsOf, versionLine } from './homeData';
+import { loadHome, moveMatchOf, ourTeamOf, teamsText, topTeamsOf, versionLine } from './homeData';
 import { OurTeamCard } from './OurTeamCard';
 import { PhoneTiles, StatTiles } from './StatTiles';
 import { TopTeamsCard } from './TopTeamsCard';
@@ -95,7 +95,7 @@ export function HomePage({ rpc }: { rpc?: Rpc }) {
   const ourCard = us && <OurTeamCard team={us} desktop={desktop} />;
   const top = topTeamsOf(rows);
   const topCard = top.length > 0 && (
-    <TopTeamsCard rows={top} ourTeam={OUR_TEAM_NUMBER} desktop={desktop} />
+    <TopTeamsCard rows={top} of={teamsText(rows)} ourTeam={OUR_TEAM_NUMBER} desktop={desktop} />
   );
 
   return (

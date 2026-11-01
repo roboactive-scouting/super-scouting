@@ -38,7 +38,6 @@ export function PracticeFinished({
       open={open}
       title="Practice finished"
       onClose={onClose}
-      showClose={false}
       width={420}
       initialFocus={another}
       describedBy={line}
