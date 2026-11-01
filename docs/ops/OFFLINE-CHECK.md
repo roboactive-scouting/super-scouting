@@ -40,8 +40,8 @@ the check created, so the next run has matches 16–20 free again. It refuses pr
 - A computer for step 14.
 - On dev, sign in as a seed account (`seed_scouter`; the dev-only password is in
   `docs/ops/BUILD-CONTEXT.md` §3). The active event is **Seed District Event**, and
-  matches **16–20** are left unscouted for exactly this: steps 5–7 use matches 16 and 17
-  (12 robots, 10 entries).
+  matches **16–20** are left unscouted for exactly this: steps 5–7 and 15 use matches 16
+  and 17 (12 robots, 12 entries).
 - For step 15, a USB cable and a computer for remote dev tools (Android: Chrome →
   `chrome://inspect`; iPhone: Safari → Develop menu), or a screen recording.
 
@@ -114,18 +114,18 @@ the check created, so the next run has matches 16–20 free again. It refuses pr
       counter on the entry screen. The interaction from tap to the new number painted
       must be **under 100 ms**. It is a local state update, so anything slower is a
       re-render bug, not a network one.
-    - **Sync within 2 s of connectivity.** Turn airplane mode on, submit an eleventh entry
+    - **Sync within 2 s, online.** With the network on, submit an eleventh entry (match
+      17, a robot not yet scouted) and time from **Submit entry** to the pill reading
+      **All sent** (a stopwatch, or count frames in a screen recording). It must be
+      **within 2 seconds**: the return to Scout starts a sync at once.
+    - **Sync within 2 s of connectivity.** Turn airplane mode on, submit a twelfth entry
       (match 17's last robot; the pill reads **Offline · 1**), then turn airplane mode off.
       Time from the wifi icon appearing in the phone's status bar to the pill reading
-      **All sent** (a stopwatch, or count frames in a screen recording). It must be
-      **within 2 seconds**: coming back online starts a sync at once.
+      **All sent**. It must be **within 2 seconds**: coming back online starts a sync at
+      once.
 
-    Write both numbers in the log. A regression here is invisible until it is infuriating.
-
-    *Known, not a step:* an entry submitted while the phone is **already online** is not
-    pushed at once. It goes on the next automatic refresh (every 45 seconds), when the
-    connection returns, or on **Sync now**, so it can take up to 45 seconds to reach the
-    server. Raised with the 1.63 build (`docs/plans/DEVIATIONS.md`).
+    Write the three numbers in the log. A regression here is invisible until it is
+    infuriating.
 
 ## Results log
 
@@ -156,6 +156,7 @@ Copy the block below for each run, newest first. Fill every row; a step not run 
 | 13 Back online | pass / fail |
 | 14 Computer | pass / fail |
 | 15a Tap (ms, target under 100) | |
-| 15b Sync (s, target within 2) | |
+| 15b Sync online (s, target within 2) | |
+| 15c Sync after reconnecting (s, target within 2) | |
 | `pnpm db:clean` afterwards | done / not needed |
 | Notes | |

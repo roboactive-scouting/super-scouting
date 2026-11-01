@@ -10669,3 +10669,13 @@ Rejected: the Status spread header "Missed · Broke down · Disabled · No show"
 **What I did instead:** ticked steps 1, 3 and 4 in the plan; step 2 is unticked and the results log is empty.
 
 **Risk:** Phase 1's gate (SPEC-FINAL 20.4, "the offline path verified with the network actually off") is open until the user's run is recorded.
+
+## Task 1.63 — correction: a submit while online does sync at once; the [RAISED] entry above was wrong
+
+**Plan said:** step 15: submit an entry with the network on; it reaches the server within 2 seconds (SPEC-FINAL 18.1).
+
+**What was wrong:** the entry "[RAISED] an entry submitted while online is not pushed for up to 45 seconds" read only the shell's sync loop (`AUTO_REFRESH_MS`, the `online` event, a token) and missed its screen-entry sync. `EntryPage.tsx` awaits `submitEntry` (the outbox write), then calls `onSubmitted`, which navigates to `/scout` (`EntryRoute.tsx`; a super entry to `/super`, `SuperEntryPage.tsx`), and the shell runs `schedule()` — push, then pull — on every screen change while online (`AppShell.tsx`, "a delta pull on SCREEN ENTRY"; tested by `AppShell.test.tsx` "pulls when the screen changes, through the same sync"). The user answered "Fix it in code" to that wrong premise; there was nothing to fix for a submit, so no code changed.
+
+**What I did instead:** step 15 measures both cases again: 15b, a submit with the network on, from **Submit entry** to **All sent**; 15c, a submit in airplane mode then reconnecting, from the wifi icon to **All sent**. The "Known, not a step" note is gone, and the results log has a row for each. Matches 16 and 17 hold exactly the twelve entries the procedure now makes.
+
+**Risk:** a write that stays on its screen waits for the next 45-second tick, a screen change or **Sync now**: a QR receive on an online collector (it syncs once **Done — back to Sync** leaves the receive screen; **Scan the next phone** stays on it) and a lead's soft delete from a dialog. Neither is a scouter's submit; raised to the user as a possible small follow-up rather than changed here.
