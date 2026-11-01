@@ -10529,3 +10529,153 @@ Rejected: the Status spread header "Missed · Broke down · Disabled · No show"
 **Risk:** the availability rate of every team with a breakdown drops (dev and production data are recomputed on read; nothing is stored). Home's Our team and the team page read the same engine. A half-filled form in a computer dialog (Add user, Edit season/event) now closes on a stray backdrop click — the user's standard. Delete's "Are you sure?" face is a `Dialog` at both widths, so the phone pop-up gains the × too. The spec's §11.3 / §13.5 / §17.8 text is the orchestrator's (SPEC-FINAL v1.50 already carries it in the working tree).
 
 **Orchestrator, the same fix (2026-11-01): a typed-into dialog survives a click outside.** The build made every computer dialog close on a backdrop click; the user chose "keep it open" for a half-filled form. `Dialog` marks itself edited on the first `input` event from its fields and then ignores the backdrop click; Escape and the × still close it. One rule in the primitive, not a `dirty` prop per form, so no form dialog can forget it. Test: `primitives-2.test.tsx`, "keeps a half-filled form open on a backdrop click". Risk: a dialog whose field is changed and changed back stays edited — the safe side.
+
+## Task 1.62 — written directly, no subagent
+
+**Plan said:** BUILD-CONTEXT §9: the build chat is an orchestrator that spawns one subagent per task and writes no application code itself.
+
+**What was wrong:** nothing; the chat's prompt said "Write it directly, no subagents", and §9's precedence puts the prompt first.
+
+**What I did instead:** wrote 1.62 and 1.63 in this chat and verified each command myself.
+
+**Risk:** no fresh-reader pass over the code; offered to the user in the report.
+
+## Task 1.62 — the metric's expected value: the CI form had no active version and no scoring rule
+
+**Plan said:** Step 1: `rankTeams` over the CI event returns the CI team with `average_points` 4 — "one entry, ci_counter = 4, one point per unit".
+
+**What was wrong:** the plan predates Phase 1 I. `rankTeams` (`apps/server/src/core/queries/stats.ts`) scores through the season's match form's ACTIVE version and that form's `scoring_rules` (`activeScoring`); the existing fixture set neither (`forms.active_version_id` null, no `scoring_rules` row), so every CI entry would score 0. Nothing scores "one point per unit" by default (`scoreField` returns 0 without a rule). The suite also already pushes three CI entries, not one: ci_counter 4 (Q1), ci_counter 3 (the auto-created match), and a no-show (the replay test). The output shape is `{ event: { id, name }, rows: RankRow[] }` (`packages/shared/src/api/stats.ts`), with `rank`, `matches_counted` and `no_shows` beside `average_points`; any role may call it (the use case does `void caller`).
+
+**What I did instead:** the fixture sets `active_version_id` and adds a `scoring_rule` for `ci_counter` at `CI_POINTS_PER_UNIT = 2` (two, so a score cannot be mistaken for the raw count). The metric test runs last and expects `average_points` (4 + 3) × 2 / 2 = 7, `rank` 1, `matches_counted` 2, `no_shows` 1: the no-show is left out of the average, never scored as 0 (SPEC-FINAL 11.3), so the test also proves that rule end to end. The response is parsed with the shared `rankTeamsOutput`. Rejected: a fourth, dedicated entry for the metric (another push for no new wiring), and asserting `availability_rate` (behaviour, tier 1's job). Mutation run: expecting 8 fails with "expected 7 to be close to 8".
+
+**Risk:** the metric test reads the entries the push tests wrote, so a push failure also fails it. Tests in one file run in order (`fileParallelism: false`, one file).
+
+## Task 1.62 — the CI user stays a scouter with a per-run password
+
+**Plan said:** create the CI user with `bcryptjs.hashSync(CI_PASSWORD, 10)`, `CI_PASSWORD = 'ci-smoke-pass-1'` at module scope, role `admin`; the login test expects `user.role` `admin`.
+
+**What was wrong:** nothing the suite calls needs admin: `getActiveContext`, `listUsers` and `rankTeams` are queries every role may call, and a push is authorized per operation against its author. A committed password for an admin on dev is a standing credential for anyone who reads the repo while a run is live.
+
+**What I did instead:** kept the existing fixture's role `scouter` and its per-run random password (`crypto.randomUUID()`, never printed). The login test expects `role: 'scouter'`, the user's id and username, and no `password_hash` in the body, then proves the fresh token usable on `getActiveContext`. `beforeAll` still logs in on its own, so no other test depends on the login test having run.
+
+**Risk:** none for the wiring; an admin-only route would need its own user.
+
+## Task 1.62 — the 401 test, a control call, and one extra test
+
+**Plan said:** an unauthenticated `POST /api/listUsers` gets 401 `unauthenticated`. Four new tests.
+
+**What was wrong:** a 401 alone does not prove the missing token caused it.
+
+**What I did instead:** the same test then sends the identical request with the bearer and expects 200, so the route exists and takes the body. Added a fifth test, "refuses a token signed with another secret" (a jose HS256 token with valid claims, signed with 32 random bytes): it proves the deployed server checks signatures, the one wiring fault (`AUTH_JWT_SECRET` unset or wrong) a missing-token test cannot see. Mutation run: giving the no-token request a bearer fails the test with "expected 200 to be 401".
+
+**Risk:** none.
+
+## Task 1.62 — getActiveContext is compared with app_settings, never set
+
+**Plan said:** `expect(await res.json()).toHaveProperty('active_season_id')`.
+
+**What was wrong:** a property check passes on `{ active_season_id: null }` from a server that never read the database.
+
+**What I did instead:** the test parses the body with the shared `activeContext` and compares both ids with the `app_settings` row read directly through the service role. The suite never writes `app_settings` (the user tests on dev during runs); before and after every run here dev's active context stayed season `…0001`, event `…0002`.
+
+**Risk:** if the singleton named a deleted event the server would answer null and the test fail; the FK is `on delete set null`, so it cannot.
+
+## Task 1.62 — teardown leaves no CI rows, checks itself, and runs after a failed setup
+
+**Plan said:** a namespaced CI season the suite creates and tears down (SPEC-FINAL 18.4); the plan moves setup and teardown to `fixtures.ts` and says nothing more.
+
+**What was wrong:** the existing teardown deleted entries, the season, the user and the team, but left every row no foreign key reaches: the `match_deletions` tombstones (3 per run, written by the match delete trigger as the season cascade removes the matches), the `form_deletions` tombstones (form, version, field; the cascaded children with a null `season_id`) and the four `applied_operations` ledger rows. No insert in the old `beforeAll` but the user's checked its error, and `afterAll` ignored every error. A run killed before its teardown left a year-2999 season, and `seasons.year` is unique, so every later run would die at its first insert with an unrelated-looking error.
+
+**What I did instead:** `apps/server/smoke/fixtures.ts`: `newCiFixture()` makes every id up front (no I/O), the field and rule ids included, and `opId()` records each op id. `setUpCiSeason` checks every insert and, on any failure, tears down before rethrowing. `tearDownCiSeason` deletes entries, the season (cascade), the user, the team, the run's match tombstones (by event), form tombstones (by season or the four row ids) and ledger rows (by op id); then counts each back and throws, naming what survived and the run's ids, so a dirty dev fails the run. It prints the run's non-secret ids either way. Clearing the ledger rows is safe: the op ids were random to the run and the rows they wrote are gone; BUILD-CONTEXT §8's reason for `db:clean` keeping the ledger (a real op replaying as a new write) cannot apply. `clearStaleCiSeason` sweeps a CI season older than 30 minutes (with its entries, tombstones, roster teams named "CI Team" numbered from 900000, and stale `CI User` rows), refuses a younger one as another run in progress, and never touches the active season. Proven on dev: a green run, a run with two failing tests, a run whose setup login fails (teardown ran from setup's catch and again from `afterAll`), and a planted stale season (swept) and young season (refused with "another smoke run created the CI season 66s ago") each left the independent count at 0. A mutation that skips the ledger delete fails the run with "4 applied_operations row(s) left"; those four rows were then removed by id.
+
+**Risk:** CI rows left by runs before this change (tombstones and ledger rows, including one 8-test baseline run on 2026-11-01) carry no namespace and cannot be told apart from real ones; they are left alone and are harmless (they name events and seasons that no longer exist).
+
+## Task 1.62 — the smoke files are typechecked and linted
+
+**Plan said:** nothing.
+
+**What was wrong:** `apps/server/tsconfig.json` included `src` only and the server's `lint` ran `eslint src`, so a wire-shape drift in the smoke suite would surface only when CI reached the smoke step, after the deploy wait.
+
+**What I did instead:** `include: ["src", "smoke"]` and `eslint src smoke`. The smoke files import the shared zod schemas (`loginOutput`, `activeContext`, `rankTeamsOutput`), so a renamed field fails `pnpm typecheck` early. `tsc --listFiles` shows both smoke files. The server bundle is untouched (it bundles `handler.ts`).
+
+**Risk:** none.
+
+## Task 1.62 — scripts/smoke.mjs kept as the pre-flight; ci.yml comment only
+
+**Plan said:** `scripts/smoke.mjs`'s own comment: "Phase 1 task 1.62 replaces this with the full suite of 18.4". `.github/workflows/ci.yml`: "nothing structural".
+
+**What was wrong:** removing it would lose a one-line failure for a dead deployment, before the fixture writes anything.
+
+**What I did instead:** kept it and rewrote its comment as the pre-flight of `pnpm smoke`. The ci.yml Smoke suite step's comment now describes the full suite; no step changed.
+
+**Risk:** none.
+
+## Task 1.62 — Step 2 run locally, never with the key on a command line
+
+**Plan said:** `SMOKE_SUPABASE_SERVICE_ROLE_KEY=<from your local .env> pnpm --filter @frc/server exec vitest run ...`, "then push and confirm the CI Smoke suite step".
+
+**What was wrong:** BUILD-CONTEXT §3: never put a key on a command line. CI runs only on a push to develop or a PR into main, so the CI step first runs when the user merges.
+
+**What I did instead:** a scratchpad wrapper reads `apps/server/.env` itself (refusing any URL without the dev ref `oqvoqddoizhhwvjwejtm`), puts the three `SMOKE_*` values into the child's environment only, and runs `pnpm smoke` against `https://frc-scouting-server-git-develop-roboactive.vercel.app` (live commit `32531ea`; 1.62 changes no server code). The CI confirmation is the user's approval test.
+
+**Risk:** none.
+
+## Task 1.63 — OFFLINE-CHECK.md's expected results come from the app as it is, not the plan
+
+**Plan said:** the 15 steps with their results: the trefoil named "Scouting"; "the indicator reads `online`; the context page names the active event"; cold start "says it is working from data on the device"; "`offline · 10 unsynced`"; the no-show's summary "lists the status and nothing else"; the builder shows "the 'this needs a computer' panel, or the offline panel"; switching "Disabled, saying only the default competition is available offline"; the ranking "says the figures are from this device"; the sync page's last sync "in `DD/MM/YYYY`"; step 12 "From a second device, send those entries by QR; scan them on the first. → 'batch complete'"; step 15 "submit an entry with the network on … within 2 seconds".
+
+**What was wrong:** the plan predates Phases 1 D–1 J. Read in the code: there is no context page (`/context` redirects to Home, `routes.tsx`); Home reads "This device is working on" over the event's name (`HomeHeader.tsx`). The phone's one indicator is a pill — "All sent", "N waiting", "Offline · N" (`SyncPill.tsx` `compactSync`), never "unsynced". The cold-start strip is "Working from data already on this device. Your entries are safe here and will sync when a connection returns." (`AppShell.tsx`). The phone menu has no Forms entry for any role (`nav.ts`, `desktopOnly`), and a phone at `/admin/forms` gets `DesktopOnly`'s "This needs a computer". The switch sheet says "Only the default competition is available offline. Your data is safe on this device." (`SwitchCompetitionSheet.tsx`). The ranking says "Computed from the data on this device" over "Last synced HH:MM · N entries waiting to send" (`RankingPage.tsx`). Sync's last sync is "HH:MM" today and "DD/MM/YYYY HH:MM" on another day (`lastSyncLabel`), followed offline by "· sends by itself". The QR receiver has no "batch complete": it turns green with "Got it, <name>!", the count, "records · N entries", **Scan the next phone** and **Done — back to Sync** (`QrReceivePage.tsx`); the sender says "Nothing is marked sent. These records wait for the cloud as before." (`QrSendPage.tsx`). Step 12 also had the devices reversed: the ten entries are on the first phone, so the first phone sends and the second receives. The plan's intro says "Fourteen numbered steps" over a list of fifteen.
+
+**What I did instead:** every expected result quotes the code's current text, with the screen and button names a person sees. Step 12: the test phone sends, the second device receives, and the test phone's Sync still shows Waiting 10 with "shown by QR HH:MM". Step 14 checks the entries appear once each (the received copies are the same records) and reads Ranking's **Matches** and **No-shows** columns (`rankingView.ts`), so the no-show is checked as not-a-zero. Step 15's sync measurement is the reconnect case (see the next entry). The results log is one copy-per-run block with a row per step plus the cold-start seconds, the tap time and the sync time, rather than one wide table row. The heading check (`scripts/check-docs.mjs`) now requires the document's four sections; removing "Results log" fails `pnpm docs:check` with "docs/ops/OFFLINE-CHECK.md is missing sections: Results log".
+
+**Risk:** the texts were read from the code, not from a phone; the user's run (1.63 step 2) is the proof, and a mismatch there is a document fix, not a release blocker, unless the behaviour differs.
+
+## Task 1.63 — [RAISED] an entry submitted while online is not pushed for up to 45 seconds
+
+**Plan said:** step 15: "submit an entry with the network on and watch the sync page: the entry must reach the server **within 2 seconds** of connectivity" (SPEC-FINAL 18.1: "A submitted entry reaches the server within 2 seconds of the device having connectivity").
+
+**What was wrong:** the client starts a sync only on the shell's 45-second tick (`AUTO_REFRESH_MS = 45_000`, `apps/client/src/features/shell/AppShell.tsx:55`), the browser's `online` event, a token arriving, and **Sync now** (`requestSync`). `submitEntry` writes the outbox and requests nothing. So an entry submitted on an online phone waits up to 45 s; the plan's step 15 would fail on every run. Coming back online does sync at once.
+
+**What I did instead:** nothing in the code (1.62 and 1.63 only; the fix is a client change for its own task). Step 15 measures the reconnect case — airplane mode on, submit, airplane mode off, time from the wifi icon to "All sent" — which is §18.1's wording and what the app does today. A "Known, not a step" note under step 15 states the 45-second behaviour. Raised to the user in the report as an open question: nudge a sync after every submit (and after a QR receive), or amend §18.1. Rejected: writing step 15 as the plan had it, a step that fails by design and blocks every event.
+
+**Risk:** until decided, a phone on venue wifi can hold a submitted entry for up to 45 s; another device sees it up to 45 s after that. Nothing is lost.
+
+## Task 1.63 — where the check's test entries go
+
+**Plan said:** step 1: "Install the PWA to the home screen from the production URL"; steps 5–14 then submit ten entries and sync them, so they would land in production.
+
+**What was wrong:** ten fake entries in production count in the real rankings (the user's open question).
+
+**What I did instead:** the document's "Where the test entries go": the full 15 steps run on the develop preview, whose data is the dev database, after checking that the `version …` line at the foot of Home is the same commit on the develop and production URLs; then a five-minute production check in Practice mode, which saves and sends nothing (SPEC-FINAL 8.5): install, sign in, load, airplane mode, cold start, practise one entry, "Practice finished — Nothing was saved or sent." `pnpm db:clean` afterwards frees dev's matches 16–20 (the seed leaves them unscouted for rehearsals, BUILD-CONTEXT §8). Rejected: a rehearsal event on production (offline, a device has only the default competition, so the admin would have to move every device's default right before the event, then delete the rehearsal event); scouting the real event and deleting the entries after (a soft-deleted row stays, one missed entry skews a real average, and the roster or schedule may not exist yet); a separate production-like project (cost, and it is not production either).
+
+**Risk:** the dev run proves the build, not production's environment variables, CORS origin or database; the Practice-mode check proves the production install and the offline path without a write, and `/health` plus the CI smoke suite cover the server. A sync to the production server is never exercised by the check.
+
+## Task 1.63 — RUNBOOK.md corrections to match the build
+
+**Plan said:** "the venue checklist filled in with what this build actually does".
+
+**What was wrong:** several existing lines described an older build: the wipe "refuses while any record on the device has not reached the cloud" (since v1.39 it is held, with **Send by QR first** and a harder **Wipe anyway…**, `DeviceWipe.tsx`); "Sync → Conflicts" (Conflicts is its own menu entry for leads and admins, with an "N conflicts to review" link on Sync, `nav.ts`); "Recover the dead device's entries by QR from the collector tablet (Sync → Receive by QR)" (a dead device cannot send; only what it already sent is on the collector); the not-loaded screens' "Not loaded yet" (now "This device has not loaded the competition yet", plus "Loading the competition onto this device"); "Sync → Send by QR" (it is under ⋯); "the same version string on the context page" (the `version …` line is at the foot of Home and in the phone menu); the offline-check line pointed at this task.
+
+**What I did instead:** corrected each line from the code; added to the pre-event checklist the green `main` CI run with its Smoke suite, the production `/health` URL and the daily keep-alive, `OFFLINE-CHECK.md` (both parts, then `pnpm db:clean`), the default competition with its roster and schedule, and Home's "This device is working on"; the daily line now names the pill's "All sent". Every required heading is unchanged.
+
+**Risk:** none.
+
+## Task 1.63 — step 2 left to the user
+
+**Plan said:** Step 2: run the procedure on a real phone and record the result.
+
+**What was wrong:** nothing; the prompt reserves it for the user and forbids simulating it.
+
+**What I did instead:** ticked steps 1, 3 and 4 in the plan; step 2 is unticked and the results log is empty.
+
+**Risk:** Phase 1's gate (SPEC-FINAL 20.4, "the offline path verified with the network actually off") is open until the user's run is recorded.
+
+## Task 1.63 — correction: a submit while online does sync at once; the [RAISED] entry above was wrong
+
+**Plan said:** step 15: submit an entry with the network on; it reaches the server within 2 seconds (SPEC-FINAL 18.1).
+
+**What was wrong:** the entry "[RAISED] an entry submitted while online is not pushed for up to 45 seconds" read only the shell's sync loop (`AUTO_REFRESH_MS`, the `online` event, a token) and missed its screen-entry sync. `EntryPage.tsx` awaits `submitEntry` (the outbox write), then calls `onSubmitted`, which navigates to `/scout` (`EntryRoute.tsx`; a super entry to `/super`, `SuperEntryPage.tsx`), and the shell runs `schedule()` — push, then pull — on every screen change while online (`AppShell.tsx`, "a delta pull on SCREEN ENTRY"; tested by `AppShell.test.tsx` "pulls when the screen changes, through the same sync"). The user answered "Fix it in code" to that wrong premise; there was nothing to fix for a submit, so no code changed.
+
+**What I did instead:** step 15 measures both cases again: 15b, a submit with the network on, from **Submit entry** to **All sent**; 15c, a submit in airplane mode then reconnecting, from the wifi icon to **All sent**. The "Known, not a step" note is gone, and the results log has a row for each. Matches 16 and 17 hold exactly the twelve entries the procedure now makes.
+
+**Risk:** a write that stays on its screen waits for the next 45-second tick, a screen change or **Sync now**: a QR receive on an online collector (it syncs once **Done — back to Sync** leaves the receive screen; **Scan the next phone** stays on it) and a lead's soft delete from a dialog. Neither is a scouter's submit; raised to the user as a possible small follow-up rather than changed here.

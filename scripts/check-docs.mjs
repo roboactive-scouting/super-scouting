@@ -41,6 +41,13 @@ export const REQUIRED = {
     'Pre-event checklist',
     'Daily at an event',
   ],
+  // Task 1.63: the hand-run offline check before every event (SPEC-FINAL 18.4, 20.4).
+  'docs/ops/OFFLINE-CHECK.md': [
+    'Where the test entries go',
+    'Before you start',
+    'The procedure',
+    'Results log',
+  ],
 };
 
 export function missingHeadings(text, required) {

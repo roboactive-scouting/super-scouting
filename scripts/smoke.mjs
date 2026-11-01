@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Phase 0 smoke suite: the /health wiring check alone (SPEC-FINAL 19.3, D30).
-// Phase 1 task 1.62 replaces this with the full suite of 18.4.
+// The /health pre-flight of `pnpm smoke` (SPEC-FINAL 19.3, D30): a dead deployment or database
+// fails here in one line, before the full suite of 18.4 (apps/server/smoke, task 1.62) sets up.
 const base = process.env.SMOKE_API_BASE_URL;
 if (!base) {
   console.error('SMOKE_API_BASE_URL is not set. See docs/ops/ENVIRONMENT.md §3.');
