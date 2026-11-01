@@ -1,110 +1,96 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createClient } from '@supabase/supabase-js';
-import bcrypt from 'bcryptjs';
-import type { PullResponse, PushResponse } from '@frc/shared';
+import { SignJWT } from 'jose';
+import {
+  activeContext,
+  loginOutput,
+  rankTeamsOutput,
+  type PullResponse,
+  type PushResponse,
+} from '@frc/shared';
+import {
+  CI_POINTS_PER_UNIT,
+  newCiFixture,
+  setUpCiSeason,
+  smokeEnv,
+  tearDownCiSeason,
+  uid,
+} from './fixtures.js';
 
-const base = process.env.SMOKE_API_BASE_URL;
-const supabaseUrl = process.env.SMOKE_SUPABASE_URL;
-const supabaseKey = process.env.SMOKE_SUPABASE_SERVICE_ROLE_KEY;
-if (!base || !supabaseUrl || !supabaseKey) {
-  throw new Error(
-    'SMOKE_API_BASE_URL, SMOKE_SUPABASE_URL and SMOKE_SUPABASE_SERVICE_ROLE_KEY are required',
-  );
-}
+/**
+ * Tier 2 of SPEC-FINAL 18.4: "is the app still wired together?" Every test goes through the
+ * deployed server to the dev database, never a mock. Deliberately shallow: behaviour is tier 1's.
+ * The tests run in file order and share the CI season; the metric reads the entries pushed above it.
+ */
 
-const db = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
-const uid = () => crypto.randomUUID();
+const env = smokeEnv();
+const { base, db } = env;
+const fx = newCiFixture();
+const { ids } = fx;
 
-// A per-run password for the CI user, never printed. The token it buys is never printed either.
-const password = crypto.randomUUID();
 let token = '';
 const bearer = () => ({ authorization: `Bearer ${token}` });
-
-const ids = {
-  season: uid(),
-  event: uid(),
-  team: uid(),
-  match: uid(),
-  /** Its own match: since task 1.40 a second entry for (match, team) is a duplicate, not applied. */
-  replayMatch: uid(),
-  form: uid(),
-  version: uid(),
-  user: uid(),
-  entry: uid(),
-};
+const json = { 'content-type': 'application/json' };
 
 beforeAll(async () => {
-  // A namespaced CI season, created and torn down by the suite (SPEC-FINAL 18.4).
-  await db.from('seasons').insert({
-    id: ids.season,
-    year: 2999,
-    game_name: 'CI',
-    field_image_path: 'seasons/2999/field.webp',
-  });
-  await db.from('events').insert({
-    id: ids.event,
-    season_id: ids.season,
-    name: `CI ${ids.event.slice(0, 8)}`,
-    sort_order: 1,
-  });
-  await db
-    .from('teams')
-    .insert({ id: ids.team, number: 900000 + Math.floor(Math.random() * 90000), name: 'CI Team' });
-  await db.from('event_teams').insert({ id: uid(), event_id: ids.event, team_id: ids.team });
-  await db.from('matches').insert([
-    { id: ids.match, event_id: ids.event, match_type: 'qualification', number: 1 },
-    { id: ids.replayMatch, event_id: ids.event, match_type: 'qualification', number: 2 },
-  ]);
-  const { error: userError } = await db.from('users').insert({
-    id: ids.user,
-    username: `ci_${ids.user.slice(0, 8)}`,
-    full_name: 'CI User',
-    password_hash: await bcrypt.hash(password, 10),
-    role: 'scouter',
-  });
-  if (userError) throw new Error(`could not create the CI user: ${userError.message}`);
-  await db
-    .from('forms')
-    .insert({ id: ids.form, season_id: ids.season, kind: 'match', name: 'CI form' });
-  await db.from('form_versions').insert({
-    id: ids.version,
-    form_id: ids.form,
-    version_no: 1,
-    published_at: new Date().toISOString(),
-  });
-  await db.from('form_fields').insert({
-    id: uid(),
-    form_version_id: ids.version,
-    key: 'ci_counter',
-    label: 'CI counter',
-    type: 'counter',
-    display_order: 1,
-    required: false,
-    config: { min: 0, max: 10, step: 1 },
-    description: 'CI',
-    unit: 'count',
-    phase: 'auto',
-    direction: 'higher_is_better',
-  });
-
-  // Both sync routes need a bearer token since task 1.12 (SPEC-FINAL 7.5).
-  const login = await fetch(`${base}/api/login`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ username: `ci_${ids.user.slice(0, 8)}`, password }),
-  });
-  if (login.status !== 200) throw new Error(`CI login failed with HTTP ${login.status}`);
-  token = ((await login.json()) as { token: string }).token;
+  token = await setUpCiSeason(env, fx);
 });
 
+// Runs whether the tests passed or failed, and throws if any CI row survives.
 afterAll(async () => {
-  await db.from('scouting_entries').delete().eq('event_id', ids.event);
-  await db.from('seasons').delete().eq('id', ids.season);
-  await db.from('users').delete().eq('id', ids.user);
-  await db.from('teams').delete().eq('id', ids.team);
+  await tearDownCiSeason(db, fx);
 });
 
-describe('smoke: authentication at the HTTP edge (SPEC-FINAL 7.5, 16.5)', () => {
+describe('smoke: authentication and session (SPEC-FINAL 7.5, 16.5)', () => {
+  it('login returns a usable token', async () => {
+    const res = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify({ username: fx.username, password: fx.password }),
+    });
+    expect(res.status).toBe(200);
+    const body = loginOutput.parse(await res.json());
+    expect(body.user).toMatchObject({ id: ids.user, username: fx.username, role: 'scouter' });
+    expect(JSON.stringify(body)).not.toContain('password_hash');
+
+    // Usable: the fresh token opens a registry route.
+    const use = await fetch(`${base}/api/getActiveContext`, {
+      method: 'POST',
+      headers: { ...json, authorization: `Bearer ${body.token}` },
+      body: '{}',
+    });
+    expect(use.status).toBe(200);
+  });
+
+  it('refuses a registry route with no token, and the same call with one succeeds', async () => {
+    const res = await fetch(`${base}/api/listUsers`, { method: 'POST', headers: json, body: '{}' });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ error: { code: 'unauthenticated' } });
+
+    // The control: the route exists and takes this body, so the 401 above is the missing token.
+    const withToken = await fetch(`${base}/api/listUsers`, {
+      method: 'POST',
+      headers: { ...json, ...bearer() },
+      body: '{}',
+    });
+    expect(withToken.status).toBe(200);
+  });
+
+  it('refuses a token signed with another secret', async () => {
+    const forged = await new SignJWT({ role: 'admin', username: fx.username })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject(ids.user)
+      .setIssuedAt()
+      .setExpirationTime('1h')
+      .sign(crypto.getRandomValues(new Uint8Array(32)));
+    const res = await fetch(`${base}/api/listUsers`, {
+      method: 'POST',
+      headers: { ...json, authorization: `Bearer ${forged}` },
+      body: '{}',
+    });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ error: { code: 'unauthenticated' } });
+  });
+
   it('refuses a pull with no token', async () => {
     const res = await fetch(`${base}/sync/pull?event_id=${ids.event}`);
     expect(res.status).toBe(401);
@@ -114,7 +100,7 @@ describe('smoke: authentication at the HTTP edge (SPEC-FINAL 7.5, 16.5)', () => 
   it('refuses a push with no token', async () => {
     const res = await fetch(`${base}/sync/push`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: json,
       body: JSON.stringify({ device_id: uid(), operations: [] }),
     });
     expect(res.status).toBe(401);
@@ -124,22 +110,37 @@ describe('smoke: authentication at the HTTP edge (SPEC-FINAL 7.5, 16.5)', () => 
   it('refuses a login with the wrong password', async () => {
     const res = await fetch(`${base}/api/login`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        username: `ci_${ids.user.slice(0, 8)}`,
-        password: 'not-the-password',
-      }),
+      headers: json,
+      body: JSON.stringify({ username: fx.username, password: 'not-the-password' }),
     });
     expect(res.status).toBe(401);
     expect(await res.json()).toMatchObject({ error: { code: 'unauthenticated' } });
   });
 });
 
-describe('smoke: the walking skeleton path', () => {
+describe('smoke: the client → server → database path', () => {
   it('the health endpoint reads the database', async () => {
     const res = await fetch(`${base}/health`);
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ status: 'ok', database: 'ok' });
+  });
+
+  it("getActiveContext answers with dev's active season and event, read and never set", async () => {
+    const res = await fetch(`${base}/api/getActiveContext`, {
+      method: 'POST',
+      headers: { ...json, ...bearer() },
+      body: '{}',
+    });
+    expect(res.status).toBe(200);
+    const body = activeContext.parse(await res.json());
+
+    const { data: settings, error } = await db
+      .from('app_settings')
+      .select('active_season_id, active_event_id');
+    expect(error).toBeNull();
+    expect(settings).toHaveLength(1);
+    expect(body.active_season_id).toBe(settings![0]!.active_season_id);
+    expect(body.active_event_id).toBe(settings![0]!.active_event_id);
   });
 
   it('loads the active competition and its form version', async () => {
@@ -154,12 +155,12 @@ describe('smoke: the walking skeleton path', () => {
     const now = new Date().toISOString();
     const push = await fetch(`${base}/sync/push`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...bearer() },
+      headers: { ...json, ...bearer() },
       body: JSON.stringify({
         device_id: uid(),
         operations: [
           {
-            op_id: uid(),
+            op_id: fx.opId(),
             entity: 'scouting_entry',
             row_id: ids.entry,
             action: 'create',
@@ -204,12 +205,12 @@ describe('smoke: the walking skeleton path', () => {
     const number = 500 + Math.floor(Math.random() * 400);
     const push = await fetch(`${base}/sync/push`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...bearer() },
+      headers: { ...json, ...bearer() },
       body: JSON.stringify({
         device_id: uid(),
         operations: [
           {
-            op_id: uid(),
+            op_id: fx.opId(),
             entity: 'match',
             row_id: matchId,
             action: 'create',
@@ -221,7 +222,7 @@ describe('smoke: the walking skeleton path', () => {
             seq: 1,
           },
           {
-            op_id: uid(),
+            op_id: fx.opId(),
             entity: 'scouting_entry',
             row_id: entryId,
             action: 'create',
@@ -270,12 +271,11 @@ describe('smoke: the walking skeleton path', () => {
 
   it('replaying the same operation is a noop, never a duplicate row', async () => {
     const now = new Date().toISOString();
-    const opId = uid();
     const body = {
       device_id: uid(),
       operations: [
         {
-          op_id: opId,
+          op_id: fx.opId(),
           entity: 'scouting_entry',
           row_id: uid(),
           action: 'create',
@@ -298,7 +298,7 @@ describe('smoke: the walking skeleton path', () => {
         },
       ],
     };
-    const headers = { 'content-type': 'application/json', ...bearer() };
+    const headers = { ...json, ...bearer() };
     const first = (await (
       await fetch(`${base}/sync/push`, { method: 'POST', headers, body: JSON.stringify(body) })
     ).json()) as PushResponse;
@@ -307,5 +307,22 @@ describe('smoke: the walking skeleton path', () => {
     ).json()) as PushResponse;
     expect(first.results[0]!.status).toBe('applied');
     expect(second.results[0]!.status).toBe('noop');
+  });
+
+  it('runs one metric over the CI entries: rankTeams gives the average those entries imply', async () => {
+    const res = await fetch(`${base}/api/rankTeams`, {
+      method: 'POST',
+      headers: { ...json, ...bearer() },
+      body: JSON.stringify({ event_id: ids.event }),
+    });
+    expect(res.status).toBe(200);
+    const table = rankTeamsOutput.parse(await res.json());
+    expect(table.event.id).toBe(ids.event);
+    const row = table.rows.find((r) => r.team_id === ids.team);
+    expect(row).toBeDefined();
+    // Two played qualification entries above, ci_counter 4 and 3, at CI_POINTS_PER_UNIT each:
+    // (8 + 6) / 2 = 7. The replayed no-show is left out of the average, never scored as 0 (11.3).
+    expect(row!.average_points).toBeCloseTo(((4 + 3) * CI_POINTS_PER_UNIT) / 2, 6);
+    expect(row!).toMatchObject({ rank: 1, matches_counted: 2, no_shows: 1 });
   });
 });

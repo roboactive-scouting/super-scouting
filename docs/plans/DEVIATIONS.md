@@ -10529,3 +10529,93 @@ Rejected: the Status spread header "Missed · Broke down · Disabled · No show"
 **Risk:** the availability rate of every team with a breakdown drops (dev and production data are recomputed on read; nothing is stored). Home's Our team and the team page read the same engine. A half-filled form in a computer dialog (Add user, Edit season/event) now closes on a stray backdrop click — the user's standard. Delete's "Are you sure?" face is a `Dialog` at both widths, so the phone pop-up gains the × too. The spec's §11.3 / §13.5 / §17.8 text is the orchestrator's (SPEC-FINAL v1.50 already carries it in the working tree).
 
 **Orchestrator, the same fix (2026-11-01): a typed-into dialog survives a click outside.** The build made every computer dialog close on a backdrop click; the user chose "keep it open" for a half-filled form. `Dialog` marks itself edited on the first `input` event from its fields and then ignores the backdrop click; Escape and the × still close it. One rule in the primitive, not a `dirty` prop per form, so no form dialog can forget it. Test: `primitives-2.test.tsx`, "keeps a half-filled form open on a backdrop click". Risk: a dialog whose field is changed and changed back stays edited — the safe side.
+
+## Task 1.62 — written directly, no subagent
+
+**Plan said:** BUILD-CONTEXT §9: the build chat is an orchestrator that spawns one subagent per task and writes no application code itself.
+
+**What was wrong:** nothing; the chat's prompt said "Write it directly, no subagents", and §9's precedence puts the prompt first.
+
+**What I did instead:** wrote 1.62 and 1.63 in this chat and verified each command myself.
+
+**Risk:** no fresh-reader pass over the code; offered to the user in the report.
+
+## Task 1.62 — the metric's expected value: the CI form had no active version and no scoring rule
+
+**Plan said:** Step 1: `rankTeams` over the CI event returns the CI team with `average_points` 4 — "one entry, ci_counter = 4, one point per unit".
+
+**What was wrong:** the plan predates Phase 1 I. `rankTeams` (`apps/server/src/core/queries/stats.ts`) scores through the season's match form's ACTIVE version and that form's `scoring_rules` (`activeScoring`); the existing fixture set neither (`forms.active_version_id` null, no `scoring_rules` row), so every CI entry would score 0. Nothing scores "one point per unit" by default (`scoreField` returns 0 without a rule). The suite also already pushes three CI entries, not one: ci_counter 4 (Q1), ci_counter 3 (the auto-created match), and a no-show (the replay test). The output shape is `{ event: { id, name }, rows: RankRow[] }` (`packages/shared/src/api/stats.ts`), with `rank`, `matches_counted` and `no_shows` beside `average_points`; any role may call it (the use case does `void caller`).
+
+**What I did instead:** the fixture sets `active_version_id` and adds a `scoring_rule` for `ci_counter` at `CI_POINTS_PER_UNIT = 2` (two, so a score cannot be mistaken for the raw count). The metric test runs last and expects `average_points` (4 + 3) × 2 / 2 = 7, `rank` 1, `matches_counted` 2, `no_shows` 1: the no-show is left out of the average, never scored as 0 (SPEC-FINAL 11.3), so the test also proves that rule end to end. The response is parsed with the shared `rankTeamsOutput`. Rejected: a fourth, dedicated entry for the metric (another push for no new wiring), and asserting `availability_rate` (behaviour, tier 1's job). Mutation run: expecting 8 fails with "expected 7 to be close to 8".
+
+**Risk:** the metric test reads the entries the push tests wrote, so a push failure also fails it. Tests in one file run in order (`fileParallelism: false`, one file).
+
+## Task 1.62 — the CI user stays a scouter with a per-run password
+
+**Plan said:** create the CI user with `bcryptjs.hashSync(CI_PASSWORD, 10)`, `CI_PASSWORD = 'ci-smoke-pass-1'` at module scope, role `admin`; the login test expects `user.role` `admin`.
+
+**What was wrong:** nothing the suite calls needs admin: `getActiveContext`, `listUsers` and `rankTeams` are queries every role may call, and a push is authorized per operation against its author. A committed password for an admin on dev is a standing credential for anyone who reads the repo while a run is live.
+
+**What I did instead:** kept the existing fixture's role `scouter` and its per-run random password (`crypto.randomUUID()`, never printed). The login test expects `role: 'scouter'`, the user's id and username, and no `password_hash` in the body, then proves the fresh token usable on `getActiveContext`. `beforeAll` still logs in on its own, so no other test depends on the login test having run.
+
+**Risk:** none for the wiring; an admin-only route would need its own user.
+
+## Task 1.62 — the 401 test, a control call, and one extra test
+
+**Plan said:** an unauthenticated `POST /api/listUsers` gets 401 `unauthenticated`. Four new tests.
+
+**What was wrong:** a 401 alone does not prove the missing token caused it.
+
+**What I did instead:** the same test then sends the identical request with the bearer and expects 200, so the route exists and takes the body. Added a fifth test, "refuses a token signed with another secret" (a jose HS256 token with valid claims, signed with 32 random bytes): it proves the deployed server checks signatures, the one wiring fault (`AUTH_JWT_SECRET` unset or wrong) a missing-token test cannot see. Mutation run: giving the no-token request a bearer fails the test with "expected 200 to be 401".
+
+**Risk:** none.
+
+## Task 1.62 — getActiveContext is compared with app_settings, never set
+
+**Plan said:** `expect(await res.json()).toHaveProperty('active_season_id')`.
+
+**What was wrong:** a property check passes on `{ active_season_id: null }` from a server that never read the database.
+
+**What I did instead:** the test parses the body with the shared `activeContext` and compares both ids with the `app_settings` row read directly through the service role. The suite never writes `app_settings` (the user tests on dev during runs); before and after every run here dev's active context stayed season `…0001`, event `…0002`.
+
+**Risk:** if the singleton named a deleted event the server would answer null and the test fail; the FK is `on delete set null`, so it cannot.
+
+## Task 1.62 — teardown leaves no CI rows, checks itself, and runs after a failed setup
+
+**Plan said:** a namespaced CI season the suite creates and tears down (SPEC-FINAL 18.4); the plan moves setup and teardown to `fixtures.ts` and says nothing more.
+
+**What was wrong:** the existing teardown deleted entries, the season, the user and the team, but left every row no foreign key reaches: the `match_deletions` tombstones (3 per run, written by the match delete trigger as the season cascade removes the matches), the `form_deletions` tombstones (form, version, field; the cascaded children with a null `season_id`) and the four `applied_operations` ledger rows. No insert in the old `beforeAll` but the user's checked its error, and `afterAll` ignored every error. A run killed before its teardown left a year-2999 season, and `seasons.year` is unique, so every later run would die at its first insert with an unrelated-looking error.
+
+**What I did instead:** `apps/server/smoke/fixtures.ts`: `newCiFixture()` makes every id up front (no I/O), the field and rule ids included, and `opId()` records each op id. `setUpCiSeason` checks every insert and, on any failure, tears down before rethrowing. `tearDownCiSeason` deletes entries, the season (cascade), the user, the team, the run's match tombstones (by event), form tombstones (by season or the four row ids) and ledger rows (by op id); then counts each back and throws, naming what survived and the run's ids, so a dirty dev fails the run. It prints the run's non-secret ids either way. Clearing the ledger rows is safe: the op ids were random to the run and the rows they wrote are gone; BUILD-CONTEXT §8's reason for `db:clean` keeping the ledger (a real op replaying as a new write) cannot apply. `clearStaleCiSeason` sweeps a CI season older than 30 minutes (with its entries, tombstones, roster teams named "CI Team" numbered from 900000, and stale `CI User` rows), refuses a younger one as another run in progress, and never touches the active season. Proven on dev: a green run, a run with two failing tests, a run whose setup login fails (teardown ran from setup's catch and again from `afterAll`), and a planted stale season (swept) and young season (refused with "another smoke run created the CI season 66s ago") each left the independent count at 0. A mutation that skips the ledger delete fails the run with "4 applied_operations row(s) left"; those four rows were then removed by id.
+
+**Risk:** CI rows left by runs before this change (tombstones and ledger rows, including one 8-test baseline run on 2026-11-01) carry no namespace and cannot be told apart from real ones; they are left alone and are harmless (they name events and seasons that no longer exist).
+
+## Task 1.62 — the smoke files are typechecked and linted
+
+**Plan said:** nothing.
+
+**What was wrong:** `apps/server/tsconfig.json` included `src` only and the server's `lint` ran `eslint src`, so a wire-shape drift in the smoke suite would surface only when CI reached the smoke step, after the deploy wait.
+
+**What I did instead:** `include: ["src", "smoke"]` and `eslint src smoke`. The smoke files import the shared zod schemas (`loginOutput`, `activeContext`, `rankTeamsOutput`), so a renamed field fails `pnpm typecheck` early. `tsc --listFiles` shows both smoke files. The server bundle is untouched (it bundles `handler.ts`).
+
+**Risk:** none.
+
+## Task 1.62 — scripts/smoke.mjs kept as the pre-flight; ci.yml comment only
+
+**Plan said:** `scripts/smoke.mjs`'s own comment: "Phase 1 task 1.62 replaces this with the full suite of 18.4". `.github/workflows/ci.yml`: "nothing structural".
+
+**What was wrong:** removing it would lose a one-line failure for a dead deployment, before the fixture writes anything.
+
+**What I did instead:** kept it and rewrote its comment as the pre-flight of `pnpm smoke`. The ci.yml Smoke suite step's comment now describes the full suite; no step changed.
+
+**Risk:** none.
+
+## Task 1.62 — Step 2 run locally, never with the key on a command line
+
+**Plan said:** `SMOKE_SUPABASE_SERVICE_ROLE_KEY=<from your local .env> pnpm --filter @frc/server exec vitest run ...`, "then push and confirm the CI Smoke suite step".
+
+**What was wrong:** BUILD-CONTEXT §3: never put a key on a command line. CI runs only on a push to develop or a PR into main, so the CI step first runs when the user merges.
+
+**What I did instead:** a scratchpad wrapper reads `apps/server/.env` itself (refusing any URL without the dev ref `oqvoqddoizhhwvjwejtm`), puts the three `SMOKE_*` values into the child's environment only, and runs `pnpm smoke` against `https://frc-scouting-server-git-develop-roboactive.vercel.app` (live commit `32531ea`; 1.62 changes no server code). The CI confirmation is the user's approval test.
+
+**Risk:** none.
