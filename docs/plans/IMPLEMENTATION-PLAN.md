@@ -1,6 +1,7 @@
 # FRC Scouting Platform — Implementation Plan
 
-**Version:** 1.39 · **Date:** 2026-11-01 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.5
+**Version:** 1.40 · **Date:** 2026-11-10 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.55
+*v1.40 (2026-11-10): **Phase 2 is planned** before the phase 1 gate (SPEC-FINAL v1.51 §20.8, user 2026-11-01), on `spec/phase-2-plan` with the user's answers to Q9.9–Q9.14, Q10.11–Q10.15, Q11.5–Q11.10 and Q12.4–Q12.8 (SPEC-FINAL v1.52–v1.55): eight parts, 2 A – 2 H, tasks 2.1 – 2.31, each with files, interfaces, acceptance and commit; **part 2 A in full step detail**, the others one part ahead of their build; the design rounds 29 – 40 in build order. Appendix P1 gains P55 – P59; Appendix P2 names each phase 2 use case's task.*
 *v1.39 (2026-11-01): the user's feedback from testing develop, built on `fix/ranking-feedback` (spec v1.02 / SPEC-FINAL v1.50): a breakdown counts as missed for availability (points still count); the phone sort builder shows each figure's full name; the sort badge stays inside its column; on a computer the ranking table and the study panel scroll on their own with the header always pinned; "30 teams" on the ranking page and "of 30 teams" on Home's top teams; one computer dialog standard (×, Escape, click outside, unless busy); the builder's phase strip names every phase with its time.*
 *v1.38 (2026-10-29): user decisions after Phase 1 J, built on `fix/phase-1j-decisions` (spec v1.01 / SPEC-FINAL v1.49): a form version is deleted on its own when it is a draft or superseded by a newer published version (the forms list's trash now also on the draft row); every "of N" rank counts the roster; "±" always one decimal; the bundle budget is 240 KB; the dev seed's first team is 2096. **Phase 1 K's smoke tests run against the dev project** (§19.3, as 1.9's) — the delete flows included, which need migration `20261028090000_delete_match_cascade`, already on dev.*
 *v1.37 (2026-10-28): task 1.58b, Home's our-team rank card and top teams (round 03's "wanted, after ranking", in no task until now); "places moved" is counted since our last match (user; spec v1.00 / SPEC-FINAL v1.48).*
@@ -39,7 +40,7 @@
 *v1.4 (2026-10-07): the redesign build RB.1 – RB.20 (`REDESIGN-BUILD-PLAN.md`) is coded; the execution-order note and the visual-reference banner point at it, and a release note records that the delete-cascade migration goes to production before the server.*
 *v1.3 (2026-10-06): the previous design's styling — colours, fonts, reference apps, motion style — is removed from the global constraints, "The redesign system", the unfinished tasks (1.24 on, phase 2) and the appendix, ahead of the from-scratch redesign (spec v0.52). Finished tasks are untouched and carry a banner. Structural requirements are unchanged.*
 *v1.2 (2026-10-01): the redesign runs now. It is the redesign tasks R.1–R.14 (executed 2026-10-01; their plan file was deleted 2026-10-06 and is in git history), after task 1.23 and before 1.24. Every UI task from 1.29 on carries a "Design (redesign system)" block, and the new section "The redesign system" binds them all.*
-**Scope of this document:** phase 0 and phase 1 in full task detail; phase 2 as headings only (SPEC-FINAL §20.8).
+**Scope of this document:** phase 0 and phase 1 in full task detail; phase 2's parts and tasks with their interfaces, and part 2 A in full task detail — each later part gets its steps one part ahead of its build (SPEC-FINAL v1.51 §20.8).
 
 **Goal:** build the v1 platform defined by `SPEC-FINAL.md` — an offline-first, year-agnostic FRC scouting PWA for team 2096 — up to and including the phase 1 gate.
 
@@ -167,7 +168,14 @@ A task's tests, copy, roles and behaviour stay exactly as the task writes them. 
 | **Phase 1 I — basic statistics** | 1.54 – 1.59 | The shared metric engine, team stats, the fixed ranking table and value shading. |
 | **Phase 1 J — admin delete** | 1.60 – 1.61 | Season / event / form cascade deletes behind the destructive pattern. |
 | **Phase 1 K — smoke suite and gate** | 1.62 – 1.64 | The full CI smoke suite, `RUNBOOK.md`, the phase 1 gate rehearsal. |
-| **Phase 2** | headings only | Re-planned after the phase 1 gate passes. |
+| **Phase 2 A — metrics** | 2.1 – 2.7 | The metric definition, derived unit and direction, the evaluator, the metric use cases, values over any scope, the data hooks, the builder and the Metrics page. **Full step detail.** Design round 29. |
+| **Phase 2 B — charts and dashboards** | 2.8 – 2.14 | Chart config and data, dashboards and the built-ins with default metrics, every chart, the dashboard view, the builder and the lead's draft. Rounds 30 – 32. |
+| **Phase 2 C — configurable ranking** | 2.15 – 2.17 | Weighting, ranking columns and presets, the ranking's Metrics category. Round 33. |
+| **Phase 2 D — team compare** | 2.18 – 2.19 | `compareTeams` and the compare page. Round 34. |
+| **Phase 2 E — match preview** | 2.20 – 2.21 | `getMatchPreview` and its page. Round 35. |
+| **Phase 2 F — operational statistics** | 2.22 – 2.23 | The meta-metrics and the operational dashboard. Round 36. |
+| **Phase 2 G — alliance selection** | 2.24 – 2.28 | The pick-list rules, push semantics, and the pick list, do-not-pick and bracket pages. Rounds 37 – 39. |
+| **Phase 2 H — built-ins, hub, gate** | 2.29 – 2.31 | Built-ins on their home pages, the hub and the Analysis nav group, the phase 2 smoke suite and gate. Round 40. |
 
 ### Three tasks run out of numeric order
 
@@ -17913,24 +17921,1102 @@ git add -A && git commit -m "docs(ops): record the phase 1 gate rehearsal result
 
 # Phase 2 — Analysis
 
-**Open input from phase 1C — binding on every analysis screen.** Spec §4.3, "A session override changes no page's data yet": a user can choose another event on `/context` for this session only (`useSessionOverride()`, `apps/client/src/features/context/sessionOverride.ts`). While it is set, a screen must show the **server's computed results for that event** (SPEC-FINAL §6.3) instead of the cache. A screen that forgets shows the default event's numbers under a banner naming another event.
+**Open input from phase 1C — binding on every analysis screen.** Spec §4.3, "A session override changes no page's data yet": a user can choose another event on `/context` for this session only (`useSessionOverride()`, `apps/client/src/features/context/sessionOverride.ts`). While it is set, a screen must show the **server's computed results for that event** (SPEC-FINAL §6.3) instead of the cache. A screen that forgets shows the default event's numbers under a banner naming another event. `useRanking` (task 1.58) is the pattern every phase 2 data hook copies: server under an override, the device's own engine offline, the server's answer online.
 
-**Headings only.** Phase 2 is re-planned in full task detail **after the phase 1 gate passes** (SPEC-FINAL §20.8), because what the gate rehearsal reveals changes what phase 2 should be.
+**Planned before the phase 1 gate** *(v1.40; SPEC-FINAL v1.51 §20.8, user 2026-11-01)*. Every part below has its tasks, files, interfaces, acceptance criteria and commit message. **Only part 2 A has full step detail.** Each later part gets its steps in its own planning chat, **one part ahead of its build**, written against the interfaces the part before it actually produced (its build chat's report, BUILD-CONTEXT §9 item 2). When the gate rehearsal (1.64) runs, its findings are checked against every part not yet built, and the plan is amended where they change it.
 
-The order below is SPEC-FINAL §20.2's order. The gate is §20.4: *a strategy lead builds a metric and a chart unaided, and a pick list survives being edited offline and synced.*
+**Schedule (SPEC-FINAL §20.6, amended v1.51).** v1 ships **2026-12-01**. **No scope cut:** every part below is built. Design rounds run **one group ahead of the code**; the pace is about 1.5–2 tasks a day.
 
-**Schedule checkpoint (§20.6, amended 2026-10-08 / SPEC-FINAL v1.19).** The phase 1 gate should pass by **~2026-11-01**. **No scope cut:** every phase 2 item is built, and v1 ships on **2026-12-01**. A slipped gate raises the pace, not the cut.
+**The gate (§20.4):** *a strategy lead builds a metric and a chart unaided, and a pick list survives being edited offline and synced.* A lead builds the metric **inline, in the session-only draft page** (SPEC-FINAL v1.52 §12.3, §12.9); saving stays admin-only.
 
-1. **Metric builder and metric storage** — the menu builder of §11.2 (field(s) → aggregation → filters), `createMetric` / `updateMetric` / `deleteMetric`, and the `metrics` table that already exists from task 0.11.
-2. **The chart and dashboard builder** — the chart set of §12.2, the closed dimension vocabulary of §12.3, the 12-column grid of §12.4, the view-time metric selector and expand-to-stack of §12.5, and the mobile density rules of §12.10. Including the **heatmap, field-position scatter and cycle-path renderings** of phase 1's spatial data.
-3. **The configurable ranking dashboard, the weighting mode and the weight-preset builder** — §13.5's min–max normalisation, the `1 − normalized` inversion, the 0.5 rule for a missing metric and for a column where min equals max, the contribution breakdown, and the presets — **replacing phase 1's fixed table**.
-4. **Team compare** — §13.6: the head-to-head scoreboard for 2 teams, radar + table for 3–6.
-5. **Match preview** — §13.7: mirrored alliances, the summed-average prediction, contributions, margin, reliability and no-show flags.
-6. **Operational statistics** — §12.7's meta-metric catalogue over the same builder.
-7. **Pick list, do-not-pick list and alliance bracket** — §14 in full: two lists per event, seeding from a weight preset, drag-reorder against the **list-level version** of §14.7, round detection, live cross-off derived from `alliance_slots`, declines, and the lead's do-not-pick addition. The schema exists from task 0.12 and the outbox entities from task 1.1; the feature does not.
-8. **The built-in dashboards and the dashboards hub** — §12.8's five built-ins, one row per kind per season, each reachable in context from its home page, plus the hub that prompts for a parameterized built-in's input.
+**Binding on every part:**
+- **SPEC-FINAL v1.55** is the build input: §11.2 (with v1.52's sources and rules), §12 (v1.52–v1.54), §13.5–§13.7 (v1.53), §14 (v1.55).
+- **One engine** (§11.1). Every number below is computed in `packages/shared/src/engine/` and run unchanged on the server and the device. No formula in a server use case, a hook or a component.
+- **The UI standard** (BUILD-CONTEXT §12) on every client task: shadcn components, the shared component system (§12.5), screenshot proof at 1440 and 375 px in every theme, computer-only builders at 1440 px only.
+- **Every page is designed before it is built** (`docs/design/README.md`); the round each task waits for is named on the task and listed under "Design rounds for phase 2" below. A client task whose round has not closed does not start.
+- **The bundle budget** (BUILD-CONTEXT §12.5, 240 KB initial JS): Recharts, the engine and every chart live in their own lazy chunks; nothing in phase 2 enters the first chunk except nav rows and paths. A task that must raise the budget logs it in `DEVIATIONS.md` as §12.5 says.
+- **New tables:** none planned. **New columns:** one (`dashboards.columns`, task 2.3). A migration that creates a table grants it to `service_role` in the same file (BUILD-CONTEXT §7).
 
-**Design for phase 2 (redesign system).** When phase 2 is re-planned, every page follows "The redesign system" section and its SPEC-FINAL §17.9 row:
+## Parts
+
+| Part | Tasks | Deliverable | Depends on | Design rounds |
+|---|---|---|---|---|
+| **2 A — metrics** | 2.1 – 2.7 | The metric definition, its derived unit and direction, the evaluator, the metric use cases, metric values for any scope, the device data hooks, the metric builder and the Metrics page. | Phase 1 (engine 1.54–1.56, stats 1.57) | 29 |
+| **2 B — charts and dashboards** | 2.8 – 2.14 | The chart config and the chart-data engine, the dashboard use cases and the built-ins with their default metrics, every chart of §12.2, the dashboard view and the dashboard builder with the lead's draft. | 2 A | 30, 31, 32 |
+| **2 C — the configurable ranking** | 2.15 – 2.17 | The weighting engine, `rankTeams` with columns and weights, weight presets, and the ranking page's Metrics category. | 2 A, 2 B (2.9 for the ranking dashboard's columns, 2.10 for its charts) | 33 |
+| **2 D — team compare** | 2.18 – 2.19 | `compareTeams` and the compare page. | 2 A, 2 B, 2 C (2.15's normaliser) | 34 |
+| **2 E — match preview** | 2.20 – 2.21 | `getMatchPreview` and the match preview page. | 2 A, 2 B, 2 C (2.15) | 35 |
+| **2 F — operational statistics** | 2.22 – 2.23 | The meta-metric queries and the operational dashboard page. | 2 A, 2 B | 36 |
+| **2 G — alliance selection** | 2.24 – 2.28 | The pick-list rules as pure functions, the push semantics and use cases, and the pick list, do-not-pick and bracket pages. | Phase 1 F (outbox); 2 C (2.15, 2.16) for seeding only | 37, 38, 39 |
+| **2 H — built-ins, hub and the gate** | 2.29 – 2.31 | The built-in dashboards on their home pages, the dashboards hub and the Analysis nav group, and the phase 2 smoke suite and gate. | 2 A – 2 G | 40 |
+
+**Execution order is numeric.** 2 G's tasks 2.24 – 2.28 need nothing from 2 C but seeding (2.25's `reseedPickList`); they stay in order so one working copy builds one chain (BUILD-CONTEXT §9).
+
+**Release note — dashboard columns (2.3).** Migration `20261111090000_dashboard_columns` must be pushed to **production before the server containing task 2.3 is deployed** (by hand, BUILD-CONTEXT §4). That server reads `dashboards.columns` in every metric's "used in"; without the column `listMetrics`, `getMetric` and `deleteMetric` fail.
+
+## Design rounds for phase 2
+
+Numbered from 29 (28 was the last closed round). Each runs as `docs/design/README.md` "The page round" says, with a brief from `VARIANT-BRIEF.md`. **None is run in this plan.** Order is the build's order; each must close before the first task it unblocks starts.
+
+| Round | Page | Route | Unblocks | Close by |
+|---|---|---|---|---|
+| **29** | Metrics page and the metric builder panel | `/admin/metrics` (computer only) | 2.6, 2.7 (and the builder panel reused by 2.14) | 2026-11-12 |
+| **30** | The chart set — every chart type of §12.2 on one sheet, the spatial overlays included, at tile sizes 3 / 6 / 12 and on a phone | (inside dashboards) | 2.10, 2.11, 2.12 | 2026-11-14 |
+| **31** | Dashboard view — the grid, a tile's header, the view-time metric selector, expand-to-stack, top 8 + bottom 8 on a phone, the read-only banner, offline | `/dashboards/:id` | 2.13 | 2026-11-15 |
+| **32** | Dashboard builder and the lead's draft — chart type → dimension → series (saved or new metric) → filters → preview, tile size and drag, save / save as metric | `/dashboards/new`, `/dashboards/draft`, `/dashboards/:id/edit` (computer only) | 2.14 | 2026-11-16 |
+| **33** | Ranking — the Metrics category: columns, the weighting switch, weights, presets, Weighted rank, the contribution breakdown in the study panel, the admin's column editor, charts below | `/ranking` (changed) | 2.17 | 2026-11-18 |
+| **34** | Compare — head-to-head for 2, radar + table for 3–6, the team picker, "Compare with…" | `/compare` | 2.19 | 2026-11-20 |
+| **35** | Match preview — mirrored alliances, the prediction bar, contributions, margin, strengths, flags, "2 of 3 scouted", pick a match or enter six teams | `/match-preview` | 2.21 | 2026-11-21 |
+| **36** | Operational statistics — the operational built-in, online only | `/operational` | 2.23 | 2026-11-22 |
+| **37** | Pick list — active-round list, next available header, drag, strike-through, flags, notes, reseed, the round switch | `/alliance/picks` | 2.26 | 2026-11-23 |
+| **38** | Do-not-pick — reason and author, one-tap remove with undo, the lead's add | `/alliance/do-not-pick` | 2.27 | 2026-11-24 |
+| **39** | Alliance bracket — 8 × captain / pick1 / pick2 / backup, entering a team, declines, the refusals of v1.55 | `/alliance/bracket` | 2.28 | 2026-11-24 |
+| **40** | Dashboards hub and the built-ins in context — the hub with its input prompts, and where each built-in's charts sit on the team, ranking, compare and preview pages | `/dashboards` (+ team page, changed) | 2.29, 2.30 | 2026-11-25 |
+
+---
+
+# Phase 2 A — metrics (§20.2, heading 1)
+
+The metric is the unit every later part reads: a chart series, a ranking column, a compare row, a weight. This part builds it end to end — definition, derived meaning, evaluation, storage, values, builder — so 2 B can draw charts from it and 2 C can weight it.
+
+**What exists.** `metrics` (migration `20260903093000_analysis.sql`) and its pull entity (task 1.1: every device holds the season's metrics). The engine's pieces: `applyFilters`, `aggregate`, `sequenceOrder` (`engine/aggregate.ts`), `resolveFieldAcrossVersions`, `aggregationValue` (`engine/versions.ts`), `scoreEntry`, `scoreField`, `hydrateComputed` (`engine/score.ts`), `scoreBreakdown` (`engine/breakdown.ts`), `deriveCycles` (`engine/cycles.ts`), `reliabilityFor` (`engine/reliability.ts`), and the device's event loader `loadDeviceEventStats` (`features/teams/teamStats.ts`). **2 A writes no second version of any of them.**
+
+---
+
+## Task 2.1: Shared — the metric definition, its derived unit and direction, and its rules
+
+**Files:**
+- Create: `packages/shared/src/api/metrics.ts`, `packages/shared/src/api/metrics.test.ts`
+- Create: `packages/shared/src/engine/metricMeta.ts`, `packages/shared/src/engine/metricMeta.test.ts`
+- Modify: `packages/shared/src/api/index.ts` (the `API` map rows of 2.3 and 2.4), `packages/shared/src/index.ts`
+
+**Interfaces:**
+- Produces (`api/metrics.ts`): `metricDefinition` (Zod, strict) and `type MetricDefinition` — SPEC-FINAL §11.2 with v1.52's `field.measure` and `score.phase`; `METRIC_SOURCE_KINDS`; `dashboardScope` and `type DashboardScope` (§12.1's four modes; 2 B's dashboards reuse it); `metricRow`, `metricUse`, `metricWithUses`; the inputs and outputs `listMetrics*`, `getMetric*`, `createMetric*`, `updateMetric*`, `deleteMetric*`, `getMetricValues*`; `METRIC_VALUES_MAX_METRICS = 12`, `METRIC_VALUES_MAX_TEAMS = 200`, `LIST_METRICS_MAX = 200`.
+- Produces (`engine/metricMeta.ts`): `type MetricUnit`; `type MetricMeta = { unit: MetricUnit; per_match: boolean; direction: FieldDirection; scalar: boolean; rankable: boolean }`; `metricMeta(definition, context): MetricMeta`; `aggregationsFor(source, context): Aggregation[]` (the builder's menu); `sumCompatible(fields): boolean`; `metricProblems(definition, context): MetricProblem[]` (empty = valid); `type MetricContext = { form_kind: FormKind | null; fields: readonly FormFieldDefinition[] }` (the form's ACTIVE version's fields; `null` kind for a meta metric).
+- Consumes: `AGGREGATIONS`, `ComparisonOp` (`engine/aggregate.ts`), `FIELD_PHASES`, `FIELD_UNITS`, `FIELD_DIRECTIONS`, `FormKind` (`api/forms.ts`), `rowId` (the uuid schema the API files share), `ROBOT_STATUSES`.
+
+**The rules this task writes down (SPEC-FINAL v1.52 §11.2):**
+
+| Source | Unit | Direction |
+|---|---|---|
+| `field`, `measure: 'value'` (default) | the field's `unit` | the field's `direction` (`neutral` when null) |
+| `field`, `measure: 'points'` | `points` | `higher_is_better` |
+| `sum` | the fields' one shared unit | their one shared direction |
+| `score`, with or without `phase` | `points` | `higher_is_better` |
+| `cycle`, `duration` / `time_to_first` | `seconds` | `lower_is_better` |
+| `cycle`, `count` | `count` | `higher_is_better` |
+| `status`, `breakdowns` / `no_shows` / `disabled` | `count` | `lower_is_better` |
+| `status`, `availability_rate` | `percent` | `higher_is_better` |
+| `meta`, any | `count` | `higher_is_better` (§12.6) |
+
+Then the aggregation changes it: `count` → `matches`, `higher_is_better`; `rate` → `percent`, `higher_is_better`; `stddev` → same unit, **`neutral`**; `slope` → same unit with `per_match: true`, same direction; `mode` / `distribution` → same unit and direction, `scalar: false`. `rankable` = `scalar && direction !== 'neutral' && aggregation !== 'stddev'` (v1.53 §13.5: never a sort key, never weighted).
+
+**The menu (`aggregationsFor`)** — §11.2's "type-agnostic, only the operations valid for that type":
+- numeric (`counter`, `number`, `timer`, computed numeric), `score`, `sum`, a field's `points`, `cycle`: `avg, median, sum, min, max, count, stddev, percentile, slope, best, worst, distribution`;
+- `toggle`: `rate, count`;
+- nominal select: `mode, distribution, count`;
+- ordinal select (`is_ordinal`): `avg, median, min, max, best, worst, mode, distribution`;
+- `status`: `sum` for the three counts (the team's total over the scope), `avg` for `availability_rate`;
+- anything else (text, position, cycle path, event log without a cycle source): `count`;
+- `best` / `worst` are dropped whenever the derived direction is `neutral`.
+
+**The problems (`metricProblems`)**, each `{ code, message }` with the message as the builder shows it:
+`field-missing` ("Pick a field that is on the form"), `sum-incompatible` ("These fields don't share a unit and direction"), `sum-too-few` ("A sum needs two fields or more"), `aggregation-not-offered` ("<aggregation> doesn't apply to <field label>"), `percentile-missing` ("Give the percentile, 0–100"), `match-filter-on-super` ("A super-scouting metric has no matches to filter"), `meta-on-form` / `form-on-meta` (a `meta` source must have `form_kind: null` and the reverse), `points-on-unscored` ("<field label> scores no points").
+
+- [ ] **Step 1: Write the failing tests**
+
+`packages/shared/src/engine/metricMeta.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import type { FormFieldDefinition } from '../forms/types';
+import type { MetricDefinition } from '../api/metrics';
+import { aggregationsFor, metricMeta, metricProblems, sumCompatible } from './metricMeta';
+
+const field = (
+  key: string,
+  type: FormFieldDefinition['type'],
+  over: Partial<FormFieldDefinition> = {},
+): FormFieldDefinition => ({
+  id: key, key, label: `${key} label`, help_text: null, type, section: null, display_order: 1,
+  required: false, default_value: null, config: {}, visibility_condition: null, deprecated: false,
+  description: 'x', unit: 'count', phase: 'teleop', direction: 'higher_is_better', category: null,
+  expected_range: null, include_in_ai_context: null, is_ordinal: null, ...over,
+});
+
+const FIELDS = [
+  field('auto_pieces', 'counter', { phase: 'auto' }),
+  field('teleop_pieces', 'counter'),
+  field('climb_time', 'timer', { unit: 'seconds', direction: 'lower_is_better', phase: 'endgame' }),
+  field('fouls', 'counter', { direction: 'lower_is_better' }),
+  field('parked', 'toggle', { unit: 'boolean' }),
+  field('intake', 'single_select', { unit: 'enum', direction: 'neutral',
+    config: { options: [{ value: 'floor', label: 'Floor' }, { value: 'source', label: 'Source' }] } }),
+  field('driver', 'single_select', { unit: 'enum', is_ordinal: true,
+    config: { options: [{ value: 'poor', label: 'Poor' }, { value: 'good', label: 'Good' }] } }),
+  field('notes', 'long_text', { unit: 'text', direction: 'neutral' }),
+];
+const match = { form_kind: 'match' as const, fields: FIELDS };
+const def = (over: Partial<MetricDefinition>): MetricDefinition => ({
+  source: { kind: 'score' }, aggregation: 'avg', filters: {}, ...over,
+});
+
+describe('metricMeta — unit and direction are derived, never stored (SPEC-FINAL v1.52 11.2)', () => {
+  it('a field keeps its own unit and direction', () => {
+    expect(metricMeta(def({ source: { kind: 'field', field_key: 'climb_time' } }), match))
+      .toMatchObject({ unit: 'seconds', direction: 'lower_is_better', scalar: true, rankable: true });
+  });
+
+  it("a field's points and the score are points, higher is better", () => {
+    expect(metricMeta(def({ source: { kind: 'field', field_key: 'fouls', measure: 'points' } }), match))
+      .toMatchObject({ unit: 'points', direction: 'higher_is_better' });
+    expect(metricMeta(def({ source: { kind: 'score', phase: 'auto' } }), match))
+      .toMatchObject({ unit: 'points', direction: 'higher_is_better' });
+  });
+
+  it('status counts are lower is better; availability is a percentage, higher is better', () => {
+    expect(metricMeta(def({ source: { kind: 'status', measure: 'no_shows' }, aggregation: 'sum' }), match))
+      .toMatchObject({ unit: 'count', direction: 'lower_is_better' });
+    expect(metricMeta(def({ source: { kind: 'status', measure: 'availability_rate' } }), match))
+      .toMatchObject({ unit: 'percent', direction: 'higher_is_better' });
+  });
+
+  it('count, rate, stddev and slope change the meaning as the table says', () => {
+    const f = { kind: 'field', field_key: 'fouls' } as const;
+    expect(metricMeta(def({ source: f, aggregation: 'count' }), match))
+      .toMatchObject({ unit: 'matches', direction: 'higher_is_better' });
+    expect(metricMeta(def({ source: { kind: 'field', field_key: 'parked' }, aggregation: 'rate' }), match))
+      .toMatchObject({ unit: 'percent', direction: 'higher_is_better' });
+    expect(metricMeta(def({ source: f, aggregation: 'stddev' }), match))
+      .toMatchObject({ unit: 'count', direction: 'neutral', rankable: false });
+    expect(metricMeta(def({ source: f, aggregation: 'slope' }), match))
+      .toMatchObject({ unit: 'count', per_match: true, direction: 'lower_is_better' });
+  });
+
+  it('mode and distribution are not single numbers, so never rankable (v1.53 13.5)', () => {
+    const intake = { kind: 'field', field_key: 'intake' } as const;
+    expect(metricMeta(def({ source: intake, aggregation: 'distribution' }), match))
+      .toMatchObject({ scalar: false, rankable: false });
+    expect(metricMeta(def({ source: intake, aggregation: 'mode' }), match))
+      .toMatchObject({ scalar: false, rankable: false });
+  });
+
+  it('count turns any field into matches, higher is better, so even a neutral one ranks', () => {
+    expect(metricMeta(def({ source: { kind: 'field', field_key: 'intake' }, aggregation: 'count' }), match))
+      .toMatchObject({ unit: 'matches', direction: 'higher_is_better', rankable: true });
+    expect(metricMeta(def({ source: { kind: 'field', field_key: 'notes' }, aggregation: 'count' }), match).rankable)
+      .toBe(true);
+  });
+});
+
+describe('aggregationsFor — only the operations valid for the type (11.2)', () => {
+  it('offers the numeric menu on a counter, without best/worst on a neutral one', () => {
+    expect(aggregationsFor({ kind: 'field', field_key: 'teleop_pieces' }, match)).toEqual(
+      ['avg', 'median', 'sum', 'min', 'max', 'count', 'stddev', 'percentile', 'slope', 'best', 'worst', 'distribution'],
+    );
+  });
+  it('offers rate and count on a toggle', () => {
+    expect(aggregationsFor({ kind: 'field', field_key: 'parked' }, match)).toEqual(['rate', 'count']);
+  });
+  it('offers mode, distribution and count on a nominal select, the rank menu on an ordinal one', () => {
+    expect(aggregationsFor({ kind: 'field', field_key: 'intake' }, match)).toEqual(['mode', 'distribution', 'count']);
+    expect(aggregationsFor({ kind: 'field', field_key: 'driver' }, match)).toEqual(
+      ['avg', 'median', 'min', 'max', 'best', 'worst', 'mode', 'distribution'],
+    );
+  });
+  it('offers only count on text', () => {
+    expect(aggregationsFor({ kind: 'field', field_key: 'notes' }, match)).toEqual(['count']);
+  });
+});
+
+describe('sumCompatible', () => {
+  it('needs one unit and one direction across the fields', () => {
+    expect(sumCompatible([FIELDS[0]!, FIELDS[1]!])).toBe(true);
+    expect(sumCompatible([FIELDS[1]!, FIELDS[3]!])).toBe(false); // direction differs
+    expect(sumCompatible([FIELDS[1]!, FIELDS[2]!])).toBe(false); // unit differs
+  });
+});
+
+describe('metricProblems', () => {
+  it('a valid definition has none', () => {
+    expect(metricProblems(def({ source: { kind: 'sum', field_keys: ['auto_pieces', 'teleop_pieces'] } }), match)).toEqual([]);
+  });
+  it('names each problem with its builder message', () => {
+    const codes = (d: MetricDefinition, c = match) => metricProblems(d, c).map((p) => p.code);
+    expect(codes(def({ source: { kind: 'field', field_key: 'gone' } }))).toEqual(['field-missing']);
+    expect(codes(def({ source: { kind: 'sum', field_keys: ['teleop_pieces', 'climb_time'] } }))).toEqual(['sum-incompatible']);
+    expect(codes(def({ source: { kind: 'sum', field_keys: ['teleop_pieces'] } }))).toEqual(['sum-too-few']);
+    expect(codes(def({ source: { kind: 'field', field_key: 'parked' }, aggregation: 'avg' }))).toEqual(['aggregation-not-offered']);
+    expect(codes(def({ aggregation: 'percentile' }))).toEqual(['percentile-missing']);
+    expect(codes(def({ source: { kind: 'field', field_key: 'notes', measure: 'points' }, aggregation: 'count' })))
+      .toEqual(['points-on-unscored']);
+    expect(codes(def({ filters: { last_n_matches: 5 } }), { form_kind: 'super', fields: FIELDS }))
+      .toEqual(['match-filter-on-super']);
+    expect(codes(def({ source: { kind: 'meta', measure: 'open_conflicts' }, aggregation: 'sum' })))
+      .toEqual(['meta-on-form']);
+  });
+  it('the messages are the builder copy', () => {
+    expect(metricProblems(def({ source: { kind: 'sum', field_keys: ['teleop_pieces', 'climb_time'] } }), match)[0]!.message)
+      .toBe("These fields don't share a unit and direction");
+  });
+});
+```
+
+`packages/shared/src/api/metrics.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import {
+  createMetricInput, dashboardScope, deleteMetricOutput, getMetricValuesInput, metricDefinition,
+  METRIC_VALUES_MAX_METRICS, metricWithUses,
+} from './metrics';
+
+const id = '00000000-0000-4000-8000-000000000001';
+
+describe('metricDefinition (SPEC-FINAL v1.52 11.2)', () => {
+  it('accepts every source kind, measure and phase', () => {
+    for (const source of [
+      { kind: 'field', field_key: 'a' },
+      { kind: 'field', field_key: 'a', measure: 'points' },
+      { kind: 'sum', field_keys: ['a', 'b'] },
+      { kind: 'score' },
+      { kind: 'score', phase: 'endgame' },
+      { kind: 'cycle', field_key: 'log', event_type: 'score', series: 'duration' },
+      { kind: 'status', measure: 'availability_rate' },
+      { kind: 'meta', measure: 'super_coverage' },
+    ]) {
+      expect(metricDefinition.safeParse({ source, aggregation: 'avg', filters: {} }).success).toBe(true);
+    }
+  });
+  it('refuses an unknown key anywhere (strict), an unknown phase and a percentile over 100', () => {
+    expect(metricDefinition.safeParse({ source: { kind: 'score', phase: 'halftime' }, aggregation: 'avg', filters: {} }).success).toBe(false);
+    expect(metricDefinition.safeParse({ source: { kind: 'score' }, aggregation: 'avg', filters: {}, colour: 'red' }).success).toBe(false);
+    expect(metricDefinition.safeParse({ source: { kind: 'score' }, aggregation: 'percentile',
+      aggregation_options: { percentile: 120 }, filters: {} }).success).toBe(false);
+  });
+});
+
+describe('createMetricInput', () => {
+  const base = { id, season_id: id, source_kind: 'form', form_id: id, name: 'Auto points',
+    description: 'Average points scored in auto', definition: { source: { kind: 'score', phase: 'auto' }, aggregation: 'avg', filters: {} } };
+  it('requires a description (v1.52)', () => {
+    expect(createMetricInput.safeParse(base).success).toBe(true);
+    expect(createMetricInput.safeParse({ ...base, description: '  ' }).success).toBe(false);
+  });
+  it('requires a form for a form metric and none for a meta metric', () => {
+    expect(createMetricInput.safeParse({ ...base, form_id: null }).success).toBe(false);
+    expect(createMetricInput.safeParse({ ...base, source_kind: 'meta', form_id: null,
+      definition: { source: { kind: 'meta', measure: 'open_conflicts' }, aggregation: 'sum', filters: {} } }).success).toBe(true);
+  });
+});
+
+describe('dashboardScope (12.1)', () => {
+  it('has exactly the four modes', () => {
+    expect(dashboardScope.safeParse({ mode: 'event', event_id: id }).success).toBe(true);
+    expect(dashboardScope.safeParse({ mode: 'season' }).success).toBe(true);
+    expect(dashboardScope.safeParse({ mode: 'events', event_ids: [id] }).success).toBe(true);
+    expect(dashboardScope.safeParse({ mode: 'all_time' }).success).toBe(true);
+    expect(dashboardScope.safeParse({ mode: 'week' }).success).toBe(false);
+  });
+});
+
+describe('getMetricValuesInput — bounded (16.4)', () => {
+  it('takes saved metrics or inline definitions, at most 12', () => {
+    const one = { metric_id: id };
+    const inline = { definition: { source: { kind: 'score' }, aggregation: 'avg', filters: {} }, form_kind: 'match' };
+    expect(getMetricValuesInput.safeParse({ season_id: id, scope: { mode: 'season' }, metrics: [one, inline] }).success).toBe(true);
+    expect(getMetricValuesInput.safeParse({ season_id: id, scope: { mode: 'season' },
+      metrics: Array.from({ length: METRIC_VALUES_MAX_METRICS + 1 }, () => one) }).success).toBe(false);
+  });
+});
+
+describe('metricWithUses and deleteMetricOutput', () => {
+  it('lists where a metric is used: a chart, a built-in column or a preset, nothing else', () => {
+    const row = { id, season_id: id, source_kind: 'form', form_id: id, name: 'Auto', description: 'd',
+      definition: { source: { kind: 'score' }, aggregation: 'avg', filters: {} }, updated_at: '2026-11-10T10:00:00Z' };
+    const uses = [
+      { kind: 'chart', dashboard_id: id, dashboard_name: 'Auto board', chart_id: id },
+      { kind: 'column', dashboard_id: id, dashboard_name: 'Ranking', dashboard_kind: 'ranking' },
+      { kind: 'preset', preset_id: id, preset_name: 'Quals' },
+    ];
+    expect(metricWithUses.safeParse({ ...row, uses }).success).toBe(true);
+    expect(metricWithUses.safeParse({ ...row, uses: [{ kind: 'pick_list', pick_list_id: id }] }).success).toBe(false);
+    expect(deleteMetricOutput.safeParse({ deleted: true }).success).toBe(true);
+  });
+});
+```
+
+- [ ] **Step 2: Run them to see them fail**
+
+```bash
+pnpm vitest run packages/shared/src/engine/metricMeta.test.ts packages/shared/src/api/metrics.test.ts
+```
+
+Expected: both files fail to load — `Failed to resolve import "./metricMeta"` and `"./metrics"`.
+
+- [ ] **Step 3: Implement**
+
+`api/metrics.ts` writes the Zod schemas exactly as the Interfaces list and the tests name them. Details the tests do not pin:
+- `metricDefinition.filters.field_filters[].value` is `z.unknown()`; `rate_condition.value` the same. `display_limit` is a finite number.
+- `metricUse` is a discriminated union on `kind`: `{ kind: 'chart', dashboard_id, dashboard_name, chart_id }`, `{ kind: 'column', dashboard_id, dashboard_name, dashboard_kind }`, `{ kind: 'preset', preset_id, preset_name }`.
+- `metricRow` carries `id, season_id, source_kind, form_id, name, description, definition, updated_at`; `metricWithUses = metricRow.extend({ uses: z.array(metricUse) })`.
+- `listMetricsInput = { season_id, limit? (≤ LIST_METRICS_MAX, default 200) }`; output `{ items: metricWithUses[], next_cursor: null }` — a season holds tens of metrics, so one page; the cursor field is kept for the §16.4 shape.
+- `updateMetricInput = { id, name?, description?, definition? }`, at least one of them (a `refine`). `source_kind` and `form_id` never change: a different source kind is a different metric.
+- `getMetricValuesInput = { season_id, scope: dashboardScope, metrics: z.array(z.union([{ metric_id }, { definition, form_kind: z.enum(['match','super']).nullable() }])).min(1).max(12), team_ids?: z.array(rowId).max(200) }`.
+- `getMetricValuesOutput = { teams: { id, number, name }[], results: { index, unit, per_match, direction, scalar, unavailable_reason: 'type-changed' | 'absent' | null, by_team: { team_id, value: number | string | boolean | { value, count }[] | null, n }[] }[] }`. `index` is the position in the request's `metrics`; `n` is how many entries the value was computed over.
+
+`engine/metricMeta.ts` implements the two tables above as data (`SOURCE_META`, `AGGREGATION_EFFECT`) plus the menu as one `switch` on the field type. It imports nothing from `api/` but types (the engine stays below the API layer), and `isScorable` from `forms/scoring` for `points-on-unscored`.
+
+Add the six `API` map rows (`listMetrics`, `getMetric`, `createMetric`, `updateMetric`, `deleteMetric`, `getMetricValues`) to `api/index.ts`, and export both modules from `packages/shared/src/index.ts`.
+
+- [ ] **Step 4: Run them to see them pass, and the whole suite**
+
+```bash
+pnpm vitest run packages/shared && pnpm typecheck
+```
+
+Expected: every suite green, including the two new files. `browser-safe.test.ts` still green (nothing Node-only was imported).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A && git commit -m "feat(shared): add the metric definition with its derived unit, direction and rules"
+```
+
+---
+
+## Task 2.2: The engine — evaluating a metric
+
+**Files:**
+- Create: `packages/shared/src/engine/metric.ts`, `packages/shared/src/engine/metric.test.ts`
+- Modify: `packages/shared/src/index.ts`
+
+**Interfaces:**
+- Produces: `type MetricInput = { teams: readonly StatsTeam[]; entries: readonly EngineEntry[]; match: MetricForm; super: MetricForm }` with `type MetricForm = { fields: readonly FormFieldDefinition[]; rules: readonly ScoringRule[]; versions: readonly StatsVersion[]; timer: { timed: boolean; end_seconds: number | null } }` (the form's ACTIVE fields, its rules, every version its entries name, and what `deriveCycles` needs);
+  `evaluateMetric(definition, form_kind, input): MetricResult` with `type MetricResult = { meta: MetricMeta; unavailable_reason: FieldUnavailableReason | null; by_team: { team_id: string; value: AggregateResult; n: number }[] }` — one row per `input.teams` team, in that order;
+  `metricSeries(definition, form_kind, input, team_id): { event_id: string; match_number: number | null; value: number | null }[]` — one team's per-entry values in `sequenceOrder` (2 B's line, bump and small-multiple charts read it);
+  `metricEntryValue(definition, form, entry): unknown` — one entry's value before aggregation (2 B's raw-entry tables read it).
+- Consumes: 2.1's `MetricDefinition`, `metricMeta`; `applyFilters`, `aggregate`, `sequenceOrder`; `resolveFieldAcrossVersions`, `aggregationValue`; `scoreEntry`, `scoreField`, `hydrateComputed`; `scoreBreakdown`; `deriveCycles`; `reliabilityFor`; `StatsTeam`, `StatsVersion` (`engine/teamStats.ts`).
+
+**How each source reads one entry** (after `applyFilters`, which already applied scope → canonical → qualification only → status rule → the metric's filters, SPEC-FINAL §11.2's order):
+- `field`, `value`: `aggregationValue(resolvedField, entry.data[key])` — the cross-version guard first (§11.7): an unresolved field makes the whole result `unavailable_reason` and every value null.
+- `field`, `points`: `scoreField(field, rule, value)`; a field with no rule → the problem of 2.1, never 0.
+- `sum`: Σ of the fields' values; an entry missing every one of them → no value (not 0); missing some → the sum of those it holds.
+- `score`: `scoreEntry`; with `phase`: that phase's `subtotal` from `scoreBreakdown` (null when the phase has no scored rows — no data, not 0).
+- `cycle`: `deriveCycles(entry.data[key], event_type, timer.timed, timer.end_seconds)`, then `durations` (each one a value), `count` or `timeToFirst`.
+- `status`: NOT through `applyFilters` (it removes no-shows): `reliabilityFor(team's entries in scope)`, then the measure; `sum` returns the count, `avg` the rate.
+- `meta`: not evaluated here — 2 F's server query owns it. `evaluateMetric` returns every value null and `unavailable_reason: null` for it; 2 F replaces this branch.
+- **A super metric** (`form_kind: 'super'`) reads super entries only, one per (team, event) after `canonicalEntries`; its population skips the qualification and status rules, which `applyFilters` already lets super entries through (task 1.55).
+
+- [ ] **Step 1: Write the failing test**
+
+`packages/shared/src/engine/metric.test.ts` — fixtures: two teams; team A with qualification matches 1–4 (auto pieces 2, 4, 6 and a no-show in 4; a broke-down match 3), a practice match, and a duplicate of match 2 with a newer `client_updated_at` and auto pieces 5; team B with one match and a super entry (driver `good`). Rules: `auto_pieces` 3 points each, `parked` 2 points.
+
+```ts
+import { describe, expect, it } from 'vitest';
+import type { FormFieldDefinition } from '../forms/types';
+import type { MetricDefinition } from '../api/metrics';
+import { evaluateMetric, metricEntryValue, metricSeries, type MetricInput } from './metric';
+import type { EngineEntry } from './types';
+
+const field = (key: string, type: FormFieldDefinition['type'], over: Partial<FormFieldDefinition> = {}): FormFieldDefinition => ({
+  id: key, key, label: `${key} label`, help_text: null, type, section: null, display_order: 1,
+  required: false, default_value: null, config: {}, visibility_condition: null, deprecated: false,
+  description: 'x', unit: 'count', phase: 'auto', direction: 'higher_is_better', category: null,
+  expected_range: null, include_in_ai_context: null, is_ordinal: null, ...over,
+});
+const MATCH_FIELDS = [
+  field('auto_pieces', 'counter'),
+  field('parked', 'toggle', { unit: 'boolean', phase: 'endgame' }),
+  field('log', 'event_log', { unit: 'seconds', phase: 'teleop' }),
+];
+const SUPER_FIELDS = [field('driver', 'single_select', { unit: 'enum', is_ordinal: true, phase: 'post_match',
+  config: { options: [{ value: 'poor', label: 'Poor' }, { value: 'good', label: 'Good' }] } })];
+
+let n = 0;
+const entry = (over: Partial<EngineEntry>): EngineEntry => ({
+  id: `e${(n += 1)}`, form_version_id: 'v1', form_kind: 'match', event_id: 'ev', match_id: `m${over.match_number}`,
+  team_id: 'A', alliance: 'red', scouter_id: 'u', robot_status: 'played', data: {},
+  client_created_at: '2026-11-01T10:00:00Z', client_updated_at: '2026-11-01T10:00:00Z', deleted_at: null,
+  match_type: 'qualification', match_number: 1, event_sort_order: 0, ...over,
+});
+
+const ENTRIES = [
+  entry({ match_number: 1, data: { auto_pieces: 2, parked: true, log: [{ type: 'score', t: 20 }, { type: 'score', t: 50 }] } }),
+  entry({ match_number: 2, data: { auto_pieces: 4 } }),
+  entry({ match_number: 2, data: { auto_pieces: 5 }, client_updated_at: '2026-11-01T11:00:00Z' }), // the duplicate wins
+  entry({ match_number: 3, data: { auto_pieces: 6 }, robot_status: 'broke_down' }),
+  entry({ match_number: 4, data: {}, robot_status: 'no_show' }),
+  entry({ match_number: 9, data: { auto_pieces: 99 }, match_type: 'practice' }),
+  entry({ team_id: 'B', match_number: 1, data: { auto_pieces: 1 } }),
+  entry({ team_id: 'B', form_kind: 'super', match_id: null, match_number: null, match_type: null,
+    robot_status: null, form_version_id: 's1', data: { driver: 'good' } }),
+];
+
+const INPUT: MetricInput = {
+  teams: [{ id: 'A', number: 2096, name: 'Roboactive' }, { id: 'B', number: 1577, name: 'Steampunk' }, { id: 'C', number: 1690, name: 'Orbit' }],
+  entries: ENTRIES,
+  match: { fields: MATCH_FIELDS, rules: [{ field_key: 'auto_pieces', points: 3, option_points: null },
+    { field_key: 'parked', points: 2, option_points: null }], versions: [{ id: 'v1', fields: MATCH_FIELDS }],
+    timer: { timed: true, end_seconds: 150 } },
+  super: { fields: SUPER_FIELDS, rules: [], versions: [{ id: 's1', fields: SUPER_FIELDS }], timer: { timed: false, end_seconds: null } },
+};
+const def = (over: Partial<MetricDefinition>): MetricDefinition => ({ source: { kind: 'score' }, aggregation: 'avg', filters: {}, ...over });
+const value = (d: MetricDefinition, team: string, kind: 'match' | 'super' = 'match') =>
+  evaluateMetric(d, kind, INPUT).by_team.find((r) => r.team_id === team)!;
+
+describe('evaluateMetric (SPEC-FINAL 11.2–11.7)', () => {
+  it('a field metric: canonical entries, qualification only, no-shows excluded, broke-down included', () => {
+    const avg = value(def({ source: { kind: 'field', field_key: 'auto_pieces' } }), 'A');
+    expect(avg.value).toBeCloseTo((2 + 5 + 6) / 3, 6);
+    expect(avg.n).toBe(3);
+  });
+
+  it("a field's points and a phase's points", () => {
+    expect(value(def({ source: { kind: 'field', field_key: 'auto_pieces', measure: 'points' }, aggregation: 'sum' }), 'A').value).toBe(39);
+    expect(value(def({ source: { kind: 'score', phase: 'auto' } }), 'A').value).toBeCloseTo(13, 6);
+    expect(value(def({ source: { kind: 'score', phase: 'endgame' }, aggregation: 'sum' }), 'A').value).toBe(2);
+  });
+
+  it('the whole score is scoreEntry, averaged', () => {
+    expect(value(def({}), 'A').value).toBeCloseTo((8 + 15 + 18) / 3, 6);
+  });
+
+  it('a team with no counted entries is null, never 0', () => {
+    expect(value(def({}), 'C')).toEqual({ team_id: 'C', value: null, n: 0 });
+  });
+
+  it('the filters run in 11.2 order: last 2 of the counted matches', () => {
+    expect(value(def({ source: { kind: 'field', field_key: 'auto_pieces' }, filters: { last_n_matches: 2 } }), 'A').value)
+      .toBeCloseTo((5 + 6) / 2, 6);
+  });
+
+  it('status measures read reliability, which counts the no-show', () => {
+    expect(value(def({ source: { kind: 'status', measure: 'no_shows' }, aggregation: 'sum' }), 'A').value).toBe(1);
+    expect(value(def({ source: { kind: 'status', measure: 'availability_rate' } }), 'A').value).toBeCloseTo(2 / 4, 6);
+  });
+
+  it('cycle durations, timed: first cycle from 0, the open one closes at the match end', () => {
+    expect(value(def({ source: { kind: 'cycle', field_key: 'log', event_type: 'score', series: 'duration' }, aggregation: 'max' }), 'A').value)
+      .toBe(100);
+  });
+
+  it('a super metric reads the one super entry, on its rank (ordinal)', () => {
+    expect(value(def({ source: { kind: 'field', field_key: 'driver' }, aggregation: 'max' }), 'B', 'super').value).toBe(1);
+  });
+
+  it('refuses a field whose type changed between versions, for every team (11.7)', () => {
+    const changed: MetricInput = { ...INPUT, match: { ...INPUT.match,
+      versions: [...INPUT.match.versions, { id: 'v0', fields: [field('auto_pieces', 'number')] }] },
+      entries: [...ENTRIES, entry({ match_number: 5, form_version_id: 'v0', data: { auto_pieces: 1 } })] };
+    const result = evaluateMetric(def({ source: { kind: 'field', field_key: 'auto_pieces' } }), 'match', changed);
+    expect(result.unavailable_reason).toBe('type-changed');
+    expect(result.by_team.every((r) => r.value === null)).toBe(true);
+  });
+
+  it('carries the derived meaning', () => {
+    expect(evaluateMetric(def({}), 'match', INPUT).meta).toMatchObject({ unit: 'points', direction: 'higher_is_better' });
+  });
+});
+
+describe('metricSeries and metricEntryValue', () => {
+  it('one value per counted entry, in sequence order', () => {
+    expect(metricSeries(def({ source: { kind: 'field', field_key: 'auto_pieces' } }), 'match', INPUT, 'A'))
+      .toEqual([{ event_id: 'ev', match_number: 1, value: 2 }, { event_id: 'ev', match_number: 2, value: 5 },
+        { event_id: 'ev', match_number: 3, value: 6 }]);
+  });
+  it("reads one entry's value before aggregation", () => {
+    expect(metricEntryValue(def({ source: { kind: 'score', phase: 'auto' } }), INPUT.match, ENTRIES[0]!)).toBe(6);
+  });
+});
+```
+
+- [ ] **Step 2: Run it to see it fail**
+
+```bash
+pnpm vitest run packages/shared/src/engine/metric.test.ts
+```
+
+Expected: `Failed to resolve import "./metric"`.
+
+- [ ] **Step 3: Implement** `engine/metric.ts` as "How each source reads one entry" says: one `population(definition, form_kind, input)` (the `applyFilters` call, or the status path), one `entryValue` switch, one `aggregate` per team with `aggregation_options` passed through and the derived `direction` (so `best`/`worst` read it). Group entries by team once. **No new formula:** if a value cannot be produced from the existing pieces, stop and log it in `DEVIATIONS.md` rather than writing one.
+
+- [ ] **Step 4: Run, then the engine's whole suite**
+
+```bash
+pnpm vitest run packages/shared && pnpm typecheck
+```
+
+Expected: every suite green, including `metric.test.ts`. `teamStats.test.ts` unchanged and green — nothing in 1.57's path moved.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A && git commit -m "feat(shared): evaluate a metric definition with the one engine"
+```
+
+---
+
+## Task 2.3: Server — the metric use cases and where a metric is used
+
+**Files:**
+- Create: `packages/db/supabase/migrations/20261111090000_dashboard_columns.sql`
+- Create: `apps/server/src/core/commands/metrics.ts`, `apps/server/src/core/commands/metrics.test.ts`
+- Create: `apps/server/src/core/queries/metrics.ts`, `apps/server/src/core/queries/metrics.test.ts`
+- Modify: `packages/db/src/database.types.ts` (regenerated, task 0.13), `packages/shared/src/auth/permissions.ts` (`manage_metrics: ADMIN`), `apps/server/src/core/context.ts`, `apps/server/src/repos/store.ts`, `apps/server/src/test/fake-context.ts`, `apps/server/src/routes/registry.ts`, `apps/server/api/index.js` (rebuilt, BUILD-CONTEXT §6)
+
+**Interfaces:**
+- Produces: `listMetrics(caller, { season_id })`, `getMetric(caller, { id })` — queries, any caller, each metric `withUses`; `createMetric(caller, input)`, `updateMetric(caller, input)`, `deleteMetric(caller, { id })` — commands, `manage_metrics` (admin), `service` refused; `metricUses(ctx, seasonId, metricId): Promise<MetricUse[]>` (exported for 2.9 and 2.16, which add uses of their own); the column `dashboards.columns jsonb not null default '[]'` — **an ordered array of metric ids** (2.9 writes it, 2.16 reads it).
+- Store gains: `listMetrics(seasonId)`, `getMetric(id)`, `insertMetric(row)`, `updateMetric(id, patch)`, `deleteMetric(id)`, `listDashboardsForUses(seasonId)` (`{ id, name, kind, columns, charts: { id, config }[] }[]`), `listWeightPresets(seasonId)`.
+- Consumes: 2.1's schemas, `metricProblems`; `getFormByKind`, `getFormFields` (the form's active fields), `assertCan`.
+
+**The migration** (one statement and no new table, so no grant):
+
+```sql
+-- Phase 2 (task 2.3): a built-in dashboard's metric columns (SPEC-FINAL 3.7, 12.8, v1.53):
+-- ranking, compare and match preview hold an ordered list of metric ids. Custom dashboards
+-- leave it empty. Read by every metric's "used in" (SPEC-FINAL v1.52 11.2).
+alter table public.dashboards add column columns jsonb not null default '[]'::jsonb;
+```
+
+**Behaviour:**
+- `createMetric`: the form is the season's form of the definition's kind (`form_id` must be that form's id; a meta metric has none); `metricProblems` against the form's ACTIVE fields → `invalid` with `details.problems`; a duplicate name in the season → `conflict` "a metric called <name> already exists"; `id` is the client's uuid (a retry with the same id and the same body is a no-op returning the row).
+- `updateMetric`: same checks on the merged row; editing changes it everywhere (not versioned, §11.2).
+- `deleteMetric`: `metricUses` first; any use → `conflict`, message "<name> is used in N places; remove it from them first", `details.uses` the list. A pick list's `seeded_from_weights` is **not** a use (v1.52).
+- Uses: a chart uses a metric when any `series[].metric` names it; a built-in uses it when `columns` holds it; a preset when `weights` has its id as a key.
+- Every command is online only (the client gates it, 2.5); the server needs nothing special for that.
+
+- [ ] **Step 1: Write the failing tests**
+
+`apps/server/src/core/commands/metrics.test.ts` (with `ctx.seedMetricFixture()`, added to the fake context: season `se-1` with event `ev-1` and its roster `t-a` (2096) and `t-b` (1577), each with three scored qualification entries; its match form `f-m` with an active version holding `auto_pieces` (counter) and `notes` (long text); the super form `f-s`; an admin, a lead and a `service` caller; metric `mx-auto` used by a chart on custom dashboard `d-1` ("Auto board"), by the ranking built-in's `columns`, and by preset `p-1` ("Quals"); metric `mx-free` used nowhere; a pick list seeded from weights naming `mx-free`):
+
+```ts
+import { beforeEach, describe, expect, it } from 'vitest';
+import type { Caller } from '@frc/shared';
+import { createMetric, deleteMetric, updateMetric } from './metrics';
+import { getMetric } from '../queries/metrics';
+import { makeFakeContext, type FakeContext } from '../../test/fake-context';
+
+const admin: Caller = { kind: 'user', userId: 'u-a', role: 'admin' };
+const lead: Caller = { kind: 'user', userId: 'u-l', role: 'lead' };
+const service: Caller = { kind: 'service', label: 'mcp' };
+const NEW = '00000000-0000-4000-8000-0000000000aa';
+const body = {
+  id: NEW, season_id: 'se-1', source_kind: 'form' as const, form_id: 'f-m', name: 'Auto pieces',
+  description: 'Average pieces scored in auto',
+  definition: { source: { kind: 'field' as const, field_key: 'auto_pieces' }, aggregation: 'avg' as const, filters: {} },
+};
+
+let ctx: FakeContext;
+beforeEach(() => { ctx = makeFakeContext(); ctx.seedMetricFixture(); });
+
+describe('createMetric (SPEC-FINAL v1.52 11.2, App. C)', () => {
+  it('an admin creates a metric; a lead and a service caller are refused', async () => {
+    await expect(createMetric(admin, body, ctx)).resolves.toMatchObject({ id: NEW, name: 'Auto pieces' });
+    await expect(createMetric(lead, { ...body, id: 'x' }, ctx)).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(createMetric(service, body, ctx)).rejects.toMatchObject({ code: 'forbidden' });
+  });
+  it('refuses a definition the form cannot answer, with the builder problems', async () => {
+    await expect(createMetric(admin, { ...body, definition: { ...body.definition, source: { kind: 'field', field_key: 'gone' } } }, ctx))
+      .rejects.toMatchObject({ code: 'invalid', details: { problems: [{ code: 'field-missing' }] } });
+  });
+  it('refuses a duplicate name in the season', async () => {
+    await createMetric(admin, body, ctx);
+    await expect(createMetric(admin, { ...body, id: '00000000-0000-4000-8000-0000000000ab' }, ctx))
+      .rejects.toMatchObject({ code: 'conflict' });
+  });
+  it('refuses a form that is not the season form of that kind', async () => {
+    await expect(createMetric(admin, { ...body, form_id: 'f-s' }, ctx)).rejects.toMatchObject({ code: 'invalid' });
+  });
+  it('a retry with the same id and body is a no-op', async () => {
+    await createMetric(admin, body, ctx);
+    await expect(createMetric(admin, body, ctx)).resolves.toMatchObject({ id: NEW });
+  });
+});
+
+describe('updateMetric', () => {
+  it('changes it in place; problems are checked on the merged row', async () => {
+    await expect(updateMetric(admin, { id: 'mx-free', name: 'Renamed' }, ctx)).resolves.toMatchObject({ name: 'Renamed' });
+    await expect(updateMetric(admin, { id: 'mx-free', definition: { source: { kind: 'field', field_key: 'notes', measure: 'points' }, aggregation: 'count', filters: {} } }, ctx))
+      .rejects.toMatchObject({ code: 'invalid' });
+  });
+});
+
+describe('deleteMetric — a metric in use cannot be deleted (v1.52)', () => {
+  it('refuses, naming the chart, the column and the preset', async () => {
+    await expect(deleteMetric(admin, { id: 'mx-auto' }, ctx)).rejects.toMatchObject({
+      code: 'conflict',
+      details: { uses: [
+        { kind: 'chart', dashboard_id: 'd-1', dashboard_name: 'Auto board' },
+        { kind: 'column', dashboard_kind: 'ranking' },
+        { kind: 'preset', preset_id: 'p-1', preset_name: 'Quals' },
+      ] },
+    });
+  });
+  it("deletes one used only by a pick list's snapshotted weights", async () => {
+    await expect(deleteMetric(admin, { id: 'mx-free' }, ctx)).resolves.toEqual({ deleted: true });
+    await expect(getMetric(admin, { id: 'mx-free' }, ctx)).rejects.toMatchObject({ code: 'not-found' });
+  });
+});
+```
+
+`apps/server/src/core/queries/metrics.test.ts`:
+
+```ts
+import { beforeEach, describe, expect, it } from 'vitest';
+import type { Caller } from '@frc/shared';
+import { getMetric, listMetrics } from './metrics';
+import { makeFakeContext, type FakeContext } from '../../test/fake-context';
+
+const scouter: Caller = { kind: 'user', userId: 'u-s', role: 'scouter' };
+const service: Caller = { kind: 'service', label: 'mcp' };
+let ctx: FakeContext;
+beforeEach(() => { ctx = makeFakeContext(); ctx.seedMetricFixture(); });
+
+describe('listMetrics / getMetric (App. C, queries)', () => {
+  it('any caller reads the season metrics by name, each with its uses', async () => {
+    const list = await listMetrics(scouter, { season_id: 'se-1' }, ctx);
+    expect(list.items.map((m) => m.id)).toEqual(['mx-auto', 'mx-free']);
+    expect(list.items[0]!.uses).toHaveLength(3);
+    expect(list.next_cursor).toBeNull();
+    await expect(getMetric(service, { id: 'mx-free' }, ctx)).resolves.toMatchObject({ uses: [] });
+  });
+  it('an unknown metric is not-found', async () => {
+    await expect(getMetric(scouter, { id: 'nope' }, ctx)).rejects.toMatchObject({ code: 'not-found' });
+  });
+});
+```
+
+- [ ] **Step 2: Run them to see them fail**
+
+```bash
+pnpm --filter @frc/server exec vitest run src/core/commands/metrics.test.ts src/core/queries/metrics.test.ts
+```
+
+Expected: `Failed to resolve import "./metrics"`.
+
+- [ ] **Step 3: Implement** the use cases, the Store methods (Supabase and in-memory), `seedMetricFixture`, the five registry rows (descriptions in plain language, as every row has), the capability, and the migration. Apply the migration to **dev** and regenerate the types:
+
+```bash
+pnpm --filter @frc/db db:push    # the link must be frc-scouting-dev (oqvoqddoizhhwvjwejtm): check it first
+pnpm --filter @frc/db db:types && pnpm --filter @frc/server build
+```
+
+Never against production (BUILD-CONTEXT §4); the release note at the top of phase 2 is the user's. CI also pushes it to dev on the next push to `develop` (P41); pushing it now lets the browser-pane check of 2.7 run before that.
+
+- [ ] **Step 4: Run them to see them pass, and the server's suite**
+
+```bash
+pnpm --filter @frc/server exec vitest run && pnpm typecheck && pnpm lint
+```
+
+Expected: every suite green, including both new files and `bundle-drift.test.ts`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A && git commit -m "feat(server): add the metric use cases and refuse deleting a metric in use"
+```
+
+---
+
+## Task 2.4: Server — `getMetricValues`, metric values over any scope
+
+**Files:**
+- Create: `apps/server/src/core/queries/metricValues.ts`, `apps/server/src/core/queries/metricValues.test.ts`
+- Modify: `apps/server/src/core/context.ts`, `apps/server/src/repos/store.ts`, `apps/server/src/test/fake-context.ts`, `apps/server/src/routes/registry.ts`, `apps/server/api/index.js`
+
+**Interfaces:**
+- Produces: `getMetricValues(caller, input): GetMetricValuesOutput` — a query, any caller; `loadMetricInput(ctx, seasonId, scope): Promise<MetricInput>` (exported: 2.9's chart data, 2.16's ranking, 2.18 and 2.20 build on it); Store `listScopeEntries(seasonId, scope)` — the live entries of every event in scope, joined with match type, number and event sort order, and `listScopeTeams(seasonId, scope)` — the union of the scope's rosters.
+- Consumes: 2.1's schemas; 2.2's `evaluateMetric`; 2.3's `getMetric`; `activeScoring`-style form reads (`apps/server/src/core/queries/stats.ts`).
+
+**Behaviour:**
+- Scope: `event` → that event; `season` → the season's events; `events` → those (each must belong to the season, else `invalid`); `all_time` → every event of every season, **evaluated per season's own forms** — a metric names a season's form, so `all_time` evaluates against the metric's own season's form and reads only events of seasons whose form holds the field (others are "absent"). `team_ids`, when given, narrows the teams.
+- Saved metrics (`metric_id`) must belong to `season_id`; inline definitions are checked with `metricProblems` → `invalid`.
+- Bounded: ≤ 12 metrics, ≤ 200 teams (2.1's schema); the rows behind it are fetched once per call.
+- `results[i].index = i`; teams sorted by number.
+
+- [ ] **Step 1: Write the failing test** — `metricValues.test.ts` over `seedMetricFixture`, which 2.4 extends with a second event `ev-2` in `se-1` (one more scored entry for `t-a`), and a season `se-0` with event `ev-other` and metric `mx-other-season`:
+
+```ts
+import { beforeEach, describe, expect, it } from 'vitest';
+import type { Caller } from '@frc/shared';
+import { getMetricValues } from './metricValues';
+import { makeFakeContext, type FakeContext } from '../../test/fake-context';
+
+const lead: Caller = { kind: 'user', userId: 'u-l', role: 'lead' };
+const service: Caller = { kind: 'service', label: 'mcp' };
+const inlineScore = { definition: { source: { kind: 'score' as const }, aggregation: 'avg' as const, filters: {} }, form_kind: 'match' as const };
+let ctx: FakeContext;
+beforeEach(() => { ctx = makeFakeContext(); ctx.seedMetricFixture(); });
+
+describe('getMetricValues (SPEC-FINAL 11.4, 12.1, v1.52)', () => {
+  it("one event: the metric's derived meaning and the event's roster by number", async () => {
+    const out = await getMetricValues(lead, { season_id: 'se-1', scope: { mode: 'event', event_id: 'ev-1' }, metrics: [{ metric_id: 'mx-auto' }] }, ctx);
+    expect(out.results[0]).toMatchObject({ index: 0, unit: 'count', direction: 'higher_is_better', unavailable_reason: null });
+    expect(out.teams.map((t) => t.number)).toEqual([1577, 2096]);
+  });
+  it('a season scope adds the other event', async () => {
+    const one = await getMetricValues(lead, { season_id: 'se-1', scope: { mode: 'event', event_id: 'ev-1' }, metrics: [inlineScore] }, ctx);
+    const all = await getMetricValues(lead, { season_id: 'se-1', scope: { mode: 'season' }, metrics: [inlineScore] }, ctx);
+    const a = (o: typeof one) => o.results[0]!.by_team.find((r) => r.team_id === 't-a')!;
+    expect(a(all).n).toBe(a(one).n + 1);
+  });
+  it('refuses an event outside the season, a metric of another season and a broken inline definition', async () => {
+    await expect(getMetricValues(lead, { season_id: 'se-1', scope: { mode: 'events', event_ids: ['ev-other'] }, metrics: [inlineScore] }, ctx))
+      .rejects.toMatchObject({ code: 'invalid' });
+    await expect(getMetricValues(lead, { season_id: 'se-1', scope: { mode: 'season' }, metrics: [{ metric_id: 'mx-other-season' }] }, ctx))
+      .rejects.toMatchObject({ code: 'invalid' });
+    await expect(getMetricValues(lead, { season_id: 'se-1', scope: { mode: 'season' },
+      metrics: [{ ...inlineScore, definition: { ...inlineScore.definition, aggregation: 'percentile' } }] }, ctx))
+      .rejects.toMatchObject({ code: 'invalid' });
+  });
+  it('narrows to team_ids, and a service caller may call it', async () => {
+    const out = await getMetricValues(service, { season_id: 'se-1', scope: { mode: 'season' }, metrics: [inlineScore], team_ids: ['t-a'] }, ctx);
+    expect(out.teams.map((t) => t.id)).toEqual(['t-a']);
+  });
+});
+```
+
+- [ ] **Step 2: Run it to see it fail**
+
+```bash
+pnpm --filter @frc/server exec vitest run src/core/queries/metricValues.test.ts
+```
+
+Expected: `Failed to resolve import "./metricValues"`.
+
+- [ ] **Step 3: Implement**, the registry row, and rebuild the bundle (`pnpm --filter @frc/server build`). No formula here: rows in, `evaluateMetric` out.
+
+- [ ] **Step 4: Run the server suite and the smoke suite against dev**
+
+```bash
+pnpm --filter @frc/server exec vitest run && pnpm typecheck && pnpm smoke
+```
+
+Expected: every suite green; `pnpm smoke` passes its 13 tests (nothing it covers changed).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A && git commit -m "feat(server): add getMetricValues over an event, a season or all time"
+```
+
+---
+
+## Task 2.5: Client — the metric data hooks, on the device and from the server
+
+**Files:**
+- Create: `apps/client/src/features/metrics/useMetrics.ts`, `useMetrics.test.tsx`
+- Create: `apps/client/src/features/metrics/useMetricValues.ts`, `useMetricValues.test.tsx`
+- Create: `apps/client/src/features/metrics/deviceMetrics.ts`, `deviceMetrics.test.ts`
+- Modify: `apps/client/src/data/offlineCapability.ts` (+ its test): `edit_metric: false` ("Creating, editing or deleting a metric needs a connection", v1.52)
+
+**Interfaces:**
+- Produces: `useMetrics(seasonId): { status: 'loading' } | { status: 'ready'; metrics: MetricWithUses[]; uses: 'server' | 'unknown' }` — the device's cached `metrics` rows at once, then the server's `listMetrics` (with uses) when online; offline the uses are `'unknown'` and the page says so;
+  `useMetricValues(request: MetricValuesRequest): MetricValues` with `MetricValuesRequest = { seasonId; scope: DashboardScope; metrics: GetMetricValuesInput['metrics']; teamIds? }` and `MetricValues` the `useRanking` union (`loading | unknown | offline-needs-server | failed | ready { output: GetMetricValuesOutput; source: RankingSource }`);
+  `deviceMetricInput(eventId): Promise<MetricInput | null>` and `loadDeviceMetricValues(eventId, request)` in a lazy chunk.
+- Consumes: 2.1's schemas, 2.2's `evaluateMetric`, 2.4's `getMetricValues`; `loadDeviceEventStats`, `cachedRows`, `useSessionOverride`, `useCapability`, `useOnline`, `useSyncStatus`, `typedCall` — exactly as `useRanking` (task 1.58) uses them.
+
+**Where values come from (SPEC-FINAL 9.6, 6.3, 12.1):**
+- scope `event` on the **active event, no override**: the device's engine at once ("Computed from the data on this device · Last synced …"), the server's answer online when it arrives ("From the server · as of …") — `useRanking`'s rules, including "a sync that ends after the read was asked asks again";
+- any other scope, or under an override: the server only; offline → `offline-needs-server` (the `cross_event_view` row of the capability matrix);
+- an inline definition is evaluated on the device the same way as a saved one.
+
+- [ ] **Step 1: Write the failing tests.** `deviceMetrics.test.ts`: from a seeded fake Dexie (the helpers `features/ranking/deviceRanking.test.ts` uses), `loadDeviceMetricValues('ev-1', { metrics: [{ metric_id: 'mx-auto' }] })` equals `evaluateMetric` over the same rows; an entry still in the outbox counts (task 1.53 side task 5's rule); a device without the event returns null. `useMetricValues.test.tsx`: (1) active event online → device first, then the server's rows with `source.kind === 'server'`; (2) offline → device only, `source.kind === 'device'`; (3) `scope: { mode: 'season' }` offline → `offline-needs-server`; (4) a session override → the server, never the device; (5) a server failure keeps the device's values. `useMetrics.test.tsx`: cached rows first with `uses: 'unknown'`, then the server's with uses; offline stays on the cache. Plus the matrix test gains `edit_metric` → false.
+
+- [ ] **Step 2: Run them to see them fail**
+
+```bash
+pnpm --filter @frc/client exec vitest run src/features/metrics src/data/offlineCapability.test.ts
+```
+
+Expected: the three new files fail on their missing imports; `offlineCapability.test.ts` fails on `edit_metric`.
+
+- [ ] **Step 3: Implement.** Copy `useRanking`'s state machine; do not generalise `useRanking` itself in this task (2.16 may, once three hooks share it). `deviceMetrics.ts` is loaded with `import()` only, so the engine stays out of the first chunk.
+
+- [ ] **Step 4: Run them to see them pass, and the client suite, build and budget**
+
+```bash
+pnpm --filter @frc/client exec vitest run && pnpm typecheck && pnpm build && pnpm bundle:check
+```
+
+Expected: every suite green; `bundle:check` under 240 KB with no change to the initial chunk.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A && git commit -m "feat(client): read metric values on the device and from the server"
+```
+
+---
+
+## Task 2.6: Client — the metric builder panel
+
+**Design:** round 29, `docs/design/pages/29-metrics/final/` (the builder panel). **Do not start before it closes.** Build to its images at 1440 px; its README is the behaviour.
+
+**Files:**
+- Create: `apps/client/src/features/metrics/builderState.ts`, `builderState.test.ts`
+- Create: `apps/client/src/features/metrics/MetricBuilder.tsx`, `MetricBuilder.test.tsx`
+
+**Interfaces:**
+- Produces: `MetricBuilder` — `{ seasonId; form: { kind: 'match' | 'super'; id: string; fields: FormFieldDefinition[] }; initial?: MetricDraft; mode: 'save' | 'inline'; onSave(draft: MetricDraft): Promise<void>; onCancel() }` where `MetricDraft = { name; description; definition: MetricDefinition; form_kind }`. In `save` mode its primary action is **Save metric** (admin, online, `OfflineGate` on `edit_metric`); in `inline` mode it is **Use in chart** and needs no connection (2.14's lead draft). **2.14 imports this component; it is the only metric builder.**
+  `builderReducer(state, action)` and `builderView(state, context)` — pure: the steps **Source → Aggregation → Filters → Name**, the menu from `aggregationsFor`, the derived unit and direction from `metricMeta` shown in words ("Seconds · lower is better"), `metricProblems` shown at the step they belong to, and whether the action is enabled.
+- Consumes: 2.1 (`aggregationsFor`, `metricMeta`, `metricProblems`, `sumCompatible`), 2.5 (`useMetricValues` for the live preview over the active event), `ShadedValue`, the shared component system (BUILD-CONTEXT §12.5).
+
+**Behaviour (SPEC-FINAL v1.52 §11.2, §12.9; the round's final decides layout):**
+- Source picker: a field (by label, grouped by phase, with its unit), the sum of fields (only compatible fields offered once one is picked), the score (whole, or one phase), a field's points (scored fields only), cycles of an event-log field (type, then duration / count / time to first), robot status (the four measures). A super-form metric offers only that form's fields.
+- Aggregation: only the menu's items, each with a one-line meaning ("Average", "Share of matches where…"); `percentile` asks for p; `rate` asks for the condition (default "points > 0" on a scored field, "is true" on a toggle).
+- Filters: last N matches, exclude matches, robot status, field conditions — hidden for a super metric.
+- Display limit (optional), name and **description (required)**.
+- **Live preview:** the active event's teams, best first, value shaded (`ShadedValue`), the top 8 and the bottom 8 with "Show all" (§12.10), and "cannot calculate this metric — …" when the guard refuses (§11.7).
+- Keyboard: the panel is a form; Enter on the last step saves when enabled.
+
+- [ ] **Step 1: Write the failing tests.** `builderState.test.ts`: picking a toggle offers `rate, count` only; picking a second field for a sum offers only compatible fields; a neutral field hides best/worst; `percentile` without p disables Save with "Give the percentile, 0–100"; a super form hides the filters step; an empty description disables Save; the unit line reads "Seconds · lower is better" for a timer. `MetricBuilder.test.tsx`: renders the four steps with their labels; offline in `save` mode the Save button is held by `OfflineGate` with its "needs a connection" line; in `inline` mode offline it is enabled and reads "Use in chart"; the preview lists teams from a mocked `useMetricValues` with the top-8/bottom-8 split and "Show all".
+
+- [ ] **Step 2: Run them to see them fail**
+
+```bash
+pnpm --filter @frc/client exec vitest run src/features/metrics/builderState.test.ts src/features/metrics/MetricBuilder.test.tsx
+```
+
+Expected: both fail on missing imports.
+
+- [ ] **Step 3: Implement** to round 29's final, on the shared components (`select`, `option-buttons`, `described-choice`, `input`, `textarea`, `surface-actions`, `notice`, `ShadedValue`).
+
+- [ ] **Step 4: Run, typecheck, lint, format**
+
+```bash
+pnpm --filter @frc/client exec vitest run && pnpm typecheck && pnpm lint && pnpm format:check
+```
+
+Expected: every suite green, including both new files.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A && git commit -m "feat(client): add the metric builder panel"
+```
+
+---
+
+## Task 2.7: Client — the Metrics page
+
+**Design:** round 29, `docs/design/pages/29-metrics/final/` (the page). Build to its images at 1440 px.
+
+**Files:**
+- Create: `apps/client/src/features/metrics/MetricsPage.tsx`, `MetricsPage.test.tsx`
+- Create: `apps/client/e2e/metrics.spec.ts`, `apps/client/e2e/metricFixtures.ts`
+- Modify: `apps/client/src/lib/paths.ts` (`PATHS.metrics = '/admin/metrics'`), `apps/client/src/features/shell/nav.ts` (one row), the router, `apps/client/e2e/api-mock.ts` (the five metric routes)
+
+**Interfaces:**
+- Produces: the route `/admin/metrics`; the `NAV_ITEMS` row `{ id: 'metrics', label: 'Metrics', icon: Sigma, group: 'admin', bottomBar: null, desktopOnly: true, visible: (who) => !who.expired && who.user?.role === 'admin' }` (v1.54 §12.8: Metrics sits in the admin group); `metricsPath(id?)` for 2.14's "Edit metric" link.
+- Consumes: 2.5 (`useMetrics`), 2.6 (`MetricBuilder` in `save` mode), 2.3 (`createMetric`, `updateMetric`, `deleteMetric` through `typedCall`), `DesktopOnly`, `OfflineGate`, `LazyDeleteFlow`'s faces (`DeleteDialog`: "Are you sure?" for a metric used nowhere; **Blocked** with the uses for one in use — v1.52).
+
+**Behaviour:**
+- The active season's metrics by name: name, description, source in words ("Auto points · average"), unit and direction in words, and **Used in** ("2 charts · Ranking · Quals preset", or "Not used"); offline, "Used in" reads "Needs a connection to check".
+- **New metric** opens the builder panel beside the list; a row's **Edit** opens it filled; **Delete** opens the delete dialog: used nowhere → "Are you sure?"; used → **Blocked**, listing each use as a link (the dashboard, the ranking page, the preset).
+- Everything that writes is held offline (`edit_metric`).
+- A phone or a narrow window shows `DesktopOnly` (§17.2: builders ≥ 1024 px).
+- An empty season: the empty state with **New metric** (no placeholder copy, BUILD-CONTEXT §12.2).
+
+- [ ] **Step 1: Write the failing tests.** `MetricsPage.test.tsx` (mocked rpc): the list renders names, sources in words and "Used in"; New metric → the builder → Save calls `createMetric` with a fresh uuid and the draft, and the row appears; Delete on an unused metric → Are you sure → `deleteMetric`; Delete on a used one → Blocked listing three uses and no delete call; offline: New metric and Delete are held with the matrix's line, and "Used in" reads "Needs a connection to check"; a scouter or lead does not see the nav row. `e2e/metrics.spec.ts`: `shoot(page, 'metrics-list')`, `shoot(page, 'metrics-builder')` (a field metric half built, the preview filled), `shoot(page, 'metrics-delete-blocked')`, `shoot(page, 'metrics-offline')` — desktop only (`only: 'desktop'`), every theme.
+
+- [ ] **Step 2: Run them to see them fail**
+
+```bash
+pnpm --filter @frc/client exec vitest run src/features/metrics/MetricsPage.test.tsx
+```
+
+Expected: fails on the missing page.
+
+- [ ] **Step 3: Implement**, then take the shots:
+
+```bash
+pnpm --filter @frc/client e2e metrics.spec.ts
+```
+
+Compare `e2e/__screens__/metrics-*-1440.png` with round 29's finals. Then check the page in the browser pane against the dev seed (BUILD-CONTEXT §12.3, §1's tab rules): create a metric, see it in the list, delete it.
+
+- [ ] **Step 4: Run everything**
+
+```bash
+pnpm test && pnpm typecheck && pnpm lint && pnpm format:check && pnpm build && pnpm bundle:check
+```
+
+Expected: every suite green; the bundle under budget.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A && git commit -m "feat(client): add the Metrics page"
+```
+
+**Part 2 A report (BUILD-CONTEXT §12.4):** `/admin/metrics` — list, builder, delete refused, offline; each against round 29's final.
+
+---
+
+# Phase 2 B — charts and dashboards (§20.2, heading 2)
+
+*Step detail is written in its own chat, one part ahead of its build, from 2 A's report.*
+
+### Task 2.8: Shared — the chart config and the chart-data engine
+- **Files:** Create `packages/shared/src/api/dashboards.ts` (+test), `packages/shared/src/engine/charts.ts` (+test); modify `api/index.ts`, `index.ts`.
+- **Interfaces:** Produces `chartConfig` (§12.3 with v1.52's inline series and v1.54's chart filters), `CHART_TYPES`, `DIMENSION_KINDS`, `chartTypesFor(dimension, series meta)` (the closed vocabulary; `distribution` only on histogram, pie, stacked bar), `dashboardRow`, `dashboardChartRow`, the dashboard use-case schemas, `CHART_LIMITS = { charts: 24, series: 6, columns: 12 }`; `chartData(config, input, context): ChartData` — per dimension: `team` (one row per team), `match` (series per team from `metricSeries`), `event`, `field_value` (distribution buckets), `position` (raw points and cycle paths, alliance-normalised), `none` (one value); `selectorPool(chart, metrics, fields)` (§12.3's pool: same unit, renderable on the dimension). Consumes 2.1, 2.2.
+- **Accept:** every chart type × dimension pair in §12.2/§12.3 has a test, refused pairs included; a `distribution` series is refused on bar; chart filters apply only to raw-entry charts (v1.54); `scouter` returns `meta-pending` until 2.22; mobile top 8 + bottom 8 is a pure function here (`mobileSlice`).
+- **Commit:** `feat(shared): add the chart configuration and the chart-data engine`
+
+### Task 2.9: Server — dashboards, the built-ins and their default metrics
+- **Files:** Create `apps/server/src/core/commands/dashboards.ts`, `apps/server/src/core/queries/dashboards.ts`, `apps/server/src/core/builtins.ts` (+tests); modify Store, fake context, registry, `commands/seasons.ts`, `commands/forms.ts`, bundle.
+- **Interfaces:** Produces `listDashboards`, `getDashboard` (with charts, and `read_only` + the missing fields when a chart names a field the active version lacks, §12.1), `saveDashboard`, `updateDashboard`, `deleteDashboard` (admin; `save_dashboard`), `setDashboardColumns` (admin; ranking, compare, match preview only; ≤ 12, rankable metrics only, v1.53), `getChartData(caller, { dashboard_id | config, scope? })` for scopes the device does not hold; `ensureBuiltins(ctx, seasonId)` — idempotent: the five built-in rows, and on ranking/compare/preview default columns Total, the per-phase points and Availability **as ordinary metrics** (v1.54), created when missing. Called by `createSeason`, by `publishFormVersion` (the first publish of a match form) and by `getDashboard` / `listDashboards` **only through a command path** (`ensureSeasonBuiltins`, admin, called by the client once on the hub when a built-in is missing — queries never write). 2.3's `metricUses` gains nothing new (charts and columns are already read).
+- **Accept:** a new season has five built-ins; the existing season gets them on the admin's first visit; a second run creates nothing; default metrics are named "Total", "Auto points", … "Availability" and are deletable once unused; a custom dashboard's limits refuse a 25th chart; `deleteDashboard` of a built-in is refused.
+- **Commit:** `feat(server): add dashboards, the built-ins and their default metrics`
+
+### Task 2.10: Client — the Recharts charts
+- **Design:** round 30. **Files:** Create `apps/client/src/features/charts/` (`ChartFrame.tsx`, `recharts/*.tsx`, tests); add `recharts` to the client.
+- **Interfaces:** Produces `<Chart config data meta size />` for bar (grouped, stacked), horizontal bar, line, scatter, radar, histogram, pie/donut, stacked area, bump (inverted rank axis), bullet (display limit reference), small multiples, stat card; all loaded through `LazyChart` (own chunk). Consumes 2.8's `ChartData`, `shadeFor`, THEME's chart palette.
+- **Accept:** each type renders fixture data and its empty state ("—", never 0); colour is never the only channel (§17.4); `prefers-reduced-motion` stills every animation; axis labels `dir="auto"`; the initial chunk unchanged (`bundle:check`); e2e shots of the round's sheet at 1440 and 375, every theme.
+- **Commit:** `feat(client): draw the Recharts chart types`
+
+### Task 2.11: Client — the hand-built charts and the data table
+- **Design:** round 30. **Files:** `features/charts/BoxPlot.tsx`, `HeatmapTable.tsx`, `DataTable.tsx` (+tests).
+- **Interfaces:** Produces box plot (SVG), team × metric heatmap table (shaded cells, value printed), data table (TanStack, ~8 rows visible, frozen header and sticky first column, inline sparklines, shading). Consumes 2.8, `ShadedValue`, `Sparkline`, `components/ui/table` with `scrollLabel`.
+- **Accept:** shading per column by direction (§12.6), "—" excluded from domains, flat mid-colour when min = max; keyboard reachable; shots as 2.10.
+- **Commit:** `feat(client): add the box plot, the heatmap table and the data table`
+
+### Task 2.12: Client — the spatial charts
+- **Design:** round 30. **Files:** `features/charts/FieldHeatmap.tsx`, `FieldScatter.tsx`, `CyclePaths.tsx` (+tests).
+- **Interfaces:** Produces heatmap and scatter over the season's game image, and arrowed cycle paths aggregated across matches and teams (with task 1.47 side task's start and end marks). Consumes 2.8's `position` data, `GameImage` (task 1.23), the alliance normalisation of §5.6.
+- **Accept:** red and blue entries land on one normalised side; a missing game image fails loudly as 1.23 does; a heatmap cell's count is readable without colour; shots as 2.10.
+- **Commit:** `feat(client): draw position heatmaps, scatters and cycle paths`
+
+### Task 2.13: Client — the dashboard view
+- **Design:** round 31. **Files:** `features/dashboards/DashboardPage.tsx`, `useDashboard.ts`, `useChartData.ts`, `Grid.tsx`, `TileMenu.tsx` (+tests, e2e `dashboards.spec.ts`); `PATHS.dashboard(id)`.
+- **Interfaces:** Produces `/dashboards/:id`; `useChartData(chart, scope)` (device for the active event, server otherwise — 2.5's rules); the view-time metric selector and expand-to-stack ≤ 4 (§12.5, not saved); `DashboardGrid` (2.29 reuses it on home pages). Consumes 2.8, 2.9, 2.10–2.12, 2.5.
+- **Accept:** 12-column grid reflowing to one column at 375 in order; top 8 + bottom 8 with Show all; read-only banner and per-chart "cannot calculate this metric" naming the field; a non-active scope offline shows the needs-a-connection notice; a shared link opens for any signed-in user.
+- **Commit:** `feat(client): view a dashboard`
+
+### Task 2.14: Client — the dashboard builder and the lead's draft
+- **Design:** round 32. **Files:** `features/dashboards/builder/*` (+tests, e2e); `features/dashboards/draftStore.ts` (session memory).
+- **Interfaces:** Produces `/dashboards/new`, `/dashboards/:id/edit` (admin, online save), `/dashboards/draft` (lead and admin; in memory: survives navigation, lost on reload, logout or close, §12.9); series picker with a saved metric or **New metric** (2.6's `MetricBuilder`: `inline` for a lead, `save` for an admin) and **Save as metric** on an inline series (admin); tile size small / medium / full and drag reorder (`@dnd-kit`, `sortable-grip`). Consumes 2.6, 2.8, 2.9, 2.13.
+- **Accept:** the gate's first half end to end in a test: a **lead** builds an inline metric and a chart, offline, over the active event; the draft is gone after a reload; an admin saves a draft as a dashboard; the limits of v1.54 are enforced in the UI; desktop only.
+- **Commit:** `feat(client): build dashboards, and a lead's session draft`
+
+# Phase 2 C — the configurable ranking (§20.2, heading 3)
+
+### Task 2.15: Shared — the weighting engine
+- **Files:** `packages/shared/src/engine/weighting.ts` (+test).
+- **Interfaces:** Produces `normalise(values, direction)` (min–max over the ranked teams, `1 − n` for lower is better, 0.5 for min = max); `buildComposite(rows, columns, weights): CompositeRow[]` — `{ team_id, composite: number | null, weighted_rank: number | null, contributions: { metric_id, normalised, weight, share }[] }`; weights auto-normalised; a team with data missing one metric gets 0.5 for it; **a team with no counted matches gets `composite: null` and sorts last** (v1.53); non-rankable columns are ignored by the weights. Consumes 2.1's `metricMeta`.
+- **Accept:** every rule of §13.5 + v1.53 has a test, including all-equal columns, one team, a missing metric, a no-data team, weights that do not sum to 1, and a `stddev` column ignored.
+- **Commit:** `feat(shared): weight ranking columns into a composite`
+
+### Task 2.16: Server — ranking columns, weights and presets
+- **Files:** modify `queries/stats.ts` (`rankTeams` gains `columns` values and optional `weights`), create `commands/weightPresets.ts`, `queries/weightPresets.ts` (+tests).
+- **Interfaces:** Produces `rankTeams(caller, { event_id, weights? })` → phase 1's rows **plus** `columns: { metric_id, name, unit, direction, rankable }[]`, each row's `column_values`, and with `weights` the `composite`, `weighted_rank` and `contributions`; `listWeightPresets`, `saveWeightPreset` (admin, online; weights only over the ranking columns), `deleteWeightPreset`. Consumes 2.3's columns, 2.4's `loadMetricInput`, 2.15.
+- **Accept:** phase 1's fields and order unchanged (1.57's tests still green); the device's `buildRankTable` + `buildComposite` equal the server's on the same rows.
+- **Commit:** `feat(server): add ranking columns, weighting and weight presets`
+
+### Task 2.17: Client — the ranking page's Metrics category
+- **Design:** round 33. **Files:** `features/ranking/MetricsCategory.tsx`, `WeightsPanel.tsx`, `ColumnsEditor.tsx`, `TeamStudy.tsx` (changed), `useRanking.ts` (columns and weights), tests, e2e `ranking.spec.ts` (extended).
+- **Interfaces:** Produces the third category **Metrics** on `CategorySwitch`; the weighting switch and weights (session only, offline included); presets apply (any role) and save (admin, online); **Weighted rank** with medals while weighting is on; the study panel's contribution breakdown; the admin's column editor (≤ 12, rankable only); the ranking dashboard's charts below the table (2.13's `DashboardGrid`). Consumes 2.13, 2.15, 2.16.
+- **Accept:** Home's cards still show the basic rank (a test); Scoring and Availability unchanged (their e2e shots byte-compared in review); weighting starts from the last preset chosen on this device, else equal weights; offline the weights change and Save is held.
+- **Commit:** `feat(client): add the ranking's Metrics category with weighting and presets`
+
+# Phase 2 D — team compare (§20.2, heading 4)
+
+### Task 2.18: Shared + server — `compareTeams`
+- **Files:** `packages/shared/src/engine/compare.ts`, `api/compare.ts`, `apps/server/src/core/queries/compare.ts` (+tests).
+- **Interfaces:** Produces `buildCompare(input, team_ids, columns)` — per team: average points, each column's value and its **event-normalised** position (2.15's `normalise` over every team at the event, v1.53); for 2 teams the leaning side per row; `compareTeams(caller, { event_id, team_ids: 2..6 })`. Consumes 2.4, 2.9's compare columns, 2.15.
+- **Accept:** a team's normalised shape does not change with the teams beside it (test); 1 or 7 teams refused.
+- **Commit:** `feat: compare two to six teams on the compare metric set`
+
+### Task 2.19: Client — the compare page
+- **Design:** round 34. **Files:** `features/compare/*` (+tests, e2e); `PATHS.compare`; nav row (Analysis group, v1.54).
+- **Interfaces:** Produces `/compare?teams=…`; head-to-head for 2, radar + table for 3–6; the team picker; entry points "Compare" (ranking, up to 6 selected) and "Compare with…" (team page); the compare dashboard's charts below. Consumes 2.18, 2.13.
+- **Accept:** mirrored columns, an alliance-coloured side only when the side is an alliance (plan's phase 2 design rule); the URL round-trips; offline over the active event computes on the device.
+- **Commit:** `feat(client): add the compare page`
+
+# Phase 2 E — match preview (§20.2, heading 5)
+
+### Task 2.20: Shared + server — `getMatchPreview`
+- **Files:** `packages/shared/src/engine/matchPreview.ts`, `api/matchPreview.ts`, `apps/server/src/core/queries/matchPreview.ts` (+tests).
+- **Interfaces:** Produces `buildMatchPreview(input, { red: [3], blue: [3] }, columns)` — per team: basic-rank average, up to 4 column values, reliability and no-show flags, **top two strengths** ("Top 3 Auto": the two columns where it places highest among the event's teams); per alliance: the summed prediction, `scouted: n of 3`; the winner and margin (called even when partial, v1.53); `getMatchPreview(caller, { event_id, match_id } | { event_id, red, blue })` — teams may be any team in the season. Consumes 2.4, 2.9, 2.15.
+- **Accept:** a no-data team adds nothing and the total says "2 of 3 scouted"; a match's six teams come from its `match_teams`.
+- **Commit:** `feat: predict a match from its six teams`
+
+### Task 2.21: Client — the match preview page
+- **Design:** round 35. **Files:** `features/matchPreview/*` (+tests, e2e); `PATHS.matchPreview`; nav row.
+- **Interfaces:** Produces `/match-preview?match=…` or `?red=…&blue=…`; pick a match or type six teams; mirrored alliance columns in alliance colours; the prediction bar; the preview dashboard's charts below. Consumes 2.20, 2.13.
+- **Accept:** readable at 375 px in a queue line; offline on the active event; under an override, the server.
+- **Commit:** `feat(client): add the match preview page`
+
+# Phase 2 F — operational statistics (§20.2, heading 6)
+
+### Task 2.22: Server — the meta-metrics
+- **Files:** `apps/server/src/core/queries/operational.ts` (+test); Store SQL methods; `engine/metric.ts` (the `meta` branch reads a server-provided table).
+- **Interfaces:** Produces `getOperationalStats(caller, { scope })` — entries per user, per match, per event and in total, open conflicts, super coverage (§12.7, D17), each by its meta dimension (scouter, match, event, form); `getChartData` answers `scouter`-dimension charts from it. Consumes 2.8, 2.9.
+- **Accept:** soft-deleted entries never count; super coverage's denominator is teams with a recorded match entry; SQL only over typed columns (§11.1).
+- **Commit:** `feat(server): add the operational meta-metrics`
+
+### Task 2.23: Client — the operational dashboard
+- **Design:** round 36. **Files:** `features/operational/*` (+tests, e2e); `PATHS.operational`; the builder's meta source (2.6's panel gains it for `source_kind: 'meta'`).
+- **Interfaces:** Produces `/operational` (the operational built-in, with its event selector); online only — offline `OfflineGate` (v1.54); meta metrics in the builder. Consumes 2.22, 2.13, 2.6.
+- **Accept:** offline shows the needs-a-connection notice and nothing computed; the selector is disabled offline (§12.8).
+- **Commit:** `feat(client): add the operational statistics page`
+
+# Phase 2 G — pick list, do-not-pick and the alliance bracket (§20.2, heading 7)
+
+### Task 2.24: Shared — the alliance-selection rules
+- **Files:** `packages/shared/src/alliance/` (`round.ts`, `crossOff.ts`, `nextAvailable.ts`, `seed.ts`, `reorder.ts`, `bracket.ts`, + tests).
+- **Interfaces:** Produces `activeRound(slots)` (§14.4), `crossedOff(slots)` (derived, never stored), `nextAvailable(list, slots, doNotPick, ourTeamId)` (v1.55: skips struck, flagged and our own; null → "none left on this list"), `seedOrder(roster, composite, doNotPick, ourTeamId)` (v1.55), `applyReorder(rows, order)` (named rows in order, unnamed follow in their order, removed skipped), `bracketProblems(slots, declines, change)` (one slot per team; a decliner not in that alliance's picks; do-not-pick allowed).
+- **Accept:** every rule of §14.4–§14.7 and v1.55 has a test; pure and browser-safe.
+- **Commit:** `feat(shared): add the pick-list and bracket rules`
+
+### Task 2.25: Server — push semantics and the alliance use cases
+- **Files:** `apps/server/src/core/commands/syncPush.ts` (the `pick_lists` ordering operation and the alliance entities), `core/commands/alliance.ts`, `core/queries/alliance.ts` (+tests).
+- **Interfaces:** Produces the ordering operation `{ entity: 'pick_lists', op: 'reorder', base_version, order: entry_id[] }` — fast-forward → applied and `version` bumped; divergence → `sync_conflicts` with the **superseded ordering in full** (§14.7); adds, removes and notes as per-row LWW **without** touching the list's version (v1.55); `getPickLists`, `getDoNotPick`, `getAllianceBracket`; `createPickList`, `setPickListOrder` (the reorder operation above), `reseedPickList` (from a preset or live weights; notes kept), `addPickListEntry`, `removePickListEntry`, `setPickListNote`, `addDoNotPick` (lead/admin, reason required), `editDoNotPick`, `removeDoNotPick`, `initialiseBracket`, `setAllianceSlot`, `recordDecline`, `removeDecline` — each also reachable through the outbox (§9.6); `resolveConflict` handles an ordering conflict (keep live / restore superseded wholesale). Consumes 2.24, 2.16 (presets), task 1.40's push, task 1.41's conflicts.
+- **Accept:** two devices reordering offline → one conflict with both orderings; a lead's add elsewhere during a reorder → no conflict; a lead cannot reorder (per-op auth, §7.5); bracket refusals server-side.
+- **Commit:** `feat(server): sync pick lists, do-not-pick and the bracket`
+
+### Task 2.26: Client — the pick list page
+- **Design:** round 37. **Files:** `features/alliance/PickListPage.tsx`, `AllianceTabs.tsx`, `usePickLists.ts` (+tests, e2e `alliance.spec.ts`); `PATHS.alliance*`; nav row.
+- **Interfaces:** Produces `/alliance/picks` (tab 1 of 3); both lists created empty on first open (offline too); next-available header; round detection with a session-only override; drag with a grip, a drop line and long-press on touch (`@dnd-kit`, `sortable-grip`); strike-through; do-not-pick markers and the resolve banner; notes; reseed with confirmation (admin); an override event read-only (v1.55). Consumes 2.24, 2.25, the outbox.
+- **Accept:** the gate's second half in a test: reorder offline, sync, the order survives on another device; viewers see it read-only.
+- **Commit:** `feat(client): add the pick list page`
+
+### Task 2.27: Client — the do-not-pick page
+- **Design:** round 38. **Files:** `features/alliance/DoNotPickPage.tsx` (+tests, e2e).
+- **Interfaces:** Produces `/alliance/do-not-pick`; add with a required reason (lead and admin, offline); one-tap remove with inline confirm and undo (`toast`, admin); a removed entry clears its pick-list flags at once. Consumes 2.24, 2.25.
+- **Accept:** a lead's add never fails and never reorders a list; the blocked add on the pick list names the reason and author.
+- **Commit:** `feat(client): add the do-not-pick page`
+
+### Task 2.28: Client — the alliance bracket page
+- **Design:** round 39. **Files:** `features/alliance/BracketPage.tsx` (+tests, e2e).
+- **Interfaces:** Produces `/alliance/bracket`; `initialiseBracket` on first open (8 × 4 empty slots, offline); tap a slot to enter a team; clear = `team_id null`; declines with the "declined — alliance N" marker; v1.55's refusals in words. Consumes 2.24, 2.25.
+- **Accept:** entering a captain strikes it off both lists at once; works at 375 px.
+- **Commit:** `feat(client): add the alliance bracket page`
+
+# Phase 2 H — built-ins, the hub and the gate (§20.2, heading 8)
+
+### Task 2.29: Client — the built-in dashboards on their home pages
+- **Design:** round 40. **Files:** `features/teams/TeamPage.tsx` (the team dashboard's charts), `features/ranking`, `features/compare`, `features/matchPreview`, `features/operational` (each built-in's event selector), tests, e2e.
+- **Interfaces:** Produces each home page's built-in charts through `DashboardGrid` with its input supplied (team + event, event, team set, six teams, event) and the session-only event selector, disabled offline (§12.8). Consumes 2.13.
+- **Accept:** changing the selector touches neither the stored scope nor the active context; offline, only the active event.
+- **Commit:** `feat(client): show each built-in dashboard on its home page`
+
+### Task 2.30: Client — the dashboards hub and the Analysis group
+- **Design:** round 40. **Files:** `features/dashboards/HubPage.tsx` (+tests, e2e); `nav.ts`.
+- **Interfaces:** Produces `/dashboards`: every dashboard of the active season, built-ins first; opening a parameterised built-in prompts for its input (a team number, the teams to compare, a match or six teams); **New dashboard** (admin) and **New draft** (lead, admin); the **Analysis** nav group — Dashboards, Compare, Match preview, Alliance selection; the bottom bar unchanged (v1.54); the client's one `ensureSeasonBuiltins` call (2.9) when a built-in is missing and an admin is online.
+- **Accept:** nav tests: one copy of each destination in the DOM; scouters see the hub and the views, not New dashboard.
+- **Commit:** `feat(client): add the dashboards hub and the Analysis nav group`
+
+### Task 2.31: The phase 2 smoke suite and the gate
+- **Files:** `apps/server/src/smoke/*.smoke.test.ts` (extended), `docs/ops/RUNBOOK.md` (selection-day section), `docs/ops/OFFLINE-CHECK.md` (the pick-list offline step).
+- **Interfaces:** Produces smoke tests for `createMetric` → `getMetricValues` → `saveDashboard` → `getChartData` → `rankTeams` with weights → `compareTeams` → `getMatchPreview` → a pick-list reorder through `/sync/push` and a conflicting one, against dev (§19.3); the phase 2 gate procedure (§20.4) written as 1.64's is.
+- **Accept:** `pnpm smoke` green in CI with the new tests; the gate itself is run by the user with a strategy lead, and recorded in `RUNBOOK.md`.
+- **Commit:** `test: grow the smoke suite to phase 2 and write the phase 2 gate`
+
+**Design for phase 2 (redesign system).** Every page follows "The redesign system" section and its SPEC-FINAL §17.9 row:
 - Compare and match preview are mirrored columns; a side that is an alliance shows in that alliance's colour.
 - Each page is one `NAV_ITEMS` row.
 - The pick list's undo is a `Notice` action.
@@ -17998,12 +19084,17 @@ Every row is a place where `SPEC-FINAL.md` was too unspecific to write actual co
 | P52 | The pull budget number is not in the spec | **2000 rows per page.** One district event is ~700 entries, so a first pull is one or two pages | Task 1.4 |
 | P53 | §9.6's offline matrix is prose | Encoded as **data** in `offlineCapability.ts`, with a test that every gated capability is in the table, so nothing can be gated by an unwritten assumption | Task 1.45 |
 | P54 | The phase 2 alliance-selection outbox entities exist in §9.4 but the feature is phase 2 | The **entity names and the offline flags ship in phase 1** (tasks 1.1, 1.45); `syncPush` rejects them as `invalid` until phase 2 implements them | Tasks 1.1, 1.40 |
+| P55 | §3.7 says a built-in holds "its metric columns" but `dashboards` has no column for them | **`dashboards.columns jsonb not null default '[]'`**, an ordered array of metric ids, read by every metric's "used in" | Task 2.3 (migration `20261111090000_dashboard_columns`) |
+| P56 | Nothing creates the five built-in rows (v1.54 says "automatically") and a query may not write | **`ensureBuiltins`**, idempotent, called by `createSeason`, by the first publish of a match form, and by an admin-only command the hub calls once when a row is missing | Tasks 2.9, 2.30 |
+| P57 | §11.2 names no wire shape for values over a scope the device does not hold | **`getMetricValues`**: ≤ 12 metrics (saved or inline), ≤ 200 teams, one result per requested metric with its derived meaning | Task 2.4 |
+| P58 | §14.7's whole-list reorder has no operation shape | **`{ entity: 'pick_lists', op: 'reorder', base_version, order: entry_id[] }`** through the ordinary outbox; adds, removes and notes stay per-row and never bump the list version (v1.55) | Task 2.25 |
+| P59 | Metric writes need a capability, and Appendix C says admin | **`manage_metrics: ADMIN`** in the capability table; the client gates on the matrix row `edit_metric: false` | Tasks 2.3, 2.5 |
 
 ---
 
 # Appendix P2 — Use-case coverage
 
-Every row of SPEC-FINAL's Appendix C, and the task that builds it. Rows marked **phase 2** are deliberately absent from this plan.
+Every row of SPEC-FINAL's Appendix C, and the task that builds it. Phase 2 rows name their task in parts 2 A – 2 H (v1.40).
 
 ## Queries
 
@@ -18023,9 +19114,10 @@ Every row of SPEC-FINAL's Appendix C, and the task that builds it. Rows marked *
 | `rankTeams` | 1.57 (**fixed** table only — §13.5, D18) |
 | `listConflicts` | 1.41 |
 | `health` | 0.3 |
-| `compareTeams` · `getMatchPreview` · `getOperationalStats` | **phase 2** |
-| `listMetrics` / `getMetric` · `listDashboards` / `getDashboard` · `listWeightPresets` | **phase 2** |
-| `getPickLists` / `getDoNotPick` / `getAllianceBracket` | **phase 2** |
+| `compareTeams` · `getMatchPreview` · `getOperationalStats` | 2.18 · 2.20 · 2.22 |
+| `listMetrics` / `getMetric` · `listDashboards` / `getDashboard` · `listWeightPresets` | 2.3 · 2.9 · 2.16 |
+| `getMetricValues` · `getChartData` *(added — P57)* | 2.4 · 2.9 |
+| `getPickLists` / `getDoNotPick` / `getAllianceBracket` | 2.25 |
 | `getDeleteImpact` *(added — see P36)* | 1.60 |
 
 ## Commands
@@ -18048,13 +19140,13 @@ Every row of SPEC-FINAL's Appendix C, and the task that builds it. Rows marked *
 | `deleteSeason` / `deleteEvent` / `deleteForm` | 1.60 |
 | `resolveConflict` | 1.41 |
 | `syncPush` | 1.3, 1.14, 1.40 |
-| `createMetric` / `updateMetric` / `deleteMetric` | **phase 2** |
-| `saveDashboard` / `updateDashboard` / `deleteDashboard` | **phase 2** |
-| `saveWeightPreset` / `deleteWeightPreset` | **phase 2** |
-| `createPickList` / `setPickListOrder` / `reseedPickList` | **phase 2** |
-| `addPickListEntry` / `removePickListEntry` / `setPickListNote` | **phase 2** |
-| `addDoNotPick` / `editDoNotPick` / `removeDoNotPick` | **phase 2** |
-| `initialiseBracket` / `setAllianceSlot` / `recordDecline` / `removeDecline` | **phase 2** |
+| `createMetric` / `updateMetric` / `deleteMetric` | 2.3 |
+| `saveDashboard` / `updateDashboard` / `deleteDashboard` (+ `setDashboardColumns`, `ensureSeasonBuiltins`, P56) | 2.9 |
+| `saveWeightPreset` / `deleteWeightPreset` | 2.16 |
+| `createPickList` / `setPickListOrder` / `reseedPickList` | 2.25 |
+| `addPickListEntry` / `removePickListEntry` / `setPickListNote` | 2.25 |
+| `addDoNotPick` / `editDoNotPick` / `removeDoNotPick` | 2.25 |
+| `initialiseBracket` / `setAllianceSlot` / `recordDecline` / `removeDecline` | 2.25 |
 
 **`upsertEntry` note.** SPEC-FINAL lists it as a command, and §9.4 says **every local mutation is appended to the outbox**. Building a second, non-outbox write path for entries would give two ways to create an entry and two places for the conflict rules to live. So `syncPush` **is** the `upsertEntry` transport, and the client's `submitEntry` is its caller. If a non-outbox entry write is ever needed — a CLI backfill, say — it is a thin wrapper over the same `applyEntry` function.
 
