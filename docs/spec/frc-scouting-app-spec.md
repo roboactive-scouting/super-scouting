@@ -1,7 +1,7 @@
 # FRC Scouting Platform — Design Specification (Living Document)
 
 **Status:** DRAFT v0.35 — **topics 1–20 CLOSED; `SPEC-FINAL.md` written.** Every feature topic plus the system architecture, the deployment/operations model, the non-functional requirements and the delivery plan. Core forks decided (storage, versioning, offline stats, stack, access model, language, roles/auth, data-entry UX, offline-first & sync, realtime deferred → 45s refresh, dashboards & visualisation, search/ranking/browse, data quality, alliance selection, repo layout & services, environments & operations, performance/testing/privacy/deletion, phasing & delivery). **v1 = phases 0–2, due 2026-12-01** (§19.1, amended v0.67). Topic 14 is closed as **deferred in full to §24**, and topic 20 as **setup only** with the LLM connection parked. **No live questions remain.** `docs/spec/SPEC-FINAL.md` (v1.0, 2026-09-02) is the distilled build input; **it carries 32 consolidation decisions (its Appendix D) that resolve gaps this document left unstated, and it supersedes this document wherever the two differ on a v1 requirement.** `docs/plans/IMPLEMENTATION-PLAN.md` (v1.1, 2026-09-03) covers phases 0–1 in full task detail and phase 2 as headings. **The spec phase is complete; the build phase begins at the provisioning gate.**
-**Last updated:** 2026-11-01 (v1.03)
+**Last updated:** 2026-11-10 (v1.08)
 **Owner:** (your name / team number)
 **Destination:** this document, once all topics are CLOSED, becomes the input spec for Claude Code to generate an implementation plan.
 
@@ -544,6 +544,15 @@ Items 1–2 were found while building phase 1C's server half (tasks 1.18–1.19)
 - **Full-season ordering** — competitions render in **creation order by default** so a metric's **slope from first to last competition** (and per-match-per-competition across the year) reads left-to-right; the admin can **reorder** competitions within a season. Backed by a persisted `sort_order` on events — see §4.1 amendment.
 - Heatmap-per-match and cycle/event-log views raised in Q9.1 are **Topic 10 visualisation concerns**, driven by these same metrics.
 
+**Confirmed while planning phase 2 (2026-11-10, Q9.9–Q9.14, user: all recommended):**
+
+- **A metric can read points by phase and by field** (Q9.9). `score` takes an optional `phase` (that phase's points); `field` takes `measure: 'value' | 'points'` (default `value`). The ranking's per-phase averages become ordinary metrics.
+- **A metric's unit and direction are derived, never stored** (Q9.10) **[RAISED BY ME]**: a field keeps its own; score is points, higher is better; breakdowns, no-shows and disabled are counts, lower is better; availability, `rate` and percentages are %, higher is better; `count` is matches, higher is better; `slope` is the field's unit per match with the field's direction; `stddev` keeps the unit and is neutral. A `sum` offers only fields that share one unit and one direction.
+- **A chart series is a saved metric or an inline definition of the same shape** (Q9.11) **[RAISED BY ME]**. A lead builds inline metrics inside the session-only draft page; an admin can save one as a metric. This is how the phase 2 gate's "a strategy lead builds a metric" is met while saving stays admin-only.
+- **A metric in use cannot be deleted** (Q9.12) **[RAISED BY ME]**: the refusal names every chart, ranking / compare / match-preview column and weight preset that uses it. A pick list's snapshotted weights do not block; they show the metric as "deleted metric".
+- **Super-form metrics are allowed** (Q9.13): a metric on the super form reads each team's one super entry per event (its value at event scope, aggregated per event across events). Last N, excluded matches and robot status are hidden for it. It can be a ranking or compare column.
+- **The metric builder** (Q9.14) **[RAISED BY ME]** is a computer-only **Metrics page at `/admin/metrics`** (≥ 1024 px): the season's metrics with name, description and where each is used, the builder in a panel; plus **New metric** inside the chart builder's series picker. Saving needs a connection. **A description is required**, like a field's semantic metadata.
+
 ### 9.2 Proposed decisions
 
 **Two layers of statistics.**
@@ -575,6 +584,12 @@ Items 1–2 were found while building phase 1C's server half (tasks 1.18–1.19)
 - ~~**Q9.6** — Recency weighting?~~ ✓ **CLOSED 2026-08-20:** **no** weighting; instead a selectable **match subset** — last N and/or manually excluded matches (§9.1/§9.2 filters).
 - ~~**Q9.7** **[RAISED BY ME]** — Percentile / z-score cross-event normalisation?~~ ✓ **CLOSED 2026-08-20: no.** Percentile stays available as a plain aggregation.
 - ~~**Q9.8** **[RAISED BY ME]** — Minimum sample size flag?~~ ✓ **CLOSED 2026-08-20:** minimum = **1** (guard against empty/zero-division only); no low-sample flag or refusal.
+- ~~**Q9.9** **[RAISED BY ME]** — Can a metric read a phase's points or a field's points?~~ ✓ **CLOSED 2026-11-10: yes** — `score.phase`, `field.measure` (§9.1).
+- ~~**Q9.10** **[RAISED BY ME]** — Where do a metric's unit and direction come from?~~ ✓ **CLOSED 2026-11-10: derived from source and aggregation, never stored**; `sum` only over like fields.
+- ~~**Q9.11** **[RAISED BY ME]** — The gate has a lead build a metric, but saving is admin-only.~~ ✓ **CLOSED 2026-11-10: inline definitions** in a chart series; leads build them in the draft page.
+- ~~**Q9.12** **[RAISED BY ME]** — Deleting a metric in use?~~ ✓ **CLOSED 2026-11-10: refused, naming each use.**
+- ~~**Q9.13** **[RAISED BY ME]** — Metrics over the super form?~~ ✓ **CLOSED 2026-11-10: allowed**, match filters hidden.
+- ~~**Q9.14** **[RAISED BY ME]** — Where are metrics built?~~ ✓ **CLOSED 2026-11-10: `/admin/metrics`** plus New metric in the chart builder; online save; description required.
 
 ---
 
@@ -674,6 +689,14 @@ Each of these is a **built-in dashboard**. It is reachable **in-context from its
 - **All-equal / single row** — when a column's min == max (every value identical, or only one row), shading falls back to a **flat mid-color**; inferring "best" or "worst" from one data point would be dishonest.
 - **Colorblindness** — the scale must also vary **lightness monotonically** (so it degrades to a legible light→dark ramp for red-green colorblind users, ~8% of males) **and the numeric value is always shown in the cell.** Color is a fast cue, never the only channel.
 
+**Confirmed while planning phase 2 (2026-11-10, Q10.11–Q10.15, user: all recommended):**
+
+- **Chart filters apply only to charts that plot raw entries** (Q10.11) **[RAISED BY ME]**: entry tables, the position heatmap and scatter, cycle paths. A metric series is filtered only by its metric (§9); the builder offers no chart filter on a metric chart.
+- **The built-ins are created automatically** (Q10.12) **[RAISED BY ME]**, the existing season included: no charts at first; ranking, compare and match preview start with default columns — Total, the per-phase points and Availability — created as ordinary metrics the admin may edit or remove. Each built-in is edited on its own page; the hub lists and opens.
+- **The operational dashboard is online only** (Q10.13): offline it shows the "needs a connection" notice of `OfflineGate`.
+- **Navigation** (Q10.14) **[RAISED BY ME]**: a new **Analysis** group — Dashboards, Compare, Match preview, Alliance selection; Metrics in the admin group; the phone bottom bar stays Home · Scout · Search · Ranking. Every analysis page is viewable on a phone; only the builders need a computer.
+- **Limits** (Q10.15) **[RAISED BY ME]**: 24 charts per dashboard, 6 series per chart, 12 metric columns per built-in — so a dashboard computes on a phone and the charts' own chunk stays outside the 240 KB initial bundle.
+
 ### 10.3 Closed questions
 
 - ~~**Q10.1**~~ ✓ **Full high-analysis chart set incl. pie/donut, plus stacked-area, bump/rank, bullet-gauge, small-multiples** (§10.1/§10.2).
@@ -686,6 +709,11 @@ Each of these is a **built-in dashboard**. It is reachable **in-context from its
 - ~~**Q10.8**~~ ✓ **Scouted-vs-official → §24 nice-to-have, gated on TBA import.**
 - ~~**Q10.9**~~ ✓ **Metric selector/expand pool = metrics sharing the chart's X dimension** (comparable axis/unit).
 - ~~**Q10.10**~~ ✓ **Expand-to-stack capped at 4.**
+- ~~**Q10.11**~~ **[RAISED BY ME]** ✓ **CLOSED 2026-11-10:** chart filters on raw-entry charts only.
+- ~~**Q10.12**~~ **[RAISED BY ME]** ✓ **CLOSED 2026-11-10:** built-ins created automatically, default columns as ordinary metrics.
+- ~~**Q10.13**~~ ✓ **CLOSED 2026-11-10:** operational dashboard online only.
+- ~~**Q10.14**~~ **[RAISED BY ME]** ✓ **CLOSED 2026-11-10:** Analysis nav group; bottom bar unchanged.
+- ~~**Q10.15**~~ **[RAISED BY ME]** ✓ **CLOSED 2026-11-10:** 24 charts, 6 series, 12 columns.
 - ~~**Q10.9-ops**~~ ✓ **Operational stats are configurable via the same builder over app-metadata sources, not a static page** (§10.2); meta-field catalogue finalized at Topic 13 close. *(This is the original 2026-08-18 Q10.9 — "what belongs on the general stats page" — now answered: it's builder-driven, not a fixed page.)*
 
 ---
@@ -737,12 +765,27 @@ Each of these is a **built-in dashboard**. It is reachable **in-context from its
 - **Prediction:** each alliance's predicted score = the **sum of its three teams' status-aware avg points/match**; the higher total is the predicted winner; shows **each team's contribution and the predicted margin**.
 - Also surfaces **per-robot reliability / no-show flags** and each team's **top strengths**.
 
+**Confirmed while planning phase 2 (2026-11-10, Q11.5–Q11.10, user: all recommended):**
+
+- **The ranking page keeps variant N and gains a third category, Metrics** (Q11.5): the admin's ranking-dashboard columns and the weighting mode live there; Scoring and Availability stay as built; the team study panel gains the contribution breakdown.
+- **Weighting on, the rank follows the composite** (Q11.6): the rank column and medals read **"Weighted rank"**; weighting off, the basic rank. Home's cards always show the basic rank. Weighting starts from the last chosen preset, else equal weights; anyone's live weights (an admin's too) are session-only until saved as a preset.
+- **A team with no counted matches has no composite** (Q11.7) **[RAISED BY ME]**: "—", sorted last. The 0.5 midpoint applies only to a team with data that lacks one metric — otherwise an unscouted team lands mid-table above scouted weak ones.
+- **Columns take single-number metrics only** (Q11.8) **[RAISED BY ME]**: `distribution` and `mode` are refused on ranking, compare and match-preview columns; a `stddev` or `neutral` metric shows but is never a sort key and never weighted (Q9.5's rule, applied to metrics).
+- **Compare** (Q11.9): radar axes normalised min–max over **every team at the event**, lower-is-better inverted; teams chosen from the ranking page (select up to 6), the team page ("Compare with…") and the hub's prompt; the URL carries them (`/compare?teams=2096,1577`).
+- **Match preview** (Q11.10) **[RAISED BY ME]**: its built-in dashboard holds **up to 4 metric columns** (default: the per-phase points); **top strengths** = the team's two columns where it places highest among the event's teams, in words ("Top 3 Auto"); a team with no data shows "—", adds nothing, and its alliance's total reads "2 of 3 scouted" while the winner is still called; hand-entered teams may be any team in the season.
+
 ### 11.3 Closed questions
 
 - ~~**Q11.1**~~ ✓ **CLOSED 2026-08-21:** yes — composite **weighted ranking** on the ranking page (min-max 0–1 per metric, `1 − norm` for lower-is-better, weighted sum, per-team contribution breakdown, admin-saved presets that seed Topic 12).
 - ~~**Q11.2**~~ ✓ **CLOSED 2026-08-21:** full-text **notes search → §24 nice-to-have** (needs a Postgres text index + an offline story).
 - ~~**Q11.3**~~ ✓ **CLOSED 2026-08-21:** **no multi-season team-history view** — out of scope.
 - ~~**Q11.4**~~ ✓ **CLOSED 2026-08-21:** **TBA public info on the team page → §24 nice-to-have**, gated on the TBA import.
+- ~~**Q11.5**~~ ✓ **CLOSED 2026-11-10:** keep variant N; a third category **Metrics** holds the admin's columns and weighting.
+- ~~**Q11.6**~~ ✓ **CLOSED 2026-11-10:** weighting on → "Weighted rank"; Home keeps the basic rank; start from the last preset or equal weights.
+- ~~**Q11.7**~~ **[RAISED BY ME]** ✓ **CLOSED 2026-11-10:** no counted matches → no composite, sorted last.
+- ~~**Q11.8**~~ **[RAISED BY ME]** ✓ **CLOSED 2026-11-10:** single-number metrics only; `stddev` / `neutral` shown, never sorted or weighted.
+- ~~**Q11.9**~~ ✓ **CLOSED 2026-11-10:** radar normalised over the event's teams; three entry points; teams in the URL.
+- ~~**Q11.10**~~ **[RAISED BY ME]** ✓ **CLOSED 2026-11-10:** up to 4 preview columns, top two strengths in words, partial totals called "2 of 3 scouted".
 - ~~Global search omnibox~~ ✓ **Dropped** in favour of dedicated search pages.
 
 ---
@@ -820,11 +863,24 @@ One **"Alliance selection"** area with three tab-switched pages:
 2. **Do-not-pick page** — every flagged team with its reason and author, a **one-tap remove** per row, and an "add team" action available to leads as well as the admin.
 3. **Alliance bracket page** — the 8 alliances × captain / pick1 / pick2 / backup grid; tap a slot to enter a team; declined markers shown against the alliance that was refused.
 
+**Confirmed while planning phase 2 (2026-11-10, Q12.4–Q12.8, user: all recommended):**
+
+- **Lists start empty; seeding leaves out do-not-pick and our own team** (Q12.4) **[RAISED BY ME]**: both lists are created empty the first time the page opens for an event (offline too, like the bracket). Seeding adds every roster team except do-not-pick teams and 2096, in composite order; teams with no composite last, in basic-rank order. Reseeding keeps each team's note.
+- **Adds and removes do not move the list's version** (Q12.5) **[RAISED BY ME]**: a fast-forwarded reorder puts the rows it names in its order; rows it does not name (added elsewhere) follow in their current order; rows removed meanwhile are skipped. Only two genuinely divergent reorders reach the conflict queue.
+- **Bracket checks** (Q12.6) **[RAISED BY ME]**: a team holds at most one slot across the eight alliances (refused, naming where it is); a do-not-pick team can still be entered (the bracket records what happened); a team that declined an alliance cannot fill that alliance's pick slots.
+- **Editing is for the active event only** (Q12.7): under a session override the three pages show that event read-only, online only.
+- **"Next available team" skips** crossed-off rows, do-not-pick-flagged rows and our own team (Q12.8) **[RAISED BY ME]**, reads the active round's list, and says "none left on this list" when it runs out.
+
 ### 12.5 Closed questions
 
 - ~~**Q12.1**~~ ✓ **CLOSED 2026-08-31:** **in scope for v1**, and **moved from Phase 3 to Phase 2** (§19.1) — it depends on nothing from the deferred TBA import.
 - ~~**Q12.2**~~ ✓ **CLOSED 2026-08-31:** alliance-selection results are **entered manually**; each entry writes locally and **syncs immediately when online, otherwise on the next sync** (§7.3 outbox). No API import.
 - ~~**Q12.3**~~ ✓ **CLOSED 2026-08-31:** **no collaborative editing** — the **admin edits, everyone else views**. Single exception: a **lead may add a do-not-pick entry with a required reason**, and may not edit or remove one.
+- ~~**Q12.4**~~ **[RAISED BY ME]** ✓ **CLOSED 2026-11-10:** lists start empty; seeding leaves out do-not-pick teams and 2096; notes survive a reseed.
+- ~~**Q12.5**~~ **[RAISED BY ME]** ✓ **CLOSED 2026-11-10:** adds and removes do not move the list version; a reorder orders what it names.
+- ~~**Q12.6**~~ **[RAISED BY ME]** ✓ **CLOSED 2026-11-10:** one slot per team; do-not-pick may be entered; a decliner not in that alliance's picks.
+- ~~**Q12.7**~~ ✓ **CLOSED 2026-11-10:** edit the active event only; an override is read-only.
+- ~~**Q12.8**~~ **[RAISED BY ME]** ✓ **CLOSED 2026-11-10:** next available skips struck, flagged and our own team.
 - ~~Live cross-off assumes realtime~~ ✓ **Resolved:** cross-off is instant on the admin's device, reaches online viewers on the **45 s auto-refresh**, and offline viewers on sync; the admin's device is the declared source of truth during selection (closes the §8.2 dependency note).
 
 ---
@@ -1363,7 +1419,7 @@ Kept only so the intent is not lost. Nothing here is committed to a date, and ea
 - **Tasks arrive finished.** Because there is no second developer to catch mistakes, each task uses parallel subagents where the work genuinely splits, and ends with an **automated review pass before the diff is presented** — the aim being a task that does not need a second round of fixes. *(Requested 2026-09-01.)*
 - **Tests are written with the task, never after** (§17.2).
 - **Surface:** the Claude Code desktop app. Its visual diff review is what `CLAUDE.md` rule 3 depends on; the CLI is the same agent and needs no separate install.
-- **Schedule checkpoint** *(amended 2026-10-08, v0.67)*: the **phase 1 gate should pass by ~2026-11-01**, leaving a month for phase 2. **No scope cut:** every phase 1 and phase 2 task is built, nothing skipped. A slipped gate raises the pace, not the cut. ~~If it has not passed by 2026-11-01, phase 2 is cut to the metric builder and ranking table.~~
+- **Schedule checkpoint** *(amended 2026-10-08, v0.67)*: the **phase 1 gate should pass by ~2026-11-01**, leaving a month for phase 2. **No scope cut:** every phase 1 and phase 2 task is built, nothing skipped. A slipped gate raises the pace, not the cut. ~~If it has not passed by 2026-11-01, phase 2 is cut to the metric builder and ranking table.~~ *(v1.04, user 2026-11-01)* **The checkpoint passed without the gate:** phase 1 is built and on `main`, but the offline check (task 1.63 step 2) and the rehearsal (1.64) wait until students are available. Phase 2 is planned and built meanwhile (§19.8), designed one group ahead of the code; v1 stays 2026-12-01 with nothing cut.
 
 ### 19.7 If v1 is not ready in time (confirmed)
 
@@ -1372,6 +1428,8 @@ Kept only so the intent is not lost. Nothing here is committed to a date, and ea
 ### 19.8 Scope of `IMPLEMENTATION-PLAN.md` (confirmed)
 
 *(Q19.7.)* **Phase 0 and phase 1 in full task detail** — exact file paths, the actual code, the test, the command to run, the expected output, the commit (`COLLABORATION.md` §7). **Phase 2 as headings only**, re-planned in detail after the phase 1 gate passes. Writing phase 2's tasks now would mean planning against a form builder that does not exist yet, and every one of those tasks would be rewritten.
+
+**Amended 2026-11-01 (v1.04, user): phase 2 is planned now, before the gate.** The reason above no longer holds — the form builder, the engine and the fixed ranking are built — and waiting for students would leave three of the four weeks to 2026-12-01 unplanned. Phase 2's parts and tasks are written in one pass (files, interfaces, acceptance criteria, commit message); each part gets its full step detail in its own chat, one part ahead of its build. When the rehearsal runs, its findings are checked against every part not yet built and the plan is amended where they change it.
 
 ### 19.9 Closed questions
 
@@ -1513,6 +1571,29 @@ Decisions get recorded here as topics close, so Claude Code (and future you) can
 | 2026-11-01 | 5 | **The builder's phase strip always names each phase with its m:ss** (user): each segment at least as wide as its label, the rest shared by length. | A 15 s Auto showed only "A"; proportion is still visible, the label never cut. |
 | 2026-11-01 | 11 / 16 | **Team names may cut with the study panel open at 1440 px** (user: "no" to a fix). | The full name is in the study panel beside the row; widening the table would cost a scoring column. |
 | 2026-11-01 | 3 | **`deleteSeason` / `deleteEvent` responses keep counting live entries only** (user: "you pick"). | Nothing shows those numbers; the delete dialog reads `getDeleteImpact`, which already counts soft-deleted entries too. Changing them would only churn RB.20's tests. |
+| 2026-11-10 | 12 | **Both pick lists start empty on first open; seeding adds the roster minus do-not-pick teams and 2096, no-composite teams last; a reseed keeps notes** (Q12.4, user) **[RAISED BY ME]**. SPEC-FINAL v1.55 §14.3. | A do-not-pick team is blocked from being added by hand (§14.5), so seeding must not add it either; we never pick ourselves; notes are the admin's judgement and outlive an order. |
+| 2026-11-10 | 12 / 7 | **Adds and removes do not move a pick list's version; a reorder orders the rows it names, unnamed rows follow, removed ones are skipped** (Q12.5, user) **[RAISED BY ME]**. §14.7. | §14.7 keeps rows per-row LWW but did not say how they meet a whole-list reorder; bumping the version on every add would turn a lead's harmless addition elsewhere into a conflict for the admin. |
+| 2026-11-10 | 12 | **One bracket slot per team; a do-not-pick team may be entered; a decliner cannot fill that alliance's pick slots** (Q12.6, user) **[RAISED BY ME]**. §14.6. | A double entry would cross the team off wrongly everywhere; the bracket records reality, which may include a team we flagged; a declined pick cannot be re-picked by the same alliance under FRC rules. |
+| 2026-11-10 | 12 / 4 | **Alliance selection is edited for the active event only; an override shows it read-only, online** (Q12.7, user). §14.8. | Only the active event is cached and rides the outbox; editing another event's bracket offline would have nowhere to live. |
+| 2026-11-10 | 12 | **"Next available team" skips struck, do-not-pick-flagged and our own rows, and says "none left on this list"** (Q12.8, user) **[RAISED BY ME]**. §14.8. | Read at arm's length in a loud arena, it must never name a team we cannot or would not pick. |
+| 2026-11-10 | 10 | **A chart's `filters` apply only to raw-entry charts; metric series take filters from their metric** (Q10.11, user) **[RAISED BY ME]**. SPEC-FINAL v1.54 §12.3. | Two filter layers on one series would disagree, and §12.3's own example (`robot_status = played`) contradicts the fixed status rule (§11.3). One owner per filter. |
+| 2026-11-10 | 10 | **Built-in dashboards are created automatically, with default columns made as ordinary metrics** (Q10.12, user) **[RAISED BY ME]**. §12.8. | Nothing said who creates the five rows; an empty ranking or match preview on the first morning of an event would be useless, and defaults as ordinary metrics stay editable without a special case. |
+| 2026-11-10 | 10 / 7 | **The operational dashboard is online only** (Q10.13, user). §12.7. | Its meta-metrics are SQL on the server (§11.1); a partial on-device count would disagree with the server's and read as truth. |
+| 2026-11-10 | 16 | **An Analysis nav group; Metrics under admin; the phone bottom bar unchanged; analysis pages viewable on a phone** (Q10.14, user) **[RAISED BY ME]**. §12.8. | Four new destinations need one home; the bottom bar is the scouter's and was settled by the ranking round. |
+| 2026-11-10 | 10 / 17 | **24 charts per dashboard, 6 series per chart, 12 metric columns per built-in** (Q10.15, user) **[RAISED BY ME]**. §12.4. | Keeps an event dashboard computable on a phone from the cache and the charts' chunk bounded; well above anything the team builds by hand. |
+| 2026-11-10 | 11 | **The ranking page keeps variant N and gains a third category, Metrics, holding the admin's columns and the weighting mode** (Q11.5, user). SPEC-FINAL v1.53 §13.5. | N was designed and built a fortnight ago and answers the everyday question; replacing it would throw away a closed page and Home's cards. A third category adds the configurable part without a second ranking page. |
+| 2026-11-10 | 11 | **With weighting on, rank and medals follow the composite ("Weighted rank"); Home always shows the basic rank; start from the last preset, else equal weights** (Q11.6, user). §13.5. | §13.5 says teams are "ranked by the weighted sum"; labelling it keeps the closed "rank never changes with the sort" true for sorting. Home is read at a glance by everyone and must not change with one person's session weights. |
+| 2026-11-10 | 11 | **A team with no counted matches gets no composite and sorts last; 0.5 is only for a missing metric** (Q11.7, user) **[RAISED BY ME]**. §13.5. | 0.5 on every metric would put an unscouted team mid-table, above scouted weak teams — the opposite of "missing must never look like a value" (§12.6). |
+| 2026-11-10 | 11 / 9 | **Ranking, compare and preview columns take single-number metrics; `stddev` and `neutral` ones never sort or weigh** (Q11.8, user) **[RAISED BY ME]**. §13.5–§13.7. | Min–max normalisation needs one number and a direction; Q9.5 already closed SD as never a ranking key. |
+| 2026-11-10 | 11 | **Compare's radar is normalised over every team at the event; teams come from ranking, the team page or the hub, and live in the URL** (Q11.9, user). §13.6. | Normalising over the compared teams alone makes the same team's shape change with its company; the event population keeps it stable and matches the ranking's composite. A URL makes a comparison shareable like a dashboard. |
+| 2026-11-10 | 11 | **Match preview: up to 4 admin columns, top two strengths in words, a team with no data adds nothing and the total says "2 of 3 scouted"** (Q11.10, user) **[RAISED BY ME]**. §13.7. | "Key metrics" and "top strengths" had no definition to build from; a blocked prediction is useless in the queue line, and a partial one must say it is partial. |
+| 2026-11-10 | 9 | **`score` takes an optional `phase`; `field` takes `measure: 'value' \| 'points'`** (Q9.9, user). SPEC-FINAL v1.52 §11.2. | Without them the ranking's Auto / Teleop / Endgame columns and "points from the climb" cannot be metrics, so phase 2's admin-built columns could not reproduce phase 1's table. |
+| 2026-11-10 | 9 | **A metric's unit and direction are derived from its source and aggregation, never stored; `sum` only over fields sharing unit and direction** (Q9.10, user). §11.2. | The selector pool (§12.3), shading (§12.6) and `best`/`worst` all need them, and `metrics` has no column for either. Derivation keeps one truth (the field's metadata) and needs no migration; a stored copy would drift when a field's metadata is edited. |
+| 2026-11-10 | 9 / 10 / 5 | **A chart series is a saved metric or an inline definition; leads build inline ones in the draft page; an admin may save one as a metric** (Q9.11, user). §12.3, §12.9. | The phase 2 gate has a strategy lead build a metric unaided, but `createMetric` is admin-only (§7). Inline definitions meet the gate inside the lead's session-only draft without widening who writes shared, season-level metrics. |
+| 2026-11-10 | 9 | **Deleting a metric in use is refused, naming each chart, column and preset using it** (Q9.12, user). §11.2, App. C. | Metrics are not versioned and are shared; a silent cascade would quietly change the admin's ranking and presets, and a dangling reference would break them at an event. Same shape as a form version with entries. |
+| 2026-11-10 | 9 | **Metrics over the super form are allowed; match filters are hidden for them** (Q9.13, user). §11.2. | Driver skill and defence live on the super form and are pick-list inputs; a super entry is one per (team, event), so last N, excluded matches and robot status have nothing to act on. |
+| 2026-11-10 | 9 / 16 | **Metrics are built on `/admin/metrics` (computer only) and from the chart builder; saving is online; a description is required** (Q9.14, user). §11.2, §12.9. | A metric is reused across charts, columns and presets, so it needs a home where its uses are visible; the description is the same MCP-readiness rule as a field's metadata (§16.8), and must be captured when the metric is made. |
+| 2026-11-01 | 19 | **Phase 2 is planned in full now, before the phase 1 gate** (user), amending Q19.7 / §19.8's "headings only, re-planned after the gate". Parts and tasks in one pass; each part's step detail written one part ahead of its build; the plan re-checked against the rehearsal when it runs. SPEC-FINAL v1.51 §20.6, §20.8. | The gate waits for students, not for code: phase 1 is built and on `main`. Q19.7's reason (no form builder to plan against) no longer holds, and waiting would leave three of the four weeks to 2026-12-01 unplanned with nothing cut. Detail one part ahead keeps the cost of a gate finding to one part's rewrite, not the phase's. |
 | 2026-11-01 | 5 | **A deleted draft's version number is reused by the next draft** (user: "you pick"). | A draft never carries entries and never reaches a device, so the number cannot collide with anything stored or in flight. |
 | 2026-10-28 | 11 | **Home's our-team card: "places moved" is since our last match** (user), and the card and top teams are built with the ranking (task 1.58b) **[RAISED BY ME]**: round 03 marked both "wanted, after ranking", but no plan task carried them. SPEC-FINAL v1.48 §13.5. | Since our last match is the question the drive team asks after it ("did that help?"), and it needs no stored history: the ranking is recomputed from the matches before it, on the server and offline alike. Rejected: since the start of the day or the previous sync (both need a stored snapshot and differ per device). |
 | 2026-10-28 | 3 / 16 | **Delete confirmation designed (variant A)** (user): the bill first — the damage as the biggest count, then itemised — then Back up first and Type the name; a plain "Are you sure?" pop-up where nothing is typed (one entry, a match with no entries); blocked deletes show their ways forward. SPEC-FINAL v1.47 §17.8. | The user wanted the size of the loss to be the first thing read before an irreversible delete, and no ceremony for a single record: the bill only appears where something big goes. Rejected: one square per entry (noise, user), level markers (B), a checks line (C), a backup tick gating the typing (D) — the typed name is already the deliberate step. |
@@ -1694,6 +1775,11 @@ Every edit is logged here so changes can be audited without reprinting the docum
 | v1.01 | 2026-10-29 | header, 21, 23 · SPEC-FINAL v1.49 (§3.9, §13.5, §17.8) · IMPLEMENTATION-PLAN v1.38 | User decisions after Phase 1 J: a form version deletes on its own when a draft or superseded by a newer published version; every rank counts the roster; standard deviation always one decimal. Three Decision Log rows. |
 | v1.02 | 2026-11-01 | header, 21, 23 · SPEC-FINAL v1.50 (§11.3, §13.5, §17.8) · IMPLEMENTATION-PLAN v1.39 | The user's feedback from testing develop: a breakdown counts as missed for availability; the roster count on the ranking page and top teams; one computer dialog standard; the phase strip names every phase. Four Decision Log rows. Also fixed: the phone sort builder's cut names, the sort badge spilling into the next column, the computer ranking's scrolling. |
 | v1.03 | 2026-11-01 | 21 | Three known issues left as they are: names cut with the study panel at 1440 px; live-only counts in the season/event delete responses; a deleted draft's number reused. Three Decision Log rows. |
+| v1.08 | 2026-11-10 | header, 12.2, 12.5, 21, 23 · SPEC-FINAL v1.55 (§14.3, §14.6, §14.7, §14.8) | **Phase 2 planning, batch 4 (Q12.4–Q12.8, all recommended):** empty lists and the seeding population; reorder vs. concurrent add/remove; bracket checks; editing the active event only; next available team. |
+| v1.07 | 2026-11-10 | header, 10.2, 10.3, 21, 23 · SPEC-FINAL v1.54 (§12.3, §12.4, §12.7, §12.8) | **Phase 2 planning, batch 3 (Q10.11–Q10.15, all recommended):** chart filters on raw-entry charts only; built-ins created automatically with default columns; operational dashboard online only; the Analysis nav group; dashboard limits. |
+| v1.06 | 2026-11-10 | header, 11.2, 11.3, 21, 23 · SPEC-FINAL v1.53 (§12.8, §13.5, §13.6, §13.7) | **Phase 2 planning, batch 2 (Q11.5–Q11.10, all recommended):** the Metrics category on page N; weighted rank; no composite without data; single-number columns; compare normalised over the event; the match preview's columns, strengths and partial totals. |
+| v1.05 | 2026-11-10 | header, 9.1, 9.3, 21, 23 · SPEC-FINAL v1.52 (§3.7, §11.2, §12.3, §12.9, App. C) | **Phase 2 planning, batch 1 (Q9.9–Q9.14, all recommended):** phase and field points as metric sources; unit and direction derived; inline metric definitions (the lead's gate path); a metric in use cannot be deleted; super-form metrics; the Metrics page. |
+| v1.04 | 2026-11-10 | header, 19.6, 19.8, 21, 23 · SPEC-FINAL v1.51 (§20.6, §20.8) | **Phase 2 is planned now, before the phase 1 gate**, and re-checked against the rehearsal's findings; each part's step detail is written one part ahead of its build. |
 | v1.00 | 2026-10-28 | header, 21, 23 · SPEC-FINAL v1.48 (§13.5) · IMPLEMENTATION-PLAN v1.37 (1.58b) | **Home's our-team card and top teams get a task** **[RAISED BY ME]**; "places moved" is since our last match. |
 | v0.99 | 2026-10-28 | header, 16.1, 17 (deletion), 21, 23 · SPEC-FINAL v1.47 (§3.9, §17.8) · THEME.md · design README · IMPLEMENTATION-PLAN v1.35 (1.60, 1.61) | **Delete confirmation designed** (variant A: the bill first, "Are you sure?" for single records); **a match deleted with its entries** **[RAISED BY ME]** the dead-end "delete the entries first"; **the two-file backup** on the delete screen **[RAISED BY ME]**. |
 | v0.98 | 2026-10-28 | header, 11.2, 16.2, 16.3, 21, 23 · SPEC-FINAL v1.46 (§13.5, §17.9, D18) · THEME.md · design README · IMPLEMENTATION-PLAN v1.34 (1.58) | **Ranking page designed** (variant N: Scoring and Availability, per-phase averages, availability on every row, a status spread of the scouted matches, a team study, a sort of several figures) **[RAISED BY ME]** two rules; **phone bottom bar** with Ranking is Home · Scout · Search · Ranking; **one decimal** for averages and standard deviations (§16.2, SPEC-FINAL §17.8). |

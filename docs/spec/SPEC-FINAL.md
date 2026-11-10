@@ -1,6 +1,16 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.50 · **Date:** 2026-11-01 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.55 · **Date:** 2026-11-10 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.55: pick lists start empty and seed without do-not-pick teams or our own; adds and removes do not move a list's version; bracket checks; alliance selection is edited for the active event only; the next-available header skips flagged rows and our team (§14.3, §14.6–§14.8). See the living spec's §21, v1.08.*
+
+*v1.54: chart filters apply only to raw-entry charts; the built-in dashboards are created automatically with default columns; the operational dashboard is online only; an Analysis nav group; dashboard limits (§12.3, §12.4, §12.7, §12.8). See the living spec's §21, v1.07.*
+
+*v1.53: the ranking page gains a Metrics category with the admin's columns and weighting, and a weighted rank; a team with no data has no composite; columns take single-number metrics; compare normalises over the event; the match preview's columns, strengths and partial totals (§12.8, §13.5–§13.7). See the living spec's §21, v1.06.*
+
+*v1.52: a metric can read a phase's points and a field's points; its unit and direction are derived, never stored; a chart series may carry an inline definition, which is how a lead builds a metric; a metric in use cannot be deleted; super-form metrics are allowed; metrics are built on `/admin/metrics` (§3.7, §11.2, §12.3, §12.9, Appendix C). See the living spec's §21, v1.05.*
+
+*v1.51: Phase 2 is planned in full now, before the phase 1 gate, and re-checked against what the gate reveals (§20.6, §20.8). See the living spec's §21, v1.04.*
 
 *v1.50: a breakdown counts as missed for availability, its points still count (§11.3, §13.5); the ranking page and Home's top teams state the roster count (§13.5); every computer dialog has the × and closes on Escape, the × or a click outside unless busy (§17.8); the builder's phase strip always names each phase with its time. See the living spec's §21, v1.02.*
 
@@ -531,6 +541,8 @@ create index on weight_presets (season_id, updated_at);
 ```
 
 Metrics are **not versioned**. Dashboards are edited in place. There is **one dashboard row per built-in kind per season** — team, ranking, compare, match preview and operational — each holding that built-in's chart set and, for ranking and compare, its metric columns. `kind = 'custom'` covers every admin-saved dashboard.
+
+A metric stores **no unit and no direction**; both are derived from its definition (§11.2, v1.52).
 
 `metrics.source_kind` distinguishes a metric over **form fields** (`form`, with a `form_id`) from an **operational meta-metric** over app metadata (`meta`, with no form). Both are built with the same builder (§12.7).
 
@@ -1368,9 +1380,11 @@ type Op = '=' | '!=' | '>' | '<' | '>=' | '<='
 
 type MetricDefinition = {
   source:
-    | { kind: 'field';  field_key: string }
+    | { kind: 'field';  field_key: string
+                        measure?: 'value' | 'points' }   // v1.52; default 'value'
     | { kind: 'sum';    field_keys: string[] }       // multi-field arithmetic, e.g. auto + teleop
-    | { kind: 'score' }                              // the derived scouted score
+    | { kind: 'score';  phase?: 'auto' | 'teleop' | 'endgame' | 'post_match' }
+                                                     // the derived scouted score; v1.52: one phase's points
     | { kind: 'cycle';  field_key: string; event_type: string
                         series: 'duration' | 'count' | 'time_to_first' }
     | { kind: 'status'; measure: 'breakdowns' | 'no_shows' | 'disabled' | 'availability_rate' }
@@ -1404,6 +1418,14 @@ Rules:
 - **A display limit / target value** is drawn as a reference on the chart or table.
 - **No recency weighting.** Every included match counts equally.
 - **Metrics are not versioned.** Editing one changes it everywhere.
+
+*(v1.52, user 2026-11-10)* **Phase 2 rules for a metric:**
+
+- **Unit and direction are derived from the source and the aggregation, never stored.** A `field` source keeps the field's `unit` and `direction` (`measure: 'points'` is points, higher is better). `score` is points, higher is better. `status` counts (breakdowns, no-shows, disabled) are lower is better; `availability_rate`, `rate` and every percentage are %, higher is better. `count` is matches, higher is better. `slope` is the source's unit per match, with its direction. `stddev` keeps the unit and is `neutral`. `mode` and `distribution` take the field's. A `sum` may combine only fields that share one unit and one direction.
+- **A metric on the `super` form** reads each team's one super entry per event: at event scope its value is that answer; across events it aggregates one value per event. `last_n_matches`, `exclude_match_numbers` and `robot_status` do not apply and the builder hides them.
+- **A metric in use cannot be deleted.** `deleteMetric` refuses, naming every chart, ranking / compare / match-preview column and weight preset that uses it. A pick list's `seeded_from_weights` snapshot does not block; it shows the metric as "deleted metric".
+- **A `description` is required** on every metric, captured when it is made (§16.8).
+- **The builder** is the **Metrics page, `/admin/metrics`**, computer only (≥ 1024 px): the season's metrics with name, description and where each is used, and the builder in a panel. **New metric** is also offered inside the chart builder's series picker. Creating, editing or deleting a metric needs a connection.
 
 **Aggregation semantics** — the ones that are not self-evident:
 
@@ -1532,7 +1554,7 @@ A chart is a saved configuration referencing fields and metrics:
 {
   "type": "bar",
   "dimension": { "kind": "team" },
-  "series": [ { "metric": "<metric_id>" }, { "metric": "<metric_id>" } ],
+  "series": [ { "metric": "<metric_id>" }, { "definition": { /* MetricDefinition, §11.2 */ }, "name": "…" } ],
   "filters": [ { "field_key": "robot_status", "op": "=", "value": "played" } ],
   "sort":    { "by": "<metric_id>", "dir": "desc" },
   "limit":   20,
@@ -1541,6 +1563,10 @@ A chart is a saved configuration referencing fields and metrics:
 ```
 
 Scope lives on the dashboard, not the chart.
+
+*(v1.54)* **A chart's `filters` apply only to charts that plot raw entries** — data tables of entries, the field-position heatmap and scatter, and cycle paths. A metric series is filtered only by its metric's own `filters` (§11.2); the builder offers no chart filter on a metric chart.
+
+*(v1.52)* **A series is a saved metric (`metric`) or an inline definition (`definition` + `name`)** of exactly §11.2's shape, evaluated by the same engine. A lead's draft page builds metrics this way (§12.9); an admin may **Save as metric**, which creates the metric and replaces the inline series with its id.
 
 **The dimension vocabulary is closed.** A chart's X dimension is exactly one of:
 
@@ -1561,6 +1587,7 @@ Scope lives on the dashboard, not the chart.
 - Charts sit on a **12-column responsive grid**.
 - Each tile picks a **span**: stat card = 3 (four per row), standard chart = 6 (two per row), wide chart or table = 12.
 - Tiles are **drag-reordered**. Size is chosen as small / medium / full. **No free-pixel positioning.**
+- *(v1.54)* **Limits:** at most **24 charts per dashboard**, **6 series per chart**, and **12 metric columns** per built-in.
 - On narrower screens the grid reflows to fewer columns and finally to a single stacked column, preserving order.
 
 ### 12.5 View-time interaction
@@ -1609,6 +1636,8 @@ Operational statistics are **configurable, not a static page**: they use the **s
 | Conflicting-entry count | The size of the §9.5 review queue — unresolved `sync_conflicts` rows. |
 | Super-scouting coverage | **Of the teams on the event roster that have at least one recorded match entry, how many also have a super-scouting entry.** Denominator is *recorded* teams, so it needs no imported schedule. |
 
+*(v1.54)* **The operational dashboard is online only**: its meta-metrics are SQL on the server (§11.1), so offline it shows the "needs a connection" notice of the offline capability matrix.
+
 ### 12.8 Built-in dashboards
 
 Five dashboards ship out of the box. Each is reachable **in context from its home page**, which supplies the required input automatically:
@@ -1621,17 +1650,23 @@ Five dashboards ship out of the box. Each is reachable **in context from its hom
 | **Match preview dashboard** | Match preview page | The six teams |
 | **Operational dashboard** | Operational statistics page | Event |
 
-Each built-in has one `dashboards` row per season (§3.7), holding its chart set and — for ranking and compare — its metric columns.
+Each built-in has one `dashboards` row per season (§3.7), holding its chart set and — for ranking, compare and match preview *(v1.53)* — its metric columns.
 
 **Built-ins operate on the active event, or on another event if the viewer changes it.** Every built-in carries an event selector; changing it re-scopes that view for the session only, without touching the dashboard's stored scope or the app's active context. Season-wide built-ins keep their season scope. The selector is **disabled offline** (only the active competition is cached).
 
+*(v1.54, user 2026-11-10)* **The built-ins are created automatically**, for every season including the existing one, with no charts. Ranking, compare and match preview start with **default columns — Total, the per-phase points and Availability** — created as ordinary metrics the admin may edit or remove. Each built-in is edited on its own home page; the hub lists and opens.
+
 **General Dashboards page (the hub).** A dedicated page lists **every dashboard for the active season** — the built-ins plus every admin-saved dashboard. Because the hub has no page context, opening a parameterized built-in **prompts for its input** (enter a team number, pick the teams to compare). Admin-saved dashboards are season-scoped and appear in the list for the year they belong to.
+
+*(v1.54)* **Navigation.** A new **Analysis** nav group holds Dashboards, Compare, Match preview and Alliance selection; Metrics sits in the admin group. The phone bottom bar stays Home · Scout · Search · Ranking. Every analysis page is viewable on a phone; only the builders need a computer.
 
 ### 12.9 Builder UX
 
 Pick a chart type → pick the dimension → add one or more series (field or metric + aggregation) → add filters → live preview → save.
 
 The target is "understandable by a 15-year-old in five minutes", not Tableau. Desktop only, ≥ 1024 px.
+
+*(v1.52)* **"Add a series" offers a saved metric or a new one.** A new one is built in the same panel as the Metrics page; a lead's is kept inline in the draft (§12.3), an admin's is saved as a metric. This is how the phase 2 gate's lead "builds a metric" without the admin role.
 
 **The draft statistics page** uses this same builder and has **exactly the same in-memory shape as a saved dashboard** — a `scope`, a `filters` object and an ordered list of chart configs, identical to §3.7's columns. It is never written to IndexedDB and never sent to the server. It is held in session memory, so it **survives navigation between pages** and is **lost on reload, on logout, and on closing the tab**. Offline it computes over the cached active competition only, and its scope selector offers only that event.
 
@@ -1731,12 +1766,21 @@ Layout: the **metrics table first**, then charts and other metrics below.
 - Offline, the phone computes the same table from the entries on the device and says so ("Computed from the data on this device", with the last sync time).
 - *(v1.48, user 2026-10-28)* **Home reads the same ranking**: the our-team card shows rank #N of M (M is the event's roster, ranked or not, as on the ranking page and the team page *(v1.49, user 2026-10-29)*), the average, and **places moved since our last match** — our rank now against our rank computed from the qualification matches numbered below our most recent counted one ("▲2 since Q36"); the top-teams list is the top five with a five-match trend line, its heading saying "of N teams" *(v1.50)*. The ranking page's line under the event name states the roster count ("30 teams") *(v1.50, user 2026-11-01)*.
 
+*(v1.53, user 2026-11-10)* **Phase 2's configurable ranking extends this page; it does not replace it.**
+
+- **A third category, Metrics,** beside Scoring and Availability: its columns are the season's ranking dashboard's metric columns, and the **weighting mode** lives here. Scoring and Availability stay as built. The team study panel gains the **contribution breakdown** (each metric's share of the composite).
+- **Weighted rank.** With weighting on, the rank column and the medals follow the composite and the header reads **"Weighted rank"**; off, the canonical basic rank. **Home's cards always show the basic rank.** Weighting starts from the last preset chosen on this device, else equal weights. Live weights are session-only for everyone, an admin included, until saved as a preset.
+- **No data, no composite.** A team with no counted matches shows "—" for its composite and sorts last. The 0.5 midpoint applies only to a team that has data but lacks one metric.
+- **Columns take single-number metrics.** `distribution` and `mode` metrics are refused as ranking, compare or match-preview columns. A `stddev` or `neutral` metric may be shown but is never a sort key and never weighted.
+
 ### 13.6 Compare page
 
 Also the **compare built-in dashboard**. Compares **up to 6 teams** on an **admin-built compare metric set — one per season, edited in place, not versioned — computed over the active event**.
 
 - **2 teams:** a "final-score" **head-to-head scoreboard** — an average-points headline per team, then per-metric rows in a **mirrored two-column layout** with a bar leaning toward the stronger side.
 - **3–6 teams:** **radar + table**.
+- *(v1.53)* **The radar's axes are normalised min–max over every team at the event**, `lower_is_better` inverted, so a team's shape does not change with the teams beside it.
+- *(v1.53)* **Teams are chosen** from the ranking page (select up to 6), the team page ("Compare with…") or the hub's prompt; the URL carries them (`/compare?teams=2096,1577`).
 
 ### 13.7 Match preview page
 
@@ -1746,6 +1790,9 @@ Also the **match preview built-in dashboard**.
 - Shows the two alliances as **mirrored columns**, three team rows each with their key metrics.
 - **Prediction:** each alliance's predicted score = the **sum of its three teams' status-aware average points per match**. The higher total is the predicted winner. Shows **each team's contribution and the predicted margin**, with the summed-average prediction as a single bar across the top.
 - Also surfaces **per-robot reliability and no-show flags** and each team's **top strengths**.
+- *(v1.53)* **Key metrics** are the match-preview dashboard's **up to 4 metric columns** (default: the per-phase points), held like ranking's and compare's.
+- *(v1.53)* **Top strengths** are the team's two columns where it places highest among the event's teams, in words ("Top 3 Auto").
+- *(v1.53)* **A team with no data** shows "—" and adds nothing; its alliance's total reads **"2 of 3 scouted"**, and the winner is still called. Hand-entered teams may be any team in the season.
 
 ---
 
@@ -1769,6 +1816,7 @@ Each row shows: **rank position**, team number + name, the **canonical basic ran
 
 - A list is **seeded from a ranking weight preset** (§13.5): the admin picks a saved preset (recorded in `seeded_from_preset_id`) or the ranking page's current live weights (snapshotted into `seeded_from_weights`), and the list is generated in that weighted-composite order, then hand-adjusted. Either way the seeding basis is recorded, so the list can say what it was built from.
 - **Reseeding replaces the whole order and asks for confirmation first**, because it discards manual adjustments.
+- *(v1.55, user 2026-11-10)* **Both lists are created empty** the first time the pick list page is opened for an event, offline too, like the bracket. **Seeding adds every roster team except do-not-pick teams and our own team (2096)**, in weighted-composite order; teams with no composite follow in basic-rank order. **A reseed keeps each team's note.**
 - **Reorder is drag-and-drop** with an explicit **drag handle**, a visible drop position, and **long-press to start a drag on touch**, so a scroll can never reorder the list by accident.
 
 ### 14.4 Round awareness
@@ -1795,6 +1843,7 @@ Manual entry. No import.
 - The grid is **created empty in one action** the first time the bracket page is opened for an event: 8 `alliances` rows and 32 `alliance_slots` rows with `team_id is null` (§3.8). It works offline like any other create.
 - The admin enters each result as selection happens. Every entry **writes locally first** and **syncs immediately if there is internet, otherwise on the next sync**, through the ordinary outbox.
 - **Declined pick.** A team that declines is recorded as **declined against that alliance**. It stays available to be picked later or to become a captain, and the app shows a "declined — alliance N" marker so nobody asks twice.
+- *(v1.55)* **Checks.** A team holds **at most one slot** across the eight alliances; entering a team already placed is refused, naming where it is. A do-not-pick team **can** be entered (the bracket records what happened). A team that declined an alliance cannot fill that alliance's pick slots.
 - **Live cross-off.** As captains, picks and backups are entered, every affected team is **struck through automatically across both pick lists**, so the top unstruck row is always the next available team. Cross-off state is **derived from `alliance_slots`**, never stored.
 
 ### 14.7 Offline and conflict behaviour
@@ -1808,6 +1857,7 @@ Pick lists, the do-not-pick list and the alliance bracket are **all editable off
 - Fast-forward → applied, version bumps.
 - Genuine divergence → the conflict-review queue, with the **superseded ordering preserved in full**.
 - Individual rows (add / remove / edit note) remain ordinary per-row last-write-wins.
+- *(v1.55)* **An add or a remove does not change the list's `version`.** A fast-forwarded reorder sets the order of the rows it names; rows it does not name (added on another device) follow in their current order; rows removed meanwhile are skipped. Only two divergent reorders reach the conflict queue.
 
 **No pick-list history and no ordering snapshots.** The bracket's `declined` markers are the only historical record the feature keeps.
 
@@ -1818,6 +1868,8 @@ One **"Alliance selection"** area with three tab-switched pages. All three work 
 1. **Pick list page** — the active-round list (first/second toggle plus automatic round detection), drag-reorder for the admin, automatic strikethrough for taken teams, do-not-pick warning markers, inline notes, a reseed-from-preset action, and a **compact "next available team" header** designed to be readable at arm's length in a loud arena.
 2. **Do-not-pick page** — every flagged team with its reason and author, a one-tap remove per row, and an "add team" action available to leads as well as the admin.
 3. **Alliance bracket page** — the 8 alliances × captain / pick1 / pick2 / backup grid; tap a slot to enter a team; declined markers shown against the alliance that was refused.
+
+*(v1.55)* **"Next available team"** is the top row of the active round's list that is not crossed off, not flagged do-not-pick and not our own team; when none is left it says "none left on this list". **Editing is for the active event only**: under a session override the three pages show that event read-only, online only.
 
 ---
 
@@ -2335,13 +2387,17 @@ A phase is finished when its gate passes, not when the code is written.
 
 **There is no scope cut.** Every phase 1 task and every phase 2 item is built, in plan order, with nothing skipped (amended 2026-10-08, v1.19); this replaces the earlier rule that cut phase 2 to the metric builder and the ranking dashboard if the gate slipped. The checkpoint is an early warning only: if the gate has not passed by ~2026-11-01, the pace is raised (more parallel design rounds, overnight build runs), not the scope. Until a part lands, the team works with what the app already has (for example, reading entries without dashboards).
 
+*(v1.51, user 2026-11-01)* **The checkpoint passed without the gate.** Phase 1 is built and on `main`; the offline check and the gate rehearsal wait until students are available. Phase 2 is planned and built meanwhile (§20.8), designed one group ahead of the code. v1 is still due **2026-12-01**, with nothing cut.
+
 ### 20.7 Fallback if v1 is not ready
 
 Fallback is **Google Sheets**, as used today. **There is no import path**, so anything collected in Sheets during a fallback event **stays in Sheets** and never enters the app's statistics. The event is scouted; it is not scouted into this system.
 
 ### 20.8 Scope of `IMPLEMENTATION-PLAN.md`
 
-**Phase 0 and phase 1 in full task detail** — exact file paths, the actual code, the test, the command to run, the expected output, the commit. **Phase 2 as headings only**, re-planned in detail after the phase 1 gate passes.
+**Phase 0 and phase 1 in full task detail** — exact file paths, the actual code, the test, the command to run, the expected output, the commit.
+
+**Phase 2 is planned now, before the phase 1 gate** *(v1.51, user 2026-11-01; was "headings only, re-planned in detail after the phase 1 gate passes")*. Its parts and tasks are written in one pass, each task with its files, interfaces, acceptance criteria and commit message; **each part gets its full step detail in its own chat, one part ahead of its build**. When the gate rehearsal runs, its findings are checked against every part not yet built, and the plan is amended where they change it.
 
 ---
 
@@ -2527,7 +2583,7 @@ The starting registry for phase 1. Every entry carries a Zod input schema, a Zod
 | `upsertEntry` | scouter (own, ≤ 5 min) / lead / admin |
 | `deleteEntry` | lead / admin |
 | `resolveConflict` | lead / admin |
-| `createMetric` / `updateMetric` / `deleteMetric` | admin |
+| `createMetric` / `updateMetric` / `deleteMetric` | admin — online only; `description` required; `deleteMetric` refuses a metric in use, naming each use (§11.2) |
 | `saveDashboard` / `updateDashboard` / `deleteDashboard` | admin |
 | `saveWeightPreset` / `deleteWeightPreset` | admin |
 | `createPickList` / `setPickListOrder` / `reseedPickList` | admin |
