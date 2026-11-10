@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.54 · **Date:** 2026-11-10 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.55 · **Date:** 2026-11-10 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.55: pick lists start empty and seed without do-not-pick teams or our own; adds and removes do not move a list's version; bracket checks; alliance selection is edited for the active event only; the next-available header skips flagged rows and our team (§14.3, §14.6–§14.8). See the living spec's §21, v1.08.*
 
 *v1.54: chart filters apply only to raw-entry charts; the built-in dashboards are created automatically with default columns; the operational dashboard is online only; an Analysis nav group; dashboard limits (§12.3, §12.4, §12.7, §12.8). See the living spec's §21, v1.07.*
 
@@ -1814,6 +1816,7 @@ Each row shows: **rank position**, team number + name, the **canonical basic ran
 
 - A list is **seeded from a ranking weight preset** (§13.5): the admin picks a saved preset (recorded in `seeded_from_preset_id`) or the ranking page's current live weights (snapshotted into `seeded_from_weights`), and the list is generated in that weighted-composite order, then hand-adjusted. Either way the seeding basis is recorded, so the list can say what it was built from.
 - **Reseeding replaces the whole order and asks for confirmation first**, because it discards manual adjustments.
+- *(v1.55, user 2026-11-10)* **Both lists are created empty** the first time the pick list page is opened for an event, offline too, like the bracket. **Seeding adds every roster team except do-not-pick teams and our own team (2096)**, in weighted-composite order; teams with no composite follow in basic-rank order. **A reseed keeps each team's note.**
 - **Reorder is drag-and-drop** with an explicit **drag handle**, a visible drop position, and **long-press to start a drag on touch**, so a scroll can never reorder the list by accident.
 
 ### 14.4 Round awareness
@@ -1840,6 +1843,7 @@ Manual entry. No import.
 - The grid is **created empty in one action** the first time the bracket page is opened for an event: 8 `alliances` rows and 32 `alliance_slots` rows with `team_id is null` (§3.8). It works offline like any other create.
 - The admin enters each result as selection happens. Every entry **writes locally first** and **syncs immediately if there is internet, otherwise on the next sync**, through the ordinary outbox.
 - **Declined pick.** A team that declines is recorded as **declined against that alliance**. It stays available to be picked later or to become a captain, and the app shows a "declined — alliance N" marker so nobody asks twice.
+- *(v1.55)* **Checks.** A team holds **at most one slot** across the eight alliances; entering a team already placed is refused, naming where it is. A do-not-pick team **can** be entered (the bracket records what happened). A team that declined an alliance cannot fill that alliance's pick slots.
 - **Live cross-off.** As captains, picks and backups are entered, every affected team is **struck through automatically across both pick lists**, so the top unstruck row is always the next available team. Cross-off state is **derived from `alliance_slots`**, never stored.
 
 ### 14.7 Offline and conflict behaviour
@@ -1853,6 +1857,7 @@ Pick lists, the do-not-pick list and the alliance bracket are **all editable off
 - Fast-forward → applied, version bumps.
 - Genuine divergence → the conflict-review queue, with the **superseded ordering preserved in full**.
 - Individual rows (add / remove / edit note) remain ordinary per-row last-write-wins.
+- *(v1.55)* **An add or a remove does not change the list's `version`.** A fast-forwarded reorder sets the order of the rows it names; rows it does not name (added on another device) follow in their current order; rows removed meanwhile are skipped. Only two divergent reorders reach the conflict queue.
 
 **No pick-list history and no ordering snapshots.** The bracket's `declined` markers are the only historical record the feature keeps.
 
@@ -1863,6 +1868,8 @@ One **"Alliance selection"** area with three tab-switched pages. All three work 
 1. **Pick list page** — the active-round list (first/second toggle plus automatic round detection), drag-reorder for the admin, automatic strikethrough for taken teams, do-not-pick warning markers, inline notes, a reseed-from-preset action, and a **compact "next available team" header** designed to be readable at arm's length in a loud arena.
 2. **Do-not-pick page** — every flagged team with its reason and author, a one-tap remove per row, and an "add team" action available to leads as well as the admin.
 3. **Alliance bracket page** — the 8 alliances × captain / pick1 / pick2 / backup grid; tap a slot to enter a team; declined markers shown against the alliance that was refused.
+
+*(v1.55)* **"Next available team"** is the top row of the active round's list that is not crossed off, not flagged do-not-pick and not our own team; when none is left it says "none left on this list". **Editing is for the active event only**: under a session override the three pages show that event read-only, online only.
 
 ---
 
