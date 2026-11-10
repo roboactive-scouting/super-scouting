@@ -1,7 +1,7 @@
 # FRC Scouting Platform — Design Specification (Living Document)
 
 **Status:** DRAFT v0.35 — **topics 1–20 CLOSED; `SPEC-FINAL.md` written.** Every feature topic plus the system architecture, the deployment/operations model, the non-functional requirements and the delivery plan. Core forks decided (storage, versioning, offline stats, stack, access model, language, roles/auth, data-entry UX, offline-first & sync, realtime deferred → 45s refresh, dashboards & visualisation, search/ranking/browse, data quality, alliance selection, repo layout & services, environments & operations, performance/testing/privacy/deletion, phasing & delivery). **v1 = phases 0–2, due 2026-12-01** (§19.1, amended v0.67). Topic 14 is closed as **deferred in full to §24**, and topic 20 as **setup only** with the LLM connection parked. **No live questions remain.** `docs/spec/SPEC-FINAL.md` (v1.0, 2026-09-02) is the distilled build input; **it carries 32 consolidation decisions (its Appendix D) that resolve gaps this document left unstated, and it supersedes this document wherever the two differ on a v1 requirement.** `docs/plans/IMPLEMENTATION-PLAN.md` (v1.1, 2026-09-03) covers phases 0–1 in full task detail and phase 2 as headings. **The spec phase is complete; the build phase begins at the provisioning gate.**
-**Last updated:** 2026-11-10 (v1.06)
+**Last updated:** 2026-11-10 (v1.07)
 **Owner:** (your name / team number)
 **Destination:** this document, once all topics are CLOSED, becomes the input spec for Claude Code to generate an implementation plan.
 
@@ -689,6 +689,14 @@ Each of these is a **built-in dashboard**. It is reachable **in-context from its
 - **All-equal / single row** — when a column's min == max (every value identical, or only one row), shading falls back to a **flat mid-color**; inferring "best" or "worst" from one data point would be dishonest.
 - **Colorblindness** — the scale must also vary **lightness monotonically** (so it degrades to a legible light→dark ramp for red-green colorblind users, ~8% of males) **and the numeric value is always shown in the cell.** Color is a fast cue, never the only channel.
 
+**Confirmed while planning phase 2 (2026-11-10, Q10.11–Q10.15, user: all recommended):**
+
+- **Chart filters apply only to charts that plot raw entries** (Q10.11) **[RAISED BY ME]**: entry tables, the position heatmap and scatter, cycle paths. A metric series is filtered only by its metric (§9); the builder offers no chart filter on a metric chart.
+- **The built-ins are created automatically** (Q10.12) **[RAISED BY ME]**, the existing season included: no charts at first; ranking, compare and match preview start with default columns — Total, the per-phase points and Availability — created as ordinary metrics the admin may edit or remove. Each built-in is edited on its own page; the hub lists and opens.
+- **The operational dashboard is online only** (Q10.13): offline it shows the "needs a connection" notice of `OfflineGate`.
+- **Navigation** (Q10.14) **[RAISED BY ME]**: a new **Analysis** group — Dashboards, Compare, Match preview, Alliance selection; Metrics in the admin group; the phone bottom bar stays Home · Scout · Search · Ranking. Every analysis page is viewable on a phone; only the builders need a computer.
+- **Limits** (Q10.15) **[RAISED BY ME]**: 24 charts per dashboard, 6 series per chart, 12 metric columns per built-in — so a dashboard computes on a phone and the charts' own chunk stays outside the 240 KB initial bundle.
+
 ### 10.3 Closed questions
 
 - ~~**Q10.1**~~ ✓ **Full high-analysis chart set incl. pie/donut, plus stacked-area, bump/rank, bullet-gauge, small-multiples** (§10.1/§10.2).
@@ -701,6 +709,11 @@ Each of these is a **built-in dashboard**. It is reachable **in-context from its
 - ~~**Q10.8**~~ ✓ **Scouted-vs-official → §24 nice-to-have, gated on TBA import.**
 - ~~**Q10.9**~~ ✓ **Metric selector/expand pool = metrics sharing the chart's X dimension** (comparable axis/unit).
 - ~~**Q10.10**~~ ✓ **Expand-to-stack capped at 4.**
+- ~~**Q10.11**~~ **[RAISED BY ME]** ✓ **CLOSED 2026-11-10:** chart filters on raw-entry charts only.
+- ~~**Q10.12**~~ **[RAISED BY ME]** ✓ **CLOSED 2026-11-10:** built-ins created automatically, default columns as ordinary metrics.
+- ~~**Q10.13**~~ ✓ **CLOSED 2026-11-10:** operational dashboard online only.
+- ~~**Q10.14**~~ **[RAISED BY ME]** ✓ **CLOSED 2026-11-10:** Analysis nav group; bottom bar unchanged.
+- ~~**Q10.15**~~ **[RAISED BY ME]** ✓ **CLOSED 2026-11-10:** 24 charts, 6 series, 12 columns.
 - ~~**Q10.9-ops**~~ ✓ **Operational stats are configurable via the same builder over app-metadata sources, not a static page** (§10.2); meta-field catalogue finalized at Topic 13 close. *(This is the original 2026-08-18 Q10.9 — "what belongs on the general stats page" — now answered: it's builder-driven, not a fixed page.)*
 
 ---
@@ -1545,6 +1558,11 @@ Decisions get recorded here as topics close, so Claude Code (and future you) can
 | 2026-11-01 | 5 | **The builder's phase strip always names each phase with its m:ss** (user): each segment at least as wide as its label, the rest shared by length. | A 15 s Auto showed only "A"; proportion is still visible, the label never cut. |
 | 2026-11-01 | 11 / 16 | **Team names may cut with the study panel open at 1440 px** (user: "no" to a fix). | The full name is in the study panel beside the row; widening the table would cost a scoring column. |
 | 2026-11-01 | 3 | **`deleteSeason` / `deleteEvent` responses keep counting live entries only** (user: "you pick"). | Nothing shows those numbers; the delete dialog reads `getDeleteImpact`, which already counts soft-deleted entries too. Changing them would only churn RB.20's tests. |
+| 2026-11-10 | 10 | **A chart's `filters` apply only to raw-entry charts; metric series take filters from their metric** (Q10.11, user) **[RAISED BY ME]**. SPEC-FINAL v1.54 §12.3. | Two filter layers on one series would disagree, and §12.3's own example (`robot_status = played`) contradicts the fixed status rule (§11.3). One owner per filter. |
+| 2026-11-10 | 10 | **Built-in dashboards are created automatically, with default columns made as ordinary metrics** (Q10.12, user) **[RAISED BY ME]**. §12.8. | Nothing said who creates the five rows; an empty ranking or match preview on the first morning of an event would be useless, and defaults as ordinary metrics stay editable without a special case. |
+| 2026-11-10 | 10 / 7 | **The operational dashboard is online only** (Q10.13, user). §12.7. | Its meta-metrics are SQL on the server (§11.1); a partial on-device count would disagree with the server's and read as truth. |
+| 2026-11-10 | 16 | **An Analysis nav group; Metrics under admin; the phone bottom bar unchanged; analysis pages viewable on a phone** (Q10.14, user) **[RAISED BY ME]**. §12.8. | Four new destinations need one home; the bottom bar is the scouter's and was settled by the ranking round. |
+| 2026-11-10 | 10 / 17 | **24 charts per dashboard, 6 series per chart, 12 metric columns per built-in** (Q10.15, user) **[RAISED BY ME]**. §12.4. | Keeps an event dashboard computable on a phone from the cache and the charts' chunk bounded; well above anything the team builds by hand. |
 | 2026-11-10 | 11 | **The ranking page keeps variant N and gains a third category, Metrics, holding the admin's columns and the weighting mode** (Q11.5, user). SPEC-FINAL v1.53 §13.5. | N was designed and built a fortnight ago and answers the everyday question; replacing it would throw away a closed page and Home's cards. A third category adds the configurable part without a second ranking page. |
 | 2026-11-10 | 11 | **With weighting on, rank and medals follow the composite ("Weighted rank"); Home always shows the basic rank; start from the last preset, else equal weights** (Q11.6, user). §13.5. | §13.5 says teams are "ranked by the weighted sum"; labelling it keeps the closed "rank never changes with the sort" true for sorting. Home is read at a glance by everyone and must not change with one person's session weights. |
 | 2026-11-10 | 11 | **A team with no counted matches gets no composite and sorts last; 0.5 is only for a missing metric** (Q11.7, user) **[RAISED BY ME]**. §13.5. | 0.5 on every metric would put an unscouted team mid-table, above scouted weak teams — the opposite of "missing must never look like a value" (§12.6). |
@@ -1739,6 +1757,7 @@ Every edit is logged here so changes can be audited without reprinting the docum
 | v1.01 | 2026-10-29 | header, 21, 23 · SPEC-FINAL v1.49 (§3.9, §13.5, §17.8) · IMPLEMENTATION-PLAN v1.38 | User decisions after Phase 1 J: a form version deletes on its own when a draft or superseded by a newer published version; every rank counts the roster; standard deviation always one decimal. Three Decision Log rows. |
 | v1.02 | 2026-11-01 | header, 21, 23 · SPEC-FINAL v1.50 (§11.3, §13.5, §17.8) · IMPLEMENTATION-PLAN v1.39 | The user's feedback from testing develop: a breakdown counts as missed for availability; the roster count on the ranking page and top teams; one computer dialog standard; the phase strip names every phase. Four Decision Log rows. Also fixed: the phone sort builder's cut names, the sort badge spilling into the next column, the computer ranking's scrolling. |
 | v1.03 | 2026-11-01 | 21 | Three known issues left as they are: names cut with the study panel at 1440 px; live-only counts in the season/event delete responses; a deleted draft's number reused. Three Decision Log rows. |
+| v1.07 | 2026-11-10 | header, 10.2, 10.3, 21, 23 · SPEC-FINAL v1.54 (§12.3, §12.4, §12.7, §12.8) | **Phase 2 planning, batch 3 (Q10.11–Q10.15, all recommended):** chart filters on raw-entry charts only; built-ins created automatically with default columns; operational dashboard online only; the Analysis nav group; dashboard limits. |
 | v1.06 | 2026-11-10 | header, 11.2, 11.3, 21, 23 · SPEC-FINAL v1.53 (§12.8, §13.5, §13.6, §13.7) | **Phase 2 planning, batch 2 (Q11.5–Q11.10, all recommended):** the Metrics category on page N; weighted rank; no composite without data; single-number columns; compare normalised over the event; the match preview's columns, strengths and partial totals. |
 | v1.05 | 2026-11-10 | header, 9.1, 9.3, 21, 23 · SPEC-FINAL v1.52 (§3.7, §11.2, §12.3, §12.9, App. C) | **Phase 2 planning, batch 1 (Q9.9–Q9.14, all recommended):** phase and field points as metric sources; unit and direction derived; inline metric definitions (the lead's gate path); a metric in use cannot be deleted; super-form metrics; the Metrics page. |
 | v1.04 | 2026-11-10 | header, 19.6, 19.8, 21, 23 · SPEC-FINAL v1.51 (§20.6, §20.8) | **Phase 2 is planned now, before the phase 1 gate**, and re-checked against the rehearsal's findings; each part's step detail is written one part ahead of its build. |

@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.53 · **Date:** 2026-11-10 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.54 · **Date:** 2026-11-10 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.54: chart filters apply only to raw-entry charts; the built-in dashboards are created automatically with default columns; the operational dashboard is online only; an Analysis nav group; dashboard limits (§12.3, §12.4, §12.7, §12.8). See the living spec's §21, v1.07.*
 
 *v1.53: the ranking page gains a Metrics category with the admin's columns and weighting, and a weighted rank; a team with no data has no composite; columns take single-number metrics; compare normalises over the event; the match preview's columns, strengths and partial totals (§12.8, §13.5–§13.7). See the living spec's §21, v1.06.*
 
@@ -1560,6 +1562,8 @@ A chart is a saved configuration referencing fields and metrics:
 
 Scope lives on the dashboard, not the chart.
 
+*(v1.54)* **A chart's `filters` apply only to charts that plot raw entries** — data tables of entries, the field-position heatmap and scatter, and cycle paths. A metric series is filtered only by its metric's own `filters` (§11.2); the builder offers no chart filter on a metric chart.
+
 *(v1.52)* **A series is a saved metric (`metric`) or an inline definition (`definition` + `name`)** of exactly §11.2's shape, evaluated by the same engine. A lead's draft page builds metrics this way (§12.9); an admin may **Save as metric**, which creates the metric and replaces the inline series with its id.
 
 **The dimension vocabulary is closed.** A chart's X dimension is exactly one of:
@@ -1581,6 +1585,7 @@ Scope lives on the dashboard, not the chart.
 - Charts sit on a **12-column responsive grid**.
 - Each tile picks a **span**: stat card = 3 (four per row), standard chart = 6 (two per row), wide chart or table = 12.
 - Tiles are **drag-reordered**. Size is chosen as small / medium / full. **No free-pixel positioning.**
+- *(v1.54)* **Limits:** at most **24 charts per dashboard**, **6 series per chart**, and **12 metric columns** per built-in.
 - On narrower screens the grid reflows to fewer columns and finally to a single stacked column, preserving order.
 
 ### 12.5 View-time interaction
@@ -1629,6 +1634,8 @@ Operational statistics are **configurable, not a static page**: they use the **s
 | Conflicting-entry count | The size of the §9.5 review queue — unresolved `sync_conflicts` rows. |
 | Super-scouting coverage | **Of the teams on the event roster that have at least one recorded match entry, how many also have a super-scouting entry.** Denominator is *recorded* teams, so it needs no imported schedule. |
 
+*(v1.54)* **The operational dashboard is online only**: its meta-metrics are SQL on the server (§11.1), so offline it shows the "needs a connection" notice of the offline capability matrix.
+
 ### 12.8 Built-in dashboards
 
 Five dashboards ship out of the box. Each is reachable **in context from its home page**, which supplies the required input automatically:
@@ -1645,7 +1652,11 @@ Each built-in has one `dashboards` row per season (§3.7), holding its chart set
 
 **Built-ins operate on the active event, or on another event if the viewer changes it.** Every built-in carries an event selector; changing it re-scopes that view for the session only, without touching the dashboard's stored scope or the app's active context. Season-wide built-ins keep their season scope. The selector is **disabled offline** (only the active competition is cached).
 
+*(v1.54, user 2026-11-10)* **The built-ins are created automatically**, for every season including the existing one, with no charts. Ranking, compare and match preview start with **default columns — Total, the per-phase points and Availability** — created as ordinary metrics the admin may edit or remove. Each built-in is edited on its own home page; the hub lists and opens.
+
 **General Dashboards page (the hub).** A dedicated page lists **every dashboard for the active season** — the built-ins plus every admin-saved dashboard. Because the hub has no page context, opening a parameterized built-in **prompts for its input** (enter a team number, pick the teams to compare). Admin-saved dashboards are season-scoped and appear in the list for the year they belong to.
+
+*(v1.54)* **Navigation.** A new **Analysis** nav group holds Dashboards, Compare, Match preview and Alliance selection; Metrics sits in the admin group. The phone bottom bar stays Home · Scout · Search · Ranking. Every analysis page is viewable on a phone; only the builders need a computer.
 
 ### 12.9 Builder UX
 
