@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.51 · **Date:** 2026-11-10 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.52 · **Date:** 2026-11-10 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.52: a metric can read a phase's points and a field's points; its unit and direction are derived, never stored; a chart series may carry an inline definition, which is how a lead builds a metric; a metric in use cannot be deleted; super-form metrics are allowed; metrics are built on `/admin/metrics` (§3.7, §11.2, §12.3, §12.9, Appendix C). See the living spec's §21, v1.05.*
 
 *v1.51: Phase 2 is planned in full now, before the phase 1 gate, and re-checked against what the gate reveals (§20.6, §20.8). See the living spec's §21, v1.04.*
 
@@ -533,6 +535,8 @@ create index on weight_presets (season_id, updated_at);
 ```
 
 Metrics are **not versioned**. Dashboards are edited in place. There is **one dashboard row per built-in kind per season** — team, ranking, compare, match preview and operational — each holding that built-in's chart set and, for ranking and compare, its metric columns. `kind = 'custom'` covers every admin-saved dashboard.
+
+A metric stores **no unit and no direction**; both are derived from its definition (§11.2, v1.52).
 
 `metrics.source_kind` distinguishes a metric over **form fields** (`form`, with a `form_id`) from an **operational meta-metric** over app metadata (`meta`, with no form). Both are built with the same builder (§12.7).
 
@@ -1370,9 +1374,11 @@ type Op = '=' | '!=' | '>' | '<' | '>=' | '<='
 
 type MetricDefinition = {
   source:
-    | { kind: 'field';  field_key: string }
+    | { kind: 'field';  field_key: string
+                        measure?: 'value' | 'points' }   // v1.52; default 'value'
     | { kind: 'sum';    field_keys: string[] }       // multi-field arithmetic, e.g. auto + teleop
-    | { kind: 'score' }                              // the derived scouted score
+    | { kind: 'score';  phase?: 'auto' | 'teleop' | 'endgame' | 'post_match' }
+                                                     // the derived scouted score; v1.52: one phase's points
     | { kind: 'cycle';  field_key: string; event_type: string
                         series: 'duration' | 'count' | 'time_to_first' }
     | { kind: 'status'; measure: 'breakdowns' | 'no_shows' | 'disabled' | 'availability_rate' }
@@ -1406,6 +1412,14 @@ Rules:
 - **A display limit / target value** is drawn as a reference on the chart or table.
 - **No recency weighting.** Every included match counts equally.
 - **Metrics are not versioned.** Editing one changes it everywhere.
+
+*(v1.52, user 2026-11-10)* **Phase 2 rules for a metric:**
+
+- **Unit and direction are derived from the source and the aggregation, never stored.** A `field` source keeps the field's `unit` and `direction` (`measure: 'points'` is points, higher is better). `score` is points, higher is better. `status` counts (breakdowns, no-shows, disabled) are lower is better; `availability_rate`, `rate` and every percentage are %, higher is better. `count` is matches, higher is better. `slope` is the source's unit per match, with its direction. `stddev` keeps the unit and is `neutral`. `mode` and `distribution` take the field's. A `sum` may combine only fields that share one unit and one direction.
+- **A metric on the `super` form** reads each team's one super entry per event: at event scope its value is that answer; across events it aggregates one value per event. `last_n_matches`, `exclude_match_numbers` and `robot_status` do not apply and the builder hides them.
+- **A metric in use cannot be deleted.** `deleteMetric` refuses, naming every chart, ranking / compare / match-preview column and weight preset that uses it. A pick list's `seeded_from_weights` snapshot does not block; it shows the metric as "deleted metric".
+- **A `description` is required** on every metric, captured when it is made (§16.8).
+- **The builder** is the **Metrics page, `/admin/metrics`**, computer only (≥ 1024 px): the season's metrics with name, description and where each is used, and the builder in a panel. **New metric** is also offered inside the chart builder's series picker. Creating, editing or deleting a metric needs a connection.
 
 **Aggregation semantics** — the ones that are not self-evident:
 
@@ -1534,7 +1548,7 @@ A chart is a saved configuration referencing fields and metrics:
 {
   "type": "bar",
   "dimension": { "kind": "team" },
-  "series": [ { "metric": "<metric_id>" }, { "metric": "<metric_id>" } ],
+  "series": [ { "metric": "<metric_id>" }, { "definition": { /* MetricDefinition, §11.2 */ }, "name": "…" } ],
   "filters": [ { "field_key": "robot_status", "op": "=", "value": "played" } ],
   "sort":    { "by": "<metric_id>", "dir": "desc" },
   "limit":   20,
@@ -1543,6 +1557,8 @@ A chart is a saved configuration referencing fields and metrics:
 ```
 
 Scope lives on the dashboard, not the chart.
+
+*(v1.52)* **A series is a saved metric (`metric`) or an inline definition (`definition` + `name`)** of exactly §11.2's shape, evaluated by the same engine. A lead's draft page builds metrics this way (§12.9); an admin may **Save as metric**, which creates the metric and replaces the inline series with its id.
 
 **The dimension vocabulary is closed.** A chart's X dimension is exactly one of:
 
@@ -1634,6 +1650,8 @@ Each built-in has one `dashboards` row per season (§3.7), holding its chart set
 Pick a chart type → pick the dimension → add one or more series (field or metric + aggregation) → add filters → live preview → save.
 
 The target is "understandable by a 15-year-old in five minutes", not Tableau. Desktop only, ≥ 1024 px.
+
+*(v1.52)* **"Add a series" offers a saved metric or a new one.** A new one is built in the same panel as the Metrics page; a lead's is kept inline in the draft (§12.3), an admin's is saved as a metric. This is how the phase 2 gate's lead "builds a metric" without the admin role.
 
 **The draft statistics page** uses this same builder and has **exactly the same in-memory shape as a saved dashboard** — a `scope`, a `filters` object and an ordered list of chart configs, identical to §3.7's columns. It is never written to IndexedDB and never sent to the server. It is held in session memory, so it **survives navigation between pages** and is **lost on reload, on logout, and on closing the tab**. Offline it computes over the cached active competition only, and its scope selector offers only that event.
 
@@ -2533,7 +2551,7 @@ The starting registry for phase 1. Every entry carries a Zod input schema, a Zod
 | `upsertEntry` | scouter (own, ≤ 5 min) / lead / admin |
 | `deleteEntry` | lead / admin |
 | `resolveConflict` | lead / admin |
-| `createMetric` / `updateMetric` / `deleteMetric` | admin |
+| `createMetric` / `updateMetric` / `deleteMetric` | admin — online only; `description` required; `deleteMetric` refuses a metric in use, naming each use (§11.2) |
 | `saveDashboard` / `updateDashboard` / `deleteDashboard` | admin |
 | `saveWeightPreset` / `deleteWeightPreset` | admin |
 | `createPickList` / `setPickListOrder` / `reseedPickList` | admin |
