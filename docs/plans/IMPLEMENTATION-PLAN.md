@@ -1,7 +1,7 @@
 # FRC Scouting Platform — Implementation Plan
 
 **Version:** 1.40 · **Date:** 2026-11-10 · **Build input:** `docs/spec/SPEC-FINAL.md` v1.55
-*v1.40 (2026-11-10): **Phase 2 is planned** before the phase 1 gate (SPEC-FINAL v1.51 §20.8, user 2026-11-01), on `spec/phase-2-plan` with the user's answers to Q9.9–Q9.14, Q10.11–Q10.15, Q11.5–Q11.10 and Q12.4–Q12.8 (SPEC-FINAL v1.52–v1.55): eight parts, 2 A – 2 H, tasks 2.1 – 2.31, each with files, interfaces, acceptance and commit; **part 2 A in full step detail**, the others one part ahead of their build; the design rounds 29 – 40 in build order. Appendix P1 gains P55 – P59; Appendix P2 names each phase 2 use case's task.*
+*v1.40 (2026-11-10): **Phase 2 is planned** before the phase 1 gate (SPEC-FINAL v1.51 §20.8, user 2026-11-01), on `spec/phase-2-plan` with the user's answers to Q9.9–Q9.14, Q10.11–Q10.15, Q11.5–Q11.10 and Q12.4–Q12.8 (SPEC-FINAL v1.52–v1.55): eight parts, 2 A – 2 H, tasks 2.1 – 2.31, each with files, interfaces, acceptance and commit; **part 2 A in full step detail**, the others one part ahead of their build; the design rounds 29 – 40 in build order. Appendix P1 gains P55 – P60; Appendix P2 names each phase 2 use case's task. A fresh-reader check of 2 A against the code (same day) fixed: ids as `rowId`, `API` rows added with their registry rows, `MetricContext` carries the rules, cycles without a log, the timer's source (P60), the 2.3 fixture's names and use order, the nav row and its test, `shoot`'s argument, `DeleteDialog` for a metric.*
 *v1.39 (2026-11-01): the user's feedback from testing develop, built on `fix/ranking-feedback` (spec v1.02 / SPEC-FINAL v1.50): a breakdown counts as missed for availability (points still count); the phone sort builder shows each figure's full name; the sort badge stays inside its column; on a computer the ranking table and the study panel scroll on their own with the header always pinned; "30 teams" on the ranking page and "of 30 teams" on Home's top teams; one computer dialog standard (×, Escape, click outside, unless busy); the builder's phase strip names every phase with its time.*
 *v1.38 (2026-10-29): user decisions after Phase 1 J, built on `fix/phase-1j-decisions` (spec v1.01 / SPEC-FINAL v1.49): a form version is deleted on its own when it is a draft or superseded by a newer published version (the forms list's trash now also on the draft row); every "of N" rank counts the roster; "±" always one decimal; the bundle budget is 240 KB; the dev seed's first team is 2096. **Phase 1 K's smoke tests run against the dev project** (§19.3, as 1.9's) — the delete flows included, which need migration `20261028090000_delete_match_cascade`, already on dev.*
 *v1.37 (2026-10-28): task 1.58b, Home's our-team rank card and top teams (round 03's "wanted, after ranking", in no task until now); "places moved" is counted since our last match (user; spec v1.00 / SPEC-FINAL v1.48).*
@@ -17988,12 +17988,13 @@ The metric is the unit every later part reads: a chart series, a ranking column,
 **Files:**
 - Create: `packages/shared/src/api/metrics.ts`, `packages/shared/src/api/metrics.test.ts`
 - Create: `packages/shared/src/engine/metricMeta.ts`, `packages/shared/src/engine/metricMeta.test.ts`
-- Modify: `packages/shared/src/api/index.ts` (the `API` map rows of 2.3 and 2.4), `packages/shared/src/index.ts`
+- Modify: `packages/shared/src/index.ts`. **No `API` map row yet:** `apps/server/src/routes/rpc.test.ts` requires the registry and the map to hold the same keys, so each row is added with its registry row (five in 2.3, `getMetricValues` in 2.4).
 
 **Interfaces:**
 - Produces (`api/metrics.ts`): `metricDefinition` (Zod, strict) and `type MetricDefinition` — SPEC-FINAL §11.2 with v1.52's `field.measure` and `score.phase`; `METRIC_SOURCE_KINDS`; `dashboardScope` and `type DashboardScope` (§12.1's four modes; 2 B's dashboards reuse it); `metricRow`, `metricUse`, `metricWithUses`; the inputs and outputs `listMetrics*`, `getMetric*`, `createMetric*`, `updateMetric*`, `deleteMetric*`, `getMetricValues*`; `METRIC_VALUES_MAX_METRICS = 12`, `METRIC_VALUES_MAX_TEAMS = 200`, `LIST_METRICS_MAX = 200`.
-- Produces (`engine/metricMeta.ts`): `type MetricUnit`; `type MetricMeta = { unit: MetricUnit; per_match: boolean; direction: FieldDirection; scalar: boolean; rankable: boolean }`; `metricMeta(definition, context): MetricMeta`; `aggregationsFor(source, context): Aggregation[]` (the builder's menu); `sumCompatible(fields): boolean`; `metricProblems(definition, context): MetricProblem[]` (empty = valid); `type MetricContext = { form_kind: FormKind | null; fields: readonly FormFieldDefinition[] }` (the form's ACTIVE version's fields; `null` kind for a meta metric).
-- Consumes: `AGGREGATIONS`, `ComparisonOp` (`engine/aggregate.ts`), `FIELD_PHASES`, `FIELD_UNITS`, `FIELD_DIRECTIONS`, `FormKind` (`api/forms.ts`), `rowId` (the uuid schema the API files share), `ROBOT_STATUSES`.
+- Produces (`engine/metricMeta.ts`): `type MetricUnit`; `type MetricMeta = { unit: MetricUnit; per_match: boolean; direction: FieldDirection; scalar: boolean; rankable: boolean }`; `metricMeta(definition, context): MetricMeta`; `aggregationsFor(source, context): Aggregation[]` (the builder's menu); `sumCompatible(fields): boolean`; `metricProblems(definition, context): MetricProblem[]` (empty = valid); `type MetricContext = { form_kind: FormKind | null; fields: readonly FormFieldDefinition[]; rules: readonly ScoringRule[] }` (the form's ACTIVE version's fields and the form's scoring rules; `null` kind, no fields and no rules for a meta metric).
+- Consumes: `AGGREGATIONS`, `ComparisonOp`, `MetricFilters` (`engine/aggregate.ts` — reuse the type; a second `MetricFilters` would collide through `export *`), `FIELD_PHASES`, `FIELD_UNITS`, `FIELD_DIRECTIONS`, `FormKind` (`api/forms.ts`), `ScoringRule` (`engine/types.ts`), `ROBOT_STATUSES`.
+- **Ids:** a local `const rowId = z.string().min(1)`, as `api/search.ts` and `api/stats.ts` declare it, for every id a request names (`season_id`, `form_id`, metric, event and team ids). Only `createMetricInput.id`, the client-generated uuid, is `z.string().uuid()`. The server tests use ids like `'se-1'`; a uuid schema there would refuse them.
 
 **The rules this task writes down (SPEC-FINAL v1.52 §11.2):**
 
@@ -18016,12 +18017,14 @@ Then the aggregation changes it: `count` → `matches`, `higher_is_better`; `rat
 - `toggle`: `rate, count`;
 - nominal select: `mode, distribution, count`;
 - ordinal select (`is_ordinal`): `avg, median, min, max, best, worst, mode, distribution`;
+- `rating`: `avg, median, min, max, stddev, slope, best, worst, distribution` (a 1–n score, numeric);
 - `status`: `sum` for the three counts (the team's total over the scope), `avg` for `availability_rate`;
+- `meta`: `sum, avg` (2 F evaluates it);
 - anything else (text, position, cycle path, event log without a cycle source): `count`;
 - `best` / `worst` are dropped whenever the derived direction is `neutral`.
 
 **The problems (`metricProblems`)**, each `{ code, message }` with the message as the builder shows it:
-`field-missing` ("Pick a field that is on the form"), `sum-incompatible` ("These fields don't share a unit and direction"), `sum-too-few` ("A sum needs two fields or more"), `aggregation-not-offered` ("<aggregation> doesn't apply to <field label>"), `percentile-missing` ("Give the percentile, 0–100"), `match-filter-on-super` ("A super-scouting metric has no matches to filter"), `meta-on-form` / `form-on-meta` (a `meta` source must have `form_kind: null` and the reverse), `points-on-unscored` ("<field label> scores no points").
+`field-missing` ("Pick a field that is on the form"), `sum-incompatible` ("These fields don't share a unit and direction"), `sum-too-few` ("A sum needs two fields or more"), `aggregation-not-offered` ("<aggregation> doesn't apply to <field label>"), `percentile-missing` ("Give the percentile, 0–100"), `match-filter-on-super` ("A super-scouting metric has no matches to filter"), `meta-on-form` / `form-on-meta` (a `meta` source must have `form_kind: null` and the reverse), `points-on-unscored` ("<field label> scores no points": the field's type is not scorable, or the form holds no rule for it). **`field-missing`, `meta-on-form` and `form-on-meta` stop the check there**: no aggregation problem is added on top of them.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -18031,7 +18034,7 @@ Then the aggregation changes it: `count` → `matches`, `higher_is_better`; `rat
 import { describe, expect, it } from 'vitest';
 import type { FormFieldDefinition } from '../forms/types';
 import type { MetricDefinition } from '../api/metrics';
-import { aggregationsFor, metricMeta, metricProblems, sumCompatible } from './metricMeta';
+import { aggregationsFor, metricMeta, metricProblems, sumCompatible, type MetricContext } from './metricMeta';
 
 const field = (
   key: string,
@@ -18055,8 +18058,14 @@ const FIELDS = [
   field('driver', 'single_select', { unit: 'enum', is_ordinal: true,
     config: { options: [{ value: 'poor', label: 'Poor' }, { value: 'good', label: 'Good' }] } }),
   field('notes', 'long_text', { unit: 'text', direction: 'neutral' }),
+  field('defence', 'counter', { direction: 'neutral' }),
 ];
-const match = { form_kind: 'match' as const, fields: FIELDS };
+const RULES = [
+  { field_key: 'auto_pieces', points: 3, option_points: null },
+  { field_key: 'teleop_pieces', points: 2, option_points: null },
+  { field_key: 'fouls', points: 1, option_points: null },
+];
+const match: MetricContext = { form_kind: 'match', fields: FIELDS, rules: RULES };
 const def = (over: Partial<MetricDefinition>): MetricDefinition => ({
   source: { kind: 'score' }, aggregation: 'avg', filters: {}, ...over,
 });
@@ -18110,9 +18119,14 @@ describe('metricMeta — unit and direction are derived, never stored (SPEC-FINA
 });
 
 describe('aggregationsFor — only the operations valid for the type (11.2)', () => {
-  it('offers the numeric menu on a counter, without best/worst on a neutral one', () => {
+  it('offers the numeric menu on a counter', () => {
     expect(aggregationsFor({ kind: 'field', field_key: 'teleop_pieces' }, match)).toEqual(
       ['avg', 'median', 'sum', 'min', 'max', 'count', 'stddev', 'percentile', 'slope', 'best', 'worst', 'distribution'],
+    );
+  });
+  it('drops best and worst on a neutral one', () => {
+    expect(aggregationsFor({ kind: 'field', field_key: 'defence' }, match)).toEqual(
+      ['avg', 'median', 'sum', 'min', 'max', 'count', 'stddev', 'percentile', 'slope', 'distribution'],
     );
   });
   it('offers rate and count on a toggle', () => {
@@ -18142,7 +18156,7 @@ describe('metricProblems', () => {
     expect(metricProblems(def({ source: { kind: 'sum', field_keys: ['auto_pieces', 'teleop_pieces'] } }), match)).toEqual([]);
   });
   it('names each problem with its builder message', () => {
-    const codes = (d: MetricDefinition, c = match) => metricProblems(d, c).map((p) => p.code);
+    const codes = (d: MetricDefinition, c: MetricContext = match) => metricProblems(d, c).map((p) => p.code);
     expect(codes(def({ source: { kind: 'field', field_key: 'gone' } }))).toEqual(['field-missing']);
     expect(codes(def({ source: { kind: 'sum', field_keys: ['teleop_pieces', 'climb_time'] } }))).toEqual(['sum-incompatible']);
     expect(codes(def({ source: { kind: 'sum', field_keys: ['teleop_pieces'] } }))).toEqual(['sum-too-few']);
@@ -18150,7 +18164,9 @@ describe('metricProblems', () => {
     expect(codes(def({ aggregation: 'percentile' }))).toEqual(['percentile-missing']);
     expect(codes(def({ source: { kind: 'field', field_key: 'notes', measure: 'points' }, aggregation: 'count' })))
       .toEqual(['points-on-unscored']);
-    expect(codes(def({ filters: { last_n_matches: 5 } }), { form_kind: 'super', fields: FIELDS }))
+    expect(codes(def({ source: { kind: 'field', field_key: 'defence', measure: 'points' } })))
+      .toEqual(['points-on-unscored']); // scorable type, but no rule
+    expect(codes(def({ filters: { last_n_matches: 5 } }), { form_kind: 'super', fields: FIELDS, rules: [] }))
       .toEqual(['match-filter-on-super']);
     expect(codes(def({ source: { kind: 'meta', measure: 'open_conflicts' }, aggregation: 'sum' })))
       .toEqual(['meta-on-form']);
@@ -18267,7 +18283,7 @@ Expected: both files fail to load — `Failed to resolve import "./metricMeta"` 
 
 `engine/metricMeta.ts` implements the two tables above as data (`SOURCE_META`, `AGGREGATION_EFFECT`) plus the menu as one `switch` on the field type. It imports nothing from `api/` but types (the engine stays below the API layer), and `isScorable` from `forms/scoring` for `points-on-unscored`.
 
-Add the six `API` map rows (`listMetrics`, `getMetric`, `createMetric`, `updateMetric`, `deleteMetric`, `getMetricValues`) to `api/index.ts`, and export both modules from `packages/shared/src/index.ts`.
+Export both modules from `packages/shared/src/index.ts`. **Do not add `API` map rows here** (see Files): 2.3 and 2.4 add them with their registry rows.
 
 - [ ] **Step 4: Run them to see them pass, and the whole suite**
 
@@ -18300,10 +18316,11 @@ git add -A && git commit -m "feat(shared): add the metric definition with its de
 
 **How each source reads one entry** (after `applyFilters`, which already applied scope → canonical → qualification only → status rule → the metric's filters, SPEC-FINAL §11.2's order):
 - `field`, `value`: `aggregationValue(resolvedField, entry.data[key])` — the cross-version guard first (§11.7): an unresolved field makes the whole result `unavailable_reason` and every value null.
-- `field`, `points`: `scoreField(field, rule, value)`; a field with no rule → the problem of 2.1, never 0.
+- `field`, `points`: `scoreField(field, rule, value)`. A field with no rule cannot reach here: 2.1's `points-on-unscored` refuses the definition first (`scoreField` alone would answer 0).
 - `sum`: Σ of the fields' values; an entry missing every one of them → no value (not 0); missing some → the sum of those it holds.
 - `score`: `scoreEntry`; with `phase`: that phase's `subtotal` from `scoreBreakdown` (null when the phase has no scored rows — no data, not 0).
-- `cycle`: `deriveCycles(entry.data[key], event_type, timer.timed, timer.end_seconds)`, then `durations` (each one a value), `count` or `timeToFirst`.
+- `cycle`: when `entry.data[key]` is an array, `deriveCycles(it, event_type, timer.timed, timer.end_seconds)`, then `durations` (each one a value), `count` or `timeToFirst`; **anything else (no log on that entry) gives no value**, and `deriveCycles` is not called (it would throw on `undefined`).
+- **`timer`** comes from the form's `timer_config`: `end_seconds = matchEndSeconds(timer_config)` (`forms/timer.ts`), `timed = end_seconds !== null`. SPEC-FINAL §5.5 makes "timed" a per-entry fact, but no entry stores it (living spec Q6.9 is still open), so the form's timer stands in for it (P60). Nothing reads `timer_config` into the stats loaders today: 2.4's `loadMetricInput` and 2.5's `deviceMetricInput` read it.
 - `status`: NOT through `applyFilters` (it removes no-shows): `reliabilityFor(team's entries in scope)`, then the measure; `sum` returns the count, `avg` the rate.
 - `meta`: not evaluated here — 2 F's server query owns it. `evaluateMetric` returns every value null and `unavailable_reason: null` for it; 2 F replaces this branch.
 - **A super metric** (`form_kind: 'super'`) reads super entries only, one per (team, event) after `canonicalEntries`; its population skips the qualification and status rules, which `applyFilters` already lets super entries through (task 1.55).
@@ -18463,7 +18480,7 @@ git add -A && git commit -m "feat(shared): evaluate a metric definition with the
 - Create: `packages/db/supabase/migrations/20261111090000_dashboard_columns.sql`
 - Create: `apps/server/src/core/commands/metrics.ts`, `apps/server/src/core/commands/metrics.test.ts`
 - Create: `apps/server/src/core/queries/metrics.ts`, `apps/server/src/core/queries/metrics.test.ts`
-- Modify: `packages/db/src/database.types.ts` (regenerated, task 0.13), `packages/shared/src/auth/permissions.ts` (`manage_metrics: ADMIN`), `apps/server/src/core/context.ts`, `apps/server/src/repos/store.ts`, `apps/server/src/test/fake-context.ts`, `apps/server/src/routes/registry.ts`, `apps/server/api/index.js` (rebuilt, BUILD-CONTEXT §6)
+- Modify: `packages/shared/src/api/index.ts` + `index.test.ts` (five `API` rows: `listMetrics`, `getMetric`, `createMetric`, `updateMetric`, `deleteMetric`, with their registry rows, so `rpc.test.ts` stays green), `packages/db/src/database.types.ts` (regenerated, task 0.13), `packages/shared/src/auth/permissions.ts` (`manage_metrics: ADMIN`, and its test's capability list), `apps/server/src/core/context.ts`, `apps/server/src/repos/store.ts`, `apps/server/src/test/fake-context.ts`, `apps/server/src/routes/registry.ts`, `apps/server/api/index.js` (rebuilt, BUILD-CONTEXT §6)
 
 **Interfaces:**
 - Produces: `listMetrics(caller, { season_id })`, `getMetric(caller, { id })` — queries, any caller, each metric `withUses`; `createMetric(caller, input)`, `updateMetric(caller, input)`, `deleteMetric(caller, { id })` — commands, `manage_metrics` (admin), `service` refused; `metricUses(ctx, seasonId, metricId): Promise<MetricUse[]>` (exported for 2.9 and 2.16, which add uses of their own); the column `dashboards.columns jsonb not null default '[]'` — **an ordered array of metric ids** (2.9 writes it, 2.16 reads it).
@@ -18480,7 +18497,7 @@ alter table public.dashboards add column columns jsonb not null default '[]'::js
 ```
 
 **Behaviour:**
-- `createMetric`: the form is the season's form of the definition's kind (`form_id` must be that form's id; a meta metric has none); `metricProblems` against the form's ACTIVE fields → `invalid` with `details.problems`; a duplicate name in the season → `conflict` "a metric called <name> already exists"; `id` is the client's uuid (a retry with the same id and the same body is a no-op returning the row).
+- `createMetric`: `form_id` must be one of the season's forms (else `invalid`), and the metric's kind is that form's kind; a meta metric has none. `metricProblems` against that form's ACTIVE fields and its rules → `invalid` with `details.problems`; a duplicate name in the season → `conflict` "a metric called <name> already exists"; `id` is the client's uuid (a retry with the same id and the same body is a no-op returning the row).
 - `updateMetric`: same checks on the merged row; editing changes it everywhere (not versioned, §11.2).
 - `deleteMetric`: `metricUses` first; any use → `conflict`, message "<name> is used in N places; remove it from them first", `details.uses` the list. A pick list's `seeded_from_weights` is **not** a use (v1.52).
 - Uses: a chart uses a metric when any `series[].metric` names it; a built-in uses it when `columns` holds it; a preset when `weights` has its id as a key.
@@ -18488,7 +18505,7 @@ alter table public.dashboards add column columns jsonb not null default '[]'::js
 
 - [ ] **Step 1: Write the failing tests**
 
-`apps/server/src/core/commands/metrics.test.ts` (with `ctx.seedMetricFixture()`, added to the fake context: season `se-1` with event `ev-1` and its roster `t-a` (2096) and `t-b` (1577), each with three scored qualification entries; its match form `f-m` with an active version holding `auto_pieces` (counter) and `notes` (long text); the super form `f-s`; an admin, a lead and a `service` caller; metric `mx-auto` used by a chart on custom dashboard `d-1` ("Auto board"), by the ranking built-in's `columns`, and by preset `p-1` ("Quals"); metric `mx-free` used nowhere; a pick list seeded from weights naming `mx-free`):
+`apps/server/src/core/commands/metrics.test.ts` (with `ctx.seedMetricFixture()`, added to the fake context: season `se-1` with event `ev-1` and its roster `t-a` (2096) and `t-b` (1577), each with three scored qualification entries; its match form `f-m` with an active version holding `auto_pieces` (counter) and `notes` (long text); the super form `f-s`; an admin, a lead and a `service` caller; metric `mx-auto` named **"Auto avg"** (`auto_pieces`, `avg`), used by a chart on custom dashboard `d-1` ("Auto board"), by the ranking built-in's `columns`, and by preset `p-1` ("Quals"); metric `mx-free` named **"Unused"** (the score, `avg`) used nowhere; a pick list seeded from weights naming `mx-free`. `metricUses` returns uses **in the order chart → column → preset**, each kind by name):
 
 ```ts
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -18525,7 +18542,7 @@ describe('createMetric (SPEC-FINAL v1.52 11.2, App. C)', () => {
     await expect(createMetric(admin, { ...body, id: '00000000-0000-4000-8000-0000000000ab' }, ctx))
       .rejects.toMatchObject({ code: 'conflict' });
   });
-  it('refuses a form that is not the season form of that kind', async () => {
+  it('refuses a field the chosen form does not have (the super form has no auto_pieces)', async () => {
     await expect(createMetric(admin, { ...body, form_id: 'f-s' }, ctx)).rejects.toMatchObject({ code: 'invalid' });
   });
   it('a retry with the same id and body is a no-op', async () => {
@@ -18624,14 +18641,14 @@ git add -A && git commit -m "feat(server): add the metric use cases and refuse d
 
 **Files:**
 - Create: `apps/server/src/core/queries/metricValues.ts`, `apps/server/src/core/queries/metricValues.test.ts`
-- Modify: `apps/server/src/core/context.ts`, `apps/server/src/repos/store.ts`, `apps/server/src/test/fake-context.ts`, `apps/server/src/routes/registry.ts`, `apps/server/api/index.js`
+- Modify: `packages/shared/src/api/index.ts` + `index.test.ts` (the `getMetricValues` row), `apps/server/src/core/context.ts`, `apps/server/src/repos/store.ts`, `apps/server/src/test/fake-context.ts`, `apps/server/src/routes/registry.ts`, `apps/server/api/index.js`
 
 **Interfaces:**
 - Produces: `getMetricValues(caller, input): GetMetricValuesOutput` — a query, any caller; `loadMetricInput(ctx, seasonId, scope): Promise<MetricInput>` (exported: 2.9's chart data, 2.16's ranking, 2.18 and 2.20 build on it); Store `listScopeEntries(seasonId, scope)` — the live entries of every event in scope, joined with match type, number and event sort order, and `listScopeTeams(seasonId, scope)` — the union of the scope's rosters.
 - Consumes: 2.1's schemas; 2.2's `evaluateMetric`; 2.3's `getMetric`; `activeScoring`-style form reads (`apps/server/src/core/queries/stats.ts`).
 
 **Behaviour:**
-- Scope: `event` → that event; `season` → the season's events; `events` → those (each must belong to the season, else `invalid`); `all_time` → every event of every season, **evaluated per season's own forms** — a metric names a season's form, so `all_time` evaluates against the metric's own season's form and reads only events of seasons whose form holds the field (others are "absent"). `team_ids`, when given, narrows the teams.
+- Scope: `event` → that event; `season` → the season's events; `events` → those (each must belong to the season, else `invalid`); `all_time` → every event of every season, evaluated against **the metric's own season's form**: other seasons' entries join through the same field key, and every version their entries name is passed as in scope, so §11.7's guard answers `type-changed` when a key's type differs between seasons (one `unavailable_reason` for the whole result, as for one season). `team_ids`, when given, narrows the teams.
 - Saved metrics (`metric_id`) must belong to `season_id`; inline definitions are checked with `metricProblems` → `invalid`.
 - Bounded: ≤ 12 metrics, ≤ 200 teams (2.1's schema); the rows behind it are fetched once per call.
 - `results[i].index = i`; teams sorted by number.
@@ -18710,7 +18727,7 @@ git add -A && git commit -m "feat(server): add getMetricValues over an event, a 
 - Create: `apps/client/src/features/metrics/useMetrics.ts`, `useMetrics.test.tsx`
 - Create: `apps/client/src/features/metrics/useMetricValues.ts`, `useMetricValues.test.tsx`
 - Create: `apps/client/src/features/metrics/deviceMetrics.ts`, `deviceMetrics.test.ts`
-- Modify: `apps/client/src/data/offlineCapability.ts` (+ its test): `edit_metric: false` ("Creating, editing or deleting a metric needs a connection", v1.52)
+- Modify: `apps/client/src/data/offlineCapability.ts` (+ its test): `edit_metric: false` (v1.52: creating, editing or deleting a metric needs a connection; `OfflineGate` shows its one fixed line, `OFFLINE_GATE_LINE`)
 
 **Interfaces:**
 - Produces: `useMetrics(seasonId): { status: 'loading' } | { status: 'ready'; metrics: MetricWithUses[]; uses: 'server' | 'unknown' }` — the device's cached `metrics` rows at once, then the server's `listMetrics` (with uses) when online; offline the uses are `'unknown'` and the page says so;
@@ -18723,7 +18740,7 @@ git add -A && git commit -m "feat(server): add getMetricValues over an event, a 
 - any other scope, or under an override: the server only; offline → `offline-needs-server` (the `cross_event_view` row of the capability matrix);
 - an inline definition is evaluated on the device the same way as a saved one.
 
-- [ ] **Step 1: Write the failing tests.** `deviceMetrics.test.ts`: from a seeded fake Dexie (the helpers `features/ranking/deviceRanking.test.ts` uses), `loadDeviceMetricValues('ev-1', { metrics: [{ metric_id: 'mx-auto' }] })` equals `evaluateMetric` over the same rows; an entry still in the outbox counts (task 1.53 side task 5's rule); a device without the event returns null. `useMetricValues.test.tsx`: (1) active event online → device first, then the server's rows with `source.kind === 'server'`; (2) offline → device only, `source.kind === 'device'`; (3) `scope: { mode: 'season' }` offline → `offline-needs-server`; (4) a session override → the server, never the device; (5) a server failure keeps the device's values. `useMetrics.test.tsx`: cached rows first with `uses: 'unknown'`, then the server's with uses; offline stays on the cache. Plus the matrix test gains `edit_metric` → false.
+- [ ] **Step 1: Write the failing tests.** `deviceMetrics.test.ts`: from a seeded fake Dexie (the helpers `features/ranking/deviceRanking.test.ts` uses), with a `metrics` row `mx-auto` seeded (the team-page fixtures, `src/test/teamPageFixtures.ts`, hold none), `loadDeviceMetricValues('ev-1', { seasonId: 'se-1', scope: { mode: 'event', event_id: 'ev-1' }, metrics: [{ metric_id: 'mx-auto' }] })` equals `evaluateMetric` over the same rows; an entry still in the outbox counts (task 1.53 side task 5's rule); a device without the event returns null. `useMetricValues.test.tsx`: (1) active event online → device first, then the server's rows with `source.kind === 'server'`; (2) offline → device only, `source.kind === 'device'`; (3) `scope: { mode: 'season' }` offline → `offline-needs-server`; (4) a session override → the server, never the device; (5) a server failure keeps the device's values. `useMetrics.test.tsx`: cached rows first with `uses: 'unknown'`, then the server's with uses; offline stays on the cache. Plus the matrix test gains `edit_metric` → false.
 
 - [ ] **Step 2: Run them to see them fail**
 
@@ -18807,11 +18824,11 @@ git add -A && git commit -m "feat(client): add the metric builder panel"
 **Files:**
 - Create: `apps/client/src/features/metrics/MetricsPage.tsx`, `MetricsPage.test.tsx`
 - Create: `apps/client/e2e/metrics.spec.ts`, `apps/client/e2e/metricFixtures.ts`
-- Modify: `apps/client/src/lib/paths.ts` (`PATHS.metrics = '/admin/metrics'`), `apps/client/src/features/shell/nav.ts` (one row), the router, `apps/client/e2e/api-mock.ts` (the five metric routes)
+- Modify: `apps/client/src/lib/paths.ts` (`PATHS.metrics = '/admin/metrics'`), `apps/client/src/features/shell/nav.ts` (one row, after `forms`) and `nav.test.ts` (its admin id and group lists gain `metrics` after `forms`), the router, `apps/client/e2e/api-mock.ts` (the six metric routes, `getMetricValues` included — the builder's preview calls it)
 
 **Interfaces:**
-- Produces: the route `/admin/metrics`; the `NAV_ITEMS` row `{ id: 'metrics', label: 'Metrics', icon: Sigma, group: 'admin', bottomBar: null, desktopOnly: true, visible: (who) => !who.expired && who.user?.role === 'admin' }` (v1.54 §12.8: Metrics sits in the admin group); `metricsPath(id?)` for 2.14's "Edit metric" link.
-- Consumes: 2.5 (`useMetrics`), 2.6 (`MetricBuilder` in `save` mode), 2.3 (`createMetric`, `updateMetric`, `deleteMetric` through `typedCall`), `DesktopOnly`, `OfflineGate`, `LazyDeleteFlow`'s faces (`DeleteDialog`: "Are you sure?" for a metric used nowhere; **Blocked** with the uses for one in use — v1.52).
+- Produces: the route `/admin/metrics`; the `NAV_ITEMS` row `{ id: 'metrics', label: 'Metrics', to: PATHS.metrics, icon: Sigma, group: 'admin', bottomBar: null, desktopOnly: true, visible: (who) => !who.expired && who.user?.role === 'admin' }`, after `forms` (v1.54 §12.8: Metrics sits in the admin group); `metricsPath(id?)` for 2.14's "Edit metric" link.
+- Consumes: 2.5 (`useMetrics`), 2.6 (`MetricBuilder` in `save` mode), 2.3 (`createMetric`, `updateMetric`, `deleteMetric` through `typedCall`), `DesktopOnly`, `OfflineGate`, and **`DeleteDialog` directly** (`features/admin/`): its "Are you sure?" face for a metric used nowhere and its **Blocked** face (the `blocked` text plus the uses as links) for one in use — v1.52. Not `LazyDeleteFlow`: it is bound to `DeleteKind` and `getDeleteImpact`, and a metric is neither.
 
 **Behaviour:**
 - The active season's metrics by name: name, description, source in words ("Auto points · average"), unit and direction in words, and **Used in** ("2 charts · Ranking · Quals preset", or "Not used"); offline, "Used in" reads "Needs a connection to check".
@@ -18820,7 +18837,7 @@ git add -A && git commit -m "feat(client): add the metric builder panel"
 - A phone or a narrow window shows `DesktopOnly` (§17.2: builders ≥ 1024 px).
 - An empty season: the empty state with **New metric** (no placeholder copy, BUILD-CONTEXT §12.2).
 
-- [ ] **Step 1: Write the failing tests.** `MetricsPage.test.tsx` (mocked rpc): the list renders names, sources in words and "Used in"; New metric → the builder → Save calls `createMetric` with a fresh uuid and the draft, and the row appears; Delete on an unused metric → Are you sure → `deleteMetric`; Delete on a used one → Blocked listing three uses and no delete call; offline: New metric and Delete are held with the matrix's line, and "Used in" reads "Needs a connection to check"; a scouter or lead does not see the nav row. `e2e/metrics.spec.ts`: `shoot(page, 'metrics-list')`, `shoot(page, 'metrics-builder')` (a field metric half built, the preview filled), `shoot(page, 'metrics-delete-blocked')`, `shoot(page, 'metrics-offline')` — desktop only (`only: 'desktop'`), every theme.
+- [ ] **Step 1: Write the failing tests.** `MetricsPage.test.tsx` (mocked rpc): the list renders names, sources in words and "Used in"; New metric → the builder → Save calls `createMetric` with a fresh uuid and the draft, and the row appears; Delete on an unused metric → Are you sure → `deleteMetric`; Delete on a used one → Blocked listing three uses and no delete call; offline: New metric and Delete are held with the matrix's line, and "Used in" reads "Needs a connection to check"; a scouter or lead does not see the nav row. `e2e/metrics.spec.ts`: `shoot(page, 'metrics-list', 'desktop')`, `shoot(page, 'metrics-builder', 'desktop')` (a field metric half built, the preview filled), `shoot(page, 'metrics-delete-blocked', 'desktop')`, `shoot(page, 'metrics-offline', 'desktop')` — desktop only (`only` is `shoot`'s third argument), every theme.
 
 - [ ] **Step 2: Run them to see them fail**
 
@@ -19089,6 +19106,7 @@ Every row is a place where `SPEC-FINAL.md` was too unspecific to write actual co
 | P57 | §11.2 names no wire shape for values over a scope the device does not hold | **`getMetricValues`**: ≤ 12 metrics (saved or inline), ≤ 200 teams, one result per requested metric with its derived meaning | Task 2.4 |
 | P58 | §14.7's whole-list reorder has no operation shape | **`{ entity: 'pick_lists', op: 'reorder', base_version, order: entry_id[] }`** through the ordinary outbox; adds, removes and notes stay per-row and never bump the list version (v1.55) | Task 2.25 |
 | P59 | Metric writes need a capability, and Appendix C says admin | **`manage_metrics: ADMIN`** in the capability table; the client gates on the matrix row `edit_metric: false` | Tasks 2.3, 2.5 |
+| P60 | §5.5 makes "timed" a per-entry fact, but no entry records it (living spec Q6.9 open) and no stats loader reads `timer_config` | A metric's cycles read **the form's timer**: `end_seconds = matchEndSeconds(timer_config)`, `timed = end_seconds !== null`; the loaders of 2.4 and 2.5 read `timer_config` | Task 2.2 |
 
 ---
 
