@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.52 · **Date:** 2026-11-10 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.53 · **Date:** 2026-11-10 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.53: the ranking page gains a Metrics category with the admin's columns and weighting, and a weighted rank; a team with no data has no composite; columns take single-number metrics; compare normalises over the event; the match preview's columns, strengths and partial totals (§12.8, §13.5–§13.7). See the living spec's §21, v1.06.*
 
 *v1.52: a metric can read a phase's points and a field's points; its unit and direction are derived, never stored; a chart series may carry an inline definition, which is how a lead builds a metric; a metric in use cannot be deleted; super-form metrics are allowed; metrics are built on `/admin/metrics` (§3.7, §11.2, §12.3, §12.9, Appendix C). See the living spec's §21, v1.05.*
 
@@ -1639,7 +1641,7 @@ Five dashboards ship out of the box. Each is reachable **in context from its hom
 | **Match preview dashboard** | Match preview page | The six teams |
 | **Operational dashboard** | Operational statistics page | Event |
 
-Each built-in has one `dashboards` row per season (§3.7), holding its chart set and — for ranking and compare — its metric columns.
+Each built-in has one `dashboards` row per season (§3.7), holding its chart set and — for ranking, compare and match preview *(v1.53)* — its metric columns.
 
 **Built-ins operate on the active event, or on another event if the viewer changes it.** Every built-in carries an event selector; changing it re-scopes that view for the session only, without touching the dashboard's stored scope or the app's active context. Season-wide built-ins keep their season scope. The selector is **disabled offline** (only the active competition is cached).
 
@@ -1751,12 +1753,21 @@ Layout: the **metrics table first**, then charts and other metrics below.
 - Offline, the phone computes the same table from the entries on the device and says so ("Computed from the data on this device", with the last sync time).
 - *(v1.48, user 2026-10-28)* **Home reads the same ranking**: the our-team card shows rank #N of M (M is the event's roster, ranked or not, as on the ranking page and the team page *(v1.49, user 2026-10-29)*), the average, and **places moved since our last match** — our rank now against our rank computed from the qualification matches numbered below our most recent counted one ("▲2 since Q36"); the top-teams list is the top five with a five-match trend line, its heading saying "of N teams" *(v1.50)*. The ranking page's line under the event name states the roster count ("30 teams") *(v1.50, user 2026-11-01)*.
 
+*(v1.53, user 2026-11-10)* **Phase 2's configurable ranking extends this page; it does not replace it.**
+
+- **A third category, Metrics,** beside Scoring and Availability: its columns are the season's ranking dashboard's metric columns, and the **weighting mode** lives here. Scoring and Availability stay as built. The team study panel gains the **contribution breakdown** (each metric's share of the composite).
+- **Weighted rank.** With weighting on, the rank column and the medals follow the composite and the header reads **"Weighted rank"**; off, the canonical basic rank. **Home's cards always show the basic rank.** Weighting starts from the last preset chosen on this device, else equal weights. Live weights are session-only for everyone, an admin included, until saved as a preset.
+- **No data, no composite.** A team with no counted matches shows "—" for its composite and sorts last. The 0.5 midpoint applies only to a team that has data but lacks one metric.
+- **Columns take single-number metrics.** `distribution` and `mode` metrics are refused as ranking, compare or match-preview columns. A `stddev` or `neutral` metric may be shown but is never a sort key and never weighted.
+
 ### 13.6 Compare page
 
 Also the **compare built-in dashboard**. Compares **up to 6 teams** on an **admin-built compare metric set — one per season, edited in place, not versioned — computed over the active event**.
 
 - **2 teams:** a "final-score" **head-to-head scoreboard** — an average-points headline per team, then per-metric rows in a **mirrored two-column layout** with a bar leaning toward the stronger side.
 - **3–6 teams:** **radar + table**.
+- *(v1.53)* **The radar's axes are normalised min–max over every team at the event**, `lower_is_better` inverted, so a team's shape does not change with the teams beside it.
+- *(v1.53)* **Teams are chosen** from the ranking page (select up to 6), the team page ("Compare with…") or the hub's prompt; the URL carries them (`/compare?teams=2096,1577`).
 
 ### 13.7 Match preview page
 
@@ -1766,6 +1777,9 @@ Also the **match preview built-in dashboard**.
 - Shows the two alliances as **mirrored columns**, three team rows each with their key metrics.
 - **Prediction:** each alliance's predicted score = the **sum of its three teams' status-aware average points per match**. The higher total is the predicted winner. Shows **each team's contribution and the predicted margin**, with the summed-average prediction as a single bar across the top.
 - Also surfaces **per-robot reliability and no-show flags** and each team's **top strengths**.
+- *(v1.53)* **Key metrics** are the match-preview dashboard's **up to 4 metric columns** (default: the per-phase points), held like ranking's and compare's.
+- *(v1.53)* **Top strengths** are the team's two columns where it places highest among the event's teams, in words ("Top 3 Auto").
+- *(v1.53)* **A team with no data** shows "—" and adds nothing; its alliance's total reads **"2 of 3 scouted"**, and the winner is still called. Hand-entered teams may be any team in the season.
 
 ---
 
