@@ -1,6 +1,8 @@
 # SPEC-FINAL — FRC Scouting Platform (ROBACTIVE #2096)
 
-**Version:** 1.50 · **Date:** 2026-11-01 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+**Version:** 1.51 · **Date:** 2026-11-10 · **Derived from:** `frc-scouting-app-spec.md` v0.35 (topics 1–20 CLOSED)
+
+*v1.51: Phase 2 is planned in full now, before the phase 1 gate, and re-checked against what the gate reveals (§20.6, §20.8). See the living spec's §21, v1.04.*
 
 *v1.50: a breakdown counts as missed for availability, its points still count (§11.3, §13.5); the ranking page and Home's top teams state the roster count (§13.5); every computer dialog has the × and closes on Escape, the × or a click outside unless busy (§17.8); the builder's phase strip always names each phase with its time. See the living spec's §21, v1.02.*
 
@@ -2335,13 +2337,17 @@ A phase is finished when its gate passes, not when the code is written.
 
 **There is no scope cut.** Every phase 1 task and every phase 2 item is built, in plan order, with nothing skipped (amended 2026-10-08, v1.19); this replaces the earlier rule that cut phase 2 to the metric builder and the ranking dashboard if the gate slipped. The checkpoint is an early warning only: if the gate has not passed by ~2026-11-01, the pace is raised (more parallel design rounds, overnight build runs), not the scope. Until a part lands, the team works with what the app already has (for example, reading entries without dashboards).
 
+*(v1.51, user 2026-11-01)* **The checkpoint passed without the gate.** Phase 1 is built and on `main`; the offline check and the gate rehearsal wait until students are available. Phase 2 is planned and built meanwhile (§20.8), designed one group ahead of the code. v1 is still due **2026-12-01**, with nothing cut.
+
 ### 20.7 Fallback if v1 is not ready
 
 Fallback is **Google Sheets**, as used today. **There is no import path**, so anything collected in Sheets during a fallback event **stays in Sheets** and never enters the app's statistics. The event is scouted; it is not scouted into this system.
 
 ### 20.8 Scope of `IMPLEMENTATION-PLAN.md`
 
-**Phase 0 and phase 1 in full task detail** — exact file paths, the actual code, the test, the command to run, the expected output, the commit. **Phase 2 as headings only**, re-planned in detail after the phase 1 gate passes.
+**Phase 0 and phase 1 in full task detail** — exact file paths, the actual code, the test, the command to run, the expected output, the commit.
+
+**Phase 2 is planned now, before the phase 1 gate** *(v1.51, user 2026-11-01; was "headings only, re-planned in detail after the phase 1 gate passes")*. Its parts and tasks are written in one pass, each task with its files, interfaces, acceptance criteria and commit message; **each part gets its full step detail in its own chat, one part ahead of its build**. When the gate rehearsal runs, its findings are checked against every part not yet built, and the plan is amended where they change it.
 
 ---
 
